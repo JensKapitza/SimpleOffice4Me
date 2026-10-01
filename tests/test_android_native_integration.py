@@ -220,6 +220,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertGreaterEqual(store.count("enforceOwner();"), 8)
 
     def test_android_offline_ui_uses_feature_flag_reconnect_sync_and_no_local_csrf(self):
+        activity = self.read(JAVA / "MainActivity.java")
         layout = self.read(ROOT / "templates" / "layout.html")
         navigation = self.read(JAVA / "NavigationActivity.java")
         ui = self.read(ROOT / "static" / "js" / "v3_android_offline.js")
