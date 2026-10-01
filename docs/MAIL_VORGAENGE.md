@@ -77,8 +77,44 @@ Mailkontos erfolgen.
 
 Teilnehmer können als `local_user` oder als vorbereiteter
 `federated_user` mit `peer_id` und `remote_user_id` modelliert werden.
-Diese Datenstruktur gibt keine IMAP-/SMTP-Credentials weiter und implementiert
-noch keinen vollständigen Federation-Versand.
+Diese Datenstruktur gibt keine IMAP-/SMTP-Credentials weiter. Der v3-Federation-
+Envelope handelt den Objekttyp `mail_cases` unabhängig von den älteren
+Mail-Fingerprint-Endpunkten aus. Empfangende Administratoren können entfernte
+Benutzer-IDs peergebunden einem aktiven lokalen Benutzer zuordnen. Die Zuordnung
+liegt in `mail-cases.sqlite3`, kann über die Admin-Endpunkte unter
+`/admin/federation/peer-discovery/mail-case-identities` angelegt, ersetzt und
+entfernt werden und wird in der Federation-Ereignishistorie protokolliert.
+
+Die Zuordnung allein schaltet noch keine Fallübertragung frei: direkter Trust,
+ausgehandelte `mail_cases`-Version und die Receive-Policy des Peers bleiben
+erforderlich. Eine fehlende oder ungültige Zuordnung darf nie auf einen
+gleichnamigen lokalen Benutzer zurückfallen.
+
+Der berechtigte lokale Teilnehmer kann über „Vorgang an Peer einladen“ einen
+Vorgang an einen zuvor hinzugefügten föderierten Teilnehmer senden. Die
+Empfangsinstanz erstellt einen lokalen Schattenvorgang mit eigener Fall-ID und
+merkt die Zuordnung zur Fall-ID des Absenders peergebunden vor. Einladungen
+übertragen keine EML-Datei und keine Mailkonto-Zugangsdaten. Spätere
+Ereignisse lösen die Absender-ID über diese Zuordnung auf.
+
+Die Mail-API `POST /documents/mail/cases/<case-id>/federation/<peer-id>/events`
+nimmt Kommentar-, Entwurfs-, Versandanforderungs- sowie
+Freigabe-/Ablehnungsereignisse entgegen. Der Versand nutzt den gespeicherten
+Peer-Token über HTTPS; direkter Trust, `mail_cases`-Capability und die lokale
+Send-Policy müssen aktiv sein. Temporäre Netzwerkfehler landen in einer
+persistenten Outbox mit maximal 1.000 Einträgen und exponentiellem Backoff.
+Der Retry-Worker lässt sich über `SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER=0`
+abschalten. Ereignisse sind idempotent. Auf der Empfangsinstanz
+werden Ereignisse bei aktivierter `auto_accept`-Receive-Policy angewendet;
+andernfalls bleiben sie `pending` und können durch einen Administrator geprüft
+werden. Das SMTP-Senden bleibt auf der Instanz des Mailkontos.
+
+EML-Referenzereignisse enthalten nur einen opaken Locator und SHA-512-Hash.
+Der Abruf prüft den direkten Peer-Trust, nutzt HTTPS und verifiziert den
+SHA-512-Hash vor der Vorschau. EML-Anhänge werden im Schattenvorgang nicht zum
+Download angeboten, solange kein lokaler Malware-Scan vorliegt. Der
+Schattenvorgang ist ein Kollaborationskontext, kein lokales Mailkonto; seine
+synthetische Konto-ID erlaubt keinen SMTP-Zugriff.
 
 ## Oberfläche
 
@@ -211,8 +247,9 @@ Die Regressionstests prüfen insbesondere:
 - Route-/UI-Zugriff für delegierte Teilnehmer ohne Mailkonto,
 - bestehende IMAP-Read-only- und Mail-Webclient-Funktionen.
 
-Vollständige Federation-Kommunikation, Signaturverwaltung und automatischer
-delegierter Versand bleiben bewusst außerhalb dieses Kernmoduls.
+Automatische Zustellung lokaler Kommentare und Entwurfsänderungen an alle
+föderierten Teilnehmer, Signaturverwaltung und automatischer delegierter
+Versand bleiben außerhalb dieses Kernmoduls.
 
 
 ## Versanddelegation und Urlaubsvertretung

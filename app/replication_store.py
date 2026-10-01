@@ -307,6 +307,7 @@ def init_app(app) -> None:
         federation_discovery_runtime,
         federation_http,
         federation_mail_http,
+        mail_case_federation_runtime,
         federation_peer_admin,
         federation_phase2,
         federation_print_http,
@@ -338,6 +339,7 @@ def init_app(app) -> None:
     app.register_blueprint(personnel_time_insights.federation_bp)
     federation_phase2.init_app(app)
     federation_discovery_runtime.init_app(app)
+    mail_case_federation_runtime.init_app(app)
     app.register_blueprint(federation_admin.bp)
     app.register_blueprint(software_admin.bp)
     printershare.init_app(app)

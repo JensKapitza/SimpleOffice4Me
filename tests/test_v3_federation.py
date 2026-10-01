@@ -6,6 +6,8 @@ from pathlib import Path
 
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
+from app.mail_case_federation import MailCaseFederationIdentityStore
+from app.mail_case_store import MailCaseStore
 from app.v3_federation import (
     FederationContract,
     capability_descriptor,
@@ -29,6 +31,7 @@ class V3FederationContractTests(unittest.TestCase):
             policy={
                 "data_classes": {
                     "documents": {"receive": True, "auto_accept": True},
+                    "mail_cases": {"receive": True},
                     "contacts": {"receive": False},
                 }
             },
@@ -43,7 +46,7 @@ class V3FederationContractTests(unittest.TestCase):
             self.peer_id,
             {
                 "envelope_versions": [1],
-                "objects": {"documents": [1], "contacts": [1]},
+                "objects": {"documents": [1], "contacts": [1], "mail_cases": [1]},
             },
         )
 
@@ -79,6 +82,7 @@ class V3FederationContractTests(unittest.TestCase):
         descriptor = capability_descriptor()
         self.assertTrue(descriptor["legacy_v1_parallel"])
         self.assertFalse(descriptor["trust"]["transitive_default"])
+        self.assertEqual([1], descriptor["objects"]["mail_cases"])
 
     def test_health_snapshot_reports_component_ready(self):
         snapshot = health_snapshot()
@@ -144,6 +148,44 @@ class V3FederationContractTests(unittest.TestCase):
         )
         result = self.contract.receive(self.envelope(message_id="message-0005"))
         self.assertEqual("pending", result["status"])
+
+    def test_mail_case_object_uses_existing_receive_policy_and_capability_negotiation(self):
+        value = self.envelope(message_id="message-mail-case", type="mail_cases")
+        result = self.contract.receive(value)
+        self.assertEqual("pending", result["status"])
+        self.contract.store.remember_capabilities(
+            self.peer_id,
+            {"envelope_versions": [1], "objects": {"documents": [1]}},
+        )
+        result = self.contract.receive(self.envelope(message_id="message-mail-case-2", type="mail_cases"))
+        self.assertEqual("quarantined", result["status"])
+        self.assertEqual("capability_not_negotiated", result["error"])
+
+    def test_auto_accepted_mail_case_comment_uses_mapping_and_both_acls(self):
+        self.peers.save_peer(
+            self.peer_id, "Remote", "https://remote.example.test", "",
+            policy={"data_classes": {"mail_cases": {"receive": True, "auto_accept": True}}},
+        )
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case("owner", "Shared", "account-1", "mail-1")
+        cases.add_participant("owner", case_id, local_user_id="alice",
+                              permissions=("read", "comment"))
+        cases.add_participant("owner", case_id, peer_id=self.peer_id,
+                              remote_user_id="remote-user",
+                              permissions=("read", "comment"))
+        MailCaseFederationIdentityStore(self.root).set(
+            self.peer_id, "remote-user", "alice", updated_by="admin",
+        )
+        payload = {"operation": "comment", "case_id": case_id,
+                   "actor_id": "remote-user", "body": "Bitte prüfen"}
+        result = self.contract.receive(self.envelope(
+            message_id="message-mail-case-comment", type="mail_cases", payload=payload,
+        ))
+        self.assertEqual("accepted", result["status"])
+        self.assertEqual(1, len(cases.get_case("alice", case_id)["comments"]))
+        self.assertEqual("duplicate", self.contract.receive(self.envelope(
+            message_id="message-mail-case-comment", type="mail_cases", payload=payload,
+        ))["status"])
 
 
 if __name__ == "__main__":
