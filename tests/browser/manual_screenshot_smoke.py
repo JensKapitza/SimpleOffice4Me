@@ -2,8 +2,8 @@
 """Manual Playwright smoke test for SimpleOffice4Me.
 
 The test creates the first local admin through the real registration form,
-logs in, opens core navigation pages (or every navigation link), stores
-full-page screenshots and writes a machine-readable summary.
+logs in, inventories live Flask GET routes, crawls reachable internal pages,
+stores full-page screenshots and writes a machine-readable summary.
 """
 
 from __future__ import annotations
@@ -14,12 +14,24 @@ import os
 import re
 import sys
 import unicodedata
+from collections import deque
 from pathlib import Path
-from urllib.parse import urldefrag, urlparse
+from urllib.parse import urlparse
 
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
+
+from page_crawl import (
+    MAX_QUERY_VARIANTS_PER_PATH,
+    browser_page_candidate,
+    canonical_browser_url,
+    discover_links,
+    load_route_inventory,
+    same_primary_origin,
+    update_route_coverage,
+    write_screenshot_gallery,
+)
 
 
 BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8080").rstrip("/")
@@ -34,7 +46,9 @@ PEER_B_DOCKER_URL = os.environ.get(
 PEER_SHARED_TOKEN = os.environ.get(
     "BROWSER_PEER_SHARED_TOKEN", "browser-p2p-not-a-secret"
 )
-SCOPE = os.environ.get("BROWSER_SCREENSHOT_SCOPE", "core").strip().lower()
+SCOPE = os.environ.get("BROWSER_SCREENSHOT_SCOPE", "all-pages").strip().lower()
+ROUTE_INVENTORY_PATH = Path(os.environ.get("BROWSER_ROUTE_INVENTORY", "test-results/browser/route-inventory.json"))
+MAX_PAGES = max(1, int(os.environ.get("BROWSER_MAX_PAGES", "800")))
 FAIL_ON_CONSOLE_ERRORS = os.environ.get(
     "BROWSER_FAIL_ON_CONSOLE_ERRORS", "true"
 ).strip().lower() in {"1", "true", "yes", "on"}
@@ -76,7 +90,7 @@ def compact(value: str) -> str:
 def slug(value: str) -> str:
     normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
     safe = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
-    return safe or "page"
+    return safe[:80] or "page"
 
 
 def same_origin(url: str) -> bool:
@@ -655,6 +669,9 @@ def main() -> int:
         "base_url": BASE_URL,
         "peer_base_url": PEER_BASE_URL,
         "scope": SCOPE,
+        "max_pages": MAX_PAGES,
+        "max_query_variants_per_path": MAX_QUERY_VARIANTS_PER_PATH,
+        "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
         "pages": [],
         "console_errors": [],
@@ -740,20 +757,34 @@ def main() -> int:
                 }))"""
             )
 
-            deduplicated: list[dict[str, str]] = []
-            seen_urls: set[str] = set()
+            navigation: list[dict[str, str]] = []
+            seen_navigation_urls: set[str] = set()
             for item in raw_links:
                 label = compact(str(item.get("label", "")))
-                href = urldefrag(str(item.get("href", "")))[0]
-                if not label or not href or not same_origin(href) or href in seen_urls:
+                href = canonical_browser_url(str(item.get("href", "")))
+                if (
+                    not label
+                    or not href
+                    or not browser_page_candidate(href, BASE_URL)
+                    or href in seen_navigation_urls
+                ):
                     continue
-                seen_urls.add(href)
-                deduplicated.append({"label": label, "href": href})
+                seen_navigation_urls.add(href)
+                navigation.append(
+                    {"label": label, "href": href, "source": "navigation"}
+                )
 
-            if SCOPE == "all-navigation":
-                selected = deduplicated
+            route_seeds = load_route_inventory(
+                summary,
+                base_url=BASE_URL,
+                route_inventory_path=ROUTE_INVENTORY_PATH,
+            )
+            if SCOPE == "all-pages":
+                selected = [*navigation, *route_seeds]
+            elif SCOPE == "all-navigation":
+                selected = navigation
             elif SCOPE == "core":
-                by_label = {item["label"]: item for item in deduplicated}
+                by_label = {item["label"]: item for item in navigation}
                 selected = []
                 missing = []
                 for label in CORE_LABELS:
@@ -772,14 +803,49 @@ def main() -> int:
                 )
 
             if not selected:
-                raise RuntimeError("Keine Navigationsseiten für den Screenshot-Test gefunden.")
+                raise RuntimeError("Keine Browser-Seiten für den Screenshot-Test gefunden.")
 
-            for number, item in enumerate(selected, start=1):
+            queue: deque[dict[str, str]] = deque()
+            queued_urls: set[str] = set()
+            queued_query_variants: dict[str, int] = {}
+
+            def enqueue(item: dict[str, str]) -> None:
+                href = canonical_browser_url(item["href"])
+                if href in queued_urls or not browser_page_candidate(href, BASE_URL):
+                    return
+                parsed = urlparse(href)
+                path_key = parsed.path or "/"
+                if parsed.query:
+                    variants = queued_query_variants.get(path_key, 0)
+                    if variants >= MAX_QUERY_VARIANTS_PER_PATH:
+                        summary["crawl_skipped_query_variants"] = int(
+                            summary.get("crawl_skipped_query_variants", 0)
+                        ) + 1
+                        return
+                    queued_query_variants[path_key] = variants + 1
+                queued_urls.add(href)
+                queue.append({**item, "href": href})
+
+            for item in selected:
+                enqueue(item)
+
+            number = 0
+            while queue:
+                if number >= MAX_PAGES:
+                    failures.append(
+                        f"Browser-Crawl hat das Limit von {MAX_PAGES} Seiten erreicht; "
+                        f"{len(queue)} URL(s) blieben ungeprüft."
+                    )
+                    break
+
+                item = queue.popleft()
+                number += 1
                 label = item["label"]
                 url = item["href"]
                 entry: dict[str, object] = {
                     "label": label,
                     "requested_url": url,
+                    "source": item.get("source", "unknown"),
                 }
                 try:
                     response = page.goto(url, wait_until="domcontentloaded")
@@ -787,33 +853,65 @@ def main() -> int:
                         page.wait_for_load_state("networkidle", timeout=3_000)
                     except PlaywrightTimeoutError:
                         pass
-                    page.wait_for_timeout(200)
+                    page.wait_for_timeout(150)
 
                     status = response.status if response is not None else None
+                    content_type = (
+                        response.headers.get("content-type", "")
+                        if response is not None
+                        else ""
+                    )
                     entry["status"] = status
+                    entry["content_type"] = content_type
                     entry["final_url"] = page.url
 
-                    filename = f"{number:02d}-{slug(label)}.png"
-                    page.screenshot(
-                        path=str(OUTPUT_DIR / filename),
-                        full_page=True,
-                        animations="disabled",
-                    )
-                    entry["screenshot"] = filename
-                    write_html_snapshot(
-                        page,
-                        label,
-                        f"peer-a-{number:02d}",
-                        summary,
-                        failures,
-                    )
-
-                    if status is None or status >= 400:
+                    if not same_primary_origin(page.url, BASE_URL):
+                        entry["external_redirect"] = True
                         failures.append(
-                            f"{label}: HTTP {status if status is not None else 'unbekannt'}"
+                            f"{label}: Weiterleitung außerhalb der Testinstanz ({page.url})"
                         )
+                        pages.append(entry)
+                        continue
+
+                    is_html = "text/html" in content_type.casefold()
+                    entry["html"] = is_html
+                    if is_html:
+                        filename = f"{number:04d}-{slug(label)}.png"
+                        page.screenshot(
+                            path=str(OUTPUT_DIR / filename),
+                            full_page=True,
+                            animations="disabled",
+                        )
+                        entry["screenshot"] = filename
+                        write_html_snapshot(
+                            page,
+                            label,
+                            f"peer-a-{number:04d}",
+                            summary,
+                            failures,
+                        )
+
+                        if SCOPE == "all-pages":
+                            for discovered in discover_links(page, base_url=BASE_URL):
+                                enqueue(discovered)
+
+                    source = str(entry.get("source") or "")
+                    status_is_failure = (
+                        status is None
+                        or status >= 500
+                        or status == 404
+                        or (source != "route-inventory" and status >= 400)
+                    )
+                    if status_is_failure:
+                        failures.append(
+                            f"{label}: HTTP {status if status is not None else 'unbekannt'} ({url})"
+                        )
+                    elif status is not None and status >= 400:
+                        entry["access_limited"] = True
                     if "/auth/login" in page.url:
-                        failures.append(f"{label}: unerwartet zur Anmeldung umgeleitet")
+                        failures.append(
+                            f"{label}: unerwartet zur Anmeldung umgeleitet ({url})"
+                        )
                 except PlaywrightError as exc:
                     entry["error"] = str(exc)
                     failures.append(f"{label}: Browserfehler: {exc}")
@@ -845,6 +943,9 @@ def main() -> int:
     except Exception as exc:
         failures.append(f"Fataler Browser-Testfehler: {type(exc).__name__}: {exc}")
 
+    update_route_coverage(summary)
+    write_screenshot_gallery(summary, output_dir=OUTPUT_DIR)
+
     if page_errors:
         failures.append(f"{len(page_errors)} JavaScript-Page-Error(s) erkannt.")
     if server_errors:
@@ -862,6 +963,7 @@ def main() -> int:
             {
                 "pages": len(pages),
                 "html_snapshots": len(summary["html5"]["snapshots"]),  # type: ignore[index]
+                "route_coverage": summary.get("route_coverage"),
                 "peer_to_peer": PEER_TO_PEER,
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
