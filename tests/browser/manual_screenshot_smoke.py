@@ -29,8 +29,10 @@ from page_crawl import (
     discover_links,
     load_route_inventory,
     same_primary_origin,
+    route_coverage_failures,
     update_route_coverage,
     write_screenshot_gallery,
+    write_tested_url_manifest,
 )
 
 
@@ -48,9 +50,12 @@ PEER_SHARED_TOKEN = os.environ.get(
 )
 SCOPE = os.environ.get("BROWSER_SCREENSHOT_SCOPE", "all-pages").strip().lower()
 ROUTE_INVENTORY_PATH = Path(os.environ.get("BROWSER_ROUTE_INVENTORY", "test-results/browser/route-inventory.json"))
-MAX_PAGES = max(1, int(os.environ.get("BROWSER_MAX_PAGES", "800")))
+MAX_PAGES = max(1, int(os.environ.get("BROWSER_MAX_PAGES", "2500")))
 FAIL_ON_CONSOLE_ERRORS = os.environ.get(
     "BROWSER_FAIL_ON_CONSOLE_ERRORS", "true"
+).strip().lower() in {"1", "true", "yes", "on"}
+REQUIRE_DYNAMIC_ROUTE_COVERAGE = os.environ.get(
+    "BROWSER_REQUIRE_DYNAMIC_ROUTE_COVERAGE", "false"
 ).strip().lower() in {"1", "true", "yes", "on"}
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 HTML_DIR = OUTPUT_DIR / "html"
@@ -673,6 +678,7 @@ def main() -> int:
         "max_query_variants_per_path": MAX_QUERY_VARIANTS_PER_PATH,
         "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
+        "require_dynamic_route_coverage": REQUIRE_DYNAMIC_ROUTE_COVERAGE,
         "pages": [],
         "console_errors": [],
         "page_errors": [],
@@ -944,6 +950,14 @@ def main() -> int:
         failures.append(f"Fataler Browser-Testfehler: {type(exc).__name__}: {exc}")
 
     update_route_coverage(summary)
+    if SCOPE == "all-pages":
+        failures.extend(
+            route_coverage_failures(
+                summary,
+                require_dynamic=REQUIRE_DYNAMIC_ROUTE_COVERAGE,
+            )
+        )
+    write_tested_url_manifest(summary, output_dir=OUTPUT_DIR)
     write_screenshot_gallery(summary, output_dir=OUTPUT_DIR)
 
     if page_errors:

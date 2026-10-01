@@ -44,7 +44,7 @@ CRAWL_SENSITIVE_QUERY_KEYS = {
     "code", "key", "secret", "sig", "signature", "state", "token",
 }
 MAX_QUERY_VARIANTS_PER_PATH = max(
-    1, int(os.environ.get("BROWSER_MAX_QUERY_VARIANTS_PER_PATH", "20"))
+    1, int(os.environ.get("BROWSER_MAX_QUERY_VARIANTS_PER_PATH", "50"))
 )
 
 
@@ -176,6 +176,15 @@ def write_screenshot_gallery(
     output_dir: Path,
 ) -> None:
     pages: list[dict[str, object]] = summary["pages"]  # type: ignore[assignment]
+    coverage = summary.get("route_coverage")
+    coverage_text = ""
+    if isinstance(coverage, dict) and coverage.get("available"):
+        coverage_text = (
+            f" · Routen {coverage.get('covered_candidates', 0)}/"
+            f"{coverage.get('candidate_routes', 0)} abgedeckt"
+            f" · statisch offen {coverage.get('uncovered_static_count', 0)}"
+            f" · dynamisch offen {coverage.get('uncovered_dynamic_count', 0)}"
+        )
     cards: list[str] = []
     for entry in pages:
         screenshot = str(entry.get("screenshot") or "")
@@ -188,8 +197,12 @@ def write_screenshot_gallery(
         final_url = html.escape(str(entry.get("final_url") or ""))
         status = html.escape(str(entry.get("status") or ""))
         source = html.escape(str(entry.get("source") or ""))
+        search_blob = html.escape(
+            " ".join((label, requested, final_url, source)).casefold(),
+            quote=True,
+        )
         cards.append(
-            "<article><h2>" + label + "</h2>"
+            '<article data-search="' + search_blob + '"><h2>' + label + "</h2>"
             + "<p>HTTP " + status + " · " + source + "</p>"
             + "<p><code>" + requested + "</code></p>"
             + (
@@ -205,10 +218,85 @@ def write_screenshot_gallery(
     markup = """<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SimpleOffice4Me Browser Screenshots</title><style>
-body{font-family:system-ui,sans-serif;margin:24px;background:#f5f6f8;color:#111}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px}article{background:#fff;border:1px solid #d9dde5;border-radius:10px;padding:16px;box-shadow:0 2px 8px #0001}h1{margin:0 0 20px}h2{font-size:1rem;margin:0 0 8px}p{font-size:.82rem;overflow-wrap:anywhere}img{display:block;width:100%;height:auto;border:1px solid #ddd;border-radius:6px}code{font-size:.75rem}</style></head><body>
-<h1>SimpleOffice4Me Browser Screenshots</h1><p>""" + html.escape(str(len(cards))) + """ HTML-Seiten mit Screenshot.</p><main>""" + "\n".join(cards) + """</main></body></html>
+body{font-family:system-ui,sans-serif;margin:24px;background:#f5f6f8;color:#111}header{position:sticky;top:0;z-index:5;background:#f5f6f8;padding:0 0 16px}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:20px}article{background:#fff;border:1px solid #d9dde5;border-radius:10px;padding:16px;box-shadow:0 2px 8px #0001}article[hidden]{display:none}h1{margin:0 0 8px}h2{font-size:1rem;margin:0 0 8px}p{font-size:.82rem;overflow-wrap:anywhere}input{width:min(720px,100%);box-sizing:border-box;padding:10px 12px;border:1px solid #b8bec9;border-radius:8px;background:#fff}img{display:block;width:100%;height:auto;border:1px solid #ddd;border-radius:6px}code{font-size:.75rem}</style></head><body>
+<header><h1>SimpleOffice4Me Browser Screenshots</h1><p>""" + html.escape(str(len(cards))) + """ HTML-Seiten mit Screenshot""" + html.escape(coverage_text) + """.</p><input id="page-filter" type="search" placeholder="Seite, URL oder Quelle filtern" autocomplete="off"></header><main>""" + "\n".join(cards) + """</main>
+<script>
+const filter=document.getElementById('page-filter');
+const cards=[...document.querySelectorAll('article[data-search]')];
+filter.addEventListener('input',()=>{const q=filter.value.trim().toLocaleLowerCase('de');for(const card of cards){card.hidden=q!==''&&!card.dataset.search.includes(q);}});
+</script></body></html>
 """
     (output_dir / "index.html").write_text(markup, encoding="utf-8")
+
+
+
+def write_tested_url_manifest(
+    summary: dict[str, object],
+    *,
+    output_dir: Path,
+) -> None:
+    """Write a compact, diff-friendly inventory of every attempted browser URL."""
+    pages: list[dict[str, object]] = summary["pages"]  # type: ignore[assignment]
+    rows = [
+        "status\thtml\tsource\tscreenshot\trequested_url\tfinal_url",
+    ]
+    for entry in pages:
+        rows.append(
+            "\t".join(
+                _compact(str(value)).replace("\t", " ")
+                for value in (
+                    entry.get("status", ""),
+                    entry.get("html", ""),
+                    entry.get("source", ""),
+                    entry.get("screenshot", ""),
+                    entry.get("requested_url", ""),
+                    entry.get("final_url", ""),
+                )
+            )
+        )
+    (output_dir / "tested-urls.tsv").write_text(
+        "\n".join(rows) + "\n",
+        encoding="utf-8",
+    )
+
+
+def route_coverage_failures(
+    summary: dict[str, object],
+    *,
+    require_dynamic: bool = False,
+) -> list[str]:
+    """Return actionable coverage failures for the all-pages browser run."""
+    coverage = summary.get("route_coverage")
+    if not isinstance(coverage, dict) or not coverage.get("available"):
+        return ["Browser-Routenabdeckung ist nicht verfügbar."]
+
+    failures: list[str] = []
+    uncovered_static = coverage.get("uncovered_static", [])
+    if isinstance(uncovered_static, list) and uncovered_static:
+        sample = ", ".join(
+            str(item.get("rule") or item.get("endpoint") or "?")
+            for item in uncovered_static[:12]
+            if isinstance(item, dict)
+        )
+        suffix = "" if len(uncovered_static) <= 12 else f" (+{len(uncovered_static) - 12} weitere)"
+        failures.append(
+            f"{len(uncovered_static)} statische Browser-Route(n) wurden nicht besucht: "
+            f"{sample}{suffix}"
+        )
+
+    uncovered_dynamic = coverage.get("uncovered_dynamic", [])
+    if require_dynamic and isinstance(uncovered_dynamic, list) and uncovered_dynamic:
+        sample = ", ".join(
+            str(item.get("rule") or item.get("endpoint") or "?")
+            for item in uncovered_dynamic[:12]
+            if isinstance(item, dict)
+        )
+        suffix = "" if len(uncovered_dynamic) <= 12 else f" (+{len(uncovered_dynamic) - 12} weitere)"
+        failures.append(
+            f"{len(uncovered_dynamic)} dynamische Browser-Route(n) wurden nicht materialisiert: "
+            f"{sample}{suffix}"
+        )
+    return failures
 
 
 def update_route_coverage(summary: dict[str, object]) -> None:
@@ -254,6 +342,9 @@ def update_route_coverage(summary: dict[str, object]) -> None:
         "available": True,
         "covered_candidates": covered,
         "candidate_routes": inventory.get("browser_candidate_count", 0),
+        "visited_paths": len(visited_paths),
+        "uncovered_static_count": len(uncovered_static),
+        "uncovered_dynamic_count": len(uncovered_dynamic),
         "uncovered_static": uncovered_static,
         "uncovered_dynamic": uncovered_dynamic,
     }

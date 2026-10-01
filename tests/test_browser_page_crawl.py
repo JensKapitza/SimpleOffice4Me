@@ -15,7 +15,9 @@ from page_crawl import (  # noqa: E402
     browser_page_candidate,
     canonical_browser_url,
     load_route_inventory,
+    route_coverage_failures,
     update_route_coverage,
+    write_tested_url_manifest,
 )
 
 
@@ -102,6 +104,48 @@ class BrowserPageCrawlTests(unittest.TestCase):
             {item["href"] for item in seeds},
         )
         self.assertTrue(summary["route_inventory"]["loaded"])
+
+    def test_route_coverage_failures_require_all_static_pages(self):
+        summary: dict[str, object] = {
+            "route_coverage": {
+                "available": True,
+                "uncovered_static": [
+                    {"rule": "/new-page", "endpoint": "new.page"},
+                ],
+                "uncovered_dynamic": [
+                    {"rule": "/contacts/<contact_id>", "endpoint": "contacts.detail"},
+                ],
+            }
+        }
+
+        failures = route_coverage_failures(summary)
+        self.assertEqual(1, len(failures))
+        self.assertIn("/new-page", failures[0])
+
+        strict_failures = route_coverage_failures(summary, require_dynamic=True)
+        self.assertEqual(2, len(strict_failures))
+        self.assertIn("/contacts/<contact_id>", strict_failures[1])
+
+    def test_tested_url_manifest_maps_urls_to_screenshots(self):
+        summary: dict[str, object] = {
+            "pages": [
+                {
+                    "status": 200,
+                    "html": True,
+                    "source": "route-inventory",
+                    "screenshot": "0001-settings.png",
+                    "requested_url": "http://127.0.0.1:8080/settings",
+                    "final_url": "http://127.0.0.1:8080/settings",
+                }
+            ]
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp)
+            write_tested_url_manifest(summary, output_dir=output)
+            manifest = (output / "tested-urls.tsv").read_text(encoding="utf-8")
+
+        self.assertIn("0001-settings.png", manifest)
+        self.assertIn("http://127.0.0.1:8080/settings", manifest)
 
     def test_route_coverage_matches_reachable_dynamic_page(self):
         summary: dict[str, object] = {

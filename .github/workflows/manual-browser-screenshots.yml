@@ -15,8 +15,18 @@ on:
       max_pages:
         description: Maximale Zahl automatisch zu pruefender Browser-URLs
         required: true
-        default: '800'
+        default: '2500'
         type: string
+      max_query_variants_per_path:
+        description: Maximale Zahl unterschiedlicher Query-Ansichten je URL-Pfad
+        required: true
+        default: '50'
+        type: string
+      require_dynamic_route_coverage:
+        description: Auch nicht materialisierte dynamische Objekt-URLs als Fehler werten
+        required: true
+        default: false
+        type: boolean
       fail_on_console_errors:
         description: Browser-Console-Errors als Testfehler behandeln
         required: true
@@ -41,7 +51,7 @@ jobs:
   browser-screenshot:
     name: Browser all-pages smoke, P2P and HTML5 validation
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
 
     steps:
       - name: Checkout
@@ -92,6 +102,20 @@ jobs:
             -e SIMPLEOFFICE_DATALOGGER=0 \
             -e SIMPLEOFFICE_MCP=0 \
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
+            -e SIMPLEOFFICE_V3_SAMPLE_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_RELATIONS_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_ACTIVITY_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_JOBS_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_SEARCH_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_INBOX_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_AUTOMATION_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_WORKBOARD_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_CRM_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_FINANCE_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_EXTENSIONS_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_HEALTH_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED=1 \
             simpleoffice4me:browser-test
           docker run -d \
             --name simpleoffice-browser-peer-b \
@@ -105,6 +129,20 @@ jobs:
             -e SIMPLEOFFICE_DATALOGGER=0 \
             -e SIMPLEOFFICE_MCP=0 \
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
+            -e SIMPLEOFFICE_V3_SAMPLE_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_RELATIONS_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_ACTIVITY_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_JOBS_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_SEARCH_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_INBOX_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_AUTOMATION_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_WORKBOARD_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_CRM_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_FINANCE_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_EXTENSIONS_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_HEALTH_ENABLED=1 \
+            -e SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED=1 \
             simpleoffice4me:browser-test
 
       - name: Wait for both web services
@@ -147,8 +185,10 @@ jobs:
       - name: Run browser screenshot and peer-to-peer test
         env:
           BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all-pages' }}
-          BROWSER_MAX_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_pages || '800' }}
+          BROWSER_MAX_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_pages || '2500' }}
+          BROWSER_MAX_QUERY_VARIANTS_PER_PATH: ${{ github.event_name == 'workflow_dispatch' && inputs.max_query_variants_per_path || '50' }}
           BROWSER_ROUTE_INVENTORY: test-results/browser/route-inventory.json
+          BROWSER_REQUIRE_DYNAMIC_ROUTE_COVERAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.require_dynamic_route_coverage || false }}
           BROWSER_FAIL_ON_CONSOLE_ERRORS: ${{ github.event_name == 'workflow_dispatch' && inputs.fail_on_console_errors || true }}
         shell: bash
         run: |
