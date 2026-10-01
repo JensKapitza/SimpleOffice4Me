@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
+from .db import get_db
 from .chat_policy import ACTION_LABELS, chat_policy_state, merge_chat_policy
 from .document_origin import document_origin_tags, persist_origin_tags
 from .document_store import DocumentStore, sha256_file
@@ -19,6 +21,7 @@ from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
 from .federation_worker import _find_blob, peer_capabilities, push_blob_to_peer, remote_availability
 from .safe_paths import resolve_under
+from .v3_federation import FederationContractStore
 
 bp = Blueprint("federation_admin", __name__, url_prefix="/admin/federation")
 
@@ -39,6 +42,10 @@ def _store() -> FederationStore:
 
 def _catalog() -> FederationCatalog:
     return FederationCatalog(current_app.config["DOCUMENT_ROOT"])
+
+
+def _v3_store() -> FederationContractStore:
+    return FederationContractStore(current_app.config["DOCUMENT_ROOT"])
 
 
 def _documents() -> DocumentStore:
@@ -131,6 +138,11 @@ def dashboard():
     peers = store.list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
+    active_users = [
+        dict(row) for row in get_db().execute(
+            "SELECT username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
+        ).fetchall()
+    ]
     edit_peer = next((peer for peer in peers if peer.get("peer_id") == edit_peer_id), None)
     transfers = store.list_transfers(200)
     if selected:
@@ -153,6 +165,8 @@ def dashboard():
         chat_action_labels=ACTION_LABELS,
         active_view=active_view,
         edit_peer=edit_peer,
+        mail_user_mappings=_v3_store().list_mail_user_mappings(),
+        active_users=active_users,
     )
 
 
@@ -280,10 +294,67 @@ def save_peer():
                 "receive": request.form.get("documents_receive") == "1",
                 "seed": request.form.get("documents_seed") == "1",
             }
+        if request.form.get("_mail_cases_policy_form") == "1":
+            data_classes = policy.get("data_classes")
+            if not isinstance(data_classes, dict):
+                data_classes = {}
+            data_classes["mail_cases"] = {
+                "send": request.form.get("mail_cases_send") == "1",
+                "receive": request.form.get("mail_cases_receive") == "1",
+                "auto_accept": request.form.get("mail_cases_auto_accept") == "1",
+            }
+            policy["data_classes"] = data_classes
         _store().save_peer(peer_id, label, base_url, token, policy, request.form.get("enabled") == "1")
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:
         flash(f"Peer konnte nicht gespeichert werden: {exc}")
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/mail-user-mappings")
+@admin_required
+def save_mail_user_mapping():
+    peer_id = request.form.get("peer_id", "").strip()
+    remote_user_id = request.form.get("remote_user_id", "").strip()
+    local_username = request.form.get("local_username", "").strip()
+    try:
+        peer = _store().get_peer(peer_id)
+        if not peer:
+            raise ValueError("Federation-Peer nicht gefunden")
+        row = get_db().execute(
+            "SELECT username FROM user WHERE username=? COLLATE NOCASE AND is_disabled=0",
+            (local_username,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Lokaler Benutzer ist nicht aktiv")
+        _v3_store().set_mail_user_mapping(
+            peer_id,
+            remote_user_id,
+            str(row["username"]),
+            actor=str(g.user["username"]),
+        )
+        flash("Federation-Benutzerzuordnung gespeichert.")
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        flash(f"Benutzerzuordnung konnte nicht gespeichert werden: {exc}")
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/mail-user-mappings/delete")
+@admin_required
+def delete_mail_user_mapping():
+    try:
+        removed = _v3_store().delete_mail_user_mapping(
+            request.form.get("peer_id", "").strip(),
+            request.form.get("remote_user_id", "").strip(),
+            actor=str(g.user["username"]),
+        )
+        flash(
+            "Federation-Benutzerzuordnung widerrufen."
+            if removed else
+            "Federation-Benutzerzuordnung war nicht vorhanden."
+        )
+    except ValueError as exc:
+        flash(f"Benutzerzuordnung konnte nicht widerrufen werden: {exc}")
     return _redirect_dashboard(view="peers")
 
 
