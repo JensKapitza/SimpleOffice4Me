@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import io
+import os
 from pathlib import Path
+import uuid
 
 from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from .attachment_security import MAX_ATTACHMENT_BYTES
 from .auth import login_required
 from .db import get_db
-from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id
+from .mail_archive_preview import (
+    attachment_from_eml_bytes,
+    load_local_attachment_by_id,
+    load_local_eml,
+    load_local_eml_by_id,
+    preview_eml_bytes,
+)
+from .mail_case_federation import MailCaseFederation
 from .mail_case_store import MailCaseStore
 from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
@@ -35,6 +44,30 @@ def _store() -> MailStore:
 def _cases(store: MailStore | None = None) -> MailCaseStore:
     mail_store = store or _store()
     return MailCaseStore(current_app.config["DOCUMENT_ROOT"], history=mail_store.history)
+
+
+def _mail_case_federation(store: MailStore | None = None) -> MailCaseFederation:
+    mail_store = store or _store()
+    local_peer_id = (
+        os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+        or "simpleoffice-local"
+    )
+    return MailCaseFederation(
+        current_app.config["DOCUMENT_ROOT"],
+        local_peer_id,
+        history=mail_store.history,
+    )
+
+
+def _sync_federated_case(case_id: str, store: MailStore | None = None) -> None:
+    try:
+        _mail_case_federation(store).send_snapshots_for_case(_actor(), case_id)
+    except Exception as exc:
+        current_app.logger.warning(
+            "Mail-case federation sync failed for %s: %s",
+            case_id,
+            type(exc).__name__,
+        )
 
 
 def _case_redirect(case_id: str):
