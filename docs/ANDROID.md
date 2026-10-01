@@ -70,29 +70,50 @@ Sensor-Hintergrunddienste bleiben auf dem Telefon standardmäßig deaktiviert.
 
 ## Kontrollierter Offline-Arbeitsbereich in der APK
 
-Die native APK besitzt zusätzlich zum unveränderten PWA-Verhalten einen begrenzten
-app-privaten Offline-Arbeitsbereich. Er ist **kein Spiegel des Servers** und wird
-nur über die native, token-geschützte WebView-Brücke angesprochen.
+Die native APK besitzt zusätzlich zum unveränderten PWA-Verhalten einen begrenzten,
+app-privaten Offline-Arbeitsbereich. Die Funktion ist additiv und standardmäßig
+deaktiviert. Sie wird mit `SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED=1` aktiviert.
+Ist die Capability aus, wird weder die Navigation noch
+`window.SimpleOfficeOffline` bereitgestellt und die API liefert 404.
 
-- Nur ausdrücklich ausgewählte Einträge der Typen Dokument, Projekt, Notiz und
-  Aufgabe können lokal abgelegt werden.
-- Jeder Eintrag benötigt eine Server-Version bzw. ETag sowie eine begrenzte
-  Aufbewahrungszeit. Abgelaufene Einträge werden entfernt.
+Die integrierte Oberfläche liegt unter **Mehr -> Android Offline**. Aktuell ist
+bewusst nur der fachlich vollständig synchronisierte Workset **Aufgaben** für die
+Offline-Auswahl freigegeben:
+
+- Eine sichtbare Aufgabe wird erst nach ausdrücklicher Auswahl lokal gespeichert;
+  nicht ausgewählte Aufgaben werden nicht gespiegelt.
+- Der lokale Datensatz enthält die Server-ID, einen starken ETag als Version,
+  Speicher-/Ablaufzeit und die Workset-Zuordnung.
 - Der Speicher ist auf 128 Einträge, 16 MiB je Eintrag und 128 MiB insgesamt
-  begrenzt. Der Bereich liegt ausschließlich im privaten App-Dateisystem.
-- Der Cache ist an die in Android ausgewählte SimpleOffice-Identität gebunden.
-  Ein Accountwechsel verwirft vorhandene Offline-Daten vor der Freigabe.
-- Offline-Änderungen sind zunächst absichtlich auf Notizen und Aufgabenstatus
-  begrenzt. Die Outbox enthält eine eindeutige Operation-ID und die Basisversion.
-  Damit kann die Server-Synchronisation idempotent arbeiten und Konflikte als
-  `conflict` markieren, statt still Last-Write-Wins anzuwenden.
-- Über die native Brücke kann der gesamte Offline-Bereich manuell gelöscht
-  werden. Passwörter, Session-Secrets und Federation-Schlüssel gehören nicht in
-  diesen Store.
-- Die PWA bleibt unverändert: Ihr Service Worker speichert weiterhin keine
-  Kontakte, Personal-, Kalender- oder Dokumentdaten.
+  begrenzt; die maximale Aufbewahrung beträgt 30 Tage. Die UI zeigt Belegung,
+  Outbox und Belegung pro Workset.
+- Kalender, Kontakte, Mail und Federation bleiben online-only. Passwörter,
+  Session-Secrets, OAuth-/API-Schlüssel, Federation-Private-Keys und Vault-
+  Geheimnisse werden von der Offline-API nicht ausgeliefert.
+- Als Offline-Schreiboperation ist ausschließlich der **Aufgabenstatus**
+  zugelassen. Die Outbox speichert Operation-ID, Ziel, Basis-ETag, Zeitpunkt,
+  Payload und Status.
+- Beim Wiederverbinden sendet die UI ausstehende Operationen an
+  `/api/v3/android-offline/sync`. Der Server nutzt den bestehenden
+  `TodoStore`, dessen Aufgabenrechte und starke ETags.
+- Operationen sind serverseitig pro Benutzer idempotent. Mutation und
+  Idempotenz-Receipt werden atomar im bestehenden Aufgabenbestand geschrieben.
+  Ein Retry kann dieselbe Änderung daher nicht zweimal anwenden.
+- Ist der Server-ETag nicht mehr die gespeicherte Basisversion, wird die Operation
+  als `conflict` festgehalten. Es gibt kein Last-Write-Wins. In der UI kann der
+  Benutzer den Konflikt verwerfen und den aktuellen Serverstand übernehmen.
+- Das Android-Netzwerkmonitoring löst beim Wiederverbinden einen Sync aus. Ein
+  manueller Sync bleibt zusätzlich verfügbar.
+- Der Cache ist gleichzeitig an die ausgewählte Android-Identität und die
+  authentifizierte SimpleOffice-Benutzer-ID gebunden. Auf einer ausgeloggten Seite
+  wird die Offline-Bridge nicht bereitgestellt. Wechselt die Web-Session trotzdem
+  zu einem anderen SimpleOffice-Benutzer, verwirft `enforceOwner()` den vorherigen
+  Offline-Bestand, bevor er gelesen werden kann. **Android-Konto wechseln** löscht
+  Offline-Daten und Outbox zusätzlich vor dem Löschen von Identität und
+  WebView-Cookies.
+- Der gesamte Offline-Bereich kann manuell gelöscht werden.
 
-Die native JavaScript-API heißt `window.SimpleOfficeOffline` und stellt Status,
-Cache-Lesen/-Schreiben, Outbox, Acknowledge sowie Clear bereit. Fachmodule müssen
-weiterhin selbst entscheiden, welche Datensätze offline zulässig sind und wie
-eine Server-Version erzeugt bzw. ein Konflikt aufgelöst wird.
+Die PWA bleibt unverändert: Ihr Service Worker speichert weiterhin keine Kontakte,
+Personal-, Kalender- oder Dokumentdaten. Weitere fachliche Offline-Typen dürfen erst
+angebunden werden, wenn ihr eigener serverseitiger Versions-, Rechte- und
+Konfliktpfad ebenso vollständig implementiert ist.

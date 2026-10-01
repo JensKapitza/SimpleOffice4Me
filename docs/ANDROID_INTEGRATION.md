@@ -89,6 +89,40 @@ Der normale Desktop-/Browser-OAuth-Ablauf bleibt unverändert und kann weiterhin
 
 Für die APK muss ein Android-OAuth-Client zur Paketkennung `de.simpleoffice4me.android` und zum Signatur-Zertifikat der verwendeten APK eingerichtet sein. Für Test-/Debug-Builds und produktiv signierte Builds sind entsprechend die richtigen SHA-Fingerprints zu hinterlegen. Auf dem Gerät müssen Google Play Services für die native Drive-Autorisierung verfügbar sein.
 
+## Kontrollierte Offline-Arbeitsdaten
+
+Die optionale Capability `v3.android_offline` verbindet den bestehenden
+`TodoStore` mit dem app-privaten `AndroidOfflineWorksetStore`. Es wird kein
+zweites Aufgabenmodell angelegt.
+
+- Die Oberfläche **Mehr -> Android Offline** lässt nur ausdrücklich ausgewählte
+  Aufgaben in den lokalen Workset `tasks` übernehmen.
+- Der Browser erhält aus der API nur die für die Offline-Aufgabe benötigte
+  Projektion und einen starken ETag; Secrets und Authentisierungsmaterial gehören
+  nicht zur Projektion.
+- Offline schreibbar ist ausschließlich `task_status`. Die Mutation bleibt bis
+  zur Synchronisation in einer begrenzten nativen Outbox.
+- Der Server prüft bei jeder Mutation die bestehenden Aufgabenrechte und den
+  Basis-ETag. Abweichungen werden als sichtbarer Konflikt behandelt.
+- Eine Operation-ID ist pro Benutzer idempotent. Das Receipt wird im selben
+  atomaren `todo.json`-Commit wie die Statusänderung gespeichert.
+- Native Cache-Payloads erhalten zusätzlich einen SHA-256-Inhaltshash. Beim Lesen
+  und nach einem unterbrochenen Dateiaustausch wird der Inhalt gegen die zum
+  Index gehörende Prüfsumme validiert; ein unpassender Payload wird nicht als
+  gültiger Offline-Stand ausgeliefert.
+- `NavigationActivity` meldet einen wiederhergestellten Netzwerkzugang an die
+  WebView; die Offline-Oberfläche stößt dann den Outbox-Sync an.
+- `window.SimpleOfficeOffline` wird nur erzeugt, wenn die serverseitige
+  Capability aktiv ist **und** die Seite eine authentifizierte SimpleOffice-
+  Benutzer-ID trägt. Beim Logout wird die native Owner-Bindung aufgehoben.
+- Der native Store bindet seinen Owner an Android-Identität **und** SimpleOffice-
+  Benutzer-ID. Ein Wechsel einer dieser beiden Identitäten löscht den bisherigen
+  Offline-Bestand vor dem ersten Lesezugriff.
+- Beim Android-Kontowechsel werden Offline-Store, Outbox und lokale
+  Owner-Metadaten vollständig entfernt und der Store ungebunden, bevor
+  Android-Identität und WebView-Cookies gelöscht werden. Schlägt die physische
+  Löschung fehl, wird der Kontowechsel abgebrochen.
+
 ## WebView-Lifecycle
 
 Beim Wechsel in den Hintergrund werden zusätzlich zum bestehenden Kamera-/NFC-Cleanup `WebView.onPause()` und `pauseTimers()` aufgerufen. Beim Zurückkehren werden `resumeTimers()` und `WebView.onResume()` ausgeführt.

@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -216,6 +217,7 @@ public class MainActivity extends Activity {
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
                 localPageVisible = isLocalUrl(url);
+                if (offlineWorksetStore != null) offlineWorksetStore.unbindOwner();
                 if (!localPageVisible) {
                     stopNfcReader();
                     denyPendingCameraPermission();
@@ -351,14 +353,22 @@ public class MainActivity extends Activity {
         return "(function(){"
                 + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
-                + "window.SimpleOfficeOffline={"
+                + "const offlineOwner=String(document.documentElement.dataset.v3AndroidOfflineOwner||'').trim();"
+                + "const offlineEnabled=document.documentElement.dataset.v3AndroidOffline==='1'&&offlineOwner!=='';"
+                + "const offlineBound=offlineEnabled&&String(window.SimpleOfficeAndroid.bindOfflineOwner(bridgeToken,offlineOwner))==='ok';"
+                + "if(offlineBound){window.SimpleOfficeOffline={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineStatus(bridgeToken))),"
-                + "cache:(id,kind,version,payload,retention)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload==null?'':payload),Number(retention||86400))),"
+                + "items:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineItems(bridgeToken))),"
+                + "cache:(id,kind,version,payload,retention,workset)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload==null?'':payload),Number(retention||86400),String(workset||'default'))),"
                 + "read:(id,kind)=>JSON.parse(String(window.SimpleOfficeAndroid.readOfflineItem(bridgeToken,String(id||''),String(kind||'')))),"
+                + "remove:(id,kind)=>String(window.SimpleOfficeAndroid.removeOfflineItem(bridgeToken,String(id||''),String(kind||''))),"
                 + "enqueue:(type,id,baseVersion,payload)=>String(window.SimpleOfficeAndroid.enqueueOfflineMutation(bridgeToken,String(type||''),String(id||''),String(baseVersion||''),String(payload==null?'':payload))),"
                 + "outbox:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineOutbox(bridgeToken))),"
                 + "ack:(operationId,status)=>String(window.SimpleOfficeAndroid.acknowledgeOfflineMutation(bridgeToken,String(operationId||''),String(status||''))),"
-                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken))};"
+                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken)),"
+                + "switchAccount:()=>String(window.SimpleOfficeAndroid.switchOfflineAccount(bridgeToken))};}"
+                + "else{window.SimpleOfficeAndroid.unbindOfflineOwner(bridgeToken);delete window.SimpleOfficeOffline;}"
+                + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
                 + "startSender:(targets,bitrate)=>String(window.SimpleOfficeAndroid.startAudioSender(bridgeToken,JSON.stringify(targets||[]),Number(bitrate||64))),"
@@ -600,6 +610,19 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String bindOfflineOwner(String token, String owner) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.bindOwner(owner);
+        }
+
+        @JavascriptInterface
+        public String unbindOfflineOwner(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            offlineWorksetStore.unbindOwner();
+            return "ok";
+        }
+
+        @JavascriptInterface
         public String offlineStatus(String token) {
             return bridgeAllowed(token) && offlineWorksetStore != null
                     ? offlineWorksetStore.statusJson()
@@ -608,15 +631,33 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String cacheOfflineItem(
-                String token, String itemId, String kind, String version, String payload, long retentionSeconds) {
+                String token,
+                String itemId,
+                String kind,
+                String version,
+                String payload,
+                long retentionSeconds,
+                String workset) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
-            return offlineWorksetStore.cacheItem(itemId, kind, version, payload, retentionSeconds);
+            return offlineWorksetStore.cacheItem(itemId, kind, version, payload, retentionSeconds, workset);
+        }
+
+        @JavascriptInterface
+        public String offlineItems(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "[]";
+            return offlineWorksetStore.itemsJson();
         }
 
         @JavascriptInterface
         public String readOfflineItem(String token, String itemId, String kind) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "{\"status\":\"blocked\"}";
             return offlineWorksetStore.readItem(itemId, kind);
+        }
+
+        @JavascriptInterface
+        public String removeOfflineItem(String token, String itemId, String kind) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.removeItem(itemId, kind);
         }
 
         @JavascriptInterface
@@ -642,6 +683,25 @@ public class MainActivity extends Activity {
         public String clearOfflineData(String token) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
             return offlineWorksetStore.clear();
+        }
+
+        @JavascriptInterface
+        public String switchOfflineAccount(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            String cleared = offlineWorksetStore.clearForAccountSwitch();
+            if (!"ok".equals(cleared)) return cleared;
+            boolean identityCleared = getSharedPreferences(
+                    "simpleoffice-android-identity", MODE_PRIVATE).edit().clear().commit();
+            if (!identityCleared) return "identity-error";
+            mainHandler.post(() -> {
+                CookieManager cookies = CookieManager.getInstance();
+                cookies.removeAllCookies(removed -> {
+                    cookies.flush();
+                    startActivity(new Intent(MainActivity.this, BootstrapActivity.class));
+                    finish();
+                });
+            });
+            return "ok";
         }
 
         @JavascriptInterface
