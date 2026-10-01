@@ -6,6 +6,7 @@ import html
 import json
 import os
 import re
+from collections import deque
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urldefrag, urljoin, urlparse
 
@@ -128,6 +129,74 @@ def browser_page_candidate(url: str, base_url: str) -> bool:
     ):
         return False
     return True
+
+
+
+class CrawlFrontier:
+    """Bounded same-origin crawl queue with discovery diagnostics."""
+
+    def __init__(
+        self,
+        summary: dict[str, object],
+        *,
+        base_url: str,
+        max_query_variants: int,
+    ) -> None:
+        self.summary = summary
+        self.base_url = base_url
+        self.max_query_variants = max(1, int(max_query_variants))
+        self.queue: deque[dict[str, str]] = deque()
+        self.queued_urls: set[str] = set()
+        self.queued_query_variants: dict[str, int] = {}
+        self.queued_by_source: dict[str, int] = {}
+        self.discovery: dict[str, object] = {
+            "queued_by_source": self.queued_by_source,
+            "duplicate_urls": 0,
+            "rejected_urls": 0,
+            "observed_document_requests": 0,
+        }
+        self.summary["discovery"] = self.discovery
+
+    def enqueue(self, item: dict[str, str]) -> bool:
+        href = canonical_browser_url(item["href"])
+        if not browser_page_candidate(href, self.base_url):
+            self.discovery["rejected_urls"] = int(self.discovery["rejected_urls"]) + 1
+            return False
+        if href in self.queued_urls:
+            self.discovery["duplicate_urls"] = int(self.discovery["duplicate_urls"]) + 1
+            return False
+
+        parsed = urlparse(href)
+        path_key = parsed.path or "/"
+        if parsed.query:
+            variants = self.queued_query_variants.get(path_key, 0)
+            if variants >= self.max_query_variants:
+                self.summary["crawl_skipped_query_variants"] = int(
+                    self.summary.get("crawl_skipped_query_variants", 0)
+                ) + 1
+                return False
+            self.queued_query_variants[path_key] = variants + 1
+
+        source = _compact(str(item.get("source") or "unknown")) or "unknown"
+        self.queued_urls.add(href)
+        self.queue.append({**item, "href": href, "source": source})
+        self.queued_by_source[source] = self.queued_by_source.get(source, 0) + 1
+        return True
+
+    def observe_document_request(self, request) -> None:
+        if request.resource_type != "document":
+            return
+        self.discovery["observed_document_requests"] = (
+            int(self.discovery["observed_document_requests"]) + 1
+        )
+        href = canonical_browser_url(request.url)
+        self.enqueue(
+            {
+                "label": urlparse(href).path or href,
+                "href": href,
+                "source": "browser-document",
+            }
+        )
 
 
 def load_route_inventory(
