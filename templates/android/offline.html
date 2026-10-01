@@ -2,7 +2,7 @@
 {% block title %}Android Offline · SimpleOffice{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<div class="container-fluid py-3" id="android-offline-app"
+<main class="container-fluid py-3" id="main-content" data-android-offline-app
      data-enabled="{{ '1' if enabled else '0' }}"
      data-tasks-api="{{ url_for('v3_android_offline.tasks_api') }}"
      data-task-api-prefix="/api/v3/android-offline/tasks/"
@@ -93,6 +93,6 @@
       </div>
     </div>
   {% endif %}
-</div>
+</main>
 {% if enabled %}<script src="{{ url_for('static', filename='js/v3_android_offline.js') }}"></script>{% endif %}
 {% endblock %}
