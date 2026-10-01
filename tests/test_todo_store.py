@@ -49,6 +49,70 @@ class TodoStoreTest(unittest.TestCase):
         self.assertTrue(deleted[0]["deleted"])
         self.assertTrue(new_token.endswith(":2"))
 
+    def test_offline_task_status_is_idempotent_and_atomic(self):
+        task = self.store.add("Offline", "admin", {"status": "needs-action"})
+        base = self.store.etag(task)
+
+        first = self.store.apply_offline_status(
+            task["id"],
+            "in-process",
+            "admin",
+            expected_etag=base,
+            operation_id="offline-op-0001",
+        )
+        after_first = self.store.items("admin")[0]
+        sequence = after_first["sequence"]
+
+        replay = self.store.apply_offline_status(
+            task["id"],
+            "in-process",
+            "admin",
+            expected_etag=base,
+            operation_id="offline-op-0001",
+        )
+        after_replay = self.store.items("admin")[0]
+
+        self.assertEqual("synced", first["status"])
+        self.assertEqual("in-process", after_first["status"])
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(sequence, after_replay["sequence"])
+        self.assertEqual(first["serverVersion"], replay["serverVersion"])
+        with self.assertRaisesRegex(ValueError, "already used"):
+            self.store.apply_offline_status(
+                task["id"],
+                "completed",
+                "admin",
+                expected_etag=base,
+                operation_id="offline-op-0001",
+            )
+
+    def test_offline_task_status_keeps_stable_conflict_receipt(self):
+        task = self.store.add("Konflikt", "admin", {"status": "needs-action"})
+        stale = self.store.etag(task)
+        changed = self.store.update(task["id"], {"description": "Serveränderung"}, "admin")
+
+        conflict = self.store.apply_offline_status(
+            task["id"],
+            "completed",
+            "admin",
+            expected_etag=stale,
+            operation_id="offline-op-0002",
+        )
+        self.store.update(task["id"], {"priority": 1}, "admin")
+        replay = self.store.apply_offline_status(
+            task["id"],
+            "completed",
+            "admin",
+            expected_etag=stale,
+            operation_id="offline-op-0002",
+        )
+
+        self.assertEqual("conflict", conflict["status"])
+        self.assertEqual(self.store.etag(changed), conflict["serverVersion"])
+        self.assertTrue(replay["replayed"])
+        self.assertEqual(conflict["serverVersion"], replay["serverVersion"])
+        self.assertNotEqual("completed", self.store.items("admin")[0]["status"])
+
     def test_task_lists_sharing_and_integrations_are_canonical(self):
         team = self.store.create_list({"name": "Team", "description": "Gemeinsam", "color": "#ff0000"}, "admin", "team")
         self.store.update_list("team", {"permissions": {"editor": ["read", "create", "edit", "complete"]}}, "admin")
