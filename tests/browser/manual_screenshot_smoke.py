@@ -100,23 +100,6 @@ def same_origin(url: str) -> bool:
     )
 
 
-def slug(value: str) -> str:
-    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    safe = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
-    return safe[:80] or "page"
-
-
-def same_origin(url: str) -> bool:
-    candidate = urlparse(url)
-    allowed = {urlparse(BASE_URL)}
-    if PEER_BASE_URL:
-        allowed.add(urlparse(PEER_BASE_URL))
-    return any(
-        candidate.scheme == base.scheme and candidate.netloc == base.netloc
-        for base in allowed
-    )
-
-
 
 def attach_peer_diagnostics(
     page,
