@@ -13,7 +13,6 @@ import json
 import os
 import re
 import sys
-from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -23,6 +22,7 @@ from playwright.sync_api import sync_playwright
 
 from browser_artifacts import make_html_snapshot_writer
 from page_crawl import (
+    CrawlFrontier,
     MAX_QUERY_VARIANTS_PER_PATH,
     browser_page_candidate,
     canonical_browser_url,
@@ -634,12 +634,6 @@ def main() -> int:
         "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
         "require_dynamic_route_coverage": REQUIRE_DYNAMIC_ROUTE_COVERAGE,
-        "discovery": {
-            "queued_by_source": {},
-            "duplicate_urls": 0,
-            "rejected_urls": 0,
-            "observed_document_requests": 0,
-        },
         "pages": [],
         "console_errors": [],
         "page_errors": [],
@@ -648,6 +642,12 @@ def main() -> int:
         "html5": {"doctype": "html5", "snapshots": []},
         "peer_to_peer": {"enabled": PEER_TO_PEER, "checks": []},
     }
+
+    frontier = CrawlFrontier(
+        summary,
+        base_url=BASE_URL,
+        max_query_variants=MAX_QUERY_VARIANTS_PER_PATH,
+    )
 
     console_errors: list[dict[str, str]] = summary["console_errors"]  # type: ignore[assignment]
     page_errors: list[dict[str, str]] = summary["page_errors"]  # type: ignore[assignment]
@@ -773,52 +773,10 @@ def main() -> int:
             if not selected:
                 raise RuntimeError("Keine Browser-Seiten für den Screenshot-Test gefunden.")
 
-            queue: deque[dict[str, str]] = deque()
-            queued_urls: set[str] = set()
-            queued_query_variants: dict[str, int] = {}
-            discovery: dict[str, object] = summary["discovery"]  # type: ignore[assignment]
-            queued_by_source: dict[str, int] = discovery["queued_by_source"]  # type: ignore[assignment]
-
-            def enqueue(item: dict[str, str]) -> bool:
-                href = canonical_browser_url(item["href"])
-                if not browser_page_candidate(href, BASE_URL):
-                    discovery["rejected_urls"] = int(discovery["rejected_urls"]) + 1
-                    return False
-                if href in queued_urls:
-                    discovery["duplicate_urls"] = int(discovery["duplicate_urls"]) + 1
-                    return False
-                parsed = urlparse(href)
-                path_key = parsed.path or "/"
-                if parsed.query:
-                    variants = queued_query_variants.get(path_key, 0)
-                    if variants >= MAX_QUERY_VARIANTS_PER_PATH:
-                        summary["crawl_skipped_query_variants"] = int(
-                            summary.get("crawl_skipped_query_variants", 0)
-                        ) + 1
-                        return False
-                    queued_query_variants[path_key] = variants + 1
-                source = compact(str(item.get("source") or "unknown")) or "unknown"
-                queued_urls.add(href)
-                queue.append({**item, "href": href, "source": source})
-                queued_by_source[source] = queued_by_source.get(source, 0) + 1
-                return True
-
-            def record_document_request(request) -> None:
-                if SCOPE != "all-pages" or request.resource_type != "document":
-                    return
-                discovery["observed_document_requests"] = (
-                    int(discovery["observed_document_requests"]) + 1
-                )
-                href = canonical_browser_url(request.url)
-                enqueue(
-                    {
-                        "label": urlparse(href).path or href,
-                        "href": href,
-                        "source": "browser-document",
-                    }
-                )
-
-            page.on("request", record_document_request)
+            queue = frontier.queue
+            enqueue = frontier.enqueue
+            if SCOPE == "all-pages":
+                page.on("request", frontier.observe_document_request)
 
             for item in selected:
                 enqueue(item)
