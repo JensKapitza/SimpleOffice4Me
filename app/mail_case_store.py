@@ -1179,11 +1179,14 @@ class MailCaseStore:
                 (case_id, message_reference),
             )]
 
-    def add_comment(self, actor: str, case_id: str, body: str) -> str:
+    def add_comment(
+        self, actor: str, case_id: str, body: str, *, comment_id: str | None = None,
+    ) -> str:
         body = body.strip()
         if not body or len(body.encode("utf-8")) > 1024 * 1024:
             raise ValueError("comment is empty or too large")
-        comment_id, now = uuid.uuid4().hex, _now()
+        comment_id = self._transport_id(comment_id, "comment id") if comment_id else uuid.uuid4().hex
+        now = _now()
         with self._db(write=True) as db:
             self._require(db, case_id, actor, "comment")
             db.execute(
@@ -1197,6 +1200,7 @@ class MailCaseStore:
     def create_draft(
         self, actor: str, case_id: str, recipients_to: str, subject: str, body: str,
         *, sender_identity: str = "", cc: str = "", bcc: str = "",
+        draft_id: str | None = None,
     ) -> str:
         recipients_to = recipients_to.strip()
         subject = subject.strip()
@@ -1215,7 +1219,8 @@ class MailCaseStore:
             raise ValueError("sender identity reference is too long")
         if len(body.encode("utf-8")) > 1024 * 1024:
             raise ValueError("draft body is too large")
-        draft_id, now = uuid.uuid4().hex, _now()
+        draft_id = self._transport_id(draft_id, "draft id") if draft_id else uuid.uuid4().hex
+        now = _now()
         with self._db(write=True) as db:
             self._require(db, case_id, actor, "compose")
             db.execute(
