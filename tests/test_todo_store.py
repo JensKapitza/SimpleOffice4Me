@@ -86,6 +86,27 @@ class TodoStoreTest(unittest.TestCase):
                 operation_id="offline-op-0001",
             )
 
+    def test_offline_task_status_accepts_normalized_legacy_etag(self):
+        path = self.root / CONTROL_DIR / "todo.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps({"items": [{"id": "legacy-offline", "title": "Altbestand", "done": False}]}),
+            encoding="utf-8",
+        )
+        visible = self.store.items("admin")[0]
+        base = self.store.etag(visible)
+
+        result = self.store.apply_offline_status(
+            "legacy-offline",
+            "in-process",
+            "admin",
+            expected_etag=base,
+            operation_id="offline-op-legacy",
+        )
+
+        self.assertEqual("synced", result["status"])
+        self.assertEqual("in-process", self.store.items("admin")[0]["status"])
+
     def test_offline_task_status_keeps_stable_conflict_receipt(self):
         task = self.store.add("Konflikt", "admin", {"status": "needs-action"})
         stale = self.store.etag(task)
