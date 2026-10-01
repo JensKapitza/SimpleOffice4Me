@@ -29,7 +29,7 @@ final class AndroidPdfRenderer {
         if (!"http".equalsIgnoreCase(url.getProtocol())
                 || !("127.0.0.1".equals(host) || "localhost".equalsIgnoreCase(host))
                 || url.getPort() != 8765
-                || !url.getPath().startsWith("/documents/")) {
+                || !url.getPath().matches("^/documents/[A-Za-z0-9._-]{1,200}/preview$")) {
             throw new SecurityException("PDF reader URL is not a trusted local document URL");
         }
 
@@ -86,6 +86,10 @@ final class AndroidPdfRenderer {
             int status = connection.getResponseCode();
             if (status != HttpURLConnection.HTTP_OK) {
                 throw new IllegalStateException("PDF download returned HTTP " + status);
+            }
+            String contentType = connection.getContentType();
+            if (contentType == null || !contentType.toLowerCase(java.util.Locale.ROOT).startsWith("application/pdf")) {
+                throw new IllegalStateException("PDF reader endpoint returned an unexpected content type");
             }
             long declared = connection.getContentLengthLong();
             if (declared > MAX_PDF_BYTES) throw new IllegalArgumentException("PDF exceeds reader size limit");
