@@ -206,7 +206,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('"conflict".equals(status)', store)
         self.assertIn('"discarded".equals(status)', store)
         self.assertIn('"workset"', store)
-        self.assertIn("itemsJson()", store)
+        self.assertIn('return "task".equals(normalized) ? normalized : null;', store)\n        self.assertIn("itemsJson()", store)
         self.assertIn("removeItem(", store)
         self.assertIn("private boolean persist()", store)
         self.assertIn('INDEX + ".bak"', store)
