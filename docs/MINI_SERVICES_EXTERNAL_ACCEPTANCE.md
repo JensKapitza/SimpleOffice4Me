@@ -1,5 +1,10 @@
 # Mini Services external acceptance protocol
 
+Repository basis checked on 2026-10-01: `main` at
+`c97d47424f1a81249f3ca62514f12291e7dd4101`. Issue #330 remains open.
+The software implementations for Screen and DLNA are present in main; this
+protocol records their runtime checks separately from CI and build evidence.
+
 This protocol covers evidence that cannot be created by CI, mocks or loopback
 tests. A row is accepted only after a real run records the exact commit,
 platform/device, procedure, expected result, actual result and remaining limit.
