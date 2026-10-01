@@ -84,19 +84,19 @@ def _payload_object(value: Any) -> dict[str, Any]:
         raise ValueError("offline operation payload is invalid")
     if not isinstance(payload, dict):
         raise ValueError("offline operation payload is invalid")
+    if len(json.dumps(payload, ensure_ascii=False).encode("utf-8")) > MAX_OPERATION_PAYLOAD:
+        raise ValueError("offline operation payload is too large")
     return payload
 
 
 @bp.get("/android/offline")
 @login_required
 def index():
-    feature_enabled = enabled("v3.android_offline")
-    tasks: list[dict[str, Any]] = []
-    if feature_enabled:
-        _require_tasks()
-        store = _store()
-        tasks = [_safe_task(row, store) for row in store.items(_actor())]
-    return render_template("android/offline.html", enabled=feature_enabled, tasks=tasks)
+    _require_enabled()
+    _require_tasks()
+    store = _store()
+    tasks = [_safe_task(row, store) for row in store.items(_actor())]
+    return render_template("android/offline.html", enabled=True, tasks=tasks)
 
 
 @bp.get("/api/v3/android-offline/policy")
@@ -153,6 +153,8 @@ def task_api(task_id: str):
 def sync():
     _require_enabled()
     _require_tasks()
+    if request.content_length is not None and request.content_length > 1024 * 1024:
+        return jsonify({"error": "offline synchronization request is too large"}), 413
     data = request.get_json(silent=True)
     if not isinstance(data, dict) or not isinstance(data.get("operations"), list):
         return jsonify({"error": "operations must be a JSON array"}), 400
