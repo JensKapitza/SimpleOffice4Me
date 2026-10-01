@@ -48,15 +48,23 @@ def _locator(value: Any, kind: str) -> dict[str, Any]:
         return {"page": page}
     chapter = str(value.get("chapter", "")).strip()
     anchor = str(value.get("anchor", "")).strip()
+    cfi = str(value.get("cfi", "")).strip()
     try:
+        chapter_index = int(value.get("chapter_index", 0) or 0)
         offset = int(value.get("offset", 0) or 0)
     except (TypeError, ValueError) as exc:
         raise ValueError("EPUB locator offset is invalid") from exc
-    if not chapter or len(chapter) > MAX_LOCATOR_TEXT or len(anchor) > MAX_LOCATOR_TEXT:
+    if not chapter or len(chapter) > MAX_LOCATOR_TEXT or len(anchor) > MAX_LOCATOR_TEXT or len(cfi) > MAX_LOCATOR_TEXT:
         raise ValueError("EPUB locator is invalid")
-    if offset < 0 or offset > 10_000_000:
+    if chapter_index < 0 or chapter_index > 100_000 or offset < 0 or offset > 10_000_000:
         raise ValueError("EPUB locator offset is invalid")
-    return {"chapter": chapter, "anchor": anchor, "offset": offset}
+    return {
+        "chapter": chapter,
+        "chapter_index": chapter_index,
+        "anchor": anchor,
+        "cfi": cfi,
+        "offset": offset,
+    }
 
 
 class ReadingStateStore:
@@ -73,12 +81,16 @@ class ReadingStateStore:
     def _public_state(document: dict[str, Any], value: dict[str, Any]) -> dict[str, Any]:
         current = _version(document)
         saved = str(value.get("document_version", ""))
+        stale = bool(saved and saved != current)
         return {
             "format": _format(document),
             "document_version": current,
             "saved_version": saved,
-            "stale": bool(saved and saved != current),
-            "locator": dict(value.get("locator") or {}),
+            "stale": stale,
+            # A position from another content version is evidence only. It must
+            # never be restored automatically against the current bytes.
+            "locator": {} if stale else dict(value.get("locator") or {}),
+            "saved_locator": dict(value.get("locator") or {}),
             "percent": int(value.get("percent", 0) or 0),
             "updated_at": str(value.get("updated_at", "")),
         }
@@ -155,6 +167,9 @@ class ReadingStateStore:
         locator: Any,
         text: str,
         expected_version: str,
+        *,
+        kind: str = "note",
+        quote: str = "",
     ) -> dict[str, Any]:
         document = self.documents.get_document(document_id)
         kind = _format(document)
@@ -164,10 +179,18 @@ class ReadingStateStore:
         clean = str(text or "").strip()
         if not clean or len(clean) > MAX_ANNOTATION_TEXT:
             raise ValueError("annotation text is empty or too long")
+        annotation_kind = str(kind or "note").strip().casefold()
+        if annotation_kind not in {"note", "question", "summary"}:
+            raise ValueError("annotation kind is invalid")
+        clean_quote = str(quote or "").strip()
+        if len(clean_quote) > 4_000:
+            raise ValueError("annotation quote is too long")
         row = {
             "annotation_id": uuid.uuid4().hex,
             "document_version": current,
             "locator": _locator(locator, kind),
+            "kind": annotation_kind,
+            "quote": clean_quote,
             "text": clean,
             "created_at": utc_now(),
             "updated_at": utc_now(),
@@ -189,6 +212,17 @@ class ReadingStateStore:
             {"annotation_id": row["annotation_id"], "document_version": current, "format": kind},
         )
         return {**row, "stale": False}
+
+    def search_text(self, document_id: str, actor: str) -> str:
+        """Return bounded user-owned annotation text for the bookshelf filter."""
+        values: list[str] = []
+        for row in self.annotations(document_id, actor):
+            values.extend((
+                str(row.get("text", "")),
+                str(row.get("quote", "")),
+                str(row.get("kind", "")),
+            ))
+        return " ".join(values)[:200_000]
 
     def delete_annotation(self, document_id: str, actor: str, annotation_id: str) -> None:
         document = self.documents.get_document(document_id)
