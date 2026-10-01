@@ -39,7 +39,10 @@ def _reading() -> ReadingStateStore:
 
 
 def _book(document_id: str) -> tuple[dict[str, Any], str]:
-    document = _documents().get_document(document_id)
+    try:
+        document = _documents().get_document(document_id)
+    except (ValueError, OSError):
+        abort(404)
     kind = FORMATS.get(Path(str(document.get("last_path") or "")).suffix.casefold())
     if not kind:
         abort(404)
