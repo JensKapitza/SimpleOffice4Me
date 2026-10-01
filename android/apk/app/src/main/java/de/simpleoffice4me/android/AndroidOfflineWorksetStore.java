@@ -51,13 +51,39 @@ final class AndroidOfflineWorksetStore {
         pruneExpired();
         JSONObject result = new JSONObject();
         try {
+            JSONArray items = state.getJSONArray("items");
+            JSONObject groups = new JSONObject();
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.optJSONObject(i);
+                if (item == null) continue;
+                String name = item.optString("workset", "default");
+                JSONObject group = groups.optJSONObject(name);
+                if (group == null) {
+                    group = new JSONObject();
+                    group.put("name", name);
+                    group.put("items", 0);
+                    group.put("bytes", 0L);
+                    groups.put(name, group);
+                }
+                group.put("items", group.optInt("items", 0) + 1);
+                group.put("bytes", group.optLong("bytes", 0L) + Math.max(0L, item.optLong("bytes", 0L)));
+            }
+            JSONArray worksets = new JSONArray();
+            JSONArray names = groups.names();
+            if (names != null) {
+                for (int i = 0; i < names.length(); i++) {
+                    JSONObject group = groups.optJSONObject(names.optString(i));
+                    if (group != null) worksets.put(group);
+                }
+            }
             result.put("enabled", true);
-            result.put("items", state.getJSONArray("items").length());
+            result.put("items", items.length());
             result.put("outbox", state.getJSONArray("outbox").length());
             result.put("bytes", totalBytes());
             result.put("maxBytes", MAX_TOTAL_BYTES);
             result.put("maxItems", MAX_ITEMS);
             result.put("owner", ownerFingerprint(currentOwner()));
+            result.put("worksets", worksets);
             return result.toString();
         } catch (JSONException error) {
             return "{\"enabled\":false,\"error\":\"state\"}";
@@ -69,12 +95,14 @@ final class AndroidOfflineWorksetStore {
             String kind,
             String version,
             String payload,
-            long retentionSeconds) {
+            long retentionSeconds,
+            String workset) {
         enforceOwner();
         String normalizedId = normalizeId(itemId);
         String normalizedKind = normalizeKind(kind);
         String normalizedVersion = normalizeVersion(version);
-        if (normalizedId == null || normalizedKind == null || normalizedVersion == null) return "invalid";
+        String normalizedWorkset = normalizeWorkset(workset);
+        if (normalizedId == null || normalizedKind == null || normalizedVersion == null || normalizedWorkset == null) return "invalid";
         if (payload == null) return "invalid";
         byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
         if (bytes.length > MAX_ITEM_BYTES) return "too-large";
@@ -124,6 +152,7 @@ final class AndroidOfflineWorksetStore {
             metadata.put("savedAt", System.currentTimeMillis());
             metadata.put("expiresAt", expiresAt);
             metadata.put("bytes", bytes.length);
+            metadata.put("workset", normalizedWorkset);
             if (existing >= 0) items.put(existing, metadata);
             else items.put(metadata);
             if (!persist()) {
@@ -178,6 +207,55 @@ final class AndroidOfflineWorksetStore {
         }
     }
 
+    synchronized String itemsJson() {
+        enforceOwner();
+        pruneExpired();
+        JSONArray source = state.optJSONArray("items");
+        JSONArray result = new JSONArray();
+        if (source == null) return result.toString();
+        for (int i = 0; i < source.length(); i++) {
+            JSONObject item = source.optJSONObject(i);
+            if (item == null) continue;
+            JSONObject metadata = new JSONObject();
+            try {
+                for (String key : new String[]{"id", "kind", "version", "savedAt", "expiresAt", "bytes", "workset"}) {
+                    if (item.has(key)) metadata.put(key, item.opt(key));
+                }
+                if (!metadata.has("workset")) metadata.put("workset", "default");
+                result.put(metadata);
+            } catch (JSONException ignored) {
+            }
+        }
+        return result.toString();
+    }
+
+    synchronized String removeItem(String itemId, String kind) {
+        enforceOwner();
+        String normalizedId = normalizeId(itemId);
+        String normalizedKind = normalizeKind(kind);
+        if (normalizedId == null || normalizedKind == null) return "invalid";
+        JSONArray items = state.optJSONArray("items");
+        int index = items == null ? -1 : findItem(items, normalizedId, normalizedKind);
+        if (index < 0) return "missing";
+
+        File target = itemFile(normalizedKind, normalizedId);
+        File backup = new File(root, target.getName() + ".remove.bak");
+        if (backup.exists() && !backup.delete()) return "io-error";
+        if (target.exists() && !target.renameTo(backup)) return "io-error";
+        String previousItems = items.toString();
+        items.remove(index);
+        if (!persist()) {
+            try {
+                state.put("items", new JSONArray(previousItems));
+            } catch (JSONException ignored) {
+            }
+            if (backup.isFile()) backup.renameTo(target);
+            return "io-error";
+        }
+        backup.delete();
+        return "ok";
+    }
+
     synchronized String enqueueMutation(
             String mutationType,
             String targetId,
@@ -227,14 +305,14 @@ final class AndroidOfflineWorksetStore {
         String id = operationId == null ? "" : operationId.trim();
         String status = resultStatus == null ? "" : resultStatus.trim().toLowerCase(Locale.ROOT);
         if (id.isEmpty()) return "invalid";
-        if (!("synced".equals(status) || "conflict".equals(status) || "rejected".equals(status))) return "invalid";
+        if (!("synced".equals(status) || "conflict".equals(status) || "rejected".equals(status) || "discarded".equals(status))) return "invalid";
         JSONArray outbox = state.optJSONArray("outbox");
         if (outbox == null) return "state-error";
         for (int i = 0; i < outbox.length(); i++) {
             JSONObject operation = outbox.optJSONObject(i);
             if (operation != null && id.equals(operation.optString("operationId"))) {
                 String previousOutbox = outbox.toString();
-                if ("synced".equals(status)) {
+                if ("synced".equals(status) || "discarded".equals(status)) {
                     outbox.remove(i);
                 } else {
                     try {
@@ -370,6 +448,12 @@ final class AndroidOfflineWorksetStore {
     private String normalizeVersion(String value) {
         String normalized = value == null ? "" : value.trim();
         return normalized.isEmpty() || normalized.length() > 256 ? null : normalized;
+    }
+
+    private String normalizeWorkset(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.isEmpty()) normalized = "default";
+        return normalized.length() > 80 ? null : normalized;
     }
 
     private boolean persist() {
