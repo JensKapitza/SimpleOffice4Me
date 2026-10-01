@@ -351,14 +351,17 @@ public class MainActivity extends Activity {
         return "(function(){"
                 + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
-                + "window.SimpleOfficeOffline={"
+                + "if(document.documentElement.dataset.v3AndroidOffline==='1'){window.SimpleOfficeOffline={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineStatus(bridgeToken))),"
-                + "cache:(id,kind,version,payload,retention)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload==null?'':payload),Number(retention||86400))),"
+                + "items:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineItems(bridgeToken))),"
+                + "cache:(id,kind,version,payload,retention,workset)=>String(window.SimpleOfficeAndroid.cacheOfflineItem(bridgeToken,String(id||''),String(kind||''),String(version||''),String(payload==null?'':payload),Number(retention||86400),String(workset||'default'))),"
                 + "read:(id,kind)=>JSON.parse(String(window.SimpleOfficeAndroid.readOfflineItem(bridgeToken,String(id||''),String(kind||'')))),"
+                + "remove:(id,kind)=>String(window.SimpleOfficeAndroid.removeOfflineItem(bridgeToken,String(id||''),String(kind||''))),"
                 + "enqueue:(type,id,baseVersion,payload)=>String(window.SimpleOfficeAndroid.enqueueOfflineMutation(bridgeToken,String(type||''),String(id||''),String(baseVersion||''),String(payload==null?'':payload))),"
                 + "outbox:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineOutbox(bridgeToken))),"
                 + "ack:(operationId,status)=>String(window.SimpleOfficeAndroid.acknowledgeOfflineMutation(bridgeToken,String(operationId||''),String(status||''))),"
-                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken))};"
+                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken))};}"
+                + "else{delete window.SimpleOfficeOffline;}"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
                 + "startSender:(targets,bitrate)=>String(window.SimpleOfficeAndroid.startAudioSender(bridgeToken,JSON.stringify(targets||[]),Number(bitrate||64))),"
@@ -608,15 +611,33 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String cacheOfflineItem(
-                String token, String itemId, String kind, String version, String payload, long retentionSeconds) {
+                String token,
+                String itemId,
+                String kind,
+                String version,
+                String payload,
+                long retentionSeconds,
+                String workset) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
-            return offlineWorksetStore.cacheItem(itemId, kind, version, payload, retentionSeconds);
+            return offlineWorksetStore.cacheItem(itemId, kind, version, payload, retentionSeconds, workset);
+        }
+
+        @JavascriptInterface
+        public String offlineItems(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "[]";
+            return offlineWorksetStore.itemsJson();
         }
 
         @JavascriptInterface
         public String readOfflineItem(String token, String itemId, String kind) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "{\"status\":\"blocked\"}";
             return offlineWorksetStore.readItem(itemId, kind);
+        }
+
+        @JavascriptInterface
+        public String removeOfflineItem(String token, String itemId, String kind) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            return offlineWorksetStore.removeItem(itemId, kind);
         }
 
         @JavascriptInterface
