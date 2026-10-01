@@ -12,9 +12,11 @@ if str(BROWSER_DIR) not in sys.path:
     sys.path.insert(0, str(BROWSER_DIR))
 
 from page_crawl import (  # noqa: E402
+    CrawlFrontier,
     browser_page_candidate,
     canonical_browser_url,
     load_route_inventory,
+    normalize_discovered_targets,
     route_coverage_failures,
     update_route_coverage,
     write_tested_url_manifest,
@@ -52,6 +54,126 @@ class BrowserPageCrawlTests(unittest.TestCase):
                 base,
             )
         )
+
+    def test_dynamic_discovery_keeps_only_safe_same_origin_pages(self):
+        base = "http://127.0.0.1:8080"
+        raw = [
+            {
+                "label": "Kontakt",
+                "href": f"{base}/contacts/abc",
+                "source": "dom-link",
+            },
+            {
+                "label": "Kontakt duplicate",
+                "href": f"{base}/contacts/abc#details",
+                "source": "history-api",
+            },
+            {
+                "label": "Frame",
+                "href": f"{base}/admin/health",
+                "source": "dom-frame",
+            },
+            {
+                "label": "GET form",
+                "href": f"{base}/documents/search?q=ignored&view=compact",
+                "source": "dom-get-form",
+            },
+            {
+                "label": "API",
+                "href": f"{base}/api/v3/capabilities",
+                "source": "dom-link",
+            },
+            {
+                "label": "Secret",
+                "href": f"{base}/share/abc?token=secret",
+                "source": "dom-link",
+            },
+            {
+                "label": "Download",
+                "href": f"{base}/documents/abc/export",
+                "source": "dom-link",
+            },
+            {
+                "label": "External",
+                "href": "https://example.invalid/admin",
+                "source": "dom-link",
+            },
+            {
+                "label": "Other port",
+                "href": "http://127.0.0.1:8081/admin",
+                "source": "dom-link",
+            },
+        ]
+
+        discovered = normalize_discovered_targets(raw, base_url=base)
+
+        self.assertEqual(
+            [
+                {
+                    "label": "Kontakt",
+                    "href": f"{base}/contacts/abc",
+                    "source": "dom-link",
+                },
+                {
+                    "label": "Frame",
+                    "href": f"{base}/admin/health",
+                    "source": "dom-frame",
+                },
+                {
+                    "label": "GET form",
+                    "href": f"{base}/documents/search?view=compact",
+                    "source": "dom-get-form",
+                },
+            ],
+            discovered,
+        )
+
+    def test_dynamic_discovery_skips_download_marked_links(self):
+        base = "http://127.0.0.1:8080"
+        discovered = normalize_discovered_targets(
+            [
+                {
+                    "label": "Export",
+                    "href": f"{base}/reports/view",
+                    "source": "dom-link",
+                    "download": True,
+                }
+            ],
+            base_url=base,
+        )
+        self.assertEqual([], discovered)
+
+    def test_frontier_bounds_queries_and_reports_rejections(self):
+        base = "http://127.0.0.1:8080"
+        summary = {"crawl_skipped_query_variants": 0}
+        frontier = CrawlFrontier(summary, base_url=base, max_query_variants=1)
+
+        self.assertTrue(
+            frontier.enqueue(
+                {"label": "One", "href": f"{base}/reports?view=one", "source": "dom-link"}
+            )
+        )
+        self.assertFalse(
+            frontier.enqueue(
+                {"label": "Duplicate", "href": f"{base}/reports?view=one#x", "source": "history-api"}
+            )
+        )
+        self.assertFalse(
+            frontier.enqueue(
+                {"label": "Two", "href": f"{base}/reports?view=two", "source": "dom-link"}
+            )
+        )
+        self.assertFalse(
+            frontier.enqueue(
+                {"label": "External", "href": "https://example.invalid/reports", "source": "dom-link"}
+            )
+        )
+
+        self.assertEqual(1, summary["crawl_skipped_query_variants"])
+        self.assertEqual(1, frontier.discovery["duplicate_urls"])
+        self.assertEqual(1, frontier.discovery["rejected_urls"])
+        self.assertEqual({"dom-link": 1}, frontier.discovery["queued_by_source"])
+        self.assertEqual(1, len(frontier.queue))
 
     def test_route_inventory_seeds_static_pages_only(self):
         payload = {

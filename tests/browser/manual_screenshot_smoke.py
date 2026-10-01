@@ -13,8 +13,6 @@ import json
 import os
 import re
 import sys
-import unicodedata
-from collections import deque
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,11 +20,14 @@ from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from browser_artifacts import make_html_snapshot_writer, slug
 from page_crawl import (
+    CrawlFrontier,
     MAX_QUERY_VARIANTS_PER_PATH,
     browser_page_candidate,
     canonical_browser_url,
     discover_links,
+    install_navigation_observer,
     load_route_inventory,
     same_primary_origin,
     route_coverage_failures,
@@ -59,6 +60,7 @@ REQUIRE_DYNAMIC_ROUTE_COVERAGE = os.environ.get(
 ).strip().lower() in {"1", "true", "yes", "on"}
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 HTML_DIR = OUTPUT_DIR / "html"
+write_html_snapshot = make_html_snapshot_writer(OUTPUT_DIR)
 DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
 FIXTURE_DIR = OUTPUT_DIR / "fixtures"
 USERNAME = os.environ.get("BROWSER_TEST_USERNAME", "browser-test-admin")
@@ -92,52 +94,11 @@ def compact(value: str) -> str:
     return " ".join((value or "").split())
 
 
-def slug(value: str) -> str:
-    normalized = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
-    safe = re.sub(r"[^a-zA-Z0-9]+", "-", normalized).strip("-").lower()
-    return safe[:80] or "page"
-
-
 def same_origin(url: str) -> bool:
-    candidate = urlparse(url)
-    allowed = {urlparse(BASE_URL)}
-    if PEER_BASE_URL:
-        allowed.add(urlparse(PEER_BASE_URL))
-    return any(
-        candidate.scheme == base.scheme
-        and candidate.netloc == base.netloc
-        for base in allowed
+    return same_primary_origin(url, BASE_URL) or (
+        bool(PEER_BASE_URL) and same_primary_origin(url, PEER_BASE_URL)
     )
 
-
-def write_html_snapshot(
-    page,
-    label: str,
-    prefix: str,
-    summary: dict[str, object],
-    failures: list[str],
-) -> None:
-    markup = page.content()
-    filename = f"{slug(prefix)}-{slug(label)}.html"
-    path = HTML_DIR / filename
-    path.write_text(
-        markup + ("\n" if not markup.endswith("\n") else ""),
-        encoding="utf-8",
-    )
-    snapshots: list[dict[str, object]] = summary["html5"]["snapshots"]  # type: ignore[index,assignment]
-    has_doctype = bool(
-        re.match(r"^\s*<!doctype\s+html(?:\s[^>]*)?>", markup, re.IGNORECASE)
-    )
-    snapshots.append(
-        {
-            "label": label,
-            "url": page.url,
-            "file": str(path.relative_to(OUTPUT_DIR)),
-            "html5_doctype": has_doctype,
-        }
-    )
-    if not has_doctype:
-        failures.append(f"{label}: HTML5-Doctype fehlt.")
 
 
 def attach_peer_diagnostics(
@@ -688,6 +649,12 @@ def main() -> int:
         "peer_to_peer": {"enabled": PEER_TO_PEER, "checks": []},
     }
 
+    frontier = CrawlFrontier(
+        summary,
+        base_url=BASE_URL,
+        max_query_variants=MAX_QUERY_VARIANTS_PER_PATH,
+    )
+
     console_errors: list[dict[str, str]] = summary["console_errors"]  # type: ignore[assignment]
     page_errors: list[dict[str, str]] = summary["page_errors"]  # type: ignore[assignment]
     server_errors: list[dict[str, object]] = summary["server_errors"]  # type: ignore[assignment]
@@ -703,6 +670,7 @@ def main() -> int:
                 timezone_id="Europe/Berlin",
                 reduced_motion="reduce",
             )
+            install_navigation_observer(context)
             page = context.new_page()
             page.set_default_timeout(20_000)
 
@@ -811,26 +779,10 @@ def main() -> int:
             if not selected:
                 raise RuntimeError("Keine Browser-Seiten für den Screenshot-Test gefunden.")
 
-            queue: deque[dict[str, str]] = deque()
-            queued_urls: set[str] = set()
-            queued_query_variants: dict[str, int] = {}
-
-            def enqueue(item: dict[str, str]) -> None:
-                href = canonical_browser_url(item["href"])
-                if href in queued_urls or not browser_page_candidate(href, BASE_URL):
-                    return
-                parsed = urlparse(href)
-                path_key = parsed.path or "/"
-                if parsed.query:
-                    variants = queued_query_variants.get(path_key, 0)
-                    if variants >= MAX_QUERY_VARIANTS_PER_PATH:
-                        summary["crawl_skipped_query_variants"] = int(
-                            summary.get("crawl_skipped_query_variants", 0)
-                        ) + 1
-                        return
-                    queued_query_variants[path_key] = variants + 1
-                queued_urls.add(href)
-                queue.append({**item, "href": href})
+            queue = frontier.queue
+            enqueue = frontier.enqueue
+            if SCOPE == "all-pages":
+                page.on("request", frontier.observe_document_request)
 
             for item in selected:
                 enqueue(item)
@@ -898,7 +850,9 @@ def main() -> int:
                         )
 
                         if SCOPE == "all-pages":
-                            for discovered in discover_links(page, base_url=BASE_URL):
+                            discovered_targets = discover_links(page, base_url=BASE_URL)
+                            entry["discovered_urls"] = len(discovered_targets)
+                            for discovered in discovered_targets:
                                 enqueue(discovered)
 
                     source = str(entry.get("source") or "")
@@ -978,6 +932,7 @@ def main() -> int:
                 "pages": len(pages),
                 "html_snapshots": len(summary["html5"]["snapshots"]),  # type: ignore[index]
                 "route_coverage": summary.get("route_coverage"),
+                "discovery": summary.get("discovery"),
                 "peer_to_peer": PEER_TO_PEER,
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
