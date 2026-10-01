@@ -1,0 +1,48 @@
+{% extends "layout.html" %}
+{% block title %}{{ book.title }}{% endblock %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-fluid py-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div><a href="{{ url_for('reader.shelf') }}" class="small text-decoration-none">← Bücherregal</a><h1 class="h3 mb-0">{{ book.title }}</h1>{% if book.author %}<div class="text-secondary">{{ book.author }}</div>{% endif %}</div>
+    <div class="d-flex gap-2"><span class="badge text-bg-secondary align-self-center">{{ book.format|upper }}</span><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">Dokument</a></div>
+  </div>
+  {% if reader_state.stale %}<div class="alert alert-warning">Das Dokument wurde seit der gespeicherten Leseposition geändert. Die alte Position wird nicht automatisch auf die neue Version übertragen.</div>{% endif %}
+  <div id="reader-root"
+       data-format="{{ book.format }}"
+       data-document-id="{{ document.document_id }}"
+       data-document-version="{{ book.version }}"
+       data-progress-api="{{ url_for('reader.save_progress', document_id=document.document_id) }}"
+       data-annotation-api="{{ url_for('reader.add_annotation', document_id=document.document_id) }}"
+       data-pdf-url="{{ url_for('documents.image_preview', document_id=document.document_id) }}"
+       data-epub-url="{{ url_for('reader.epub_chapter', document_id=document.document_id, index=0).rsplit('/',1)[0] }}"
+       data-page-count="{{ book.page_count }}"
+       data-saved-percent="{{ reader_state.percent }}"
+       data-saved-locator='{{ reader_state.locator|tojson }}'>
+    <div class="row g-3">
+      <aside class="col-12 col-lg-3 col-xl-2">
+        <div class="card mb-3"><div class="card-header"><strong>Navigation</strong></div><div class="card-body">
+          <div class="d-flex gap-2 align-items-center"><button class="btn btn-outline-secondary" type="button" data-reader-prev aria-label="Vorherige Seite">←</button><input class="form-control text-center" type="number" min="1" value="1" data-reader-position aria-label="Seite oder Kapitel"><button class="btn btn-outline-secondary" type="button" data-reader-next aria-label="Nächste Seite">→</button></div>
+          <div class="small text-secondary mt-2" data-reader-status></div>
+        </div></div>
+        {% if book.toc %}<div class="card mb-3"><div class="card-header"><strong>Inhalt</strong></div><div class="list-group list-group-flush">{% for item in book.toc %}<button type="button" class="list-group-item list-group-item-action text-start" data-reader-chapter="{{ item.index }}">{{ item.title }}</button>{% endfor %}</div></div>{% endif %}
+        <div class="card"><div class="card-header"><strong>Annotation</strong></div><div class="card-body"><textarea class="form-control mb-2" rows="4" maxlength="10000" data-reader-note placeholder="Notiz zur aktuellen Position"></textarea><button class="btn btn-outline-primary w-100" type="button" data-reader-add-note>Speichern</button></div>
+        <div class="list-group list-group-flush" data-reader-annotations>{% for note in annotations %}<div class="list-group-item {% if note.stale %}opacity-50{% endif %}" data-annotation-id="{{ note.annotation_id }}"><div class="small text-secondary">{{ note.locator }}{% if note.stale %} · ältere Version{% endif %}</div><div style="white-space:pre-wrap">{{ note.text }}</div><button class="btn btn-sm btn-link text-danger px-0" type="button" data-reader-delete-note="{{ url_for('reader.delete_annotation', document_id=document.document_id, annotation_id=note.annotation_id) }}">Löschen</button></div>{% endfor %}</div></div>
+      </aside>
+      <section class="col-12 col-lg-9 col-xl-10">
+        <div class="card"><div class="card-body p-2 p-md-3">
+          <div class="d-flex justify-content-end gap-2 mb-2"><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-font-minus>A−</button><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-font-plus>A+</button><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-theme>Kontrast</button><button class="btn btn-sm btn-outline-secondary" type="button" data-reader-fullscreen>Vollbild</button></div>
+          <div data-reader-error class="alert alert-warning d-none"></div>
+          {% if book.format == 'pdf' %}
+          <div data-reader-native-pdf class="text-center d-none"><img data-reader-pdf-image class="img-fluid" alt="PDF-Seite"></div>
+          <iframe data-reader-pdf-frame title="PDF Reader" src="{{ url_for('documents.image_preview', document_id=document.document_id) }}" style="width:100%;height:75vh;border:0"></iframe>
+          {% else %}
+          <article data-reader-epub-body class="reader-epub-body mx-auto" style="max-width:72ch;min-height:65vh;font-size:1.05rem;line-height:1.7"></article>
+          {% endif %}
+        </div></div>
+      </section>
+    </div>
+  </div>
+</main>
+<script src="{{ url_for('static', filename='js/document_reader.js') }}" defer></script>
+{% endblock %}
