@@ -29,7 +29,7 @@ setup(
     version="2.0.0",
     description="Self-hosted, file-based document management",
     python_requires=">=3.10",
-    packages=["app", "app.library", "app.v2", "app.v2.adapters"],
+    packages=["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"],
     py_modules=[
         "simpleoffice_version",
         "simpleoffice_mini_core",
