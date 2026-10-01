@@ -226,6 +226,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         routes = self.read(ROOT / "app" / "v3_android_offline_routes.py")
         self.assertIn("data-v3-android-offline", layout)
         self.assertIn("simpleoffice:network", navigation)
+        self.assertIn("simpleoffice:native-ready", activity)
+        self.assertIn("simpleoffice:native-ready", ui)
         self.assertIn("simpleoffice:network", ui)
         self.assertIn("task_status", ui)
         self.assertIn("Serverstand übernehmen", ui)
