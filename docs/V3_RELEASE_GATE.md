@@ -3,30 +3,30 @@
 ## Assessment snapshot
 
 - Repository: `JensKapitza/SimpleOffice4Me`
-- Main commit assessed: `d698b23bf33f33e464472b67387ea4083dca6328`
+- Main commit assessed: `3788d9d46e6abf4a669bdd356ddd5b0c9ac3936d`
 - Assessment date: 2026-10-01
-- GitHub state at start: no open pull requests; issues #505 and #506 open; no issue-506 branch.
+- GitHub state at assessment: no open pull requests; PR #540 (Android bookshelf) and PR #541 (mail-case Federation) are merged. Issues #483, #505 and #506 remain open; #483 awaits practical APK acceptance.
 - Release decision: **not approved**. Passing repository tests do not replace the target-system, client, hardware, workload, and upgrade evidence listed below.
 
 `PASS (repository)` means an automated repository check passed against the snapshot above. It does not claim that a production deployment or an external client was tested. `OPEN (external)` means evidence must come from an actual supported installation, client, device, peer, or representative workload. `PARTIAL` means repository tests cover part of the criterion but not the complete release acceptance.
 
 ## Repository checks run
 
-The full workflow-equivalent test and quality checks were run locally on Linux with Python 3.12.14. The configured GitHub Actions matrix additionally requires Python 3.10, 3.14, and 3.15.0-rc.2; those interpreters were not available in this environment, so their hosted CI results remain authoritative for those versions.
+The release evidence uses the hosted pull-request CI run for commit `9c622d850413d03c9b85ea3b69729888381102ce`. Its Git tree is identical to assessed `main` commit `3788d9d46e6abf4a669bdd356ddd5b0c9ac3936d`. All ten configured PR workflows completed successfully. The three Python matrix jobs each ran 2,703 tests with 15 skips. This includes the Android bookshelf and mail-case Federation changes merged in PRs #540 and #541.
 
 | Check | Result |
 |---|---|
-| `python -m unittest discover -s tests -v` | PASS (repository): 2,677 tests passed; 11 skipped; no failures, 217.354 s |
-| Ruff (`ruff check app tools tests *.py`) | PASS (repository) |
-| Project policy, source/function size, Python compile | PASS (repository) |
-| Secret scan, CRA checks, CycloneDX SBOM generation and JSON parse | PASS (repository) |
-| `pip-audit` | PASS for audited dependencies: no known vulnerabilities. The local `simpleoffice4me==2.0.0` project is not published on PyPI and is skipped by the advisory lookup; this is not a source-code audit. |
-| Extended repository hygiene: Python compile, JSON, shell syntax, conflict/whitespace checks | PASS (repository) |
-| Mini Services log audit and one-iteration lifecycle benchmark | PASS (repository). The benchmark explicitly excludes process cold start, protocol load, LAN throughput and total RSS, and covers DHCP/DNS/TFTP/SIP rather than 3.0 search/relations/jobs. |
-| Pinned KoSIT/XRechnung integration (`XRechnung 3.0.2`, KoSIT validator 1.6.3) | PASS (repository): all 9 validator/install tests, including official positive and negative fixtures |
-| Docker image, Docker relay, Debian 12 package workflows | NOT RUN locally: Docker is unavailable. Hosted CI must supply those build/runtime checks where triggered. |
+| Python 3.10 / 3.14 / 3.15.0-rc.2 full suite | PASS (hosted CI): 2,703 tests per interpreter, 15 skipped, zero failures |
+| Ruff (`ruff check app tools tests *.py`) | PASS (hosted Extended quality gates) |
+| Project policy, source/function size, Python compile | PASS (hosted CI); compile also passed locally |
+| Secret scan, CRA checks, CycloneDX SBOM generation and JSON parse | PASS (hosted dependency/security workflows); CRA check also passed locally |
+| `pip-audit` | PASS (hosted CI): no known vulnerable dependencies. The local project is not published on PyPI and is skipped by advisory lookup; this is not a source-code audit. |
+| Extended repository hygiene, JSON, shell syntax, conflict/whitespace checks | PASS (hosted Extended quality gates) |
+| Mini Services log audit and one-iteration lifecycle benchmark | PASS (repository evidence from the previous assessment). The benchmark excludes cold start, protocol load, LAN throughput and total RSS, and does not measure 3.0 search/relations/jobs. |
+| Pinned KoSIT/XRechnung integration (`XRechnung 3.0.2`, KoSIT validator 1.6.3) | PASS (hosted CI): all 9 validator/install tests, including official positive and negative fixtures |
+| Android APK ARM32/ARM64, Desktop Windows/macOS/Linux, Docker and Debian 12 builds | PASS (hosted CI). Build success does not prove installation or use on a real device/client. |
 
-Skipped unit tests are optional integration checks; notably, the KoSIT official-fixture test was rerun separately with its pinned runtime and passed. No real Android device, production database, external S3 implementation, mail/federation peer, or desktop client was connected for this assessment.
+The 15 skipped tests are optional integration checks. A local raw-interpreter run outside an installed project environment also failed the isolated packaging test because its subprocess intentionally ignores `PYTHONPATH`; hosted CI installs the project first and that test passed in all three Python jobs. No real Android device, production database, external S3 implementation, mail/Federation peer, or desktop client was connected for this assessment.
 
 ## Release matrix
 
@@ -49,12 +49,12 @@ Skipped unit tests are optional integration checks; notably, the KoSIT official-
 
 ### D. Security
 
-- **PASS (repository)** — central-policy, legacy authorization, extension capability denial, S3 object authorization, Android owner/scope/conflict, secret redaction, XML, path traversal and Federation trust/security suites passed in the full suite.
+- **PASS (repository)** — central-policy, legacy authorization, extension capability denial, S3 object authorization, Android offline owner/scope/conflict, secret redaction, XML, path traversal and Federation trust/security suites passed in the full suite. The merged mail-case Federation tests also cover peer-bound identity mapping, active-account revalidation, participant ACLs, replay/idempotency and opaque EML references. Reader tests cover document authorization, version-bound reading state, unsafe EPUB paths and active content.
 - **OPEN (external)** — validate effective permissions on a representative migrated deployment and review generated activity/job/health/extension logs from real secrets and real integrations. Automated redaction tests do not replace that deployment review.
 
 ### E. Failure and recovery
 
-- **PASS (repository, simulated)** — tests cover persistent-job retry/lease behavior, inbox/S3 recovery, interrupted V2 operations, finance finalization state, Android version conflicts, Federation failures, and unavailable optional services.
+- **PASS (repository, simulated)** — tests cover persistent-job retry/lease behavior, inbox/S3 recovery, interrupted V2 operations, finance finalization state, Android version conflicts, Federation failures, mail-case outbox retry/idempotency and unavailable optional services.
 - **OPEN (external)** — terminate/restart the deployed worker while jobs are active; disconnect real event/extension/Federation/S3 dependencies; interrupt a migration process; and verify operator-visible diagnosis and recovery without a permanently partial business document.
 
 ### F. Performance
@@ -64,7 +64,7 @@ Skipped unit tests are optional integration checks; notably, the KoSIT official-
 
 ### G. Disable and rollback
 
-- **PASS (repository, feature-level)** — capabilities default off and feature-specific tests verify disabled behavior; V2 keeps rollback/recovery data and legacy protocol tests remain available.
+- **PASS (repository, feature-level)** — capabilities default off and feature-specific tests verify disabled behavior; V2 keeps rollback/recovery data and legacy protocol tests remain available. The Android APK build succeeds for both supported ABIs, but the separate Android bookshelf implementation in #483 remains open until the APK is practically tested on an Android device or emulator.
 - **PARTIAL** — code and fixtures show that deactivation need not delete the new data, but the full independent disable sequence has not been performed on an upgraded installation.
 - **OPEN (external)** — separately disable 3.0 UI, automation, plugins, Android offline and Federation v3 on an upgraded system; confirm old domain stores and CardDAV/CalDAV/VTODO, document and invoice paths remain usable without deleting new data.
 
