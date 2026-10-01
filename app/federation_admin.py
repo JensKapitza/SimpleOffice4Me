@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sqlite3
 from pathlib import Path
@@ -20,6 +21,7 @@ from .federation_download_worker import process_queue, sync_peer_catalog
 from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
 from .federation_worker import _find_blob, peer_capabilities, push_blob_to_peer, remote_availability
+from .mail_case_federation import MailCaseFederation
 from .mail_case_store import MailCaseStore
 from .safe_paths import resolve_under
 from .v3_federation import FederationContractStore
@@ -167,6 +169,7 @@ def dashboard():
         active_view=active_view,
         edit_peer=edit_peer,
         mail_user_mappings=_v3_store().list_mail_user_mappings(),
+        mail_case_outbox=_v3_store().list_mail_outbox(),
         active_users=active_users,
     )
 
@@ -309,6 +312,24 @@ def save_peer():
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:
         flash(f"Peer konnte nicht gespeichert werden: {exc}")
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/mail-case-outbox/retry")
+@admin_required
+def retry_mail_case_outbox():
+    local_peer_id = (
+        os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+        or "simpleoffice-local"
+    )
+    result = MailCaseFederation(
+        current_app.config["DOCUMENT_ROOT"],
+        local_peer_id,
+    ).retry_outbox(request.form.get("peer_id", "").strip())
+    flash(
+        f"Mail-Vorgang-Outbox: {result['delivered']} zugestellt, "
+        f"{result['failed']} fehlgeschlagen, {result['remaining']} offen."
+    )
     return _redirect_dashboard(view="peers")
 
 
