@@ -112,6 +112,143 @@ class TodoStore:
         self.history.record("todo_updated", actor, "todo", item_id, {"before": before, "after": updated})
         return updated
 
+    def apply_offline_status(
+        self,
+        item_id: str,
+        status: str,
+        actor: str,
+        *,
+        expected_etag: str,
+        operation_id: str,
+    ) -> dict[str, Any]:
+        """Atomically apply one idempotent offline task-status mutation.
+
+        The operation receipt lives in the same todo.json write as the task change.
+        A retry therefore cannot apply the same mutation twice, and an ETag mismatch
+        is retained as a stable conflict result instead of becoming last-write-wins.
+        """
+        operation_id = str(operation_id or "").strip()
+        expected_etag = str(expected_etag or "").strip()
+        status = str(status or "").strip().lower()
+        if not OFFLINE_OPERATION.fullmatch(operation_id):
+            raise ValueError("invalid offline operation identifier")
+        if not expected_etag or len(expected_etag) > 256:
+            raise ValueError("offline mutation requires a base version")
+        if status not in STATUSES:
+            raise ValueError("invalid task status")
+        actor = str(actor or "").strip()
+        if not actor:
+            raise ValueError("task user is required")
+
+        fingerprint = hashlib.sha256(
+            ("\0".join((actor, item_id, expected_etag, status))).encode("utf-8")
+        ).hexdigest()
+        history_payload: dict[str, Any] | None = None
+        with exclusive_file_lock(self.lock):
+            data = self._read()
+            operations = data["offline_operations"]
+            receipt = operations.get(operation_id)
+            if receipt is not None:
+                if receipt.get("fingerprint") != fingerprint:
+                    raise ValueError("offline operation identifier already used")
+                return {**dict(receipt.get("result") or {}), "replayed": True}
+
+            item = self._owned(data, item_id, actor)
+            permission = "complete" if status == "completed" else "edit"
+            self._list(
+                data,
+                item.get("list_id") or self.default_list_id(actor),
+                actor,
+                permission,
+            )
+            current_etag = self.etag(item)
+            now = utc_now()
+            if current_etag != expected_etag:
+                result = {
+                    "status": "conflict",
+                    "operationId": operation_id,
+                    "targetId": item_id,
+                    "baseVersion": expected_etag,
+                    "serverVersion": current_etag,
+                }
+                operations[operation_id] = {
+                    "fingerprint": fingerprint,
+                    "actor": actor,
+                    "recorded_at": now,
+                    "result": result,
+                }
+                self._prune_offline_operations(operations)
+                self._write(data)
+                return result
+
+            before = self._normalized(item, actor)
+            merged = {**item, "status": status}
+            if status == "completed":
+                merged["percent_complete"] = 100
+            elif int(merged.get("percent_complete", 0) or 0) >= 100:
+                merged["percent_complete"] = 0
+            merged["sequence"] = int(item.get("sequence", 0)) + 1
+            merged["ical_dtstamp"] = self._ical_now()
+            merged["ical_last_modified"] = merged["ical_dtstamp"]
+            updated = self._task(
+                item_id,
+                str(item.get("title", "")),
+                str(item.get("owner") or actor),
+                merged,
+                created_at=item.get("created_at", ""),
+            )
+            updated.update({
+                "created_by": item.get("created_by", actor),
+                "caldav_resource": item.get("caldav_resource", ""),
+                "uid": item.get("uid") or updated["uid"],
+                "updated_at": now,
+                "updated_by": actor,
+            })
+            data["items"] = [
+                updated if row.get("id") == item_id else row
+                for row in data["items"]
+            ]
+            self._bump(data, actor, self.resource(updated), False, updated["list_id"])
+            server_version = self.etag(updated)
+            result = {
+                "status": "synced",
+                "operationId": operation_id,
+                "targetId": item_id,
+                "baseVersion": expected_etag,
+                "serverVersion": server_version,
+            }
+            operations[operation_id] = {
+                "fingerprint": fingerprint,
+                "actor": actor,
+                "recorded_at": now,
+                "result": result,
+            }
+            self._prune_offline_operations(operations)
+            self._write(data)
+            history_payload = {"before": before, "after": updated, "operation_id": operation_id}
+
+        if history_payload is not None:
+            self.history.record(
+                "todo_offline_status_synced",
+                actor,
+                "todo",
+                item_id,
+                history_payload,
+            )
+        return result
+
+    @staticmethod
+    def _prune_offline_operations(operations: dict[str, Any], limit: int = 512) -> None:
+        overflow = max(0, len(operations) - max(32, int(limit)))
+        if not overflow:
+            return
+        oldest = sorted(
+            operations,
+            key=lambda key: str((operations.get(key) or {}).get("recorded_at", "")),
+        )[:overflow]
+        for key in oldest:
+            operations.pop(key, None)
+
     def toggle(self, item_id: str, actor: str) -> dict[str, Any]:
         with exclusive_file_lock(self.lock):
             data = self._read(); item = self._owned(data, item_id, actor); self._list(data, item.get("list_id") or self.default_list_id(actor), actor, "complete"); done = not bool(item.get("done"))
@@ -311,11 +448,16 @@ class TodoStore:
         return row
 
     def _write(self, data: dict[str, Any]) -> None:
-        if self.path.exists() and int(data.get("schema_version", 1)) < 2:
+        schema_version = int(data.get("schema_version", 1) or 1)
+        if self.path.exists() and schema_version < 2:
             backup = self.path.parent / "migrations" / "todo-v1-backup.json"
             backup.parent.mkdir(parents=True, exist_ok=True)
             if not backup.exists(): shutil.copy2(self.path, backup)
-        data["schema_version"] = 2
+        if self.path.exists() and schema_version < 3:
+            backup = self.path.parent / "migrations" / "todo-v2-backup.json"
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            if not backup.exists(): shutil.copy2(self.path, backup)
+        data["schema_version"] = 3
         atomic_json_write(self.path, data)
 
     def _read(self) -> dict[str, Any]:
@@ -325,4 +467,5 @@ class TodoStore:
         if not isinstance(data.get("items"), list): data["items"] = []
         if not isinstance(data.get("sync"), dict): data["sync"] = {}
         if not isinstance(data.get("lists"), list): data["lists"] = []
+        if not isinstance(data.get("offline_operations"), dict): data["offline_operations"] = {}
         return data
