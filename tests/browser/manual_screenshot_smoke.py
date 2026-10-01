@@ -27,6 +27,7 @@ from page_crawl import (
     browser_page_candidate,
     canonical_browser_url,
     discover_links,
+    install_navigation_observer,
     load_route_inventory,
     same_primary_origin,
     route_coverage_failures,
@@ -679,6 +680,12 @@ def main() -> int:
         "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
         "require_dynamic_route_coverage": REQUIRE_DYNAMIC_ROUTE_COVERAGE,
+        "discovery": {
+            "queued_by_source": {},
+            "duplicate_urls": 0,
+            "rejected_urls": 0,
+            "observed_document_requests": 0,
+        },
         "pages": [],
         "console_errors": [],
         "page_errors": [],
@@ -703,6 +710,7 @@ def main() -> int:
                 timezone_id="Europe/Berlin",
                 reduced_motion="reduce",
             )
+            install_navigation_observer(context)
             page = context.new_page()
             page.set_default_timeout(20_000)
 
@@ -814,11 +822,17 @@ def main() -> int:
             queue: deque[dict[str, str]] = deque()
             queued_urls: set[str] = set()
             queued_query_variants: dict[str, int] = {}
+            discovery: dict[str, object] = summary["discovery"]  # type: ignore[assignment]
+            queued_by_source: dict[str, int] = discovery["queued_by_source"]  # type: ignore[assignment]
 
-            def enqueue(item: dict[str, str]) -> None:
+            def enqueue(item: dict[str, str]) -> bool:
                 href = canonical_browser_url(item["href"])
-                if href in queued_urls or not browser_page_candidate(href, BASE_URL):
-                    return
+                if not browser_page_candidate(href, BASE_URL):
+                    discovery["rejected_urls"] = int(discovery["rejected_urls"]) + 1
+                    return False
+                if href in queued_urls:
+                    discovery["duplicate_urls"] = int(discovery["duplicate_urls"]) + 1
+                    return False
                 parsed = urlparse(href)
                 path_key = parsed.path or "/"
                 if parsed.query:
@@ -827,10 +841,30 @@ def main() -> int:
                         summary["crawl_skipped_query_variants"] = int(
                             summary.get("crawl_skipped_query_variants", 0)
                         ) + 1
-                        return
+                        return False
                     queued_query_variants[path_key] = variants + 1
+                source = compact(str(item.get("source") or "unknown")) or "unknown"
                 queued_urls.add(href)
-                queue.append({**item, "href": href})
+                queue.append({**item, "href": href, "source": source})
+                queued_by_source[source] = queued_by_source.get(source, 0) + 1
+                return True
+
+            def record_document_request(request) -> None:
+                if SCOPE != "all-pages" or request.resource_type != "document":
+                    return
+                discovery["observed_document_requests"] = (
+                    int(discovery["observed_document_requests"]) + 1
+                )
+                href = canonical_browser_url(request.url)
+                enqueue(
+                    {
+                        "label": urlparse(href).path or href,
+                        "href": href,
+                        "source": "browser-document",
+                    }
+                )
+
+            page.on("request", record_document_request)
 
             for item in selected:
                 enqueue(item)
@@ -898,7 +932,9 @@ def main() -> int:
                         )
 
                         if SCOPE == "all-pages":
-                            for discovered in discover_links(page, base_url=BASE_URL):
+                            discovered_targets = discover_links(page, base_url=BASE_URL)
+                            entry["discovered_urls"] = len(discovered_targets)
+                            for discovered in discovered_targets:
                                 enqueue(discovered)
 
                     source = str(entry.get("source") or "")
@@ -978,6 +1014,7 @@ def main() -> int:
                 "pages": len(pages),
                 "html_snapshots": len(summary["html5"]["snapshots"]),  # type: ignore[index]
                 "route_coverage": summary.get("route_coverage"),
+                "discovery": summary.get("discovery"),
                 "peer_to_peer": PEER_TO_PEER,
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
