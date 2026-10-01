@@ -134,7 +134,7 @@ class ReaderRoutesTests(unittest.TestCase):
 
         page = self.client.get(f"/documents/reader/{self.document['document_id']}")
         self.assertEqual(200, page.status_code)
-        self.assertIn(b"Kapitel Eins", page.data)
+        self.assertIn(b"Kapitel 1", page.data)
 
         chapter = self.client.get(f"/documents/reader/{self.document['document_id']}/epub/0")
         self.assertEqual(200, chapter.status_code)
