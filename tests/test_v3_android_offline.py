@@ -238,6 +238,10 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
         self._login(self.limited_id)
         self.assertEqual(403, self.client.get("/api/v3/android-offline/policy").status_code)
         self.assertEqual(403, self.client.get("/android/offline").status_code)
+        page = self.client.get("/auth/login")
+        self.assertEqual(200, page.status_code)
+        self.assertIn(b'data-v3-android-offline="0"', page.data)
+        self.assertIn(b'data-v3-android-offline-owner=""', page.data)
 
 
 if __name__ == "__main__":
