@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const root = document.getElementById('android-offline-app');
+  const root = document.querySelector('[data-android-offline-app]');
   if (!root || root.dataset.enabled !== '1') return;
 
   const bridge = window.SimpleOfficeOffline;
@@ -34,11 +34,16 @@
     return `${bytes.toFixed(unit ? 1 : 0)} ${units[unit]}`;
   };
   const jsonFetch = async (url, options = {}) => {
+    const headers = {'Content-Type': 'application/json', ...(options.headers || {})};
+    if (options.method && options.method !== 'GET') {
+      const token = document.querySelector('meta[name="csrf-token"]');
+      if (token && token.content) headers['X-CSRF-Token'] = token.content;
+    }
     const response = await fetch(url, {
       credentials: 'same-origin',
       cache: 'no-store',
       ...options,
-      headers: {'Content-Type': 'application/json', ...(options.headers || {})},
+      headers,
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
