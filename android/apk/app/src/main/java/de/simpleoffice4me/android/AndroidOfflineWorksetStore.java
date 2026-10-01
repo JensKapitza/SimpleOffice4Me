@@ -9,9 +9,11 @@ import org.json.JSONObject;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.IOException;
 import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.Locale;
 import java.util.UUID;
 
@@ -553,7 +555,7 @@ final class AndroidOfflineWorksetStore {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             return hexDigest(digest.digest(value));
-        } catch (Exception error) {
+        } catch (NoSuchAlgorithmException error) {
             throw new IllegalStateException("SHA-256 unavailable", error);
         }
     }
@@ -568,8 +570,10 @@ final class AndroidOfflineWorksetStore {
                 if (read > 0) digest.update(buffer, 0, read);
             }
             return expectedHash.equals(hexDigest(digest.digest()));
-        } catch (Exception error) {
+        } catch (IOException error) {
             return false;
+        } catch (NoSuchAlgorithmException error) {
+            throw new IllegalStateException("SHA-256 unavailable", error);
         }
     }
 
