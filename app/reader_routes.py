@@ -84,7 +84,9 @@ def _catalog() -> list[dict[str, Any]]:
     reading = _reading()
     for raw in ids:
         try:
-            document = store.get_document(str(raw["document_id"]))
+            # sqlite_utils connections use sqlite3's tuple row factory. This
+            # is an index-only lookup; get_document revalidates ACL visibility.
+            document = store.get_document(str(raw[0]))
             kind = FORMATS.get(Path(str(document.get("last_path") or "")).suffix.casefold())
             if not kind:
                 continue
