@@ -13,7 +13,7 @@ from app.epub_reader import EpubBook
 from app.reading_store import ReadingStateStore, reader_version
 
 
-def epub_bytes(*, unsafe: bool = False) -> bytes:
+def epub_bytes(*, unsafe: bool = False, encrypted: bool = False, cover: bool = False) -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
@@ -26,14 +26,19 @@ def epub_bytes(*, unsafe: bool = False) -> bytes:
             "OEBPS/content.opf",
             '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
             "<metadata><title>Testbuch</title><creator>Autor</creator></metadata>"
-            '<manifest><item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest>'
-            '<spine><itemref idref="c1"/></spine></package>',
+            '<manifest><item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>'
+            + ('<item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>' if cover else '')
+            + '</manifest><spine><itemref idref="c1"/></spine></package>',
         )
         archive.writestr(
             "OEBPS/chapter.xhtml",
             '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Kapitel Eins</title></head>'
             "<body><h1>Kapitel Eins</h1><p>Hallo &amp; sicher.</p><script>alert(1)</script></body></html>",
         )
+        if cover:
+            archive.writestr("OEBPS/cover.png", b"\x89PNG\r\n\x1a\nreader-cover")
+        if encrypted:
+            archive.writestr("META-INF/encryption.xml", "<encryption/>")
         if unsafe:
             archive.writestr("../escape.txt", "no")
     return output.getvalue()
@@ -71,6 +76,27 @@ class ReaderStoreTests(unittest.TestCase):
         self.reading.delete_annotation(self.document["document_id"], "alice", note["annotation_id"])
         self.assertEqual([], self.reading.annotations(self.document["document_id"], "alice"))
 
+    def test_stale_progress_is_never_restored_against_new_content_version(self):
+        self.reading.save_progress(
+            self.document["document_id"], "alice", {"page": 2}, 40, self.version
+        )
+        current = self.store.get_document(self.document["document_id"])
+        current["sha256"] = "f" * 64
+        self.store._save_document(current)
+        state = self.reading.state(self.document["document_id"], "alice")
+        self.assertTrue(state["stale"])
+        self.assertEqual({}, state["locator"])
+        self.assertEqual({"page": 2}, state["saved_locator"])
+
+    def test_annotation_kind_quote_and_search_text_are_user_scoped(self):
+        row = self.reading.add_annotation(
+            self.document["document_id"], "alice", {"page": 1}, "Antwort prüfen", self.version,
+            annotation_kind="question", quote="wichtige Passage",
+        )
+        self.assertEqual("question", row["kind"])
+        self.assertIn("wichtige Passage", self.reading.search_text(self.document["document_id"], "alice"))
+        self.assertEqual("", self.reading.search_text(self.document["document_id"], "bob"))
+
     def test_locator_validation_rejects_invalid_pdf_page(self):
         with self.assertRaises(ValueError):
             self.reading.save_progress(
@@ -85,11 +111,19 @@ class EpubReaderTests(unittest.TestCase):
         chapter = book.chapter(0)
         self.assertIn("Hallo &amp; sicher.", chapter["html"])
         self.assertNotIn("<script", chapter["html"].casefold())
-        self.assertIn("alert(1)", chapter["html"])
+        self.assertNotIn("alert(1)", chapter["html"])
+        self.assertEqual("chapter:c1", chapter["position_anchor"])
 
     def test_unsafe_zip_member_is_rejected_even_without_extraction(self):
         with self.assertRaisesRegex(ValueError, "unsafe archive path"):
             EpubBook(epub_bytes(unsafe=True))
+
+    def test_encrypted_epub_is_rejected_and_safe_cover_is_bounded(self):
+        with self.assertRaisesRegex(ValueError, "encrypted EPUB"):
+            EpubBook(epub_bytes(encrypted=True))
+        cover = EpubBook(epub_bytes(cover=True)).cover()
+        self.assertIsNotNone(cover)
+        self.assertEqual("image/png", cover[1])
 
 
 class ReaderRoutesTests(unittest.TestCase):
@@ -116,7 +150,7 @@ class ReaderRoutesTests(unittest.TestCase):
             self.limited_id = db.execute("SELECT id FROM user WHERE username='limited'").fetchone()["id"]
         self.documents = documents
         self.document = DocumentStore(documents).import_upload(
-            io.BytesIO(epub_bytes()), "Testbuch.epub", "admin"
+            io.BytesIO(epub_bytes(cover=True)), "Testbuch.epub", "admin"
         )
         self.client = app.test_client()
         self.login(self.admin_id)
@@ -155,6 +189,27 @@ class ReaderRoutesTests(unittest.TestCase):
             headers=self.headers,
         )
         self.assertEqual(201, note.status_code)
+
+        cover = self.client.get(f"/documents/reader/{self.document['document_id']}/cover")
+        self.assertEqual(200, cover.status_code)
+        self.assertEqual("image/png", cover.mimetype)
+
+        metadata = self.client.post(
+            f"/documents/reader/{self.document['document_id']}/metadata",
+            data={"title": "Manueller Titel", "author": "Manueller Autor"},
+            headers=self.headers,
+            follow_redirects=True,
+        )
+        self.assertEqual(200, metadata.status_code)
+        self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
+
+    def test_invalid_epub_returns_reader_error_not_server_error(self):
+        broken = DocumentStore(self.documents).import_upload(
+            io.BytesIO(b"not a zip"), "broken.epub", "admin"
+        )
+        page = self.client.get(f"/documents/reader/{broken['document_id']}")
+        self.assertEqual(422, page.status_code)
+        self.assertIn("nicht im Reader", page.get_data(as_text=True))
 
     def test_document_feature_permission_blocks_reader(self):
         self.login(self.limited_id)
