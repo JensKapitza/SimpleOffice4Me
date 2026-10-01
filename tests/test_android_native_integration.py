@@ -233,6 +233,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("simpleoffice:network", ui)
         self.assertIn("task_status", ui)
         self.assertIn("Serverstand übernehmen", ui)
+        self.assertIn("Änderung zuerst klären", ui)
+        self.assertIn("remove.disabled = unresolved", ui)
         self.assertIn("v3.android_offline", routes)
         self.assertIn("never_local", routes)
         self.assertNotIn("localStorage", ui)
