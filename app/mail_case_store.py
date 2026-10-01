@@ -721,6 +721,94 @@ class MailCaseStore:
             "case_id": str(row["federation_case_id"]),
         }
 
+    def revoke_federated_snapshot(
+        self,
+        local_user: str,
+        peer_id: str,
+        remote_case_id: str,
+    ) -> bool:
+        local_user = str(local_user or "").strip()
+        peer_id = str(peer_id or "").strip()
+        remote_case_id = str(remote_case_id or "").strip()
+        if not local_user or not peer_id or not remote_case_id:
+            raise ValueError("invalid federated mirror revocation")
+        removed = False
+        local_case_id = ""
+        with self._db(write=True) as db:
+            row = db.execute(
+                """SELECT id FROM mail_case
+                   WHERE federation_peer_id=? AND federation_case_id=?""",
+                (peer_id, remote_case_id),
+            ).fetchone()
+            if row is None:
+                return False
+            local_case_id = str(row["id"])
+            cursor = db.execute(
+                """DELETE FROM mail_case_participant
+                   WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                (local_case_id, local_user),
+            )
+            removed = cursor.rowcount > 0
+            remaining = db.execute(
+                "SELECT COUNT(*) FROM mail_case_participant WHERE case_id=?",
+                (local_case_id,),
+            ).fetchone()[0]
+            if int(remaining) == 0:
+                db.execute("DELETE FROM mail_case WHERE id=?", (local_case_id,))
+        if removed:
+            self._audit(
+                "mail_case_federated_access_revoked",
+                local_user,
+                local_case_id,
+                {"peer_id": peer_id, "remote_case_id": remote_case_id},
+            )
+        return removed
+
+    def revoke_federated_mirrors_for_user(
+        self,
+        local_user: str,
+        peer_id: str,
+    ) -> int:
+        local_user = str(local_user or "").strip()
+        peer_id = str(peer_id or "").strip()
+        if not local_user or not peer_id:
+            raise ValueError("invalid federated mirror mapping")
+        removed = 0
+        affected: list[tuple[str, str]] = []
+        with self._db(write=True) as db:
+            rows = db.execute(
+                """SELECT c.id,c.federation_case_id
+                   FROM mail_case c
+                   JOIN mail_case_participant p ON p.case_id=c.id
+                   WHERE c.federation_peer_id=? AND c.federation_case_id<>''
+                     AND p.participant_type='local_user' AND p.local_user_id=?""",
+                (peer_id, local_user),
+            ).fetchall()
+            for row in rows:
+                case_id = str(row["id"])
+                cursor = db.execute(
+                    """DELETE FROM mail_case_participant
+                       WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                    (case_id, local_user),
+                )
+                if cursor.rowcount:
+                    removed += 1
+                    affected.append((case_id, str(row["federation_case_id"])))
+                remaining = db.execute(
+                    "SELECT COUNT(*) FROM mail_case_participant WHERE case_id=?",
+                    (case_id,),
+                ).fetchone()[0]
+                if int(remaining) == 0:
+                    db.execute("DELETE FROM mail_case WHERE id=?", (case_id,))
+        for case_id, remote_case_id in affected:
+            self._audit(
+                "mail_case_federated_access_revoked",
+                local_user,
+                case_id,
+                {"peer_id": peer_id, "remote_case_id": remote_case_id, "mapping_revoked": True},
+            )
+        return removed
+
     def upsert_federated_snapshot(
         self,
         local_user: str,
