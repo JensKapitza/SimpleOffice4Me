@@ -232,6 +232,15 @@ def index():
                 can_delegated_send = cases.delegations.has_active(
                     case_view["account_owner"], case_view["account_id"], _actor()
                 )
+            else:
+                ui_features = {
+                    **ui_features,
+                    "cases": True,
+                    "participants": True,
+                    "comments": True,
+                    "drafts": True,
+                }
+                can_delegated_send = False
             if case_mail_id:
                 reference = _mail_reference(case_mail_id)
                 message_row = next(
