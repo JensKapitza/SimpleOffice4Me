@@ -5,10 +5,10 @@
 <main id="main-content" class="container-fluid py-3">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
     <div><a href="{{ url_for('reader.shelf') }}" class="small text-decoration-none">← Bücherregal</a><h1 class="h3 mb-0">{{ book.title }}</h1>{% if book.author %}<div class="text-secondary">{{ book.author }}</div>{% endif %}</div>
-    <div class="d-flex gap-2"><span class="badge text-bg-secondary align-self-center">{{ book.format|upper }}</span><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">Dokument</a></div>
+    <div class="d-flex flex-wrap gap-2"><span class="badge text-bg-secondary align-self-center">{{ book.format|upper }}</span><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">Dokument</a><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">Original öffnen</a><button class="btn btn-sm btn-outline-secondary" type="button" onclick="window.print()">Drucken</button></div>
   </div>
   {% if reader_state.stale %}<div class="alert alert-warning">Das Dokument wurde seit der gespeicherten Leseposition geändert. Die alte Position wird nicht automatisch auf die neue Version übertragen.</div>{% endif %}
-  <div id="reader-root"
+  <div id="reader-root" style="padding-bottom:max(1rem, env(safe-area-inset-bottom));touch-action:pan-x pan-y pinch-zoom"
        data-format="{{ book.format }}"
        data-document-id="{{ document.document_id }}"
        data-document-version="{{ book.version }}"
