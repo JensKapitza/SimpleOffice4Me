@@ -23,7 +23,7 @@ on:
         default: '50'
         type: string
       require_dynamic_route_coverage:
-        description: Auch nicht materialisierte dynamische Objekt-URLs als Fehler werten
+        description: Dynamische URL-Vorlagen ohne Testdaten werden nur diagnostisch angezeigt
         required: true
         default: false
         type: boolean
