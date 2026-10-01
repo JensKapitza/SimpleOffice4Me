@@ -553,7 +553,19 @@ def remove_case_participant(case_id: str, participant_id: int):
 @login_required
 def add_case_comment(case_id: str):
     try:
-        _cases().add_comment(_actor(), case_id, request.form.get("body", ""))
+        cases = _cases()
+        body = request.form.get("body", "")
+        origin = cases.federated_origin(_actor(), case_id)
+        if origin is not None:
+            comment_id = uuid.uuid4().hex
+            _mail_case_federation().remote_action(
+                _actor(), case_id, "comment.create",
+                {"comment_id": comment_id, "body": body},
+            )
+            cases.add_comment(_actor(), case_id, body, comment_id=comment_id)
+        else:
+            cases.add_comment(_actor(), case_id, body)
+            _sync_federated_case(case_id)
         flash("Interner Kommentar wurde gespeichert.")
     except Exception as exc:
         current_app.logger.warning("Mail case comment failed for %s: %s", _actor(), type(exc).__name__)
@@ -566,15 +578,35 @@ def add_case_comment(case_id: str):
 def create_case_draft(case_id: str):
     cases = _cases()
     try:
+        origin = cases.federated_origin(_actor(), case_id)
+        uploaded = [item for item in request.files.getlist("attachments") if item and item.filename]
+        draft_id = uuid.uuid4().hex if origin is not None else None
+        values = {
+            "recipients_to": request.form.get("to", ""),
+            "subject": request.form.get("subject", ""),
+            "body": request.form.get("body", ""),
+            "sender_identity": request.form.get("sender_identity", ""),
+            "recipients_cc": request.form.get("cc", ""),
+            "recipients_bcc": request.form.get("bcc", ""),
+        }
+        if origin is not None:
+            if uploaded:
+                raise ValueError("federated draft attachments are not supported by this transport")
+            _mail_case_federation().remote_action(
+                _actor(), case_id, "draft.create",
+                {"draft_id": draft_id, **values},
+            )
         draft_id = cases.create_draft(
             _actor(), case_id,
-            request.form.get("to", ""), request.form.get("subject", ""), request.form.get("body", ""),
-            sender_identity=request.form.get("sender_identity", ""),
-            cc=request.form.get("cc", ""), bcc=request.form.get("bcc", ""),
+            values["recipients_to"], values["subject"], values["body"],
+            sender_identity=values["sender_identity"],
+            cc=values["recipients_cc"], bcc=values["recipients_bcc"],
+            draft_id=draft_id,
         )
-        uploaded = [item for item in request.files.getlist("attachments") if item and item.filename]
         for item in uploaded:
             _save_draft_upload(cases, case_id, draft_id, item)
+        if origin is None:
+            _sync_federated_case(case_id)
         flash(
             f"Antwortentwurf wurde mit {len(uploaded)} Anhang/Anhängen gespeichert und nicht versendet."
             if uploaded else
@@ -590,12 +622,29 @@ def create_case_draft(case_id: str):
 @login_required
 def update_case_draft(case_id: str, draft_id: str):
     try:
-        _cases().update_draft(
+        cases = _cases()
+        values = {
+            "recipients_to": request.form.get("to", ""),
+            "subject": request.form.get("subject", ""),
+            "body": request.form.get("body", ""),
+            "sender_identity": request.form.get("sender_identity", ""),
+            "recipients_cc": request.form.get("cc", ""),
+            "recipients_bcc": request.form.get("bcc", ""),
+        }
+        origin = cases.federated_origin(_actor(), case_id)
+        if origin is not None:
+            _mail_case_federation().remote_action(
+                _actor(), case_id, "draft.update",
+                {"draft_id": draft_id, **values},
+            )
+        cases.update_draft(
             _actor(), case_id, draft_id,
-            request.form.get("to", ""), request.form.get("subject", ""), request.form.get("body", ""),
-            sender_identity=request.form.get("sender_identity", ""),
-            cc=request.form.get("cc", ""), bcc=request.form.get("bcc", ""),
+            values["recipients_to"], values["subject"], values["body"],
+            sender_identity=values["sender_identity"],
+            cc=values["recipients_cc"], bcc=values["recipients_bcc"],
         )
+        if origin is None:
+            _sync_federated_case(case_id)
         flash("Antwortentwurf wurde aktualisiert.")
     except Exception as exc:
         current_app.logger.warning("Mail case draft update failed for %s: %s", _actor(), type(exc).__name__)
@@ -681,7 +730,15 @@ def case_draft_attachment(case_id: str, draft_id: str, document_id: str):
 @login_required
 def request_case_draft_send(case_id: str, draft_id: str):
     try:
-        _cases().request_draft_send(_actor(), case_id, draft_id)
+        cases = _cases()
+        origin = cases.federated_origin(_actor(), case_id)
+        if origin is not None:
+            _mail_case_federation().remote_action(
+                _actor(), case_id, "draft.request_send", {"draft_id": draft_id},
+            )
+        cases.request_draft_send(_actor(), case_id, draft_id)
+        if origin is None:
+            _sync_federated_case(case_id)
         flash("Versand wurde beim Mailkontoinhaber angefordert.")
     except Exception as exc:
         current_app.logger.warning("Mail case send request failed for %s: %s", _actor(), type(exc).__name__)
@@ -699,6 +756,7 @@ def review_case_draft_send(case_id: str, draft_id: str):
         _cases().review_draft_send(
             _actor(), case_id, draft_id, approve=decision == "approve"
         )
+        _sync_federated_case(case_id)
         flash("Versand freigegeben." if decision == "approve" else "Versand abgelehnt.")
     except Exception as exc:
         current_app.logger.warning("Mail case send review failed for %s: %s", _actor(), type(exc).__name__)
@@ -788,7 +846,16 @@ def send_case_draft(case_id: str, draft_id: str):
 @login_required
 def update_case_status(case_id: str):
     try:
-        _cases().set_status(_actor(), case_id, request.form.get("status", "").strip())
+        cases = _cases()
+        status = request.form.get("status", "").strip()
+        origin = cases.federated_origin(_actor(), case_id)
+        if origin is not None:
+            _mail_case_federation().remote_action(
+                _actor(), case_id, "status.set", {"status": status},
+            )
+        cases.set_status(_actor(), case_id, status)
+        if origin is None:
+            _sync_federated_case(case_id)
         flash("Vorgangsstatus wurde aktualisiert.")
     except Exception as exc:
         current_app.logger.warning("Mail case status update failed for %s: %s", _actor(), type(exc).__name__)
