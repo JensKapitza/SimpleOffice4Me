@@ -21,12 +21,24 @@ CRAWL_SKIP_PREFIXES = (
     "/s3",
     "/.well-known/",
     "/static/",
+    "/mcp",
+    "/network-boot/ipxe",
 )
 CRAWL_SKIP_EXACT = {
     "/favicon.ico",
     "/auth/login",
     "/auth/logout",
     "/auth/register",
+    "/admin/activity",
+    "/documents/mail/autoconfig",
+    "/inventory/amazon",
+    "/inventory/lookup",
+    "/inventory/marketplace/search",
+    "/mcp",
+    "/network-boot/ipxe",
+    "/resource-commander/api/range",
+    "/shopping/barcode",
+    "/vault/api/v1/search",
 }
 CRAWL_SKIP_AUTH_PREFIXES = (
     "/auth/google",
@@ -114,6 +126,8 @@ def browser_page_candidate(url: str, base_url: str) -> bool:
         for key, _value in parse_qsl(parsed.query, keep_blank_values=True)
     }
     if query_keys & CRAWL_SENSITIVE_QUERY_KEYS:
+        return False
+    if "/api/" in lowered:
         return False
     if path in CRAWL_SKIP_EXACT or any(
         path.startswith(prefix) for prefix in CRAWL_SKIP_PREFIXES
