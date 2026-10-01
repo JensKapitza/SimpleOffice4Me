@@ -11,6 +11,8 @@
   const saved = (() => { try { return JSON.parse(root.dataset.savedLocator || '{}'); } catch (_) { return {}; } })();
   let current = format === 'pdf' ? Math.max(1, Number(saved.page || 1)) : Math.max(0, Number(saved.chapter_index || 0));
   let currentChapterId = format === 'epub' ? String(saved.chapter || '') : '';
+  let currentOffset = format === 'epub' ? Math.max(0, Number(saved.offset || 0)) : 0;
+  let restoredOffset = false;
   let fontScale = 1;
   let contrast = false;
   let saveTimer = null;
@@ -35,7 +37,7 @@
   };
   const locator = () => format === 'pdf'
     ? {page: current}
-    : {chapter: currentChapterId || String(current), chapter_index: current, anchor: '', cfi: '', offset: 0};
+    : {chapter: currentChapterId || String(current), chapter_index: current, anchor: '', cfi: '', offset: currentOffset};
   const percent = () => {
     const total = format === 'pdf' ? pageCount : Number(root.querySelectorAll('[data-reader-chapter]').length || 1);
     return total > 0 ? Math.min(100, Math.max(0, Math.round(((current + (format === 'pdf' ? 0 : 1)) / total) * 100))) : 0;
@@ -66,8 +68,14 @@
       epubBody.innerHTML = chapter.html || '<p>(Leeres Kapitel)</p>';
       epubBody.style.fontSize = (1.05 * fontScale) + 'rem';
       updateStatus(total);
+      if (!restoredOffset && Number(saved.chapter_index || 0) === current && currentOffset > 0) {
+        restoredOffset = true;
+        requestAnimationFrame(() => window.scrollTo({top: epubBody.offsetTop + currentOffset, behavior: 'auto'}));
+      } else {
+        currentOffset = 0;
+        window.scrollTo({top: root.offsetTop, behavior: 'smooth'});
+      }
       scheduleSave();
-      window.scrollTo({top: root.offsetTop, behavior: 'smooth'});
     } catch (error) { showError(error.message); }
   };
 
@@ -135,6 +143,15 @@
   }));
   root.querySelector('[data-reader-theme]')?.addEventListener('click', () => { contrast = !contrast; root.classList.toggle('bg-dark', contrast); root.classList.toggle('text-light', contrast); });
   root.querySelector('[data-reader-fullscreen]')?.addEventListener('click', () => { if (!document.fullscreenElement) root.requestFullscreen?.(); else document.exitFullscreen?.(); });
+  let scrollTimer = null;
+  window.addEventListener('scroll', () => {
+    if (format !== 'epub' || !epubBody) return;
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      currentOffset = Math.max(0, Math.round(window.scrollY - epubBody.offsetTop));
+      scheduleSave();
+    }, 250);
+  }, {passive: true});
 
   if (format === 'epub') {
     const byId = [...root.querySelectorAll('[data-reader-chapter]')].find(
