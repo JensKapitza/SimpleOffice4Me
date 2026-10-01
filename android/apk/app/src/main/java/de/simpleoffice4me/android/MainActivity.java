@@ -18,6 +18,7 @@ import android.os.Looper;
 import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
+import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.ValueCallback;
@@ -360,7 +361,8 @@ public class MainActivity extends Activity {
                 + "enqueue:(type,id,baseVersion,payload)=>String(window.SimpleOfficeAndroid.enqueueOfflineMutation(bridgeToken,String(type||''),String(id||''),String(baseVersion||''),String(payload==null?'':payload))),"
                 + "outbox:()=>JSON.parse(String(window.SimpleOfficeAndroid.offlineOutbox(bridgeToken))),"
                 + "ack:(operationId,status)=>String(window.SimpleOfficeAndroid.acknowledgeOfflineMutation(bridgeToken,String(operationId||''),String(status||''))),"
-                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken))};}"
+                + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken)),"
+                + "switchAccount:()=>String(window.SimpleOfficeAndroid.switchOfflineAccount(bridgeToken))};}"
                 + "else{delete window.SimpleOfficeOffline;}"
                 + "window.SimpleOfficeNativeAudio={"
                 + "status:()=>JSON.parse(String(window.SimpleOfficeAndroid.audioStatus(bridgeToken))),"
@@ -663,6 +665,25 @@ public class MainActivity extends Activity {
         public String clearOfflineData(String token) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
             return offlineWorksetStore.clear();
+        }
+
+        @JavascriptInterface
+        public String switchOfflineAccount(String token) {
+            if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
+            String cleared = offlineWorksetStore.clear();
+            if (!"ok".equals(cleared)) return cleared;
+            boolean identityCleared = getSharedPreferences(
+                    "simpleoffice-android-identity", MODE_PRIVATE).edit().clear().commit();
+            if (!identityCleared) return "identity-error";
+            mainHandler.post(() -> {
+                CookieManager cookies = CookieManager.getInstance();
+                cookies.removeAllCookies(removed -> {
+                    cookies.flush();
+                    startActivity(new Intent(MainActivity.this, BootstrapActivity.class));
+                    finish();
+                });
+            });
+            return "ok";
         }
 
         @JavascriptInterface
