@@ -80,7 +80,9 @@ class MailCaseStore:
                 created_by TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                closed_at TEXT
+                closed_at TEXT,
+                federation_peer_id TEXT NOT NULL DEFAULT '',
+                federation_case_id TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS mail_case_message(
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,6 +92,7 @@ class MailCaseStore:
                 message_id TEXT NOT NULL DEFAULT '',
                 in_reply_to TEXT NOT NULL DEFAULT '',
                 references_json TEXT NOT NULL DEFAULT '[]',
+                content_ref TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 UNIQUE(case_id, mail_reference)
             );
@@ -155,9 +158,25 @@ class MailCaseStore:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(mail_case)")}
             if "account_owner" not in columns:
                 db.execute("ALTER TABLE mail_case ADD COLUMN account_owner TEXT NOT NULL DEFAULT ''")
+            if "federation_peer_id" not in columns:
+                db.execute("ALTER TABLE mail_case ADD COLUMN federation_peer_id TEXT NOT NULL DEFAULT ''")
+            if "federation_case_id" not in columns:
+                db.execute("ALTER TABLE mail_case ADD COLUMN federation_case_id TEXT NOT NULL DEFAULT ''")
             db.execute(
-                "UPDATE mail_case SET account_owner=created_by WHERE account_owner=''"
+                "UPDATE mail_case SET account_owner=created_by WHERE account_owner='' AND federation_peer_id=''"
             )
+            db.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS uq_mail_case_federated_origin
+                   ON mail_case(federation_peer_id,federation_case_id)
+                   WHERE federation_peer_id<>'' AND federation_case_id<>''"""
+            )
+            message_columns = {
+                row["name"] for row in db.execute("PRAGMA table_info(mail_case_message)")
+            }
+            if "content_ref" not in message_columns:
+                db.execute(
+                    "ALTER TABLE mail_case_message ADD COLUMN content_ref TEXT NOT NULL DEFAULT ''"
+                )
             draft_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(mail_case_draft)")
             }
@@ -248,7 +267,7 @@ class MailCaseStore:
             for item in result["participants"]:
                 item["permissions"] = json.loads(item.pop("permissions_json"))
             result["messages"] = [dict(x) for x in db.execute(
-                "SELECT mail_reference,direction,message_id,in_reply_to,references_json,created_at FROM mail_case_message WHERE case_id=? ORDER BY id",
+                "SELECT mail_reference,direction,message_id,in_reply_to,references_json,content_ref,created_at FROM mail_case_message WHERE case_id=? ORDER BY id",
                 (case_id,),
             )]
             read_rows = [dict(x) for x in db.execute(
@@ -362,6 +381,523 @@ class MailCaseStore:
         for message_id in ambiguous_message_ids:
             by_message_id.pop(message_id, None)
         return {"by_reference": by_reference, "by_message_id": by_message_id}
+
+    def _permissions_for_federated(
+        self,
+        db: sqlite3.Connection,
+        case_id: str,
+        peer_id: str,
+        remote_user_id: str,
+    ) -> set[str]:
+        row = db.execute(
+            """SELECT permissions_json FROM mail_case_participant
+               WHERE case_id=? AND participant_type='federated_user'
+                 AND peer_id=? AND remote_user_id=?""",
+            (case_id, peer_id, remote_user_id),
+        ).fetchone()
+        if row is None:
+            return set()
+        try:
+            return set(json.loads(row["permissions_json"]))
+        except (TypeError, json.JSONDecodeError):
+            return set()
+
+    def _require_federated(
+        self,
+        db: sqlite3.Connection,
+        case_id: str,
+        peer_id: str,
+        remote_user_id: str,
+        permission: str,
+    ) -> None:
+        if permission not in self._permissions_for_federated(
+            db, case_id, peer_id, remote_user_id
+        ):
+            raise PermissionError("federated mail case access denied")
+
+    @staticmethod
+    def _federated_actor(peer_id: str, remote_user_id: str) -> str:
+        return f"federated:{peer_id}:{remote_user_id}"[:500]
+
+    @staticmethod
+    def _transport_id(value: str, label: str) -> str:
+        raw = str(value or "").strip().casefold()
+        try:
+            parsed = uuid.UUID(raw)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError(f"invalid {label}") from exc
+        if parsed.hex != raw:
+            raise ValueError(f"invalid {label}")
+        return raw
+
+    def federated_case(self, peer_id: str, remote_user_id: str, case_id: str) -> dict:
+        with self._db() as db:
+            permissions = self._permissions_for_federated(
+                db, case_id, peer_id, remote_user_id
+            )
+            if "read" not in permissions:
+                raise PermissionError("federated mail case access denied")
+            row = db.execute("SELECT * FROM mail_case WHERE id=?", (case_id,)).fetchone()
+            if row is None:
+                raise KeyError(case_id)
+            result = dict(row)
+            result["permissions"] = sorted(permissions)
+            result["participants"] = [dict(x) for x in db.execute(
+                """SELECT id,participant_type,local_user_id,peer_id,remote_user_id,
+                          permissions_json,added_by,added_at
+                   FROM mail_case_participant WHERE case_id=? ORDER BY id""",
+                (case_id,),
+            )]
+            for item in result["participants"]:
+                item["permissions"] = json.loads(item.pop("permissions_json"))
+            result["messages"] = [dict(x) for x in db.execute(
+                """SELECT mail_reference,direction,message_id,in_reply_to,references_json,
+                          content_ref,created_at
+                   FROM mail_case_message WHERE case_id=? ORDER BY id""",
+                (case_id,),
+            )]
+            for item in result["messages"]:
+                item["references"] = json.loads(item.pop("references_json"))
+            result["comments"] = [dict(x) for x in db.execute(
+                """SELECT id,author,body,created_at,updated_at
+                   FROM mail_case_comment WHERE case_id=? ORDER BY created_at,id""",
+                (case_id,),
+            )]
+            result["drafts"] = [dict(x) for x in db.execute(
+                """SELECT id,author,sender_identity,recipients_to,recipients_cc,
+                          recipients_bcc,subject,body,status,created_at,updated_at
+                   FROM mail_case_draft WHERE case_id=? ORDER BY created_at,id""",
+                (case_id,),
+            )]
+            return result
+
+    def federated_message_access(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        case_id: str,
+        mail_reference: str,
+    ) -> dict:
+        with self._db() as db:
+            self._require_federated(db, case_id, peer_id, remote_user_id, "read")
+            row = db.execute(
+                """SELECT c.account_id,c.account_owner,m.mail_reference
+                   FROM mail_case c JOIN mail_case_message m ON m.case_id=c.id
+                   WHERE c.id=? AND m.mail_reference=?""",
+                (case_id, mail_reference),
+            ).fetchone()
+            if row is None:
+                raise KeyError(mail_reference)
+            if str(row["federation_peer_id"] if "federation_peer_id" in row.keys() else ""):
+                raise PermissionError("federated mirrors cannot re-export mail content")
+            return dict(row)
+
+    def add_federated_comment(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        case_id: str,
+        comment_id: str,
+        body: str,
+    ) -> str:
+        comment_id = self._transport_id(comment_id, "comment id")
+        body = str(body or "").strip()
+        if not body or len(body.encode("utf-8")) > 1024 * 1024:
+            raise ValueError("comment is empty or too large")
+        actor = self._federated_actor(peer_id, remote_user_id)
+        now = _now()
+        with self._db(write=True) as db:
+            self._require_federated(db, case_id, peer_id, remote_user_id, "comment")
+            existing = db.execute(
+                "SELECT body FROM mail_case_comment WHERE case_id=? AND id=?",
+                (case_id, comment_id),
+            ).fetchone()
+            if existing is not None:
+                if str(existing["body"]) != body:
+                    raise ValueError("comment id already exists with different content")
+                return comment_id
+            db.execute(
+                "INSERT INTO mail_case_comment VALUES(?,?,?,?,?,?)",
+                (comment_id, case_id, actor, body, now, now),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_comment_created", actor, case_id,
+            {"comment_id": comment_id, "federated": True},
+        )
+        return comment_id
+
+    def create_federated_draft(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        case_id: str,
+        draft_id: str,
+        recipients_to: str,
+        subject: str,
+        body: str,
+        *,
+        sender_identity: str = "",
+        cc: str = "",
+        bcc: str = "",
+    ) -> str:
+        draft_id = self._transport_id(draft_id, "draft id")
+        recipients_to = str(recipients_to or "").strip()
+        subject = str(subject or "").strip()
+        sender_identity = str(sender_identity or "").strip()
+        cc = str(cc or "").strip()
+        bcc = str(bcc or "").strip()
+        if not recipients_to or not subject:
+            raise ValueError("recipient and subject are required")
+        if any("\r" in value or "\n" in value for value in (recipients_to, cc, bcc, sender_identity, subject)):
+            raise ValueError("draft header fields must not contain line breaks")
+        if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
+            raise ValueError("recipient list is too long")
+        if len(subject.encode("utf-8")) > 998 or len(sender_identity) > 500:
+            raise ValueError("draft header is too long")
+        if len(str(body or "").encode("utf-8")) > 1024 * 1024:
+            raise ValueError("draft body is too large")
+        actor = self._federated_actor(peer_id, remote_user_id)
+        now = _now()
+        with self._db(write=True) as db:
+            self._require_federated(db, case_id, peer_id, remote_user_id, "compose")
+            existing = db.execute(
+                "SELECT * FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if existing is not None:
+                same = (
+                    str(existing["recipients_to"]) == recipients_to
+                    and str(existing["recipients_cc"]) == cc
+                    and str(existing["recipients_bcc"]) == bcc
+                    and str(existing["subject"]) == subject
+                    and str(existing["body"]) == str(body or "")
+                    and str(existing["sender_identity"]) == sender_identity
+                )
+                if not same:
+                    raise ValueError("draft id already exists with different content")
+                return draft_id
+            db.execute(
+                """INSERT INTO mail_case_draft(
+                       id,case_id,author,sender_identity,recipients_to,recipients_cc,
+                       recipients_bcc,subject,body,attachments_json,status,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,?,?,?,?,'[]','draft',?,?)""",
+                (
+                    draft_id, case_id, actor, sender_identity, recipients_to, cc, bcc,
+                    subject, str(body or ""), now, now,
+                ),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_draft_created", actor, case_id,
+            {"draft_id": draft_id, "federated": True},
+        )
+        return draft_id
+
+    def update_federated_draft(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        case_id: str,
+        draft_id: str,
+        recipients_to: str,
+        subject: str,
+        body: str,
+        *,
+        sender_identity: str = "",
+        cc: str = "",
+        bcc: str = "",
+    ) -> None:
+        draft_id = self._transport_id(draft_id, "draft id")
+        actor = self._federated_actor(peer_id, remote_user_id)
+        recipients_to = str(recipients_to or "").strip()
+        subject = str(subject or "").strip()
+        sender_identity = str(sender_identity or "").strip()
+        cc = str(cc or "").strip()
+        bcc = str(bcc or "").strip()
+        if not recipients_to or not subject:
+            raise ValueError("recipient and subject are required")
+        if any("\r" in value or "\n" in value for value in (recipients_to, cc, bcc, sender_identity, subject)):
+            raise ValueError("draft header fields must not contain line breaks")
+        if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
+            raise ValueError("recipient list is too long")
+        if len(subject.encode("utf-8")) > 998 or len(sender_identity) > 500:
+            raise ValueError("draft header is too long")
+        if len(str(body or "").encode("utf-8")) > 1024 * 1024:
+            raise ValueError("draft body is too large")
+        now = _now()
+        with self._db(write=True) as db:
+            self._require_federated(db, case_id, peer_id, remote_user_id, "compose")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] in {"ready", "approved", "sending", "sent"}:
+                raise ValueError("submitted, approved or sent draft cannot be edited")
+            next_status = "draft" if row["status"] in {"rejected", "failed"} else row["status"]
+            db.execute(
+                """UPDATE mail_case_draft SET
+                       sender_identity=?,recipients_to=?,recipients_cc=?,recipients_bcc=?,
+                       subject=?,body=?,status=?,updated_at=?
+                   WHERE case_id=? AND id=?""",
+                (
+                    sender_identity, recipients_to, cc, bcc, subject, str(body or ""),
+                    next_status, now, case_id, draft_id,
+                ),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_draft_changed", actor, case_id,
+            {"draft_id": draft_id, "federated": True},
+        )
+
+    def request_federated_draft_send(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        case_id: str,
+        draft_id: str,
+    ) -> str:
+        draft_id = self._transport_id(draft_id, "draft id")
+        actor = self._federated_actor(peer_id, remote_user_id)
+        now = _now()
+        with self._db(write=True) as db:
+            self._require_federated(db, case_id, peer_id, remote_user_id, "send_request")
+            row = db.execute(
+                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
+                (case_id, draft_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(draft_id)
+            if row["status"] not in {"draft", "rejected", "failed"}:
+                raise ValueError("draft is not requestable")
+            db.execute(
+                "UPDATE mail_case_draft SET status='ready',updated_at=? WHERE case_id=? AND id=?",
+                (now, case_id, draft_id),
+            )
+            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
+        self._audit(
+            "mail_case_send_requested", actor, case_id,
+            {"draft_id": draft_id, "federated": True},
+        )
+        return "ready"
+
+    def set_federated_status(
+        self,
+        peer_id: str,
+        remote_user_id: str,
+        case_id: str,
+        status: str,
+    ) -> None:
+        if status not in STATUSES:
+            raise ValueError("invalid mail case status")
+        actor = self._federated_actor(peer_id, remote_user_id)
+        now = _now()
+        with self._db(write=True) as db:
+            self._require_federated(db, case_id, peer_id, remote_user_id, "manage_status")
+            db.execute(
+                "UPDATE mail_case SET status=?,updated_at=?,closed_at=? WHERE id=?",
+                (status, now, now if status == "erledigt" else None, case_id),
+            )
+        self._audit(
+            "mail_case_status_changed", actor, case_id,
+            {"status": status, "federated": True},
+        )
+
+    def federated_origin(self, actor: str, case_id: str) -> dict | None:
+        with self._db() as db:
+            self._require(db, case_id, actor, "read")
+            row = db.execute(
+                """SELECT federation_peer_id,federation_case_id
+                   FROM mail_case WHERE id=?""",
+                (case_id,),
+            ).fetchone()
+        if row is None or not row["federation_peer_id"]:
+            return None
+        return {
+            "peer_id": str(row["federation_peer_id"]),
+            "case_id": str(row["federation_case_id"]),
+        }
+
+    def upsert_federated_snapshot(
+        self,
+        local_user: str,
+        peer_id: str,
+        remote_user_id: str,
+        snapshot: dict,
+    ) -> str:
+        remote_case_id = str(snapshot.get("case_id") or "").strip()
+        title = str(snapshot.get("title") or "").strip()
+        status = str(snapshot.get("status") or "")
+        if not remote_case_id or len(remote_case_id) > 240:
+            raise ValueError("invalid federated case id")
+        if not title or len(title) > 500 or status not in STATUSES:
+            raise ValueError("invalid federated case snapshot")
+        permissions = _permissions(snapshot.get("permissions") or ())
+        if "read" not in permissions:
+            raise PermissionError("federated snapshot does not grant read")
+        messages = snapshot.get("messages") or []
+        comments = snapshot.get("comments") or []
+        drafts = snapshot.get("drafts") or []
+        if not isinstance(messages, list) or len(messages) > 1000:
+            raise ValueError("invalid federated message list")
+        if not isinstance(comments, list) or len(comments) > 2000:
+            raise ValueError("invalid federated comment list")
+        if not isinstance(drafts, list) or len(drafts) > 500:
+            raise ValueError("invalid federated draft list")
+        now = _now()
+        with self._db(write=True) as db:
+            row = db.execute(
+                """SELECT id FROM mail_case
+                   WHERE federation_peer_id=? AND federation_case_id=?""",
+                (peer_id, remote_case_id),
+            ).fetchone()
+            case_id = str(row["id"]) if row else uuid.uuid4().hex
+            if row is None:
+                db.execute(
+                    """INSERT INTO mail_case(
+                           id,title,status,account_id,account_owner,created_by,created_at,
+                           updated_at,closed_at,federation_peer_id,federation_case_id
+                       ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        case_id, title, status, f"federation:{peer_id}", "",
+                        f"federation:{peer_id}", now, now,
+                        now if status == "erledigt" else None, peer_id, remote_case_id,
+                    ),
+                )
+            else:
+                db.execute(
+                    """UPDATE mail_case SET title=?,status=?,updated_at=?,closed_at=?
+                       WHERE id=?""",
+                    (title, status, now, now if status == "erledigt" else None, case_id),
+                )
+            db.execute(
+                """INSERT INTO mail_case_participant(
+                       case_id,participant_type,local_user_id,peer_id,remote_user_id,
+                       permissions_json,added_by,added_at
+                   ) VALUES(?,'local_user',?,NULL,NULL,?,?,?)
+                   ON CONFLICT(case_id,local_user_id) WHERE participant_type='local_user'
+                   DO UPDATE SET permissions_json=excluded.permissions_json""",
+                (case_id, local_user, json.dumps(permissions), f"federation:{peer_id}", now),
+            )
+
+            seen_messages: set[str] = set()
+            for item in messages:
+                if not isinstance(item, dict):
+                    raise ValueError("invalid federated message")
+                mail_reference = str(item.get("mail_reference") or "").strip()
+                direction = str(item.get("direction") or "")
+                if not mail_reference or len(mail_reference) > 240 or direction not in {"inbound", "outbound"}:
+                    raise ValueError("invalid federated message")
+                seen_messages.add(mail_reference)
+                db.execute(
+                    """INSERT INTO mail_case_message(
+                           case_id,mail_reference,direction,message_id,in_reply_to,
+                           references_json,content_ref,created_at
+                       ) VALUES(?,?,?,?,?,?,?,?)
+                       ON CONFLICT(case_id,mail_reference) DO UPDATE SET
+                         direction=excluded.direction,message_id=excluded.message_id,
+                         in_reply_to=excluded.in_reply_to,references_json=excluded.references_json,
+                         content_ref=excluded.content_ref""",
+                    (
+                        case_id, mail_reference, direction,
+                        str(item.get("message_id") or "")[:998],
+                        str(item.get("in_reply_to") or "")[:998],
+                        json.dumps(list(item.get("references") or ())[:100]),
+                        str(item.get("content_ref") or "")[:500],
+                        str(item.get("created_at") or now)[:80],
+                    ),
+                )
+            if seen_messages:
+                placeholders = ",".join("?" for _ in seen_messages)
+                db.execute(
+                    f"DELETE FROM mail_case_message WHERE case_id=? AND mail_reference NOT IN ({placeholders})",
+                    (case_id, *sorted(seen_messages)),
+                )
+            else:
+                db.execute("DELETE FROM mail_case_message WHERE case_id=?", (case_id,))
+
+            seen_comments: set[str] = set()
+            for item in comments:
+                if not isinstance(item, dict):
+                    raise ValueError("invalid federated comment")
+                comment_id = self._transport_id(str(item.get("id") or ""), "comment id")
+                body = str(item.get("body") or "")
+                if len(body.encode("utf-8")) > 1024 * 1024:
+                    raise ValueError("federated comment is too large")
+                seen_comments.add(comment_id)
+                created = str(item.get("created_at") or now)[:80]
+                updated = str(item.get("updated_at") or created)[:80]
+                db.execute(
+                    """INSERT INTO mail_case_comment(id,case_id,author,body,created_at,updated_at)
+                       VALUES(?,?,?,?,?,?)
+                       ON CONFLICT(id) DO UPDATE SET
+                         author=excluded.author,body=excluded.body,updated_at=excluded.updated_at""",
+                    (
+                        comment_id, case_id, str(item.get("author") or "federated")[:500],
+                        body, created, updated,
+                    ),
+                )
+            if seen_comments:
+                placeholders = ",".join("?" for _ in seen_comments)
+                db.execute(
+                    f"DELETE FROM mail_case_comment WHERE case_id=? AND id NOT IN ({placeholders})",
+                    (case_id, *sorted(seen_comments)),
+                )
+            else:
+                db.execute("DELETE FROM mail_case_comment WHERE case_id=?", (case_id,))
+
+            seen_drafts: set[str] = set()
+            for item in drafts:
+                if not isinstance(item, dict):
+                    raise ValueError("invalid federated draft")
+                draft_id = self._transport_id(str(item.get("id") or ""), "draft id")
+                draft_status = str(item.get("status") or "draft")
+                if draft_status not in DRAFT_STATUSES:
+                    raise ValueError("invalid federated draft status")
+                seen_drafts.add(draft_id)
+                created = str(item.get("created_at") or now)[:80]
+                updated = str(item.get("updated_at") or created)[:80]
+                db.execute(
+                    """INSERT INTO mail_case_draft(
+                           id,case_id,author,sender_identity,recipients_to,recipients_cc,
+                           recipients_bcc,subject,body,attachments_json,status,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,?,?,?,?,'[]',?,?,?)
+                       ON CONFLICT(id) DO UPDATE SET
+                         author=excluded.author,sender_identity=excluded.sender_identity,
+                         recipients_to=excluded.recipients_to,recipients_cc=excluded.recipients_cc,
+                         recipients_bcc=excluded.recipients_bcc,subject=excluded.subject,
+                         body=excluded.body,status=excluded.status,updated_at=excluded.updated_at""",
+                    (
+                        draft_id, case_id, str(item.get("author") or "federated")[:500],
+                        str(item.get("sender_identity") or "")[:500],
+                        str(item.get("recipients_to") or "")[:4000],
+                        str(item.get("recipients_cc") or "")[:4000],
+                        str(item.get("recipients_bcc") or "")[:4000],
+                        str(item.get("subject") or "")[:998],
+                        str(item.get("body") or "")[:1024 * 1024],
+                        draft_status, created, updated,
+                    ),
+                )
+            if seen_drafts:
+                placeholders = ",".join("?" for _ in seen_drafts)
+                db.execute(
+                    f"DELETE FROM mail_case_draft WHERE case_id=? AND id NOT IN ({placeholders})",
+                    (case_id, *sorted(seen_drafts)),
+                )
+            else:
+                db.execute("DELETE FROM mail_case_draft WHERE case_id=?", (case_id,))
+        self._audit(
+            "mail_case_federated_snapshot_applied", local_user, case_id,
+            {
+                "peer_id": peer_id,
+                "remote_case_id": remote_case_id,
+                "remote_user_id": remote_user_id,
+            },
+        )
+        return case_id
 
     def add_participant(
         self, actor: str, case_id: str, *, local_user_id: str | None = None,
