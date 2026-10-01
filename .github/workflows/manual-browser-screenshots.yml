@@ -174,6 +174,7 @@ jobs:
           exit 1
 
       - name: Export live Flask route inventory
+        id: route_inventory
         shell: bash
         run: |
           set -euo pipefail
@@ -183,6 +184,7 @@ jobs:
             > test-results/browser/route-inventory.json
 
       - name: Run browser screenshot and peer-to-peer test
+        id: browser_test
         env:
           BROWSER_SCREENSHOT_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'all-pages' }}
           BROWSER_MAX_PAGES: ${{ github.event_name == 'workflow_dispatch' && inputs.max_pages || '2500' }}
@@ -196,13 +198,19 @@ jobs:
           python tests/browser/manual_screenshot_smoke.py
 
       - name: Validate rendered HTML5 with Nu Html Checker
-        if: always()
+        if: always() && steps.route_inventory.outcome == 'success'
+        env:
+          BROWSER_TEST_OUTCOME: ${{ steps.browser_test.outcome }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p test-results/browser
           if ! find test-results/browser/html -type f -name '*.html' -print -quit 2>/dev/null | grep -q .; then
-            echo "No rendered HTML snapshots found." | tee test-results/browser/html-validation.log
+            if [ "${BROWSER_TEST_OUTCOME:-}" != "success" ]; then
+              echo "HTML5 validation skipped because the browser crawl did not complete successfully." | tee test-results/browser/html-validation.log
+              exit 0
+            fi
+            echo "No rendered HTML snapshots found after a successful browser crawl." | tee test-results/browser/html-validation.log
             exit 1
           fi
           docker run --rm \
