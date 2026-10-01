@@ -168,7 +168,7 @@ class ReadingStateStore:
         text: str,
         expected_version: str,
         *,
-        kind: str = "note",
+        annotation_kind: str = "note",
         quote: str = "",
     ) -> dict[str, Any]:
         document = self.documents.get_document(document_id)
@@ -179,7 +179,7 @@ class ReadingStateStore:
         clean = str(text or "").strip()
         if not clean or len(clean) > MAX_ANNOTATION_TEXT:
             raise ValueError("annotation text is empty or too long")
-        annotation_kind = str(kind or "note").strip().casefold()
+        annotation_kind = str(annotation_kind or "note").strip().casefold()
         if annotation_kind not in {"note", "question", "summary"}:
             raise ValueError("annotation kind is invalid")
         clean_quote = str(quote or "").strip()
