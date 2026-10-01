@@ -47,6 +47,36 @@ MAX_QUERY_VARIANTS_PER_PATH = max(
     1, int(os.environ.get("BROWSER_MAX_QUERY_VARIANTS_PER_PATH", "50"))
 )
 
+NAVIGATION_OBSERVER_SCRIPT = r"""
+(() => {
+  if (window.__simpleofficeCrawlObserverInstalled) return;
+  window.__simpleofficeCrawlObserverInstalled = true;
+  window.__simpleofficeCrawlUrls = window.__simpleofficeCrawlUrls || [];
+  const remember = value => {
+    if (value === null || value === undefined || value === '') return;
+    try {
+      const href = new URL(String(value), document.baseURI).href;
+      if (!window.__simpleofficeCrawlUrls.includes(href)) {
+        window.__simpleofficeCrawlUrls.push(href);
+      }
+    } catch (_) {}
+  };
+  for (const method of ['pushState', 'replaceState']) {
+    const original = history[method];
+    history[method] = function(state, title, url) {
+      remember(url);
+      return original.apply(this, arguments);
+    };
+  }
+  addEventListener('popstate', () => remember(location.href));
+})();
+"""
+
+
+def install_navigation_observer(context) -> None:
+    """Capture client-side navigation targets before application scripts run."""
+    context.add_init_script(NAVIGATION_OBSERVER_SCRIPT)
+
 
 def _compact(value: str) -> str:
     return " ".join((value or "").split())
@@ -150,24 +180,90 @@ def load_route_inventory(
     return seeds
 
 
-def discover_links(page, *, base_url: str) -> list[dict[str, str]]:
-    raw_links = page.locator("a[href]").evaluate_all(
-        """elements => elements.map(element => ({
-            label: (element.innerText || element.textContent || '').replace(/\\s+/g, ' ').trim(),
-            href: element.href,
-            download: element.hasAttribute('download')
-        }))"""
-    )
+def normalize_discovered_targets(
+    raw_targets: list[dict[str, object]],
+    *,
+    base_url: str,
+) -> list[dict[str, str]]:
+    """Normalize and filter browser-discovered navigation targets."""
     discovered: list[dict[str, str]] = []
-    for item in raw_links:
-        if item.get("download"):
+    seen: set[str] = set()
+    for item in raw_targets:
+        if not isinstance(item, dict) or item.get("download"):
             continue
         href = canonical_browser_url(str(item.get("href", "")))
-        if not browser_page_candidate(href, base_url):
+        if (
+            not browser_page_candidate(href, base_url)
+            or href in seen
+        ):
             continue
+        seen.add(href)
         label = _compact(str(item.get("label", ""))) or urlparse(href).path or href
-        discovered.append({"label": label, "href": href, "source": "crawl"})
+        source = _compact(str(item.get("source", ""))) or "dom-link"
+        discovered.append({"label": label, "href": href, "source": source})
     return discovered
+
+
+def discover_links(page, *, base_url: str) -> list[dict[str, str]]:
+    """Discover all safe same-origin navigation targets in the rendered page."""
+    raw_targets = page.evaluate(
+        """() => {
+            const items = [];
+            const text = element => (
+                element?.getAttribute?.('aria-label')
+                || element?.innerText
+                || element?.textContent
+                || ''
+            ).replace(/\\s+/g, ' ').trim();
+            const add = (element, href, source, label = '') => {
+                if (!href) return;
+                try {
+                    items.push({
+                        label: label || text(element),
+                        href: new URL(href, document.baseURI).href,
+                        source,
+                        download: Boolean(element?.hasAttribute?.('download')),
+                    });
+                } catch (_) {}
+            };
+
+            document.querySelectorAll('a[href], area[href]').forEach(element => {
+                add(element, element.getAttribute('href'), 'dom-link');
+            });
+            document.querySelectorAll('iframe[src], frame[src]').forEach(element => {
+                add(element, element.getAttribute('src'), 'dom-frame');
+            });
+            document.querySelectorAll('form').forEach(form => {
+                const method = (form.getAttribute('method') || 'get').toLowerCase();
+                if (method === 'get') add(form, form.getAttribute('action') || location.href, 'dom-get-form');
+            });
+            document.querySelectorAll('button[formaction], input[formaction]').forEach(element => {
+                const form = element.form;
+                const method = (
+                    element.getAttribute('formmethod')
+                    || form?.getAttribute('method')
+                    || 'get'
+                ).toLowerCase();
+                if (method === 'get') add(element, element.getAttribute('formaction'), 'dom-get-formaction');
+            });
+            document.querySelectorAll('[data-href]').forEach(element => {
+                add(element, element.getAttribute('data-href'), 'dom-data-href');
+            });
+            document.querySelectorAll('meta[http-equiv="refresh" i][content]').forEach(element => {
+                const content = element.getAttribute('content') || '';
+                const match = content.match(/(?:^|;)\\s*url\\s*=\\s*(?:"([^"]+)"|'([^']+)'|([^;]+))/i);
+                const href = match && (match[1] || match[2] || match[3]);
+                if (href) add(element, href.trim(), 'meta-refresh', document.title);
+            });
+            for (const href of (window.__simpleofficeCrawlUrls || [])) {
+                add(null, href, 'history-api', document.title);
+            }
+            return items;
+        }"""
+    )
+    if not isinstance(raw_targets, list):
+        return []
+    return normalize_discovered_targets(raw_targets, base_url=base_url)
 
 
 def write_screenshot_gallery(
