@@ -20,7 +20,7 @@
           <ul class="dropdown-menu" aria-labelledby="nav-work">
             <li><a class="dropdown-item" href="{{ url_for('documents.projects') }}"><i class="fas fa-diagram-project fa-fw me-2" aria-hidden="true"></i>Projekte</a></li>
             <li><a class="dropdown-item" href="{{ url_for('site_visits.index') }}"><i class="fas fa-location-dot fa-fw me-2" aria-hidden="true"></i>Ortstermine</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check fa-fw me-2" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a></li>
+            {% if feature_enabled('projects') %}<li><a class="dropdown-item" href="{{ url_for('tasks.board') }}"><i class="fas fa-list-check fa-fw me-2" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a></li>{% endif %}
             <li><a class="dropdown-item" href="{{ url_for('shopping.index') }}"><i class="fas fa-basket-shopping fa-fw me-2" aria-hidden="true"></i>Einkaufen</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes fa-fw me-2" aria-hidden="true"></i>Objekte</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.forms') }}"><i class="fas fa-table-list fa-fw me-2" aria-hidden="true"></i>{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a></li>

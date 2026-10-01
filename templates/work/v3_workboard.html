@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
     <div><h1 class="h2 mb-1">Workboard 3.0</h1><p class="text-secondary mb-0">Aufgaben und Termine gemeinsam planen, Standards getrennt halten.</p></div>
-    <div class="btn-group"><a class="btn btn-outline-secondary" href="{{ url_for('tasks.board') }}">Aufgaben</a><a class="btn btn-outline-secondary" href="{{ url_for('documents.calendar') }}">Kalender</a></div>
+    <div class="btn-group">{% if feature_enabled('projects') %}<a class="btn btn-outline-secondary" href="{{ url_for('tasks.board') }}">Aufgaben</a>{% endif %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.calendar') }}">Kalender</a></div>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if not enabled %}

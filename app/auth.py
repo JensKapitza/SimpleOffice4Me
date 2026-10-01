@@ -322,8 +322,13 @@ def load_logged_in_user():
 FEATURE_BLUEPRINTS = {
     "documents": "documents", "calendar": "documents", "contacts": "documents",
     "mail_routes": "mail", "contact_audit": "contacts", "webdav": "webdav",
-    "datalogger": "datalogger",
+    "tasks": "projects", "datalogger": "datalogger",
 }
+
+
+@bp.app_context_processor
+def feature_permission_context():
+    return {"feature_enabled": lambda feature: has_feature(g.get("user"), feature)}
 
 
 @bp.before_app_request

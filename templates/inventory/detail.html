@@ -29,7 +29,7 @@
         </dl>
       </div></div>
 
-      <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong><a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a></div><div class="card-body">
+      <div class="card shadow-sm mb-3"><div class="card-header d-flex justify-content-between align-items-center"><strong>Prüfungen und Wiedervorlagen</strong>{% if feature_enabled('projects') %}<a class="small" href="{{ url_for('tasks.board', q='Inventar #' ~ item.display_id) }}">Aufgaben anzeigen</a>{% endif %}</div><div class="card-body">
         {% set rules = inventory.inspections|default([]) %}
         {% for rule in rules %}
           <article class="border rounded p-3 mb-3 {{ 'border-danger' if rule.active and rule.next_due and rule.next_due < today else '' }}">
