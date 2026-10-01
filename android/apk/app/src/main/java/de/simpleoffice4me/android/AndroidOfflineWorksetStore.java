@@ -14,7 +14,9 @@ import java.io.FileOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -54,6 +56,7 @@ final class AndroidOfflineWorksetStore {
         if (!enforceOwner()) return "blocked";
         recoverInterruptedItemWrites();
         pruneExpired();
+        cleanupOrphanedItemFiles();
         return "ok";
     }
 
@@ -494,6 +497,42 @@ final class AndroidOfflineWorksetStore {
             if (recovery == null) continue;
             if (target.exists() && !target.delete()) continue;
             recovery.renameTo(target);
+        }
+    }
+
+    private void cleanupOrphanedItemFiles() {
+        JSONArray items = state.optJSONArray("items");
+        if (items == null) return;
+        Set<String> known = new HashSet<>();
+        for (int i = 0; i < items.length(); i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item == null) continue;
+            String id = normalizeId(item.optString("id"));
+            String kind = normalizeKind(item.optString("kind"));
+            if (id != null && kind != null) known.add(itemFile(kind, id).getName());
+        }
+
+        File[] files = root.listFiles();
+        if (files == null) return;
+        for (File file : files) {
+            if (!file.isFile()) continue;
+            String name = file.getName();
+            if (name.endsWith(".cache")) {
+                if (!known.contains(name)) file.delete();
+                continue;
+            }
+            if (name.endsWith(".cache.tmp")) {
+                file.delete();
+                continue;
+            }
+            String base = null;
+            if (name.endsWith(".cache.remove.bak")) {
+                base = name.substring(0, name.length() - ".remove.bak".length());
+            } else if (name.endsWith(".cache.bak")) {
+                base = name.substring(0, name.length() - ".bak".length());
+            }
+            if (base == null) continue;
+            if (!known.contains(base) || new File(root, base).isFile()) file.delete();
         }
     }
 
