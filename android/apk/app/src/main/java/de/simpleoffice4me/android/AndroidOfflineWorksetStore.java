@@ -369,7 +369,7 @@ final class AndroidOfflineWorksetStore {
 
     synchronized String clear() {
         if (!enforceOwner()) return "blocked";
-        deleteRecursively(root);
+        if (!deleteRecursively(root)) return "io-error";
         state = emptyState(currentOwner());
         return persist() ? "ok" : "io-error";
     }
@@ -379,9 +379,15 @@ final class AndroidOfflineWorksetStore {
         if (owner.isEmpty()) return false;
         String stored = state.optString("owner", "");
         if (!stored.equals(owner)) {
-            deleteRecursively(root);
+            if (!deleteRecursively(root)) {
+                state = emptyState("");
+                return false;
+            }
             state = emptyState(owner);
-            if (!persist()) return false;
+            if (!persist()) {
+                state = emptyState("");
+                return false;
+            }
         }
         return true;
     }
@@ -609,12 +615,14 @@ final class AndroidOfflineWorksetStore {
         }
     }
 
-    private static void deleteRecursively(File file) {
-        if (file == null || !file.exists()) return;
+    private static boolean deleteRecursively(File file) {
+        if (file == null || !file.exists()) return true;
+        boolean removed = true;
         if (file.isDirectory()) {
             File[] children = file.listFiles();
-            if (children != null) for (File child : children) deleteRecursively(child);
+            if (children == null) return false;
+            for (File child : children) removed = deleteRecursively(child) && removed;
         }
-        file.delete();
+        return file.delete() && removed;
     }
 }
