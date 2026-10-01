@@ -106,6 +106,10 @@ zweites Aufgabenmodell angelegt.
   Basis-ETag. Abweichungen werden als sichtbarer Konflikt behandelt.
 - Eine Operation-ID ist pro Benutzer idempotent. Das Receipt wird im selben
   atomaren `todo.json`-Commit wie die Statusänderung gespeichert.
+- Native Cache-Payloads erhalten zusätzlich einen SHA-256-Inhaltshash. Beim Lesen
+  und nach einem unterbrochenen Dateiaustausch wird der Inhalt gegen die zum
+  Index gehörende Prüfsumme validiert; ein unpassender Payload wird nicht als
+  gültiger Offline-Stand ausgeliefert.
 - `NavigationActivity` meldet einen wiederhergestellten Netzwerkzugang an die
   WebView; die Offline-Oberfläche stößt dann den Outbox-Sync an.
 - `window.SimpleOfficeOffline` wird nur erzeugt, wenn die serverseitige
