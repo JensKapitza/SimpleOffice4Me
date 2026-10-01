@@ -269,11 +269,18 @@ def update_reader_metadata(document_id: str):
     author = request.form.get("author", "").strip()
     if len(title) > 500 or len(author) > 500:
         return jsonify({"error": "metadata_too_long"}), 400
-    _documents().update_metadata(
-        document["document_id"],
-        attributes={"reader_title": title, "reader_author": author},
-        author=_actor(),
-    )
+    try:
+        _documents().update_metadata(
+            document["document_id"],
+            attributes={"reader_title": title, "reader_author": author},
+            author=_actor(),
+        )
+    except (ValueError, PermissionError, OSError) as exc:
+        current_app.logger.warning(
+            "Reader metadata update denied for %s: %s", document_id, type(exc).__name__
+        )
+        flash("Reader-Metadaten konnten für dieses Dokument nicht geändert werden.")
+        return redirect(url_for("reader.open_book", document_id=document_id))
     audit(
         "document_reader_metadata", "document", document_id,
         detail={"title_set": bool(title), "author_set": bool(author)},
