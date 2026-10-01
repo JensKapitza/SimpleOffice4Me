@@ -234,8 +234,15 @@
   const render = async () => {
     if (!bridge) {
       if (nativeState) nativeState.textContent = 'Nicht verfügbar';
-      if (cached) cached.innerHTML = '<div class="list-group-item text-secondary">Offline-Arbeitsdaten sind nur in der Android-App verfügbar.</div>';
-      if (queue) queue.innerHTML = '<div class="list-group-item text-secondary">Kein nativer Offline-Speicher verfügbar.</div>';
+      const unavailable = (target, message) => {
+        if (!target) return;
+        const row = document.createElement('div');
+        row.className = 'list-group-item text-secondary';
+        row.textContent = message;
+        target.replaceChildren(row);
+      };
+      unavailable(cached, 'Offline-Arbeitsdaten sind nur in der Android-App verfügbar.');
+      unavailable(queue, 'Kein nativer Offline-Speicher verfügbar.');
       return;
     }
     if (nativeState) nativeState.textContent = 'Verfügbar';
