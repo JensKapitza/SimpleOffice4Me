@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 15376)
-Total output lines: 1175
-
 package de.simpleoffice4me.android;
 
 import android.Manifest;
@@ -419,7 +416,223 @@ public class MainActivity extends Activity {
 
     private static String googleDriveUiShim() {
         return "document.addEventListener('submit',function(event){"
-                + "const form=event.target;if(!(form instanceof HTMLFormE…3376 tokens truncated… return "disabled";
+                + "const form=event.target;if(!(form instanceof HTMLFormElement))return;let path='';"
+                + "try{path=new URL(form.action,window.location.href).pathname;}catch(error){return;}"
+                + "if(path!=='/settings/google-drive/connect'&&path!=='/settings/google-drive/sync')return;"
+                + "event.preventDefault();event.stopImmediatePropagation();"
+                + "const action=path.endsWith('/sync')?'sync':'connect';"
+                + "const csrf=document.querySelector('meta[name=csrf-token]')?.content||'';"
+                + "const root=document.getElementById('main-content')||document.querySelector('main')||document.body;"
+                + "let notice=document.getElementById('android-google-drive-status');"
+                + "if(!notice){notice=document.createElement('div');notice.id='android-google-drive-status';root.insertBefore(notice,root.firstChild);}"
+                + "notice.className='alert alert-primary';notice.textContent='Google-Berechtigung wird auf Android geprüft …';"
+                + "const result=String(window.SimpleOfficeAndroid.authorizeGoogleDrive(bridgeToken,action,csrf));"
+                + "if(result!=='ok'){notice.className='alert alert-warning';notice.textContent=result==='busy'?'Eine Google-Autorisierung läuft bereits.':'Native Google-Autorisierung ist nicht verfügbar.';}"
+                + "},true);";
+    }
+
+    private static String audioUiShim() {
+        return "const audioRoot=document.getElementById('audio-streamer-app');"
+                + "if(audioRoot){const nativeAudio=window.SimpleOfficeNativeAudio;const status=document.getElementById('stream-status');"
+                + "const show=(text,kind)=>{if(status){status.className='alert alert-'+(kind||'secondary');status.textContent=text;}};"
+                + "const render=()=>{const state=nativeAudio.status();const sender=state.sender&&state.sender.running?'Sender läuft':'Sender aus';"
+                + "const receiver=state.receiver&&state.receiver.running?'Receiver läuft auf Port '+state.receiver.port:'Receiver aus';"
+                + "if(state.last_error)show(state.last_error,'danger');else show(sender+' · '+receiver+' · Android nativ','secondary');};"
+                + "const backend=document.getElementById('capture-backend');if(backend){let option=Array.from(backend.options).find(o=>o.value==='android');"
+                + "if(!option){option=new Option('Android · automatisch','android',true,true);backend.prepend(option);}backend.value='android';backend.disabled=true;}"
+                + "const source=document.getElementById('capture-source');if(source){source.value='Android Systemmikrofon';source.readOnly=true;}"
+                + "const speaker=document.getElementById('speaker-device');if(speaker){speaker.value='Android Systemausgabe';speaker.readOnly=true;}"
+                + "const virtualMic=document.getElementById('virtual-microphone');if(virtualMic){virtualMic.checked=false;virtualMic.disabled=true;}"
+                + "const bitrate=document.getElementById('stream-bitrate');if(bitrate)bitrate.value='64';"
+                + "const receiverPort=document.getElementById('receiver-port');if(receiverPort)receiverPort.value='5004';"
+                + "const explain=(result)=>result==='permission'?['Mikrofonzugriff bitte einmal erlauben. Der Sender startet danach automatisch.','primary']:"
+                + "result==='unsupported'?['Dieses Android-Gerät stellt keinen Opus-Encoder bereit.','warning']:"
+                + "result==='invalid-target'?['Bitte ein Ziel wie 192.168.1.50:5004 angeben.','warning']:"
+                + "result==='invalid-port'?['RTP-Port muss zwischen 1024 und 65535 liegen.','warning']:['Audio-Aktion fehlgeschlagen: '+result,'danger'];"
+                + "document.addEventListener('click',function(event){const button=event.target&&event.target.closest?event.target.closest('#sender-start,#sender-stop,#receiver-start,#receiver-stop'):null;"
+                + "if(!button)return;event.preventDefault();event.stopImmediatePropagation();try{let result='ok';"
+                + "if(button.id==='sender-start'){const box=document.getElementById('stream-targets');const targets=String(box?box.value:'').split(/\\r?\\n/).map(line=>line.trim()).filter(Boolean).map(line=>{const match=line.match(/^(.+):(\\d+)$/);if(!match)throw new Error('Ungültiges Ziel: '+line);return {host:match[1],port:Number(match[2])};});"
+                + "result=nativeAudio.startSender(targets,Number(bitrate&&bitrate.value||64));}"
+                + "else if(button.id==='sender-stop')result=nativeAudio.stopSender();"
+                + "else if(button.id==='receiver-start')result=nativeAudio.startReceiver(Number(receiverPort&&receiverPort.value||5004));"
+                + "else if(button.id==='receiver-stop')result=nativeAudio.stopReceiver();"
+                + "if(result==='ok')render();else{const info=explain(result);show(info[0],info[1]);}}catch(error){show(String(error&&error.message||'Android-Audio konnte nicht gestartet werden.'),'danger');}},true);"
+                + "window.addEventListener('simpleoffice:native-audio-status',event=>{if(event.detail&&event.detail.message)show(String(event.detail.message),'danger');else render();});render();}";
+    }
+
+    private void handleWebPermissionRequest(PermissionRequest request) {
+        if (!localPageVisible || !isTrustedLocalOrigin(request.getOrigin()) || !requestsOnlyVideo(request)) {
+            request.deny();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            return;
+        }
+        denyPendingCameraPermission();
+        pendingCameraPermission = request;
+        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_REQUEST);
+    }
+
+    private static boolean requestsOnlyVideo(PermissionRequest request) {
+        String[] resources = request.getResources();
+        return resources.length == 1 && PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0]);
+    }
+
+    private static boolean isTrustedLocalOrigin(Uri origin) {
+        if (origin == null || !"http".equalsIgnoreCase(origin.getScheme())) return false;
+        String host = origin.getHost();
+        return ("127.0.0.1".equals(host) || "localhost".equals(host)) && origin.getPort() == 8765;
+    }
+
+    private void denyPendingCameraPermission() {
+        PermissionRequest request = pendingCameraPermission;
+        pendingCameraPermission = null;
+        if (request != null) {
+            try {
+                request.deny();
+            } catch (IllegalStateException ignored) {
+            }
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == AUDIO_PERMISSION_REQUEST) {
+            handleAudioPermissionResult(grantResults);
+            return;
+        }
+        if (requestCode != CAMERA_PERMISSION_REQUEST) return;
+        PermissionRequest request = pendingCameraPermission;
+        pendingCameraPermission = null;
+        if (request == null) return;
+        boolean granted = localPageVisible && grantResults.length > 0
+                && grantResults[0] == PackageManager.PERMISSION_GRANTED
+                && isTrustedLocalOrigin(request.getOrigin()) && requestsOnlyVideo(request);
+        try {
+            if (granted) request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            else request.deny();
+        } catch (IllegalStateException ignored) {
+        }
+    }
+
+    private void handleAudioPermissionResult(int[] grantResults) {
+        String targets = pendingAudioTargets;
+        pendingAudioTargets = null;
+        boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+        if (granted && targets != null && webView != null && isLocalUrl(webView.getUrl())) {
+            String result = audioStreamer.startSender(targets, pendingAudioBitrate);
+            dispatchNativeAudioStatus(
+                    "ok".equals(result) ? "" : "Android-Audiosender konnte nicht gestartet werden.");
+        } else {
+            dispatchNativeAudioStatus("Mikrofonberechtigung wurde nicht erteilt.");
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        if (googleAuthorization != null && googleAuthorization.onActivityResult(requestCode, resultCode, data)) return;
+        if (downloadHandler != null && downloadHandler.onActivityResult(requestCode, resultCode, data)) return;
+        if (requestCode == SCREEN_CAPTURE_REQUEST) {
+            screenCapturePermissionPending = false;
+            if (resultCode != RESULT_OK || data == null) {
+                dispatchNativeScreenEvent("cancelled", 0, 0, "", "Bildschirmfreigabe wurde nicht erlaubt.");
+                return;
+            }
+            Intent service = ScreenCaptureService.startIntent(this, resultCode, data);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(service);
+            else startService(service);
+            return;
+        }
+        if (requestCode == FILE_CHOOSER_REQUEST) {
+            ValueCallback<Uri[]> callback = fileChooserCallback;
+            fileChooserCallback = null;
+            if (callback != null) {
+                Uri[] selected = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
+                boolean trustedPage = webView != null && isLocalUrl(webView.getUrl());
+                callback.onReceiveValue(trustedPage ? selected : null);
+            }
+            return;
+        }
+        super.onActivityResult(requestCode, resultCode, data);
+    }
+
+    private void dispatchPdfRender(String requestId, String resultJson, String error) {
+        if (webView == null || !localPageVisible) return;
+        String id = JSONObject.quote(requestId == null ? "" : requestId);
+        String detail;
+        if (error == null || error.isEmpty()) {
+            detail = "{requestId:" + id + ",ok:true,result:" + resultJson + "}";
+        } else {
+            detail = "{requestId:" + id + ",ok:false,error:" + JSONObject.quote(error) + "}";
+        }
+        webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('simpleoffice:pdf-render',{detail:" + detail + "}));",
+                null);
+    }
+
+    private final class NativeBridge {
+        @JavascriptInterface
+        public String requestPdfRender(String token, String requestId, String url, int page, int width) {
+            if (!bridgeAllowed(token)) return "blocked";
+            String id = requestId == null ? "" : requestId.trim();
+            if (!id.matches("[A-Za-z0-9_-]{8,80}")) return "invalid";
+            if (!pdfRenderSlots.tryAcquire()) return "busy";
+            try {
+                executor.execute(() -> {
+                    try {
+                        String result = AndroidPdfRenderer.render(getCacheDir(), url, page, width);
+                        mainHandler.post(() -> dispatchPdfRender(id, result, ""));
+                    } catch (Exception error) {
+                        String safe = error instanceof SecurityException ? "PDF-Zugriff wurde blockiert."
+                                : error instanceof IllegalArgumentException ? "PDF-Seite oder Dateigröße ist ungültig."
+                                : "PDF konnte nicht gerendert werden.";
+                        mainHandler.post(() -> dispatchPdfRender(id, "{}", safe));
+                    } finally {
+                        pdfRenderSlots.release();
+                    }
+                });
+            } catch (RuntimeException error) {
+                pdfRenderSlots.release();
+                return "unavailable";
+            }
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String openCastSettings(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            Intent intent = new Intent(Settings.ACTION_CAST_SETTINGS);
+            if (intent.resolveActivity(getPackageManager()) == null) return "unavailable";
+            mainHandler.post(() -> startActivity(intent));
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String startScreenCapture(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            if (screenCapturePermissionPending || ScreenCaptureService.isRunning()) return "busy";
+            MediaProjectionManager manager = getSystemService(MediaProjectionManager.class);
+            if (manager == null) return "unavailable";
+            screenCapturePermissionPending = true;
+            mainHandler.post(() -> startActivityForResult(manager.createScreenCaptureIntent(), SCREEN_CAPTURE_REQUEST));
+            return "permission";
+        }
+
+        @JavascriptInterface
+        public String stopScreenCapture(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            screenCapturePermissionPending = false;
+            mainHandler.post(() -> startService(ScreenCaptureService.stopIntent(MainActivity.this)));
+            return "ok";
+        }
+
+        @JavascriptInterface
+        public String startNfcScan(String token) {
+            if (!bridgeAllowed(token)) return "blocked";
+            if (nfcAdapter == null) return "unavailable";
+            if (!nfcAdapter.isEnabled()) return "disabled";
             mainHandler.post(MainActivity.this::beginNfcScan);
             return "ok";
         }
