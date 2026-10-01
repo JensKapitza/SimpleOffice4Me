@@ -55,9 +55,6 @@ MAX_PAGES = max(1, int(os.environ.get("BROWSER_MAX_PAGES", "2500")))
 FAIL_ON_CONSOLE_ERRORS = os.environ.get(
     "BROWSER_FAIL_ON_CONSOLE_ERRORS", "true"
 ).strip().lower() in {"1", "true", "yes", "on"}
-REQUIRE_DYNAMIC_ROUTE_COVERAGE = os.environ.get(
-    "BROWSER_REQUIRE_DYNAMIC_ROUTE_COVERAGE", "false"
-).strip().lower() in {"1", "true", "yes", "on"}
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 HTML_DIR = OUTPUT_DIR / "html"
 write_html_snapshot = make_html_snapshot_writer(OUTPUT_DIR)
@@ -906,10 +903,7 @@ def main() -> int:
     update_route_coverage(summary)
     if SCOPE == "all-pages":
         failures.extend(
-            route_coverage_failures(
-                summary,
-                require_dynamic=REQUIRE_DYNAMIC_ROUTE_COVERAGE,
-            )
+            route_coverage_failures(summary)
         )
     write_tested_url_manifest(summary, output_dir=OUTPUT_DIR)
     write_screenshot_gallery(summary, output_dir=OUTPUT_DIR)
