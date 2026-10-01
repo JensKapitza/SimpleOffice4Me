@@ -636,7 +636,6 @@ def main() -> int:
         "max_query_variants_per_path": MAX_QUERY_VARIANTS_PER_PATH,
         "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
-        "require_dynamic_route_coverage": REQUIRE_DYNAMIC_ROUTE_COVERAGE,
         "pages": [],
         "console_errors": [],
         "page_errors": [],
