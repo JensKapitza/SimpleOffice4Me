@@ -278,6 +278,21 @@ class FederationContractStore:
                     created_at TEXT NOT NULL,
                     UNIQUE(case_id, mail_reference, peer_id, remote_user_id)
                 );
+                CREATE TABLE IF NOT EXISTS federation_v3_mail_outbox(
+                    message_id TEXT PRIMARY KEY,
+                    peer_id TEXT NOT NULL,
+                    coalesce_key TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    envelope_json TEXT NOT NULL,
+                    attempts INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS federation_v3_mail_outbox_peer
+                    ON federation_v3_mail_outbox(peer_id, updated_at);
+                CREATE INDEX IF NOT EXISTS federation_v3_mail_outbox_coalesce
+                    ON federation_v3_mail_outbox(peer_id, coalesce_key);
                 """
             )
 
@@ -499,6 +514,101 @@ class FederationContractStore:
                 (token,),
             ).fetchone()
         return dict(row) if row else None
+
+    def queue_mail_outbox(
+        self,
+        envelope: FederationEnvelope,
+        *,
+        error: str,
+    ) -> dict[str, Any]:
+        if envelope.object_type != "mail_cases":
+            raise ValueError("only mail-case envelopes use this outbox")
+        payload = dict(envelope.payload or {})
+        operation = str(payload.get("operation") or "")[:80]
+        if operation not in {"snapshot", "revoke"}:
+            raise ValueError("interactive mail-case actions cannot be queued")
+        recipient_user = str(payload.get("recipient_user_id") or "")[:200]
+        coalesce_key = f"{envelope.object_ref}|{recipient_user}"[:700]
+        if not coalesce_key:
+            raise ValueError("mail-case outbox key is missing")
+        encoded = _bounded_json(envelope.to_mapping(), MAX_ENVELOPE_BYTES)
+        now = _utc()
+        with self.federation._db() as db:
+            db.execute(
+                """DELETE FROM federation_v3_mail_outbox
+                   WHERE peer_id=? AND coalesce_key=? AND message_id<>?""",
+                (envelope.recipient_instance, coalesce_key, envelope.message_id),
+            )
+            db.execute(
+                """INSERT INTO federation_v3_mail_outbox(
+                       message_id,peer_id,coalesce_key,operation,envelope_json,
+                       attempts,last_error,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,1,?,?,?)
+                   ON CONFLICT(message_id) DO UPDATE SET
+                     attempts=federation_v3_mail_outbox.attempts+1,
+                     last_error=excluded.last_error,
+                     updated_at=excluded.updated_at""",
+                (
+                    envelope.message_id,
+                    envelope.recipient_instance,
+                    coalesce_key,
+                    operation,
+                    encoded,
+                    str(error)[:240],
+                    now,
+                    now,
+                ),
+            )
+            row = db.execute(
+                """SELECT message_id,peer_id,coalesce_key,operation,attempts,last_error,
+                          created_at,updated_at
+                   FROM federation_v3_mail_outbox WHERE message_id=?""",
+                (envelope.message_id,),
+            ).fetchone()
+        return dict(row) if row else {}
+
+    def list_mail_outbox(
+        self,
+        peer_id: str = "",
+        *,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        size = max(1, min(int(limit), 1000))
+        peer_id = sanitize_peer_id(peer_id) if peer_id else ""
+        with self.federation._db() as db:
+            if peer_id:
+                rows = db.execute(
+                    """SELECT message_id,peer_id,coalesce_key,operation,envelope_json,
+                              attempts,last_error,created_at,updated_at
+                       FROM federation_v3_mail_outbox WHERE peer_id=?
+                       ORDER BY updated_at LIMIT ?""",
+                    (peer_id, size),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT message_id,peer_id,coalesce_key,operation,envelope_json,
+                              attempts,last_error,created_at,updated_at
+                       FROM federation_v3_mail_outbox
+                       ORDER BY updated_at LIMIT ?""",
+                    (size,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def mark_mail_outbox_error(self, message_id: str, error: str) -> None:
+        with self.federation._db() as db:
+            db.execute(
+                """UPDATE federation_v3_mail_outbox SET
+                     attempts=attempts+1,last_error=?,updated_at=?
+                   WHERE message_id=?""",
+                (str(error)[:240], _utc(), str(message_id)),
+            )
+
+    def delete_mail_outbox(self, message_id: str) -> None:
+        with self.federation._db() as db:
+            db.execute(
+                "DELETE FROM federation_v3_mail_outbox WHERE message_id=?",
+                (str(message_id),),
+            )
 
     def existing(self, message_id: str) -> dict[str, Any] | None:
         with self.federation._db() as db:
