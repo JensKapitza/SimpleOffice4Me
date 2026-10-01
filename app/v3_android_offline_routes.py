@@ -21,7 +21,11 @@ ALLOWED_TASK_STATUSES = {"needs-action", "in-process", "completed", "cancelled"}
 
 @bp.app_context_processor
 def android_offline_capability_context():
-    return {"v3_android_offline_enabled": enabled("v3.android_offline")}
+    user = getattr(g, "user", None)
+    return {
+        "v3_android_offline_enabled": enabled("v3.android_offline"),
+        "v3_android_offline_owner": str(user["id"]) if user is not None else "",
+    }
 
 
 def _require_enabled() -> None:
