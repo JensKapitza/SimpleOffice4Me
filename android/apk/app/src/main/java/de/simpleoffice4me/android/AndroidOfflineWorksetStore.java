@@ -263,7 +263,7 @@ final class AndroidOfflineWorksetStore {
             String payload) {
         enforceOwner();
         String normalizedType = mutationType == null ? "" : mutationType.trim().toLowerCase(Locale.ROOT);
-        if (!("note".equals(normalizedType) || "task_status".equals(normalizedType))) return "unsupported";
+        if (!"task_status".equals(normalizedType)) return "unsupported";
         String normalizedId = normalizeId(targetId);
         String normalizedVersion = normalizeVersion(baseVersion);
         if (normalizedId == null || normalizedVersion == null || payload == null) return "invalid";
