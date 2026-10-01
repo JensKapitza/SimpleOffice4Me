@@ -313,6 +313,16 @@
 
   const syncButton = root.querySelector('[data-offline-sync]');
   if (syncButton) syncButton.addEventListener('click', syncOutbox);
+  const switchButton = root.querySelector('[data-offline-switch-account]');
+  if (switchButton) {
+    switchButton.disabled = !bridge;
+    switchButton.addEventListener('click', () => {
+      if (!bridge) return;
+      if (!window.confirm('Android-Konto wechseln? Lokale Offline-Daten und vorgemerkte Änderungen werden vorher gelöscht.')) return;
+      const result = bridge.switchAccount();
+      if (result !== 'ok') show(`Kontowechsel nicht möglich: ${result}`, 'warning');
+    });
+  }
   const clearButton = root.querySelector('[data-offline-clear]');
   if (clearButton) clearButton.addEventListener('click', async () => {
     if (!bridge) return;
