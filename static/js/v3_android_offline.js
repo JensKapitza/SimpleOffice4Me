@@ -293,8 +293,12 @@
       });
       for (const result of payload.results || []) {
         if (result.status === 'synced') {
+          try {
+            await refreshTaskFromServer(result.targetId);
+          } catch (_) {
+            continue;
+          }
           bridge.ack(result.operationId, 'synced');
-          try { await refreshTaskFromServer(result.targetId); } catch (_) {}
         } else if (result.status === 'conflict') {
           bridge.ack(result.operationId, 'conflict');
         } else {
