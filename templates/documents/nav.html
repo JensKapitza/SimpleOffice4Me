@@ -106,6 +106,7 @@
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}"><i class="fas fa-note-sticky fa-fw me-2" aria-hidden="true"></i>{{ tr('notes') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}"><i class="fas fa-book fa-fw me-2" aria-hidden="true"></i>{{ tr('logbook') }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('reader.shelf') }}"><i class="fas fa-book-open fa-fw me-2" aria-hidden="true"></i>Bücherregal</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}"><i class="fas fa-wand-magic-sparkles fa-fw me-2" aria-hidden="true"></i>Einrichten</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}"><i class="fas fa-cog fa-fw me-2" aria-hidden="true"></i>{{ tr('settings') }}</a></li>
             {% if v3_android_offline_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('v3_android_offline.index') }}"><i class="fas fa-mobile-screen-button fa-fw me-2" aria-hidden="true"></i>Android Offline</a></li>{% endif %}
