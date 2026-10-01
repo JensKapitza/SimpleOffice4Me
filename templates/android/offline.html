@@ -23,7 +23,7 @@
   </div>
 
   {% if not enabled %}
-    <div class="alert alert-secondary">Die optionale Funktion <code>v3.android_offline</code> ist deaktiviert. Das bestehende Verhalten bleibt unverändert.</div>
+    <div class="alert alert-secondary" role="status" aria-live="polite">Die optionale Funktion <code>v3.android_offline</code> ist deaktiviert. Das bestehende Verhalten bleibt unverändert.</div>
   {% else %}
     <div class="alert alert-info d-none" role="status" data-offline-message></div>
     <div class="row g-3 mb-3">
