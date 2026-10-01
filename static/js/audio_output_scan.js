@@ -126,6 +126,6 @@
       finally { button.disabled = false; }
     };
     button.addEventListener('click', scan);
-    scan();
+    // Scanning local hardware is user initiated; headless CI has no audio device.
   }
 })();
