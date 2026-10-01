@@ -218,6 +218,7 @@ def index():
     case_timeline: list[dict] = []
     case_mail_preview = None
     case_users: list[dict] = []
+    case_federation_peers: list[dict] = []
     case_history: list[dict] = []
     ui_features = selected.get("ui_features", {}) if selected else {}
     can_delegated_send = False
@@ -225,21 +226,39 @@ def index():
     if case_id:
         try:
             case_view = cases.get_case(_actor(), case_id)
-            ui_features = store.ui_features(case_view["account_owner"], case_view["account_id"])
-            can_delegated_send = cases.delegations.has_active(
-                case_view["account_owner"], case_view["account_id"], _actor()
-            )
+            origin = cases.federated_origin(_actor(), case_id)
+            if origin is None:
+                ui_features = store.ui_features(case_view["account_owner"], case_view["account_id"])
+                can_delegated_send = cases.delegations.has_active(
+                    case_view["account_owner"], case_view["account_id"], _actor()
+                )
             if case_mail_id:
                 reference = _mail_reference(case_mail_id)
-                if any(row["mail_reference"] == reference for row in case_view["messages"]):
-                    case_mail_preview = load_local_eml_by_id(
-                        store, case_view["account_owner"], case_view["account_id"], case_mail_id
-                    )
+                message_row = next(
+                    (row for row in case_view["messages"] if row["mail_reference"] == reference),
+                    None,
+                )
+                if message_row is not None:
+                    if origin is None:
+                        case_mail_preview = load_local_eml_by_id(
+                            store, case_view["account_owner"], case_view["account_id"], case_mail_id
+                        )
+                    else:
+                        raw = _mail_case_federation(store).fetch_remote_content(
+                            str(origin["peer_id"]),
+                            str(message_row.get("content_ref") or ""),
+                            reference,
+                        )
+                        case_mail_preview = preview_eml_bytes(raw)
                     _add_attachment_scan_state(case_mail_preview)
                     cases.mark_read(_actor(), case_id, reference)
                     store.history.record(
                         "mail_case_message_viewed", _actor(), "mail-case", case_id,
-                        {"mail_reference": reference, "account_id": case_view["account_id"]},
+                        {
+                            "mail_reference": reference,
+                            "account_id": case_view["account_id"],
+                            "federation_peer": str(origin["peer_id"]) if origin else "",
+                        },
                     )
                     case_view = cases.get_case(_actor(), case_id)
             for item in case_view["messages"]:
@@ -250,16 +269,22 @@ def index():
                 case_timeline.append({"kind": "draft", **item})
             case_timeline.sort(key=lambda row: (str(row.get("created_at", "")), str(row.get("id", ""))))
             case_history = store.history.events(category="mail-case", key=case_id, limit=100)
-            if "manage_participants" in case_view["permissions"]:
+            if "manage_participants" in case_view["permissions"] and origin is None:
                 rows = get_db().execute(
                     "SELECT username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
                 ).fetchall()
                 case_users = [dict(row) for row in rows]
+                federation = _mail_case_federation(store)
+                case_federation_peers = [
+                    peer for peer in federation.contract.peers.list_peers()
+                    if peer.get("enabled") and federation._policy(peer).get("send") is True
+                ]
         except (PermissionError, KeyError, ValueError, FileNotFoundError):
             case_view = None
             case_timeline = []
             case_mail_preview = None
             case_history = []
+            case_federation_peers = []
 
     if selected and mode != "case":
         read_only = MailAccountPolicy(store).read_only(_actor(), selected["id"])
@@ -338,6 +363,7 @@ def index():
         case_timeline=case_timeline,
         case_mail_preview=case_mail_preview,
         case_users=case_users,
+        case_federation_peers=case_federation_peers,
         case_history=case_history,
         preview_case_id=preview_case_id,
         suggested_case_id=suggested_case_id,
