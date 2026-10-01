@@ -12,6 +12,7 @@ if str(BROWSER_DIR) not in sys.path:
     sys.path.insert(0, str(BROWSER_DIR))
 
 from page_crawl import (  # noqa: E402
+    CrawlFrontier,
     browser_page_candidate,
     canonical_browser_url,
     load_route_inventory,
@@ -141,6 +142,38 @@ class BrowserPageCrawlTests(unittest.TestCase):
             base_url=base,
         )
         self.assertEqual([], discovered)
+
+    def test_frontier_bounds_queries_and_reports_rejections(self):
+        base = "http://127.0.0.1:8080"
+        summary = {"crawl_skipped_query_variants": 0}
+        frontier = CrawlFrontier(summary, base_url=base, max_query_variants=1)
+
+        self.assertTrue(
+            frontier.enqueue(
+                {"label": "One", "href": f"{base}/reports?view=one", "source": "dom-link"}
+            )
+        )
+        self.assertFalse(
+            frontier.enqueue(
+                {"label": "Duplicate", "href": f"{base}/reports?view=one#x", "source": "history-api"}
+            )
+        )
+        self.assertFalse(
+            frontier.enqueue(
+                {"label": "Two", "href": f"{base}/reports?view=two", "source": "dom-link"}
+            )
+        )
+        self.assertFalse(
+            frontier.enqueue(
+                {"label": "External", "href": "https://example.invalid/reports", "source": "dom-link"}
+            )
+        )
+
+        self.assertEqual(1, summary["crawl_skipped_query_variants"])
+        self.assertEqual(1, frontier.discovery["duplicate_urls"])
+        self.assertEqual(1, frontier.discovery["rejected_urls"])
+        self.assertEqual({"dom-link": 1}, frontier.discovery["queued_by_source"])
+        self.assertEqual(1, len(frontier.queue))
 
     def test_route_inventory_seeds_static_pages_only(self):
         payload = {
