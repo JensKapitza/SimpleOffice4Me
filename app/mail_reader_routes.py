@@ -657,6 +657,8 @@ def update_case_draft(case_id: str, draft_id: str):
 def add_case_draft_attachment(case_id: str, draft_id: str):
     cases = _cases()
     try:
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated draft attachments must be added on the owner instance")
         upload = request.files.get("attachment")
         attachment = _save_draft_upload(cases, case_id, draft_id, upload)
         flash(f"Anhang „{attachment['filename']}“ wurde geprüft und gespeichert.")
@@ -673,6 +675,8 @@ def add_case_draft_attachment(case_id: str, draft_id: str):
 def remove_case_draft_attachment(case_id: str, draft_id: str, document_id: str):
     cases = _cases()
     try:
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated draft attachments are managed by the owner instance")
         attachment = cases.draft_attachment(_actor(), case_id, draft_id, document_id)
         cases.remove_draft_attachment(_actor(), case_id, draft_id, document_id)
         try:
@@ -698,6 +702,8 @@ def remove_case_draft_attachment(case_id: str, draft_id: str, document_id: str):
 def case_draft_attachment(case_id: str, draft_id: str, document_id: str):
     cases = _cases()
     try:
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("federated draft attachments are not stored locally")
         attachment = cases.draft_attachment(_actor(), case_id, draft_id, document_id)
         payload = _draft_attachment_store().read(
             case_id=case_id, draft_id=draft_id, attachment=attachment
@@ -771,6 +777,8 @@ def send_case_draft(case_id: str, draft_id: str):
     cases = _cases(store)
     draft = None
     try:
+        if cases.federated_origin(_actor(), case_id) is not None:
+            raise PermissionError("SMTP send is only allowed on the mail account owner instance")
         draft = cases.begin_draft_send(_actor(), case_id, draft_id)
         account_owner = draft["account_owner"]
         MailAccountPolicy(store).require_writable(account_owner, draft["account_id"])
@@ -803,6 +811,7 @@ def send_case_draft(case_id: str, draft_id: str):
             "Mail case SMTP delivery state unknown for %s/%s: %s",
             case_id, draft_id, exc.delivery_status,
         )
+        _sync_federated_case(case_id, store)
         flash(
             "Der SMTP-Zustand ist unklar: Die Nachricht könnte bereits angenommen worden sein. "
             "Nicht erneut senden; Versand/Archiv und Serverprotokoll prüfen."
@@ -816,6 +825,7 @@ def send_case_draft(case_id: str, draft_id: str):
                 current_app.logger.exception(
                     "Mail case failed-send state could not be persisted for %s", case_id
                 )
+        _sync_federated_case(case_id, store)
         current_app.logger.warning("Mail case SMTP send failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Versand fehlgeschlagen ({type(exc).__name__}). Es wurde nicht automatisch erneut gesendet.")
         return _case_redirect(case_id)
@@ -830,6 +840,7 @@ def send_case_draft(case_id: str, draft_id: str):
             _actor(), case_id, draft_id,
             f"sha512:{result['sha512']}", result["message_id"],
         )
+        _sync_federated_case(case_id, store)
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und im Vorgang archiviert.")
     except Exception:
         current_app.logger.exception(
@@ -873,9 +884,24 @@ def case_attachment(case_id: str, archive_id: str, part_index: int):
         reference = _mail_reference(archive_id)
         if not any(row["mail_reference"] == reference for row in case["messages"]):
             raise KeyError(reference)
-        attachment = load_local_attachment_by_id(
-            store, case["account_owner"], case["account_id"], archive_id, part_index
-        )
+        origin = cases.federated_origin(_actor(), case_id)
+        if origin is None:
+            attachment = load_local_attachment_by_id(
+                store, case["account_owner"], case["account_id"], archive_id, part_index
+            )
+        else:
+            message_row = next(
+                (row for row in case["messages"] if row["mail_reference"] == reference),
+                None,
+            )
+            if message_row is None:
+                raise KeyError(reference)
+            raw = _mail_case_federation(store).fetch_remote_content(
+                str(origin["peer_id"]),
+                str(message_row.get("content_ref") or ""),
+                reference,
+            )
+            attachment = attachment_from_eml_bytes(raw, part_index)
         record = scan_attachment_for_download(
             current_app.config["DOCUMENT_ROOT"], _actor(), case["account_id"], archive_id,
             attachment["name"], attachment["payload"],
