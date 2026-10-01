@@ -104,10 +104,13 @@ Offline-Auswahl freigegeben:
   Benutzer den Konflikt verwerfen und den aktuellen Serverstand übernehmen.
 - Das Android-Netzwerkmonitoring löst beim Wiederverbinden einen Sync aus. Ein
   manueller Sync bleibt zusätzlich verfügbar.
-- Der Cache ist an die ausgewählte Android-Identität gebunden. Ein Identitätswechsel
-  macht fremde Daten durch `enforceOwner()` unzugänglich und verwirft sie.
-  **Android-Konto wechseln** löscht Offline-Daten und Outbox zusätzlich vor dem
-  Löschen von Identität und WebView-Cookies.
+- Der Cache ist gleichzeitig an die ausgewählte Android-Identität und die
+  authentifizierte SimpleOffice-Benutzer-ID gebunden. Auf einer ausgeloggten Seite
+  wird die Offline-Bridge nicht bereitgestellt. Wechselt die Web-Session trotzdem
+  zu einem anderen SimpleOffice-Benutzer, verwirft `enforceOwner()` den vorherigen
+  Offline-Bestand, bevor er gelesen werden kann. **Android-Konto wechseln** löscht
+  Offline-Daten und Outbox zusätzlich vor dem Löschen von Identität und
+  WebView-Cookies.
 - Der gesamte Offline-Bereich kann manuell gelöscht werden.
 
 Die PWA bleibt unverändert: Ihr Service Worker speichert weiterhin keine Kontakte,
