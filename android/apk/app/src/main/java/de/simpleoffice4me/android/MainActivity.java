@@ -688,7 +688,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String switchOfflineAccount(String token) {
             if (!bridgeAllowed(token) || offlineWorksetStore == null) return "blocked";
-            String cleared = offlineWorksetStore.clear();
+            String cleared = offlineWorksetStore.clearForAccountSwitch();
             if (!"ok".equals(cleared)) return cleared;
             boolean identityCleared = getSharedPreferences(
                     "simpleoffice-android-identity", MODE_PRIVATE).edit().clear().commit();
