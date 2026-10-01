@@ -1,13 +1,15 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 24.09.2026. Die historische Matrix basiert auf #296/#298 und wurde gegen den aktuellen main-Stand sowie die inzwischen gemergten Folge-PRs abgeglichen.
+Stand: 01.10.2026, geprüft gegen `main` `c97d47424f1a81249f3ca62514f12291e7dd4101`.
+Der Abgleich umfasst den zuvor angegebenen Stand `0ac15b1431364d61f322153254401b5a095dfe7c` sowie den danach gemergten PR #537.
+Die historische Matrix basiert auf #296/#298; sie wird hier gegen den heutigen Stand neu bewertet.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
 und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
 werden nicht als Nachweis für das gesamte Produkt gewertet.
 
 
-## Abgleich mit aktuellem main vom 21.09.2026
+## Abgleich mit aktuellem main vom 01.10.2026
 
 Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen:
 
@@ -18,11 +20,23 @@ Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen
 - #333 sowie #346–#349 sind gemergt: der DLNA/UPnP-MediaRenderer besitzt
   Konfiguration, MediaRenderer-Protokollkern, gebundenen SSDP/HTTP-Dienst,
   sicheren Media-Fetch/Playback sowie Mini-Services-Worker/Admin-Integration.
-  #285 bleibt für praktische Audio-/Video-/Controller-Hardwareabnahme offen;
+  die praktische Audio-/Video-/Controller-Hardwareabnahme bleibt offen;
   die Softwarekette wird nicht erneut implementiert.
 - Die vorherigen Screen-, CLI-, Baseline-, Gateway- und Diagnosereparaturen
   bleiben Bestandteil von main; historische Draft-/Ersatz-PRs sind kein
   zusätzlicher offener Implementierungsstrang.
+- PR #463 ist am 25.09.2026 gemergt. Er ergänzt den Extended-Quality-
+  Loopback-Smoke, den Diagnose-Log-Audit und die beiden Abnahme-Matrizen.
+- PR #537 ist nach `0ac15b1` gemergt und nimmt `tools` in die moderne und
+  Legacy-Paketdefinition auf. `tests/test_mini_packaging.py` prüft, dass
+  `tools.service_control` auch isoliert importierbar ist. Das schließt eine
+  Paketierungslücke im bestehenden Mini-Service-CLI-Laufzeitpfad; es fügt
+  keinen neuen Dienst oder eine zweite Startarchitektur hinzu.
+- Die nach dem 24.09. gemergten Änderungen an Android-Offlinefunktionen und
+  den Browser-Routenläufen (#503, #531, #533, #535) ändern die hier bewerteten
+  Mini-Service-Protokolle nicht. Dynamische Browser-Routenabdeckung verbessert
+  den manuellen UI-Lauf, ist aber kein visueller oder praktischer
+  Plattformnachweis.
 
 Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
@@ -34,19 +48,21 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 ### Status der Issue-Checkliste
 
-- **Aktueller Stand/CI/PR-Abgleich:** auf 24.09.2026 aktualisiert. DHCP-
+- **Aktueller Stand/CI/PR-Abgleich:** auf `c97d4742` vom 01.10.2026 aktualisiert.
+  PR #463 (Abnahme-Gates) und #537 (Paketierung `tools`) sind gemergt. DHCP-
   Fremdservererkennung (#418) und sichere UFW/firewalld-Verwaltung (#424) sind
   Bestandteil des Softwarestands und werden nicht mehr als Implementierungslücke
   geführt. Laufende fachfremde PRs werden nicht als Mini-Services-Nachweis gewertet.
 - **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
   bleibt als Prüfnachweis offen.
 - **Diagnose-URL-Datenschutz:** durch #338 erledigt.
-- **DLNA (#285):** Softwareimplementierung vorhanden; praktische Hardware- und
-  Controller-Abnahme offen.
+- **DLNA (#285):** Issue geschlossen; Softwareimplementierung über #333 und
+  #346–#349 vorhanden. Praktische Hardware- und Controller-Abnahme bleibt
+  offen.
 - **Security-/Logprüfung:** bekannte rohe Exception-Ausgaben in Screen- und
   Audio-Admin-Pfaden sind redigiert. `tools/mini_services_log_audit.py` prüft
-  die Mini-Services-/Netzwerk-/Audio-/Screen-Runtimequellen künftig in CI gegen
-  direktes Durchreichen von Exception-Text an UI-/JSON-/Log-Sinks.
+  in Extended Quality CI Mini-Services-/Netzwerk-/Audio-/Screen-Runtimequellen
+  gegen direktes Durchreichen von Exception-Text an UI-/JSON-/Log-Sinks.
 - **Negativfall-Matrix:** `MINI_SERVICES_FAILURE_MATRIX.md` ordnet Doppelstart,
   Stop/Restart, Port-/Rechte-/Netz-/Gerätefehler, Recovery und externe
   Hardwarefälle pro Dienst einem CI- oder externen Nachweis zu.
@@ -145,20 +161,22 @@ Loopback und vom OS zugewiesene Ports. Keine DHCP-Pakete ins LAN, keine externen
 DNS-Anfragen, keine Änderung von Routing oder Firewall. DNS-TCP und -UDP erhalten
 hier getrennte freie Ports: gemessen wird der Lifecycle, nicht DNS-Verkehr.
 
-Messumgebung: Python 3.12.14, Linux 6.18.44, x86_64, glibc 2.39.
+Aktueller Lauf vom 01.10.2026 auf Prüfcommit `c97d4742`:
+Python 3.12.14, Linux 6.18.44, x86_64, glibc 2.39.
 Fünf Starts/Stops je Dienst auf derselben Instanz; Konstruktor und Python-Import
 sind nicht in der Startzeit enthalten. CPU ist Prozess-CPU je Start/Stop-Zyklus.
 
-| Dienst | Start Median / Max ms | Doppelstart Median ms | Stop Median / Max ms | CPU Median ms |
-|---|---:|---:|---:|---:|
-| DHCP | 0,235 / 0,251 | 0,003 | 1001,263 / 1001,287 | 0,338 |
-| DNS | 0,355 / 0,605 | 0,003 | 1001,247 / 1001,301 | 0,577 |
-| TFTP | 0,183 / 0,225 | 0,003 | 1001,227 / 1001,278 | 0,326 |
-| SIP | 0,187 / 1,682 | 0,003 | 1001,202 / 1001,235 | 0,300 |
+| Dienst | Konstruktion Median / Max ms | Python-Heap-Peak Median / Max KiB | Start Median / Max ms | Doppelstart Median / Max ms | Stop Median / Max ms | CPU Median / Max ms |
+|---|---:|---:|---:|---:|---:|---:|
+| DHCP | 0,357 / 0,697 | 6,125 / 6,344 | 0,225 / 0,336 | 0,003 / 0,005 | 1001,229 / 1001,275 | 0,501 / 0,560 |
+| DNS | 0,180 / 0,337 | 6,208 / 6,599 | 0,426 / 0,669 | 0,004 / 0,009 | 1001,255 / 1001,311 | 0,620 / 0,859 |
+| TFTP | 0,079 / 0,243 | 3,273 / 3,500 | 0,177 / 0,266 | 0,003 / 0,003 | 1001,228 / 1001,496 | 0,314 / 0,398 |
+| SIP | 0,327 / 12,419 | 3,910 / 238,563 | 0,220 / 0,274 | 0,003 / 0,003 | 1001,189 / 1001,300 | 0,359 / 0,418 |
 
-Keine zusätzlichen Threads nach Abschluss. Der Stop wartet auf den bestehenden
-Socket-Timeout von einer Sekunde. Das ist eine begrenzte Wartezeit, kein hoher
-CPU-Verbrauch. Diese Messung ersetzt weder Langzeittest noch RAM-, Last- oder
+Keine zusätzlichen Threads nach Abschluss. Python-Heap-Peak ist nicht
+Gesamtprozess-RSS. Der Stop wartet auf den bestehenden Socket-Timeout von einer
+Sekunde. Das ist eine begrenzte Wartezeit, kein hoher CPU-Verbrauch. Diese
+Messung ersetzt weder Langzeittest noch RAM-, Last-, Durchsatz- oder
 Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abgeleitet.
 
 ## Abweichungen und konkrete Restarbeit
@@ -167,7 +185,7 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 |---|---|---|---|---|
 | AS/AR | Windows | DirectShow-Sender und FFplay-Receiver implementiert; nur Systemstandard-Ausgabe | Gezielte Windows-Geräteauswahl und virtuelle Mikrofone fehlen; Hardwareabnahme offen | Windows-Hardwareabnahme; gezielte Ausgänge gesondert prüfen |
 | AS/AR | Android | CI-Build erfolgreich; reale Hintergrund-/Geräteprüfung offen | Kein Android-Gerät/ADB in dieser Umgebung | Auf echtem Gerät Hintergrundbetrieb, Capture und Stop prüfen |
-| AO | Remote-Ausgabe | Explizite RTP/Opus-Bindung, Suche und Versand implementiert; Empfang unbestätigt | Bestehendes RTP-Protokoll bietet weder Verschlüsselung noch Wiedergabebestätigung; nur vertrauenswürdiges privates IPv4-Netz | Reale Empfänger-/Lautsprecherabnahme; DLNA bleibt #285 |
+| AO | Remote-Ausgabe | Explizite RTP/Opus-Bindung, Suche und Versand implementiert; Empfang unbestätigt | Bestehendes RTP-Protokoll bietet weder Verschlüsselung noch Wiedergabebestätigung; nur vertrauenswürdiges privates IPv4-Netz | Reale Empfänger-/Lautsprecherabnahme; DLNA-Hardwareprüfung gemäß externem Protokoll |
 | AS | Discovery | Fremde RTP-Player werden nicht erkannt | Sie veröffentlichen kein SimpleOffice-Profil | Nur tatsächlich verfügbare Protokolle ergänzen; manuelle Ziele bleiben |
 | AR | ALSA-Ausgänge | Receiver benötigt PulseAudio/PipeWire-Pulse | Vorhandener PCM-Verteiler und virtuelle Mikrofone nutzen diesen Backend | Separaten ALSA-Ausgabepfad nur mit vollständigem Cleanup/Health ergänzen |
 | Gateway | Health/Atomizität | Linux-Regelstruktur/-inhalt geprüft, aktiver Reload über nft-Transaktion; realer Datenpfad und Windows-Atomizität offen | Gemeinsames Forwarding ist nicht Teil der Transaktion; nft fehlt in der Testumgebung | Reale nft-Versionen/Kernel-Paketfluss prüfen und Windows-Reload verbessern |
@@ -178,15 +196,46 @@ Hardwaremessung. Es wird kein plattformübergreifendes Leistungsversprechen abge
 | Alle | Logs/Tests | Noch nicht jeder relevante Aspekt gleichwertig | Historische Fachpfade und unvollständige Negativfallabdeckung | Verbleibende T/F/?-Zeilen gezielt abarbeiten |
 
 Diese Punkte sind keine pauschalen Ausnahmen vom Auftrag. Fehlende Implementierung
-bleibt offen; Umgebungsgrenzen werden getrennt davon benannt. Die PRs bleiben Draft,
-bis die anwendbaren Kriterien erfüllt oder konkrete technische Abweichungen
-vollständig bewertet sind. GitHub-Abgleich vom 16.09.2026: PR #288 (Bildschirm) wurde am 14.09.2026
-gemergt. Alle acht Workflows seines Heads 16cc006a sind erfolgreich, einschließlich
-Android- und Desktop-Build. Weitere Signaling-/Stop-Korrekturen stehen separat
-in Draft-PR #301 auf main. #285 ist ein offenes DLNA-Issue, kein PR.
-Diese Angaben ersetzen keine reale Geräteabnahme.
+bleibt offen; Umgebungsgrenzen werden getrennt davon benannt. Historischer
+PR-Abgleich: PR #288 (Screen) wurde am 14.09.2026 gemergt, PR #301 folgte mit
+Signaling-/Stop-Korrekturen. Beide sind kein offener Ersatz-Implementierungsstrang.
+Issue #285 ist geschlossen; die Softwarekette kam über #333 und #346–#349 hinzu.
+Die damals auf Heads geprüften Workflows belegen nur diese Commits und ersetzen
+keine reale Geräteabnahme.
 
-## Testnachweise
+## Aktuelle repositoryseitige Nachweise (01.10.2026)
+
+Prüfcommit vor den Dokumentationsänderungen:
+`c97d47424f1a81249f3ca62514f12291e7dd4101`.
+
+- Vollständige Python-Unittest-Suite: 2.677 Tests in 209,140 Sekunden,
+  11 übersprungen, keine Fehler (Python 3.12.14).
+- Projektpolicy, Datei- und Funktionsgrößenlimits, Python-Compileall,
+  Diagnose-Audit sowie der Fünf-Iterationen-Benchmark bestanden lokal.
+- Ruff, pip-audit/Bandit, Docker-Build/Relay-Smoke, die CI-Versionen Python
+  3.10/3.14/3.15-rc und der KoSIT-Integrationstest sind lokale Runner-Gates
+  bzw. externe Build-Gates und werden für diesen PR durch GitHub Actions geprüft.
+  Der KoSIT-Integrationstest bleibt im lokalen Gesamtlauf erwartungsgemäß
+  übersprungen.
+- Der diagnosebezogene AST-Audit (`tools/mini_services_log_audit.py`) lief lokal
+  erfolgreich über 42 Quellen.
+- Der Extended-Quality-Benchmark (`python -m tools.mini_services_benchmark
+  --iterations 5`) lief lokal für DHCP, DNS, TFTP und SIP mit null verbleibenden
+  Listener-Threads. Messwerte und Grenzen des aktuellen Laufs stehen unten.
+- 11 Mini-Service-, Audio- und Screen-Frontend-Node-Tests bestanden.
+- `tests/test_mini_packaging.py` ist Bestandteil des vollständigen Unittest-
+  Laufs und prüft die Paketierungskorrektur aus #537.
+- GitHub Actions für den PR-#537-Head `a74b4685` liefen erfolgreich:
+  Tests/Dependency-Audit, Extended Quality, Security Quick Wins, Android APK,
+  Desktop, Docker, CodeQL, OSSAR, Scorecard und Server-DEB. Das bestätigt
+  reproduzierbare Build-/Software-Gates auf diesem PR-Head, keine reale
+  Plattform-, Hardware- oder Laufzeitabnahme.
+
+Diese Software-Nachweise sind keine externe Gesamtabnahme. Plattform-,
+Hardware-, Last-, Durchsatz-, Accessibility- und Langzeitprüfungen bleiben
+unverändert offen.
+
+## Historische Testnachweise
 
 - 16.09.2026: Geführter Boot-Profileditor in den gemeinsamen Stand übernommen.
   61 Boot-/Security-/API-/Frontend-Tests bestanden, einschließlich Anlegen,
@@ -228,7 +277,7 @@ ersetzt auch bei gleicher Konfiguration den Prozess. Zwischen Vorprüfung und
 tatsächlichem Prozessstart sind weiterhin Betriebssystemfehler möglich; dann
 greift die begrenzte Recovery. Regressionstests decken diese Vorprüfungsfälle ab.
 
-## Vollständiger Unittest-Lauf am 17.09.2026
+## Historischer vollständiger Unittest-Lauf am 17.09.2026
 
 Gemeinsamer Audio-/Gateway-Stand: 1.695 Unittests in 155,932 Sekunden,
 10 übersprungen, keine Fehler. Gateway-Recovery, aktiver Linux-Reload und
