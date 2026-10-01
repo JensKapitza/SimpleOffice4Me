@@ -39,18 +39,30 @@ final class AndroidOfflineWorksetStore {
     private final Context context;
     private final File root;
     private JSONObject state;
+    private String sessionOwner = "";
 
     AndroidOfflineWorksetStore(Context context) {
         this.context = context.getApplicationContext();
         this.root = new File(this.context.getFilesDir(), DIRECTORY);
         this.state = loadState();
-        enforceOwner();
+    }
+
+    synchronized String bindOwner(String owner) {
+        String normalized = owner == null ? "" : owner.trim();
+        if (!normalized.matches("[1-9][0-9]{0,18}")) return "invalid";
+        sessionOwner = normalized;
+        if (!enforceOwner()) return "blocked";
         recoverInterruptedItemWrites();
         pruneExpired();
+        return "ok";
+    }
+
+    synchronized void unbindOwner() {
+        sessionOwner = "";
     }
 
     synchronized String statusJson() {
-        enforceOwner();
+        if (!enforceOwner()) return "{\"enabled\":false,\"error\":\"unbound\"}";
         pruneExpired();
         JSONObject result = new JSONObject();
         try {
@@ -100,7 +112,7 @@ final class AndroidOfflineWorksetStore {
             String payload,
             long retentionSeconds,
             String workset) {
-        enforceOwner();
+        if (!enforceOwner()) return "blocked";
         String normalizedId = normalizeId(itemId);
         String normalizedKind = normalizeKind(kind);
         String normalizedVersion = normalizeVersion(version);
@@ -176,7 +188,7 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String readItem(String itemId, String kind) {
-        enforceOwner();
+        if (!enforceOwner()) return errorJson("blocked");
         pruneExpired();
         String normalizedId = normalizeId(itemId);
         String normalizedKind = normalizeKind(kind);
@@ -217,7 +229,7 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String itemsJson() {
-        enforceOwner();
+        if (!enforceOwner()) return "[]";
         pruneExpired();
         JSONArray source = state.optJSONArray("items");
         JSONArray result = new JSONArray();
@@ -239,7 +251,7 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String removeItem(String itemId, String kind) {
-        enforceOwner();
+        if (!enforceOwner()) return "blocked";
         String normalizedId = normalizeId(itemId);
         String normalizedKind = normalizeKind(kind);
         if (normalizedId == null || normalizedKind == null) return "invalid";
@@ -281,7 +293,7 @@ final class AndroidOfflineWorksetStore {
             String targetId,
             String baseVersion,
             String payload) {
-        enforceOwner();
+        if (!enforceOwner()) return "blocked";
         String normalizedType = mutationType == null ? "" : mutationType.trim().toLowerCase(Locale.ROOT);
         if (!"task_status".equals(normalizedType)) return "unsupported";
         String normalizedId = normalizeId(targetId);
@@ -315,13 +327,13 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String outboxJson() {
-        enforceOwner();
+        if (!enforceOwner()) return "[]";
         JSONArray outbox = state.optJSONArray("outbox");
         return outbox == null ? "[]" : outbox.toString();
     }
 
     synchronized String acknowledgeMutation(String operationId, String resultStatus) {
-        enforceOwner();
+        if (!enforceOwner()) return "blocked";
         String id = operationId == null ? "" : operationId.trim();
         String status = resultStatus == null ? "" : resultStatus.trim().toLowerCase(Locale.ROOT);
         if (id.isEmpty()) return "invalid";
@@ -356,27 +368,30 @@ final class AndroidOfflineWorksetStore {
     }
 
     synchronized String clear() {
-        enforceOwner();
+        if (!enforceOwner()) return "blocked";
         deleteRecursively(root);
         state = emptyState(currentOwner());
         return persist() ? "ok" : "io-error";
     }
 
-    private void enforceOwner() {
+    private boolean enforceOwner() {
         String owner = currentOwner();
+        if (owner.isEmpty()) return false;
         String stored = state.optString("owner", "");
         if (!stored.equals(owner)) {
             deleteRecursively(root);
             state = emptyState(owner);
-            persist();
+            if (!persist()) return false;
         }
+        return true;
     }
 
     private String currentOwner() {
+        if (sessionOwner.isEmpty()) return "";
         SharedPreferences identity = context.getSharedPreferences(IDENTITY_PREFS, Context.MODE_PRIVATE);
-        return identity.getString(IDENTITY_EMAIL, "") == null
-                ? ""
-                : identity.getString(IDENTITY_EMAIL, "").trim().toLowerCase(Locale.ROOT);
+        String email = identity.getString(IDENTITY_EMAIL, "");
+        String normalizedEmail = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        return "android:" + normalizedEmail + "|user:" + sessionOwner;
     }
 
     private JSONObject loadState() {
