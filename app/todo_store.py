@@ -143,11 +143,16 @@ class TodoStore:
         fingerprint = hashlib.sha256(
             ("\0".join((actor, item_id, expected_etag, status))).encode("utf-8")
         ).hexdigest()
+        receipt_key = (
+            hashlib.sha256(actor.casefold().encode("utf-8")).hexdigest()[:16]
+            + ":"
+            + operation_id
+        )
         history_payload: dict[str, Any] | None = None
         with exclusive_file_lock(self.lock):
             data = self._read()
             operations = data["offline_operations"]
-            receipt = operations.get(operation_id)
+            receipt = operations.get(receipt_key)
             if receipt is not None:
                 if receipt.get("fingerprint") != fingerprint:
                     raise ValueError("offline operation identifier already used")
@@ -171,7 +176,7 @@ class TodoStore:
                     "baseVersion": expected_etag,
                     "serverVersion": current_etag,
                 }
-                operations[operation_id] = {
+                operations[receipt_key] = {
                     "fingerprint": fingerprint,
                     "actor": actor,
                     "recorded_at": now,
@@ -217,7 +222,7 @@ class TodoStore:
                 "baseVersion": expected_etag,
                 "serverVersion": server_version,
             }
-            operations[operation_id] = {
+            operations[receipt_key] = {
                 "fingerprint": fingerprint,
                 "actor": actor,
                 "recorded_at": now,
