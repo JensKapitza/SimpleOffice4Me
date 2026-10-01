@@ -209,6 +209,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('return "task".equals(normalized) ? normalized : null;', store)
         self.assertIn("itemsJson()", store)
         self.assertIn("removeItem(", store)
+        self.assertIn('"pending-mutation"', store)
         self.assertIn("private boolean persist()", store)
         self.assertIn('INDEX + ".bak"', store)
         self.assertIn('target.getName() + ".bak"', store)
