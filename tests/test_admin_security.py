@@ -74,10 +74,16 @@ class AdminSecurityTest(unittest.TestCase):
         self.update_worker(feature_projects=None)
         self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
         self.assertEqual(403, self.worker.get("/tasks/").status_code)
-        self.assertEqual(
-            403,
-            self.worker.post("/tasks/", data={"title": "Gesperrte Aufgabe"}).status_code,
+        blocked_mutations = (
+            ("/tasks/", {"title": "Gesperrte Aufgabe"}),
+            ("/tasks/missing/move", {"status": "completed"}),
+            ("/tasks/missing/subtasks", {"title": "Gesperrte Unteraufgabe"}),
+            ("/tasks/missing/complete-occurrence", {}),
+            ("/tasks/missing/update", {"title": "Gesperrte Änderung"}),
         )
+        for path, data in blocked_mutations:
+            with self.subTest(path=path):
+                self.assertEqual(403, self.worker.post(path, data=data).status_code)
         navigation = self.worker.get("/documents/")
         self.assertEqual(200, navigation.status_code)
         self.assertNotIn('href="/tasks/"', navigation.get_data(as_text=True))
