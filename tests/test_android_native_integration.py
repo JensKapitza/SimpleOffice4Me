@@ -181,7 +181,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         store = self.read(JAVA / "AndroidOfflineWorksetStore.java")
         self.assertIn("AndroidOfflineWorksetStore offlineWorksetStore", activity)
         self.assertIn("window.SimpleOfficeOffline", activity)
-        self.assertIn("data.v3AndroidOffline==='1'", activity)
+        self.assertIn("document.documentElement.dataset.v3AndroidOffline==='1'", activity)
         self.assertIn("cacheOfflineItem(", activity)
         self.assertIn("offlineItems(", activity)
         self.assertIn("removeOfflineItem(", activity)
