@@ -195,9 +195,14 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
 
     def test_read_only_shared_task_cannot_be_changed_offline(self):
         shared_list = self.store.create_list(
-            {"name": "Offline lesbar", "permissions": {"viewer": ["read"]}},
+            {"name": "Offline lesbar"},
             "admin",
             "offline-read",
+        )
+        self.store.update_list(
+            shared_list["list_id"],
+            {"permissions": {"viewer": ["read"]}},
+            "admin",
         )
         shared = self.store.add(
             "Nur lesen",
