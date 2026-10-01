@@ -229,7 +229,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("never_local", routes)
         self.assertNotIn("localStorage", ui)
         self.assertNotIn("sessionStorage", ui)
-        self.assertNotIn("csrf-token", ui)
+        self.assertIn('meta[name="csrf-token"]', ui)
+        self.assertIn("X-CSRF-Token", ui)
 
     def test_android_7_and_both_abis_remain_supported(self):
         gradle = self.read(ANDROID / "build.gradle")
