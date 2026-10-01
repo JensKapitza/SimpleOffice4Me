@@ -4,7 +4,7 @@
   const root = document.querySelector('[data-android-offline-app]');
   if (!root || root.dataset.enabled !== '1') return;
 
-  const bridge = window.SimpleOfficeOffline;
+  let bridge = window.SimpleOfficeOffline || null;
   const message = root.querySelector('[data-offline-message]');
   const cached = root.querySelector('[data-offline-cached]');
   const queue = root.querySelector('[data-offline-queue]');
@@ -332,6 +332,13 @@
     await render();
   });
 
+  window.addEventListener('simpleoffice:native-ready', () => {
+    bridge = window.SimpleOfficeOffline || null;
+    if (switchButton) switchButton.disabled = !bridge;
+    render().then(() => {
+      if (bridge && document.documentElement.dataset.soNetwork !== 'offline' && navigator.onLine !== false) syncOutbox();
+    });
+  });
   window.addEventListener('simpleoffice:network', event => {
     if (event.detail && event.detail.online) syncOutbox();
   });
