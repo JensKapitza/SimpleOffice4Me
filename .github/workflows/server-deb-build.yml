@@ -28,36 +28,12 @@ jobs:
   server-deb:
     runs-on: ubuntu-latest
     env:
-      SIMPLEOFFICE_SERVER_PUBLIC_URL: ${{ github.event_name == 'workflow_dispatch' && vars.SIMPLEOFFICE_SERVER_PUBLIC_URL || 'https://ci.simpleoffice4me.invalid' }}
-      SIMPLEOFFICE_SERVER_PEER_ID: ${{ github.event_name == 'workflow_dispatch' && vars.SIMPLEOFFICE_SERVER_PEER_ID || 'license-master-ci' }}
+      SIMPLEOFFICE_SERVER_PUBLIC_URL: ${{ github.event_name == 'pull_request' && 'https://ci.simpleoffice4me.invalid' || 'https://simpleoffice4me.back2heaven.de' }}
+      SIMPLEOFFICE_SERVER_PEER_ID: ${{ github.event_name == 'pull_request' && 'license-master-ci' || 'license-master' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-
-      - name: Validate manual server identity
-        if: github.event_name == 'workflow_dispatch'
-        shell: bash
-        env:
-          CONFIGURED_SERVER_PUBLIC_URL: ${{ vars.SIMPLEOFFICE_SERVER_PUBLIC_URL }}
-          CONFIGURED_SERVER_PEER_ID: ${{ vars.SIMPLEOFFICE_SERVER_PEER_ID }}
-        run: |
-          set -euo pipefail
-          test -n "$CONFIGURED_SERVER_PUBLIC_URL" || {
-            echo "Repository variable SIMPLEOFFICE_SERVER_PUBLIC_URL is required for a manual server build." >&2
-            exit 1
-          }
-          case "$CONFIGURED_SERVER_PUBLIC_URL" in
-            https://*) ;;
-            *)
-              echo "SIMPLEOFFICE_SERVER_PUBLIC_URL must use HTTPS." >&2
-              exit 1
-              ;;
-          esac
-          test -n "$CONFIGURED_SERVER_PEER_ID" || {
-            echo "Repository variable SIMPLEOFFICE_SERVER_PEER_ID is required for a manual server build." >&2
-            exit 1
-          }
 
       - name: Build complete server DEB on Debian 12
         shell: bash
@@ -146,6 +122,7 @@ jobs:
           set -euo pipefail
           docker run --rm -i \
             -v "$PWD/artifacts/server:/pkg:ro" \
+            -e GITHUB_EVENT_NAME \
             debian:12-slim bash -s <<'INNER'
           set -euo pipefail
           apt-get update
@@ -175,8 +152,13 @@ jobs:
           printf '%s\n' "$MASTER_STATUS"
           printf '%s\n' "$MASTER_STATUS" | grep -F 'Status: gesetzt'
           printf '%s\n' "$MASTER_STATUS" | grep -F 'Rolle: Server/Lizenz-Master'
-          printf '%s\n' "$MASTER_STATUS" | grep -F 'Oeffentliche Server-URL: https://ci.simpleoffice4me.invalid'
-          printf '%s\n' "$MASTER_STATUS" | grep -F 'Peer-ID: license-master-ci'
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            printf '%s\n' "$MASTER_STATUS" | grep -F 'Oeffentliche Server-URL: https://ci.simpleoffice4me.invalid'
+            printf '%s\n' "$MASTER_STATUS" | grep -F 'Peer-ID: license-master-ci'
+          else
+            printf '%s\n' "$MASTER_STATUS" | grep -F 'Oeffentliche Server-URL: https://simpleoffice4me.back2heaven.de'
+            printf '%s\n' "$MASTER_STATUS" | grep -F 'Peer-ID: license-master'
+          fi
           INNER
 
       - name: Upload server DEB

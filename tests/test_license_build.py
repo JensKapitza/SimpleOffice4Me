@@ -78,8 +78,11 @@ class LicenseBuildTests(unittest.TestCase):
         self.assertIn("keine Laufzeit-Umschaltung", launcher)
         self.assertIn("-m tools.launcher master-status", postinst)
         self.assertIn("Rolle: Server/Lizenz-Master", workflow)
-        self.assertIn("Oeffentliche Server-URL: https://ci.simpleoffice4me.invalid", workflow)
-        self.assertIn("Peer-ID: license-master-ci", workflow)
+        self.assertIn("https://simpleoffice4me.back2heaven.de", workflow)
+        self.assertIn("'license-master'", workflow)
+        self.assertIn("'https://ci.simpleoffice4me.invalid'", workflow)
+        self.assertIn("'license-master-ci'", workflow)
+        self.assertNotIn("Repository variable SIMPLEOFFICE_SERVER_PUBLIC_URL is required", workflow)
 
     def test_blocked_client_is_visible_and_federation_can_refuse_it(self):
         layout = (ROOT / "templates" / "layout.html").read_text(encoding="utf-8")
