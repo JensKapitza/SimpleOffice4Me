@@ -11,9 +11,6 @@ from __future__ import annotations
 import json
 import re
 
-from app import app
-
-
 PROTOCOL_PREFIXES = (
     "/api/",
     "/caldav",
@@ -81,7 +78,7 @@ def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
         return False, "non-page-get"
     if rule in AUTH_EXACT or any(rule.startswith(prefix) for prefix in AUTH_PREFIXES):
         return False, "authentication-flow"
-    if any(rule.startswith(prefix) for prefix in PROTOCOL_PREFIXES):
+    if "/api/" in rule.casefold() or any(rule.startswith(prefix) for prefix in PROTOCOL_PREFIXES):
         return False, "protocol-or-api"
     lowered = rule.casefold()
     endpoint_lowered = endpoint.casefold()
@@ -108,6 +105,8 @@ def rule_pattern(rule: str) -> str:
 
 
 def main() -> None:
+    from app import app
+
     routes: list[dict[str, object]] = []
     for rule in sorted(app.url_map.iter_rules(), key=lambda item: (item.rule, item.endpoint)):
         methods = sorted(method for method in rule.methods if method not in {"HEAD", "OPTIONS"})

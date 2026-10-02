@@ -21,9 +21,25 @@ from page_crawl import (  # noqa: E402
     update_route_coverage,
     write_tested_url_manifest,
 )
+from route_inventory import browser_candidate  # noqa: E402
 
 
 class BrowserPageCrawlTests(unittest.TestCase):
+    def test_nested_api_routes_are_not_html_inventory_candidates(self):
+        base = "http://127.0.0.1:8080"
+        routes = (
+            ("/printershare/api/health", "printershare_quickwins.api_health"),
+            ("/resource-commander/api/list", "resource_commander.list_entries"),
+            ("/vault/api/v1/generate-password", "vault.api_generate_password"),
+            ("/printershare/API/jobs", "printershare.jobs"),
+        )
+        for rule, endpoint in routes:
+            with self.subTest(rule=rule):
+                self.assertEqual((False, "protocol-or-api"), browser_candidate(rule, endpoint))
+                self.assertFalse(browser_page_candidate(base + rule, base))
+        self.assertEqual((True, ""), browser_candidate("/printershare/", "printershare.index"))
+        self.assertTrue(browser_page_candidate(base + "/printershare/", base))
+
     def test_canonical_url_keeps_view_and_drops_volatile_query(self):
         actual = canonical_browser_url(
             "http://127.0.0.1:8080/admin/federation"

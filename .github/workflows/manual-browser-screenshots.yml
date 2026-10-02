@@ -1,6 +1,14 @@
 name: Manual browser all-pages, peer-to-peer and HTML5 test
 
 on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'templates/**'
+      - 'static/**'
+      - 'tests/browser/**'
+      - 'tests/test_browser*'
+      - '.github/workflows/manual-browser-screenshots.yml'
   workflow_dispatch:
     inputs:
       scope:
