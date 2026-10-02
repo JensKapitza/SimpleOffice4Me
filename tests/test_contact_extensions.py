@@ -209,7 +209,7 @@ class ContactExtensionsTest(unittest.TestCase):
         )
         store.scan()
         document = store.get_document(eml)
-        preview = _eml_preview(self.root, document["document_id"])
+        preview = _eml_preview(self.root, document["document_id"], "admin")
         self.assertEqual("Test mail", preview["subject"])
         self.assertIn("sender@example.test", preview["from"])
         self.assertIn("receiver@example.test", preview["to"])
