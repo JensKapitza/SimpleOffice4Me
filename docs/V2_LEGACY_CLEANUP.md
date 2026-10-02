@@ -55,8 +55,18 @@ or stale, including with the encrypted V2 backend. A failed integrity check
 never falls back to that projection and does not attach the PDF or store its
 invoice attributes. Temporary content is removed after inspection, including
 on parser failure; accounts denied the documents feature cannot inspect or
-attach documents. This does not migrate customer/invoice ZIP exports or other
-business-document consumers, so the overall cleanup gate remains blocked.
+attach documents.
+
+Finalized invoice downloads, invoice ZIP exports and customer document archive
+content now use verified StoragePort reads as well. ZIP members are opened only
+after successful private temporary materialization; missing source content is
+reported in the customer manifest, while integrity failures reject the export
+without a successful export audit record. ZIPs are built on disk and copied in
+bounded chunks. Invoice downloads preserve ETag and byte-range support. All
+three download routes require the documents feature and return private,
+non-cacheable responses. Invoice/contact metadata and the billing-page
+availability read model still use the legacy projection; other business
+consumers remain, so the overall cleanup gate stays blocked.
 
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
