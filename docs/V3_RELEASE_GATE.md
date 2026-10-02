@@ -1,6 +1,55 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Assessment snapshot
+## Current repository assessment — 2026-10-02
+
+Production-code basis: `main` at `f7c04a14083772f0a97df8214f43105ba63e94f5`
+(PR #548). All eleven PR workflows passed, including Python 3.10/3.14/3.15 RC,
+browser/P2P/HTML5, Android, desktop, Docker, Debian and security gates. The local
+full suite passed 2,709 tests with 11 optional skips. The browser run covered
+141 URLs and 129 HTML pages with no missing static routes or console/page/server
+errors. This browser evidence does not prove real-device accessibility.
+
+`tests/test_v3_release_gate_matrix.py` adds a repeatable integration fixture for
+#506. It migrates an existing document into authoritative V2, retains
+CardDAV/vCard, CalDAV/VEVENT and VTODO resources, a persistent automation rule
+and a queued job, then exercises 27 configurations:
+
+- all capabilities off;
+- relations/activity only;
+- UI capabilities on with automation off;
+- automation with jobs off, and automation with jobs queued without a worker;
+- S3 on (all other profiles keep S3 off);
+- legacy and v3 Federation discovery together;
+- Android offline with the requesting user's project permission denied;
+- health/extensions enabled without configured external integrations;
+- all sixteen registered 3.0 capabilities on;
+- each capability individually disabled while the other fifteen remain on;
+- final rollback to all capabilities off.
+
+| Matrix observation | Repository result |
+|---|---|
+| Additive auth migration executed twice per profile | PASS; existing accounts and authenticated paths remain usable |
+| Migrated document and standard-client resources | PASS; original document bytes, vCard/VEVENT/VTODO bytes and ETags remain unchanged |
+| S3 enabled/disabled | PASS; existing SigV4 test helper reads the migrated document only when the overlay is enabled |
+| Search and entity context | PASS; enabled routes resolve the authorized document; disabled routes return 404; a denied user cannot read, resolve or find it |
+| UI/API fallback | PASS; optional overview pages remain usable; disabled automation/job mutation routes reject requests |
+| Automation without jobs/worker | PASS; the existing synchronous executor creates the task; the unrelated persistent job remains queued |
+| Deactivation and rollback | PASS (fixture); individual flags and final all-off preserve the rule, job and domain data |
+
+Run with `python -m unittest discover -s tests -p test_v3_release_gate_matrix.py -v`.
+The test is also discovered by the existing full CI suite. It uses existing
+stores, migration paths, Flask routes and the S3 signing helper; no new runtime
+dependency or parallel transport is introduced.
+
+**Release decision remains not approved.** This controlled fixture does not
+establish production-data upgrade/backfill recovery, real external-client or
+peer compatibility, worker-process crash recovery, Android device acceptance,
+representative-load performance, or independent deactivation on an installed
+upgraded target. Federation coexistence here checks discovery contracts;
+object-transfer and replay/security remain covered by their existing suites.
+Do not close #505 or #506 based on these fixture results alone.
+
+## Historical assessment snapshot — 2026-10-01
 
 - Repository: `JensKapitza/SimpleOffice4Me`
 - Main commit assessed: `3788d9d46e6abf4a669bdd356ddd5b0c9ac3936d`
