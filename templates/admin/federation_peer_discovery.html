@@ -7,25 +7,25 @@
 
 <section class="card border-primary shadow-sm mb-3" id="network-scan">
   <div class="card-body">
-    <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 align-items-lg-center">
-      <div class="flex-grow-1">
+    <div class="row g-3 align-items-start">
+      <div class="col-12 col-xl-5">
         <h2 class="h4 mb-1"><i class="fas fa-network-wired me-2" aria-hidden="true"></i>Netzwerk scannen</h2>
         <p class="text-secondary mb-2">Sucht SimpleOffice-Geräte im gleichen lokalen Netz – egal ob die Geräte per WLAN oder LAN verbunden sind.</p>
         <div class="small"><span class="badge text-bg-warning me-1">Sicher</span>Gefundene Geräte werden nur als <strong>bekannt, nicht geprüft</strong> gespeichert und bleiben deaktiviert. Es werden keine Datenrechte automatisch vergeben.</div>
       </div>
-      <form class="row g-2 align-items-end flex-shrink-0" method="post" action="{{ url_for('federation_peer_admin.lan') }}">
+      <div class="col-12 col-xl-7"><form class="row g-2 align-items-end" method="post" action="{{ url_for('federation_peer_admin.lan') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <div class="col-12 col-sm-auto">
+        <div class="col-12 col-md-6">
           <label class="form-label mb-1" for="lan-network">Scan-Basis / CIDR</label>
-          <input id="lan-network" class="form-control" name="network" type="text" placeholder="z. B. 192.168.178.0/24" aria-describedby="lan-network-help" style="min-width:15rem">
+          <input id="lan-network" class="form-control" name="network" type="text" placeholder="z. B. 192.168.178.0/24" aria-describedby="lan-network-help">
           <div id="lan-network-help" class="form-text">Leer = lokale /24-Netze automatisch. Bei Docker/Podman das vom Container erreichbare LAN angeben; maximal vier private Netze und 1024 Hosts.</div>
         </div>
-        <div class="col-12 col-sm-auto">
+        <div class="col-12 col-md-6">
           <label class="form-label mb-1" for="lan-port">SimpleOffice-Port</label>
           <input id="lan-port" class="form-control" name="port" type="number" min="1" max="65535" value="8080" inputmode="numeric" style="max-width:9rem">
         </div>
-        <div class="col-12 col-sm-auto"><button class="btn btn-primary btn-lg" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</button></div>
-      </form>
+        <div class="col-12"><button class="btn btn-primary" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</button></div>
+      </form></div>
     </div>
   </div>
 </section>

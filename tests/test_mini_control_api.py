@@ -73,6 +73,18 @@ class ControlStoreTests(unittest.TestCase):
 
 
 class MiniApiTests(unittest.TestCase):
+    def test_sftp_api_delegates_settings_and_actions_with_existing_csrf_gate(self):
+        with patch("app.sftp_service.save_settings", return_value={"enabled": True}) as save:
+            response = self.client.post("/api/mini-services/sftp/settings", json={"enabled": True}, headers=self.headers)
+            self.assertEqual(200, response.status_code)
+            save.assert_called_once_with({"enabled": True})
+        with patch("app.sftp_service.action", return_value={"state": "running"}) as action:
+            self.assertEqual(403, self.client.post("/api/mini-services/sftp/start", json={}).status_code)
+            action.assert_not_called()
+            response = self.client.post("/api/mini-services/sftp/start", json={}, headers=self.headers)
+            self.assertEqual(200, response.status_code)
+            action.assert_called_once_with("start", "")
+
     @unittest.skipUnless(shutil.which("node"), "Node.js required for frontend regression tests")
     def test_frontend_scan_states_and_failure_feedback(self):
         script = Path(__file__).resolve().parent / "mini_services_frontend.test.cjs"

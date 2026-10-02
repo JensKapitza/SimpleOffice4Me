@@ -21,6 +21,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from browser_artifacts import make_html_snapshot_writer, slug
+from layout_checks import check_readable_layout
 from page_crawl import (
     CrawlFrontier,
     MAX_QUERY_VARIANTS_PER_PATH,
@@ -830,6 +831,10 @@ def main() -> int:
                     is_html = "text/html" in content_type.casefold()
                     entry["html"] = is_html
                     if is_html:
+                        entry["layout_checks"] = check_readable_layout(page)
+                        for check in entry["layout_checks"]:
+                            if check["collapsed_text"]:
+                                failures.append(f"{label}: zusammengedrückter Text bei {check['viewport_width']}px")
                         filename = f"{number:04d}-{slug(label)}.png"
                         page.screenshot(
                             path=str(OUTPUT_DIR / filename),

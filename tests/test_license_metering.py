@@ -37,6 +37,54 @@ class LicenseMeteringTests(unittest.TestCase):
         self.assertEqual({"users": 2, "requests": 3}, overview["usage"]["documents"])
         self.assertEqual({"users": 1, "requests": 1}, overview["usage"]["calendar"])
 
+    def test_actual_registered_names_and_shared_documents_routes(self):
+        cases = [
+            ("documents.calendar", "", "calendar"),
+            ("documents.calendar_event", "/documents/calendar/event/123", "calendar"),
+            ("documents.import_contacts", "", "contacts"),
+            ("documents.export_contacts", "/documents/contacts/export.vcf", "contacts"),
+            ("documents.project_detail", "", "projects"),
+            ("documents.edit_item", "/documents/projects/123", "projects"),
+            ("documents.detail", "/documents/item/calendar.pdf", "documents"),
+            ("mail_client.index", "", "mail"),
+            ("tasks.index", "", "projects"),
+            ("reader.index", "", "documents"),
+            ("federation_peer_admin.dashboard", "", "sync"),
+            ("personnel_time_insights.index", "", "projects"),
+            ("static", "/documents/calendar", ""),
+            ("admin.index", "", ""),
+            ("auth.login", "", ""),
+        ]
+        for endpoint, path, feature in cases:
+            with self.subTest(endpoint=endpoint, path=path):
+                self.assertEqual(feature, feature_for_endpoint(endpoint, path))
+
+    def test_meter_hook_counts_success_only_and_ignores_unmapped_routes(self):
+        from flask import Flask, g
+        from app.license_routes import init_app
+        app = Flask(__name__)
+        app.config.update(TESTING=True, SECRET_KEY="test-license", DOCUMENT_ROOT=str(self.root))
+        app.before_request(lambda: setattr(g, "user", {"id": 1}))
+        for endpoint, path, code in (
+            ("documents.calendar", "/calendar", 200),
+            ("documents.contact_detail", "/denied", 403),
+            ("documents.not_found", "/missing", 404),
+            ("documents.error", "/error", 500),
+            ("mail_client.index", "/mail", 200),
+            ("tasks.index", "/tasks", 200),
+            ("admin.index", "/general-admin", 200),
+        ):
+            app.add_url_rule(path, endpoint, lambda code=code: ("result", code))
+        init_app(app)
+        client = app.test_client()
+        for path in ("/calendar", "/denied", "/missing", "/error", "/mail", "/tasks", "/general-admin"):
+            client.get(path)
+        overview = self.store.overview()
+        for feature in ("calendar", "mail", "projects"):
+            self.assertEqual(1, overview["usage"][feature]["requests"])
+        self.assertEqual(0, overview["usage"]["documents"]["requests"])
+        self.assertEqual(0, overview["usage"]["contacts"]["requests"])
+
     def test_finalized_month_is_immutable_and_uses_distinct_feature_users(self):
         self.store.set_prices({"user": 100, "documents": 25, "calendar": 50})
         old_month = "2020-01"

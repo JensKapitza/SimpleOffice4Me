@@ -459,8 +459,8 @@ class VirtualFileSystem:
                 self._storage(actor).move_replace(
                     LogicalObjectId(str(source_document["document_id"])),
                     LogicalObjectId(str(destination_document["document_id"])),
-                    expected_source_version=expected_source_sha256,
-                    expected_destination_version=expected_destination_sha256,
+                    expected_source_version=expected_source_sha256 or str(source_document.get("sha256", "")),
+                    expected_destination_version=expected_destination_sha256 or str(destination_document.get("sha256", "")),
                     max_bytes=max_bytes,
                 )
             )

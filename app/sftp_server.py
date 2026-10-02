@@ -369,6 +369,8 @@ def serve() -> None:
             def run_client(connection=client):
                 try:
                     _serve_client(connection, host_key, app)
+                except (library.SSHException, EOFError, OSError) as exc:
+                    app.logger.info("SFTP connection closed during protocol exchange (%s)", type(exc).__name__)
                 finally:
                     capacity.release()
             threading.Thread(target=run_client, daemon=True).start()

@@ -3,6 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
+import socket
+import threading
 
 from app.document_store import DocumentStore
 from app.virtual_filesystem import VirtualFileSystem
@@ -18,6 +21,45 @@ except ImportError:  # The production SFTP service is an optional installation.
 
 @unittest.skipUnless(paramiko is not None, "install the optional sftp extra to test its adapter")
 class SftpVirtualFilesystemTest(unittest.TestCase):
+    def test_real_paramiko_transport_reads_writes_and_refuses_shell(self):
+        from flask import Flask
+        from app.sftp_server import _serve_client
+        application = Flask(__name__)
+        application.config["DOCUMENT_ROOT"] = str(self.root)
+        server_socket, client_socket = socket.socketpair()
+        key = paramiko.RSAKey.generate(2048)
+        errors = []
+        def run():
+            try:
+                _serve_client(server_socket, key, application)
+            except (EOFError, OSError, paramiko.SSHException) as exc:
+                errors.append(type(exc).__name__)
+        with patch("app.webdav.authenticate_password", return_value={"username": "editor", "scope": "write"}):
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            transport = paramiko.Transport(client_socket)
+            try:
+                transport.connect(username="editor", password="test-app-password")
+                client = paramiko.SFTPClient.from_transport(transport)
+                with client.open("/shared/notes.txt", "rb") as handle:
+                    self.assertEqual(b"one", handle.read())
+                with client.open("/shared/wire.txt", "wb") as handle:
+                    handle.write(b"wire-content")
+                self.assertEqual(b"wire-content", (self.root / "shared" / "wire.txt").read_bytes())
+                client.posix_rename("/shared/wire.txt", "/shared/notes.txt")
+                self.assertEqual(b"wire-content", (self.root / "shared" / "notes.txt").read_bytes())
+                channel = transport.open_session()
+                with self.assertRaises(paramiko.SSHException):
+                    channel.invoke_shell()
+                client.close()
+            finally:
+                transport.close()
+                thread.join(timeout=3)
+                server_socket.close()
+                client_socket.close()
+            self.assertFalse(thread.is_alive())
+            self.assertEqual([], errors)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)

@@ -16,6 +16,7 @@
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   {% set settings_links = {
+    'sftp': url_for('mini_services_admin.sftp'),
     'dhcp': url_for('mini_services_admin.network'),
     'dns': url_for('mini_services_admin.network'),
     'gateway': url_for('mini_services_admin.network'),
