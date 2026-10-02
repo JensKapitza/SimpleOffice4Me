@@ -37,6 +37,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install --editable ".[security]"
+      - name: Install existing optional SFTP extra for transport coverage
+        if: matrix.python-version == '3.14'
+        run: python -m pip install --editable ".[sftp]"
       - name: Enforce project policy consistency
         run: python tools/check_project_policy.py .
       - name: Enforce source file size limit

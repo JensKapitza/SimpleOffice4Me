@@ -126,6 +126,7 @@ def index():
     return render_template(
         "admin/licensing.html",
         licensing=_store().overview(),
+        features=FEATURES,
         master_reports=_master_store().reports() if LICENSE_MASTER_MODE else [],
     )
 
@@ -283,8 +284,8 @@ def init_app(app) -> None:
     @app.after_request
     def meter_and_publish_license_state(response):
         user = getattr(g, "user", None)
-        feature = feature_for_endpoint(request.endpoint or "")
-        if user is not None and feature and response.status_code < 500:
+        feature = feature_for_endpoint(request.endpoint or "", request.path)
+        if user is not None and feature and 200 <= response.status_code < 400:
             try:
                 LicenseStore(app.config["DOCUMENT_ROOT"]).record_usage(int(user["id"]), feature)
             except (OSError, sqlite3.Error, ValueError, TypeError):

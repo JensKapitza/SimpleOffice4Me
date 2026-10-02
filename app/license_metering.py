@@ -50,17 +50,53 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def feature_for_endpoint(endpoint: str) -> str:
+def feature_for_endpoint(endpoint: str, path: str = "") -> str:
+    """Classify actual Flask endpoints, including the legacy shared blueprint.
+
+    Static files, login and infrastructure administration are not billable
+    feature use. Path matching is restricted to the documents blueprint.
+    """
     value = str(endpoint or "")
+    if value.startswith("contact_audit.business_documents."):
+        return "documents"
     prefix = value.split(".", 1)[0]
+    if prefix == "documents":
+        for segment, feature in (
+            ("calendar", "calendar"), ("calendars", "calendar"),
+            ("contacts", "contacts"), ("projects", "projects"),
+            ("time", "projects"), ("replication", "sync"),
+            ("tasks", "projects"), ("todo", "projects"),
+            ("sync", "sync"), ("webdav", "webdav"), ("mail", "mail"),
+        ):
+            base = "/documents/" + segment
+            if path == base or path.startswith(base + "/"):
+                return feature
+        leaf = value.split(".", 1)[-1]
+        for stems, feature in (
+            (("calendar", "caldav", "itip", "google_calendar"), "calendar"),
+            (("contact", "carddav", "export_contacts", "import_contacts"), "contacts"),
+            (("project", "time_", "todo", "task"), "projects"),
+            (("replication", "sync"), "sync"),
+            (("webdav", "dav_"), "webdav"),
+        ):
+            if leaf.startswith(stems):
+                return feature
     mapping = {
         "documents": "documents", "photo_upload": "documents", "inventory": "documents",
+        "reader": "documents", "library": "documents", "business_documents": "documents",
+        "v3_search": "documents", "v3_inbox": "documents", "s3_overlay": "webdav",
         "caldav": "calendar", "calendar": "calendar", "calendar_store": "calendar",
         "carddav": "contacts", "contact_audit": "contacts", "contact_tools": "contacts",
+        "fritzbox_contacts": "contacts", "v3_crm": "contacts",
         "mail_routes": "mail", "mail_reader": "mail", "mail_index": "mail",
+        "mail_client": "mail",
         "webdav": "webdav", "federation_http": "sync", "federation_admin": "sync",
         "federation_catalog": "sync", "software_admin": "sync", "replication": "sync",
+        "federation_peer_admin": "sync", "federation_catalog_http": "sync",
+        "v3_federation": "sync", "webdav_smart_mount": "webdav",
         "task_management": "projects", "personnel": "projects", "personnel_time": "projects",
+        "tasks": "projects", "personnel_time_insights": "projects",
+        "personnel_time_analytics": "projects", "v3_workboard": "projects",
         "datalogger": "datalogger",
     }
     if prefix in mapping:

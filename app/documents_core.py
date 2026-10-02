@@ -123,6 +123,10 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         sftp_port = 2222
     if not 1 <= sftp_port <= 65535:
         sftp_port = 2222
+    from .sftp_service import safe_status
+    sftp_status = safe_status()
+    sftp_settings = sftp_status["settings"]
+    sftp_port = sftp_settings["system_port"] if sftp_settings["mode"] == "system" else sftp_settings["port"]
     host_key = Path(os.environ.get("SIMPLEOFFICE_SFTP_HOST_KEY", str(Path(current_app.root_path).parent / "instance" / "sftp_host_rsa_key"))).expanduser()
     try:
         import paramiko  # noqa: F401
@@ -140,6 +144,7 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "caldav_enabled": caldav_enabled, "carddav_enabled": carddav_enabled,
         "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file() and sftp_dependency),
         "sftp_key_ready": bool(host_key.is_file()), "sftp_dependency": sftp_dependency,
+        "sftp_running": sftp_status["state"] == "running", "sftp_mode": sftp_settings["mode"],
         "ssh_key_count": len([item for item in keys_for(current_app.config["DOCUMENT_ROOT"], username) if not item["expired"]]),
         "sshfs_command": (
             f"sshfs -p {sftp_port} {username}@{host}:/ ~/SimpleOffice -o "

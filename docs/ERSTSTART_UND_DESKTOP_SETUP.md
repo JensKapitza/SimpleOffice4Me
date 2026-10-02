@@ -68,8 +68,10 @@ fusermount3 -u ~/SimpleOffice
 
 Der SFTP-Dienst wird getrennt vom Webprozess gestartet. Installation und
 Host-Schlüssel beschreibt [Virtuelles Dateisystem und SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md).
-Der Assistent meldet, ob `SIMPLEOFFICE_SFTP_HOST_KEY` auf eine vorhandene Datei
-zeigt. Firewall und Reverse Proxy werden nicht automatisch geöffnet.
+Der Assistent meldet den Laufzeitstatus des Mini-Service. Die Konfiguration erfolgt
+unter Mini Services; `SIMPLEOFFICE_SFTP_HOST_KEY` kann weiterhin einen vorhandenen
+privaten Hostschlüssel auswählen. Firewall und Reverse Proxy werden nicht
+automatisch geöffnet.
 
 ## Protokolle und Standards
 

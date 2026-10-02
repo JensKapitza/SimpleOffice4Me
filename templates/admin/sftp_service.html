@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h3">SFTP Mini-Service</h1>
+  <p>Der integrierte Paramiko-Server spricht SFTP ohne OpenSSH. Hostschlüssel werden beim ersten Start automatisch erzeugt und bei weiteren Starts beibehalten.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <div class="alert alert-secondary">{{ service.health.message }}</div>
+  <form class="card card-body" method="post">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <label class="form-label" for="sftp-mode">Betriebsart</label>
+    <select id="sftp-mode" name="mode" class="form-select mb-2">
+      <option value="integrated" {% if service.settings.mode == 'integrated' %}selected{% endif %}>Integriert: Paramiko / SimpleOffice</option>
+      <option value="system" {% if service.settings.mode == 'system' %}selected{% endif %}>Systemdienst nutzen: OpenSSH</option>
+    </select>
+    <p class="form-text">Systembetrieb verwendet die Konten und Dateirechte des Betriebssystems. SimpleOffice-App-Passwörter und das virtuelle Dateisystem gelten nur für Paramiko. Ein vorhandener Dienst wird nicht automatisch ausgewählt oder umkonfiguriert. Für Start/Stop sind passende Systemrechte erforderlich.</p>
+    <div class="row g-3 mb-3">
+      <div class="col-12 col-md-6"><label for="sftp-bind" class="form-label">Paramiko: Bind-IP</label><input id="sftp-bind" class="form-control" name="bind" value="{{ service.settings.bind }}" required><p class="form-text">127.0.0.1: nur lokal. Für LAN eine Geräte-IP oder 0.0.0.0 verwenden; Firewallfreigabe separat prüfen.</p></div>
+      <div class="col-6 col-md-3"><label for="sftp-port" class="form-label">Paramiko-Port</label><input id="sftp-port" class="form-control" name="port" type="number" min="1" max="65535" value="{{ service.settings.port }}" required></div>
+      <div class="col-6 col-md-3"><label for="sftp-system-port" class="form-label">Systemdienst-Port</label><input id="sftp-system-port" class="form-control" name="system_port" type="number" min="1" max="65535" value="{{ service.settings.system_port }}" required><p class="form-text">Nur für Verbindungsadressen; ändert OpenSSH nicht.</p></div>
+    </div>
+    <div class="form-check mb-2"><input id="sftp-enabled" name="enabled" value="1" type="checkbox" class="form-check-input" {% if service.settings.enabled %}checked{% endif %}><label for="sftp-enabled" class="form-check-label">Dienst aktiviert</label></div>
+    <div class="form-check mb-3"><input id="sftp-autostart" name="autostart" value="1" type="checkbox" class="form-check-input" {% if service.settings.autostart %}checked{% endif %}><label for="sftp-autostart" class="form-check-label">Paramiko beim SimpleOffice-Start automatisch starten</label><p class="form-text">Der Autostart von OpenSSH wird im Betriebssystem verwaltet.</p></div>
+    <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit">Speichern</button><a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a></div>
+  </form>
+</main>
+{% endblock %}

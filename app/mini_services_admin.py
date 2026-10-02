@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, url_for
 
@@ -104,6 +105,34 @@ def index():
 @admin_required
 def network():
     return render_template("admin/mini_services.html", **_network_context())
+
+
+@bp.get("/sftp")
+@admin_required
+def sftp():
+    from .sftp_service import safe_status
+    return render_template("admin/sftp_service.html", service=safe_status())
+
+
+@bp.post("/sftp")
+@admin_required
+def sftp_save():
+    from .sftp_service import save_settings
+    candidate = {"mode": request.form.get("mode", "integrated"),
+                 "enabled": request.form.get("enabled") == "1",
+                 "autostart": request.form.get("autostart") == "1",
+                 "bind": request.form.get("bind", "127.0.0.1"),
+                 "port": request.form.get("port", "2222"),
+                 "system_port": request.form.get("system_port", "22")}
+    try:
+        save_settings(candidate)
+    except (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        flash("SFTP nicht gespeichert. Laufenden Mini-Service stoppen, Eingaben und Dateirechte prüfen; Systembetrieb benötigt einen vorhandenen SSH-Dienst.")
+        return render_template("admin/sftp_service.html", service={"settings": candidate,
+                               "health": {"message": "Eingaben bleiben erhalten; gespeicherte Konfiguration wurde nicht geändert."}}), 503 if isinstance(exc, (OSError, subprocess.TimeoutExpired)) else 400
+    audit("mini_service_settings", "service", "sftp")
+    flash("SFTP gespeichert. In der Dienstübersicht kannst du den Dienst starten.")
+    return redirect(url_for("mini_services_admin.index"))
 
 
 @bp.post("/save")

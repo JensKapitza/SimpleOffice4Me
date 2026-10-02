@@ -32,9 +32,9 @@
     <div class="card-header"><strong>{{ 'Current usage and prices' if g.language == 'en' else 'Aktuelle Nutzung und Preise' }}</strong></div>
     <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">{{ 'Function' if g.language == 'en' else 'Funktion' }}</th><th scope="col" class="text-end">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</th><th scope="col" class="text-end">Requests</th><th scope="col" class="text-end">{{ 'Price / active user' if g.language == 'en' else 'Preis / aktiver Benutzer' }}</th></tr></thead><tbody>
       <tr><td><strong>{{ 'Base user' if g.language == 'en' else 'Basis-Benutzer' }}</strong></td><td class="text-end">{{ licensing.active_users }}</td><td class="text-end">—</td><td class="text-end">{{ '%.2f'|format(licensing.prices_cents.user / 100) }} €</td></tr>
-      {% for feature, stats in licensing.usage.items() %}<tr><td>{{ feature }}</td><td class="text-end">{{ stats.users }}</td><td class="text-end">{{ stats.requests }}</td><td class="text-end">{{ '%.2f'|format(licensing.prices_cents[feature] / 100) }} €</td></tr>{% endfor %}
+      {% for feature, stats in licensing.usage.items() %}<tr><td>{{ features[feature] }}</td><td class="text-end">{{ stats.users }}</td><td class="text-end">{{ stats.requests }}</td><td class="text-end">{{ '%.2f'|format(licensing.prices_cents[feature] / 100) }} €</td></tr>{% endfor %}
     </tbody></table></div>
-    <div class="card-footer small text-secondary">{{ 'Prices are supplied by the accounting master. Zero means no price has been configured yet.' if g.language == 'en' else 'Preise werden vom Abrechnungs-Master geliefert. 0,00 € bedeutet, dass noch kein Preis hinterlegt wurde.' }}</div>
+    <div class="card-footer small text-secondary">{{ 'Successful authenticated feature requests are counted, including APIs. Static assets, login and general administration are excluded. Prices are supplied by the accounting master. Zero means no price has been configured yet.' if g.language == 'en' else 'Gezählt werden erfolgreiche authentifizierte Funktionsaufrufe einschließlich APIs. Statische Dateien, Anmeldung und allgemeine Administration sind ausgenommen. Preise werden vom Abrechnungs-Master geliefert. 0,00 € bedeutet, dass noch kein Preis hinterlegt wurde.' }}</div>
   </section>
 
   {% if licensing.master.is_master %}

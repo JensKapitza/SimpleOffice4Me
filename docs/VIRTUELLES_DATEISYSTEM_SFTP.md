@@ -13,6 +13,12 @@ SFTP ist bewusst **kein SSH-Shellzugang**. Der Dienst akzeptiert nur einen
 Session-Kanal mit SFTP-Subsystem. Befehlsausführung, Portweiterleitung,
 Symlinks, `chmod` und Spezialdateien werden nicht angeboten.
 
+Die Standardinstallation benötigt Paramiko weiterhin nur für den integrierten
+SFTP-Betrieb. Ohne diese optionale Abhängigkeit bleibt der Dienst mit seiner
+gespeicherten Konfiguration als nicht verfügbar sichtbar. Die Python-3.10- und
+3.15-CI prüfen diesen Betrieb ohne SFTP-Extra; Python 3.14 installiert das
+bestehende Extra und prüft reale Hostschlüssel sowie den Paramiko-Transport.
+
 ## Rechte- und Vererbungsmodell
 
 Unter **Einstellungen → WebDAV für Desktop-Programme → Ordnerrechte** kann pro
@@ -255,3 +261,34 @@ Shell-/Exec-/Forwarding-Ablehnung sowie versioniertes Kürzen und Erweitern.
   Dateien bleiben unverändert. Der Widerruf aller App-Passwörter deaktiviert
   Passwortzugriff; Public Keys werden einzeln in der Oberfläche widerrufen.
   ACL- und Auditdaten bleiben erhalten.
+
+## SFTP unter Mini Services
+
+Unter **Verwaltung → Mini Services → SFTP → Konfiguration öffnen** lässt sich der
+integrierte Paramiko-Dienst aktivieren. Bind-IP und Port speichern, anschließend
+in der Dienstübersicht starten. Ein manueller `init`-Schritt entfällt: Beim ersten
+Start wird ein privater RSA-Hostschlüssel erzeugt; spätere Starts behalten ihn bei.
+Paramiko muss über das vorhandene optionale SFTP-Extra bzw. den plattformspezifischen
+Starter installiert sein. OpenSSH ist keine Voraussetzung. Der Dienst verwendet
+weiterhin das gemeinsame VirtualFileSystem, App-Passwörter, Benutzer-Schlüssel,
+Ordnerrechte und den vorhandenen StoragePort. Shell und Portweiterleitung bleiben
+gesperrt. Standard: lokal auf 127.0.0.1:2222; LAN-Bind und Firewall werden bewusst
+konfiguriert. Start, Stop, Neustart und lokale Suche sind admin- und CSRF-geschützt.
+
+Die Betriebsart **Systemdienst nutzen** erkennt unter Linux systemd-Einheiten
+`ssh.service`/`sshd.service`, unter Windows den Dienst `sshd`. Sie wird ausdrücklich
+gewählt, nicht automatisch. Dort gelten Betriebssystem-Konten und dessen
+Dateirechte, nicht die SimpleOffice-App-Passwörter oder das virtuelle Dateisystem.
+Der angegebene Systemport dient nur den Verbindungsadressen; OpenSSH-Konfiguration
+und System-Autostart werden nicht verändert. Dienststeuerung setzt bestehende
+Betriebssystemrechte voraus; es gibt keine automatische Privilegienerhöhung.
+Andere Init-Systeme können den integrierten Starter verwenden oder OpenSSH extern
+verwalten.
+
+Die Einstellungen liegen neben der Mini-Service-Konfiguration in
+`sftp-service.json`. Änderungen am laufenden integrierten Dienst werden abgelehnt;
+zuerst stoppen. Autostart wird vom SimpleOffice-Launcher ausgeführt, wenn aktiviert
+und ausgewählt. Ein direkter Flask/WSGI-Start nutzt weiterhin einen separaten
+SFTP-Starter. Das Dienstprotokoll liegt im bestehenden Run-Verzeichnis in
+`sftp.log`. Ein Shutdown über die Dienstverwaltung beendet auch SFTP; ein manuelles
+Stoppen in der Oberfläche ändert den Autostart-Wunsch nicht.

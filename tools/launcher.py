@@ -304,6 +304,11 @@ def start(configure_only: bool = False) -> None:
 
     register("web", os.getpid(), "tools.launcher")
     try:
+        from app.sftp_service import autostart as sftp_autostart
+        sftp_autostart(document_root)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print(f"SFTP-Autostart fehlgeschlagen ({type(exc).__name__}). Mini-Service-Konfiguration prüfen.", file=sys.stderr)
+    try:
         mini_worker = start_mini_worker()
     except (OSError, ValueError) as exc:
         mini_worker = None

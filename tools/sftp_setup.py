@@ -7,6 +7,8 @@ import argparse
 import os
 import stat
 import sys
+import io
+import signal
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,7 +16,7 @@ DEFAULT_KEY = ROOT / "instance" / "sftp_host_rsa_key"
 
 
 def key_path() -> Path:
-    return Path(os.environ.get("SIMPLEOFFICE_SFTP_HOST_KEY", str(DEFAULT_KEY))).expanduser().resolve()
+    return Path(os.environ.get("SIMPLEOFFICE_SFTP_HOST_KEY", str(DEFAULT_KEY))).expanduser().absolute()
 
 
 def dependency():
@@ -34,14 +36,29 @@ def validate(path: Path) -> None:
 
 def initialize(path: Path) -> None:
     library = dependency()
-    if path.exists():
+    if path.exists() or path.is_symlink():
         validate(path)
         print(f"Vorhandener Hostschlüssel bleibt unverändert: {path}")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    library.RSAKey.generate(3072).write_private_key_file(str(path))
-    if os.name != "nt":
-        path.chmod(0o600)
+    key = library.RSAKey.generate(3072)
+    buffer = io.StringIO()
+    key.write_private_key(buffer)
+    # Exclusive create prevents overwriting another starter's key; restrictive
+    # permissions apply before the first byte of private material is written.
+    try:
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        validate(path)
+        return
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write(buffer.getvalue())
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
     print(f"Neuer SFTP-Hostschlüssel erzeugt: {path}")
 
 
@@ -60,14 +77,22 @@ def main() -> int:
             os.environ["SIMPLEOFFICE_SFTP_HOST_KEY"] = str(path)
             sys.path.insert(0, str(ROOT))
             from app.sftp_server import serve
-            from tools.service_control import register, unregister
-            register("sftp", os.getpid(), "sftp_setup")
-            try:
-                serve()
-            finally:
-                unregister("sftp", os.getpid())
+            from tools.service_control import RUN_DIR, exclusive_lease, register, unregister
+            with exclusive_lease(RUN_DIR / "sftp-owner.lock") as acquired:
+                if not acquired:
+                    raise RuntimeError("SFTP läuft bereits.")
+                def stop_requested(signum, frame):
+                    raise SystemExit(128 + signum)
+                previous = {signum: signal.signal(signum, stop_requested) for signum in (signal.SIGTERM, signal.SIGINT)}
+                register("sftp", os.getpid(), "sftp_setup")
+                try:
+                    serve()
+                finally:
+                    unregister("sftp", os.getpid())
+                    for signum, handler in previous.items():
+                        signal.signal(signum, handler)
         return 0
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         print(f"SFTP nicht bereit: {exc}", file=sys.stderr)
         return 2
 

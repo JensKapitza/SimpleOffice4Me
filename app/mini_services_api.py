@@ -4,7 +4,8 @@ from __future__ import annotations
 import time
 import sqlite3
 import shutil
-from flask import Blueprint, abort, jsonify, request
+import subprocess
+from flask import Blueprint, abort, current_app, jsonify, request
 
 from simpleoffice_mini_control import ControlStore, NETWORK_SERVICES
 from simpleoffice_mini_core import default_config_path, read_status
@@ -63,6 +64,10 @@ def _catalog():
     row = boot_status()
     row["scan"] = store.scan("http-boot")
     rows.append(row)
+    from .sftp_service import safe_status
+    row = safe_status()
+    row["scan"] = store.scan("sftp")
+    rows.append(row)
     return {"services": rows, "worker": {key: status.get(key) for key in ("state", "pid", "updated_at", "stale", "config_error")}}
 
 
@@ -93,6 +98,8 @@ def operation(ident):
 @bp.post("/<service>/settings")
 @admin_required
 def settings(service):
+    if service == "sftp":
+        return _sftp_action("settings")
     if service in {"audio-sender", "audio-receiver", "audio-output"}:
         return _audio_action(service, "settings")
     if service not in NETWORK_SERVICES:
@@ -108,6 +115,8 @@ def settings(service):
 @bp.post("/<service>/<action>")
 @admin_required
 def action(service, action):
+    if service == "sftp" and action in {"start", "stop", "restart", "scan"}:
+        return _sftp_action(action)
     if service in {"audio-sender", "audio-receiver", "audio-output"} and action in {"start", "stop", "restart", "scan"}:
         return _audio_action(service, action)
     if service == "http-boot" and action in {"start", "stop", "restart", "scan"}:
@@ -138,6 +147,24 @@ def action(service, action):
         return jsonify(error="Aktion konnte nicht vorgemerkt werden. Kurz warten und erneut versuchen."), 409
     audit("mini_service_action", "service", service, detail={"action": action, "operation_id": command["id"]})
     return jsonify(command), 202
+
+
+def _sftp_action(action):
+    from . import sftp_service
+    try:
+        if action == "settings":
+            result = {"settings": sftp_service.save_settings(request.get_json(silent=True))}
+        else:
+            result = sftp_service.action(action, current_app.config.get("DOCUMENT_ROOT", ""))
+            if action == "scan":
+                _store().scan("sftp", result)
+    except (ValueError, TypeError):
+        return jsonify(error="SFTP-Einstellungen prüfen: Betriebsart, IP-Adresse, Ports und Aktivierung."), 400
+    except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
+        current_app.logger.warning("SFTP action %s failed (%s)", action, type(exc).__name__)
+        return jsonify(error="SFTP-Aktion fehlgeschlagen. Paramiko, Portbelegung, Schlüssel und Dienstrechte prüfen."), 503
+    audit("mini_service_action", "service", "sftp", detail={"action": action})
+    return jsonify(result)
 
 
 def _audio_action(service, action):
