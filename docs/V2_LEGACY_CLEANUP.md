@@ -68,6 +68,13 @@ non-cacheable responses. Invoice/contact metadata and the billing-page
 availability read model still use the legacy projection; other business
 consumers remain, so the overall cleanup gate stays blocked.
 
+Photo metadata refresh also uses verified temporary StoragePort materialization
+for Pillow and exiftool. Missing or stale projections no longer affect refresh;
+integrity failures do not invoke parsers or update metadata/tags. Private
+temporary content is removed on success and parser failure, and the documents
+feature is required before materialization. Initial bulk photo import remains
+a DocumentStore mutation/projection path and is not removed by this change.
+
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, several business/rental/photo/contact/
