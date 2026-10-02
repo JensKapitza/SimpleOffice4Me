@@ -34,6 +34,7 @@ class MiniPackagingTests(unittest.TestCase):
             target.mkdir()
             shutil.copyfile(ROOT / "tools" / "__init__.py", target / "__init__.py")
             shutil.copyfile(ROOT / "tools" / "service_control.py", target / "service_control.py")
+            shutil.copyfile(ROOT / "simpleoffice_mini_core.py", Path(folder) / "simpleoffice_mini_core.py")
             result = subprocess.run(
                 [
                     sys.executable,
