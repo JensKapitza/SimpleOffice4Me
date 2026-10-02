@@ -12,12 +12,13 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from flask import Blueprint, current_app, flash, g, jsonify, redirect, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, request, url_for
 
+from .access_control import has_feature
 from .auth import login_required
 from .document_store import DocumentStore, sha256_file, utc_now
-from .safe_paths import resolve_file_under
 from .settings_store import SettingsStore
+from .v2.materialize import materialize_verified_object
 
 
 bp = Blueprint("photo_upload", __name__, url_prefix="/documents/photos")
@@ -501,12 +502,18 @@ def upload_photo():
 @bp.post("/<document_id>/refresh-metadata")
 @login_required
 def refresh_metadata(document_id: str):
+    if not has_feature(g.user, "documents"):
+        abort(403)
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
+    actor = str(g.user["username"])
     try:
         metadata = store.get_document(document_id)
-        path = resolve_file_under(store.root, metadata.get("last_path", ""))
-        _verify_photo(path)
-        rich = extract_photo_metadata(path)
+        suffix = Path(str(metadata.get("last_path", ""))).suffix.lower()
+        if suffix not in PHOTO_EXTENSIONS:
+            raise ValueError("Dokument ist kein unterstütztes Foto")
+        with materialize_verified_object(store.root, actor, document_id, suffix=suffix) as path:
+            _verify_photo(path)
+            rich = extract_photo_metadata(path)
         upload_metadata = metadata.get("attributes", {}).get("photo_upload", {})
         tags = metadata_tags(
             received_at=str(upload_metadata.get("received_at") or metadata.get("first_seen_at") or utc_now()),
@@ -518,9 +525,10 @@ def refresh_metadata(document_id: str):
             document_id,
             attributes={"photo_metadata": rich},
             tags=[*metadata.get("tags", []), *sorted(tags)],
-            author=str(g.user["username"]),
+            author=actor,
         )
         flash("Foto-Metadaten vollständig neu eingelesen.")
     except (OSError, RuntimeError, ValueError) as exc:
-        flash(f"Foto-Metadaten konnten nicht aktualisiert werden: {exc}")
+        current_app.logger.warning("Photo metadata refresh rejected (%s)", type(exc).__name__)
+        flash("Foto-Metadaten konnten nicht aktualisiert werden. Bilddatei und Speicherverfügbarkeit prüfen.")
     return redirect(url_for("documents.images"))
