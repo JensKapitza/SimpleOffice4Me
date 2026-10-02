@@ -2,12 +2,6 @@ name: Project release
 
 on:
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: Publish the completed build as a GitHub Release (requires a version tag).
-        type: boolean
-        default: false
-        required: false
   push:
     tags:
       - 'v*'
@@ -140,7 +134,7 @@ jobs:
           sha256sum "SimpleOffice4Me-${VERSION}-Downloads.tar.gz" > "SimpleOffice4Me-${VERSION}-Downloads.tar.gz.sha256"
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || inputs.publish_release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
