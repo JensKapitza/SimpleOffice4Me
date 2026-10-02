@@ -48,6 +48,16 @@ transcoding is no longer a blocker: ffmpeg receives a private temporary file
 streamed and verified through `StoragePort`, and that temporary plaintext is
 removed when the operation ends.
 
+ZUGFeRD/Factur-X document inspection and the PDF inspection performed when
+attaching an existing document to a contact also use this verified temporary
+materialization. They continue to work when a V2 plaintext projection is absent
+or stale, including with the encrypted V2 backend. A failed integrity check
+never falls back to that projection and does not attach the PDF or store its
+invoice attributes. Temporary content is removed after inspection, including
+on parser failure; accounts denied the documents feature cannot inspect or
+attach documents. This does not migrate customer/invoice ZIP exports or other
+business-document consumers, so the overall cleanup gate remains blocked.
+
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, several business/rental/photo/contact/
