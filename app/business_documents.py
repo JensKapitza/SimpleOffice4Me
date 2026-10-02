@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from flask import Blueprint
 
+from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
 from .safe_paths import resolve_file_under
+from .v2.materialize import materialize_verified_object
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 
@@ -250,6 +252,12 @@ def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
         if len(names)>1:result["buyer"]=names[1]
         result["profile"]=ZUGFERD_PROFILE; break
     return result
+
+
+def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dict[str, Any]:
+    """Inspect verified authoritative bytes without trusting the legacy projection."""
+    with materialize_verified_object(root, actor, document_id, suffix=".pdf") as path:
+        return inspect_zugferd_pdf(path)
 
 
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -651,16 +659,20 @@ def invoice_credit_note(invoice_id: str):
 @bp.post("/contacts/<contact_id>/attach")
 @login_required
 def attach_existing(contact_id:str):
+    if not has_feature(g.user, "documents"):
+        abort(403)
     root,actor=_root(),_actor();contacts=ContactStore(root)
     if not contacts.can_manage(contact_id,actor):abort(403)
     document_id=request.form.get("document_id","").strip();store=DocumentStore(root)
     try:document=store.get_document(document_id)
     except ValueError:abort(404)
     metadata:dict[str,Any]={}
-    try:path=resolve_file_under(root,document.get("last_path",""))
-    except (OSError,ValueError):path=None
-    if path is not None and path.suffix.casefold()==".pdf":
-        details=inspect_zugferd_pdf(path)
+    if Path(str(document.get("last_path", ""))).suffix.casefold() == ".pdf":
+        try:
+            details = _inspect_stored_zugferd_pdf(root, document_id, actor)
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.warning("ZUGFeRD inspection rejected for document %s (%s)", document_id, type(exc).__name__)
+            abort(404)
         if details.get("detected"):
             metadata["zugferd"]={key:value for key,value in details.items() if key!="raw_xml"};store.set_attribute(document_id,"zugferd_detected","yes",actor)
             for key in ("invoice_id","profile","currency","grand_total","due_payable"):
@@ -670,9 +682,13 @@ def attach_existing(contact_id:str):
 @bp.get("/zugferd/<document_id>")
 @login_required
 def zugferd_details(document_id:str):
+    if not has_feature(g.user, "documents"):
+        abort(403)
     root=_root();store=DocumentStore(root)
     try:
         document=store.get_document(document_id)
-        path=resolve_file_under(root,document.get("last_path",""))
-    except (OSError,ValueError):abort(404)
-    return render_template("documents/zugferd_details.html",document=document,details=inspect_zugferd_pdf(path))
+        details = _inspect_stored_zugferd_pdf(root, document_id, _actor())
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("ZUGFeRD inspection rejected for document %s (%s)", document_id, type(exc).__name__)
+        abort(404)
+    return render_template("documents/zugferd_details.html",document=document,details=details)
