@@ -213,6 +213,10 @@
     if (!select || !size) return;
     const current = ++serial;
     const region = select.value;
+    if (!region) {
+      size.textContent = english ? 'Select a region to determine download size.' : 'Region auswählen, um die Downloadgröße zu ermitteln.';
+      return;
+    }
     size.textContent = english ? 'Determining download size…' : 'Downloadgröße wird ermittelt …';
     try {
       const response = await fetch(`${endpoint}?region=${encodeURIComponent(region)}`, {headers: {'Accept': 'application/json'}});

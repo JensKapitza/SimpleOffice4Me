@@ -1,5 +1,7 @@
 import logging
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,15 @@ from app.applogging import SecretRedactionFilter, redact
 
 
 class AdminSecurityTest(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js required for frontend regression tests")
+    def test_osm_region_frontend(self):
+        script = Path(__file__).with_name("osm_region_frontend.test.cjs")
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(script)],
+            capture_output=True, text=True, timeout=15,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "PROPAGATE_EXCEPTIONS")}
