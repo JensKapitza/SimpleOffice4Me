@@ -46,6 +46,13 @@ operation ends.
 
 This removes video transcoding from the legacy projection blocker list.
 
+CRM EML previews and metadata also use verified temporary materialization before
+parsing mail. They work without the retained plaintext file and reject corrupt
+authoritative content without falling back to that file. Both routes require
+the documents feature in addition to the existing contacts gate and return
+private, non-cacheable responses. Temporary files are removed on parser errors.
+Document metadata and other consumer groups still require the projection.
+
 ## Remaining post-2.0 cleanup
 
 Issue #471 continues to track the remaining compatibility window:

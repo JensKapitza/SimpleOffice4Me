@@ -16,14 +16,15 @@ from typing import Any
 from flask import Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .access_control import has_feature
 from .contact_store import ContactStore
 from .contact_management import ContactManagement
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
 from .osm_address import LocalAddressIndex, field_suggestions, search_address, unique_candidate
-from .safe_paths import resolve_file_under
 from .settings_store import translate
+from .v2.materialize import materialize_verified_object
 
 
 CRM_FILE = "contact-crm.json"
@@ -323,11 +324,14 @@ def _parse_address_rows(text: str) -> list[dict[str, str]]:
     return result
 
 
-def _eml_preview(root: Path, document_id: str) -> dict[str, Any]:
+def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
     store = DocumentStore(root); document = store.get_document(document_id)
-    path = resolve_file_under(root, document.get("last_path", ""))
-    if path.suffix.casefold() != ".eml": raise ValueError("document is not a regular EML file")
-    message = BytesParser(policy=policy.default).parsebytes(path.read_bytes()); attachments: list[dict[str, Any]] = []
+    if Path(str(document.get("last_path") or "")).suffix.casefold() != ".eml":
+        raise ValueError("document is not a regular EML file")
+    with materialize_verified_object(root, actor, document_id, suffix=".eml") as path:
+        with path.open("rb") as source:
+            message = BytesParser(policy=policy.default).parse(source)
+    attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
         payload = part.get_payload(decode=True) or b""
@@ -453,13 +457,23 @@ def register(bp) -> None:
     @bp.get("/documents/<document_id>/eml-preview", endpoint="eml_preview")
     @login_required
     def eml_preview(document_id: str):
-        try: preview = _eml_preview(Path(current_app.config["DOCUMENT_ROOT"]), document_id)
-        except (OSError, ValueError): abort(404)
-        return render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id)
+        if not has_feature(g.user, "documents"): abort(403)
+        try: preview = _eml_preview(Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"]))
+        except (OSError, RuntimeError, ValueError) as exc:
+            current_app.logger.warning("CRM mail preview rejected (%s)", type(exc).__name__)
+            abort(404)
+        response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id))
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
 
     @bp.get("/documents/<document_id>/eml-metadata.json", endpoint="eml_metadata")
     @login_required
     def eml_metadata(document_id: str):
-        try: preview = _eml_preview(Path(current_app.config["DOCUMENT_ROOT"]), document_id)
-        except (OSError, ValueError): abort(404)
-        return jsonify({key: preview[key] for key in ("subject", "from", "to", "cc", "date", "message_id")})
+        if not has_feature(g.user, "documents"): abort(403)
+        try: preview = _eml_preview(Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"]))
+        except (OSError, RuntimeError, ValueError) as exc:
+            current_app.logger.warning("CRM mail metadata rejected (%s)", type(exc).__name__)
+            abort(404)
+        response = jsonify({key: preview[key] for key in ("subject", "from", "to", "cc", "date", "message_id")})
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
