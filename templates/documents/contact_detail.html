@@ -118,7 +118,7 @@
               <div class="col-md-4"><label class="form-label small">Straße + Hausnummer / Street</label><input required class="form-control" name="street" data-address-field="street" autocomplete="off" placeholder="Musterstraße 12"></div>
               <div class="col-md-4"><label class="form-label small">Bundesland / Region / State</label><input class="form-control" name="state" data-address-field="state" autocomplete="off" placeholder="z. B. NRW, CA, Québec"></div>
               <div class="col-md-4"><label class="form-label small">{{ tr('contact.country') }}</label><input class="form-control text-uppercase" name="country" data-address-field="country" value="DE" maxlength="2" autocomplete="off" list="contact-address-country-codes" aria-describedby="contact-address-country-help"><div class="form-text" id="contact-address-country-help">{% if g.language == 'en' %}Editable ISO country code (e.g. US, JP, GB).{% else %}ISO-Ländercode, frei änderbar (z. B. US, JP, GB).{% endif %}</div></div>
-              <input type="hidden" name="address" data-address-composed>
+              <input type="text" name="address" data-address-composed class="visually-hidden" tabindex="-1" aria-hidden="true" autocomplete="off">
               <div class="col-12"><div class="list-group position-absolute start-0 end-0 shadow-sm" id="contact-address-results" data-address-results role="listbox" hidden style="z-index: 1050"></div><div class="form-text" data-address-status aria-live="polite"></div></div>
               {{ eu_country_datalist('contact-address-country-codes') }}
             </div></div>

@@ -244,9 +244,8 @@ class BrowserPageCrawlTests(unittest.TestCase):
         self.assertEqual(1, len(failures))
         self.assertIn("/new-page", failures[0])
 
-        strict_failures = route_coverage_failures(summary, require_dynamic=True)
-        self.assertEqual(2, len(strict_failures))
-        self.assertIn("/contacts/<contact_id>", strict_failures[1])
+        # Unmaterialized dynamic URL templates are diagnostic, not actionable failures.
+        self.assertEqual(failures, route_coverage_failures(summary))
 
     def test_tested_url_manifest_maps_urls_to_screenshots(self):
         summary: dict[str, object] = {

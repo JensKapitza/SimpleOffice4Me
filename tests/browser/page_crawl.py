@@ -439,11 +439,7 @@ def write_tested_url_manifest(
     )
 
 
-def route_coverage_failures(
-    summary: dict[str, object],
-    *,
-    require_dynamic: bool = False,
-) -> list[str]:
+def route_coverage_failures(summary: dict[str, object]) -> list[str]:
     """Return actionable coverage failures for the all-pages browser run."""
     coverage = summary.get("route_coverage")
     if not isinstance(coverage, dict) or not coverage.get("available"):
@@ -463,18 +459,7 @@ def route_coverage_failures(
             f"{sample}{suffix}"
         )
 
-    uncovered_dynamic = coverage.get("uncovered_dynamic", [])
-    if require_dynamic and isinstance(uncovered_dynamic, list) and uncovered_dynamic:
-        sample = ", ".join(
-            str(item.get("rule") or item.get("endpoint") or "?")
-            for item in uncovered_dynamic[:12]
-            if isinstance(item, dict)
-        )
-        suffix = "" if len(uncovered_dynamic) <= 12 else f" (+{len(uncovered_dynamic) - 12} weitere)"
-        failures.append(
-            f"{len(uncovered_dynamic)} dynamische Browser-Route(n) wurden nicht materialisiert: "
-            f"{sample}{suffix}"
-        )
+    # Dynamic route templates without concrete fixture objects stay diagnostic only.
     return failures
 
 

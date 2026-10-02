@@ -108,7 +108,7 @@
           <form method="post" action="{{ url_for('admin.osm_build') }}" class="row g-2" id="osm-download-form">
             <div class="col-md-8">
               <label class="form-label" for="osm-region">{{ 'Download and index Geofabrik region' if g.language == 'en' else 'Geofabrik-Region herunterladen und indexieren' }}</label>
-              <select class="form-select" name="region" id="osm-region" required {% if busy %}disabled{% endif %}>
+              <select class="form-select" name="region" id="osm-region" required {% if busy %}disabled{% endif %}><option value="" selected disabled>Region auswählen</option>
                 {% for key, config in osm_regions.items() %}
                   <option value="{{ key }}" {% if osm_status.region == key %}selected{% endif %}>{{ config[0] }}</option>
                 {% endfor %}

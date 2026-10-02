@@ -55,9 +55,6 @@ MAX_PAGES = max(1, int(os.environ.get("BROWSER_MAX_PAGES", "2500")))
 FAIL_ON_CONSOLE_ERRORS = os.environ.get(
     "BROWSER_FAIL_ON_CONSOLE_ERRORS", "true"
 ).strip().lower() in {"1", "true", "yes", "on"}
-REQUIRE_DYNAMIC_ROUTE_COVERAGE = os.environ.get(
-    "BROWSER_REQUIRE_DYNAMIC_ROUTE_COVERAGE", "false"
-).strip().lower() in {"1", "true", "yes", "on"}
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 HTML_DIR = OUTPUT_DIR / "html"
 write_html_snapshot = make_html_snapshot_writer(OUTPUT_DIR)
@@ -639,7 +636,6 @@ def main() -> int:
         "max_query_variants_per_path": MAX_QUERY_VARIANTS_PER_PATH,
         "crawl_skipped_query_variants": 0,
         "fail_on_console_errors": FAIL_ON_CONSOLE_ERRORS,
-        "require_dynamic_route_coverage": REQUIRE_DYNAMIC_ROUTE_COVERAGE,
         "pages": [],
         "console_errors": [],
         "page_errors": [],
@@ -906,10 +902,7 @@ def main() -> int:
     update_route_coverage(summary)
     if SCOPE == "all-pages":
         failures.extend(
-            route_coverage_failures(
-                summary,
-                require_dynamic=REQUIRE_DYNAMIC_ROUTE_COVERAGE,
-            )
+            route_coverage_failures(summary)
         )
     write_tested_url_manifest(summary, output_dir=OUTPUT_DIR)
     write_screenshot_gallery(summary, output_dir=OUTPUT_DIR)
