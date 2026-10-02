@@ -175,6 +175,13 @@ class CustomerExportStorageTests(unittest.TestCase):
         self.assertTrue(all(target.closed for target in targets))
         self.assertFalse((self.root / ".simpleoffice-history/snapshots/customer-exports").exists())
 
+    def test_audit_read_failure_does_not_allocate_an_archive_target(self):
+        with patch.object(DocumentStore, "logbook", side_effect=OSError("synthetic audit failure")):
+            with patch("app.business_documents.tempfile.TemporaryFile") as target:
+                with self.assertRaises(OSError):
+                    customer_document_archive(self.root, self.contact, "jens")
+        target.assert_not_called()
+
     def test_encrypted_v2_exports_work_without_usable_plaintext_stores(self):
         self.migrate()
         phrase = "synthetic-storage-export-unlock"

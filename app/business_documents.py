@@ -133,7 +133,6 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
     document_rows = _customer_document_rows(root, contact_id, invoice_rows)
     if not document_rows and not invoice_rows:
         raise ValueError("customer archive is empty")
-    target = tempfile.TemporaryFile(mode="w+b")
     export_id, exported_at = str(uuid.uuid4()), utc_now()
     manifest_documents: list[dict[str, Any]] = []
     used_names: set[str] = set()
@@ -146,6 +145,7 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
             related_document_id = str(event.get("document_id") or event.get("source_document_id") or "")
         if related_document_id in document_logbooks:
             document_logbooks[related_document_id].append(event)
+    target = tempfile.TemporaryFile(mode="w+b")
     try:
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
             for row in document_rows:
