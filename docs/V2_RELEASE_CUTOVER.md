@@ -53,6 +53,15 @@ the documents feature in addition to the existing contacts gate and return
 private, non-cacheable responses. Temporary files are removed on parser errors.
 Document metadata and other consumer groups still require the projection.
 
+Finalized invoice downloads and both customer ZIP exports also read verified
+StoragePort content rather than retained plaintext files. Downloads keep ETag
+and range support; ZIPs use disk-backed temporary files and bounded chunk
+copies. Missing customer documents remain explicit unavailable manifest rows.
+Corrupt authoritative content aborts the export without a success audit record.
+All three routes enforce the documents feature and private/no-store responses.
+The customer billing availability view and document metadata still depend on
+the compatibility namespace; this does not enable destructive legacy cleanup.
+
 ## Remaining post-2.0 cleanup
 
 Issue #471 continues to track the remaining compatibility window:

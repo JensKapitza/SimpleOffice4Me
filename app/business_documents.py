@@ -12,6 +12,8 @@ from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
 from .safe_paths import resolve_file_under
 from .v2.materialize import materialize_verified_object
+from .v2.contracts import LogicalObjectId
+from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 
@@ -110,6 +112,19 @@ def _archive_member_name(document: dict[str, Any], used: set[str]) -> str:
     return unique
 
 
+def _write_verified_archive_member(root: Path, actor: str, document_id: str, archive, member_name: str) -> tuple[str, int]:
+    """Verify before opening a ZIP member; never archive projection content."""
+    digest = hashlib.sha256()
+    size = 0
+    with materialize_verified_object(root, actor, document_id) as path:
+        with path.open("rb") as source, archive.open(member_name, "w", force_zip64=True) as destination:
+            while chunk := source.read(1024 * 1024):
+                destination.write(chunk)
+                digest.update(chunk)
+                size += len(chunk)
+    return digest.hexdigest(), size
+
+
 def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -> tuple[BinaryIO, dict[str, Any]]:
     """Build an auditable customer archive with files, provenance and history."""
     contact_id = str(contact["contact_id"])
@@ -141,20 +156,19 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
                     "relations": row.get("links", []),
                     "invoice_ids": sorted(set(row.get("invoice_ids", []))),
                 }
-                if not row.get("available"):
+                if not document:
                     record["error"] = row.get("error", "document_unavailable")
                     manifest_documents.append(record)
                     continue
                 member_name = _archive_member_name(document, used_names)
-                digest = hashlib.sha256()
-                size = 0
-                with row["path"].open("rb") as source, archive.open(member_name, "w", force_zip64=True) as destination:
-                    while chunk := source.read(1024 * 1024):
-                        destination.write(chunk)
-                        digest.update(chunk)
-                        size += len(chunk)
-                actual_sha256 = digest.hexdigest()
+                try:
+                    actual_sha256, size = _write_verified_archive_member(root, actor, row["document_id"], archive, member_name)
+                except FileNotFoundError:
+                    record.update(available=False, error="document_file_missing_or_unsafe")
+                    manifest_documents.append(record)
+                    continue
                 record.update({
+                    "available": True,
                     "archive_path": member_name,
                     "filename": Path(str(document.get("last_path", ""))).name,
                     "size": size,
@@ -538,50 +552,86 @@ def refund_customer_credit(contact_id: str):
     return redirect(url_for(".customer_billing", contact_id=contact_id))
 
 
-def _invoice_pdf_path(root: Path, row: dict[str, Any]) -> Path:
-    document = DocumentStore(root).get_document(row.get("document_id", ""))
+def _verified_invoice_download(root: Path, row: dict[str, Any], actor: str):
+    target = tempfile.TemporaryFile(mode="w+b")
     try:
-        return resolve_file_under(root, document.get("last_path", ""))
-    except (OSError, ValueError) as exc:
-        raise ValueError("invoice PDF not found or outside document storage") from exc
+        stored = result_or_raise(storage_for(root, actor).copy_verified_to(LogicalObjectId(str(row.get("document_id") or "")), target))
+        target.seek(0)
+        response = send_file(target, as_attachment=True, download_name=f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", mimetype="application/pdf", conditional=False, etag=False)
+        response.content_length = stored.size
+        if stored.version:
+            response.set_etag(str(stored.version))
+        response.make_conditional(request, accept_ranges=True, complete_length=stored.size)
+        response.headers["Cache-Control"] = "private, no-store"
+        response.call_on_close(target.close)
+        return response
+    except Exception:
+        target.close()
+        raise
 
 @bp.get("/invoices/<invoice_id>/download")
 @login_required
 def invoice_download(invoice_id: str):
+    if not has_feature(g.user, "documents"): abort(403)
     root, actor = _root(), _actor()
     try: row = invoice(root, invoice_id)
     except ValueError: abort(404)
     if not ContactStore(root).can_manage(row["contact_id"], actor): abort(403)
     if row.get("status") == "draft": return send_file(io.BytesIO(draft_invoice_pdf(root,row)),as_attachment=True,download_name=f"{_safe_filename(row['invoice_number'])}.pdf",mimetype="application/pdf")
-    try: path = _invoice_pdf_path(root, row)
-    except ValueError: abort(404)
-    return send_file(path, as_attachment=True, download_name=f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", mimetype="application/pdf")
+    try: return _verified_invoice_download(root, row, actor)
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("Invoice download rejected (%s)", type(exc).__name__)
+        abort(404)
 
 @bp.get("/contacts/<contact_id>/invoices.zip")
 @login_required
 def customer_invoice_archive(contact_id: str):
+    if not has_feature(g.user, "documents"): abort(403)
     root, actor = _root(), _actor()
     if not ContactStore(root).can_manage(contact_id, actor): abort(403)
-    target = io.BytesIO(); count = 0
-    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for row in invoices(root):
-            if row.get("contact_id") != contact_id: continue
-            try: path = _invoice_pdf_path(root, row)
-            except ValueError: continue
-            archive.writestr(f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf", path.read_bytes()); count += 1
-    if count == 0: abort(404)
-    target.seek(0); return send_file(target, as_attachment=True, download_name=f"Rechnungen-{_safe_filename(contact_id)}.zip", mimetype="application/zip")
+    target = tempfile.TemporaryFile(mode="w+b"); count = 0
+    try:
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED, allowZip64=True) as archive:
+            for row in invoices(root):
+                if row.get("contact_id") != contact_id or not row.get("document_id"): continue
+                try:
+                    _write_verified_archive_member(root, actor, str(row["document_id"]), archive, f"Rechnung-{_safe_filename(row['invoice_number'])}.pdf")
+                except FileNotFoundError: continue
+                count += 1
+        if count == 0: abort(404)
+        target.seek(0)
+        response = send_file(target, as_attachment=True, download_name=f"Rechnungen-{_safe_filename(contact_id)}.zip", mimetype="application/zip", conditional=False)
+        response.headers["Cache-Control"] = "private, no-store"
+        response.call_on_close(target.close)
+        return response
+    except (OSError, RuntimeError, ValueError) as exc:
+        target.close()
+        logger.warning("Customer invoice archive rejected (%s)", type(exc).__name__)
+        abort(404)
+    except Exception:
+        target.close()
+        raise
 
 @bp.get("/contacts/<contact_id>/customer-documents.zip")
 @login_required
 def customer_document_archive_download(contact_id: str):
+    if not has_feature(g.user, "documents"): abort(403)
     root, actor = _root(), _actor(); contacts = ContactStore(root)
     try: contact = contacts.get(contact_id, actor)
     except ValueError: abort(404)
     if not contacts.can_manage(contact_id, actor): abort(403)
     try: target, _summary = customer_document_archive(root, contact, actor)
-    except ValueError: abort(404)
-    response = send_file(target, as_attachment=True, download_name=f"Kundenakte-{_safe_filename(contact.get('fields', {}).get('display_name', contact_id))}.zip", mimetype="application/zip", conditional=False); response.call_on_close(target.close); return response
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.warning("Customer document archive rejected (%s)", type(exc).__name__)
+        abort(404)
+    try:
+        response = send_file(target, as_attachment=True, download_name=f"Kundenakte-{_safe_filename(contact.get('fields', {}).get('display_name', contact_id))}.zip", mimetype="application/zip", conditional=False)
+    except Exception:
+        target.close()
+        raise
+    response.headers["Cache-Control"] = "private, no-store"
+    response.call_on_close(target.close)
+    return response
 
 @bp.get("/invoices")
 @login_required
