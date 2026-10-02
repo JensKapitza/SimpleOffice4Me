@@ -57,6 +57,8 @@ def feature_for_endpoint(endpoint: str, path: str = "") -> str:
     feature use. Path matching is restricted to the documents blueprint.
     """
     value = str(endpoint or "")
+    if value.startswith("contact_audit.business_documents."):
+        return "documents"
     prefix = value.split(".", 1)[0]
     if prefix == "documents":
         for segment, feature in (

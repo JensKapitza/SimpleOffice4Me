@@ -88,8 +88,12 @@ def status():
         message = "Systemdienst: Betriebssystem-Konten und dessen Dateirechte gelten."
         available = system["available"]
     else:
-        available = sftp_setup.dependency() is not None
         message = "Paramiko: SimpleOffice-App-Passwörter, SSH-Schlüssel und Ordnerrechte; keine Shell."
+        try:
+            available = sftp_setup.dependency() is not None
+        except RuntimeError:
+            available = False
+            message = "Paramiko fehlt. Den plattformspezifischen SFTP-Starter zur Einrichtung verwenden."
     return {"id": "sftp", "name": "SFTP", "settings": config, "config": config,
             "state": "running" if running else ("stopped" if available else "unavailable"),
             "health": {"ok": running, "message": message}, "system_service": system,
@@ -122,9 +126,8 @@ def save_settings(value):
 
 
 def _ready(config):
-    host = config["bind"]
-    if host in {"0.0.0.0", "::"}:
-        host = "127.0.0.1" if host == "0.0.0.0" else "::1"
+    address = ipaddress.ip_address(config["bind"])
+    host = ("127.0.0.1" if address.version == 4 else "::1") if address.is_unspecified else str(address)
     try:
         with socket.create_connection((host, config["port"]), timeout=.3) as connection:
             return connection.recv(255).startswith(b"SSH-2.0-paramiko")

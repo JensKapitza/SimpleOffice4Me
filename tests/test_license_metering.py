@@ -49,6 +49,8 @@ class LicenseMeteringTests(unittest.TestCase):
             ("mail_client.index", "", "mail"),
             ("tasks.index", "", "projects"),
             ("reader.index", "", "documents"),
+            ("contact_audit.business_documents.invoice_download", "/documents/business/invoices/id/download", "documents"),
+            ("contact_audit.business_documents.customer_document_archive_download", "", "documents"),
             ("federation_peer_admin.dashboard", "", "sync"),
             ("personnel_time_insights.index", "", "projects"),
             ("static", "/documents/calendar", ""),

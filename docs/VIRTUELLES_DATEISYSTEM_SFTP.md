@@ -13,6 +13,12 @@ SFTP ist bewusst **kein SSH-Shellzugang**. Der Dienst akzeptiert nur einen
 Session-Kanal mit SFTP-Subsystem. Befehlsausführung, Portweiterleitung,
 Symlinks, `chmod` und Spezialdateien werden nicht angeboten.
 
+Die Standardinstallation benötigt Paramiko weiterhin nur für den integrierten
+SFTP-Betrieb. Ohne diese optionale Abhängigkeit bleibt der Dienst mit seiner
+gespeicherten Konfiguration als nicht verfügbar sichtbar. Die Python-3.10- und
+3.15-CI prüfen diesen Betrieb ohne SFTP-Extra; Python 3.14 installiert das
+bestehende Extra und prüft reale Hostschlüssel sowie den Paramiko-Transport.
+
 ## Rechte- und Vererbungsmodell
 
 Unter **Einstellungen → WebDAV für Desktop-Programme → Ordnerrechte** kann pro

@@ -1,4 +1,5 @@
 import os
+import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
@@ -22,7 +23,8 @@ class SftpMiniServiceTests(unittest.TestCase):
             context.start(); self.addCleanup(context.stop)
 
     def test_defaults_are_integrated_stopped_and_do_not_require_openssh(self):
-        row = sftp_service.status()
+        with patch("tools.sftp_setup.dependency", return_value=object()):
+            row = sftp_service.status()
         self.assertEqual("integrated", row["settings"]["mode"])
         self.assertEqual("stopped", row["state"])
         self.assertFalse(row["system_service"]["available"])
@@ -49,7 +51,11 @@ class SftpMiniServiceTests(unittest.TestCase):
 
     def test_missing_optional_dependency_remains_visible(self):
         with patch("tools.sftp_setup.dependency", side_effect=RuntimeError("missing")):
-            self.assertEqual("unavailable", sftp_service.safe_status()["state"])
+            sftp_service.save_settings({"port": 2233})
+            for row in (sftp_service.status(), sftp_service.safe_status()):
+                self.assertEqual("unavailable", row["state"])
+                self.assertEqual(2233, row["settings"]["port"])
+                self.assertIn("Paramiko fehlt", row["health"]["message"])
 
     def test_running_service_blocks_config_changes(self):
         with patch("tools.service_control.read", return_value={"pid": 1}), patch("tools.service_control.process_matches", return_value=True):
@@ -64,6 +70,7 @@ class SftpMiniServiceTests(unittest.TestCase):
             sftp_service.autostart(self.root)
             action.assert_called_once_with("start", self.root)
 
+    @unittest.skipUnless(importlib.util.find_spec("paramiko"), "optional SFTP extra required for real host keys")
     def test_key_init_is_idempotent_private_and_rejects_symlinks(self):
         key = self.root / "host-key"
         sftp_setup.initialize(key)
@@ -97,3 +104,10 @@ class SftpMiniServiceTests(unittest.TestCase):
             with sftp_service.service_control.exclusive_lease(self.root / "sftp-control.lock"):
                 with self.assertRaises(RuntimeError):
                     sftp_service.save_settings({"port": 2233})
+
+    def test_readiness_uses_loopback_for_unspecified_ipv4_and_ipv6(self):
+        for host, expected in (("0.0.0.0", "127.0.0.1"), ("::", "::1"), ("127.0.0.2", "127.0.0.2")):
+            with self.subTest(host=host), patch("app.sftp_service.socket.create_connection") as connect:
+                connect.return_value.__enter__.return_value.recv.return_value = b"SSH-2.0-paramiko_test"
+                self.assertTrue(sftp_service._ready({"bind": host, "port": 2222}))
+                connect.assert_called_once_with((expected, 2222), timeout=.3)
