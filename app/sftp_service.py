@@ -135,6 +135,24 @@ def _ready(config):
         return False
 
 
+def _cleanup_failed_start(child):
+    """Reap only our new child; never signal a process found via a PID file."""
+    if child.poll() is None:
+        try:
+            child.terminate()
+        except ProcessLookupError:
+            pass  # The child exited between poll and terminate; wait still reaps it.
+        try:
+            child.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                child.kill()
+            except ProcessLookupError:
+                pass
+            child.wait(timeout=2)
+    service_control.unregister("sftp", child.pid)
+
+
 def _start(config, document_root):
     record = service_control.read("sftp")
     if record and service_control.process_matches(record):
@@ -149,16 +167,19 @@ def _start(config, document_root):
         child = subprocess.Popen([sys.executable, "-m", "tools.sftp_setup", "run"],
                                  cwd=sftp_setup.ROOT, env=environment, stdin=subprocess.DEVNULL,
                                  stdout=log, stderr=log, **options)
-    deadline = time.monotonic() + 8
-    while child.poll() is None and time.monotonic() < deadline:
-        record = service_control.read("sftp")
-        if record and int(record["pid"]) == child.pid and _ready(config):
-            return
-        time.sleep(.1)
-    if child.poll() is None:
-        child.terminate()
-        child.wait(timeout=2)
-    raise RuntimeError("SFTP startet nicht. Portbelegung, Schlüssel und Dienstprotokoll prüfen.")
+    ready = False
+    try:
+        deadline = time.monotonic() + 8
+        while child.poll() is None and time.monotonic() < deadline:
+            record = service_control.read("sftp")
+            if record and int(record["pid"]) == child.pid and _ready(config):
+                ready = True
+                return
+            time.sleep(.1)
+        raise RuntimeError("SFTP startet nicht. Portbelegung, Schlüssel und Dienstprotokoll prüfen.")
+    finally:
+        if not ready:
+            _cleanup_failed_start(child)
 
 
 def action(name, document_root):
