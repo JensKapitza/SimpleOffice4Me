@@ -7,6 +7,7 @@ from .federation_core import sanitize_peer_id
 from .federation_discovery_endpoint import normalize_endpoint
 from .federation_identity import FederationIdentity
 from .federation_lan_receive_state import LanReceiveState
+from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 
 
 def local_peer_id():
@@ -40,6 +41,10 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
         "country": os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "").strip().upper()[:2],
         "fingerprint": identity["fingerprint"],
         "public_key": identity["public_key"],
+        "master": {
+            "is_master": bool(LICENSE_MASTER_MODE),
+            "address": LICENSE_MASTER_URL if LICENSE_MASTER_MODE else "",
+        },
         "application": local_application(),
         "federation": local_protocol(),
         "features": local_features(),

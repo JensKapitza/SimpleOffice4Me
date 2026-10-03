@@ -8,6 +8,7 @@
       <p class="text-secondary mb-0">{{ 'Monthly active users, used functions, prices, invoices and federation billing state.' if g.language == 'en' else 'Monatlich aktive Benutzer, genutzte Funktionen, Preise, Rechnungen und Federation-Abrechnungsstatus.' }}</p>
     </div>
     <div class="d-flex gap-2">
+      <a class="btn btn-outline-primary" href="{{ url_for('licensing_admin.cluster_settings') }}">Master-Cluster</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</a>
       {% if licensing.master.url and not licensing.master.is_master %}<form method="post" action="{{ url_for('licensing_admin.report_now') }}"><button class="btn btn-primary" type="submit">{{ 'Send pending reports' if g.language == 'en' else 'Offene Berichte senden' }}</button></form>{% endif %}
     </div>
