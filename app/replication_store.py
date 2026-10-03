@@ -11,7 +11,9 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import uuid
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .revision_history import RevisionHistory
 from .safe_paths import normalize_path, resolve_directory_under, resolve_file_under
+from .v2.materialize import materialize_verified_object
 
 
 CATEGORIES = ("documents", "images", "media", "notes", "contacts", "calendar", "forms", "projects", "settings")
@@ -124,17 +127,17 @@ class ReplicationStore:
             raise ValueError("Spiegelungsziel ist nicht verbunden")
         copied = unchanged = 0
         manifest: dict[str, Any] = {"schema": 1, "created_at": utc_now(), "rule_id": rule_id, "files": []}
-        for source, relative, category, document_id in self._sources(rule):
-            destination = target_path / "SimpleOffice-Spiegelung" / relative
-            digest = self._hash(source)
-            entry = {"path": str(relative), "category": category, "sha256": digest, "document_id": document_id}
-            if destination.is_file() and self._hash(destination) == digest:
-                unchanged += 1
-            else:
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source, destination)
-                copied += 1
-            manifest["files"].append(entry)
+        with closing(self._sources(rule, actor)) as sources:
+            for source, relative, category, document_id in sources:
+                destination = target_path / "SimpleOffice-Spiegelung" / relative
+                digest = self._hash(source)
+                entry = {"path": str(relative), "category": category, "sha256": digest, "document_id": document_id}
+                if destination.is_file() and self._hash(destination) == digest:
+                    unchanged += 1
+                else:
+                    self._copy_verified(source, destination, digest)
+                    copied += 1
+                manifest["files"].append(entry)
         manifest_path = target_path / "SimpleOffice-Spiegelung" / "manifests" / f"{rule_id}.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_json_write(manifest_path, manifest)
@@ -197,7 +200,7 @@ class ReplicationStore:
         elif action == "snapshots":
             command += ["snapshots", "--json"]
         elif action == "backup":
-            source_root = self._restic_staging(item)
+            source_root = self._restic_staging(item, actor)
             command += ["backup", "--tag", "simpleoffice", *sum((["--tag", tag] for tag in item["tags"]), []), str(source_root)]
         elif action == "restore":
             try:
@@ -207,7 +210,11 @@ class ReplicationStore:
             command += ["restore", "latest", "--target", str(destination)]
         else:
             raise ValueError("Ungültige restic-Aktion")
-        result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=7200, check=False)
+        try:
+            result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=7200, check=False)
+        finally:
+            if action == "backup":
+                shutil.rmtree(source_root)
         output = (result.stdout + "\n" + result.stderr).strip()[-12000:]
         item["last_run"] = utc_now()
         item["last_error"] = output if result.returncode else ""
@@ -216,41 +223,59 @@ class ReplicationStore:
             raise ValueError(output or f"restic beendet mit {result.returncode}")
         return {"output": output, "at": item["last_run"]}
 
-    def _sources(self, rule: dict[str, Any]):
+    def _sources(self, rule: dict[str, Any], actor: str):
         categories = set(rule["categories"])
         tags = set(rule.get("tags", []))
         store = DocumentStore(self.root)
         if categories & {"documents", "images", "media"}:
             for document in store.list_documents():
-                try:
-                    source = resolve_file_under(self.root, str(document.get("last_path", "")))
-                except (OSError, ValueError):
-                    continue
-                suffix = source.suffix.lower()
+                name = Path(str(document.get("last_path", "")).replace("\\", "/")).name
+                document_id = str(document["document_id"])
+                if not name or name in {".", ".."} or document_id in {"", ".", ".."} or Path(document_id).name != document_id or "\\" in document_id:
+                    raise ValueError("Ungültiger Dokumentname für Spiegelung")
+                suffix = Path(name).suffix.lower()
                 category = "images" if suffix in IMAGE_SUFFIXES else "media" if suffix in MEDIA_SUFFIXES else "documents"
                 if category not in categories or (tags and not tags.intersection(document.get("tags", []))):
                     continue
-                yield source, Path("documents") / document["document_id"] / source.name, category, document["document_id"]
+                with materialize_verified_object(self.root, actor, document_id) as source:
+                    yield source, Path("documents") / document_id / name, category, document_id
         for category in categories:
             for filename in CONTROL_FILES.get(category, ()):
                 source = self.control / filename
                 if source.is_file():
-                    yield source, Path("control") / filename, category, ""
+                    yield resolve_file_under(self.control, filename), Path("control") / filename, category, ""
 
-    def _restic_staging(self, item: dict[str, Any]) -> Path:
+    def _restic_staging(self, item: dict[str, Any], actor: str) -> Path:
         stage = self.control / "restic-staging" / item["repository_id"]
         if stage.exists():
             shutil.rmtree(stage)
         stage.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            stage.chmod(0o700)
         rule = {"categories": item["categories"], "tags": item["tags"]}
         manifest = {"created_at": utc_now(), "files": []}
-        for source, relative, category, document_id in self._sources(rule):
-            destination = stage / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source, destination)
-            manifest["files"].append({"path": str(relative), "category": category, "document_id": document_id, "sha256": self._hash(source)})
-        atomic_json_write(stage / "manifest.json", manifest)
+        try:
+            with closing(self._sources(rule, actor)) as sources:
+                for source, relative, category, document_id in sources:
+                    destination = stage / relative
+                    digest = self._hash(source)
+                    self._copy_verified(source, destination, digest)
+                    manifest["files"].append({"path": str(relative), "category": category, "document_id": document_id, "sha256": digest})
+            atomic_json_write(stage / "manifest.json", manifest)
+        except Exception:
+            shutil.rmtree(stage)
+            raise
         return stage
+
+    def _copy_verified(self, source: Path, destination: Path, digest: str) -> None:
+        """Publish a complete checked copy without truncating an existing target."""
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix=".simpleoffice-replication-", dir=destination.parent) as temp:
+            pending = Path(temp) / "content"
+            shutil.copyfile(source, pending)
+            if self._hash(pending) != digest:
+                raise ValueError("Spiegelungskopie ist nicht identisch")
+            pending.replace(destination)
 
     @staticmethod
     def _hash(path: Path) -> str:
