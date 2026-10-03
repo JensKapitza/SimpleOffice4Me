@@ -109,6 +109,18 @@ routes, transfer creation, repair and rebalance still contain direct projection
 consumers, so this worker migration does not remove the Federation cleanup
 blocker or authorize deletion of retained data.
 
+Federation admin document selection and transfer creation now generate their
+manifest from verified private StoragePort materialization as well. This covers
+document-ID and hash-based transfers, local digest selection for orchestration
+and availability queries, and displayed size/hash. Missing or stale V2 projection
+files do not block these operations; integrity failures create no transfer and
+leave the admin page available with an error. Both creation routes reject inactive,
+unknown or explicitly send-denying peers before materializing content. Admin
+authorization and CSRF remain enforced. Manifest generation reads the complete
+source, so selecting a large document requires temporary disk space and storage
+I/O. Legacy HTTP manifest/catalog routes and rental transfer creation still
+retain projection dependencies.
+
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, several business/rental/photo/contact/
