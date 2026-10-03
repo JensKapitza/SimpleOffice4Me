@@ -382,6 +382,7 @@ def file_tree(username: str, relative_path: str):
     identity = _authenticate()
     if identity is None:
         return _unauthorized()
+    request.environ["simpleoffice.authenticated_dav_username"] = identity["username"]
     if identity["username"] != username:
         return Response("not found", 404)
     g._webdav_identity = identity
@@ -539,6 +540,7 @@ def principal_resource(username: str, principal_id: str):
     identity = _authenticate()
     if identity is None:
         return _unauthorized()
+    request.environ["simpleoffice.authenticated_dav_username"] = identity["username"]
     if identity["username"] != username or principal_id not in {"", "self"}:
         return Response("not found", 404)
     g._webdav_identity = identity
@@ -591,6 +593,7 @@ def endpoint(path: str):
     identity = _authenticate()
     if identity is None:
         return _unauthorized()
+    request.environ["simpleoffice.authenticated_dav_username"] = identity["username"]
     username = identity["username"]
     g._webdav_identity = identity
     allow = "OPTIONS, PROPFIND, GET, HEAD" if identity["scope"] == "read" else "OPTIONS, PROPFIND, PROPPATCH, GET, HEAD, PUT, LOCK, UNLOCK"
