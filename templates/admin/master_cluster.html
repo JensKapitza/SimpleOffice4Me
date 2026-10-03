@@ -35,6 +35,7 @@
       <div class="mb-3">
         <label for="cluster-mode" class="form-label">Betriebsmodus</label>
         <select class="form-select" id="cluster-mode" name="mode" required>
+          <option value="" disabled>Bitte Betriebsmodus wählen</option>
           <option value="active-active" {% if settings.mode == 'active-active' %}selected{% endif %}>Active-Active</option>
           <option value="backup-active" {% if settings.mode == 'backup-active' %}selected{% endif %}>Backup-Active</option>
           <option value="permanent-master" {% if settings.mode == 'permanent-master' %}selected{% endif %}>Dauerhaft aktiver Master</option>
