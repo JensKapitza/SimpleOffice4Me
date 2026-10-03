@@ -1,6 +1,7 @@
 """Real DAV requests must meter their app account independently of cookies."""
 import base64
 import sqlite3
+import secrets
 import unittest
 from unittest.mock import patch
 
@@ -19,17 +20,23 @@ class DavLicenseMeteringTests(unittest.TestCase):
     tearDown = _fixture.FirstRunSetupTest.tearDown
 
     def provision(self, username='jens'):
+        # Match the first-run wizard: each DAV protocol has its own credential.
+        calendar_secret = secrets.token_urlsafe(24)
+        contacts_secret = secrets.token_urlsafe(24)
         with app.app_context():
-            password = activate(username, username, label='DAV test', scope='write')
-            CalendarCollections(self.root).activate(username, password, username)
-            ContactStore(self.root).activate_carddav(username, password, username)
+            webdav_secret = activate(username, username, label='DAV test', scope='write')
+            CalendarCollections(self.root).activate(username, calendar_secret, username)
+            ContactStore(self.root).activate_carddav(username, contacts_secret, username)
             VirtualFileSystem(self.root, {"test-admin"}).set_grants(".", {username: "read"}, "test-admin")
-        token = base64.b64encode(f'{username}:{password}'.encode()).decode()
-        return {'Authorization': f'Basic {token}', 'Depth': '0'}
+        result = {}
+        for protocol, value in (('webdav', webdav_secret), ('caldav', calendar_secret), ('carddav', contacts_secret)):
+            token = base64.b64encode(f'{username}:{value}'.encode()).decode()
+            result[protocol] = {'Authorization': f'Basic {token}', 'Depth': '0'}
+        return result
 
     def request_all(self, client, headers, username='jens'):
         for prefix, suffix in (('webdav', 'files'), ('caldav', 'calendars'), ('carddav', 'addressbooks')):
-            response = client.open(f'/{prefix}/{suffix}/{username}/', method='PROPFIND', headers=headers, base_url=self.base_url)
+            response = client.open(f'/{prefix}/{suffix}/{username}/', method='PROPFIND', headers=headers[prefix], base_url=self.base_url)
             self.assertEqual(207, response.status_code, (prefix, response.get_data(as_text=True)[:200]))
 
     def usage_rows(self):
@@ -45,7 +52,7 @@ class DavLicenseMeteringTests(unittest.TestCase):
                           for feature in ('calendar', 'contacts', 'webdav')], self.usage_rows())
 
     def test_webdav_collection_with_and_without_slash_uses_same_authenticated_route(self):
-        headers = self.provision()
+        headers = self.provision()['webdav']
         client = app.test_client()
         for suffix in ('', '/'):
             response = client.open('/webdav/files/jens' + suffix, method='PROPFIND', headers=headers, base_url=self.base_url)
@@ -70,14 +77,14 @@ class DavLicenseMeteringTests(unittest.TestCase):
             bad = {'Authorization': 'Basic ' + base64.b64encode(b'jens:wrong').decode()}
             self.assertEqual(401, client.open(path, method='PROPFIND', headers=bad, base_url=self.base_url).status_code)
             extension = {'webdav': '.txt', 'caldav': '.ics', 'carddav': '.vcf'}[prefix]
-            self.assertEqual(404, client.get(path + ('default/' if prefix != 'webdav' else '') + 'missing' + extension, headers=headers, base_url=self.base_url).status_code)
+            self.assertEqual(404, client.get(path + ('default/' if prefix != 'webdav' else '') + 'missing' + extension, headers=headers[prefix], base_url=self.base_url).status_code)
         self.assertEqual([], self.usage_rows())
 
     def test_unmapped_app_account_is_not_attributed_to_browser(self):
         username = "unknown' OR 1=1 --"
         headers = self.provision(username)
-        for path in ('/webdav/', '/caldav/', '/carddav/'):
-            response = self.client.open(path, method='OPTIONS', headers=headers, base_url=self.base_url)
+        for protocol in ('webdav', 'caldav', 'carddav'):
+            response = self.client.open(f'/{protocol}/', method='OPTIONS', headers=headers[protocol], base_url=self.base_url)
             self.assertIn(response.status_code, (200, 204))
         self.assertEqual([], self.usage_rows())
 
@@ -85,13 +92,13 @@ class DavLicenseMeteringTests(unittest.TestCase):
         headers = self.provision()
         client = app.test_client()
         with app.app_context():
-            self.assertEqual(207, client.open('/caldav/calendars/jens/', method='PROPFIND', headers=headers, base_url=self.base_url).status_code)
+            self.assertEqual(207, client.open('/caldav/calendars/jens/', method='PROPFIND', headers=headers['caldav'], base_url=self.base_url).status_code)
             self.assertEqual(307, client.get('/.well-known/caldav', base_url=self.base_url).status_code)
         self.assertEqual([1], [row['request_count'] for row in self.usage_rows()])
 
     def test_meter_database_failure_does_not_fail_authenticated_dav_request(self):
         headers = self.provision()
         with patch('app.license_routes.get_db', side_effect=sqlite3.OperationalError('meter database unavailable')), patch.object(app.logger, 'exception') as log:
-            self.assertEqual(207, app.test_client().open('/caldav/calendars/jens/', method='PROPFIND', headers=headers, base_url=self.base_url).status_code)
+            self.assertEqual(207, app.test_client().open('/caldav/calendars/jens/', method='PROPFIND', headers=headers['caldav'], base_url=self.base_url).status_code)
         log.assert_called_once_with('license usage metering failed')
         self.assertEqual([], self.usage_rows())
