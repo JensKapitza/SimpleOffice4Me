@@ -9,6 +9,7 @@ import os
 import shutil
 import subprocess
 import secrets
+import shlex
 from collections import Counter
 from pathlib import Path
 from urllib.parse import urlencode, urlsplit
@@ -113,7 +114,10 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
     from .webdav import credentials_for
 
     root = request.url_root.rstrip("/")
-    host = request.host.split(":", 1)[0].strip("[]") or "server.example"
+    host = urlsplit(request.url_root).hostname or "server.example"
+    connection_host = f"[{host}]" if ":" in host else host
+    sshfs_source = shlex.quote(f"{username}@{connection_host}:/")
+    rsync_source = shlex.quote(f"{username}@{connection_host}:/Projekte/")
     carddav = _contacts().carddav()
     carddav_enabled = any(item.get("username") == username and item.get("enabled") is True for item in carddav.get("accounts", []))
     caldav_enabled = any(item.get("username") == username and item.get("enabled") is True for item in _calendars()._read_auth().get("accounts", []))
@@ -147,20 +151,20 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "sftp_running": sftp_status["state"] == "running", "sftp_mode": sftp_settings["mode"],
         "ssh_key_count": len([item for item in keys_for(current_app.config["DOCUMENT_ROOT"], username) if not item["expired"]]),
         "sshfs_command": (
-            f"sshfs -p {sftp_port} {username}@{host}:/ ~/SimpleOffice -o "
+            f"sshfs -p {sftp_port} {sshfs_source} ~/SimpleOffice -o "
             "IdentityFile=~/.ssh/id_ed25519,IdentitiesOnly=yes,reconnect,"
             "ServerAliveInterval=15,ServerAliveCountMax=3"
         ),
         "rsync_enabled": os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
         "rsync_pull_command": (
             f"rsync -a --delete -e 'ssh -p {sftp_port} -i ~/.ssh/id_ed25519' "
-            f"{username}@{host}:/Projekte/ ./Projekte/"
+            f"{rsync_source} ./Projekte/"
         ),
         "rsync_push_command": (
             f"rsync -a --delete -e 'ssh -p {sftp_port} -i ~/.ssh/id_ed25519' "
-            f"./Projekte/ {username}@{host}:/Projekte/"
+            f"./Projekte/ {rsync_source}"
         ),
-        "nautilus_sftp": f"sftp://{username}@{host}:{sftp_port}/",
+        "nautilus_sftp": f"sftp://{username}@{connection_host}:{sftp_port}/",
     }
 
 

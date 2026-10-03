@@ -344,6 +344,13 @@ def _serve_client(client: socket.socket, host_key, app) -> None:
         client.close()
 
 
+def _create_listener(host: str, port: int, max_clients: int) -> socket.socket:
+    # Preserve IPv4/hostname behavior; IPv6 literals need an explicit family.
+    # Keep IPv6-only binding rather than silently exposing an IPv4 listener too.
+    family = socket.AF_INET6 if ":" in host else socket.AF_INET
+    return socket.create_server((host, port), family=family, backlog=max_clients)
+
+
 def serve() -> None:
     """Run the explicitly configured SFTP-only service."""
     library = _require_paramiko()
@@ -358,7 +365,7 @@ def serve() -> None:
     from . import app
     max_clients = _bounded_environment_integer("SIMPLEOFFICE_SFTP_MAX_CLIENTS", 32, 1, 512)
     capacity = threading.BoundedSemaphore(max_clients)
-    listener = socket.create_server((host, port), backlog=max_clients)
+    listener = _create_listener(host, port, max_clients)
     try:
         while True:
             client, _address = listener.accept()
