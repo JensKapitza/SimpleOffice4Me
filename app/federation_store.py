@@ -129,17 +129,35 @@ class FederationStore:
                 "INSERT OR REPLACE INTO federation_meta(key,value) VALUES('schema_version',?)",
                 (str(SCHEMA_VERSION),),
             )
+            from .federation_moderation_schema import SCHEMA
+            db.executescript(SCHEMA)
+
+    def banned_peer_ids(self, *, now: int | None = None) -> set[str]:
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT DISTINCT peer_id FROM federation_ban WHERE expires_at IS NULL OR expires_at>?",
+                (_now() if now is None else int(now),),
+            ).fetchall()
+        return {str(row[0]) for row in rows}
+
+    def _apply_ban(self, row, banned):
+        peer = self._peer(row)
+        peer["configured_enabled"] = peer["enabled"]
+        peer["banned"] = peer["peer_id"] in banned
+        peer["enabled"] = peer["enabled"] and not peer["banned"]
+        return peer
 
     def list_peers(self) -> list[dict[str, Any]]:
         with self._db() as db:
             rows = db.execute("SELECT * FROM federation_peer ORDER BY label COLLATE NOCASE, peer_id").fetchall()
-        return [self._peer(row) for row in rows]
+        banned = self.banned_peer_ids()
+        return [self._apply_ban(row, banned) for row in rows]
 
     def get_peer(self, peer_id: str) -> dict[str, Any] | None:
         peer_id = sanitize_peer_id(peer_id)
         with self._db() as db:
             row = db.execute("SELECT * FROM federation_peer WHERE peer_id=?", (peer_id,)).fetchone()
-        return self._peer(row) if row else None
+        return self._apply_ban(row, self.banned_peer_ids()) if row else None
 
     def save_peer(
         self,
@@ -385,7 +403,11 @@ class FederationStore:
     def stats(self) -> dict[str, int]:
         with self._db() as db:
             peers = db.execute("SELECT COUNT(*) FROM federation_peer").fetchone()[0]
-            enabled = db.execute("SELECT COUNT(*) FROM federation_peer WHERE enabled=1").fetchone()[0]
+            enabled = db.execute(
+                """SELECT COUNT(*) FROM federation_peer p WHERE enabled=1 AND NOT EXISTS(
+                SELECT 1 FROM federation_ban b WHERE b.peer_id=p.peer_id
+                AND (b.expires_at IS NULL OR b.expires_at>?))""", (_now(),),
+            ).fetchone()[0]
             active = db.execute(
                 "SELECT COUNT(*) FROM federation_transfer WHERE status IN ('queued','prepared','running','receiving')"
             ).fetchone()[0]

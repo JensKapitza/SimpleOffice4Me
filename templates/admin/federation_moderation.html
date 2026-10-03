@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div class="d-flex flex-wrap justify-content-between gap-3 mb-3">
+    <div><h1 class="h3">Peer-Verwaltung{% if is_master %} · Master{% endif %}</h1>
+    <p>Peers sperren, Meldungen prüfen und signierte Blacklists übernehmen.</p></div>
+    <a class="btn btn-outline-secondary align-self-start" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a>
+  </div>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <div class="alert alert-warning">Sperren stoppen Transfers und widerrufen vorhandene V2-Freigaben. Entsperren stellt diese nicht wieder her. Mit aktiver Blacklist benötigen ältere Protokollaufrufe zusätzlich einen signierten Peer-Nachweis.</div>
+  <section class="card card-body mb-3">
+    <h2 class="h5">Peer sperren</h2>
+    <form method="post" action="{{ url_for('federation_moderation_admin.action') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="ban">
+      <div class="row g-2">
+        <div class="col-md-4"><label class="form-label" for="ban-peer">Peer-ID</label><input id="ban-peer" class="form-control" name="peer_id" maxlength="128" required list="known-peers"></div>
+        <div class="col-md-5"><label class="form-label" for="ban-reason">Grund</label><input id="ban-reason" class="form-control" name="reason" maxlength="500" required></div>
+        <div class="col-md-3"><label class="form-label" for="ban-hours">Ablauf in Stunden</label><input id="ban-hours" class="form-control" name="expiry_hours" type="number" min="1" max="8760" aria-describedby="ban-expiry-help"><div id="ban-expiry-help" class="form-text">Leer = dauerhaft.</div></div>
+      </div>
+      <div class="form-check mt-2"><input id="ban-publish" class="form-check-input" type="checkbox" name="published" value="1"><label class="form-check-label" for="ban-publish">Sperre und Grund in eigener Blacklist veröffentlichen</label></div>
+      <div class="form-check mt-2"><input id="ban-confirm" class="form-check-input" type="checkbox" name="confirm" value="1" required><label class="form-check-label" for="ban-confirm">Sperre und Widerruf der Freigaben bestätigen</label></div>
+      <button class="btn btn-danger mt-2" type="submit">Peer sperren</button>
+    </form>
+    <datalist id="known-peers">{% for peer in peers %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</datalist>
+  </section>
+  <section class="card card-body mb-3">
+    <h2 class="h5">Aktive Sperren</h2>
+    <div class="table-responsive"><table class="table"><thead><tr><th scope="col">Peer</th><th scope="col">Quelle</th><th scope="col">Grund</th><th scope="col">Ablauf</th><th scope="col">Aktion</th></tr></thead><tbody>
+    {% for ban in bans %}<tr><td>{{ ban.peer_id }}</td><td>{% if ban.source_peer == local_source %}Eigene Sperre{% if ban.published %} · veröffentlicht{% endif %}{% else %}{{ ban.source_peer }}{% endif %}</td><td>{{ ban.reason }}</td><td>{{ ban.expires_label }}</td><td>
+      {% if ban.source_peer == local_source %}<form method="post" action="{{ url_for('federation_moderation_admin.action') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="unban"><input type="hidden" name="peer_id" value="{{ ban.peer_id }}"><label class="small"><input type="checkbox" name="confirm" value="1" required> Aufhebung bestätigen</label><button class="btn btn-sm btn-outline-secondary" type="submit">Entsperren</button></form>{% else %}Nur durch diese Quelle oder durch Entfernen des Abonnements aufhebbar.{% endif %}
+    </td></tr>{% else %}<tr><td colspan="5">Keine aktiven Sperren.</td></tr>{% endfor %}</tbody></table></div>
+  </section>
+  <section class="card card-body mb-3">
+    <h2 class="h5">Blacklist-Quellen</h2>
+    <p class="small">Master oder anderen Peer ausdrücklich auswählen und dessen öffentlichen Schlüssel persönlich prüfen. Discovery und Meldungen allein übernehmen keine Sperren. Synchronisierung erfolgt manuell.</p>
+    <form method="post" action="{{ url_for('federation_moderation_admin.action') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="subscribe">
+      <label class="form-label" for="source-peer">Quell-Peer-ID</label><input id="source-peer" class="form-control mb-2" name="peer_id" required maxlength="128" list="known-peers">
+      <label class="form-label" for="source-key">Geprüfter öffentlicher Ed25519-Schlüssel</label><input id="source-key" class="form-control font-monospace mb-2" name="public_key" required maxlength="64">
+      <label><input type="checkbox" name="confirm" value="1" required> Schlüssel geprüft; Sperren dieser Quelle übernehmen</label><button class="btn btn-outline-primary ms-2" type="submit">Quelle hinzufügen</button>
+    </form>
+    {% for source in sources %}<div class="border-top mt-3 pt-3"><strong>{{ source.peer_id }}</strong><div class="small text-break">Fingerprint: <code>{{ source.fingerprint }}</code></div><p class="small">{% if source.synced_at %}Letzte Synchronisierung: {{ source.synced_label }} · Revision {{ source.revision }}{% else %}Noch nicht synchronisiert.{% endif %}</p>
+      {% for operation, label in [('sync', 'Synchronisieren'), ('unsubscribe', 'Quelle und übernommene Sperren entfernen')] %}<form class="d-inline-block me-2" method="post" action="{{ url_for('federation_moderation_admin.action') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="{{ operation }}"><input type="hidden" name="peer_id" value="{{ source.peer_id }}"><label class="small"><input type="checkbox" name="confirm" value="1" required> Bestätigen</label><button class="btn btn-sm btn-outline-secondary" type="submit">{{ label }}</button></form>{% endfor %}
+    </div>{% else %}<p class="text-secondary mt-3">Keine Quelle abonniert.</p>{% endfor %}
+    <details class="mt-3"><summary>Eigenen Schlüssel zur Prüfung weitergeben</summary><p>Peer-ID: <code>{{ local_peer }}</code></p><p class="text-break">Schlüssel: <code>{{ identity.public_key }}</code></p><p class="text-break">Fingerprint: <code>{{ identity.fingerprint }}</code></p></details>
+  </section>
+  <section class="card card-body mb-3">
+    <h2 class="h5">Peer beim Master oder einem anderen Peer melden</h2>
+    <form method="post" action="{{ url_for('federation_moderation_admin.action') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="report">
+      <label class="form-label" for="report-receiver">Empfänger</label><select id="report-receiver" class="form-select mb-2" name="receiver" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select>
+      <label class="form-label" for="report-peer">Gemeldeter Peer</label><input id="report-peer" class="form-control mb-2" name="peer_id" required maxlength="128" list="known-peers">
+      <label class="form-label" for="report-reason">Grund ohne Nutzdaten oder Zugangsdaten</label><textarea id="report-reason" class="form-control mb-2" name="reason" maxlength="500" required></textarea>
+      <label><input type="checkbox" name="confirm" value="1" required> Meldung übermitteln</label><button class="btn btn-outline-primary ms-2" type="submit">Melden</button>
+    </form>
+  </section>
+  <section class="card card-body">
+    <h2 class="h5">Eingegangene Meldungen</h2><p class="small">Eine Meldung bewirkt keine automatische Sperre. Abgelehnte oder erledigte Meldungen können entfernt werden.</p>
+    {% for report in reports %}<div class="border-top py-3"><strong>{{ report.peer_id }}</strong> · von {{ report.reporter_peer }} · {{ report.status }}<p>{{ report.reason }}</p>
+      {% if report.status == 'pending' %}<form method="post" action="{{ url_for('federation_moderation_admin.action') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="review"><input type="hidden" name="report_id" value="{{ report.report_id }}"><label><input type="checkbox" name="published" value="1"> Bei Genehmigung veröffentlichen</label><label class="ms-2"><input type="checkbox" name="confirm" value="1" required> Entscheidung bestätigen</label><button class="btn btn-sm btn-danger ms-2" name="decision" value="approved" type="submit">Sperren</button><button class="btn btn-sm btn-outline-secondary ms-2" name="decision" value="rejected" type="submit">Ablehnen</button></form>{% else %}<form method="post" action="{{ url_for('federation_moderation_admin.action') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="delete-report"><input type="hidden" name="report_id" value="{{ report.report_id }}"><label><input type="checkbox" name="confirm" value="1" required> Löschen bestätigen</label><button class="btn btn-sm btn-outline-secondary" type="submit">Erledigte Meldung löschen</button></form>{% endif %}
+    </div>{% else %}<p>Keine Meldungen.</p>{% endfor %}
+  </section>
+</main>
+{% endblock %}

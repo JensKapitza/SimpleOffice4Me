@@ -35,6 +35,15 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 
 ## Aktuelle Architektur-Erweiterungen
 
+### Peer-Verwaltung und Blacklists
+
+Master und normale Peers können andere Peers lokal sperren, Meldungen prüfen
+und eigene Sperren als signierte Blacklist veröffentlichen. Andere Instanzen
+übernehmen Listen nur von ausdrücklich abonnierten Quellen mit geprüftem,
+festgelegtem Schlüssel. Lokale Sperren haben weiterhin Vorrang. Bedienung,
+Meldungsablauf, manuelle Synchronisierung und Legacy-Grenzen beschreibt
+[Peer-Verwaltung](docs/FEDERATION_PEER_VERWALTUNG.md).
+
 ### Zentrales, datensparsames Fehlerreporting
 
 Unbehandelte Anwendungsfehler können mit einer kleinen technischen Diagnose an

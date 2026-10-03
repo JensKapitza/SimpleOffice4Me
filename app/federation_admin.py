@@ -297,7 +297,7 @@ def save_chat_policy(peer_id: str):
             peer["base_url"],
             "",
             policy,
-            bool(peer.get("enabled")),
+            bool(peer.get("configured_enabled", peer.get("enabled"))),
         )
         store.record_event("chat_policy_updated", peer_id=peer["peer_id"], detail={"actor": str(g.user["username"]), "chat": chat_policy_state(policy)})
         flash(f"Chat-Regeln für {peer.get('label') or peer_id} gespeichert.")

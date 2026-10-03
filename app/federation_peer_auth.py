@@ -57,6 +57,11 @@ def authenticate(root, request):
     if not peer or not peer.get("enabled"):
         raise ValueError("unknown or disabled peer")
     token = store.peer_token(peer_id)
+    if not token:
+        raise ValueError("peer-specific token required")
+    for configured in store.list_peers():
+        if configured["peer_id"] != peer_id and store.peer_token(configured["peer_id"]) == token:
+            raise ValueError("peer token must be unique")
     body = request.get_data(cache=True) or b""
     expected = sign(peer_id, token, request.method, request.path, timestamp, nonce, body)
     if not hmac.compare_digest(expected, signature):

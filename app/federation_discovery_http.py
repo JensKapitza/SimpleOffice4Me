@@ -2,7 +2,7 @@
 import hmac
 import os
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 
 from .federation_attestations import FederationAttestationStore
 from .federation_directory import directory_profiles
@@ -29,6 +29,11 @@ def _public_directory():
 
 def _directory_authorized(public=False):
     if public and _public_directory():
+        return True
+    from .federation_moderation_auth import legacy_peer_allowed, signed_peer_authorized
+    if not legacy_peer_allowed(_root(), request):
+        return False
+    if signed_peer_authorized(_root(), request):
         return True
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
     supplied = request.headers.get("Authorization", "")
@@ -80,6 +85,11 @@ def register():
     body = request.get_json(silent=True) or {}
     try:
         profile = peer_profile(body.get("profile"))
+        if profile["peer_id"] in FederationStore(_root()).banned_peer_ids():
+            return jsonify({"error": "peer_banned"}), 403
+        sender = getattr(g, "moderation_authenticated_peer", None)
+        if sender and sender != profile["peer_id"]:
+            return jsonify({"error": "peer_identity_mismatch"}), 403
         trust = FederationTrustStore(_root())
         trust.remember(
             profile["peer_id"], profile["country"], profile["fingerprint"],
@@ -89,7 +99,7 @@ def register():
         existing = store.get_peer(profile["peer_id"])
         store.save_peer(
             profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("enabled", False)),
+            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
         )
         ttl = body.get("ttl_seconds", 86400)
         FederationDirectoryStore(_root()).publish(profile["peer_id"], ttl)

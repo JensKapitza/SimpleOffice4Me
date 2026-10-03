@@ -6,10 +6,11 @@ from .federation_trust_store import FederationTrustStore
 def directory_profiles(root, country=""):
     trust = FederationTrustStore(root)
     visible = FederationDirectoryStore(root).peer_ids()
+    banned = trust.store.banned_peer_ids()
     identities = trust.list_identities(country)
     result = []
     for identity in identities:
-        if identity["peer_id"] not in visible:
+        if identity["peer_id"] not in visible or identity["peer_id"] in banned:
             continue
         peer = trust.store.get_peer(identity["peer_id"])
         if not peer:

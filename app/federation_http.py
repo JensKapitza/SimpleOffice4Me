@@ -80,6 +80,11 @@ def _transfer_capability_authorized(supplied: str) -> bool:
 
 
 def _authorized() -> bool:
+    from .federation_moderation_auth import legacy_peer_allowed, signed_peer_authorized
+    if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
+        return False
+    if signed_peer_authorized(current_app.config["DOCUMENT_ROOT"], request):
+        return True
     supplied = _bearer()
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if expected and supplied and hmac.compare_digest(expected, supplied):
