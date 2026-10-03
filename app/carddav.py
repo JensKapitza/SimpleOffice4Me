@@ -27,6 +27,7 @@ def _store() -> ContactStore:
 def _auth() -> str | None:
     credentials = request.authorization
     if credentials and credentials.type.lower() == "basic" and _store().carddav_authenticate(credentials.username, credentials.password):
+        request.environ["simpleoffice.authenticated_dav_username"] = credentials.username
         return credentials.username
     return None
 

@@ -114,6 +114,7 @@ def _scheduling_error(name: str, status: int = 403) -> Response:
 def _auth() -> str | None:
     credentials = request.authorization
     if credentials and credentials.type.lower() == "basic" and _store().authenticate(credentials.username, credentials.password):
+        request.environ["simpleoffice.authenticated_dav_username"] = credentials.username
         return credentials.username
     return None
 

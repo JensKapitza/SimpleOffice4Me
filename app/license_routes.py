@@ -15,6 +15,7 @@ from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, re
 
 from .access_control import FEATURES, is_admin
 from .auth import login_required
+from .db import get_db
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from . import federation_worker
 from .license_master_store import MasterLicenseStore
@@ -332,9 +333,15 @@ def init_app(app) -> None:
     def meter_and_publish_license_state(response):
         user = getattr(g, "user", None)
         feature = feature_for_endpoint(request.endpoint or "", request.path)
-        if user is not None and feature and 200 <= response.status_code < 400:
+        dav_username = request.environ.get("simpleoffice.authenticated_dav_username")
+        if (user is not None or dav_username is not None) and feature and 200 <= response.status_code < 400:
             try:
-                LicenseStore(app.config["DOCUMENT_ROOT"]).record_usage(int(user["id"]), feature)
+                # App-password identities take precedence over a browser cookie.
+                # Unknown DAV accounts must never be attributed to that cookie.
+                if dav_username is not None:
+                    user = get_db().execute("SELECT id FROM user WHERE username=?", (dav_username,)).fetchone()
+                if user is not None:
+                    LicenseStore(app.config["DOCUMENT_ROOT"]).record_usage(int(user["id"]), feature)
             except (OSError, sqlite3.Error, ValueError, TypeError):
                 app.logger.exception("license usage metering failed")
         if request.path.startswith("/federation/"):
