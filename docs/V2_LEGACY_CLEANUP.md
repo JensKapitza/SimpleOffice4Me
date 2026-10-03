@@ -86,6 +86,14 @@ staging is removed before Restic starts. Mirrors intentionally remain readable
 copies. Document listing/tag metadata, control-file snapshots and importing a
 mirror remain compatibility paths; this does not release the cleanup gate.
 
+Source validation, snapshots and evidence freezing for rental approval now
+read verified StoragePort bytes as well. Evidence is checked against the
+snapshot hash before copying and checked again after copying. Missing or
+corrupt sources reject approval; the existing staging rollback removes
+unpublished artifacts and permits retry. Frozen evidence intentionally remains
+part of the immutable approval package. Rental metadata and the legacy rental
+Federation send path still remain compatibility dependencies.
+
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, several business/rental/photo/contact/
