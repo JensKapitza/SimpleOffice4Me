@@ -31,14 +31,14 @@ def validate(value):
     if not isinstance(value, dict):
         raise ValueError("SFTP-Einstellungen müssen ein Objekt sein.")
     result = {**DEFAULTS, **value}
-    if result["mode"] not in {"integrated", "system"}:
+    if not isinstance(result["mode"], str) or result["mode"] not in {"integrated", "system"}:
         raise ValueError("SFTP-Betriebsart prüfen.")
     for key in ("enabled", "autostart"):
         if type(result[key]) is not bool:
             raise ValueError("Aktiviert und Autostart müssen boolesche Werte sein.")
     result["bind"] = str(ipaddress.ip_address(str(result["bind"]).strip()))
     for key in ("port", "system_port"):
-        if isinstance(result[key], bool):
+        if type(result[key]) not in (int, str):
             raise ValueError("SFTP-Port prüfen.")
         result[key] = int(result[key])
         if not 1 <= result[key] <= 65535:
@@ -107,15 +107,20 @@ def safe_status():
         return status()
     except (ValueError, RuntimeError, OSError):
         return {"id": "sftp", "name": "SFTP", "state": "unavailable", "settings": dict(DEFAULTS),
-                "capabilities": ["scan"], "health": {"ok": False,
-                "message": "Paramiko oder gültige SFTP-Konfiguration fehlt. SFTP-Konfiguration öffnen."}}
+                "capabilities": ["stop", "scan", "settings"], "health": {"ok": False,
+                "message": "SFTP-Konfiguration ist nicht lesbar oder ungültig. Standardwerte werden angezeigt; vollständiges Speichern ersetzt die beschädigte Konfiguration."}}
 
 
 def save_settings(value):
     with service_control.exclusive_lease(service_control.RUN_DIR / "sftp-control.lock") as acquired:
         if not acquired:
             raise RuntimeError("SFTP-Aktion läuft bereits. Kurz warten.")
-        clean = validate({**settings(), **value} if isinstance(value, dict) else value)
+        if isinstance(value, dict) and set(DEFAULTS).issubset(value):
+            # An explicit complete replacement can repair a corrupt file. Partial
+            # updates must still read it so unrelated settings are never reset.
+            clean = validate(value)
+        else:
+            clean = validate({**settings(), **value} if isinstance(value, dict) else value)
         record = service_control.read("sftp")
         if record and service_control.process_matches(record):
             raise RuntimeError("SFTP vor Konfigurationsänderungen stoppen.")
@@ -192,7 +197,16 @@ def action(name, document_root):
     with service_control.exclusive_lease(service_control.RUN_DIR / "sftp-control.lock") as acquired:
         if not acquired:
             raise RuntimeError("SFTP-Aktion läuft bereits. Kurz warten.")
-        config = settings()
+        try:
+            config = settings()
+        except (ValueError, OSError):
+            if name != "stop":
+                raise
+            # A damaged config must not make our registered child unstoppable.
+            # Never infer an OS service selection from corrupt data.
+            if not service_control.stop(timeout=3, roles=["sftp"]):
+                raise RuntimeError("SFTP wurde nicht rechtzeitig beendet.")
+            return safe_status()
         if name != "stop" and not config["enabled"]:
             raise ValueError("SFTP zuerst in den Einstellungen aktivieren.")
         if config["mode"] == "system":

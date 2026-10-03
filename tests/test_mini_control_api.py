@@ -73,6 +73,22 @@ class ControlStoreTests(unittest.TestCase):
 
 
 class MiniApiTests(unittest.TestCase):
+    def test_sftp_corrupt_config_is_visible_and_can_be_replaced_through_api(self):
+        from app.sftp_service import DEFAULTS, settings
+        path = self.path.parent / "sftp-service.json"
+        path.write_text('{"mode": [], "port": null}', encoding="utf-8")
+        with patch("tools.service_control.RUN_DIR", self.path.parent / "run"), \
+                patch("tools.service_control.read", return_value=None):
+            response = self.client.get("/api/mini-services/sftp")
+            self.assertEqual(200, response.status_code)
+            self.assertEqual("unavailable", response.json["state"])
+            rejected = self.client.post("/api/mini-services/sftp/settings", json={"enabled": True}, headers=self.headers)
+            self.assertEqual(400, rejected.status_code)
+            candidate = {**DEFAULTS, "port": 2233}
+            repaired = self.client.post("/api/mini-services/sftp/settings", json=candidate, headers=self.headers)
+            self.assertEqual(200, repaired.status_code)
+            self.assertEqual(candidate, settings())
+
     def test_sftp_api_delegates_settings_and_actions_with_existing_csrf_gate(self):
         with patch("app.sftp_service.save_settings", return_value={"enabled": True}) as save:
             response = self.client.post("/api/mini-services/sftp/settings", json={"enabled": True}, headers=self.headers)

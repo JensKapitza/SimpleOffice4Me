@@ -1,4 +1,5 @@
 import os
+import json
 import importlib.util
 import tempfile
 import unittest
@@ -48,6 +49,51 @@ class SftpMiniServiceTests(unittest.TestCase):
             with patch("app.sftp_service.action") as action:
                 self.assertIsNone(sftp_service.autostart(self.root))
                 action.assert_not_called()
+
+    def test_invalid_json_values_are_unavailable_without_server_errors(self):
+        for candidate in ({"mode": []}, {"mode": {}}, {"port": None},
+                          {"port": 2222.5}, {"system_port": []}, {"bind": None}):
+            with self.subTest(candidate=candidate):
+                (self.root / "sftp.json").write_text(json.dumps(candidate), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    sftp_service.settings()
+                self.assertEqual("unavailable", sftp_service.safe_status()["state"])
+
+    def test_complete_settings_repair_corruption_but_partial_updates_preserve_it(self):
+        path = self.root / "sftp.json"
+        for raw in ("{broken", '{"mode": [], "port": null}', '["invalid"]'):
+            with self.subTest(raw=raw):
+                path.write_text(raw, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    sftp_service.save_settings({"enabled": True})
+                self.assertEqual(raw, path.read_text(encoding="utf-8"))
+                candidate = {**sftp_service.DEFAULTS, "port": 2233}
+                self.assertEqual(candidate, sftp_service.save_settings(candidate))
+                self.assertEqual(candidate, sftp_service.settings())
+
+    def test_invalid_full_replacement_and_running_service_do_not_overwrite_corruption(self):
+        path = self.root / "sftp.json"
+        path.write_text("{broken", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            sftp_service.save_settings({**sftp_service.DEFAULTS, "port": 2222.5})
+        with patch("tools.service_control.read", return_value={"pid": 1}), \
+                patch("tools.service_control.process_matches", return_value=True):
+            with self.assertRaises(RuntimeError):
+                sftp_service.save_settings(dict(sftp_service.DEFAULTS))
+        self.assertEqual("{broken", path.read_text(encoding="utf-8"))
+
+    def test_corrupt_config_stops_only_registered_process_and_never_starts(self):
+        (self.root / "sftp.json").write_text('{"mode": []}', encoding="utf-8")
+        with patch("app.sftp_service.system_service") as system, \
+                patch("tools.service_control.stop", return_value=True) as stop, \
+                patch("app.sftp_service._start") as start:
+            self.assertEqual("unavailable", sftp_service.action("stop", self.root)["state"])
+            stop.assert_called_once_with(timeout=3, roles=["sftp"])
+            for action in ("start", "restart"):
+                with self.assertRaises(ValueError):
+                    sftp_service.action(action, self.root)
+            system.assert_not_called()
+            start.assert_not_called()
 
     def test_missing_optional_dependency_remains_visible(self):
         with patch("tools.sftp_setup.dependency", side_effect=RuntimeError("missing")):
