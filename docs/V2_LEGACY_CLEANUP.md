@@ -112,7 +112,7 @@ StoragePort content before returning bytes or metadata. Streamed temporary
 content remains alive until the response closes and is then removed. These
 routes work with a missing projection and missing scan-index rows in V2 mode.
 
-Content-defined block manifests, rental transfer creation, repair and rebalance
+Content-defined block manifests, catalog listing, repair and rebalance
 still have projection consumers, so Federation remains a cleanup blocker and
 retained data must not be deleted.
 
@@ -125,13 +125,13 @@ leave the admin page available with an error. Both creation routes reject inacti
 unknown or explicitly send-denying peers before materializing content. Admin
 authorization and CSRF remain enforced. Manifest generation reads the complete
 source, so selecting a large document requires temporary disk space and storage
-I/O. The separate content-defined block manifest, rental transfer creation,
+I/O. The separate catalog listing and content-defined block manifest,
 repair and rebalance still retain projection dependencies.
 
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, and business/rental/photo/contact/
-replication plus content-defined block indexing, rental transfer creation,
+replication plus catalog listing and content-defined block indexing,
 repair and rebalance still include compatibility-path readers. Directory and
 access-policy handling also continues to use the compatibility namespace.
 Therefore the global cleanup flag must remain true and destructive cleanup
@@ -166,3 +166,24 @@ remain after a later transfer failure and keeps its normal storage audit history
 Queued federation exports retain the existing bookkeeping and are not delivery
 receipts. Metadata/index, other legacy Federation paths and cleanup/restore
 acceptance still block destructive cleanup.
+
+Legacy SOFP HTTP document/blob downloads, document and chunk manifests, chunks
+and availability now read verified private StoragePort materialization. Blob
+lookup reuses the worker's indexed identity binding and rejects a mismatch with
+HTTP 409; unavailable/integrity-failing storage returns a sanitized HTTP 503,
+missing/forbidden objects return 404. A stale or absent V2 projection is not a
+content source. The complete object is verified before even HEAD, conditional
+304 or range/chunk responses. ETags, range/suffix resume, chunk URLs and bearer
+or scoped transfer authentication retain their existing contracts. HEAD now
+reports the actual representation length instead of an empty body's length.
+Temporary materialization is removed after complete consumption, early response
+close, stream/construction failure and non-streaming responses. Verification
+requires temporary disk space and full-object I/O per request, including ranges
+and HEAD; this is not a range-only optimization. Legacy catalogs, block indexes,
+metadata selection and incoming-transfer import still require separate work.
+
+Existing legacy document tombstones also hide V2 content-addressed downloads,
+including the worker path. V2 digest lookup does not require a scan row or a
+legacy metadata record, but a retained tombstone must not be bypassed by the
+active V2 catalog. Other metadata and namespace consumers still retain the
+overall compatibility dependency.

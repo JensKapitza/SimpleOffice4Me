@@ -6,12 +6,11 @@ import hashlib
 import json
 import os
 import socket
-import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any
 
 from .document_store import DocumentStore
@@ -456,6 +455,10 @@ def _find_blob(root: str | Path, digest: str) -> Path:
         raise ValueError("Lokaler Blob ist nicht freigegeben") from exc
 
 
+class BlobHashMismatch(ValueError):
+    """Indexed blob identity differs from verified authoritative content."""
+
+
 @contextmanager
 def _materialize_blob(root: str | Path, digest: str):
     """Resolve a digest from the active catalog, then verify transfer bytes."""
@@ -467,34 +470,35 @@ def _materialize_blob(root: str | Path, digest: str):
         from .v2.catalog import ObjectCatalog
 
         matches = ObjectCatalog(root).find_active_by_content_sha256(digest)
+        documents = DocumentStore(root)
         failure = None
         for entry in matches:
-            manager = materialize_verified_object(root, "federation-transfer", entry.object_id)
+            stack = ExitStack()
             try:
-                path = manager.__enter__()
-            except (OSError, ValueError) as exc:
+                registry = documents.documents / f"{entry.object_id.value}.json"
+                if registry.is_file():
+                    item = documents.get_document(entry.object_id.value)
+                    if item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
+                        raise ValueError("document unavailable")
+                path = stack.enter_context(materialize_verified_object(
+                    root, "federation-transfer", entry.object_id,
+                ))
+                if not verify_file(path, digest):
+                    raise BlobHashMismatch("Autoritativer Inhalt passt nicht zum Transfer-Blob")
+            except (OSError, RuntimeError, ValueError) as exc:
+                stack.close()
                 failure = exc
                 continue
-            try:
-                valid = verify_file(path, digest)
-            except (OSError, ValueError) as exc:
-                manager.__exit__(*sys.exc_info())
-                failure = exc
-                continue
-            if not valid:
-                manager.__exit__(None, None, None)
-                failure = ValueError("Autoritativer Inhalt passt nicht zum Transfer-Blob")
-                continue
+            except BaseException:
+                stack.close()
+                raise
             try:
                 yield path
-            except BaseException:
-                manager.__exit__(*sys.exc_info())
-                raise
-            else:
-                manager.__exit__(None, None, None)
+            finally:
+                stack.close()
             return
         if failure is not None:
-            raise ValueError("Autoritativer Blob ist nicht verfügbar") from failure
+            raise failure
         raise ValueError("Blob nicht im V2-Objektkatalog gefunden")
 
     documents = DocumentStore(root)
@@ -508,7 +512,7 @@ def _materialize_blob(root: str | Path, digest: str):
         raise ValueError("Blob nicht im lokalen Dokumentindex gefunden")
     with materialize_verified_object(root, "federation-transfer", str(row[0])) as path:
         if not verify_file(path, digest):
-            raise ValueError("Autoritativer Inhalt passt nicht zum Transfer-Blob")
+            raise BlobHashMismatch("Autoritativer Inhalt passt nicht zum Transfer-Blob")
         yield path
 
 

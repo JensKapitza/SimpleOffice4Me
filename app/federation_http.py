@@ -7,11 +7,12 @@ import hmac
 import os
 import re
 import secrets
-import sys
 import time
 from pathlib import Path
+from contextlib import ExitStack
 
 from flask import Blueprint, Response, current_app, jsonify, request, stream_with_context
+from werkzeug.wsgi import ClosingIterator
 
 from .document_store import DocumentStore, sha256_file
 from .federation_core import (
@@ -31,7 +32,7 @@ from .federation_core import (
 from .federation_store import FederationStore
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import authenticate as authenticate_peer
-from .federation_worker import _materialize_blob, push_blob_to_transient_target, validate_transient_target
+from .federation_worker import BlobHashMismatch, _materialize_blob, push_blob_to_transient_target, validate_transient_target
 from .v2.materialize import materialize_verified_object
 from .v2.authorization import AuthorizationStore, GrantRight
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
@@ -99,49 +100,18 @@ def authenticate():
     return None
 
 
-def _materialize_document(document_id: str):
+def _document_source(document_id: str):
     store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
     item = store.get_document(document_id)
     if item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
         raise ValueError("document unavailable")
     return materialize_verified_object(
-        store.root, "federation-transfer", document_id
+        current_app.config["DOCUMENT_ROOT"], "federation-transfer", document_id,
     )
 
 
-def _send_materialized(manager, expected_digest: str | None = None, forced_range=None):
-    """Keep verified temporary content alive until the streamed response closes."""
-    path = manager.__enter__()
-    try:
-        digest = sha256_file(path)
-        if expected_digest and not hmac.compare_digest(digest, expected_digest):
-            raise ValueError("authoritative content does not match requested digest")
-        response = _send(path, digest, forced_range)
-    except BaseException:
-        manager.__exit__(*sys.exc_info())
-        raise
-    _keep_materialized_until_response_close(response, manager)
-    return response
-
-
-def _keep_materialized_until_response_close(response: Response, manager) -> None:
-    original = response.response
-    closed = False
-
-    def cleanup() -> None:
-        nonlocal closed
-        if not closed:
-            closed = True
-            manager.__exit__(None, None, None)
-
-    def body():
-        try:
-            yield from original
-        finally:
-            cleanup()
-
-    response.response = stream_with_context(body())
-    response.call_on_close(cleanup)
+def _blob_source(digest: str):
+    return _materialize_blob(current_app.config["DOCUMENT_ROOT"], digest)
 
 
 def _range(value: str, size: int) -> tuple[int, int] | None:
@@ -165,19 +135,22 @@ def _range(value: str, size: int) -> tuple[int, int] | None:
     return start, min(end, size - 1)
 
 
-def _stream(path: Path, start: int, length: int):
-    remaining = length
-    with path.open("rb") as source:
-        source.seek(start)
-        while remaining:
-            block = source.read(min(BLOCK_SIZE, remaining))
-            if not block:
-                break
-            remaining -= len(block)
-            yield block
+def _stream(path: Path, start: int, length: int, cleanup):
+    try:
+        remaining = length
+        with path.open("rb") as source:
+            source.seek(start)
+            while remaining:
+                block = source.read(min(BLOCK_SIZE, remaining))
+                if not block:
+                    break
+                remaining -= len(block)
+                yield block
+    finally:
+        cleanup()
 
 
-def _send(path: Path, digest: str, forced_range: tuple[int, int] | None = None) -> Response:
+def _send(path: Path, digest: str, cleanup, forced_range: tuple[int, int] | None = None) -> Response:
     size = path.stat().st_size
     digest = normalize_sha256(digest)
     etag = f'"sha256:{digest}"'
@@ -202,8 +175,38 @@ def _send(path: Path, digest: str, forced_range: tuple[int, int] | None = None) 
         headers["Content-Range"] = f"bytes {start}-{end}/{size}"
     length = 0 if size == 0 else end - start + 1
     headers["Content-Length"] = str(length)
-    body = b"" if request.method == "HEAD" else stream_with_context(_stream(path, start, length))
-    return Response(body, status, headers=headers, direct_passthrough=request.method != "HEAD")
+    body = b"" if request.method == "HEAD" else stream_with_context(_stream(path, start, length, cleanup))
+    response = Response(body, status, headers=headers, direct_passthrough=request.method != "HEAD")
+    response.content_length = length
+    return response
+
+
+def _send_source(source, digest: str = "", index: int | None = None):
+    """Own verified temporary bytes until exhaustion or early response close."""
+    stack = ExitStack()
+    try:
+        path = stack.enter_context(source)
+        digest = normalize_sha256(digest) if digest else sha256_file(path)
+        selected = None
+        if index is not None:
+            selected = chunk_range(index, path.stat().st_size, DEFAULT_CHUNK_SIZE)
+            if selected[0] < 0 or selected[1] < selected[0] or selected[0] >= path.stat().st_size:
+                stack.close()
+                return jsonify({"error": "chunk_not_found"}), 404
+        response = _send(path, digest, stack.close, selected)
+        if request.method == "HEAD" or response.status_code not in {200, 206}:
+            stack.close()
+        else:
+            response.response = ClosingIterator(response.response, stack.close)
+        return response
+    except BaseException:
+        stack.close()
+        raise
+
+
+def _source_error():
+    current_app.logger.warning("Verified Federation source unavailable for %s", request.endpoint)
+    return jsonify({"error": "source_unavailable"}), 503
 
 
 @bp.get("/capabilities")
@@ -229,102 +232,83 @@ def capabilities():
 @bp.route("/documents/<document_id>/manifest", methods=["GET", "HEAD"])
 def manifest(document_id: str):
     try:
-        manager = _materialize_document(document_id)
-    except (ValueError, KeyError):
-        return jsonify({"error": "not_found"}), 404
-    try:
-        with manager as path:
+        with _document_source(document_id) as path:
             digest = sha256_file(path)
-            result = {
-                "document_id": document_id,
-                "blob_hash": f"sha256:{digest}",
-                "size": path.stat().st_size,
-                "accept_ranges": "bytes",
-                "download": f"/federation/v1/documents/{document_id}/blob",
-                "content_addressed_download": f"/federation/v1/blobs/{digest}",
-            }
-    except (OSError, RuntimeError, ValueError):
+            size = path.stat().st_size
+    except (ValueError, KeyError, FileNotFoundError, PermissionError):
         return jsonify({"error": "not_found"}), 404
-    return jsonify(result)
+    except (OSError, RuntimeError):
+        return _source_error()
+    return jsonify({
+        "document_id": document_id,
+        "blob_hash": f"sha256:{digest}",
+        "size": size,
+        "accept_ranges": "bytes",
+        "download": f"/federation/v1/documents/{document_id}/blob",
+        "content_addressed_download": f"/federation/v1/blobs/{digest}",
+    })
 
 
 @bp.route("/documents/<document_id>/blob", methods=["GET", "HEAD"])
 def document_blob(document_id: str):
     try:
-        manager = _materialize_document(document_id)
-    except (ValueError, KeyError):
+        return _send_source(_document_source(document_id))
+    except (ValueError, KeyError, FileNotFoundError, PermissionError):
         return jsonify({"error": "not_found"}), 404
-    try:
-        return _send_materialized(manager)
-    except (OSError, RuntimeError, ValueError):
-        return jsonify({"error": "not_found"}), 404
+    except (OSError, RuntimeError):
+        return _source_error()
 
 
 @bp.route("/blobs/<digest>", methods=["GET", "HEAD"])
 def blob(digest: str):
     try:
-        normalized = normalize_sha256(digest)
-        manager = _materialize_blob(current_app.config["DOCUMENT_ROOT"], normalized)
-    except ValueError:
+        return _send_source(_blob_source(digest), digest)
+    except BlobHashMismatch:
+        return jsonify({"error": "index_hash_mismatch"}), 409
+    except (ValueError, KeyError, FileNotFoundError, PermissionError):
         return jsonify({"error": "not_found"}), 404
-    try:
-        return _send_materialized(manager, normalized)
-    except (OSError, RuntimeError, ValueError):
-        return jsonify({"error": "not_found"}), 404
+    except (OSError, RuntimeError):
+        return _source_error()
 
 
 @bp.get("/blobs/<digest>/manifest")
 def blob_manifest(digest: str):
     try:
-        normalized = normalize_sha256(digest)
-        manager = _materialize_blob(current_app.config["DOCUMENT_ROOT"], normalized)
-    except ValueError:
-        return jsonify({"error": "not_found"}), 404
-    try:
-        with manager as path:
+        with _blob_source(digest) as path:
             result = build_manifest(path, DEFAULT_CHUNK_SIZE)
-    except (OSError, RuntimeError, ValueError):
-        return jsonify({"error": "not_found"}), 404
-    if result["blob_hash"] != normalized:
+    except BlobHashMismatch:
         return jsonify({"error": "index_hash_mismatch"}), 409
+    except (ValueError, KeyError, FileNotFoundError, PermissionError):
+        return jsonify({"error": "not_found"}), 404
+    except (OSError, RuntimeError):
+        return _source_error()
     result["chunk_download_template"] = f"/federation/v1/blobs/{result['blob_hash']}/chunks/{{index}}"
     return jsonify(result)
 
 
 @bp.route("/blobs/<digest>/chunks/<int:index>", methods=["GET", "HEAD"])
 def blob_chunk(digest: str, index: int):
-    manager = None
-    entered = False
     try:
-        normalized = normalize_sha256(digest)
-        manager = _materialize_blob(current_app.config["DOCUMENT_ROOT"], normalized)
-        path = manager.__enter__()
-        entered = True
-        start, end = chunk_range(index, path.stat().st_size, DEFAULT_CHUNK_SIZE)
-    except (ValueError, IndexError, OSError, RuntimeError):
-        if entered:
-            manager.__exit__(*sys.exc_info())
+        return _send_source(_blob_source(digest), digest, index)
+    except BlobHashMismatch:
+        return jsonify({"error": "index_hash_mismatch"}), 409
+    except (ValueError, KeyError, IndexError, FileNotFoundError, PermissionError):
         return jsonify({"error": "not_found"}), 404
-    if start < 0 or end < start or start >= path.stat().st_size:
-        manager.__exit__(None, None, None)
-        return jsonify({"error": "chunk_not_found"}), 404
-    try:
-        response = _send(path, normalized, (start, end))
-    except BaseException:
-        manager.__exit__(*sys.exc_info())
-        raise
-    _keep_materialized_until_response_close(response, manager)
-    return response
+    except (OSError, RuntimeError):
+        return _source_error()
 
 
 @bp.get("/blobs/<digest>/availability")
 def availability(digest: str):
     try:
-        normalized = normalize_sha256(digest)
-        with _materialize_blob(current_app.config["DOCUMENT_ROOT"], normalized) as path:
+        with _blob_source(digest) as path:
             result = build_manifest(path, DEFAULT_CHUNK_SIZE)
-    except (OSError, RuntimeError, ValueError):
+    except BlobHashMismatch:
+        return jsonify({"error": "index_hash_mismatch"}), 409
+    except (ValueError, KeyError, FileNotFoundError, PermissionError):
         return jsonify({"error": "not_found"}), 404
+    except (OSError, RuntimeError):
+        return _source_error()
     return jsonify({
         "blob_hash": result["blob_hash"],
         "chunk_count": result["chunk_count"],
