@@ -36,7 +36,8 @@ class MasterClusterReachabilityTests(unittest.TestCase):
                 "master": {"is_master": True}, "fingerprint": "node-fingerprint",
             })) as open_profile:
                 with patch.object(master_cluster.FederationIdentity, "public_identity", return_value={"fingerprint": "node-fingerprint"}):
-                    result = master_cluster.inspect_master_address(self.root)
+                    with patch.object(master_cluster, "resolve_authority_id", return_value="node-fingerprint"):
+                        result = master_cluster.inspect_master_address(self.root)
         self.assertEqual(result["role"], "master")
         self.assertEqual(result["reachability"], "reachable")
         self.assertEqual(result["observed_node_id"], "node-fingerprint")
@@ -48,7 +49,8 @@ class MasterClusterReachabilityTests(unittest.TestCase):
                 "master": {"is_master": True}, "fingerprint": "other-fingerprint",
             })):
                 with patch.object(master_cluster.FederationIdentity, "public_identity", return_value={"fingerprint": "local-fingerprint"}):
-                    result = master_cluster.inspect_master_address(self.root)
+                    with patch.object(master_cluster, "resolve_authority_id", return_value="local-fingerprint"):
+                        result = master_cluster.inspect_master_address(self.root)
         self.assertEqual(result["role"], "master")
         self.assertEqual(result["operating_state"], "active")
         self.assertEqual(result["observed_node_id"], "other-fingerprint")
