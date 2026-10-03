@@ -8,6 +8,8 @@ from flask import current_app
 
 from .federation_discovery_schedule import claim_due
 from .federation_discovery_service import discover_country
+from .build_master import LICENSE_MASTER_MODE
+from .master_cluster import record_master_address_status
 
 
 def configured_country():
@@ -25,19 +27,22 @@ def configured_interval():
 
 def _worker(app):
     country = configured_country()
-    if not country:
+    if not country and not LICENSE_MASTER_MODE:
         return
     while True:
-        interval = configured_interval()
         with app.app_context():
             root = current_app.config["DOCUMENT_ROOT"]
-            try:
-                if claim_due(root, "country:" + country, interval):
-                    result = discover_country(root, country)
-                    app.logger.info("federation autoscan country=%s peers=%s errors=%s", country, len(result["peers"]), len(result["errors"]))
-            except Exception as exc:
-                app.logger.warning("federation autoscan failed: %s", exc)
-        time.sleep(min(interval, 3600))
+            if LICENSE_MASTER_MODE:
+                record_master_address_status(root)
+            if country:
+                interval = configured_interval()
+                try:
+                    if claim_due(root, "country:" + country, interval):
+                        result = discover_country(root, country)
+                        app.logger.info("federation autoscan country=%s peers=%s errors=%s", country, len(result["peers"]), len(result["errors"]))
+                except Exception as exc:
+                    app.logger.warning("federation autoscan failed: %s", exc)
+        time.sleep(15 if LICENSE_MASTER_MODE else min(configured_interval(), 3600))
 
 
 @click.command("federation-discover")
@@ -49,7 +54,7 @@ def discover_command(country):
 
 def init_app(app):
     app.cli.add_command(discover_command)
-    if configured_country() and not app.testing:
+    if (configured_country() or LICENSE_MASTER_MODE) and not app.testing:
         thread = threading.Thread(target=_worker, args=(app,), daemon=True, name="federation-country-discovery")
         thread.start()
 
