@@ -1,0 +1,54 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Master-Cluster</h1>
+      <p class="text-secondary mb-0">Betriebsmodus und DNS-Autorität für diesen Knoten.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('licensing_admin.index') }}">Zur Lizenzierung</a>
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
+  {% if not master_mode %}<div class="alert alert-warning">Dieser Build ist nicht als Master gebaut. Die Clusteroptionen ändern seine Build-Rolle nicht.</div>{% endif %}
+
+  <section class="card mb-4" aria-labelledby="cluster-status-title">
+    <div class="card-header"><strong id="cluster-status-title">Laufzeitstatus</strong></div>
+    <div class="card-body">
+      <dl class="row mb-0">
+        <dt class="col-sm-4">Betriebsmodus</dt><dd class="col-sm-8">{{ status.mode or settings.mode }}</dd>
+        <dt class="col-sm-4">Knotenstatus</dt><dd class="col-sm-8"><code>{{ status.operating_state or 'not_checked' }}</code></dd>
+        <dt class="col-sm-4">Master-Adresse erreichbar</dt><dd class="col-sm-8"><code>{{ status.reachability or 'not_checked' }}</code></dd>
+        <dt class="col-sm-4">DNS-Autoritäts-ID</dt><dd class="col-sm-8"><code>{{ status.authority_node_id or 'nicht bestätigt' }}</code></dd>
+        {% if status.checked_at %}<dt class="col-sm-4">Letzte Prüfung</dt><dd class="col-sm-8">{{ status.checked_at }}</dd>{% endif %}
+      </dl>
+    </div>
+  </section>
+
+  <form method="post" class="card" aria-labelledby="cluster-settings-title">
+    <div class="card-header"><strong id="cluster-settings-title">Cluster-Einstellungen</strong></div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label for="cluster-mode" class="form-label">Betriebsmodus</label>
+        <select class="form-select" id="cluster-mode" name="mode" required>
+          <option value="active-active" {% if settings.mode == 'active-active' %}selected{% endif %}>Active-Active</option>
+          <option value="backup-active" {% if settings.mode == 'backup-active' %}selected{% endif %}>Backup-Active</option>
+          <option value="permanent-master" {% if settings.mode == 'permanent-master' %}selected{% endif %}>Dauerhaft aktiver Master</option>
+        </select>
+        <div class="form-text">
+          Active-Active hält beide Knoten aktiv, auch bei einer Netztrennung. Backup-Active aktiviert nur den durch DNS bestimmten Knoten.
+          Dauerhaft aktiver Master bleibt unabhängig von DNS aktiv. Der Modus konfiguriert die Aktivitätsrolle; der Datenabgleich bleibt den Federation-Peer- und Datenklassenrichtlinien unterstellt.
+        </div>
+      </div>
+      <div class="mb-3">
+        <label for="cluster-txt-name" class="form-label">DNS-TXT-Recordname</label>
+        <input class="form-control" id="cluster-txt-name" name="txt_record_name" value="{{ settings.txt_record_name }}" maxlength="253" required autocomplete="off" spellcheck="false">
+        <div class="form-text">Der TXT-Wert muss genau <code>simpleoffice-master-id=&lt;64-stelliger SHA-256-Fingerprint&gt;</code> enthalten. Beispiel: <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
+      </div>
+    </div>
+    <div class="card-footer d-flex justify-content-end"><button class="btn btn-primary" type="submit">Einstellungen speichern</button></div>
+  </form>
+</main>
+{% endblock %}
