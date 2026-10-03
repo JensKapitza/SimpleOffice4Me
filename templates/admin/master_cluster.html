@@ -10,7 +10,7 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('licensing_admin.index') }}">Zur Lizenzierung</a>
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   {% if not master_mode %}<div class="alert alert-warning">Dieser Build ist nicht als Master gebaut. Die Clusteroptionen ändern seine Build-Rolle nicht.</div>{% endif %}
 
