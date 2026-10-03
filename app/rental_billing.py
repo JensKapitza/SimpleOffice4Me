@@ -18,6 +18,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, 
 
 from .file_lock import exclusive_file_lock
 from .rental_calc import RentalCalculationStore
+from .v2.materialize import materialize_verified_object
 from .rental_types import (
     ALLOCATION_METHODS, CALCULATION_VERSION, LEDGER_KINDS, METRIC_TYPES, MONEY,
     allocate_money, intersection, money, parse_date, safe_name, sha256_bytes, utc_now,
@@ -42,7 +43,7 @@ class RentalBillingStore(RentalCalculationStore):
         for path in directory.glob("Mieterpaket-*.zip"): result[path.name]=path
         return result
 
-    def build_snapshot(self, settlement_id: str) -> dict[str,Any]:
+    def build_snapshot(self, settlement_id: str, actor: str = "system") -> dict[str,Any]:
         calculation=self.calculate(settlement_id); settlement=calculation["settlement"]
         units=[]
         for unit in calculation["units"]:
@@ -58,32 +59,32 @@ class RentalBillingStore(RentalCalculationStore):
                 contacts[tenancy["contact_id"]]={"contact_id":tenancy["contact_id"],"display_name":fields.get("display_name",""),"email":fields.get("email",""),"company":fields.get("company","")}
                 row=dict(tenancy)
                 if row.get("contract_document_id"):
-                    row["contract_document"]=self._document_snapshot(row["contract_document_id"]); document_ids.add(row["contract_document_id"])
+                    row["contract_document"]=self._document_snapshot(row["contract_document_id"], actor); document_ids.add(row["contract_document_id"])
                 tenancies.append(row)
             for metric in self.metrics(unit["object_id"]):
                 metric_start=parse_date(metric["valid_from"]); metric_end=parse_date(metric["valid_to"],optional=True) or date.max
                 if not intersection(start,end,metric_start,metric_end): continue
                 row=dict(metric)
                 if row.get("source_document_id"):
-                    row["source_document"]=self._document_snapshot(row["source_document_id"]); document_ids.add(row["source_document_id"])
+                    row["source_document"]=self._document_snapshot(row["source_document_id"], actor); document_ids.add(row["source_document_id"])
                 if row["source_kind"]=="manual": manual_inputs.append({"type":"metric",**row})
                 metrics.append(row)
         costs=[]
         for result in calculation["costs"]:
             row=json.loads(json.dumps(result,ensure_ascii=False,default=str)); cost=row["cost"]
             if cost.get("source_document_id"):
-                cost["source_document"]=self._document_snapshot(cost["source_document_id"]); document_ids.add(cost["source_document_id"])
+                cost["source_document"]=self._document_snapshot(cost["source_document_id"], actor); document_ids.add(cost["source_document_id"])
             if cost.get("source_kind")=="manual": manual_inputs.append({"type":"cost",**cost})
             for provenance in row.get("weight_provenance",[]):
                 if provenance.get("source_document_id"):
-                    provenance["source_document"]=self._document_snapshot(provenance["source_document_id"]); document_ids.add(provenance["source_document_id"])
+                    provenance["source_document"]=self._document_snapshot(provenance["source_document_id"], actor); document_ids.add(provenance["source_document_id"])
                 if provenance.get("source_kind")=="manual": manual_inputs.append({"type":provenance.get("kind","weight"),**provenance})
             costs.append(row)
         tenants=json.loads(json.dumps(calculation["tenants"],ensure_ascii=False))
         for tenant in tenants.values():
             for ledger in tenant.get("ledger",[]):
                 if ledger.get("document_id"):
-                    ledger["document"]=self._document_snapshot(ledger["document_id"]); document_ids.add(ledger["document_id"])
+                    ledger["document"]=self._document_snapshot(ledger["document_id"], actor); document_ids.add(ledger["document_id"])
                 if ledger.get("source_kind")=="manual": manual_inputs.append({"type":"ledger",**ledger})
         return {
             "schema":"simpleoffice-rental-settlement-snapshot-v1","calculation_version":CALCULATION_VERSION,
@@ -101,14 +102,14 @@ class RentalBillingStore(RentalCalculationStore):
     def approve(self, settlement_id: str, actor: str) -> dict[str,Any]:
         lock_path=self.approval_root/f".{safe_name(settlement_id)}.approval.lock"
         with exclusive_file_lock(lock_path):
-            settlement=self._require_editable(settlement_id); snapshot=self.build_snapshot(settlement_id); approved_at=utc_now()
+            settlement=self._require_editable(settlement_id); snapshot=self.build_snapshot(settlement_id, actor); approved_at=utc_now()
             snapshot["approval"]={"approved_at":approved_at,"approved_by":actor,"version":int(settlement["version"])}
             directory=self.approval_directory(settlement_id)
             staging=directory.parent/f".{directory.name}.staging-{uuid.uuid4().hex}"
             published=False
             try:
                 staging.mkdir(parents=True,exist_ok=False)
-                snapshot["frozen_evidence"]=self._freeze_documents(snapshot,staging)
+                snapshot["frozen_evidence"]=self._freeze_documents(snapshot,staging,actor)
                 snapshot_path=staging/"snapshot.json"; snapshot_bytes=(json.dumps(snapshot,ensure_ascii=False,indent=2)+"\n").encode("utf-8"); snapshot_path.write_bytes(snapshot_bytes)
                 digest=sha256_bytes(snapshot_bytes); (staging/"snapshot.sha256").write_text(f"{digest}  snapshot.json\n",encoding="ascii")
                 snapshot["approval"]["snapshot_sha256"]=digest
@@ -161,12 +162,14 @@ class RentalBillingStore(RentalCalculationStore):
             for ledger in tenant.get("ledger",[]): add(ledger.get("document"))
         return documents
 
-    def _freeze_documents(self, snapshot: dict[str,Any], directory: Path) -> dict[str,dict[str,Any]]:
+    def _freeze_documents(self, snapshot: dict[str,Any], directory: Path, actor: str = "system") -> dict[str,dict[str,Any]]:
         evidence=directory/"Belege"; evidence.mkdir(parents=True,exist_ok=True); frozen={}
         for document_id,doc in self._snapshot_documents(snapshot).items():
-            source=self._safe_document_path(doc["path"])
-            if self._sha256_file(source)!=doc["sha256"]: raise ValueError(f"Beleg {document_id} hat sich während der Freigabe geändert")
-            target=evidence/f"{safe_name(document_id)}-{safe_name(doc.get('name') or source.name)}"; shutil.copy2(source,target); digest=self._sha256_file(target)
+            with materialize_verified_object(self.root, actor, document_id) as source:
+                if self._sha256_file(source)!=doc["sha256"]: raise ValueError(f"Beleg {document_id} hat sich während der Freigabe geändert")
+                target=evidence/f"{safe_name(document_id)}-{safe_name(doc.get('name') or Path(doc['path']).name)}"
+                shutil.copyfile(source,target)
+            digest=self._sha256_file(target)
             if digest!=doc["sha256"]: raise ValueError(f"Belegkopie {document_id} ist nicht identisch")
             frozen[document_id]={"relative_path":str(target.relative_to(directory)),"sha256":digest,"size":target.stat().st_size,"original_path":doc["path"]}
         return frozen

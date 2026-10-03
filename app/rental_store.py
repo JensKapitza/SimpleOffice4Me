@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import sqlite3
 from .sqlite_utils import connect as sqlite_connect
 import uuid
@@ -15,7 +14,7 @@ from .rental_types import (
     ALLOCATION_METHODS, EDITABLE_STATUSES, LEDGER_KINDS, METRIC_TYPES, SOURCE_KINDS, STATUSES,
     intersection, iso, money, number, parse_date, utc_now,
 )
-from .safe_paths import normalize_path, resolve_file_under
+from .safe_paths import normalize_path
 
 
 class RentalStoreBase:
@@ -127,7 +126,7 @@ class RentalStoreBase:
         self._object(object_id); self._contact(contact_id)
         start, end = parse_date(starts_on), parse_date(ends_on, optional=True)
         if end and end < start: raise ValueError("Mietende liegt vor Mietbeginn")
-        if contract_document_id: self._document_snapshot(contract_document_id)
+        if contract_document_id: self._document_snapshot(contract_document_id, actor)
         for existing in self.tenancies(object_id):
             old_start = parse_date(existing["starts_on"]); old_end = parse_date(existing["ends_on"], optional=True) or date.max
             if intersection(start, end or date.max, old_start, old_end): raise ValueError("Für das Objekt existiert in diesem Zeitraum bereits ein Mietverhältnis")
@@ -156,7 +155,7 @@ class RentalStoreBase:
             if existing["metric_type"] != metric_type: continue
             old_start = parse_date(existing["valid_from"]); old_end = parse_date(existing["valid_to"], optional=True) or date.max
             if intersection(start,end or date.max,old_start,old_end): raise ValueError("Für diesen Schlüssel existiert bereits ein überlappender Gültigkeitszeitraum")
-        self._validate_source(source_kind, source_note, source_document_id)
+        self._validate_source(source_kind, source_note, source_document_id, actor)
         metric_id, now = str(uuid.uuid4()), utc_now()
         with self._db() as db:
             db.execute("INSERT INTO rental_metric VALUES(?,?,?,?,?,?,?,?,?,?,?)", (metric_id,object_id,metric_type,str(value_num),iso(start),iso(end),source_kind,str(source_note or "")[:2000],str(source_document_id or ""),now,actor))
@@ -177,7 +176,7 @@ class RentalStoreBase:
         value=money(amount)
         if kind in {"advance","payment","credit"}: value=-abs(value)
         elif kind in {"opening_balance","charge"}: value=abs(value)
-        self._validate_source(source_kind,note,document_id)
+        self._validate_source(source_kind,note,document_id,actor)
         entry_id,now=str(uuid.uuid4()),utc_now()
         with self._db() as db: db.execute("INSERT INTO rental_ledger VALUES(?,?,?,?,?,?,?,?,?,?,?)",(entry_id,object_id,contact_id,iso(booked),kind,str(value),str(note or "")[:2000],str(document_id or ""),source_kind,now,actor))
         self._revision("rental_ledger_entry_created",actor,"rental-ledger",entry_id,{"object_id":object_id,"contact_id":contact_id,"kind":kind,"amount":str(value)})
@@ -231,7 +230,7 @@ class RentalStoreBase:
         if end < start: raise ValueError("Kostenende liegt vor Beginn")
         if allocation_method not in ALLOCATION_METHODS: raise ValueError("Unbekannter Verteilungsschlüssel")
         if allocation_method=="direct" and (not direct_object_id or direct_object_id not in self._settlement_unit_ids(settlement_id)): raise ValueError("Bei direkter Zuordnung fehlt ein gültiges Objekt")
-        self._validate_source(source_kind,source_note,source_document_id)
+        self._validate_source(source_kind,source_note,source_document_id,actor)
         cost_id,now=str(uuid.uuid4()),utc_now()
         with self._db() as db: db.execute("INSERT INTO rental_cost VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(cost_id,settlement_id,str(cost_group).strip()[:200],str(description).strip()[:500],str(value),iso(start),iso(end),allocation_method,str(direct_object_id or ""),source_kind,str(source_note or "")[:2000],str(source_document_id or ""),1 if tenant_visible else 0,now,actor))
         self._revision("rental_cost_created",actor,"rental-costs",cost_id,{"settlement_id":settlement_id,"cost_group":cost_group,"amount":str(value),"allocation_method":allocation_method})
@@ -255,7 +254,7 @@ class RentalStoreBase:
         if object_id not in self._settlement_unit_ids(settlement_id): raise ValueError("Objekt gehört nicht zur Abrechnung")
         value=number(weight)
         if value < 0: raise ValueError("Schlüsselwert darf nicht negativ sein")
-        self._validate_source(source_kind,source_note,source_document_id)
+        self._validate_source(source_kind,source_note,source_document_id,actor)
         with self._db() as db: db.execute("INSERT INTO rental_cost_weight VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(cost_id,object_id) DO UPDATE SET weight=excluded.weight,source_kind=excluded.source_kind,source_note=excluded.source_note,source_document_id=excluded.source_document_id,created_at=excluded.created_at,created_by=excluded.created_by",(cost_id,object_id,str(value),source_kind,str(source_note or "")[:2000],str(source_document_id or ""),utc_now(),actor))
         self._revision("rental_manual_weight_set",actor,"rental-costs",cost_id,{"object_id":object_id,"weight":str(value)})
 
@@ -281,18 +280,15 @@ class RentalStoreBase:
         from .contact_store import ContactStore
         return ContactStore(self.root).get(contact_id)
 
-    def _safe_document_path(self, relative: str) -> Path:
-        try:
-            return resolve_file_under(self.root, str(relative or ""))
-        except (OSError, ValueError) as exc:
-            raise ValueError("Belegdatei ist nicht sicher verfügbar") from exc
-
-    def _document_snapshot(self, document_id: str) -> dict[str, Any]:
+    def _document_snapshot(self, document_id: str, actor: str = "system") -> dict[str, Any]:
         from .document_store import DocumentStore
-        document=DocumentStore(self.root).get_document(document_id); path=self._safe_document_path(document.get("last_path",""))
-        digest=str(document.get("sha256") or "").strip().casefold()
-        if not re.fullmatch(r"[0-9a-f]{64}",digest): digest=self._sha256_file(path)
-        return {"document_id":document_id,"path":str(document.get("last_path","")),"name":path.name,"sha256":digest,"size":path.stat().st_size}
+        from .v2.materialize import materialize_verified_object
+        document = DocumentStore(self.root).get_document(document_id)
+        relative = str(document.get("last_path", ""))
+        with materialize_verified_object(self.root, actor, document_id) as path:
+            digest = self._sha256_file(path)
+            size = path.stat().st_size
+        return {"document_id":document_id,"path":relative,"name":Path(relative).name,"sha256":digest,"size":size}
 
     @staticmethod
     def _sha256_file(path: Path) -> str:
@@ -301,11 +297,11 @@ class RentalStoreBase:
             for block in iter(lambda:source.read(1024*1024),b""): digest.update(block)
         return digest.hexdigest()
 
-    def _validate_source(self, source_kind: str, source_note: str, source_document_id: str) -> None:
+    def _validate_source(self, source_kind: str, source_note: str, source_document_id: str, actor: str = "system") -> None:
         if source_kind not in SOURCE_KINDS: raise ValueError("Unbekannte Quellenart")
         if source_kind=="manual" and not str(source_note or "").strip(): raise ValueError("Bei Handeingaben ist ein kurzer Herkunfts-/Begründungstext erforderlich")
         if source_kind=="document" and not source_document_id: raise ValueError("Bei Belegquelle fehlt die Dokument-ID")
-        if source_document_id: self._document_snapshot(source_document_id)
+        if source_document_id: self._document_snapshot(source_document_id, actor)
 
     def _revision(self, action: str, actor: str, category: str, item_id: str, details: dict[str, Any]) -> None:
         try:
