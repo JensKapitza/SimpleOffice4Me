@@ -110,6 +110,8 @@ class ObjectCatalog:
                     ON object_catalog(location) WHERE state <> 'deleted';
                 CREATE INDEX IF NOT EXISTS catalog_state_updated
                     ON object_catalog(state, updated_at);
+                CREATE INDEX IF NOT EXISTS catalog_content_hash_state
+                    ON object_catalog(content_sha256, state);
                 """
             )
             family = db.execute(
@@ -249,6 +251,17 @@ class ObjectCatalog:
         )
         with self._db() as db:
             rows = db.execute(query).fetchall()
+        return [self._entry(row) for row in rows]
+
+    def find_active_by_content_sha256(self, digest: str) -> list[CatalogEntry]:
+        normalized = str(digest or "").strip().casefold()
+        if len(normalized) != 64 or any(char not in "0123456789abcdef" for char in normalized):
+            raise ValueError("invalid catalog content sha256")
+        with self._db() as db:
+            rows = db.execute(
+                "SELECT * FROM object_catalog WHERE content_sha256=? AND state='active' ORDER BY object_id",
+                (normalized,),
+            ).fetchall()
         return [self._entry(row) for row in rows]
 
     def move(

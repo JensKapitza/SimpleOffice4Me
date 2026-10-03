@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import socket
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -457,8 +458,45 @@ def _find_blob(root: str | Path, digest: str) -> Path:
 
 @contextmanager
 def _materialize_blob(root: str | Path, digest: str):
-    """Resolve compatibility metadata, then verify authoritative transfer bytes."""
+    """Resolve a digest from the active catalog, then verify transfer bytes."""
     digest = normalize_sha256(digest)
+    root = Path(root).expanduser().resolve()
+    from .v2.cutover import load_cutover_state
+
+    if load_cutover_state(root).mode == "v2":
+        from .v2.catalog import ObjectCatalog
+
+        matches = ObjectCatalog(root).find_active_by_content_sha256(digest)
+        failure = None
+        for entry in matches:
+            manager = materialize_verified_object(root, "federation-transfer", entry.object_id)
+            try:
+                path = manager.__enter__()
+            except (OSError, ValueError) as exc:
+                failure = exc
+                continue
+            try:
+                valid = verify_file(path, digest)
+            except (OSError, ValueError) as exc:
+                manager.__exit__(*sys.exc_info())
+                failure = exc
+                continue
+            if not valid:
+                manager.__exit__(None, None, None)
+                failure = ValueError("Autoritativer Inhalt passt nicht zum Transfer-Blob")
+                continue
+            try:
+                yield path
+            except BaseException:
+                manager.__exit__(*sys.exc_info())
+                raise
+            else:
+                manager.__exit__(None, None, None)
+            return
+        if failure is not None:
+            raise ValueError("Autoritativer Blob ist nicht verfügbar") from failure
+        raise ValueError("Blob nicht im V2-Objektkatalog gefunden")
+
     documents = DocumentStore(root)
     documents.initialize()
     with documents._db() as db:
