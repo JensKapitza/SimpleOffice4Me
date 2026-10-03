@@ -28,6 +28,7 @@
   </section>
 
   <form method="post" class="card" aria-labelledby="cluster-settings-title">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="card-header"><strong id="cluster-settings-title">Cluster-Einstellungen</strong></div>
     <div class="card-body">
       <div class="mb-3">
