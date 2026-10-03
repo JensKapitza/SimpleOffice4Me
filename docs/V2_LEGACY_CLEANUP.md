@@ -75,6 +75,17 @@ temporary content is removed on success and parser failure, and the documents
 feature is required before materialization. Initial bulk photo import remains
 a DocumentStore mutation/projection path and is not removed by this change.
 
+Document reads for local replication and Restic backup now use verified private
+StoragePort materialization too. Missing/stale projections do not substitute
+for authoritative bytes. Each copied file is verified and atomically replaced;
+a failed file copy preserves its previous target. A replication run is not a
+transaction across all files: earlier verified copies can remain after a later
+failure, but no successful manifest/status is published for that failed run.
+Restic working plaintext is removed after success, failure or timeout; failed
+staging is removed before Restic starts. Mirrors intentionally remain readable
+copies. Document listing/tag metadata, control-file snapshots and importing a
+mirror remain compatibility paths; this does not release the cleanup gate.
+
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, several business/rental/photo/contact/
