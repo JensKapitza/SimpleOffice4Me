@@ -20,6 +20,7 @@ from . import federation_worker
 from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore, feature_for_endpoint
 from .master_cluster import MasterClusterSettings
+from .federation_identity import FederationIdentity
 from .system_identity import installation_id
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
@@ -163,6 +164,7 @@ def cluster_settings():
     return render_template(
         "admin/master_cluster.html",
         settings=store.load(),
+        node_id=FederationIdentity(current_app.config["DOCUMENT_ROOT"]).public_identity()["fingerprint"],
         status=current_app.extensions.get("simpleoffice_master_address_status") or {
             "operating_state": "not_checked",
             "reachability": "not_checked",
