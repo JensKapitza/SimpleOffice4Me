@@ -298,7 +298,13 @@ verwalten.
 
 Die Einstellungen liegen neben der Mini-Service-Konfiguration in
 `sftp-service.json`. Änderungen am laufenden integrierten Dienst werden abgelehnt;
-zuerst stoppen. Autostart wird vom SimpleOffice-Launcher ausgeführt, wenn aktiviert
+zuerst stoppen. Bei beschädigter Konfiguration zeigt die Oberfläche Standardwerte
+und einen Reparaturhinweis. Vollständiges Speichern aller Felder ersetzt die
+defekte Datei nach Validierung; unvollständige API-Updates verändern sie nicht.
+Ein registrierter Paramiko-Prozess kann auch bei defekter Konfiguration gestoppt
+werden. Dabei wird niemals ein Systemdienst aus Standardwerten abgeleitet.
+Ports müssen Ganzzahlen oder ganzzahlige Texte sein; Bruchteile werden abgewiesen.
+Autostart wird vom SimpleOffice-Launcher ausgeführt, wenn aktiviert
 und ausgewählt. Ein direkter Flask/WSGI-Start nutzt weiterhin einen separaten
 SFTP-Starter. Das Dienstprotokoll liegt im bestehenden Run-Verzeichnis in
 `sftp.log`. Ein Shutdown über die Dienstverwaltung beendet auch SFTP; ein manuelles
