@@ -18,6 +18,7 @@
     <div class="card-header"><strong id="cluster-status-title">Laufzeitstatus</strong></div>
     <div class="card-body">
       <dl class="row mb-0">
+        <dt class="col-sm-4">Lokale Knoten-ID</dt><dd class="col-sm-8"><code>{{ node_id }}</code></dd>
         <dt class="col-sm-4">Betriebsmodus</dt><dd class="col-sm-8">{{ status.mode or settings.mode }}</dd>
         <dt class="col-sm-4">Knotenstatus</dt><dd class="col-sm-8"><code>{{ status.operating_state or 'not_checked' }}</code></dd>
         <dt class="col-sm-4">Master-Adresse erreichbar</dt><dd class="col-sm-8"><code>{{ status.reachability or 'not_checked' }}</code></dd>
@@ -46,7 +47,7 @@
       <div class="mb-3">
         <label for="cluster-txt-name" class="form-label">DNS-TXT-Recordname</label>
         <input class="form-control" id="cluster-txt-name" name="txt_record_name" value="{{ settings.txt_record_name }}" maxlength="253" required autocomplete="off" spellcheck="false">
-        <div class="form-text">Der TXT-Wert muss genau <code>simpleoffice-master-id=&lt;64-stelliger SHA-256-Fingerprint&gt;</code> enthalten. Beispiel: <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
+        <div class="form-text">Der TXT-Wert muss genau <code>simpleoffice-master-id=&lt;64-stelliger SHA-256-Fingerprint&gt;</code> mit der lokalen oder autoritativen Knoten-ID enthalten. Beispiel: <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
       </div>
     </div>
     <div class="card-footer d-flex justify-content-end"><button class="btn btn-primary" type="submit">Einstellungen speichern</button></div>
