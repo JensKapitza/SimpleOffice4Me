@@ -94,6 +94,21 @@ unpublished artifacts and permits retry. Frozen evidence intentionally remains
 part of the immutable approval package. Rental metadata and the legacy rental
 Federation send path still remain compatibility dependencies.
 
+The outgoing legacy SOFP worker now materializes managed document bytes privately
+through StoragePort for configured-peer and delegated-capability uploads. The
+complete source is verified against the transfer blob hash before contacting the
+target, including resumed transfers that already have all chunks. Stale or
+missing V2 projection content is not uploaded; corrupt/unavailable authoritative
+content fails the job without fallback. Temporary plaintext is removed after
+success, preparation/upload failure or retry. HTTP error response bodies are not
+persisted in transfer diagnostics. Chunk selection, resume bitmaps and target
+capabilities retain their existing wire contract.
+
+Blob lookup still uses the compatibility document index. Legacy manifest/catalog
+routes, transfer creation, repair and rebalance still contain direct projection
+consumers, so this worker migration does not remove the Federation cleanup
+blocker or authorize deletion of retained data.
+
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
 still has direct managed-file consumers, several business/rental/photo/contact/
