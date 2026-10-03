@@ -29,7 +29,8 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def default_txt_record_name(master_url: str = LICENSE_MASTER_URL) -> str:
+def default_txt_record_name(master_url: str | None = None) -> str:
+    master_url = LICENSE_MASTER_URL if master_url is None else master_url
     hostname = urlsplit(str(master_url or "")).hostname
     return f"_simpleoffice-master.{hostname}" if hostname else ""
 
@@ -46,14 +47,11 @@ class MasterClusterSettings:
         default = {"mode": "active-active", "txt_record_name": default_txt_record_name()}
         try:
             data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        except FileNotFoundError:
             return default
         if not isinstance(data, dict):
-            return default
-        try:
-            return self.validate({**default, **data})
-        except ValueError:
-            return default
+            raise ValueError("invalid cluster settings")
+        return self.validate({**default, **data})
 
     @staticmethod
     def validate(value: dict) -> dict:
@@ -62,7 +60,7 @@ class MasterClusterSettings:
             raise ValueError("invalid cluster operation mode")
         record_name = str(value.get("txt_record_name") or "").strip().rstrip(".").casefold()
         if not record_name or "." not in record_name or len(record_name) > 253 or any(
-            not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
+            not label or len(label) > 63 or not re.fullmatch(r"_?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
             for label in record_name.split(".")
         ):
             raise ValueError("invalid cluster authority TXT record name")
@@ -122,7 +120,10 @@ def inspect_master_address(root) -> dict:
     checked_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     if not LICENSE_MASTER_MODE:
         return {"role": "client", "operating_state": "not_applicable", "checked_at": checked_at}
-    settings = MasterClusterSettings(root).load()
+    try:
+        settings = MasterClusterSettings(root).load()
+    except (OSError, ValueError) as exc:
+        return {"role": "master", "operating_state": "standby_invalid_configuration", "reachability": "not_checked", "authority_error": type(exc).__name__, "checked_at": checked_at}
     mode = settings["mode"]
     if not LICENSE_MASTER_URL:
         return {"role": "master", "mode": mode, "operating_state": _operating_state(mode, "", None, False), "reachability": "address_unconfigured", "checked_at": checked_at}
@@ -165,8 +166,10 @@ def inspect_master_address(root) -> dict:
         profile = json.loads(raw.decode("utf-8"))
         if not isinstance(profile, dict) or not isinstance(profile.get("master"), dict):
             raise ValueError("master profile is invalid")
+        remote_id = str(profile.get("fingerprint") or "")
+        if not re.fullmatch(r"[0-9a-f]{64}", remote_id):
+            raise ValueError("invalid master fingerprint")
         reachable = profile["master"].get("is_master") is True
-        remote_id = str(profile.get("fingerprint") or "")[:256]
         if not reachable:
             remote_id = ""
     except (OSError, RuntimeError, UnicodeDecodeError, json.JSONDecodeError, ValueError, urllib.error.URLError) as exc:

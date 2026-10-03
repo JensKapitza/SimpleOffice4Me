@@ -19,7 +19,7 @@ from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from . import federation_worker
 from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore, feature_for_endpoint
-from .master_cluster import MasterClusterSettings
+from .master_cluster import MasterClusterSettings, default_txt_record_name
 from .federation_identity import FederationIdentity
 from .system_identity import installation_id
 
@@ -156,14 +156,19 @@ def cluster_settings():
             store.save({
                 "mode": request.form.get("mode", ""),
                 "txt_record_name": request.form.get("txt_record_name", ""),
-            }, str(g.user.get("username") or g.user.get("email") or g.user.get("id") or ""))
+            }, str(g.user["username"]))
             flash("Cluster-Einstellungen wurden gespeichert.")
         except ValueError:
             flash("Cluster-Einstellungen sind ungültig und wurden nicht gespeichert.")
         return redirect(url_for("licensing_admin.cluster_settings"))
+    try:
+        settings = store.load()
+    except (OSError, ValueError):
+        flash("Gespeicherte Cluster-Einstellungen sind nicht lesbar. Betriebsmodus und TXT-Record ausdrücklich neu speichern.")
+        settings = {"mode": "backup-active", "txt_record_name": default_txt_record_name()}
     return render_template(
         "admin/master_cluster.html",
-        settings=store.load(),
+        settings=settings,
         node_id=FederationIdentity(current_app.config["DOCUMENT_ROOT"]).public_identity()["fingerprint"],
         status=current_app.extensions.get("simpleoffice_master_address_status") or {
             "operating_state": "not_checked",

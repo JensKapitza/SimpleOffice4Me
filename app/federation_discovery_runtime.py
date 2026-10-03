@@ -33,7 +33,11 @@ def _worker(app):
         with app.app_context():
             root = current_app.config["DOCUMENT_ROOT"]
             if LICENSE_MASTER_MODE:
-                record_master_address_status(root)
+                try:
+                    record_master_address_status(root)
+                except Exception as exc:
+                    app.extensions["simpleoffice_master_address_status"] = {"operating_state": "standby_probe_failed", "reachability": "not_checked", "authority_error": type(exc).__name__}
+                    app.logger.warning("master cluster probe failed (%s)", type(exc).__name__)
             if country:
                 interval = configured_interval()
                 try:

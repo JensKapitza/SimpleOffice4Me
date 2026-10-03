@@ -22,4 +22,11 @@ Der Fingerprint wird auf der jeweiligen Instanz als öffentliche Federation-Iden
 
 Die Konfiguration befindet sich unter **Lizenzierung → Master-Cluster** und wird lokal mit Audit-Historie gespeichert. Der Status zeigt den Betriebsmodus, die zuletzt erreichte Knoten-ID und die DNS-Autorität.
 
+Beschädigte oder nicht lesbare gespeicherte Einstellungen liefern
+`standby_invalid_configuration`; sie aktivieren keinen Standardmodus.
+Die Administrationsseite bleibt zur ausdrücklichen Reparatur erreichbar.
+Ein fehlgeschlagener Probezyklus beendet den Hintergrunddienst nicht.
+Ungültige Fingerprints, widersprüchliche TXT-IDs, Redirects und zu große
+HTTP-Antworten werden nicht als gültige Erreichbarkeit behandelt.
+
 Die Betriebsmoduswahl regelt die Aktivitätsrolle. Sie schaltet keine automatische Replikation der Fachdatenspeicher frei und ersetzt nicht die gerichtete Peer-Autorisierung der Federation.
