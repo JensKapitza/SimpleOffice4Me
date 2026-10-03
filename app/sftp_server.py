@@ -61,6 +61,10 @@ if paramiko is not None:
             self.buffer = io.BytesIO()
             self.expected_sha256 = ""
             self.app = app
+            self.max_bytes = _bounded_environment_integer(
+                "SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024, 1, 8 * 1024 * 1024 * 1024,
+            )
+            self.failed = False
             resource = vfs.resolve(path)
             if resource.is_file() and not resource.is_symlink():
                 original = vfs.read_bytes(actor, path)
@@ -74,10 +78,17 @@ if paramiko is not None:
 
         def write(self, offset: int, data: bytes):
             try:
+                if self.failed:
+                    return paramiko.SFTP_FAILURE
+                # Check before seeking/writing: a tiny packet with a huge offset
+                # otherwise causes BytesIO to allocate a huge zero-filled gap.
+                if offset < 0 or offset > self.max_bytes or len(data) > self.max_bytes - offset:
+                    raise ValueError("SFTP upload exceeds the configured size limit")
                 self.buffer.seek(offset)
                 self.buffer.write(data)
                 return paramiko.SFTP_OK
             except (OSError, ValueError) as exc:
+                self.failed = True
                 return _sftp_status(exc)
 
         def read(self, offset: int, length: int):
@@ -86,6 +97,8 @@ if paramiko is not None:
 
         def close(self):
             try:
+                if self.failed:
+                    return paramiko.SFTP_FAILURE
                 content = self.buffer.getvalue()
                 if self.app is not None and self.app.config.get("WEBDAV_UPLOAD_SCAN", False):
                     scan = AttachmentSecurity(self.vfs.root).scan_webdav_upload(
@@ -98,9 +111,7 @@ if paramiko is not None:
                 self.vfs.write_bytes(
                     self.actor, self.path, content,
                     expected_sha256=self.expected_sha256,
-                    max_bytes=_bounded_environment_integer(
-                        "SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024, 1, 8 * 1024 * 1024 * 1024,
-                    ),
+                    max_bytes=self.max_bytes,
                 )
                 return paramiko.SFTP_OK
             except (OSError, RuntimeError, ValueError) as exc:
