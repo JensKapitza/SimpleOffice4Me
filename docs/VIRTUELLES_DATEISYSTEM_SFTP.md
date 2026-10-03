@@ -101,6 +101,14 @@ export SIMPLEOFFICE_SFTP_PASSWORD_AUTH=false
 simpleoffice-sftp
 ```
 
+`SIMPLEOFFICE_SFTP_MAX_BYTES` begrenzt jeden Upload. Der Dienst prüft
+Schreiboffset und Paketgröße vor dem Vergrößern des Speicherpuffers; auch Lücken
+zwischen Schreibpositionen zählen zur Dateigröße. Die Grenze bleibt für ein
+offenes Schreibhandle unverändert. Nach einer Grenzüberschreitung oder einem
+Puffer-Schreibfehler werden weitere Schreibpakete abgelehnt und der gesamte
+Upload beim Schließen verworfen. Bestehende Dateien bleiben unverändert, neue
+Teildateien werden nicht angelegt. Ein neuer Upload benötigt ein neues Handle.
+
 Standardmäßig lauscht der Dienst nur auf `127.0.0.1:2222`. Für externen
 Zugriff sollte die Freigabe gezielt über Firewall oder VPN erfolgen. Ein
 Unter **Einstellungen → WebDAV, SSHFS und Ordnerrechte** wird der Inhalt von
