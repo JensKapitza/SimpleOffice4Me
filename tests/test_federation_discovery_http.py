@@ -59,6 +59,8 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertEqual(response.json["federation"]["max_version"], 1)
         self.assertEqual(response.json["features"]["chat"], 1)
         self.assertEqual(response.json["features"]["documents"], 1)
+        self.assertEqual(response.json["master"]["is_master"], False)
+        self.assertEqual(response.json["master"]["address"], "")
 
     def test_register_publishes_without_disabling_existing_peer(self):
         FederationStore(self.root).save_peer("peer-a", "Old", "https://old.example", "", {}, True)
@@ -71,6 +73,17 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.assertTrue(FederationStore(self.root).get_peer("peer-a")["enabled"])
         listed = self.client.get("/federation/v1/discovery/peers?country=DE", headers=self.auth)
         self.assertEqual([row["peer_id"] for row in listed.json["peers"]], ["peer-a"])
+
+    def test_well_known_profile_advertises_build_master_role_and_address(self):
+        with patch("app.federation_local_profile.LICENSE_MASTER_MODE", True), patch(
+            "app.federation_local_profile.LICENSE_MASTER_URL", "https://master.example"
+        ):
+            response = self.client.get("/.well-known/simpleoffice-federation")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["master"], {
+            "is_master": True,
+            "address": "https://master.example",
+        })
 
     def test_signal_mailbox_is_single_delivery(self):
         store = FederationStore(self.root)
