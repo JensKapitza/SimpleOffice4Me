@@ -25,6 +25,8 @@ class MasterClusterReachabilityTests(unittest.TestCase):
     def _response(profile):
         response = MagicMock()
         response.status = 200
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
         response.read.return_value = json.dumps(profile).encode("utf-8")
         return response
 
