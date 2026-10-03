@@ -62,7 +62,7 @@ class LicenseMeteringTests(unittest.TestCase):
                 self.assertEqual(feature, feature_for_endpoint(endpoint, path))
 
     def test_meter_hook_counts_success_only_and_ignores_unmapped_routes(self):
-        from flask import Flask, g
+        from flask import Flask, Response, g
         from app.license_routes import init_app
         app = Flask(__name__)
         app.config.update(TESTING=True, SECRET_KEY="test-license", DOCUMENT_ROOT=str(self.root))
@@ -76,11 +76,16 @@ class LicenseMeteringTests(unittest.TestCase):
             ("tasks.index", "/tasks", 200),
             ("admin.index", "/general-admin", 200),
         ):
-            app.add_url_rule(path, endpoint, lambda code=code: ("result", code))
+            app.add_url_rule(
+                path, endpoint,
+                lambda code=code: Response("result", status=code, mimetype="text/plain"),
+            )
         init_app(app)
         client = app.test_client()
         for path in ("/calendar", "/denied", "/missing", "/error", "/mail", "/tasks", "/general-admin"):
-            client.get(path)
+            response = client.get(path)
+            self.assertEqual("text/plain", response.mimetype)
+            self.assertEqual(b"result", response.data)
         overview = self.store.overview()
         for feature in ("calendar", "mail", "projects"):
             self.assertEqual(1, overview["usage"][feature]["requests"])
