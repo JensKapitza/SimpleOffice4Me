@@ -152,7 +152,7 @@ def cluster_settings():
     store = MasterClusterSettings(current_app.config["DOCUMENT_ROOT"])
     if request.method == "POST":
         try:
-            settings = store.save({
+            store.save({
                 "mode": request.form.get("mode", ""),
                 "txt_record_name": request.form.get("txt_record_name", ""),
             }, str(g.user.get("username") or g.user.get("email") or g.user.get("id") or ""))
