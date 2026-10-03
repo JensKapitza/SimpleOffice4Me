@@ -10,6 +10,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from contextlib import contextmanager
 from typing import Any
 
 from .document_store import DocumentStore
@@ -19,6 +20,7 @@ from .federation_core import (
     normalize_sha256,
     transfer_progress,
     verify_chunk,
+    verify_file,
 )
 from .federation_store import FederationStore
 from .federation_local_profile import local_peer_id
@@ -26,6 +28,7 @@ from .federation_peer_auth import headers as peer_auth_headers
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
 from .v2.encrypted_recovery_search import MAX_QUERY_CHUNKS
 from .safe_paths import resolve_file_under
+from .v2.materialize import materialize_verified_object
 
 
 USER_AGENT = "SimpleOffice4Me-SOFP/1"
@@ -447,9 +450,28 @@ def _find_blob(root: str | Path, digest: str) -> Path:
     if not row:
         raise ValueError("Blob nicht im lokalen Dokumentindex gefunden")
     try:
-        return resolve_file_under(documents.root, str(row["relative_path"]))
+        return resolve_file_under(documents.root, str(row[0]))
     except (OSError, ValueError) as exc:
         raise ValueError("Lokaler Blob ist nicht freigegeben") from exc
+
+
+@contextmanager
+def _materialize_blob(root: str | Path, digest: str):
+    """Resolve compatibility metadata, then verify authoritative transfer bytes."""
+    digest = normalize_sha256(digest)
+    documents = DocumentStore(root)
+    documents.initialize()
+    with documents._db() as db:
+        row = db.execute(
+            "SELECT document_id FROM scan_file WHERE sha256=? ORDER BY relative_path LIMIT 1",
+            (digest,),
+        ).fetchone()
+    if not row:
+        raise ValueError("Blob nicht im lokalen Dokumentindex gefunden")
+    with materialize_verified_object(root, "federation-transfer", str(row[0])) as path:
+        if not verify_file(path, digest):
+            raise ValueError("Autoritativer Inhalt passt nicht zum Transfer-Blob")
+        yield path
 
 
 def _remote_status(base_url: str, transfer_id: str, token: str) -> dict[str, Any] | None:
@@ -515,7 +537,33 @@ def _upload_transfer(
 ) -> dict[str, Any]:
     store = FederationStore(root)
     transfer_id = transfer["transfer_id"]
-    path = _find_blob(root, transfer["blob_hash"])
+    try:
+        with _materialize_blob(root, transfer["blob_hash"]) as path:
+            return _upload_materialized_transfer(
+                root, transfer, path, target_url=target_url, target_token=target_token,
+                prepare=prepare, prepare_peer_label=prepare_peer_label,
+            )
+    except urllib.error.HTTPError as exc:
+        exc.close()
+        store.update_transfer(transfer_id, status="failed", error=f"HTTP {exc.code}")
+        raise
+    except Exception as exc:
+        store.update_transfer(transfer_id, status="failed", error=str(exc)[:1000])
+        raise
+
+
+def _upload_materialized_transfer(
+    root: str | Path,
+    transfer: dict[str, Any],
+    path: Path,
+    *,
+    target_url: str,
+    target_token: str,
+    prepare: bool,
+    prepare_peer_label: str,
+) -> dict[str, Any]:
+    store = FederationStore(root)
+    transfer_id = transfer["transfer_id"]
     manifest = transfer.get("manifest") or build_manifest(path)
     if normalize_sha256(manifest["blob_hash"]) != normalize_sha256(transfer["blob_hash"]):
         raise ValueError("Transfer-Manifest passt nicht zum Blob")
@@ -536,45 +584,37 @@ def _upload_transfer(
     chunks = manifest.get("chunks") or []
     sent = sum(int(chunks[i].get("length", 0)) for i in have if 0 <= i < len(chunks))
     store.update_transfer(transfer_id, status="running", transferred_bytes=sent, error="")
-    try:
-        for chunk in chunks:
-            index = int(chunk["index"])
-            if index not in allowed_chunks or index in have:
-                continue
-            start = int(chunk["offset"])
-            length = int(chunk["length"])
-            with path.open("rb") as source:
-                source.seek(start)
-                data = source.read(length)
-            if not verify_chunk(data, chunk["hash"]):
-                raise ValueError(f"Lokaler Chunk {index} ist korrupt")
-            endpoint = f"{target_url.rstrip('/')}/federation/v1/transfers/{transfer_id}/chunks/{index}"
-            headers = {
-                "Content-Type": "application/octet-stream",
-                "X-Chunk-SHA256": str(chunk["hash"]),
-                "X-Blob-SHA256": transfer["blob_hash"],
-                "X-Chunk-Offset": str(start),
-                "X-Chunk-Length": str(length),
-            }
-            with _request(endpoint, method="PUT", token=target_token, body=data, headers=headers, timeout=120) as response:
-                if response.status not in (200, 201, 204):
-                    raise ValueError(f"Ziel meldet HTTP {response.status}")
-                payload = json.loads(response.read().decode("utf-8") or "{}")
-            have.add(index)
-            sent = max(sent, int(payload.get("transferred_bytes", 0)))
-            store.update_transfer(transfer_id, transferred_bytes=sent)
-        remote = _remote_status(target_url, transfer_id, target_token) or {}
-        remote_status = str(remote.get("status", "unknown"))
-        local_status = "complete" if remote_status in {"complete", "verified"} else "partial"
-        transferred = int(remote.get("transferred_bytes", sent))
-        return store.update_transfer(transfer_id, status=local_status, transferred_bytes=transferred, error="")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")[:1000]
-        store.update_transfer(transfer_id, status="failed", error=f"HTTP {exc.code}: {detail}")
-        raise
-    except Exception as exc:
-        store.update_transfer(transfer_id, status="failed", error=str(exc)[:1000])
-        raise
+    for chunk in chunks:
+        index = int(chunk["index"])
+        if index not in allowed_chunks or index in have:
+            continue
+        start = int(chunk["offset"])
+        length = int(chunk["length"])
+        with path.open("rb") as source:
+            source.seek(start)
+            data = source.read(length)
+        if not verify_chunk(data, chunk["hash"]):
+            raise ValueError(f"Lokaler Chunk {index} ist korrupt")
+        endpoint = f"{target_url.rstrip('/')}/federation/v1/transfers/{transfer_id}/chunks/{index}"
+        headers = {
+            "Content-Type": "application/octet-stream",
+            "X-Chunk-SHA256": str(chunk["hash"]),
+            "X-Blob-SHA256": transfer["blob_hash"],
+            "X-Chunk-Offset": str(start),
+            "X-Chunk-Length": str(length),
+        }
+        with _request(endpoint, method="PUT", token=target_token, body=data, headers=headers, timeout=120) as response:
+            if response.status not in (200, 201, 204):
+                raise ValueError(f"Ziel meldet HTTP {response.status}")
+            payload = json.loads(response.read().decode("utf-8") or "{}")
+        have.add(index)
+        sent = max(sent, int(payload.get("transferred_bytes", 0)))
+        store.update_transfer(transfer_id, transferred_bytes=sent)
+    remote = _remote_status(target_url, transfer_id, target_token) or {}
+    remote_status = str(remote.get("status", "unknown"))
+    local_status = "complete" if remote_status in {"complete", "verified"} else "partial"
+    transferred = int(remote.get("transferred_bytes", sent))
+    return store.update_transfer(transfer_id, status=local_status, transferred_bytes=transferred, error="")
 
 
 def push_blob_to_peer(root: str | Path, transfer_id: str) -> dict[str, Any]:
