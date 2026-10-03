@@ -15,6 +15,7 @@ from app.federation_core import bitmap_encode, build_manifest
 from app.federation_store import FederationStore
 from app.federation_worker import _find_blob, push_blob_to_peer, push_blob_to_transient_target
 from app.v2.blob_store import BlobStore
+from app.v2.catalog import ObjectCatalog
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.encrypted_cutover import encrypted_blob_cutover
 from app.v2.master_keys import MasterKeyProfileStore
@@ -127,6 +128,22 @@ class FederationWorkerStorageTests(unittest.TestCase):
         self.migrate()
         self.projection.unlink()
         self.assert_success()
+
+    def test_v2_blob_lookup_uses_catalog_without_legacy_scan_index(self):
+        self.migrate()
+        self.projection.unlink()
+        with self.documents._db() as db:
+            db.execute("DELETE FROM scan_file")
+        self.assert_success()
+
+    def test_v2_missing_catalog_match_does_not_fall_back_to_scan_index(self):
+        self.migrate()
+        with ObjectCatalog(self.root)._db() as db:
+            db.execute(
+                "UPDATE object_catalog SET content_sha256=? WHERE object_id=?",
+                ("a" * 64, self.document["document_id"]),
+            )
+        self.assert_source_failure(ValueError)
 
     def test_v2_stale_projection_is_not_uploaded(self):
         self.migrate()

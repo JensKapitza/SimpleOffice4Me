@@ -103,10 +103,18 @@ success, preparation/upload failure or retry. HTTP error response bodies are not
 persisted in transfer diagnostics. Chunk selection, resume bitmaps and target
 capabilities retain their existing wire contract.
 
-Blob lookup still uses the compatibility document index. Legacy manifest/catalog
-routes, transfer creation, repair and rebalance still contain direct projection
-consumers, so this worker migration does not remove the Federation cleanup
-blocker or authorize deletion of retained data.
+In authoritative V2 mode, digest-to-object lookup now uses an indexed query on
+the active `ObjectCatalog` content hash; it does not require the legacy scan
+index. V1 and shadow modes retain the compatibility-index lookup. The legacy
+`/federation/v1/documents/<id>/manifest`, document/blob download, blob manifest,
+chunk and availability endpoints now materialize and verify authoritative
+StoragePort content before returning bytes or metadata. Streamed temporary
+content remains alive until the response closes and is then removed. These
+routes work with a missing projection and missing scan-index rows in V2 mode.
+
+Content-defined block manifests, rental transfer creation, repair and rebalance
+still have projection consumers, so Federation remains a cleanup blocker and
+retained data must not be deleted.
 
 Federation admin document selection and transfer creation now generate their
 manifest from verified private StoragePort materialization as well. This covers
@@ -117,13 +125,14 @@ leave the admin page available with an error. Both creation routes reject inacti
 unknown or explicitly send-denying peers before materializing content. Admin
 authorization and CSRF remain enforced. Manifest generation reads the complete
 source, so selecting a large document requires temporary disk space and storage
-I/O. Legacy HTTP manifest/catalog routes still retain projection dependencies.
+I/O. The separate content-defined block manifest, rental transfer creation,
+repair and rebalance still retain projection dependencies.
 
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
-still has direct managed-file consumers, several business/rental/photo/contact/
-replication paths still resolve managed document files directly, and the legacy
-federation-transfer worker still has a direct managed-file path. Directory and
+still has direct managed-file consumers, and business/rental/photo/contact/
+replication plus content-defined block indexing, rental transfer creation,
+repair and rebalance still include compatibility-path readers. Directory and
 access-policy handling also continues to use the compatibility namespace.
 Therefore the global cleanup flag must remain true and destructive cleanup
 remains blocked.

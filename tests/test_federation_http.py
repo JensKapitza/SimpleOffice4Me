@@ -9,6 +9,8 @@ from flask import Flask
 from app.document_store import DocumentStore
 from app.federation_core import build_manifest
 from app.federation_http import bp
+from app.v2.cutover import activate_v2, prepare_shadow
+from app.v2.migration import create_migration_backup, transfer_legacy_documents
 
 
 class FederationHttpTest(unittest.TestCase):
@@ -82,6 +84,59 @@ class FederationHttpTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 416)
         self.assertEqual(response.headers["Content-Range"], "bytes */16")
+
+    def test_v2_manifest_download_and_blob_reads_do_not_use_projection_content(self):
+        backup = self.root.with_name(f"{self.root.name}-migration-backup")
+        create_migration_backup(self.root, backup)
+        transfer_legacy_documents(self.root, backup)
+        prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
+        activate_v2(self.root, apply=True, acknowledge_local_plaintext=True)
+        projection = self.root / self.document["last_path"]
+        projection.unlink()
+        with DocumentStore(self.root)._db() as db:
+            db.execute("DELETE FROM scan_file")
+        digest = hashlib.sha256(b"0123456789abcdef").hexdigest()
+        document_id = self.document["document_id"]
+
+        manifest = self.client.get(
+            f"/federation/v1/documents/{document_id}/manifest", headers=self.auth
+        )
+        self.assertEqual(200, manifest.status_code)
+        self.assertEqual(f"sha256:{digest}", manifest.json["blob_hash"])
+        self.assertEqual(16, manifest.json["size"])
+
+        document = self.client.get(
+            f"/federation/v1/documents/{document_id}/blob", headers=self.auth
+        )
+        self.assertEqual(200, document.status_code)
+        self.assertEqual(b"0123456789abcdef", document.data)
+
+        blob = self.client.get(f"/federation/v1/blobs/{digest}", headers=self.auth)
+        self.assertEqual(200, blob.status_code)
+        self.assertEqual(b"0123456789abcdef", blob.data)
+        self.assertEqual(200, self.client.get(
+            f"/federation/v1/blobs/{digest}/manifest", headers=self.auth
+        ).status_code)
+        self.assertEqual(206, self.client.get(
+            f"/federation/v1/blobs/{digest}/chunks/0", headers=self.auth
+        ).status_code)
+        self.assertEqual(200, self.client.get(
+            f"/federation/v1/blobs/{digest}/availability", headers=self.auth
+        ).status_code)
+
+    def test_soft_deleted_v2_document_is_not_exposed_by_federation(self):
+        backup = self.root.with_name(f"{self.root.name}-deleted-migration-backup")
+        create_migration_backup(self.root, backup)
+        transfer_legacy_documents(self.root, backup)
+        prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
+        activate_v2(self.root, apply=True, acknowledge_local_plaintext=True)
+        DocumentStore(self.root).soft_delete_document(self.document["document_id"], "admin")
+
+        response = self.client.get(
+            f"/federation/v1/documents/{self.document['document_id']}/blob", headers=self.auth
+        )
+
+        self.assertEqual(404, response.status_code)
 
     def test_prepare_put_and_complete_incoming_transfer(self):
         source = self.root / "incoming-source.bin"
