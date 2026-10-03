@@ -47,7 +47,7 @@
       <div class="mb-3">
         <label for="cluster-txt-name" class="form-label">DNS-TXT-Recordname</label>
         <input class="form-control" id="cluster-txt-name" name="txt_record_name" value="{{ settings.txt_record_name }}" maxlength="253" required autocomplete="off" spellcheck="false">
-        <div class="form-text">Der TXT-Wert muss genau <code>simpleoffice-master-id=&lt;64-stelliger SHA-256-Fingerprint&gt;</code> mit der lokalen oder autoritativen Knoten-ID enthalten. Beispiel: <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
+        <div class="form-text">Der TXT-Wert muss genau <code>simpleoffice-master-id=&lt;64-stelliger SHA-256-Fingerprint&gt;</code> mit dem Fingerprint des Knotens enthalten, der laut DNS die Autorität sein soll. Beispiel: <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
       </div>
     </div>
     <div class="card-footer d-flex justify-content-end"><button class="btn btn-primary" type="submit">Einstellungen speichern</button></div>
