@@ -24,7 +24,7 @@ _REMAINING_CONTENT_PROJECTION_CONSUMERS = (
     "DocumentStore mutation/recovery still persists plaintext document files",
     "WebDAV document access still resolves managed document paths directly",
     "business/rental/photo/contact/replication consumers still resolve managed document paths directly",
-    "federation block indexing, rental transfer creation, repair and rebalance still resolve managed document paths directly",
+    "federation block indexing, repair and rebalance still resolve managed document paths directly",
 )
 
 
