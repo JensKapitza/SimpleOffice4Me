@@ -121,12 +121,6 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
     carddav = _contacts().carddav()
     carddav_enabled = any(item.get("username") == username and item.get("enabled") is True for item in carddav.get("accounts", []))
     caldav_enabled = any(item.get("username") == username and item.get("enabled") is True for item in _calendars()._read_auth().get("accounts", []))
-    try:
-        sftp_port = int(os.environ.get("SIMPLEOFFICE_SFTP_PORT", "2222"))
-    except ValueError:
-        sftp_port = 2222
-    if not 1 <= sftp_port <= 65535:
-        sftp_port = 2222
     from .sftp_service import safe_status
     sftp_status = safe_status()
     sftp_settings = sftp_status["settings"]
@@ -149,6 +143,7 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file() and sftp_dependency),
         "sftp_key_ready": bool(host_key.is_file()), "sftp_dependency": sftp_dependency,
         "sftp_running": sftp_status["state"] == "running", "sftp_mode": sftp_settings["mode"],
+        "sftp_state": sftp_status["state"], "sftp_message": sftp_status["health"]["message"],
         "ssh_key_count": len([item for item in keys_for(current_app.config["DOCUMENT_ROOT"], username) if not item["expired"]]),
         "sshfs_command": (
             f"sshfs -p {sftp_port} {sshfs_source} ~/SimpleOffice -o "
