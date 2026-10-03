@@ -13,6 +13,32 @@ from tools.mini_services import Worker
 
 
 class NetworkSettingsTests(unittest.TestCase):
+    def test_sftp_form_repairs_corruption_and_preserves_rejected_input(self):
+        from app.sftp_service import settings
+        path = self.path.parent / "sftp-service.json"
+        path.write_text('{"mode": [], "port": null}', encoding="utf-8")
+        url = "/admin/mini-services/sftp"
+        with patch("tools.service_control.RUN_DIR", self.path.parent / "run"), \
+                patch("tools.service_control.read", return_value=None), \
+                patch("app.mini_services_admin.render_template", return_value="SFTP") as render:
+            self.assertEqual(200, self.client.get(url).status_code)
+            row = render.call_args.kwargs["service"]
+            self.assertIn("Standardwerte", row["health"]["message"])
+            self.assertIn("stop", row["capabilities"])
+            form = {"mode": "integrated", "enabled": "1", "autostart": "1",
+                    "bind": "::1", "port": "2233.5", "system_port": "22"}
+            self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
+            self.assertEqual("2233.5", render.call_args.kwargs["service"]["settings"]["port"])
+            self.assertEqual('{"mode": [], "port": null}', path.read_text(encoding="utf-8"))
+            form["port"] = "2233"
+            self.assertEqual(403, self.client.post(url, data=form).status_code)
+            self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
+            saved = settings()
+            self.assertEqual("::1", saved["bind"])
+            self.assertEqual(2233, saved["port"])
+            self.assertTrue(saved["enabled"])
+            self.assertTrue(saved["autostart"])
+
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
