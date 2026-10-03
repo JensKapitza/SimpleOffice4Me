@@ -19,6 +19,7 @@ from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from . import federation_worker
 from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore, feature_for_endpoint
+from .master_cluster import MasterClusterSettings
 from .system_identity import installation_id
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
@@ -128,6 +129,45 @@ def index():
         licensing=_store().overview(),
         features=FEATURES,
         master_reports=_master_store().reports() if LICENSE_MASTER_MODE else [],
+    )
+
+
+@admin_bp.get("/cluster-status.json")
+@_admin_required
+def cluster_status():
+    """Expose whether the configured master address resolves to this node or a peer."""
+    return jsonify({
+        "is_master": bool(LICENSE_MASTER_MODE),
+        "master_address": LICENSE_MASTER_URL if LICENSE_MASTER_MODE else "",
+        "reachability": current_app.extensions.get(
+            "simpleoffice_master_address_status",
+            {"role": "master" if LICENSE_MASTER_MODE else "client", "reachability": "not_checked"},
+        ),
+    })
+
+
+@admin_bp.route("/cluster-settings", methods=["GET", "POST"])
+@_admin_required
+def cluster_settings():
+    store = MasterClusterSettings(current_app.config["DOCUMENT_ROOT"])
+    if request.method == "POST":
+        try:
+            settings = store.save({
+                "mode": request.form.get("mode", ""),
+                "txt_record_name": request.form.get("txt_record_name", ""),
+            }, str(g.user.get("username") or g.user.get("email") or g.user.get("id") or ""))
+            flash("Cluster-Einstellungen wurden gespeichert.")
+        except ValueError:
+            flash("Cluster-Einstellungen sind ungültig und wurden nicht gespeichert.")
+        return redirect(url_for("licensing_admin.cluster_settings"))
+    return render_template(
+        "admin/master_cluster.html",
+        settings=store.load(),
+        status=current_app.extensions.get("simpleoffice_master_address_status") or {
+            "operating_state": "not_checked",
+            "reachability": "not_checked",
+        },
+        master_mode=LICENSE_MASTER_MODE,
     )
 
 
