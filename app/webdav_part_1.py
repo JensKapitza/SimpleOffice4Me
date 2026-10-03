@@ -655,7 +655,10 @@ def _authenticate() -> dict | None:
     supplied = request.authorization
     if not supplied or supplied.type.casefold() != "basic" or not supplied.username or not supplied.password:
         return None
-    return authenticate_password(supplied.username, supplied.password, record_use=True)
+    identity = authenticate_password(supplied.username, supplied.password, record_use=True)
+    if identity is not None:
+        request.environ["simpleoffice.authenticated_dav_username"] = identity["username"]
+    return identity
 
 
 def _unauthorized() -> Response:

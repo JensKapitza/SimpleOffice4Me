@@ -375,7 +375,7 @@ def _handle_tree_copy_move(username: str, identity, resource, document, is_colle
     return Response("", 204 if replacing_document is not None else 201, headers)
 
 
-@bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
+@bp.route("/webdav/files/<username>", defaults={"relative_path": ""}, strict_slashes=False, methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 @bp.route("/webdav/files/<username>/<path:relative_path>", methods=["OPTIONS", "PROPFIND", "PROPPATCH", "REPORT", "SEARCH", "GET", "HEAD", "PUT", "DELETE", "MKCOL", "COPY", "MOVE", "LOCK", "UNLOCK"])
 def file_tree(username: str, relative_path: str):
     """Hierarchical WebDAV namespace for desktop file managers and sync clients."""
