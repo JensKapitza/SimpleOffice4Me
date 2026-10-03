@@ -61,7 +61,7 @@ class MasterClusterSettings:
         if mode not in CLUSTER_MODES:
             raise ValueError("invalid cluster operation mode")
         record_name = str(value.get("txt_record_name") or "").strip().rstrip(".").casefold()
-        if not record_name or len(record_name) > 253 or any(
+        if not record_name or "." not in record_name or len(record_name) > 253 or any(
             not label or len(label) > 63 or not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]*[a-z0-9])?", label)
             for label in record_name.split(".")
         ):
@@ -93,7 +93,7 @@ def resolve_authority_id(record_name: str) -> str:
     """Read the designated node fingerprint from a DNS TXT record."""
     resolver = dns.resolver.Resolver(configure=True)
     resolver.cache = None
-    answers = resolver.resolve(record_name, "TXT", lifetime=TIMEOUT_SECONDS)
+    answers = resolver.resolve(record_name.rstrip(".") + ".", "TXT", lifetime=TIMEOUT_SECONDS)
     values = set()
     for answer in answers:
         text = b"".join(answer.strings).decode("ascii", errors="strict").strip()
@@ -126,6 +126,17 @@ def inspect_master_address(root) -> dict:
     mode = settings["mode"]
     if not LICENSE_MASTER_URL:
         return {"role": "master", "mode": mode, "operating_state": _operating_state(mode, "", None, False), "reachability": "address_unconfigured", "checked_at": checked_at}
+    try:
+        probe_url = _profile_url(LICENSE_MASTER_URL)
+    except ValueError as exc:
+        return {
+            "role": "master",
+            "mode": mode,
+            "operating_state": _operating_state(mode, "", None, False),
+            "reachability": "unreachable",
+            "authority_error": type(exc).__name__,
+            "checked_at": checked_at,
+        }
 
     local_id = ""
     authority_id = None
@@ -143,7 +154,7 @@ def inspect_master_address(root) -> dict:
     remote_id = ""
     reachable = False
     try:
-        url = _profile_url(LICENSE_MASTER_URL)
+        url = probe_url
         request = urllib.request.Request(url, headers={"Accept": "application/json"})
         with _open_profile(request) as response:
             if response.status != 200:
