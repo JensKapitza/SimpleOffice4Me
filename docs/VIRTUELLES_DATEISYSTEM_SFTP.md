@@ -275,6 +275,11 @@ Ordnerrechte und den vorhandenen StoragePort. Shell und Portweiterleitung bleibe
 gesperrt. Standard: lokal auf 127.0.0.1:2222; LAN-Bind und Firewall werden bewusst
 konfiguriert. Start, Stop, Neustart und lokale Suche sind admin- und CSRF-geschützt.
 
+IPv4- und IPv6-Bind-Adressen werden unterstützt, beispielsweise `127.0.0.1`,
+`::1` oder `::`. Ein IPv6-Listener bleibt auf IPv6 begrenzt und aktiviert nicht
+zusätzlich IPv4. Die Erststartseite erhält IPv6-Adressen vollständig und setzt
+sie in SFTP-URLs sowie SSHFS-/rsync-Zielen in eckige Klammern.
+
 Die Betriebsart **Systemdienst nutzen** erkennt unter Linux systemd-Einheiten
 `ssh.service`/`sshd.service`, unter Windows den Dienst `sshd`. Sie wird ausdrücklich
 gewählt, nicht automatisch. Dort gelten Betriebssystem-Konten und dessen

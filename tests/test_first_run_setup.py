@@ -1,5 +1,6 @@
 import json
 import io
+import shlex
 import tempfile
 import unittest
 from pathlib import Path
@@ -45,6 +46,18 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("Lesen", body)
         self.assertIn("Schreiben", body)
         self.assertIn("Verwalten", body)
+
+    def test_remote_setup_preserves_ipv6_hosts_and_quotes_mount_targets(self):
+        from app.documents_core import _remote_setup_context
+        for host in ("::1", "2001:db8::7"):
+            with self.subTest(host=host), app.test_request_context(base_url=f"https://[{host}]:8080"):
+                remote = _remote_setup_context("jens")
+                port = remote["sftp_port"]
+                self.assertEqual(host, remote["host"])
+                self.assertEqual(f"sftp://jens@[{host}]:{port}/", remote["nautilus_sftp"])
+                self.assertIn(f"jens@[{host}]:/", shlex.split(remote["sshfs_command"]))
+                self.assertIn(f"jens@[{host}]:/Projekte/", shlex.split(remote["rsync_pull_command"]))
+                self.assertIn(f"jens@[{host}]:/Projekte/", shlex.split(remote["rsync_push_command"]))
 
     def test_dark_theme_is_saved_per_user_and_rendered_on_next_request(self):
         response = self.client.post(
