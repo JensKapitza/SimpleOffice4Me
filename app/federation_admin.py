@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import json
-import re
-from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
@@ -11,14 +9,14 @@ from .access_control import is_admin
 from .auth import login_required
 from .chat_policy import ACTION_LABELS, chat_policy_state, merge_chat_policy
 from .document_origin import document_origin_tags, persist_origin_tags
-from .document_store import DocumentStore, sha256_file
+from .document_store import DocumentStore
 from .federation_catalog import FederationCatalog
 from .federation_core import build_manifest, transfer_id, validate_operation
 from .federation_download_worker import process_queue, sync_peer_catalog
 from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
-from .federation_worker import _find_blob, peer_capabilities, push_blob_to_peer, remote_availability
-from .safe_paths import resolve_under
+from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
+from .v2.materialize import materialize_verified_object
 
 bp = Blueprint("federation_admin", __name__, url_prefix="/admin/federation")
 
@@ -45,19 +43,23 @@ def _documents() -> DocumentStore:
     return DocumentStore(current_app.config["DOCUMENT_ROOT"])
 
 
-def _document_blob(document_id: str) -> tuple[dict, Path, str]:
+def _document_blob(document_id: str) -> tuple[dict, dict, str]:
     documents = _documents()
     document = documents.get_document(document_id)
-    try:
-        path = resolve_under(documents.root, str(document.get("last_path", "")), strict=True)
-    except (OSError, ValueError) as exc:
-        raise ValueError("Dokumentdatei ist nicht verfügbar") from exc
-    if not path.is_file() or path.is_symlink():
-        raise ValueError("Dokumentdatei ist nicht verfügbar")
-    digest = str(document.get("sha256") or "").casefold()
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        digest = sha256_file(path)
-    return document, path, digest
+    with materialize_verified_object(documents.root, str(g.user["username"]), document_id) as path:
+        manifest = build_manifest(path)
+    return document, manifest, manifest["blob_hash"]
+
+
+def _sending_peer(store: FederationStore, peer_id: str) -> dict:
+    peer = store.get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        raise ValueError("Ziel-Peer ist nicht aktiv")
+    policy = peer.get("policy") or {}
+    resource_policy = policy.get("documents", {}) if isinstance(policy, dict) else {}
+    if resource_policy and resource_policy.get("send") is False:
+        raise ValueError("Peer-Policy verbietet das Senden von Dokumenten")
+    return peer
 
 
 def _document_choices(query: str, limit: int = 60) -> list[dict]:
@@ -119,15 +121,15 @@ def dashboard():
     selected = None
     if selected_id:
         try:
-            document, path, digest = _document_blob(selected_id)
+            document, manifest, digest = _document_blob(selected_id)
             selected = {
                 **document,
                 "visible_tags": document_origin_tags(document),
                 "federation_sha256": digest,
-                "federation_size": path.stat().st_size,
+                "federation_size": manifest["size"],
             }
-        except ValueError as exc:
-            flash(str(exc))
+        except (OSError, RuntimeError, ValueError):
+            flash("Dokumentinhalt ist nicht verfügbar oder konnte nicht verifiziert werden.")
     peers = store.list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
@@ -187,15 +189,8 @@ def send_document(document_id: str):
     target_peer = request.form.get("target_peer", "").strip()
     try:
         operation = validate_operation(request.form.get("operation", "COPY"))
-        document, path, digest = _document_blob(document_id)
-        peer = store.get_peer(target_peer)
-        if not peer or not peer.get("enabled"):
-            raise ValueError("Ziel-Peer ist nicht aktiv")
-        policy = peer.get("policy") or {}
-        resource_policy = policy.get("documents", {}) if isinstance(policy, dict) else {}
-        if resource_policy and resource_policy.get("send") is False:
-            raise ValueError("Peer-Policy verbietet das Senden von Dokumenten")
-        manifest = build_manifest(path)
+        _sending_peer(store, target_peer)
+        document, manifest, digest = _document_blob(document_id)
         job_id = transfer_id()
         store.create_transfer(
             job_id,
@@ -234,7 +229,7 @@ def orchestrate_document(document_id: str):
     target_peer = request.form.get("target_peer", "").strip()
     try:
         operation = validate_operation(request.form.get("operation", "COPY"))
-        _document, _path, digest = _document_blob(document_id)
+        _document, _manifest, digest = _document_blob(document_id)
         result = orchestrate_third_party(
             current_app.config["DOCUMENT_ROOT"],
             source_peer,
@@ -252,7 +247,7 @@ def orchestrate_document(document_id: str):
 @admin_required
 def document_availability(document_id: str, peer_id: str):
     try:
-        _document, _path, digest = _document_blob(document_id)
+        _document, _manifest, digest = _document_blob(document_id)
         availability = remote_availability(current_app.config["DOCUMENT_ROOT"], peer_id, digest)
         flash(
             f"Peer {peer_id}: Blob vorhanden, {availability.get('chunk_count', 0)} Chunks, "
@@ -420,8 +415,9 @@ def create_transfer():
     target_peer = request.form.get("target_peer", "").strip()
     try:
         operation = validate_operation(request.form.get("operation", "COPY"))
-        path = _find_blob(current_app.config["DOCUMENT_ROOT"], digest)
-        manifest = build_manifest(path)
+        _sending_peer(store, target_peer)
+        with _materialize_blob(current_app.config["DOCUMENT_ROOT"], digest) as path:
+            manifest = build_manifest(path)
         job_id = transfer_id()
         store.create_transfer(
             job_id,
