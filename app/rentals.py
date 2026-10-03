@@ -1,7 +1,6 @@
 """Web UI and federation bridge for auditable rental settlements."""
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
@@ -9,13 +8,15 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .access_control import is_admin
 from .auth import login_required
 from .contact_store import ContactStore
-from .document_store import DocumentStore, sha256_file
+from .document_store import sha256_file
 from .federation_core import build_manifest, transfer_id
 from .federation_store import FederationStore
 from .federation_worker import push_blob_to_peer
 from .object_store import ObjectStore
 from .rental_billing import ALLOCATION_METHODS, LEDGER_KINDS, METRIC_TYPES, RentalBillingStore
 from .safe_paths import resolve_file_under
+from .v2.materialize import materialize_verified_object
+from .v2.storage_runtime import import_document
 
 bp = Blueprint("rentals", __name__, url_prefix="/rentals")
 
@@ -392,13 +393,14 @@ def federate_tenant_package(settlement_id: str, contact_id: str):
         if not _peer_allows_rental_send(peer.get("policy")):
             raise ValueError("Peer-Policy erlaubt den Versand von Mietabrechnungen nicht ausdrücklich")
 
-        documents = DocumentStore(_root())
-        imported = documents.import_file(package, _actor())
-        document = documents.get_document(imported)
-        path = resolve_file_under(documents.root, str(document.get("last_path", "")))
-        digest = str(document.get("sha256") or "").casefold()
-        if not re.fullmatch(r"[0-9a-f]{64}", digest): digest = sha256_file(path)
-        manifest = build_manifest(path); job_id = transfer_id()
+        digest = sha256_file(package)
+        with package.open("rb") as source:
+            document = import_document(_root(), _actor(), source, package.name)
+        with materialize_verified_object(_root(), _actor(), document["document_id"]) as path:
+            manifest = build_manifest(path)
+        if manifest["blob_hash"] != digest:
+            raise ValueError("Importiertes Mieterpaket stimmt nicht mit dem Freigabepaket überein")
+        job_id = transfer_id()
         federation.create_transfer(
             job_id, direction="outgoing", operation="COPY", blob_hash=digest, target_peer=peer_id,
             total_bytes=manifest["size"], total_chunks=manifest["chunk_count"], manifest=manifest,

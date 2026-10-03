@@ -91,8 +91,7 @@ read verified StoragePort bytes as well. Evidence is checked against the
 snapshot hash before copying and checked again after copying. Missing or
 corrupt sources reject approval; the existing staging rollback removes
 unpublished artifacts and permits retry. Frozen evidence intentionally remains
-part of the immutable approval package. Rental metadata and the legacy rental
-Federation send path still remain compatibility dependencies.
+part of the immutable approval package. Rental metadata still remains a compatibility dependency.
 
 The outgoing legacy SOFP worker now materializes managed document bytes privately
 through StoragePort for configured-peer and delegated-capability uploads. The
@@ -118,8 +117,7 @@ leave the admin page available with an error. Both creation routes reject inacti
 unknown or explicitly send-denying peers before materializing content. Admin
 authorization and CSRF remain enforced. Manifest generation reads the complete
 source, so selecting a large document requires temporary disk space and storage
-I/O. Legacy HTTP manifest/catalog routes and rental transfer creation still
-retain projection dependencies.
+I/O. Legacy HTTP manifest/catalog routes still retain projection dependencies.
 
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
 writes/recovery still project document content into `DocumentStore`, WebDAV
@@ -145,3 +143,17 @@ A later Phase-15 cleanup implementation should consume this gate rather than
 adding an independent bypass. Actual deletion should only be added after the
 projection-free authoritative runtime and dependent consumers have been
 accepted.
+
+Rental tenant-package federation now imports approved ZIP packages through the
+existing streaming StoragePort import and builds its transfer manifest from
+verified private materialization. The import must match the approved package
+hash before a job is created. Missing/stale V2 projections and encrypted V2 are
+supported; integrity or manifest failures create no transfer/export success.
+Network failures do not record a successful rental export. Admin/CSRF and the
+explicit rental/document peer-send policy are retained before import. Temporary
+materialized content is cleaned on success and failure. The approved package
+remains an immutable approval artifact; an already completed document import may
+remain after a later transfer failure and keeps its normal storage audit history.
+Queued federation exports retain the existing bookkeeping and are not delivery
+receipts. Metadata/index, other legacy Federation paths and cleanup/restore
+acceptance still block destructive cleanup.
