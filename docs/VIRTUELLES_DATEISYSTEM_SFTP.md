@@ -309,3 +309,15 @@ und ausgewählt. Ein direkter Flask/WSGI-Start nutzt weiterhin einen separaten
 SFTP-Starter. Das Dienstprotokoll liegt im bestehenden Run-Verzeichnis in
 `sftp.log`. Ein Shutdown über die Dienstverwaltung beendet auch SFTP; ein manuelles
 Stoppen in der Oberfläche ändert den Autostart-Wunsch nicht.
+
+### Einrichtungsanleitung je Dienstmodus
+
+Der Erststart-Assistent und die herunterladbare Anleitung zeigen die
+SimpleOffice-SFTP-Adressen und SSHFS-/rsync-Beispiele nur für den integrierten
+Paramiko-Dienst. Beim Systemdienst müssen Betriebssystem-Konto und freigegebener
+Pfad beim Administrator erfragt werden. SimpleOffice-App-Passwörter und
+Ordnerrechte gelten dort nicht; Shellzugang und rsync bestimmt die
+Systemdienst-Konfiguration. Paramiko ist für diesen Modus nicht erforderlich.
+
+Fehlende Komponenten oder ungültige Einstellungen erscheinen als „Nicht
+verfügbar“ mit der Ursache statt als lediglich gestoppter Dienst.
