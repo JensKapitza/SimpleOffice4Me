@@ -235,6 +235,12 @@ liefern `404`, bekannte nicht schreibbare Ressourcen eine DAV-Antwort mit
   Version bleibt erhalten.
 - Symlink-/Modusoperation: `SSH_FX_OP_UNSUPPORTED`.
 - Ein SFTP-Ausfall beeinflusst den Webprozess nicht, da beide getrennt laufen.
+- Wird ein neu gestarteter Mini-Service innerhalb von acht Sekunden nicht
+  bereit, wird genau dieser Kindprozess beendet und eingesammelt. Nach zwei
+  Sekunden ohne Reaktion wird er zwangsweise beendet; auch danach ist das
+  Warten auf zwei Sekunden begrenzt. Seine PID-Registrierung wird erst nach
+  bestätigtem Prozessende entfernt. Ein bereits laufender Dienst und fremde
+  PID-Registrierungen bleiben bei dieser Startbereinigung erhalten.
 
 ## Tests
 
