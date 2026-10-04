@@ -59,9 +59,11 @@ class FederationModerationHttpTests(unittest.TestCase):
         remote_root = self.root / "remote"
         remote_store = FederationStore(remote_root)
         remote_app = Flask("remote")
+        remote_app.config["SECRET_KEY"] = "remote-instance-key"
         endpoint = "/federation/v1/capabilities"
         for source_token in ("shared", ""):
-            remote_store.save_peer("local", "Local", "https://local.example", source_token or "reporter-token")
+            with remote_app.app_context():
+                remote_store.save_peer("local", "Local", "https://local.example", source_token or "reporter-token")
             with self.subTest(source_token=source_token), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": source_token}):
                 proof = _configured_peer_proof("https://reporter.example" + endpoint, "reporter-token", "GET", b"")
                 with remote_app.test_request_context(endpoint, headers=proof), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "receiver-token"}):
