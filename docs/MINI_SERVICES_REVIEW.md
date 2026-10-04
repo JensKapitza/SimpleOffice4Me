@@ -5,9 +5,15 @@ Historische Ausgangsbasis der unveränderten Qualitätsmatrix: `4a9b798`
 Fortschrittsstand und keine aktuelle Statusquelle. Der aktuelle main-/CI-/PR-
 Abgleich sowie die neu bewertete vollständige Matrix stehen in
 [`MINI_SERVICES_ACCEPTANCE.md`](MINI_SERVICES_ACCEPTANCE.md), zuletzt geprüft
-gegen `01fe6fe748146ba339a6f5191430a0cfacdb5bd5` am 01.10.2026. Diese Datei
+gegen `ea03d9dfb8cafa784af6c5daecb3964654636da1` am 04.10.2026. Diese Datei
 bleibt als Vergleichsbasis erhalten. Ein grüner Build ersetzt weder
 Hardwaretests noch eine Prüfung der tatsächlich nutzbaren Ende-zu-Ende-Funktion.
+
+Aktuelle Ergänzung: PR #553 hat SFTP als verwalteten Mini-Service eingeführt;
+#569 und #572–#574 ergänzen Laufzeit- und Dateioperationshärtung. SFTP ist in
+der ergänzenden Bewertung der aktuellen Abnahme, der Fehlermatrix und dem
+externen Abnahmeprotokoll erfasst. Die historische Qualitätsmatrix unten bleibt
+unverändert und enthält deshalb keine rückwirkend ergänzte SFTP-Spalte.
 
 Der [Abnahmestand nach den Änderungen](MINI_SERVICES_ACCEPTANCE.md) wiederholt
 alle 43 Qualitätskriterien und enthält Messwerte, Nachweise sowie konkrete
