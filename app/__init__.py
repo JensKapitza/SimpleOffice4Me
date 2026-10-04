@@ -15,7 +15,7 @@ import traceback
 
 from .applogging import initlogging
 from .secret_key import load_or_create_secret_key
-from .security_controls import csrf_token, protect_browser_mutation
+from .security_controls import UNTRUSTED_PREVIEW_ENDPOINTS, csrf_token, protect_browser_mutation
 
 from .bs4 import download_file, renderwithbs4
 
@@ -584,7 +584,7 @@ def add_header(response):
     if request.endpoint == "service_worker":
         response.headers["Cache-Control"] = "no-cache"
         response.headers.pop("Expires", None)
-    elif not app.debug and (
+    elif not app.debug and request.endpoint in {"static", "staticfile"} and (
         "text/css" in str(response.content_type)
         or "application/javascript" in str(response.content_type)
     ):
@@ -601,7 +601,11 @@ def add_header(response):
     response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     if request.is_secure:
         response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-    if request.endpoint in {"webdav.file_tree", "webdav.endpoint"} and request.method in {"GET", "HEAD"}:
+    untrusted_file = (
+        request.endpoint in {"webdav.file_tree", "webdav.endpoint"}
+        or request.endpoint in UNTRUSTED_PREVIEW_ENDPOINTS
+    )
+    if untrusted_file and request.method in {"GET", "HEAD"}:
         response.headers["Content-Security-Policy"] = "sandbox"
     else:
         response.headers.setdefault("Content-Security-Policy", "default-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; object-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'")
