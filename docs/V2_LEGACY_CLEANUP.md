@@ -42,6 +42,9 @@ The ordinary document/image raw-preview route and thumbnail fallback read
 through verified `StoragePort.copy_verified_to()`. Raw **video** playback now
 uses `StoragePort.copy_verified_range_to()`, so browser seek/range requests no
 longer require the projected physical document file.
+Its range size/version lookup uses `StoragePort.stat()` and the active catalog,
+rather than the optional legacy document `size` field. A range is published only
+when verified content still matches that metadata snapshot.
 
 The remaining compatibility dependency is narrower but still real. Video
 transcoding is no longer a blocker: ffmpeg receives a private temporary file

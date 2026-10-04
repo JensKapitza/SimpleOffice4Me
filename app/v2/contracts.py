@@ -182,6 +182,14 @@ class StoragePort(Protocol):
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         ...
 
+    def stat(self, object_id: LogicalObjectId) -> OperationResult[StoredObject]:
+        """Describe the current object without copying content.
+
+        Metadata alone does not verify content integrity. Consumers must verify
+        the subsequent read and compare its size/version before publishing it.
+        """
+        ...
+
     def copy_verified_to(
         self,
         object_id: LogicalObjectId,

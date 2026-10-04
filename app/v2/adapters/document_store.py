@@ -62,6 +62,16 @@ class DocumentStoreStorageAdapter:
             retryable=code in {ErrorCode.STORAGE_UNAVAILABLE, ErrorCode.RETRYABLE},
         )
 
+    def stat(self, object_id: LogicalObjectId) -> OperationResult[StoredObject]:
+        try:
+            metadata = self.store.get_document(object_id.value)
+            if metadata.get("system_state") == "webdav_deleted" or metadata.get("deleted_at"):
+                return OperationResult.failure(ErrorCode.NOT_FOUND, "document is deleted")
+            path = resolve_file_under(self.store.root, str(metadata.get("last_path") or ""))
+            return OperationResult.success(self._stored({**metadata, "size": path.stat().st_size}))
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            return self._failure(exc)
+
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         try:
             metadata = self.store.get_document(object_id.value)

@@ -9,11 +9,35 @@ from pathlib import Path
 from app.v2.blob_store import BlobStore
 from app.v2.catalog import ObjectCatalog
 from app.v2.contracts import LogicalObjectId
+from app.document_store import DocumentStore
 from app.v2.migration import build_migration_plan, create_migration_backup, inspect_migration, restore_migration_backup, transfer_legacy_documents, verify_migration_transfer
 from app.v2.recovery_cli import main
 
 
 class V2MigrationPreflightTests(unittest.TestCase):
+    def test_empty_document_migration_verifies_and_can_be_resumed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            path = root / "empty.mp4"
+            path.write_bytes(b"")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(path)
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+            transfer_legacy_documents(root, backup)
+            verified = verify_migration_transfer(root)
+            self.assertTrue(verified["ready"], verified["blockers"])
+            self.assertEqual(1, verified["verified_documents"])
+            transfer_legacy_documents(root, backup)
+            self.assertTrue(verify_migration_transfer(root)["ready"])
+            entry = ObjectCatalog(root).get(LogicalObjectId(document["document_id"])).value
+            self.assertEqual(0, entry.size)
+            self.assertEqual(b"", BlobStore(root).read(entry.object_id, version_id=entry.version_id))
+            self.assertEqual(b"", path.read_bytes())
+
     def test_missing_root_is_blocked_without_creating_it(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp) / "missing"

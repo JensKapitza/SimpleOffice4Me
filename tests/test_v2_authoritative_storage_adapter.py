@@ -88,6 +88,58 @@ class V2AuthoritativeStorageAdapterTests(unittest.TestCase):
         self.assertEqual(self.seed["sha256"], streamed.value.version)
         self.assertEqual("inbox/seed.txt", streamed.value.location.relative_path)
 
+    def test_stat_uses_active_catalog_without_plaintext_projection(self):
+        object_id = LogicalObjectId(self.seed["document_id"])
+        (self.root / "inbox" / "seed.txt").unlink()
+        result = self.adapter.stat(object_id)
+        self.assertTrue(result.ok)
+        self.assertEqual(len(b"seed-content"), result.value.size)
+        self.assertEqual(self.seed["sha256"], result.value.version)
+        self.catalog.mark_recovery(object_id)
+        self.assertFalse(self.adapter.stat(object_id).ok)
+
+    def test_stream_result_cannot_mix_verified_content_with_new_catalog_version(self):
+        object_id = LogicalObjectId(self.seed["document_id"])
+        for method in ("copy_verified_to", "copy_verified_range_to", "stat"):
+            with self.subTest(method=method):
+                original = getattr(self.adapter.primary, method)
+
+                def change_after_read(*args, **kwargs):
+                    result = original(*args, **kwargs)
+                    self.assertTrue(result.ok)
+                    new = self.blobs.write(object_id, method.encode())
+                    updated = self.catalog.update_content(
+                        object_id, version_id=new.version_id, size=new.size,
+                        content_sha256=new.content_sha256,
+                    )
+                    self.assertTrue(updated.ok)
+                    return result
+
+                with patch.object(self.adapter.primary, method, side_effect=change_after_read):
+                    if method == "stat":
+                        result = self.adapter.stat(object_id)
+                    elif method == "copy_verified_to":
+                        result = self.adapter.copy_verified_to(object_id, io.BytesIO())
+                    else:
+                        result = self.adapter.copy_verified_range_to(object_id, io.BytesIO(), start=0, length=3)
+                self.assertFalse(result.ok)
+                self.assertEqual(ErrorCode.CONFLICT, result.error.code)
+
+    def test_stream_result_is_rejected_if_object_enters_recovery_during_read(self):
+        object_id = LogicalObjectId(self.seed["document_id"])
+        original = self.adapter.primary.copy_verified_range_to
+
+        def mark_after_read(*args, **kwargs):
+            result = original(*args, **kwargs)
+            self.assertTrue(result.ok)
+            self.catalog.mark_recovery(object_id)
+            return result
+
+        with patch.object(self.adapter.primary, "copy_verified_range_to", side_effect=mark_after_read):
+            result = self.adapter.copy_verified_range_to(object_id, io.BytesIO(), start=0, length=3)
+        self.assertFalse(result.ok)
+        self.assertEqual(ErrorCode.CONFLICT, result.error.code)
+
     def test_replace_accepts_legacy_sha_and_updates_both_sides(self):
         object_id = LogicalObjectId(self.seed["document_id"])
         result = self.adapter.replace_bytes(
