@@ -593,7 +593,7 @@ def case_draft_attachment(case_id: str, draft_id: str, document_id: str):
     try:
         attachment = cases.draft_attachment(_actor(), case_id, draft_id, document_id)
         payload = _draft_attachment_store().read(
-            case_id=case_id, draft_id=draft_id, attachment=attachment
+            case_id=case_id, draft_id=draft_id, attachment=attachment, actor=_actor()
         )
         _store().history.record(
             "mail_case_draft_attachment_downloaded", _actor(), "mail-case", case_id,
@@ -664,7 +664,7 @@ def send_case_draft(case_id: str, draft_id: str):
             {
                 **attachment,
                 "payload": attachment_store.read(
-                    case_id=case_id, draft_id=draft_id, attachment=attachment
+                    case_id=case_id, draft_id=draft_id, attachment=attachment, actor=_actor()
                 ),
             }
             for attachment in draft.get("attachments", [])

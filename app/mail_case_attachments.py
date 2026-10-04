@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import mimetypes
 import re
 import uuid
@@ -9,9 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from .attachment_security import AttachmentSecurity, MAX_ATTACHMENT_BYTES, MAX_TOTAL_BYTES
-from .document_store import DocumentStore, atomic_json_write, sha256_file
-from .safe_paths import resolve_file_under
-from .v2.storage_runtime import create_document
+from .document_store import DocumentStore, atomic_json_write
+from .v2.contracts import ErrorCode, LogicalObjectId
+from .v2.storage_runtime import create_document, result_or_raise, storage_for
 
 _CASE_ID = re.compile(r"^[0-9a-f]{32}$")
 _DRAFT_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -131,6 +132,7 @@ class MailCaseAttachmentStore:
         case_id: str,
         draft_id: str,
         attachment: dict[str, Any],
+        actor: str = "",
     ) -> bytes:
         metadata = self.documents.get_document(str(attachment.get("document_id", "")))
         origin = metadata.get("attributes", {}).get(ATTRIBUTE, {})
@@ -147,10 +149,21 @@ class MailCaseAttachmentStore:
             or str(scan.get("scan_id", "")) != str(attachment.get("scan_id", ""))
         ):
             raise PermissionError("draft attachment provenance validation failed")
-        path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
-        if sha256_file(path).casefold() != expected:
-            raise ValueError("draft attachment changed after malware scan")
-        payload = path.read_bytes()
-        if len(payload) != int(attachment.get("size", -1)):
+        size = attachment.get("size")
+        if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= MAX_ATTACHMENT_BYTES:
+            raise ValueError("invalid draft attachment size")
+        # Verify the whole object while retaining at most the declared size plus
+        # one byte. No provisional bytes leave this service before validation.
+        with io.BytesIO() as target:
+            result = storage_for(self.root, actor or str(origin.get("created_by", ""))).copy_verified_range_to(
+                LogicalObjectId(metadata["document_id"]), target, start=0, length=size + 1,
+            )
+            if result.error and result.error.code is ErrorCode.INTEGRITY_ERROR:
+                raise ValueError("draft attachment changed after malware scan")
+            stored = result_or_raise(result)
+            payload = target.getvalue()
+        if stored.size != size or len(payload) != size:
             raise ValueError("draft attachment size changed after malware scan")
+        if stored.version.casefold() != expected or hashlib.sha256(payload).hexdigest() != expected:
+            raise ValueError("draft attachment changed after malware scan")
         return payload
