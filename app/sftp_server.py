@@ -54,11 +54,33 @@ def _password_authentication_enabled() -> bool:
 
 
 if paramiko is not None:
-    class _BufferedWriteHandle(paramiko.SFTPHandle):
+    class _BufferedReadHandle(paramiko.SFTPHandle):
+        def __init__(self, flags: int, content: bytes = b""):
+            super().__init__(flags)
+            self.buffer = io.BytesIO(content)
+
+        def read(self, offset: int, length: int):
+            try:
+                if offset < 0 or length < 0:
+                    raise ValueError("invalid SFTP read range")
+                # SFTP offsets are uint64; BytesIO.seek accepts only ssize_t.
+                # Slice within the actual content without changing write position.
+                with self.buffer.getbuffer() as content:
+                    if offset >= len(content):
+                        return b""
+                    return bytes(content[offset:min(offset + length, len(content))])
+            except (OSError, ValueError) as exc:
+                return _sftp_status(exc)
+
+        def close(self):
+            self.buffer.close()
+            return paramiko.SFTP_OK
+
+
+    class _BufferedWriteHandle(_BufferedReadHandle):
         def __init__(self, vfs: VirtualFileSystem, actor: str, path: str, flags: int, app=None):
             super().__init__(flags)
             self.vfs, self.actor, self.path = vfs, actor, path
-            self.buffer = io.BytesIO()
             self.expected_sha256 = ""
             self.app = app
             self.max_bytes = _bounded_environment_integer(
@@ -96,10 +118,6 @@ if paramiko is not None:
             except (OSError, ValueError) as exc:
                 self.failed = True
                 return _sftp_status(exc)
-
-        def read(self, offset: int, length: int):
-            self.buffer.seek(offset)
-            return self.buffer.read(length)
 
         def close(self):
             try:
@@ -178,9 +196,7 @@ if paramiko is not None:
                 except (OSError, ValueError) as exc:
                     return _sftp_status(exc)
             try:
-                handle = paramiko.SFTPHandle(flags)
-                handle.readfile = io.BytesIO(self.vfs.read_bytes(self.actor, path))
-                return handle
+                return _BufferedReadHandle(flags, self.vfs.read_bytes(self.actor, path))
             except (OSError, ValueError) as exc:
                 return _sftp_status(exc)
 

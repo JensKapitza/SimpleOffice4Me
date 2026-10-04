@@ -115,6 +115,11 @@ Lesezugriffen. Die Uploadgrenze zählt vorhandene Bytes und alle angehängten
 Pakete zusammen. Wird sie überschritten, bleiben auch hier die ursprünglichen
 Dateiinhalte unverändert.
 
+SFTP-Lesezugriffe hinter dem Dateiende liefern EOF, auch für sehr große
+64-Bit-Offsets. Der Lesebereich wird auf die vorhandenen Bytes begrenzt;
+ungültige Bereiche werden mit einem Statusfehler beantwortet. Die Sitzung
+bleibt anschließend für weitere Lese- und Schreibzugriffe nutzbar.
+
 SFTP `REMOVE` löscht ausschließlich Dateien, `RMDIR` ausschließlich leere
 Ordner. Ein falscher Objekttyp oder ein nicht leerer Ordner wird abgelehnt;
 vorhandene Inhalte bleiben erhalten. Ordnerrechte und App-Passwort-Scope
