@@ -44,6 +44,7 @@ PERSISTENCE_COVERAGE = {
     "federation_mail": "excluded:federated mail may contain remote private content",
     "federation_rendezvous_store": "excluded:rendezvous state contains endpoint and nonce data",
     "federation_peer_schema": "excluded:peer protocol schemas are internal implementation state",
+    "federation_moderation_schema": "excluded:peer bans and reports are security and moderation state",
     "v2.federation_policy": "excluded:federation policies contain private sharing configuration",
     "v3_activity": "excluded:activity metadata may reveal protected entity history",
     "v3_relations": "excluded:relation graph state requires entity-level authorization",
