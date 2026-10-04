@@ -3,7 +3,9 @@
 This matrix is the repository-side negative-case contract for issue #330.
 It separates deterministic CI evidence from scenarios that require real
 operating systems, networks or hardware. Rechecked against main
-`01fe6fe748146ba339a6f5191430a0cfacdb5bd5` on 2026-10-01.
+`ea03d9dfb8cafa784af6c5daecb3964654636da1` on 2026-10-04. SFTP became a
+managed Mini Service after the previous review; its failure cases are listed
+separately below.
 
 Legend:
 
@@ -47,6 +49,14 @@ Legend:
 | Audio receiver | missing playback backend | controlled unavailable state | CI: audio receiver/lifecycle tests |
 | Audio receiver | process exits/device disappears | status must follow process/PCM evidence, not object existence | CI where synthetic; External for real device |
 | Mini Service CLI/package | installed package omits `tools.service_control` | both modern and legacy package metadata must include the runtime module; CI must reject either omission | CI: `test_mini_packaging` (#537) |
+| SFTP (Paramiko) | optional dependency unavailable | service reports unavailable and does not claim a listener | CI: `test_sftp_mini_service` |
+| SFTP | invalid settings or failed startup | retain truthful stopped/error state and release owned resources | CI: `test_sftp_mini_service`, server tests |
+| SFTP (Paramiko) | unauthorized user, key or path | reject operation; enforce application identity and virtual filesystem ACLs | CI: `test_sftp_server`, SFTP auth/VFS tests |
+| SFTP | upload exceeds configured size or buffered-write limit | reject boundedly and clean partial state | CI: `test_sftp_upload_limits`, `test_sftp_append` |
+| SFTP | malformed append offset or read beyond EOF / huge offset | return protocol-safe bounded result; do not allocate based on client offset | CI: `test_sftp_append`, `test_sftp_read_ranges` (#574) |
+| SFTP | REMOVE targets a directory or RMDIR targets a file | reject wrong object type; preserve filesystem state | CI: `test_sftp_remove` (#572–#573) |
+| SFTP (system OpenSSH) | service/account/host key unavailable or misconfigured | report system-mode failure; never silently switch to Paramiko identity | External: installed system service and real client |
+| SFTP | real network loss, client interruption or daemon restart | bounded recovery; no false success or orphan transfer state | External: Linux and Windows client/system acceptance |
 | Screen | unsupported/missing platform launcher | controlled user message; only error type audited | CI: screen tests + diagnostic audit |
 | Screen | session/signaling bounds exceeded | reject boundedly; no unbounded signaling queue | CI: screen tests |
 | Screen | native Miracast/Cast/WebRTC runtime | verify actual sender/receiver behavior | External |
