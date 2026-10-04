@@ -49,7 +49,7 @@
     <h2 class="h5">Peer beim Master oder einem anderen Peer melden</h2>
     <form method="post" action="{{ url_for('federation_moderation_admin.action') }}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="operation" value="report">
-      <label class="form-label" for="report-receiver">Empfänger</label><select id="report-receiver" class="form-select mb-2" name="receiver" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select>
+      <label class="form-label" for="report-receiver">Empfänger</label><select id="report-receiver" class="form-select mb-2" name="receiver" required><option value="" disabled selected>Kein aktiver Peer verfügbar</option>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}</select>
       <label class="form-label" for="report-peer">Gemeldeter Peer</label><input id="report-peer" class="form-control mb-2" name="peer_id" required maxlength="128" list="known-peers">
       <label class="form-label" for="report-reason">Grund ohne Nutzdaten oder Zugangsdaten</label><textarea id="report-reason" class="form-control mb-2" name="reason" maxlength="500" required></textarea>
       <label><input type="checkbox" name="confirm" value="1" required> Meldung übermitteln</label><button class="btn btn-outline-primary ms-2" type="submit">Melden</button>
