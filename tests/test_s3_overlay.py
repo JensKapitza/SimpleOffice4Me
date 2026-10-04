@@ -96,6 +96,29 @@ class S3OverlayTests(unittest.TestCase):
         headers = signed_headers(method, path, self.keypair["access_key"], self.keypair["secret_key"], body, extra)
         return self.client.open(path, method=method, data=body, headers=headers)
 
+    def test_presigned_html_object_is_sandboxed_on_get_head_and_ranges(self):
+        payload = b"<!doctype html><script>window.previewScriptRan = true;</script>"
+        source = self.root / "documents" / "inbox" / "preview.html"
+        source.write_bytes(payload)
+        store = DocumentStore(self.root / "documents")
+        store._scan_file(source, force_hash=True)
+        document = store.get_document(source)
+        path = f"/s3/simpleoffice/documents/{document['document_id']}/original/preview.html"
+        for method in ("GET", "HEAD"):
+            with self.subTest(method=method):
+                signed = presigned_path(path, self.keypair["access_key"], self.keypair["secret_key"], method=method)
+                response = self.client.open(signed, method=method)
+                self.assertEqual(200, response.status_code)
+                self.assertEqual("text/html", response.mimetype)
+                self.assertEqual(payload if method == "GET" else b"", response.data)
+                self.assertEqual("sandbox", response.headers["Content-Security-Policy"])
+                response.close()
+        ranged = self.request("GET", path, extra={"Range": "bytes=0-14"})
+        self.assertEqual(206, ranged.status_code)
+        self.assertEqual(payload[:15], ranged.data)
+        self.assertEqual("sandbox", ranged.headers["Content-Security-Policy"])
+        ranged.close()
+
     def test_meta_schema_and_capabilities_are_stable_and_listed(self):
         overlay = self.request("GET", "/s3/simpleoffice/_meta/overlay.json")
         schema = self.request("GET", "/s3/simpleoffice/_meta/schema.json")

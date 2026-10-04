@@ -23,6 +23,18 @@ LOGIN_WINDOW_SECONDS = 15 * 60
 LOGIN_BLOCK_SECONDS = 15 * 60
 LOGIN_LIMITS = {"account": 5, "network": 25}
 
+# These routes return file bytes, not trusted application templates. HTML and
+# SVG uploads must not inherit the origin or scripting privileges of the UI.
+UNTRUSTED_PREVIEW_ENDPOINTS = frozenset({
+    "documents.image_preview",
+    "documents.document_thumbnail",
+    "documents.document_collage",
+    "documents.video_frame",
+    "documents.video_variant",
+    "chat.attachment_preview",
+    "s3_overlay.bucket_object",
+})
+
 
 def csrf_token() -> str:
     """Return the per-session synchronizer token, creating it when needed."""

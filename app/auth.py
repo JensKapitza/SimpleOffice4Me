@@ -144,13 +144,26 @@ def register():
             error = 'Der Benutzername ist bereits vergeben.'
 
         if error is None:
-            first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
-            db.execute(
-                'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
-                (username, hash_password(password), int(first_user))
-            )
-            db.commit()
-            return redirect(url_for('auth.login'))
+            # Hash before taking the write lock. Admission and bootstrap role
+            # selection must see the same serialized account state as INSERT.
+            password_hash = hash_password(password)
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                if not _registration_enabled() and not current_admin:
+                    abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+                if db.execute('SELECT id FROM user WHERE username = ?', (username,)).fetchone() is not None:
+                    error = 'Der Benutzername ist bereits vergeben.'
+                else:
+                    first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+                    db.execute(
+                        'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
+                        (username, password_hash, int(first_user)),
+                    )
+                    db.commit()
+                    return redirect(url_for('auth.login'))
+            finally:
+                if db.in_transaction:
+                    db.rollback()
 
         flash(error)
 
@@ -265,14 +278,21 @@ def google_callback():
     identity = db.execute('SELECT user.* FROM oauth_identity JOIN user ON user.id = oauth_identity.user_id WHERE provider = ? AND subject = ?', ('google', subject)).fetchone()
     created = False
     if identity is None:
+        password_hash = hash_password(secrets.token_urlsafe(32))
+        db.execute("BEGIN IMMEDIATE")
+        # Another callback may have provisioned this subject while hashing or
+        # waiting for the lock; reuse it rather than granting another identity.
+        identity = db.execute('SELECT user.* FROM oauth_identity JOIN user ON user.id = oauth_identity.user_id WHERE provider = ? AND subject = ?', ('google', subject)).fetchone()
+    if identity is None:
         account_count = db.execute("SELECT COUNT(*) FROM user").fetchone()[0]
         if account_count and not current_app.config.get("GOOGLE_OAUTH_AUTO_PROVISION") and not current_app.testing:
+            db.rollback()
             audit("google_login", "session", outcome="denied")
             flash("Dieses Google-Konto ist noch nicht freigegeben. Bitte einen Administrator kontaktieren.")
             return redirect(url_for('auth.login'))
         username = _google_username(db, email)
-        first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
-        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', (username, hash_password(secrets.token_urlsafe(32)), str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', int(first_user)))
+        first_user = account_count == 0
+        db.execute('INSERT INTO user (username, password, display_name, email, avatar_url, profile_source, profile_updated_at, is_admin, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)', (username, password_hash, str(profile.get('name', '')).strip(), email, str(profile.get('picture', '')).strip(), 'google', int(first_user)))
         identity = db.execute('SELECT * FROM user WHERE username = ?', (username,)).fetchone()
         created = True
         db.execute('INSERT INTO oauth_identity (provider, subject, user_id, email) VALUES (?, ?, ?, ?)', ('google', subject, identity['id'], email))
