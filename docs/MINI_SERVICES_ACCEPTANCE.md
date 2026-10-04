@@ -1,7 +1,9 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 01.10.2026, geprüft gegen `main` `01fe6fe748146ba339a6f5191430a0cfacdb5bd5`.
-Der Abgleich umfasst den zuvor angegebenen Stand `0ac15b1431364d61f322153254401b5a095dfe7c` sowie die danach gemergten PRs #537–#542.
+Stand: 04.10.2026, geprüft gegen `main` `ea03d9dfb8cafa784af6c5daecb3964654636da1`.
+Der Abgleich aktualisiert den Stand vom 01.10. und berücksichtigt insbesondere
+die danach integrierten SFTP-Änderungen #553, #569, #572–#574 sowie die
+Federation-Änderung #571.
 Die historische Matrix basiert auf #296/#298; sie wird hier gegen den heutigen Stand neu bewertet.
 Die [Ausgangsmatrix](MINI_SERVICES_REVIEW.md) bleibt als Vergleich erhalten.
 Diese erneute Bewertung ist **keine Gesamtabnahme**: offene Implementierungen
@@ -9,7 +11,7 @@ und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
 werden nicht als Nachweis für das gesamte Produkt gewertet.
 
 
-## Abgleich mit aktuellem main vom 01.10.2026
+## Abgleich mit aktuellem main vom 04.10.2026
 
 Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen:
 
@@ -43,6 +45,20 @@ Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen
   und #542 aktualisiert den Release-Gate-Nachweis. Diese Änderungen bauen
   keine Mini-Service-Protokolle um. Die Android-ABIs wurden erneut in CI
   gebaut; reale Android-, Netzwerk- und Hardwareabnahmen bleiben offen.
+- PR #553 bindet SFTP als eigenen Mini-Service in Status, Einstellungen,
+  Start/Stop und Autostart ein. Der integrierte Paramiko-Modus verwendet die
+  SimpleOffice-Identität und das virtuelle Dateisystem; der ausdrücklich
+  wählbare Systemmodus verwendet dagegen OpenSSH-Konten und dessen Dateirechte.
+  Diese Modi sind kein austauschbarer Fallback.
+- PRs #569, #572, #573 und #574 härten den SFTP-Datenpfad gegen zu große
+  Schreibpuffer, fehlerhafte Append-Offets, falsche REMOVE/RMDIR-Objekttypen
+  und übergroße Leseoffsets. #559 und #561 ergänzen IPv6-Startadressen und
+  Cleanup bei fehlgeschlagenem Start. Die Softwarefälle sind in eigenen
+  SFTP-Tests abgedeckt; echte Clients und installierte Systemdienste bleiben
+  externe Abnahme.
+- PR #571 ergänzt Peer-Sperren und signierte Blacklists. Das ändert die
+  Federation-Grenze der Mini-Services, führt aber keinen zweiten Worker und
+  keinen zusätzlichen Mini-Service ein.
 
 Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
@@ -54,11 +70,12 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 ### Status der Issue-Checkliste
 
-- **Aktueller Stand/CI/PR-Abgleich:** gegen `01fe6fe7` vom 01.10.2026
+- **Aktueller Stand/CI/PR-Abgleich:** gegen `ea03d9df` vom 04.10.2026
   aktualisiert. PR #463 (Abnahme-Gates), #537 (Paketierung `tools`), #538
   (vorherige Abnahme), #539 (3.0-Release-Gate), #540 (Android-Reader), #541
-  (Mail-Federation) und #542 (Release-Gate-Aktualisierung) sind gemergt. Es
-  gibt keine offenen PRs. DHCP-Fremdservererkennung (#418) und sichere
+  (Mail-Federation), #542 (Release-Gate-Aktualisierung), #553 (SFTP-Mini-Service),
+  #571 (Peer-Moderation) und #572–#574 (SFTP-Härtung) sind gemergt. Es gibt
+  keine offenen PRs. DHCP-Fremdservererkennung (#418) und sichere
   UFW/firewalld-Verwaltung (#424) bleiben implementiert. Fachfremde PRs werden
   nicht als Mini-Services-Nachweis gewertet.
 - **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
@@ -67,6 +84,11 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 - **DLNA (#285):** Issue geschlossen; Softwareimplementierung über #333 und
   #346–#349 vorhanden. Praktische Hardware- und Controller-Abnahme bleibt
   offen.
+- **SFTP (#553, #569, #572–#574):** SFTP ist ein verwalteter Mini-Service mit
+  getrenntem integriertem Paramiko- und System-OpenSSH-Modus. Konfiguration,
+  Autostart, Authentifizierung, virtuelle Pfade, Uploadgrenzen und Protokoll-
+  Randfälle haben gezielte Tests. Installations-, Hostkey-, Client- und
+  Wiederanlaufverhalten auf realen Linux-/Windows-Systemen bleiben offen.
 - **Security-/Logprüfung:** bekannte rohe Exception-Ausgaben in Screen- und
   Audio-Admin-Pfaden sind redigiert. `tools/mini_services_log_audit.py` prüft
   in Extended Quality CI Mini-Services-/Netzwerk-/Audio-/Screen-Runtimequellen
@@ -161,6 +183,25 @@ HB = HTTP/PXE, AO = Audio-Ausgabe, AS/AR = Live-Audio Sender/Receiver.
 | Parallelität/Atomizität | V | V | V | T | V | V | V | V | V | Locks, atomare Dateien und Queue-Claims; Aktiver Linux-Gateway-Reload nutzt nft-Transaktion; Windows und Recovery nicht insgesamt atomar |
 | Datenschutz | T | T | T | T | T | T | T | T | T | Kein automatischer Mikrofonstart; vollständige Logprüfung noch offen |
 
+### Ergänzende Bewertung: SFTP-Mini-Service
+
+SFTP kam nach Erstellung der ursprünglichen Qualitätsmatrix als eigener
+Mini-Service hinzu. Es wird deshalb nicht stillschweigend in eine andere
+Spaltenbewertung eingerechnet:
+
+| Eigenschaft | Status | Repository-Nachweis | Verbleibender Nachweis |
+|---|---|---|---|
+| Installation/Moduswahl | V | `test_sftp_mini_service`; Paramiko optional, Systemdienst explizit | saubere Installation auf Linux und Windows |
+| Start/Stop/Autostart | V | Startup-Cleanup, Prozess-Ownership, Settings-/Lifecycle-Tests | reale Dienstmanager- und Neustartabnahme |
+| Identität/Rechte | V | Paramiko mit App-Passwort/SSH-Key und VFS-Rechten; OpenSSH bleibt OS-Identität | unabhängige Clients für beide Modi |
+| Pfad-/Dateioperationen | V | VFS-/ACL-, Rename-, REMOVE/RMDIR-, Append- und Versionsregressionen | Interoperabilität mit den eingesetzten Clients |
+| Ressourcen-/Fehlergrenzen | V | kumulative Uploadlimits, gepufferte Reads, fehlerhafte Offsets und Cleanup-Tests | Langlauf und reale Verbindungsabbrüche |
+| Plattform/Netz | T | IPv4/IPv6-Bindings und Build-/Syntax-Gates | Firewall, Hostkey-Verteilung und externe Netzzugriffe je Zielsystem |
+
+`V` bezeichnet hier den getesteten Softwarevertrag, keine Hardware- oder
+Produktionsabnahme. Die SFTP-Zeilen der Fehler- und externen Abnahmematrix
+bleiben maßgeblich.
+
 ## Reproduzierbare Messung
 
 Aus dem Repository: `python -m tools.mini_services_benchmark --iterations 5`.
@@ -211,33 +252,31 @@ Issue #285 ist geschlossen; die Softwarekette kam über #333 und #346–#349 hin
 Die damals auf Heads geprüften Workflows belegen nur diese Commits und ersetzen
 keine reale Geräteabnahme.
 
-## Aktuelle repositoryseitige Nachweise (01.10.2026)
+## Aktuelle repositoryseitige Nachweise (04.10.2026)
 
 Prüfcommit vor den Dokumentationsänderungen:
-`01fe6fe748146ba339a6f5191430a0cfacdb5bd5`.
+`ea03d9dfb8cafa784af6c5daecb3964654636da1`.
 
-- Vollständige Python-Unittest-Suite: 2.703 Tests je Python 3.10, 3.14 und
-  3.15.0-rc.2, jeweils 15 übersprungen und ohne Fehler (GitHub Actions auf
-  aktuellem main).
-- Projektpolicy, Datei-/Funktionsgrößenlimits, Python-Compileall und CRA-Gate
-  bestanden; Extended Quality und Security Quick Wins sind grün.
-- Dependency-Audit, SBOM, KoSIT/XRechnung, CodeQL, OSSAR, Scorecard,
-  Docker-Build/Relay-Smoke und Push-on-main sind für `01fe6fe7` erfolgreich.
-- Mini-Service-, Gateway-, Netzwerk-Boot-, Audio-, Screen- und CLI-Regressionen:
-  264 gezielte Python-Tests bestanden. `tests/mini_services_frontend.test.cjs`,
-  `tests/screen_share_frontend.test.cjs` und
-  `tests/audio_output_remote.test.cjs`: zusammen 11 Node-Tests bestanden.
-- Der diagnosebezogene AST-Audit (`tools/mini_services_log_audit.py`) lief lokal
-  erfolgreich über 42 Quellen.
-- Der Extended-Quality-Benchmark (`python -m tools.mini_services_benchmark
-  --iterations 5`) lief auf `01fe6fe7` für DHCP, DNS, TFTP und SIP mit null
-  verbleibenden Listener-Threads. Messwerte und Grenzen stehen oben.
-- `tests/test_mini_packaging.py` ist in der vollständigen CI-Suite enthalten;
-  beide Paketdefinitionen schließen `tools.service_control` ein.
-- Die Buildmatrix von PR #540 bestätigt Android ARM32/ARM64, Desktop, Docker
-  und Server-DEB auf demselben Anwendungscode. Auch die Dokumentations-CI von
-  PR #542 und die CI auf main sind erfolgreich. Build-Erfolg ist kein realer
-  Plattform-, Hardware- oder Laufzeitnachweis.
+- Alle 19 Check-Runs auf `ea03d9df` sind erfolgreich, darunter Python 3.10,
+  3.14 und 3.15.0-rc.2, Dependency-Audit, Security, Docker amd64/arm64,
+  XRechnung, OSSAR und Static Quality.
+- PR #574 wurde auf dem in `main` integrierten Baum mit 2.955 erfolgreichen
+  Unittests und zwei optionalen Skips geprüft; alle 31 zugehörigen Checks waren
+  erfolgreich. Der Android-/Desktop-Build und Browser-/P2P-/HTML5-Nachweis
+  stammt aus den erfolgreichen Build- und Prüfworkflows der integrierten PRs.
+- Lokal bestanden 49 gezielte Tests zu MediaRenderer/UPnP, Screen, PXE und
+  Gateway sowie 15 SFTP-Mini-Service-Tests. Die Mini-Service- und Benchmark-
+  Versuche konnten in diesem Container wegen blockierter UDP-/Loopback-Sockets
+  nicht als bestanden gewertet werden (`PermissionError: Operation not
+  permitted`). Das ist eine Prüfmittelgrenze; die CI-Ergebnisse bleiben separat
+  ausgewiesen.
+- Die SFTP-Sicherheits- und Dateisystemgrenzen sind zusätzlich durch die
+  erfolgreichen `test_sftp_*`-Gates in PR #574 abgedeckt. Die SFTP-Tests werden
+  nicht mit den vier UDP-Diensten im Lifecycle-Mikrobenchmark vermischt.
+- Der aktuelle Benchmarkstand vom 01.10. bleibt als historische Loopback-
+  Messung erhalten; auf `ea03d9df` konnte er wegen der Socket-Sandbox nicht
+  erneut gemessen werden. Gesamt-RSS, reale Last, Durchsatz, Hardware und
+  Langzeitverhalten sind weiterhin externe Abnahmen.
 
 Diese Software-Nachweise sind keine externe Gesamtabnahme. Plattform-,
 Hardware-, Last-, Durchsatz-, Accessibility- und Langzeitprüfungen bleiben
