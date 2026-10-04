@@ -116,6 +116,24 @@ Content-defined block manifests, catalog listing, repair and rebalance
 still have projection consumers, so Federation remains a cleanup blocker and
 retained data must not be deleted.
 
+The document-scoped `/federation/v2/blocks/documents/<id>/manifest` and block
+download routes now use a private verified StoragePort snapshot. Manifest
+hashes and block bytes come from the same snapshot, including in encrypted V2
+mode and with missing or stale projection files or scan-index rows. The
+snapshot is removed on success, HEAD, invalid proofs and failures. Each request
+verifies the complete current object before returning data; an old session is
+invalid after an authoritative content revision. A retained legacy deletion
+marker still denies access, and bearer, peer HMAC, nonce, rate-limit and
+session-proof checks remain enforced. Integrity failures return a sanitized 503
+without falling back to a valid projection or old block cache.
+
+These scoped routes neither register temporary paths in the persistent block
+index nor create permanent plaintext block copies. They recompute the manifest
+per request and require temporary disk space and full-object I/O, even for one
+block. Legacy v1 block manifests, global block indexing/cache, catalog listing,
+repair and rebalance remain separate compatibility consumers. This change
+does not permit plaintext cleanup or claim full encryption of the data root.
+
 Federation admin document selection and transfer creation now generate their
 manifest from verified private StoragePort materialization as well. This covers
 document-ID and hash-based transfers, local digest selection for orchestration
