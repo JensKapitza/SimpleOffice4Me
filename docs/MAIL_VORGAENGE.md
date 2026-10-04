@@ -216,6 +216,22 @@ RevisionHistory-Redaktion ausgeschlossen.
 
 ## Sicherheit
 
+Private EML-Archive und Entwurfsanhänge werden auch im allgemeinen
+`DocumentStore` nach ihrem Mail-Kontext gefiltert: fremde Archive erscheinen
+weder in Dokumentlisten und Suche noch in Detailansicht, Vorschau oder
+Änderungsrouten. Eine allgemeine Administratorrolle oder Vorgangsteilnahme
+erzeugt keinen unabhängigen Dokumentzugriff. Teilnehmer lesen Entwurfsanhänge
+weiterhin über die Vorgangsroute mit aktueller Case-ACL und Provenienzprüfung;
+ein Widerruf wirkt beim nächsten Zugriff.
+
+Ein delegierter Versand darf seine neue ausgehende EML unter dem Kontoinhaber
+archivieren, wenn die bestehende Delegation aktiv ist, `send_request` vorliegt
+und der betroffene Entwurf bereits `sending` ist. Dieser Zugriff gilt nur
+innerhalb der Versandroute für den passenden Konto-/Sent-Archivbereich.
+Allgemeine Archivzugriffe bleiben gesperrt. Private Maildateien können nicht
+über allgemeine öffentliche Dokumentlinks veröffentlicht werden; vorhandene
+Links auf solche Dateien geben ebenfalls keinen Inhalt mehr frei.
+
 - Mailkonto-Zugriff bleibt an den Kontoinhaber gebunden.
 - Teilnehmer erhalten nur Zugriff auf die zum Vorgang referenzierten
   archivierten EMLs.

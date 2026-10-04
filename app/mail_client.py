@@ -25,6 +25,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from .attachment_security import AttachmentSecurity
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
+from .mail_env_credentials import environment_mail_password
 from .revision_history import RevisionHistory
 from .v2.storage_runtime import create_document
 
@@ -82,6 +83,23 @@ class SmtpDeliveryStateUnknown(RuntimeError):
         super().__init__("SMTP delivery state is not safely retryable")
         self.delivery_status = delivery_status
         self.result = dict(result)
+
+    @property
+    def user_message(self) -> str:
+        if self.delivery_status == "accepted_unarchived":
+            return (
+                "Der SMTP-Server hat die Nachricht angenommen, aber der Archivstatus konnte "
+                "nicht bestätigt werden. Nicht erneut senden; Archiv und Serverprotokoll prüfen."
+            )
+        if self.delivery_status == "partial":
+            return (
+                "Der SMTP-Server hat die Nachricht nur für einen Teil der Empfänger angenommen. "
+                "Nicht erneut an alle senden; Empfängerstatus und Serverprotokoll prüfen."
+            )
+        return (
+            "Der SMTP-Zustand ist unklar: Die Nachricht könnte bereits angenommen worden sein. "
+            "Nicht erneut senden; Versand/Archiv und Serverprotokoll prüfen."
+        )
 
 
 class SecretBox:
@@ -144,7 +162,7 @@ class MailStore:
         row = self._owned_row(owner, account_id)
         return _mail_ui_features(row.get("ui_features"))
 
-    def account(self, actor: str, account_id: str, password: str = "") -> dict[str, Any]:
+    def account(self, actor: str, account_id: str, password: str = "", *, protocol: str = "imap") -> dict[str, Any]:
         row = self._owned_row(actor, account_id)
         result = dict(row)
         if password:
@@ -153,7 +171,7 @@ class MailStore:
             result["plain_password"] = self.secrets.decrypt(str(row["password"]))
         else:
             env_name = str(row.get("password_env", ""))
-            result["plain_password"] = os.environ.get(env_name, "") if env_name else ""
+            result["plain_password"] = environment_mail_password(actor, row, protocol, env_name)
         if not result["plain_password"]:
             raise ValueError("password is required for this operation")
         return result
@@ -173,14 +191,14 @@ class MailStore:
             row["smtp_plain_password"] = self.secrets.decrypt(str(row["smtp_password"]))
         else:
             env_name = str(row.get("smtp_password_env", ""))
-            row["smtp_plain_password"] = os.environ.get(env_name, "") if env_name else ""
+            row["smtp_plain_password"] = environment_mail_password(actor, row, "smtp", env_name)
             if not row["smtp_plain_password"]:
                 # Explicitly configured reuse is convenient for common combined mail accounts.
                 if row.get("password"):
                     row["smtp_plain_password"] = self.secrets.decrypt(str(row["password"]))
                 else:
                     imap_env = str(row.get("password_env", ""))
-                    row["smtp_plain_password"] = os.environ.get(imap_env, "") if imap_env else ""
+                    row["smtp_plain_password"] = environment_mail_password(actor, row, "smtp", imap_env)
         if not row["smtp_plain_password"]:
             raise ValueError("SMTP password is required for this operation")
         return row

@@ -687,10 +687,7 @@ def send_case_draft(case_id: str, draft_id: str):
             "Mail case SMTP delivery state unknown for %s/%s: %s",
             case_id, draft_id, exc.delivery_status,
         )
-        flash(
-            "Der SMTP-Zustand ist unklar: Die Nachricht könnte bereits angenommen worden sein. "
-            "Nicht erneut senden; Versand/Archiv und Serverprotokoll prüfen."
-        )
+        flash(exc.user_message)
         return _case_redirect(case_id)
     except Exception as exc:
         if draft is not None:
@@ -862,6 +859,9 @@ def send_message():
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als EML archiviert.")
     except MailReadOnlyError as exc:
         flash(str(exc))
+    except SmtpDeliveryStateUnknown as exc:
+        current_app.logger.warning("Webclient SMTP state requires review for %s: %s", _actor(), exc.delivery_status)
+        flash(exc.user_message)
     except Exception as exc:
         current_app.logger.warning("Webclient SMTP send failed for %s: %s", _actor(), type(exc).__name__)
         flash(f"Versand fehlgeschlagen ({type(exc).__name__}).")

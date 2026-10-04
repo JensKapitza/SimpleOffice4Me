@@ -225,7 +225,7 @@
 </div>
 <button type="submit" class="btn btn-sm btn-outline-primary">Inhalt wiederherstellen</button>
 </form>{% endif %}</div>{% endfor %}</div>
-</div>{% endif %}<div class="card">
+</div>{% endif %}{% if public_sharing_allowed %}<div class="card">
 <div class="card-header">Datei freigeben</div>
 <div class="card-body">
 <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}" class="input-group">
@@ -235,12 +235,13 @@
 </form>
 </div>
 </div>
+{% else %}<div class="alert alert-secondary mb-0">Vertrauliche Maildatei: Freigaben erfolgen über <a href="{{ url_for('mail_reader.index', mode='case') }}">Mail-Vorgänge</a>.</div>{% endif %}
 </aside>
 </div>
 <section class="mt-5">
 <h2 class="h4">Logbuch dieses Dokuments</h2>{% include "documents/event_list.html" %}</section>
 </main>{% endblock %}
-{% block footer %}<section class="container-xl pb-4">
+{% block footer %}{% if public_sharing_allowed %}<section class="container-xl pb-4">
 <div class="card">
 <div class="card-header">Freigabelinks</div>
 <div class="list-group list-group-flush">{% for share in shares %}<div class="list-group-item">
@@ -254,5 +255,5 @@
 <button type="submit" class="btn btn-sm btn-outline-primary">Reaktivieren</button>
 </form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">Noch keine Freigabelinks.</div>{% endfor %}</div>
 </div>
-</section>{% endblock %}
+</section>{% endif %}{% endblock %}
 {% block script %}<script>document.addEventListener('DOMContentLoaded',()=>{const preview={{ preview|tojson }},row=document.querySelector('main .row.g-4');if(!row)return;const column=document.createElement('section');column.className='col-lg-7';const card=document.createElement('div');card.className='card mb-4';const header=document.createElement('div');header.className='card-header';header.textContent=document.documentElement.lang==='en'?'Preview':'Vorschau';const body=document.createElement('div');body.className='card-body text-center';const link=document.createElement('a');link.href=preview.url;link.target='_blank';link.rel='noopener';if(['image','pdf','document','video'].includes(preview.kind)){const image=document.createElement('img');image.src=preview.collage_url||preview.thumbnail_url;image.alt=`Vorschau: ${preview.name}`;image.className='img-fluid rounded';image.style.maxHeight='32rem';link.append(image)}else if(preview.kind==='text'){const text=document.createElement('pre');text.className='text-start bg-light border rounded p-3 mb-0';text.style.maxHeight='32rem';text.style.overflow='auto';text.textContent=preview.text;body.append(text)}else if(preview.kind==='audio'){const audio=document.createElement('audio');audio.src=preview.url;audio.controls=true;audio.className='w-100';body.append(audio)}else{const icon=document.createElement('i');icon.className=`fas ${preview.icon} fa-5x text-secondary`;body.append(icon)}if(['image','pdf','document','video'].includes(preview.kind))body.append(link);if(preview.preview_status!=='ready'&&['image','pdf','document','video'].includes(preview.kind)){const note=document.createElement('p');note.className='small text-secondary mt-2 mb-0';note.textContent=document.documentElement.lang==='en'?'The indexer is creating the optimized preview; the original is used until then.':'Die optimierte Vorschau wird vom Indexdienst erzeugt; bis dahin wird das Original verwendet.';body.append(note)}card.append(header,body);column.append(card);row.prepend(column)})</script>{% endblock %}
