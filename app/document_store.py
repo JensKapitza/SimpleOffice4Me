@@ -48,7 +48,16 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         if actor is None:
             return True
         from .chat_access import document_visible
-        return document_visible(metadata, actor[0], actor[1])
+        from .mail_document_access import mail_document_visible
+        from flask import request
+        sending = request.endpoint == "mail_reader.send_case_draft" and request.method == "POST"
+        view_args = request.view_args or {}
+        return document_visible(metadata, actor[0], actor[1]) and mail_document_visible(
+            metadata, actor[0], self.root,
+            case_context=request.blueprint in {"mail_reader", "mail_client"},
+            archive_send_case=str(view_args.get("case_id", "")) if sending else "",
+            archive_send_draft=str(view_args.get("draft_id", "")) if sending else "",
+        )
 
     def _filter_request_documents(self, documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if self._request_actor() is None:
@@ -122,6 +131,9 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
 
     def create_share(self, reference: str | Path, password: str, expires_days: int, actor: str, note_id: str = "") -> dict[str, Any]:
         document = self.get_document(reference)
+        from .mail_document_access import private_mail_document
+        if private_mail_document(document):
+            raise ValueError("Private Maildateien können nicht über öffentliche Freigabelinks geteilt werden")
         from .chat_access import is_private_chat_document
         if is_private_chat_document(document):
             raise ValueError("Chat-private Anhänge können nicht über einen öffentlichen Freigabelink geteilt werden")
@@ -129,6 +141,9 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
 
     def open_share(self, share_id: str, password: str, remote_addr: str = "") -> dict[str, Any]:
         result = super().open_share(share_id, password, remote_addr)
+        from .mail_document_access import private_mail_document
+        if private_mail_document(result.get("document", {})):
+            raise ValueError("Private Maildateien sind nicht über öffentliche Freigabelinks verfügbar")
         from .chat_access import is_private_chat_document
         if is_private_chat_document(result.get("document", {})):
             raise ValueError("Chat-private Anhänge sind nicht über öffentliche Freigabelinks verfügbar")

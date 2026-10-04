@@ -14,7 +14,7 @@ from .mail_autoconfig import discover_mail_settings
 from .mail_case_store import MailCaseStore
 from .mail_case_federation import send_mail_case_event
 from .mail_case_federation import MailCaseFederationIdentityStore
-from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpSubmission
+from .mail_client import ImapArchive, ImapAuthenticationError, MailStore, ManageSieveClient, SmtpDeliveryStateUnknown, SmtpSubmission
 from .mail_webclient import MailAccountPolicy, MailReadOnlyError
 from .sieve_sync import ManageSieveSyncClient, activate_server_script, server_state, sync_from_server
 
@@ -129,14 +129,14 @@ def _owned_account(store: MailStore, account_id: str) -> dict:
     return row
 
 
-def _account_with_effective_password(store: MailStore, account_id: str) -> dict:
+def _account_with_effective_password(store: MailStore, account_id: str, *, protocol: str = "imap") -> dict:
     safe = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None)
     if safe is None:
         raise KeyError("mail account does not exist")
     manual = request.form.get("password", "")
     use_override = request.form.get("use_password_override") == "1"
     password = manual if (use_override or not safe.get("password_saved")) else ""
-    return store.account(_actor(), account_id, password)
+    return store.account(_actor(), account_id, password, protocol=protocol)
 
 
 def _smtp_account_with_effective_password(store: MailStore, account_id: str) -> dict:
@@ -367,6 +367,9 @@ def send(account_id: str):
     except smtplib.SMTPAuthenticationError as exc:
         current_app.logger.warning("SMTP submission authentication failed for %s; code=%s", _actor(), int(getattr(exc, "smtp_code", 0) or 0))
         flash(_smtp_authentication_message(exc))
+    except SmtpDeliveryStateUnknown as exc:
+        current_app.logger.warning("SMTP submission state requires review for %s: %s", _actor(), exc.delivery_status)
+        flash(exc.user_message)
     except ValueError as exc:
         flash(f"Versand nicht gestartet: {exc}")
     except Exception as exc:
@@ -380,7 +383,7 @@ def send(account_id: str):
 def sync_sieve(account_id: str):
     try:
         store = _store()
-        account = _account_with_effective_password(store, account_id)
+        account = _account_with_effective_password(store, account_id, protocol="sieve")
         result = sync_from_server(store, _actor(), account)
         changed = sum(1 for row in result["scripts"] if row.get("changed"))
         active = result.get("active") or "kein aktives Skript"
@@ -398,7 +401,7 @@ def activate_sieve(account_id: str):
     try:
         store = _store()
         MailAccountPolicy(store).require_writable(_actor(), account_id)
-        account = _account_with_effective_password(store, account_id)
+        account = _account_with_effective_password(store, account_id, protocol="sieve")
         activate_server_script(store, _actor(), account, name)
         flash(f"Sieve-Skript {name} wurde nach vollständiger Sicherung des Serverbestands aktiviert.")
     except MailReadOnlyError as exc:
@@ -419,7 +422,7 @@ def save_sieve(account_id: str):
         account = None
         if request.form.get("upload") == "1":
             MailAccountPolicy(store).require_writable(_actor(), account_id)
-            account = _account_with_effective_password(store, account_id)
+            account = _account_with_effective_password(store, account_id, protocol="sieve")
             sync_from_server(store, _actor(), account)
         saved = store.save_script(_actor(), account_id, name, content)
         if account is not None:

@@ -171,8 +171,46 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
   die spätere Zustellung beim Empfänger.
 - Das Senden ist synchron und auf 30 Sekunden je Netzwerkoperation begrenzt. Es
   gibt keine automatische Wiederholung, um Doppelzustellungen zu vermeiden.
+- Bei unklarem SMTP-Ausgang, teilweiser Empfängerannahme oder fehlgeschlagener
+  Archivfinalisierung nach Serverannahme zeigen beide direkten Versandwege
+  eine ausdrückliche Warnung vor erneutem Versand. Diese Zustände werden nicht
+  als eindeutig fehlgeschlagener Versand dargestellt; Archiv und Serverstatus
+  müssen vor einer weiteren Entscheidung geprüft werden.
 
 ## Migration, Rückwärtskompatibilität und Deaktivierung
+
+### Administrative Freigabe von Passwortvariablen
+
+Benutzer dürfen keine beliebigen Prozess-Secrets als Mailpasswort auswählen.
+`Passwort-Env` und `SMTP-Passwort-Env` bleiben als Kontoeinstellungen erhalten,
+werden aber nur mit einer passenden Betreiberfreigabe aufgelöst. Ohne Freigabe
+wird vor dem Netzwerkzugriff abgebrochen; manuelle und verschlüsselt gespeicherte
+Passwörter funktionieren unverändert.
+
+Der Betreiber setzt `SIMPLEOFFICE_MAIL_ENV_CREDENTIAL_BINDINGS` auf eine
+JSON-Liste mit ausschließlich nicht geheimen Bindungsdaten, zum Beispiel:
+
+```json
+[{"owner":"alice","account_id":"work","protocol":"imap","env":"MAIL_PASSWORD_ALICE_WORK","host":"imap.example.test","port":993,"security":"tls","username":"alice@example.test"}]
+```
+
+Die eigentliche Passwortvariable wird weiterhin separat als Secret bereitgestellt.
+Die Freigabe bindet ihren Namen an den exakten Benutzer, die Konto-ID, das
+Protokoll, den Host, Port, TLS-Modus und Login-Namen. Änderungen dieser
+Kontoeinstellungen benötigen eine neue passende Freigabe. Hostnamen werden
+ohne Beachtung der Groß-/Kleinschreibung verglichen.
+
+Für SMTP ist ein separater Eintrag mit `protocol: "smtp"` und den SMTP-
+Verbindungsdaten erforderlich, auch bei Wiederverwendung der IMAP-Variable.
+ManageSieve benötigt `protocol: "sieve"`, den Sieve-Host/-Port, den Modus
+`starttls` und den IMAP-Login-Namen. Eine IMAP-Freigabe erlaubt keine Weitergabe
+an einen anderen Dienst. Entfernte oder ungültige Bindungen sperren die
+Auflösung sofort. Die Liste ist auf 64 KiB und 1.000 Einträge begrenzt.
+
+Bestehende Konten und Variablennamen werden nicht gelöscht oder umgeschrieben.
+Bisher ungebundene Passwortvariablen benötigen nach diesem Sicherheitsupdate
+eine Betreiberfreigabe. Eine automatische Freigabe alter Kontoeinstellungen
+würde die Sicherheitslücke beibehalten und findet deshalb nicht statt.
 
 Es gibt keine Datenbankmigration. Ohne gespeicherte Konten ist der neue Reiter
 wirkungslos. Zum Deaktivieren keine Archivläufe starten; vorhandene EML bleiben
