@@ -94,6 +94,25 @@ class FederationModerationHttpTests(unittest.TestCase):
         proof["Authorization"] = "Bearer shared"
         self.assertEqual(401, self.client.get(path, headers=proof).status_code)
 
+    def test_stopped_incoming_transfer_cannot_be_resumed_by_an_allowed_peer(self):
+        from app.federation_core import build_manifest
+        path = self.root / "synthetic-upload.bin"
+        path.write_bytes(b"synthetic upload")
+        manifest = build_manifest(path, chunk_size=8)
+        target = self.store.incoming / "incoming.part"
+        target.write_bytes(b"\0" * len(path.read_bytes()))
+        self.store.create_transfer("incoming", direction="incoming", operation="COPY", blob_hash=manifest["blob_hash"],
+                                   source_peer="bad", status="receiving", manifest=manifest, total_chunks=manifest["chunk_count"])
+        self.store.update_transfer("incoming", final_path=str(target))
+        self.moderation.ban("bad", "abuse", actor="admin")
+        endpoint = "/federation/v1/transfers/incoming/chunks/0"
+        data = path.read_bytes()[:8]
+        proof = headers("reporter", "reporter-token", "PUT", endpoint, data)
+        proof["Authorization"] = "Bearer shared"
+        self.assertEqual(409, self.client.put(endpoint, data=data, headers=proof).status_code)
+        self.assertEqual(b"\0" * len(path.read_bytes()), target.read_bytes())
+        self.assertEqual("failed", self.store.get_transfer("incoming")["status"])
+
     def test_oversized_and_non_object_reports_are_rejected(self):
         response, _, _ = self._report({"peer_id": "bad", "reason": "x" * 5000})
         self.assertEqual(413, response.status_code)

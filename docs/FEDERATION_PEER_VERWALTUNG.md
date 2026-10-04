@@ -122,3 +122,12 @@ konfigurierten Peer zugewiesen wurde. Nach Umstellung auf getrennte Geheimnisse
 können zugelassene Peers wieder signierte Aufrufe senden; Sperren bleiben wirksam.
 Moderationsdaten, gepinnte Quellschlüssel und Meldungen sind keine generische
 S3-Projektion und bleiben der ausdrücklich autorisierten Verwaltung vorbehalten.
+
+Legacy-Transferworker prüfen Sperren vor Vorbereitung, weiteren Chunks und der
+abschließenden Statusabfrage. Statusupdates lesen den aktuellen Transfer und die
+Sperre in einer gemeinsamen Schreibtransaktion; verspätete Worker dürfen einen
+gesperrten Transfer weder fortsetzen noch als erfolgreich markieren. Gesperrte
+eingehende Transfers nehmen keine weiteren Chunks an. Ein bereits laufender
+Netzwerkaufruf kann noch enden; die Sperre beendet folgende Protokollschritte,
+nicht einen bereits an den Netzwerkstack übergebenen Request. Abgeschlossene
+Transferhistorie und vorhandene Dateien werden durch die Sperre nicht gelöscht.

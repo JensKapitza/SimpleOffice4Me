@@ -627,6 +627,7 @@ def _upload_materialized_transfer(
     if normalize_sha256(manifest["blob_hash"]) != normalize_sha256(transfer["blob_hash"]):
         raise ValueError("Transfer-Manifest passt nicht zum Blob")
     total_chunks = int(manifest.get("chunk_count", 0))
+    store.require_transfer_peers_allowed(transfer_id)
     remote = _prepare_remote(
         target_url,
         target_token,
@@ -662,6 +663,7 @@ def _upload_materialized_transfer(
             "X-Chunk-Offset": str(start),
             "X-Chunk-Length": str(length),
         }
+        store.require_transfer_peers_allowed(transfer_id)
         with _request(endpoint, method="PUT", token=target_token, body=data, headers=headers, timeout=120) as response:
             if response.status not in (200, 201, 204):
                 raise ValueError(f"Ziel meldet HTTP {response.status}")
@@ -669,6 +671,7 @@ def _upload_materialized_transfer(
         have.add(index)
         sent = max(sent, int(payload.get("transferred_bytes", 0)))
         store.update_transfer(transfer_id, transferred_bytes=sent)
+    store.require_transfer_peers_allowed(transfer_id)
     remote = _remote_status(target_url, transfer_id, target_token) or {}
     remote_status = str(remote.get("status", "unknown"))
     local_status = "complete" if remote_status in {"complete", "verified"} else "partial"

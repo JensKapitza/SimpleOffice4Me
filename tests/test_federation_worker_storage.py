@@ -13,6 +13,7 @@ from flask import Flask
 from app.document_store import DocumentStore
 from app.federation_core import bitmap_encode, build_manifest
 from app.federation_store import FederationStore
+from app.federation_moderation import FederationModerationStore
 from app.federation_worker import _find_blob, push_blob_to_peer, push_blob_to_transient_target
 from app.v2.blob_store import BlobStore
 from app.v2.catalog import ObjectCatalog
@@ -112,6 +113,29 @@ class FederationWorkerStorageTests(unittest.TestCase):
         status.assert_not_called()
         request.assert_not_called()
         self.assertEqual("failed", self.store.get_transfer("send-one")["status"])
+
+    def test_ban_during_remote_preparation_prevents_upload_and_resume(self):
+        def prepared(*args, **kwargs):
+            FederationModerationStore(self.root).ban("target", "synthetic moderation", actor="admin")
+            return {"have_bitmap": ""}
+        with patch("app.federation_worker._prepare_remote", side_effect=prepared), \
+                patch("app.federation_worker._request") as uploaded:
+            with self.assertRaisesRegex(ValueError, "peer_banned"):
+                push_blob_to_peer(self.root, "send-one")
+        uploaded.assert_not_called()
+        self.assertEqual("failed", self.store.get_transfer("send-one")["status"])
+        self.assertEqual("peer_banned", self.store.get_transfer("send-one")["error"])
+
+    def test_ban_during_first_chunk_stops_remaining_chunks(self):
+        def response(url, **kwargs):
+            result = self.response(url, **kwargs)
+            FederationModerationStore(self.root).ban("target", "synthetic moderation", actor="admin")
+            return result
+        with self.assertRaisesRegex(ValueError, "peer_banned"):
+            self.send(failure=response)
+        self.assertEqual(1, len(self.uploads))
+        self.assertEqual("failed", self.store.get_transfer("send-one")["status"])
+        self.assertTrue(all(not path.exists() for path in self.paths))
 
     def test_v1_direct_transfer(self):
         self.assert_success()

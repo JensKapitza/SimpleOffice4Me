@@ -67,6 +67,28 @@ class FederationModerationTests(unittest.TestCase):
         self.assertEqual("complete", self.local.store.get_transfer("complete-job")["status"])
         self.assertFalse((self.root / '.simpleoffice-v2' / 'authorization.sqlite3').exists())
 
+    def test_ban_blocks_late_progress_and_peer_reassignment(self):
+        self.local.store.create_transfer("running", direction="outgoing", operation="COPY", blob_hash="a" * 64,
+                                         target_peer="bad", status="running")
+        self.local.ban("bad", "abuse", actor="admin")
+        for updates in ({"transferred_bytes": 99}, {"status": "complete", "error": ""},
+                        {"status": "running", "target_peer": "other"}):
+            with self.subTest(updates=updates), self.assertRaisesRegex(ValueError, "peer_banned"):
+                self.local.store.update_transfer("running", **updates)
+        current = self.local.store.get_transfer("running")
+        self.assertEqual("failed", current["status"])
+        self.assertEqual("peer_banned", current["error"])
+        self.assertEqual("bad", current["target_peer"])
+        self.assertEqual(0, current["transferred_bytes"])
+
+    def test_blocked_late_update_preserves_completed_transfer(self):
+        self.local.store.create_transfer("complete", direction="outgoing", operation="COPY", blob_hash="a" * 64,
+                                         target_peer="bad", status="complete")
+        self.local.ban("bad", "abuse", actor="admin")
+        with self.assertRaisesRegex(ValueError, "peer_banned"):
+            self.local.store.update_transfer("complete", status="running")
+        self.assertEqual("complete", self.local.store.get_transfer("complete")["status"])
+
     def test_ban_applies_to_v2_routes_including_relays(self):
         self.local.ban("bad", "abuse", actor="admin")
         decision = FederationPolicyStore(self.root).decision(["local", "bad", "target"], scope="documents")
