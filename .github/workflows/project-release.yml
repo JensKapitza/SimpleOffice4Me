@@ -104,7 +104,19 @@ jobs:
             '${{ steps.runs.outputs.android_apk_build }}' \
             '${{ steps.runs.outputs.server_deb_build }}' \
             '${{ steps.runs.outputs.docker_build }}'; do
-            gh run download "$run_id" --dir "release-downloads/run-$run_id"
+            mapfile -t artifacts < <(
+              gh api --paginate "repos/$GH_REPO/actions/runs/$run_id/artifacts" \
+                --jq '.artifacts[].name | select(endswith(".dockerbuild") | not)'
+            )
+            if (( ${#artifacts[@]} == 0 )); then
+              echo "No releasable artifacts found for run $run_id" >&2
+              exit 1
+            fi
+            for artifact in "${artifacts[@]}"; do
+              gh run download "$run_id" \
+                --name "$artifact" \
+                --dir "release-downloads/run-$run_id/$artifact"
+            done
           done
           find release-downloads -type f -print
           test -n "$(find release-downloads -type f -print -quit)"
