@@ -1,7 +1,9 @@
 import tempfile
 import unittest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from app import app
 from app import db as database
@@ -101,6 +103,23 @@ class PersonnelTimeClockTest(unittest.TestCase):
         self.assertIn(f"/{employee_id}/punch/break_start".encode(), response.data)
         self.assertIn(f"/{employee_id}/punch/clock_out".encode(), response.data)
         self.assertNotIn(f"/{employee_id}/punch/break_end".encode(), response.data)
+
+    def test_admin_quick_clock_uses_personnel_date_across_server_midnight(self):
+        self.client.get("/personnel")
+        employee_id = self._add_employee("Zeitzonen Mitarbeiter", "timezone@example.test")
+        for zone_name, utc_hour in (("Europe/Berlin", 22), ("America/Los_Angeles", 2)):
+            zone = ZoneInfo(zone_name)
+            server_now = datetime(2026, 10, 4, utc_hour, 30, tzinfo=timezone.utc)
+            local_now = server_now.astimezone(zone)
+            with self.subTest(zone=zone_name), patch("app.personnel._local_now", return_value=local_now), patch(
+                "app.personnel._personnel_timezone", return_value=zone,
+            ), patch.dict(app.jinja_env.globals, {"now": lambda: server_now.replace(tzinfo=None)}):
+                response = self.client.get(f"/personnel/time-admin?employee_id={employee_id}")
+                self.assertIn(b"Nicht eingestempelt", response.data)
+                self.assertIn(f"/{employee_id}/punch/clock_in".encode(), response.data)
+                previous = (local_now.date() - timedelta(days=1)).isoformat()
+                response = self.client.get(f"/personnel/time-admin?employee_id={employee_id}&date={previous}")
+                self.assertNotIn(f"/{employee_id}/punch/clock_in".encode(), response.data)
 
     def test_admin_can_clock_employee_now_and_audit_actor_is_preserved(self):
         self.client.get("/personnel")

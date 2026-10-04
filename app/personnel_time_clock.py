@@ -352,10 +352,11 @@ def index():
     selected = next((item for item in employees if int(item["id"]) == selected_id), None)
     if selected is None:
         abort(404)
+    local_today = personnel._local_now().date()
     try:
-        shown = date.fromisoformat(request.args.get("date", personnel._local_now().date().isoformat()))
+        shown = date.fromisoformat(request.args.get("date", local_today.isoformat()))
     except ValueError:
-        shown = personnel._local_now().date()
+        shown = local_today
     lower, upper = _day_bounds(shown)
     rows = get_db().execute(
         """SELECT employee_punch.*,user.username,user.display_name
@@ -392,12 +393,13 @@ def index():
         employees=employees,
         selected=selected,
         shown=shown,
+        local_today=local_today,
         events=events,
         audits=audits,
         summary=summary,
         action_labels=_ACTION_LABELS,
         allowed=_ALLOWED,
-        current_state=personnel._punch_state(selected_id, personnel._local_now().date()),
+        current_state=personnel._punch_state(selected_id, local_today),
         month_closed=personnel.month_is_closed(selected_id, shown.strftime("%Y-%m")),
     )
 
