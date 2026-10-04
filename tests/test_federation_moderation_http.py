@@ -102,6 +102,9 @@ class FederationModerationHttpTests(unittest.TestCase):
         signed = headers("reporter", "reporter-token", "GET", path)
         signed["Authorization"] = "Bearer shared"
         self.assertEqual(200, self.client.get(path, headers=signed).status_code)
+        # A peer proof supplements the existing bearer grant; it does not
+        # turn a chat/moderation token into unrestricted document access.
+        self.assertEqual(401, self.client.get(path, headers=headers("reporter", "reporter-token", "GET", path)).status_code)
 
     def test_admin_requires_csrf_role_and_explicit_confirmation(self):
         path = "/admin/federation/moderation/actions"

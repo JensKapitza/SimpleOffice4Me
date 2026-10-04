@@ -28,11 +28,9 @@ MAX_BLOCK_RESPONSE = 64 * 1024 * 1024
 
 
 def _authorized() -> bool:
-    from .federation_moderation_auth import legacy_peer_allowed, signed_peer_authorized
+    from .federation_moderation_auth import legacy_peer_allowed
     if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
-    if signed_peer_authorized(current_app.config["DOCUMENT_ROOT"], request):
-        return True
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if not expected:
         return bool(current_app.testing)

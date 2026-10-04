@@ -30,11 +30,9 @@ def _public_directory():
 def _directory_authorized(public=False):
     if public and _public_directory():
         return True
-    from .federation_moderation_auth import legacy_peer_allowed, signed_peer_authorized
+    from .federation_moderation_auth import legacy_peer_allowed
     if not legacy_peer_allowed(_root(), request):
         return False
-    if signed_peer_authorized(_root(), request):
-        return True
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
     supplied = request.headers.get("Authorization", "")
     supplied = supplied[7:].strip() if supplied.startswith("Bearer ") else ""

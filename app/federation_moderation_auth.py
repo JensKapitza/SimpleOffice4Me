@@ -17,15 +17,3 @@ def legacy_peer_allowed(root, request):
         return True
     except (TypeError, ValueError):
         return False
-
-
-def signed_peer_authorized(root, request):
-    if not request.headers.get("X-SimpleOffice-Peer-Signature"):
-        return False
-    if getattr(g, "moderation_authenticated_peer", None):
-        return True
-    try:
-        g.moderation_authenticated_peer = authenticate(root, request)
-        return True
-    except (TypeError, ValueError):
-        return False
