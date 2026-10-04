@@ -65,6 +65,7 @@ if paramiko is not None:
                 "SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024, 1, 8 * 1024 * 1024 * 1024,
             )
             self.failed = False
+            self.append = bool(flags & os.O_APPEND)
             resource = vfs.resolve(path)
             if resource.is_file() and not resource.is_symlink():
                 original = vfs.read_bytes(actor, path)
@@ -80,6 +81,11 @@ if paramiko is not None:
             try:
                 if self.failed:
                     return paramiko.SFTP_FAILURE
+                if self.append:
+                    # SFTP append ignores the client's offset, including after
+                    # reads or seeks. Release the view before resizing BytesIO.
+                    with self.buffer.getbuffer() as content:
+                        offset = len(content)
                 # Check before seeking/writing: a tiny packet with a huge offset
                 # otherwise causes BytesIO to allocate a huge zero-filled gap.
                 if offset < 0 or offset > self.max_bytes or len(data) > self.max_bytes - offset:

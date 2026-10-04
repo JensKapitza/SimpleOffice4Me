@@ -109,6 +109,12 @@ Puffer-Schreibfehler werden weitere Schreibpakete abgelehnt und der gesamte
 Upload beim Schließen verworfen. Bestehende Dateien bleiben unverändert, neue
 Teildateien werden nicht angelegt. Ein neuer Upload benötigt ein neues Handle.
 
+Im Append-Modus (`O_APPEND`, etwa `a` oder `a+` im Client) schreibt jedes Paket
+ans aktuelle Dateiende, unabhängig vom mitgesendeten Offset oder vorherigen
+Lesezugriffen. Die Uploadgrenze zählt vorhandene Bytes und alle angehängten
+Pakete zusammen. Wird sie überschritten, bleiben auch hier die ursprünglichen
+Dateiinhalte unverändert.
+
 Standardmäßig lauscht der Dienst nur auf `127.0.0.1:2222`. Für externen
 Zugriff sollte die Freigabe gezielt über Firewall oder VPN erfolgen. Ein
 Unter **Einstellungen → WebDAV, SSHFS und Ordnerrechte** wird der Inhalt von
