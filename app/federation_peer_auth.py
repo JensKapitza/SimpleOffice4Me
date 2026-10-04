@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import secrets
 import time
+from pathlib import Path
 
 from .federation_store import FederationStore
 
@@ -43,6 +44,10 @@ def headers(peer_id, token, method, path, body=b""):
 
 
 def authenticate(root, request):
+    cache_key = "simpleoffice.peer_auth:" + str(Path(root).expanduser().resolve())
+    environ = getattr(request, "environ", {})
+    if cache_key in environ:
+        return environ[cache_key]
     peer_id = str(request.headers.get("X-SimpleOffice-Peer-ID", "")).strip()
     nonce = str(request.headers.get("X-SimpleOffice-Peer-Nonce", "")).strip()
     signature = str(request.headers.get("X-SimpleOffice-Peer-Signature", "")).strip().casefold()
@@ -68,4 +73,8 @@ def authenticate(root, request):
         raise ValueError("invalid peer signature")
     if not store.claim_nonce(f"peer:{peer_id}:{nonce}", int(time.time()) + NONCE_TTL):
         raise ValueError("replayed peer request")
+    # A shared blueprint gate and a resource-specific grant gate may both
+    # verify this same immutable HTTP request. Consume its nonce only once;
+    # a second HTTP request has a fresh environ and remains replay-protected.
+    environ[cache_key] = peer_id
     return peer_id
