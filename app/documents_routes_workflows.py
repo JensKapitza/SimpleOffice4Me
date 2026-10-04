@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
+from .mail_document_access import private_mail_document
 from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
 from .v2.contracts import LogicalObjectId, StorageLocation
 from .v2.storage_runtime import (
@@ -91,6 +92,7 @@ def detail(document_id: str):
         content_recovery_versions=store.content_recovery_versions(document_id),
         relationships=relationships,
         shares=store.document_shares(document_id),
+        public_sharing_allowed=not private_mail_document(document),
         retention=store.retention_status(document_id),
         link_query=query,
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
@@ -971,5 +973,4 @@ def calendar():
         if label_counts[event["invite_search_label"]] > 1:
             event["invite_search_label"] += f" · #{str(event.get('event_id') or '')[:8]}"
     return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, video_chat_users=video_chat_users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
-
 

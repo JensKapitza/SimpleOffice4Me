@@ -94,6 +94,13 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         self.addCleanup(response.close)
         self.assertEqual(200, response.status_code)
         self.assertEqual(b"ordinary shared document", response.data)
+        owner_detail = self.clients["alice"].get(f"/documents/{self.archive['document_id']}")
+        self.assertEqual(200, owner_detail.status_code)
+        self.assertNotIn("HTTPS-Link erzeugen", owner_detail.get_data(as_text=True))
+        self.assertIn("Vertrauliche Maildatei", owner_detail.get_data(as_text=True))
+        public_detail = self.clients["bob"].get(f"/documents/{self.public_id}")
+        self.assertEqual(200, public_detail.status_code)
+        self.assertIn("HTTPS-Link erzeugen", public_detail.get_data(as_text=True))
 
     def test_document_listing_and_search_hide_private_mail_metadata(self):
         for url in ("/documents/", "/documents/search?q=tag%3Aemail", "/documents/search?q=name%3Aprivate-draft.txt"):
