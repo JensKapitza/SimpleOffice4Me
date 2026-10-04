@@ -50,6 +50,32 @@ class FederationModerationHttpTests(unittest.TestCase):
         proof = headers(peer, token, "POST", path, body)
         return self.client.post(path, data=body, headers=proof), proof, body
 
+    def test_outgoing_proofs_authenticate_with_distinct_instance_tokens(self):
+        import io
+        from app.federation_peer_auth import authenticate
+        from app.federation_worker import _configured_peer_proof
+        from app.federation_moderation_client import send_report
+
+        remote_root = self.root / "remote"
+        remote_store = FederationStore(remote_root)
+        remote_app = Flask("remote")
+        endpoint = "/federation/v1/capabilities"
+        for source_token in ("shared", ""):
+            remote_store.save_peer("local", "Local", "https://local.example", source_token or "reporter-token")
+            with self.subTest(source_token=source_token), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": source_token}):
+                proof = _configured_peer_proof("https://reporter.example" + endpoint, "reporter-token", "GET", b"")
+                with remote_app.test_request_context(endpoint, headers=proof), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "receiver-token"}):
+                    from flask import request
+                    self.assertEqual("local", authenticate(remote_root, request))
+
+                def receive(url, *, method, body, headers, timeout):
+                    with remote_app.test_request_context("/federation/v1/moderation/reports", method=method, data=body, headers=headers), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "receiver-token"}):
+                        self.assertEqual("local", authenticate(remote_root, request))
+                    return io.BytesIO(b'{"accepted":true}')
+
+                with patch("app.federation_moderation_client._request", side_effect=receive):
+                    self.assertEqual({"accepted": True}, send_report(self.root, "reporter", "bad", "abuse"))
+
     def test_authenticated_report_and_replay(self):
         response, proof, body = self._report()
         self.assertEqual(201, response.status_code)

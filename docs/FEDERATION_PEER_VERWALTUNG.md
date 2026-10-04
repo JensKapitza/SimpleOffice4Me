@@ -131,3 +131,11 @@ eingehende Transfers nehmen keine weiteren Chunks an. Ein bereits laufender
 Netzwerkaufruf kann noch enden; die Sperre beendet folgende Protokollschritte,
 nicht einen bereits an den Netzwerkstack übergebenen Request. Abgeschlossene
 Transferhistorie und vorhandene Dateien werden durch die Sperre nicht gelöscht.
+
+Für bestehende HTTP-Federation-Verbindungen hat jede Instanz einen eigenen
+Federation-Token. Beim Gegenüber wird dieser beim sendenden Peer hinterlegt:
+A speichert den Token von B, B den Token von A. Ausgehende Identitätsnachweise
+verwenden den lokalen Token; Bearer-Zugriffe verwenden den Token des Ziels.
+Ohne lokalen Federation-Token kann die Moderationsverbindung ein ausdrücklich
+beidseitig hinterlegtes, eindeutiges Peer-Geheimnis verwenden. Gleiche globale
+Tokens auf mehreren Instanzen sind für Peer-Identitätsnachweise ungeeignet.

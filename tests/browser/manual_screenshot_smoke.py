@@ -47,9 +47,8 @@ PEER_A_DOCKER_URL = os.environ.get(
 PEER_B_DOCKER_URL = os.environ.get(
     "BROWSER_PEER_B_DOCKER_URL", "http://peer-b:8080"
 ).rstrip("/")
-PEER_SHARED_TOKEN = os.environ.get(
-    "BROWSER_PEER_SHARED_TOKEN", "browser-p2p-not-a-secret"
-)
+PEER_A_TOKEN = os.environ.get("BROWSER_PEER_A_TOKEN", "browser-peer-a-not-a-secret")
+PEER_B_TOKEN = os.environ.get("BROWSER_PEER_B_TOKEN", "browser-peer-b-not-a-secret")
 SCOPE = os.environ.get("BROWSER_SCREENSHOT_SCOPE", "all-pages").strip().lower()
 ROUTE_INVENTORY_PATH = Path(os.environ.get("BROWSER_ROUTE_INVENTORY", "test-results/browser/route-inventory.json"))
 MAX_PAGES = max(1, int(os.environ.get("BROWSER_MAX_PAGES", "2500")))
@@ -164,6 +163,7 @@ def configure_peer(
     peer_id: str,
     peer_label: str,
     peer_docker_url: str,
+    peer_token: str,
 ) -> None:
     response = page.goto(
         f"{base_url}/admin/federation?view=peers", wait_until="domcontentloaded"
@@ -180,7 +180,7 @@ def configure_peer(
     form.locator("input[name='peer_id']").fill(peer_id)
     form.locator("input[name='label']").fill(peer_label)
     form.locator("input[name='base_url']").fill(peer_docker_url)
-    form.locator("input[name='token']").fill(PEER_SHARED_TOKEN)
+    form.locator("input[name='token']").fill(peer_token)
     advanced_policy = form.locator("details").filter(
         has=page.locator("textarea[name='policy_json']")
     ).first
@@ -304,6 +304,7 @@ def run_peer_to_peer(
             peer_id="peer-b",
             peer_label="Browser Peer B",
             peer_docker_url=PEER_B_DOCKER_URL,
+            peer_token=PEER_B_TOKEN,
         )
         configure_peer(
             page_b,
@@ -311,6 +312,7 @@ def run_peer_to_peer(
             peer_id="peer-a",
             peer_label="Browser Peer A",
             peer_docker_url=PEER_A_DOCKER_URL,
+            peer_token=PEER_A_TOKEN,
         )
         record_p2p_check(
             summary, "peers_connected", True, "peer-a <-> peer-b"

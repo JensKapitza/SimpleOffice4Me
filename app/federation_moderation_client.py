@@ -1,5 +1,6 @@
 """Bounded, peer-authenticated blacklist sync and report submission."""
 import json
+import os
 
 from .federation_core import canonical_json
 from .federation_local_profile import local_peer_id
@@ -19,7 +20,8 @@ def _call(root, receiver, path, payload=None):
         raise ValueError("moderation requires a peer-specific token")
     method = "GET" if payload is None else "POST"
     body = b"" if payload is None else canonical_json(payload)
-    headers = peer_headers(local_peer_id(), token, method, path, body)
+    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
+    headers = peer_headers(local_peer_id(), source_token, method, path, body)
     if payload is not None:
         headers["Content-Type"] = "application/json"
     with _request(peer["base_url"] + path, method=method, body=body if payload is not None else None,
