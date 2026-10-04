@@ -1,9 +1,11 @@
 # Mini Services external acceptance protocol
 
-Repository basis checked on 2026-10-01: `main` at
-`01fe6fe748146ba339a6f5191430a0cfacdb5bd5`. Issue #330 remains open.
+Repository basis checked on 2026-10-04: `main` at
+`ea03d9dfb8cafa784af6c5daecb3964654636da1`. Issue #330 remains open.
 The software implementations for Screen and DLNA are present in main; this
 protocol records their runtime checks separately from CI and build evidence.
+Managed SFTP is included as well; its Paramiko and system OpenSSH modes have
+different account and filesystem semantics and must be accepted separately.
 
 This protocol covers evidence that cannot be created by CI, mocks or loopback
 tests. A row is accepted only after a real run records the exact commit,
@@ -87,6 +89,28 @@ Use real independent clients:
   and test audio plus a supported video/image path as applicable.
 - PXE: boot at least one real or independently virtualized PXE client from a
   configured profile. HTTP/TFTP request success alone is not boot success.
+
+## SFTP
+
+On a clean Linux installation, test the integrated Paramiko mode and, where
+supported, the explicitly configured system OpenSSH mode separately. Use an
+independent SFTP client and record:
+
+- start, stop, autostart and recovery after application/service restart;
+- host-key presentation and verification, authentication, and rejection of an
+  unauthorized user/key;
+- allowed and denied paths, directory listing, upload, download, rename,
+  append and deletion using the documented account/filesystem semantics;
+- large files, configured upload limits, interrupted transfers and a read past
+  end-of-file;
+- client behavior during network loss and service restart, including whether
+  partial files are cleaned up or clearly left incomplete.
+
+Repeat the supported client scenarios on Windows if Windows is a target
+installation. Record the service mode and client version. Never put credentials,
+private keys, host keys or private network details in the evidence record. A
+passing Paramiko run does not establish that an independently installed
+OpenSSH service is configured correctly, and vice versa.
 
 ## Screen
 
