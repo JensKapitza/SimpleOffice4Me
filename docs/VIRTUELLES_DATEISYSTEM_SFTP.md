@@ -115,6 +115,11 @@ Lesezugriffen. Die Uploadgrenze zählt vorhandene Bytes und alle angehängten
 Pakete zusammen. Wird sie überschritten, bleiben auch hier die ursprünglichen
 Dateiinhalte unverändert.
 
+SFTP `REMOVE` löscht ausschließlich Dateien, `RMDIR` ausschließlich leere
+Ordner. Ein falscher Objekttyp oder ein nicht leerer Ordner wird abgelehnt;
+vorhandene Inhalte bleiben erhalten. Ordnerrechte und App-Passwort-Scope
+werden vor dem Löschen geprüft.
+
 Standardmäßig lauscht der Dienst nur auf `127.0.0.1:2222`. Für externen
 Zugriff sollte die Freigabe gezielt über Firewall oder VPN erfolgen. Ein
 Unter **Einstellungen → WebDAV, SSHFS und Ordnerrechte** wird der Inhalt von
