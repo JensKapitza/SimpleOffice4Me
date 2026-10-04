@@ -79,6 +79,21 @@ class FederationModerationHttpTests(unittest.TestCase):
         self.store.save_peer("reporter", "Reporter", "https://reporter.example", "", enabled=True)
         self.assertEqual(401, self._report()[0].status_code)
 
+    def test_shared_bearer_reused_as_peer_secret_cannot_impersonate_reporter(self):
+        for setting in ("SIMPLEOFFICE_FEDERATION_TOKEN", "SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN"):
+            with self.subTest(setting=setting), patch.dict(os.environ, {setting: "shared-control-secret"}):
+                self.store.save_peer("reporter", "Reporter", "https://reporter.example", "shared-control-secret")
+                self.assertEqual(401, self._report(token="shared-control-secret")[0].status_code)
+        self.assertEqual([], self.moderation.reports())
+
+    def test_shared_bearer_reused_as_peer_secret_cannot_bypass_ban(self):
+        self.store.save_peer("reporter", "Reporter", "https://reporter.example", "shared")
+        self.moderation.ban("bad", "abuse", actor="admin")
+        path = "/federation/v1/capabilities"
+        proof = headers("reporter", "shared", "GET", path)
+        proof["Authorization"] = "Bearer shared"
+        self.assertEqual(401, self.client.get(path, headers=proof).status_code)
+
     def test_oversized_and_non_object_reports_are_rejected(self):
         response, _, _ = self._report({"peer_id": "bad", "reason": "x" * 5000})
         self.assertEqual(413, response.status_code)

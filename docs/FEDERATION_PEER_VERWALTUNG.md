@@ -114,3 +114,11 @@ Schlüssel-Pins, Directory/Rendezvous, Meldungen, Replay, Reporter-Spoofing,
 Token-Grenzen, Größenlimits sowie Admin-/CSRF-/Bestätigungsprüfung.
 Praktische Mehrgeräte-, Offline- und Browser-Abnahme bleibt zusätzlich
 erforderlich; Mock- und CI-Prüfungen ersetzen sie nicht.
+
+Peer-HMAC-Zugänge müssen sich auch von den lokalen globalen Federation- und
+Directory-Bearer-Tokens unterscheiden. Ein global bekannter Zugang kann keine
+Peer-Identität beweisen und wird hierfür abgelehnt, selbst wenn er nur einem
+konfigurierten Peer zugewiesen wurde. Nach Umstellung auf getrennte Geheimnisse
+können zugelassene Peers wieder signierte Aufrufe senden; Sperren bleiben wirksam.
+Moderationsdaten, gepinnte Quellschlüssel und Meldungen sind keine generische
+S3-Projektion und bleiben der ausdrücklich autorisierten Verwaltung vorbehalten.
