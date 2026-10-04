@@ -44,7 +44,7 @@ def remember_discovered_peer(root, profile, source):
     if existing:
         store.save_peer(
             profile["peer_id"], profile["label"], profile["base_url"], "",
-            existing.get("policy") or {}, bool(existing.get("enabled")),
+            existing.get("policy") or {}, bool(existing.get("configured_enabled", existing.get("enabled"))),
         )
     else:
         # Discovery only makes a peer known. Explicit activation/policy remains

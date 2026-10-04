@@ -48,7 +48,8 @@ env:
   PEER_BASE_URL: http://127.0.0.1:8081
   BROWSER_PEER_A_DOCKER_URL: http://peer-a:8080
   BROWSER_PEER_B_DOCKER_URL: http://peer-b:8080
-  BROWSER_PEER_SHARED_TOKEN: browser-p2p-not-a-secret
+  BROWSER_PEER_A_TOKEN: browser-peer-a-not-a-secret
+  BROWSER_PEER_B_TOKEN: browser-peer-b-not-a-secret
 
 jobs:
   browser-screenshot:
@@ -98,7 +99,7 @@ jobs:
             --network simpleoffice-browser-p2p \
             --network-alias peer-a \
             -p 127.0.0.1:8080:8080 \
-            -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_SHARED_TOKEN" \
+            -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_A_TOKEN" \
             -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-a \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
@@ -125,7 +126,7 @@ jobs:
             --network simpleoffice-browser-p2p \
             --network-alias peer-b \
             -p 127.0.0.1:8081:8080 \
-            -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_SHARED_TOKEN" \
+            -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_B_TOKEN" \
             -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-b \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \

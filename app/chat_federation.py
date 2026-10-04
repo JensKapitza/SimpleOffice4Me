@@ -66,7 +66,8 @@ def _request(
     *,
     return_http_error: bool = False,
 ) -> tuple[int, dict[str, Any]]:
-    headers = headers_for(proof, token)
+    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
+    headers = headers_for(proof, source_token)
     headers.update({"Content-Type": content_type, "Accept": "application/json", "Cache-Control": "no-store"})
     req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
     try:

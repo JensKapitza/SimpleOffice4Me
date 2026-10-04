@@ -59,8 +59,26 @@ def _request(
     request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     if token:
         request_headers["Authorization"] = f"Bearer {token}"
+        # Updated clients keep working after a blacklist disables unidentified
+        # shared-token traffic. Never replace an explicit protocol signature.
+        if "X-SimpleOffice-Peer-Signature" not in request_headers:
+            request_headers.update(_configured_peer_proof(url, token, method, body or b""))
     req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
     return _OPENER.open(req, timeout=timeout)
+
+
+def _configured_peer_proof(url, token, method, body):
+    from flask import current_app, has_app_context
+    if not has_app_context() or not current_app.config.get("DOCUMENT_ROOT"):
+        return {}
+    store = FederationStore(current_app.config["DOCUMENT_ROOT"])
+    for peer in store.list_peers():
+        base = peer["base_url"].rstrip("/")
+        if peer["enabled"] and url.startswith(base + "/") and store.peer_token(peer["peer_id"]) == token:
+            path = urllib.parse.urlsplit(url[len(base):]).path
+            source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
+            return peer_auth_headers(local_peer_id(), source_token, method, path, body)
+    return {}
 
 
 def _json_request(
@@ -610,6 +628,7 @@ def _upload_materialized_transfer(
     if normalize_sha256(manifest["blob_hash"]) != normalize_sha256(transfer["blob_hash"]):
         raise ValueError("Transfer-Manifest passt nicht zum Blob")
     total_chunks = int(manifest.get("chunk_count", 0))
+    store.require_transfer_peers_allowed(transfer_id)
     remote = _prepare_remote(
         target_url,
         target_token,
@@ -645,6 +664,7 @@ def _upload_materialized_transfer(
             "X-Chunk-Offset": str(start),
             "X-Chunk-Length": str(length),
         }
+        store.require_transfer_peers_allowed(transfer_id)
         with _request(endpoint, method="PUT", token=target_token, body=data, headers=headers, timeout=120) as response:
             if response.status not in (200, 201, 204):
                 raise ValueError(f"Ziel meldet HTTP {response.status}")
@@ -652,6 +672,7 @@ def _upload_materialized_transfer(
         have.add(index)
         sent = max(sent, int(payload.get("transferred_bytes", 0)))
         store.update_transfer(transfer_id, transferred_bytes=sent)
+    store.require_transfer_peers_allowed(transfer_id)
     remote = _remote_status(target_url, transfer_id, target_token) or {}
     remote_status = str(remote.get("status", "unknown"))
     local_status = "complete" if remote_status in {"complete", "verified"} else "partial"

@@ -8,6 +8,7 @@
       <p class="text-secondary mb-0">SimpleOffice-Instanzen verbinden, Dateien austauschen und Transfers überwachen.</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-danger" href="{{ url_for('federation_moderation_admin.dashboard') }}">Peer-Verwaltung</a>
       <a class="btn btn-outline-primary" href="{{ url_for('resource_commander.page') }}">
         <i class="fas fa-columns me-1" aria-hidden="true"></i>Resource Commander
       </a>
@@ -363,7 +364,7 @@
               </fieldset>
 
               <div class="col-12 form-check ms-2">
-                <input class="form-check-input" type="checkbox" name="enabled" value="1" id="fed-enabled" {% if not edit_peer or edit_peer.enabled %}checked{% endif %}>
+                <input class="form-check-input" type="checkbox" name="enabled" value="1" id="fed-enabled" {% if not edit_peer or edit_peer.configured_enabled %}checked{% endif %}>
                 <label class="form-check-label" for="fed-enabled">Peer aktiv</label>
               </div>
 
@@ -405,7 +406,7 @@
                       <br><small class="text-secondary text-break">{{ peer.base_url }}</small>
                     </td>
                     <td>
-                      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'deaktiviert' }}</span>
+                      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'gesperrt' if peer.banned else ('aktiv' if peer.enabled else 'deaktiviert') }}</span>
                       <br><small>Index: {{ state.last_index_at or 'noch nie' }}</small>
                       {% if state.last_index_error %}<div class="text-danger small text-break">{{ state.last_index_error }}</div>{% endif %}
                     </td>

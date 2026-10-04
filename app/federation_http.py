@@ -29,7 +29,7 @@ from .federation_core import (
     verify_file,
     write_chunk,
 )
-from .federation_store import FederationStore
+from .federation_store import FederationStore, PeerBanned
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_worker import BlobHashMismatch, _materialize_blob, push_blob_to_transient_target, validate_transient_target
@@ -80,6 +80,9 @@ def _transfer_capability_authorized(supplied: str) -> bool:
 
 
 def _authorized() -> bool:
+    from .federation_moderation_auth import legacy_peer_allowed
+    if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
+        return False
     supplied = _bearer()
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if expected and supplied and hmac.compare_digest(expected, supplied):
@@ -847,7 +850,7 @@ def receive_transfer_chunk(job_id: str, index: int):
     transfer = jobs.get_transfer(job_id)
     if not transfer or transfer.get("direction") != "incoming":
         return jsonify({"error": "transfer_not_found"}), 404
-    if transfer.get("status") in {"complete", "cancelled"}:
+    if transfer.get("status") in {"complete", "cancelled"} or transfer.get("error") == "peer_banned":
         return jsonify({"error": "transfer_closed"}), 409
     result_manifest = transfer.get("manifest") or {}
     chunks = result_manifest.get("chunks") or []
@@ -864,29 +867,33 @@ def receive_transfer_chunk(job_id: str, index: int):
             return jsonify({"error": "hash_mismatch"}), 409
     except ValueError:
         return jsonify({"error": "invalid_manifest_hash"}), 409
-    target = Path(str(transfer.get("final_path") or ""))
-    resolved = target.resolve()
-    if jobs.incoming.resolve() not in (resolved, *resolved.parents):
-        return jsonify({"error": "unsafe_target"}), 409
-    write_chunk(target, int(chunk.get("offset", 0)), data)
-    have = jobs.have(job_id)
-    have.add(index)
-    jobs.set_have(job_id, have, int(transfer.get("total_chunks", len(chunks))))
-    transferred = sum(int(chunks[i].get("length", 0)) for i in have if i < len(chunks))
-    jobs.update_transfer(job_id, status="receiving", transferred_bytes=transferred)
-    if complete(have, int(transfer.get("total_chunks", len(chunks)))):
-        if not verify_file(target, transfer["blob_hash"]):
-            jobs.update_transfer(job_id, status="failed", error="final hash mismatch")
-            return jsonify({"error": "final_hash_mismatch"}), 409
-        final = jobs.incoming / f"{transfer['blob_hash']}.blob"
-        target.replace(final)
-        jobs.update_transfer(
-            job_id,
-            status="complete",
-            transferred_bytes=int(transfer.get("total_bytes", 0)),
-            final_path=str(final),
-            error="",
-        )
+    try:
+        jobs.require_transfer_peers_allowed(job_id)
+        target = Path(str(transfer.get("final_path") or ""))
+        resolved = target.resolve()
+        if jobs.incoming.resolve() not in (resolved, *resolved.parents):
+            return jsonify({"error": "unsafe_target"}), 409
+        write_chunk(target, int(chunk.get("offset", 0)), data)
+        have = jobs.have(job_id)
+        have.add(index)
+        jobs.set_have(job_id, have, int(transfer.get("total_chunks", len(chunks))))
+        transferred = sum(int(chunks[i].get("length", 0)) for i in have if i < len(chunks))
+        jobs.update_transfer(job_id, status="receiving", transferred_bytes=transferred)
+        if complete(have, int(transfer.get("total_chunks", len(chunks)))):
+            if not verify_file(target, transfer["blob_hash"]):
+                jobs.update_transfer(job_id, status="failed", error="final hash mismatch")
+                return jsonify({"error": "final_hash_mismatch"}), 409
+            final = jobs.incoming / f"{transfer['blob_hash']}.blob"
+            target.replace(final)
+            jobs.update_transfer(
+                job_id,
+                status="complete",
+                transferred_bytes=int(transfer.get("total_bytes", 0)),
+                final_path=str(final),
+                error="",
+            )
+    except PeerBanned:
+        return jsonify({"error": "transfer_closed"}), 409
     current = jobs.get_transfer(job_id) or {}
     return jsonify({
         "transfer_id": job_id,

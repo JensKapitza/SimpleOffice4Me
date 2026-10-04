@@ -21,6 +21,9 @@ def _store() -> DocumentStore:
 
 
 def _authorized() -> bool:
+    from .federation_moderation_auth import legacy_peer_allowed
+    if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
+        return False
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if not expected:
         return bool(current_app.testing)

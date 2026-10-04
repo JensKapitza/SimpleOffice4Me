@@ -426,7 +426,7 @@ def import_qr():
         existing = store.get_peer(profile["peer_id"])
         store.save_peer(
             profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("enabled", False)),
+            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
         )
         personally_verified = request.form.get("verify_in_person") == "1"
         if personally_verified:

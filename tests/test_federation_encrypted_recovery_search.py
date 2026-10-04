@@ -161,6 +161,16 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
         )
         return self.client.post(PATH, data=body, headers=self._headers(body))
 
+    def test_unrelated_ban_preserves_authorized_recovery_and_nonce_replay_guard(self):
+        from app.federation_moderation import FederationModerationStore
+        FederationModerationStore(self.root).ban("unrelated-peer", "abuse", actor="admin")
+        body = self._payload()
+        proof = self._headers(body)
+        first = self.client.post(PATH, data=body, headers=proof)
+        replay = self.client.post(PATH, data=body, headers=proof)
+        self.assertEqual(200, first.status_code)
+        self.assertEqual(401, replay.status_code)
+
     def test_exact_descriptor_grant_returns_only_index_availability(self):
         response = self._post()
 

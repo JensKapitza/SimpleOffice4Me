@@ -53,6 +53,28 @@ class ChatFederationAuthTest(unittest.TestCase):
         payload=b"hello"; store=FakeFederationStore(duplicate=True); proof=self.proof(payload)
         with self.assertRaisesRegex(ValueError, "mehrfach verwendet"): authenticate_request(store, headers_for(proof, store.token), payload)
 
+    def test_outgoing_chat_uses_sender_secret_with_distinct_peer_tokens(self):
+        import os
+        from contextlib import nullcontext
+        from email.message import Message
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from app.chat_federation import _request
+
+        payload = b"hello"
+        for source_token in ("secret-a", ""):
+            store = FakeFederationStore(token=source_token or "secret-b")
+            def receive(req, *, timeout):
+                headers = Message()
+                for key, value in req.header_items():
+                    headers[key] = value
+                peer, _ = authenticate_request(store, headers, req.data)
+                self.assertEqual("peer-a", peer["peer_id"])
+                return nullcontext(SimpleNamespace(status=200, read=lambda limit: b'{"ok":true}'))
+            with self.subTest(source_token=source_token), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": source_token}), patch("app.chat_federation.urllib.request.build_opener") as opener:
+                opener.return_value.open.side_effect = receive
+                self.assertEqual((200, {"ok": True}), _request("https://receiver.example/federation/v1/chat/events", payload, "application/json", self.proof(payload), "secret-b"))
+
 
 if __name__ == "__main__":
     unittest.main()

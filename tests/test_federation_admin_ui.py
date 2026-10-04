@@ -7,6 +7,7 @@ from werkzeug.security import generate_password_hash
 from app import app
 from app import db as database
 from app.federation_store import FederationStore
+from app.federation_moderation import FederationModerationStore
 
 
 class FederationAdminUiTests(unittest.TestCase):
@@ -57,6 +58,28 @@ class FederationAdminUiTests(unittest.TestCase):
                 response = self.client.get(f"/admin/federation?view={view}")
                 self.assertEqual(200, response.status_code)
                 self.assertIn(marker, response.get_data(as_text=True))
+
+    def test_moderation_page_renders_and_escapes_reported_content(self):
+        moderation = FederationModerationStore(self.root)
+        moderation.ban("bad-peer", "<script>probe()</script>", actor="admin")
+        moderation.report("reporter", "another-peer", "<script>report()</script>")
+        response = self.client.get("/admin/federation/moderation")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Peer-Verwaltung", body)
+        self.assertIn("bad-peer", body)
+        self.assertNotIn("<script>probe()</script>", body)
+        self.assertNotIn("<script>report()</script>", body)
+        self.assertIn("&lt;script&gt;probe()&lt;/script&gt;", body)
+
+    def test_peer_edit_keeps_configured_activation_visible_during_ban(self):
+        FederationStore(self.root).save_peer("office-b", "Office B", "https://b.example", "", enabled=True)
+        FederationModerationStore(self.root).ban("office-b", "abuse", actor="admin")
+        response = self.client.get("/admin/federation?view=peers&edit_peer=office-b")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("gesperrt", body)
+        self.assertIn('id="fed-enabled" checked', body)
 
     def test_peer_form_maps_document_permissions_without_losing_advanced_policy(self):
         response = self.client.post(

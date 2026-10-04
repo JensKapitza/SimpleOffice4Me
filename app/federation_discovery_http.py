@@ -10,6 +10,7 @@ from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
 from .federation_local_profile import local_peer_id, local_profile
 from .federation_peer_auth import authenticate as authenticate_peer
+from .federation_peer_auth import authenticated_peer
 from .federation_peer_profile import peer_profile
 from .federation_rendezvous_messages import FederationRendezvousMessages
 from .federation_rendezvous_store import FederationRendezvousStore
@@ -30,6 +31,9 @@ def _public_directory():
 def _directory_authorized(public=False):
     if public and _public_directory():
         return True
+    from .federation_moderation_auth import legacy_peer_allowed
+    if not legacy_peer_allowed(_root(), request):
+        return False
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
     supplied = request.headers.get("Authorization", "")
     supplied = supplied[7:].strip() if supplied.startswith("Bearer ") else ""
@@ -80,6 +84,11 @@ def register():
     body = request.get_json(silent=True) or {}
     try:
         profile = peer_profile(body.get("profile"))
+        if profile["peer_id"] in FederationStore(_root()).banned_peer_ids():
+            return jsonify({"error": "peer_banned"}), 403
+        sender = authenticated_peer(_root(), request)
+        if sender and sender != profile["peer_id"]:
+            return jsonify({"error": "peer_identity_mismatch"}), 403
         trust = FederationTrustStore(_root())
         trust.remember(
             profile["peer_id"], profile["country"], profile["fingerprint"],
@@ -89,7 +98,7 @@ def register():
         existing = store.get_peer(profile["peer_id"])
         store.save_peer(
             profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("enabled", False)),
+            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
         )
         ttl = body.get("ttl_seconds", 86400)
         FederationDirectoryStore(_root()).publish(profile["peer_id"], ttl)

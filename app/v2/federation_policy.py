@@ -173,7 +173,13 @@ class FederationPolicyStore:
                    ORDER BY peer_id,scope""",
                 (checked_at,),
             ).fetchall()
-        return [dict(row) for row in rows]
+        from ..federation_store import FederationStore
+        moderation = FederationStore(self.root).banned_peer_ids(now=checked_at)
+        return [dict(row) for row in rows] + [
+            {"peer_id": peer, "scope": "all", "reason": "peer_banned",
+             "created_by": "moderation", "created_at": checked_at, "expires_at": None}
+            for peer in sorted(moderation)
+        ]
 
     def block_objects(
         self,

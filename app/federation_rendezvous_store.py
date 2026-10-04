@@ -41,9 +41,12 @@ class FederationRendezvousStore:
                 (lookup_key, now),
             ).fetchall()
         result = []
+        banned = self.store.banned_peer_ids()
         for row in rows:
             try:
-                result.append(peer_profile(json.loads(row["profile_json"])))
+                profile = peer_profile(json.loads(row["profile_json"]))
+                if profile["peer_id"] not in banned:
+                    result.append(profile)
             except (ValueError, json.JSONDecodeError):
                 continue
         return result

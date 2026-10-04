@@ -16,6 +16,8 @@ class FederationRendezvousMessages:
     def send(self, sender_peer, recipient_peer, kind, payload, ttl_seconds=600):
         sender_peer = sanitize_peer_id(sender_peer)
         recipient_peer = sanitize_peer_id(recipient_peer)
+        if {sender_peer, recipient_peer} & self.store.banned_peer_ids():
+            raise ValueError("banned rendezvous peer")
         kind = str(kind or "signal").strip()[:80]
         if not isinstance(payload, dict):
             raise ValueError("rendezvous payload must be an object")
