@@ -194,16 +194,16 @@ if paramiko is not None:
                 return _sftp_status(exc)
 
         def remove(self, path):
-            return self._remove(path)
+            return self._remove(path, directory=False)
 
         def rmdir(self, path):
-            return self._remove(path)
+            return self._remove(path, directory=True)
 
-        def _remove(self, path):
+        def _remove(self, path, *, directory):
             if self.scope != "write":
                 return paramiko.SFTP_PERMISSION_DENIED
             try:
-                self.vfs.remove(self.actor, path)
+                self.vfs.remove(self.actor, path, directory=directory)
                 return paramiko.SFTP_OK
             except (OSError, ValueError) as exc:
                 return _sftp_status(exc)

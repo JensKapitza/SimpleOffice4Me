@@ -410,11 +410,19 @@ class VirtualFileSystem:
         resource = resolve_for_write_under(self.root, resource.relative_to(self.root))
         return self.store.create_collection(self.relative(resource), actor)
 
-    def remove(self, actor: str, path: str | Path, *, expected_sha256: str = "") -> None:
+    def remove(
+        self, actor: str, path: str | Path, *, expected_sha256: str = "",
+        directory: bool | None = None,
+    ) -> None:
         resource = self.require(actor, path, "write")
         self.require(actor, resource.parent, "write")
         resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-        if resource.is_dir():
+        is_directory = resource.is_dir()
+        if directory is True and not is_directory:
+            raise NotADirectoryError(self.relative(resource))
+        if directory is False and is_directory:
+            raise IsADirectoryError(self.relative(resource))
+        if is_directory:
             self.store.delete_empty_collection(self.relative(resource), actor)
         else:
             document = self.store.get_document(resource)
