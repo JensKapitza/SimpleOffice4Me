@@ -120,6 +120,15 @@ class FederationModerationHttpTests(unittest.TestCase):
         self.assertEqual(302, self.client.post(path, data=data, headers=self.csrf).status_code)
         self.assertEqual({"bad"}, self.store.banned_peer_ids())
 
+    def test_peer_proof_is_not_cached_across_separate_http_requests(self):
+        self.moderation.ban("bad", "abuse", actor="admin")
+        path = "/federation/v1/capabilities"
+        proof = headers("reporter", "reporter-token", "GET", path)
+        proof["Authorization"] = "Bearer shared"
+        self.assertEqual(200, self.client.get(path, headers=proof).status_code)
+        self.assertEqual(401, self.client.get(path, headers=proof).status_code)
+        self.assertEqual(401, self.client.get(path, headers={"Authorization": "Bearer shared"}).status_code)
+
 
 if __name__ == "__main__":
     unittest.main()

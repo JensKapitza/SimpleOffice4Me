@@ -43,6 +43,11 @@ def headers(peer_id, token, method, path, body=b""):
     }
 
 
+def authenticated_peer(root, request):
+    cache_key = "simpleoffice.peer_auth:" + str(Path(root).expanduser().resolve())
+    return getattr(request, "environ", {}).get(cache_key)
+
+
 def authenticate(root, request):
     cache_key = "simpleoffice.peer_auth:" + str(Path(root).expanduser().resolve())
     environ = getattr(request, "environ", {})

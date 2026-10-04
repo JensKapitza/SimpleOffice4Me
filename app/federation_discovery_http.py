@@ -2,7 +2,7 @@
 import hmac
 import os
 
-from flask import Blueprint, current_app, g, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 
 from .federation_attestations import FederationAttestationStore
 from .federation_directory import directory_profiles
@@ -10,6 +10,7 @@ from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
 from .federation_local_profile import local_peer_id, local_profile
 from .federation_peer_auth import authenticate as authenticate_peer
+from .federation_peer_auth import authenticated_peer
 from .federation_peer_profile import peer_profile
 from .federation_rendezvous_messages import FederationRendezvousMessages
 from .federation_rendezvous_store import FederationRendezvousStore
@@ -85,7 +86,7 @@ def register():
         profile = peer_profile(body.get("profile"))
         if profile["peer_id"] in FederationStore(_root()).banned_peer_ids():
             return jsonify({"error": "peer_banned"}), 403
-        sender = getattr(g, "moderation_authenticated_peer", None)
+        sender = authenticated_peer(_root(), request)
         if sender and sender != profile["peer_id"]:
             return jsonify({"error": "peer_identity_mismatch"}), 403
         trust = FederationTrustStore(_root())
