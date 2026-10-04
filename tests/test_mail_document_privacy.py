@@ -2,6 +2,8 @@ import json
 import os
 import tempfile
 import unittest
+from email import policy
+from email.parser import BytesParser
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,12 +14,13 @@ from app.document_store import DocumentStore
 from app.document_store_part_1 import _DocumentStorePart1
 from app.mail_case_attachments import MailCaseAttachmentStore
 from app.mail_case_store import MailCaseStore
-from app.mail_client import MailStore, SmtpDeliveryStateUnknown
+from app.mail_client import MailStore, SmtpDeliveryStateUnknown, SmtpSubmission
 from app.mail_webclient import MailAccountPolicy
 from app.mail_env_credentials import BINDINGS_ENV
 from app.password_security import hash_password
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
+from app.v2.storage_runtime import replace_document
 
 
 class FakeScanner:
@@ -68,6 +71,8 @@ class MailDocumentPrivacyTests(unittest.TestCase):
             prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
             activate_v2(self.root, apply=True, acknowledge_local_plaintext=True)
             (self.root / self.archive["path"]).unlink()
+            attachment_document = self.documents.get_document(self.attachment["document_id"])
+            (self.root / attachment_document["last_path"]).unlink()
         self.clients = {}
         for actor in ("alice", "bob", "admin"):
             client = app.test_client()
@@ -119,6 +124,53 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         response = self.clients["bob"].get(url)
         self.assertEqual(302, response.status_code)
         self.assertNotEqual(b"private attachment", response.data)
+
+    def test_approved_draft_sends_verified_attachment_and_records_sent_status(self):
+        self.cases.request_draft_send("alice", self.case_id, self.draft_id)
+        self.cases.review_draft_send("alice", self.case_id, self.draft_id, approve=True)
+        MailAccountPolicy(self.mail).set_read_only("alice", "work", False)
+
+        class FakeSmtp:
+            def sendmail(self, sender, recipients, raw):
+                self.raw = raw
+                return {}
+
+            def quit(self):
+                pass
+
+            def close(self):
+                pass
+
+        smtp = FakeSmtp()
+        with patch.object(SmtpSubmission, "_connect", return_value=smtp):
+            response = self.clients["alice"].post(
+                f"/documents/mail/reader/case/{self.case_id}/draft/{self.draft_id}/send",
+                follow_redirects=True,
+            )
+        self.assertIn("versandt und im Vorgang archiviert", response.get_data(as_text=True))
+        message = BytesParser(policy=policy.default).parsebytes(smtp.raw)
+        attachments = list(message.iter_attachments())
+        self.assertEqual(1, len(attachments))
+        self.assertEqual(b"private attachment", attachments[0].get_payload(decode=True))
+        draft = self.cases.get_case("alice", self.case_id)["drafts"][0]
+        self.assertEqual("sent", draft["status"])
+
+    def test_changed_attachment_prevents_smtp_and_sent_state(self):
+        # V2 mutations intentionally keep the rollback projection synchronized.
+        document = self.documents.get_document(self.attachment["document_id"])
+        (self.root / document["last_path"]).write_bytes(b"private attachment")
+        replace_document(self.root, "alice", self.attachment["document_id"], b"unscanned revision")
+        self.cases.request_draft_send("alice", self.case_id, self.draft_id)
+        self.cases.review_draft_send("alice", self.case_id, self.draft_id, approve=True)
+        MailAccountPolicy(self.mail).set_read_only("alice", "work", False)
+        with patch.object(SmtpSubmission, "send") as send:
+            response = self.clients["alice"].post(
+                f"/documents/mail/reader/case/{self.case_id}/draft/{self.draft_id}/send",
+                follow_redirects=True,
+            )
+            send.assert_not_called()
+        self.assertIn("Versand fehlgeschlagen", response.get_data(as_text=True))
+        self.assertEqual("failed", self.cases.get_case("alice", self.case_id)["drafts"][0]["status"])
 
     def test_private_mail_cannot_be_published_through_new_or_existing_public_shares(self):
         for document_id in (self.archive["document_id"], self.attachment["document_id"]):

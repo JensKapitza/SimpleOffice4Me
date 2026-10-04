@@ -208,3 +208,14 @@ including the worker path. V2 digest lookup does not require a scan row or a
 legacy metadata record, but a retained tombstone must not be bypassed by the
 active V2 catalog. Other metadata and namespace consumers still retain the
 overall compatibility dependency.
+
+Mail-case draft attachment downloads and SMTP submission now use verified
+StoragePort reads in V1, shadow, plaintext V2 and encrypted V2. The complete
+object is verified before content is released, and its version/hash/size must
+match the clean scan and frozen draft reference. Only the declared attachment
+size plus one byte is buffered (at most 50 MiB plus one byte); authoritative
+storage failures never fall back to a valid projection. V2 reads tolerate a
+missing or stale content projection. Mail-case authorization, malware gating,
+SMTP approval/delegation, revocation and audit stay in their existing services.
+Document metadata, folder policies and other mail consumers remain projection
+dependencies; this scoped change for #471 does not release the cleanup gate.

@@ -304,3 +304,21 @@ serverseitig unabhängig davon geprüft.
 Vorhandene Konten ohne gespeicherte Sichtbarkeitskonfiguration verwenden aus
 Kompatibilitätsgründen weiterhin den bisherigen Zustand: alle Funktionsbereiche
 sind sichtbar.
+
+### Verifizierte Entwurfsanhänge und V2
+
+Download und Versand lesen Entwurfsanhänge über den zentralen StoragePort.
+Im autoritativen V2-Modus ist die Blob-Version maßgeblich, auch wenn die alte
+Dateiprojektion fehlt oder veraltet ist; Shadow liest weiterhin die V1-Quelle.
+Der gesamte Inhalt wird vor der Freigabe geprüft. Fall-/Entwurfszuordnung,
+Scan-ID, sauberer Scanbefund, SHA-256, Versionshash und Größe müssen zur
+unveränderten Entwurfsreferenz passen. Eine neue Dokumentversion benötigt einen
+neuen Scan und eine neue Anhängereferenz. Speicher- oder Integritätsfehler
+führen zu keinem Download und keinem SMTP-Aufruf; vorhandene Freigabe-,
+Vertretungs-, Widerrufs- und Audit-Prüfungen bleiben wirksam.
+
+Der Lesepuffer ist auf die bestätigte Größe plus ein Prüfbyte begrenzt (maximal
+50 MiB plus ein Byte je Anhang). Die vollständige Quelle wird trotzdem geprüft;
+die vorhandene Gesamtgrößengrenze beim Anhängen und Versand gilt weiterhin.
+Diese Umstellung entfernt keine Metadaten-/Policy-Projektion und gibt den
+Legacy-Cleanup aus Issue #471 nicht frei.
