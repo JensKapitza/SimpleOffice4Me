@@ -300,6 +300,12 @@ class BlobCatalogStorageAdapter:
             return OperationResult(error=audit.error)
         return OperationResult.success(self._stored(entry))
 
+    def stat(self, object_id: LogicalObjectId) -> OperationResult[StoredObject]:
+        result = self._active(object_id)
+        if not result.ok:
+            return OperationResult(error=result.error)
+        return OperationResult.success(self._stored(result.value))
+
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         current = self._active(object_id)
         if not current.ok:

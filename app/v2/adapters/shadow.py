@@ -140,6 +140,9 @@ class ShadowDocumentStorageAdapter:
         ):
             self._dirty(f"{object_id.value}: V2 shadow catalog metadata mismatch")
 
+    def stat(self, object_id: LogicalObjectId) -> OperationResult[StoredObject]:
+        return self.legacy.stat(object_id)
+
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         result = self.legacy.read_bytes(object_id)
         self._compare_read(object_id, result)

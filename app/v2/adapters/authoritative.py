@@ -15,7 +15,7 @@ from typing import BinaryIO
 from app.document_store import DocumentStore
 from app.safe_paths import resolve_under
 
-from ..catalog import CatalogEntry, ObjectCatalog
+from ..catalog import CatalogEntry, CatalogState, ObjectCatalog
 from ..contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 from .blob_catalog import BlobCatalogStorageAdapter
 from .document_store import DocumentStoreStorageAdapter
@@ -159,6 +159,23 @@ class V2AuthoritativeStorageAdapter:
             return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection changed object identity")
         return self._compat_result(stored.object_id)
 
+    def _compat_read_result(self, result: OperationResult[StoredObject]):
+        if not result.ok:
+            return OperationResult(error=result.error)
+        entry = self._entry(result.value.object_id)
+        if not entry.ok:
+            return OperationResult(error=entry.error)
+        if (
+            entry.value.state is not CatalogState.ACTIVE
+            or entry.value.version_id != result.value.version
+            or entry.value.size != result.value.size
+        ):
+            return self._error(ErrorCode.CONFLICT, "object changed during storage read")
+        return OperationResult.success(self._compat(entry.value))
+
+    def stat(self, object_id: LogicalObjectId) -> OperationResult[StoredObject]:
+        return self._compat_read_result(self.primary.stat(object_id))
+
     def read_bytes(self, object_id: LogicalObjectId) -> OperationResult[bytes]:
         return self.primary.read_bytes(object_id)
 
@@ -168,9 +185,7 @@ class V2AuthoritativeStorageAdapter:
         target: BinaryIO,
     ) -> OperationResult[StoredObject]:
         streamed = self.primary.copy_verified_to(object_id, target)
-        if not streamed.ok:
-            return OperationResult(error=streamed.error)
-        return self._compat_result(object_id)
+        return self._compat_read_result(streamed)
 
     def copy_verified_range_to(
         self,
@@ -186,9 +201,7 @@ class V2AuthoritativeStorageAdapter:
             start=start,
             length=length,
         )
-        if not streamed.ok:
-            return OperationResult(error=streamed.error)
-        return self._compat_result(object_id)
+        return self._compat_read_result(streamed)
 
     def create_bytes(
         self,

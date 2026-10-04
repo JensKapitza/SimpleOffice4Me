@@ -76,6 +76,22 @@ Beim Öffnen der Vorschau eines Videos wird eine eigene Player-Seite angezeigt. 
 
 Die unveränderte Originaldatei bleibt weiterhin direkt erreichbar. Der Player ist nur eine andere Darstellung desselben Dokumentes.
 
+Die Originalquelle unterstützt einzelne HTTP-Bytebereiche für Wiedergabe und
+Sprünge. Größe und Version werden über den vorhandenen `StoragePort.stat()`
+ermittelt, nicht aus optionalen Dokument-Metadaten. Im V2-Modus ist dafür der
+aktive Katalog maßgeblich; die Legacy-Datei muss nicht vorhanden sein.
+`copy_verified_range_to()` prüft das vollständige Original und puffert nur den
+angeforderten Bereich. Ändert sich dabei Größe oder Version, wird kein Bereich
+ausgeliefert. Das verhindert auch, dass beschädigte Bytes außerhalb des
+angeforderten Abschnitts unbemerkt bleiben.
+
+Geschlossene, offene und Suffix-Bereiche werden unterstützt; ungültige oder
+mehrteilige Bereiche erhalten HTTP 416 mit der aktuellen Gesamtgröße. `HEAD`
+ignoriert `Range` und liefert die vollständige Länge ohne Inhalt. `If-Range`
+erlaubt Teilantworten nur bei einem passenden starken ETag; veraltete, schwache
+oder Datumsvalidatoren führen zur vollständigen aktuellen Antwort. Die Quelle
+bleibt privat zwischengespeichert und verwendet dieselben Dokumentrechte.
+
 ## Berechtigungen
 
 Leser, die auf das Originaldokument zugreifen dürfen, dürfen auch den Player, die Vorschaubilder und bereits vorhandene Wiedergabevarianten verwenden.

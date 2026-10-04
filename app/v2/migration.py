@@ -287,7 +287,7 @@ def _catalog_conflicts_for_plan(
             if (
                 str(row.get("state") or "") != "active"
                 or str(row.get("location") or "") != expected_location.relative_path
-                or int(row.get("size") or -1) != int(entry["size"])
+                or int(row.get("size", -1)) != int(entry["size"])
                 or str(row.get("content_sha256") or "") != str(entry["sha256"])
             ):
                 conflicts.append(f"{object_id.value}: catalog state differs from V1")
@@ -531,7 +531,7 @@ def verify_migration_transfer(root: str | Path) -> dict[str, Any]:
         if (
             str(row.get("state") or "") != "active"
             or str(row.get("location") or "") != str(entry["path"])
-            or int(row.get("size") or -1) != int(entry["size"])
+            or int(row.get("size", -1)) != int(entry["size"])
             or str(row.get("content_sha256") or "") != str(entry["sha256"])
         ):
             blockers.append(f"V2 catalog object differs from V1 source: {object_id.value}")

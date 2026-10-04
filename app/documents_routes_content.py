@@ -78,12 +78,22 @@ def _single_byte_range(value: str, size: int) -> tuple[int, int] | None:
 
 def _verified_video_response(document: dict[str, Any]):
     """Serve raw video through StoragePort, including one verified byte range."""
-    try:
-        size = int(document.get("size") or 0)
-    except (TypeError, ValueError):
-        abort(404)
     range_header = request.headers.get("Range", "")
-    if not range_header:
+    if not range_header or request.method != "GET":
+        response = _verified_preview_response(document)
+        response.headers["Accept-Ranges"] = "bytes"
+        return response
+    storage = _storage(str(g.user["username"]))
+    object_id = LogicalObjectId(str(document["document_id"]))
+    described = storage.stat(object_id)
+    if not described.ok:
+        abort(404)
+    expected = described.value
+    size = expected.size
+    # Only an exact strong validator permits a partial response. Unknown dates,
+    # weak validators and stale versions require the complete current object.
+    if_range = request.headers.get("If-Range")
+    if if_range and (not expected.version or if_range.strip() != f'"{expected.version}"'):
         response = _verified_preview_response(document)
         response.headers["Accept-Ranges"] = "bytes"
         return response
@@ -106,8 +116,8 @@ def _verified_video_response(document: dict[str, Any]):
     start, end = selected
     length = end - start + 1
     spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
-    result = _storage(str(g.user["username"])).copy_verified_range_to(
-        LogicalObjectId(str(document["document_id"])),
+    result = storage.copy_verified_range_to(
+        object_id,
         spool,
         start=start,
         length=length,
@@ -116,7 +126,7 @@ def _verified_video_response(document: dict[str, Any]):
         spool.close()
         abort(404)
     stored = result.value
-    if int(stored.size) != size:
+    if stored.size != size or stored.version != expected.version:
         spool.close()
         abort(404)
     spool.seek(0)
