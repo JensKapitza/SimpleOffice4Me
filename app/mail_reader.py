@@ -68,7 +68,11 @@ def _message_text(message) -> str:
             text = part.get_content()
         except Exception:
             payload = part.get_payload(decode=True) or b""
-            text = payload.decode(part.get_content_charset() or "utf-8", "replace")
+            charset = part.get_content_charset() or "utf-8"
+            try:
+                text = payload.decode(charset, "replace")
+            except (LookupError, UnicodeError):
+                text = payload.decode("utf-8", "replace")
         if not isinstance(text, str):
             continue
         if content_type == "text/plain":

@@ -343,6 +343,9 @@ class VirtualFileSystem:
             return self.store.get_document(stored.object_id.value)
         self.require(actor, resource.parent, "write")
         resource = resolve_for_write_under(self.root, resource.relative_to(self.root))
+        if expected_sha256:
+            # A guarded replacement must not recreate a concurrently deleted file.
+            raise ValueError("document content changed since it was opened")
         stored = self._storage_value(
             storage.create_bytes(
                 StorageLocation(self.relative(resource)),
