@@ -69,19 +69,15 @@ bleiben unverändert.
 
 ## Tests und bekannte Grenzen
 
-### EML: Vorschau und Suchindex unterscheiden sich
+### EML: decodierter Inhalt im Dokumentindex
 
-Die MIME-Vorschau liest `.eml` mit decodierten Headern und lesbarem Text.
-Sie ist über **Dokument → Anhänge → Mail vollständig lesen** erreichbar.
-Der normale Dokument-Text-Backfill behandelt EML dagegen derzeit als rohe
-UTF-8-Textdatei. RFC-2047-codierte Betreff-/Namensfelder sowie Base64- oder
-Quoted-Printable-Inhalte können deshalb trotz korrekter Vorschau mit ihrem
-lesbaren Suchbegriff fehlen. Erneutes Text-Backfill decodiert diese Inhalte
-aktuell ebenfalls nicht. Das bei der Nachprüfung des geschlossenen Issues #74
-reproduzierte Problem wird in
-[#588](https://github.com/JensKapitza/SimpleOffice4Me/issues/588) verfolgt.
-Spezielle `subject:`, `from:`, `to:` oder `maildate:`-Operatoren gehören derzeit
-nicht zur Feldliste dieser Retrieval-Suche. Die Mail-Archivsuche und die globale
+Die MIME-Vorschau und der Dokument-Text-Backfill verwenden denselben Parser für
+`.eml`: decodierte Betreff-, Absender-, Empfänger-, Cc-, Datums- und Message-ID-
+Felder sowie lesbaren MIME-Text werden in den vorhandenen Dokumentindex
+übernommen. Anhänge werden nicht in den EML-Suchtext eingelesen. Der Backfill
+lehnt Nachrichten über 25 MiB mit einem begrenzten Extraktionsstatus ab.
+Spezielle `subject:`, `from:`, `to:` oder `maildate:`-Operatoren gehören nicht
+zur Feldliste dieser Retrieval-Suche. Die Mail-Archivsuche und die globale
 3.0-Suche sind eigene vorhandene Suchoberflächen mit ihren jeweiligen Grenzen.
 
 ### Weitere Grenzen
