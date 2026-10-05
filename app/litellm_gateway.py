@@ -64,6 +64,37 @@ def addresses(config, host, port, timeout=10):
     return result
 
 
+def _connect(parsed, targets, deadline, sockets):
+    # Failover is only safe before any HTTP request (especially a billable POST).
+    tls = None
+    if parsed.scheme == "https":
+        tls = ssl.create_default_context()
+        tls.minimum_version = ssl.TLSVersion.TLSv1_2
+    for family, address in targets:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise GatewayError("timeout")
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        sockets[0] = sock
+        try:
+            sock.settimeout(remaining)
+            sock.connect(address)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GatewayError("timeout")
+            sock.settimeout(remaining)
+            if tls is not None:
+                sock = tls.wrap_socket(sock, server_hostname=parsed.hostname)
+                sockets[0] = sock
+            return sock
+        except ssl.SSLError:
+            sock.close()
+            raise  # Certificate/TLS failures cannot justify another target.
+        except OSError:
+            sock.close()
+    raise GatewayError("timeout" if time.monotonic() >= deadline else "unreachable")
+
+
 def _exchange(config, path, body, timeout):
     parsed = urlsplit(gateway_url(config))
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -73,12 +104,12 @@ def _exchange(config, path, body, timeout):
     if timeout <= 0:
         raise GatewayError("timeout")
     # Never perform a second hostname lookup; preserve TLS hostname verification.
-    family, address = targets[0]
     connection = http.client.HTTPConnection(parsed.hostname, port, timeout=timeout)
-    sock = socket.socket(family, socket.SOCK_STREAM)
-    sockets = [sock]
+    sockets = [None]
 
     def interrupt():
+        if sockets[0] is None:
+            return
         try:
             sockets[0].shutdown(socket.SHUT_RDWR)
         except OSError:
@@ -88,11 +119,7 @@ def _exchange(config, path, body, timeout):
     timer.daemon = True
     timer.start()
     try:
-        sock.settimeout(timeout)
-        sock.connect(address)
-        if parsed.scheme == "https":
-            sock = ssl.create_default_context().wrap_socket(sock, server_hostname=parsed.hostname)
-            sockets[0] = sock
+        sock = _connect(parsed, targets, deadline, sockets)
         connection.sock = sock
         raw = None if body is None else json.dumps(body).encode()
         if raw is not None and len(raw) > MAX_BYTES:
@@ -113,7 +140,7 @@ def _exchange(config, path, body, timeout):
             # unknown virtual keys with this documented proxy error (HTTP 400).
             try:
                 rejected = json.loads(data)
-            except (ValueError, UnicodeError) as exc:
+            except (ValueError, UnicodeError, RecursionError) as exc:
                 raise GatewayError("gateway_rejected") from exc
             error = rejected.get("error") if isinstance(rejected, dict) else None
             if isinstance(error, dict) and error.get("type") == "no_db_connection":
@@ -124,7 +151,7 @@ def _exchange(config, path, body, timeout):
             raise GatewayError("gateway_rejected")
         try:
             value = json.loads(data)
-        except (ValueError, UnicodeError) as exc:
+        except (ValueError, UnicodeError, RecursionError) as exc:
             raise GatewayError("invalid_response") from exc
         if path == "/health/liveliness" and value == "I'm alive!":
             return {"status": "alive"}
@@ -134,7 +161,8 @@ def _exchange(config, path, body, timeout):
     finally:
         timer.cancel()
         connection.close()
-        sock.close()
+        if sockets[0] is not None:
+            sockets[0].close()
 
 
 def request_gateway(path, body=None, *, config=None):

@@ -66,8 +66,8 @@ jobs:
         run: python -m pip install --editable .
       - name: Pull configured pinned LiteLLM image
         run: |
-          LITELLM_VERSION=$(python -c 'from app.litellm_config import DEFAULTS; print(DEFAULTS["version"])')
-          docker pull "docker.litellm.ai/berriai/litellm:v${LITELLM_VERSION}"
+          LITELLM_IMAGE=$(python -c 'from app.litellm_config import DEFAULTS, image_reference; print(image_reference(DEFAULTS))')
+          docker pull "$LITELLM_IMAGE"
       - name: Exercise real optional container operations with a non-billable model
         run: python tools/litellm_smoke.py
 

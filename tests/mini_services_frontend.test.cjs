@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 
-async function fixture(scan, settingsLinks = {}, capabilities = ['scan']) {
+async function fixture(scan, settingsLinks = {}, capabilities = ['scan'], overrides = {}) {
   const nodes = [];
   function node(tag) {
     const value = {tag, children: [], attributes: {}, handlers: {}, textContent: '',
@@ -20,10 +20,11 @@ async function fixture(scan, settingsLinks = {}, capabilities = ['scan']) {
   const elements = Object.fromEntries(['mini-service-control', 'mini-feedback', 'mini-control-cards', 'mini-refresh'].map(id => [id, node('div')]));
   elements['mini-service-control'].dataset = {api: '/api/mini-services', settingsLinks: JSON.stringify(settingsLinks)};
   const service = {id: 'audio-sender', name: 'Audio', state: 'stopped', capabilities, settings: {}, scan,
-    owner: 'web', requires: ['web'], optional_requires: [], provides: ['audio-sender'], version: 'test'};
+    owner: 'web', requires: ['web'], optional_requires: [], provides: ['audio-sender'], version: 'test', ...overrides};
+  const timerDelays = [];
   let postFailure = false;
   const context = {Headers, AbortController,
-    setTimeout: () => 1, clearTimeout() {},
+    setTimeout: (fn, delay) => { timerDelays.push(delay); return 1; }, clearTimeout() {},
     document: {hidden: false, getElementById: id => elements[id], createElement: node, querySelector: () => ({content: 'csrf'})},
     fetch: async (url, options) => {
       if (options.method === 'POST' && postFailure) {
@@ -34,7 +35,7 @@ async function fixture(scan, settingsLinks = {}, capabilities = ['scan']) {
     }};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../static/js/mini_services.js'), 'utf8'), context);
   await new Promise(resolve => setImmediate(resolve));
-  return {nodes, elements, service, failPost() { postFailure = true; },
+  return {nodes, elements, service, timerDelays, failPost() { postFailure = true; },
     scanNode: () => nodes.find(item => item.attributes.role === 'status')};
 }
 
@@ -100,5 +101,16 @@ test('Lifecycle toggles reference readable inline help', async () => {
   for (const input of inputs) {
     const help = f.nodes.find(item => item.id === input.attributes['aria-describedby']);
     assert.ok(help && help.textContent.length > 20);
+  }
+});
+
+test('Hub waits for bounded LiteLLM actions and retains default timeouts elsewhere', async () => {
+  for (const [timeout, expected] of [[90, 90000], [undefined, 15000], [Infinity, 15000], [121, 15000], [0, 15000]]) {
+    const f = await fixture(undefined, {}, ['scan'], {id: 'litellm', action_timeout_seconds: timeout});
+    f.timerDelays.length = 0;
+    await f.nodes.find(item => item.tag === 'button' && item.textContent === 'Suchen').handlers.click();
+    assert.equal(f.timerDelays[0], expected);
+    assert.equal(f.timerDelays[1], 15000);
+    assert.equal(f.elements['mini-service-control'].attributes['aria-busy'], undefined);
   }
 });

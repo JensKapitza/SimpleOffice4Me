@@ -62,8 +62,14 @@ zu verwenden; kein Docker-Socket muss in die Webanwendung eingebunden werden.
 3. Aktivieren, speichern und **Gepinntes Image installieren / aktualisieren**.
 4. **Starten**, Initialisierung abwarten und **Verbindung testen**.
 
-Default ist `docker.litellm.ai/berriai/litellm:v1.100.1`; erlaubte Versionslinie
-ab 1.98.0. Kein `latest`, keine automatisch unbemerkten Upgrades. Die Python-
+Default ist `docker.litellm.ai/berriai/litellm:v1.100.1` mit dem am 05.10.2026
+aus der offiziellen Registry geprüften Digest
+`sha256:a3715fa7ad8387941ab697259bd2881d68931657247a41984f90fae6d11c62bf`.
+Pull und Compose verwenden ausschließlich `Version@sha256:Digest`, damit ein
+nachträglich veränderter Tag keinen anderen Code mit den Provider-Keys ausführt.
+Erlaubte Versionslinie ab 1.98.0. Bei Versionswechsel den zugehörigen Digest
+aus der vertrauenswürdigen Registry prüfen und gemeinsam speichern; ohne Digest
+ist lokaler Betrieb gesperrt. Kein `latest`, keine unbemerkten Upgrades. Die Python-
 Abhängigkeiten von LiteLLM laufen im eigenen Image, nicht in der SimpleOffice-venv.
 Die offiziell gepinnte Version definiert ihre Abhängigkeiten und Python-Version
 selbst. Installation lädt nur das gewählte Image; Start verwendet `--pull never`.
@@ -104,6 +110,10 @@ Nur idempotente Statusprüfungen werden bei vorübergehenden Netzwerkfehlern,
 inklusive Retries, DNS und Übertragung; der Verbindungstest teilt sein Budget
 auf alle drei Prüfungen. Modell-POSTs werden nie automatisch wiederholt, weil
 Kosten oder bereits ausgeführte Aktionen sonst doppelt auftreten könnten.
+Bei Verbindungsfehlern vor der HTTP-Anfrage werden weitere bereits geprüfte
+DNS-Adressen innerhalb derselben Deadline versucht. Nach Übertragung der Anfrage
+gibt es keinen Adresswechsel für Modell-POSTs; TLS-Zertifikatsfehler brechen ab.
+TLS benötigt mindestens Version 1.2.
 Keine automatischen Provider-Fallbacks mit veränderten Datenfreigaben.
 
 Fehlercodes: `disabled`, `unauthorized`, `unreachable`, `timeout`,
@@ -120,15 +130,22 @@ keine Providerantworten, Prompts oder Exception-Payloads.
 
 1. Verschlüsselte Konfiguration sichern; Anwendungsschlüssel separat sichern.
 2. Lokalen Dienst stoppen. Laufende lokale Konfiguration wird nicht überschrieben.
-3. Gepinnte Zielversion speichern und **Image installieren / aktualisieren**.
+3. Zielversion und geprüften Image-Digest speichern und **Image installieren / aktualisieren**.
 4. Starten und Verbindung testen; Fachanfrage mit unkritischen Daten prüfen.
-5. Bei Fehlern stoppen, vorherige Version wieder speichern/installieren/starten.
+5. Bei Fehlern stoppen, vorherige Version mit ihrem Digest wieder speichern/installieren/starten.
 
 Es gibt keine lokalen Gateway-DB-Migrationen. Das vorherige Image bleibt erhalten;
 kein automatisches Pruning. Neustart ersetzt nur den eigenen Compose-Dienst
 (Projektkennung aus dem Konfigurationspfad), keine fremden Container.
 Fehlende Docker-Komponenten, Pull-Timeouts, fehlende Images, Portkonflikte,
 Konfigurationsfehler und fehlgeschlagene Prüfungen werden kontrolliert gemeldet.
+Vor einem Neustart werden Secrets entschlüsselt, Compose-Dateien geschrieben und
+das lokal installierte Image geprüft. Scheitert diese Vorprüfung, läuft der
+bestehende Container weiter. Gestoppt und startend werden als eigene Zustände
+angezeigt. Abgewiesene Einstellungen oder konkurrierende Aktionen verändern
+keinen gemessenen Health-Status; ihre Fehler stehen in Rückmeldung und Audit.
+Der Hub wartet für synchrone LiteLLM-Aktionen bis zu 90 Sekunden; Docker-Befehle
+und Verbindungstests bleiben serverseitig einzeln begrenzt.
 Die letzte sichere Dienstdiagnose steht im Hub. Ein Pull-Timeout verlangt einen
 erneuten expliziten Versuch; kein Hintergrund-Installationsloop.
 
@@ -149,7 +166,8 @@ Version passen. Die SimpleOffice-Sicherung ersetzt diese Datenbanksicherung nich
 
 Deaktivieren unterbindet neue Gateway-Anfragen und stoppt/entfernt den lokal
 verwalteten Container vor dem Speichern. Scheitert Stop, wird Deaktivierung
-nicht als abgeschlossen gespeichert. Einstellungen und verschlüsselte Keys
+nicht als abgeschlossen gespeichert. Auch ein fehlender Docker-Client gilt
+als unbekannter Zustand, nicht als erfolgreicher Stop. Einstellungen und verschlüsselte Keys
 bleiben erhalten. Bei beschädigter Konfiguration funktioniert die Stop-Aktion
 anhand der eigenen Compose-Labels auch ohne Entschlüsselung. Extern wird nur
 der SimpleOffice-Zugang deaktiviert, keine fremde Infrastruktur abgeschaltet.

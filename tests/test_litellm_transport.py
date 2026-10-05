@@ -107,6 +107,49 @@ class LiteLLMTransportTest(unittest.TestCase):
         sock.connect.assert_called_once_with(('1.1.1.1', 443))
         context.assert_called_once_with()
         tls.wrap_socket.assert_called_once_with(sock, server_hostname='gateway.example')
+        import ssl
+        self.assertEqual(ssl.TLSVersion.TLSv1_2, tls.minimum_version)
+
+    def test_connect_failover_uses_only_validated_addresses_before_post(self):
+        from app import litellm_gateway as gateway
+        cfg = {**self.config, 'mode': 'external', 'base_url': 'https://gateway.example'}
+        connection, unreachable, working, tls = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+        unreachable.connect.side_effect = OSError('IPv6 unavailable')
+        tls.wrap_socket.return_value = working
+        response = connection.getresponse.return_value
+        response.status, response.read.return_value = 200, b'{}'
+        answers = [(10, 1, 6, '', ('2606:4700:4700::1111', 443, 0, 0)), (2, 1, 6, '', ('1.1.1.1', 443))]
+        with patch.object(gateway, '_resolve', return_value=answers) as resolver, \
+                patch.object(gateway.socket, 'socket', side_effect=[unreachable, working]), \
+                patch.object(gateway.ssl, 'create_default_context', return_value=tls), \
+                patch.object(gateway.http.client, 'HTTPConnection', return_value=connection):
+            self.assertEqual({}, request_gateway('/v1/chat/completions', {'model': 'model'}, config=cfg))
+        resolver.assert_called_once()
+        unreachable.connect.assert_called_once_with(answers[0][4])
+        unreachable.close.assert_called()
+        working.connect.assert_called_once_with(answers[1][4])
+        connection.request.assert_called_once()
+
+    def test_no_address_failover_after_request_or_tls_validation_failure(self):
+        from app import litellm_gateway as gateway
+        import ssl
+        cfg = {**self.config, 'mode': 'external', 'base_url': 'https://gateway.example'}
+        for error, stage in [(OSError('response lost'), 'response'), (ssl.SSLCertVerificationError('certificate'), 'tls')]:
+            connection, sock, tls = MagicMock(), MagicMock(), MagicMock()
+            tls.wrap_socket.return_value = sock
+            if stage == 'tls':
+                tls.wrap_socket.side_effect = error
+            else:
+                connection.getresponse.side_effect = error
+            with self.subTest(stage=stage), \
+                    patch.object(gateway, 'addresses', return_value=[(2, ('1.1.1.1', 443)), (2, ('1.0.0.1', 443))]), \
+                    patch.object(gateway.socket, 'socket', return_value=sock) as sockets, \
+                    patch.object(gateway.ssl, 'create_default_context', return_value=tls), \
+                    patch.object(gateway.http.client, 'HTTPConnection', return_value=connection):
+                with self.assertRaisesRegex(GatewayError, 'unreachable'):
+                    request_gateway('/v1/chat/completions', {'model': 'model'}, config=cfg)
+                sockets.assert_called_once()
+                self.assertEqual(0 if stage == 'tls' else 1, connection.request.call_count)
 
     def test_slow_dns_is_bounded_and_resolver_capacity_is_finite(self):
         from app import litellm_gateway as gateway

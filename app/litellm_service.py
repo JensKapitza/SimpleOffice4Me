@@ -11,7 +11,7 @@ import time
 
 from simpleoffice_mini_core import _atomic_write
 from tools.service_control import exclusive_lease
-from .litellm_config import DEFAULTS, gateway_url, persist, prepare, public, secret, settings, settings_path, validate
+from .litellm_config import DEFAULTS, gateway_url, image_reference, persist, prepare, public, secret, settings, settings_path, validate
 from .litellm_gateway import probe
 
 
@@ -34,8 +34,6 @@ def _docker(args, *, environment=None, timeout=12):
 
 
 def _running():
-    if not shutil.which("docker"):
-        return False
     data = _docker(["ps", "--filter", "label=com.docker.compose.project=" + _project(),
                     "--filter", "label=com.docker.compose.service=gateway", "--format", "{{.ID}}"], timeout=3)
     return bool(data.strip())
@@ -50,7 +48,7 @@ def _compose(config):
         "router_settings": {"num_retries": 0, "timeout": config["timeout"]}}
     _atomic_write(directory() / "config.yaml", json.dumps(model_config).encode(), mode=0o644)
     compose = {"services": {"gateway": {
-        "image": "docker.litellm.ai/berriai/litellm:v" + config["version"],
+        "image": image_reference(config),
         "command": ["--config", "/app/config.yaml", "--port", "4000"],
         "ports": [f"127.0.0.1:{config['port']}:4000"],
         "volumes": [str((directory() / "config.yaml").resolve()) + ":/app/config.yaml:ro"],
@@ -92,13 +90,9 @@ def _record(health):
 
 
 def record_error(exc):
-    # Safe diagnostics only; exception payloads may contain credentials.
-    try:
-        _record({"ok": False, "code": type(exc).__name__,
-                 "message": "Dienstaktion fehlgeschlagen; Konfiguration, Docker und Dateirechte prüfen."})
-    except OSError:
-        from simpleoffice_service_lifecycle import log_service_event
-        log_service_event("litellm", "diagnostic_write_failed", exc=exc)
+    # A rejected operation says nothing about independently measured health.
+    from simpleoffice_service_lifecycle import log_service_event
+    log_service_event("litellm", "operation_failed", exc=exc)
 
 
 def autostart():
@@ -125,22 +119,25 @@ def status():
                 raise ValueError("Statuszeit ungültig.")
             health = {"ok": health.get("ok", False), "message": health.get("message", "")[:256],
                       "code": health.get("code", "unknown")[:80], "updated_at": updated_at}
-        except (ValueError, OSError, TypeError):
+        except (ValueError, OSError, TypeError, RecursionError):
             health = {"ok": False, "code": "unknown", "message": "Statusdatei nicht lesbar; Verbindung erneut testen."}
         if not config["enabled"]:
             health = {"ok": False, "message": "LiteLLM deaktiviert.", "code": "disabled"}
-        elif health.get("updated_at", 0) < time.time() - 60:
+        elif health.get("code") != "stopped" and health.get("updated_at", 0) < time.time() - 60:
             health = {"ok": False, "message": "Verbindungstest erforderlich.", "code": "unknown"}
+        state = "disabled" if not config["enabled"] else (
+            health["code"] if health.get("code") in {"stopped", "starting"} else
+            "running" if health.get("ok") else "degraded")
         return {"id": "litellm", "name": "LiteLLM Gateway", "settings": public(config),
                 "config": public(config), "owner": "docker-compose" if config["mode"] == "local" else "external",
-                "state": "disabled" if not config["enabled"] else ("running" if health.get("ok") else "degraded"),
+                "state": state, "action_timeout_seconds": 90,
                 "capabilities": ["start", "stop", "restart", "scan", "settings"] if config["mode"] == "local" else ["scan", "settings"],
-                "health": health, "last_error": None if health.get("ok") or not config["enabled"] else {
+                "health": health, "last_error": None if state in {"running", "disabled", "stopped", "starting"} else {
                     "message": health.get("message", "Noch kein Verbindungstest."),
                     "action": "Gateway-Key, Modell, Netzwerk und Dienst prüfen."}, "gateway_url": gateway_url(config)}
-    except (ValueError, OSError, TypeError):
+    except (ValueError, OSError, TypeError, RecursionError):
         return {"id": "litellm", "name": "LiteLLM Gateway", "state": "failed", "settings": {},
-                "config": {}, "owner": "docker-compose", "capabilities": ["stop"],
+                "config": {}, "owner": "docker-compose", "capabilities": ["stop"], "action_timeout_seconds": 90,
                 "health": {"ok": False, "message": "Konfiguration ungültig; Sicherung wiederherstellen."}}
 
 
@@ -180,13 +177,17 @@ def action(name):
         if name == "install":
             if _running():
                 raise ValueError("Vor Installation oder Upgrade lokalen Dienst stoppen.")
-            _docker(["pull", "docker.litellm.ai/berriai/litellm:v" + config["version"]], timeout=55)
+            _docker(["pull", image_reference(config)], timeout=55)
         else:
+            environment = _environment(config)
+            path = _compose(config)
+            _docker(["image", "inspect", image_reference(config)], timeout=3)
+            _docker(["compose", "--project-name", _project(), "--file", str(path),
+                     "config", "--quiet"], environment=environment, timeout=3)
             if name == "restart":
                 _stop()
-            path = _compose(config)
             _docker(["compose", "--project-name", _project(), "--file", str(path),
-                     "up", "--detach", "--pull", "never"], environment=_environment(config))
+                     "up", "--detach", "--pull", "never"], environment=environment)
             _record({"ok": False, "code": "starting", "message": "Container gestartet; Verbindungstest nach Initialisierung ausführen."})
         return status()
 
@@ -209,7 +210,7 @@ def restore(payload):
             raise RuntimeError("LiteLLM-Aktion läuft bereits.")
         try:
             previous = settings()
-        except (ValueError, OSError):
+        except (ValueError, OSError, TypeError, RecursionError):
             previous = {**DEFAULTS, "mode": "local"}
         if previous["enabled"] or (previous["mode"] == "local" and _running()):
             raise ValueError("LiteLLM vor Restore deaktivieren.")

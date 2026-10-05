@@ -231,7 +231,9 @@ class LiteLLMTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn(b'LiteLLM-Aktion fehlgeschlagen', response.data)
         self.assertNotIn(b'private secret payload', response.data)
-        self.assertEqual('RuntimeError', service.status()['health']['code'])
+        self.assertEqual('unknown', service.status()['health']['code'])
+        events = database.get_db().execute("SELECT outcome FROM security_event WHERE target_id='litellm' AND action='mini_service_install'").fetchall()
+        self.assertEqual('failure', events[-1][0])
 
     def test_corrupt_config_restore_and_start_failure_do_not_destroy_backup(self):
         self.enable()
@@ -253,9 +255,103 @@ class LiteLLMTest(unittest.TestCase):
         self.login()
         target = service.directory() / 'health.json'
         target.parent.mkdir(parents=True, exist_ok=True)
-        for raw in ('[]', '0', '{"updated_at":"bad"}', '{"updated_at":NaN}', 'broken'):
+        for raw in ('[]', '0', '{"updated_at":"bad"}', '{"updated_at":NaN}', 'broken', '[' * 2000 + '0' + ']' * 2000):
             target.write_text(raw)
             row = service.status()
             self.assertEqual('test-model', row['settings']['model'])
             self.assertFalse(row['health']['ok'])
             self.assertEqual(200, self.client.get('/admin/mini-services/litellm').status_code)
+
+    def test_missing_docker_cannot_disable_or_restore_a_local_gateway(self):
+        self.enable(mode='local', provider_model='openai/test')
+        original = config.settings_path().read_bytes()
+        with patch.object(service.shutil, 'which', return_value=None):
+            with self.assertRaises(RuntimeError):
+                service.save_settings({'enabled': False})
+        self.assertEqual(original, config.settings_path().read_bytes())
+        config.persist(config.prepare({'enabled': False}))
+        original = config.settings_path().read_bytes()
+        with patch.object(service.shutil, 'which', return_value=None):
+            with self.assertRaises(RuntimeError):
+                service.restore(json.loads(service.backup()))
+        self.assertEqual(original, config.settings_path().read_bytes())
+
+    def test_restart_preflight_failure_preserves_running_container(self):
+        self.enable(mode='local', provider_model='openai/test')
+        for name, failure in [('_environment', ValueError('key unavailable')),
+                              ('_compose', OSError('disk full')),
+                              ('_docker', RuntimeError('image missing'))]:
+            with self.subTest(step=name), patch.object(service, name, side_effect=failure), patch.object(service, '_stop') as stop:
+                with self.assertRaises(type(failure)):
+                    service.action('restart')
+                stop.assert_not_called()
+
+    def test_restart_preflight_completes_before_stop(self):
+        self.enable(mode='local', provider_model='openai/test')
+        order = []
+        def docker(args, **kwargs):
+            order.append(args[0])
+            return b''
+        def stop():
+            self.assertTrue((service.directory() / 'compose.json').exists())
+            self.assertEqual(['image', 'compose'], order)
+            order.append('stop')
+        with patch.object(service, '_docker', side_effect=docker), patch.object(service, '_stop', side_effect=stop):
+            service.action('restart')
+        self.assertEqual(['image', 'compose', 'stop', 'compose'], order)
+
+    def test_lifecycle_states_do_not_report_successful_stop_as_fault(self):
+        self.enable(mode='local', provider_model='openai/test')
+        with patch.object(service, '_docker', return_value=b''):
+            started = service.action('start')
+            stopped = service.action('stop')
+        self.assertEqual('starting', started['state'])
+        self.assertIsNone(started['last_error'])
+        self.assertEqual('stopped', stopped['state'])
+        self.assertIsNone(stopped['last_error'])
+        with patch.object(service.time, 'time', return_value=time.time() + 120):
+            self.assertEqual('stopped', service.status()['state'])
+
+    def test_rejected_settings_and_lock_contention_preserve_measured_health(self):
+        from tools.service_control import exclusive_lease
+        self.enable(mode='local', provider_model='openai/test')
+        self.login()
+        service._record({'ok': True, 'code': 'ready', 'message': 'Gateway bereit.'})
+        original = (service.directory() / 'health.json').read_bytes()
+        for payload in ({'timeout': 0}, {'enabled': True}):
+            with patch.object(service, '_running', return_value=True):
+                self.assertEqual(400, self.client.post('/api/mini-services/litellm/settings', json=payload).status_code)
+            self.assertEqual(original, (service.directory() / 'health.json').read_bytes())
+        with exclusive_lease(service.directory() / 'control.lock') as acquired:
+            self.assertTrue(acquired)
+            self.assertEqual(503, self.client.post('/api/mini-services/litellm/scan', json={}).status_code)
+        self.assertEqual(original, (service.directory() / 'health.json').read_bytes())
+        self.assertEqual('running', service.status()['state'])
+
+    def test_recursive_settings_leave_admin_and_hub_recoverable(self):
+        self.enable()
+        self.login()
+        config.settings_path().write_text('[' * 2000 + '0' + ']' * 2000)
+        self.assertEqual('failed', service.status()['state'])
+        self.assertEqual(200, self.client.get('/admin/mini-services/litellm').status_code)
+        self.assertEqual(200, self.client.get('/api/mini-services').status_code)
+        response = self.client.post('/admin/mini-services/litellm/restore', data={
+            'backup': (io.BytesIO(('[' * 2000 + '0' + ']' * 2000).encode()), 'backup.json')}, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'Restore fehlgeschlagen', response.data)
+
+    def test_image_digest_validation_and_execution_are_immutable(self):
+        cfg = self.enable(mode='local', provider_model='openai/test')
+        image = config.image_reference(cfg)
+        self.assertTrue(image.endswith('@' + config.DEFAULTS['image_digest']))
+        self.assertEqual(image, json.loads(service._compose(cfg).read_text())['services']['gateway']['image'])
+        with patch.object(service, '_docker', return_value=b'') as docker:
+            service.action('install')
+            self.assertEqual(['pull', image], docker.call_args.args[0])
+        for digest in ('latest', 'sha256:bad', '', 'sha256:' + 'g' * 64):
+            with self.subTest(digest=digest), self.assertRaises(ValueError):
+                config.prepare({'image_digest': digest})
+        with self.assertRaises(ValueError):
+            config.prepare({'version': '1.100.2'})
+        new_digest = 'sha256:' + '1' * 64
+        self.assertEqual(new_digest, config.prepare({'version': '1.100.2', 'image_digest': new_digest})['image_digest'])

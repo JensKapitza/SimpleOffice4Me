@@ -11,7 +11,7 @@ from . import litellm_service as service
 from .litellm_config import DEFAULTS, MAX_CONFIG_BYTES
 
 bp = Blueprint("litellm_admin", __name__, url_prefix="/admin/mini-services/litellm")
-ERRORS = (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired)
+ERRORS = (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired, RecursionError)
 
 
 def perform(name, value=None):

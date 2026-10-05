@@ -13,7 +13,8 @@ from .security_controls import protect_value, unprotect_value
 
 DEFAULTS = {"enabled": False, "mode": "external", "base_url": "", "model": "",
             "timeout": 10.0, "retries": 1, "allowed_networks": [], "port": 4000,
-            "version": "1.100.1", "provider_model": "", "autostart": False}
+            "version": "1.100.1", "provider_model": "", "autostart": False,
+            "image_digest": "sha256:a3715fa7ad8387941ab697259bd2881d68931657247a41984f90fae6d11c62bf"}
 SECRET_FIELDS = ("api_key", "provider_key")
 MAX_CONFIG_BYTES = 65536
 
@@ -45,6 +46,11 @@ def validate(value):
             raise ValueError("Modellnamen prüfen.")
     if not isinstance(result["version"], str) or not re.fullmatch(r"1\.(?:9[8-9]|[1-9][0-9]{2,})\.\d+", result["version"]):
         raise ValueError("Gepinnte LiteLLM-Version ab 1.98.0 erforderlich.")
+    if "image_digest" not in value and result["version"] != DEFAULTS["version"]:
+        result["image_digest"] = ""
+    digest = result["image_digest"]
+    if not isinstance(digest, str) or (digest and not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)):
+        raise ValueError("Image-Digest muss sha256: mit 64 Hex-Zeichen sein.")
     networks = result["allowed_networks"]
     if not isinstance(networks, list) or len(networks) > 16:
         raise ValueError("Netzwerkfreigaben müssen eine Liste mit höchstens 16 CIDRs sein.")
@@ -71,6 +77,8 @@ def validate(value):
             raise ValueError("Gateway-URL fehlt.")
         if result["mode"] == "local" and not result["provider_model"]:
             raise ValueError("Lokales Provider-Modell fehlt.")
+        if result["mode"] == "local" and not digest:
+            raise ValueError("Freigegebener Image-Digest für lokalen Betrieb erforderlich.")
     return result
 
 
@@ -96,6 +104,8 @@ def secret(config, key):
 def prepare(value):
     previous = settings()
     candidate = dict(value)
+    if candidate.get("version", previous["version"]) != previous["version"] and "image_digest" not in candidate:
+        candidate["image_digest"] = ""
     for key in SECRET_FIELDS:
         raw = candidate.pop(key, None)
         if raw:
@@ -119,3 +129,9 @@ def public(config):
 
 def gateway_url(config):
     return f"http://127.0.0.1:{config['port']}" if config["mode"] == "local" else config["base_url"]
+
+
+def image_reference(config):
+    if not config["image_digest"]:
+        raise ValueError("Freigegebener Image-Digest erforderlich.")
+    return "docker.litellm.ai/berriai/litellm:v" + config["version"] + "@" + config["image_digest"]
