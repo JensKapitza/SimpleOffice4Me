@@ -5,6 +5,8 @@ No private recovery methods or computed production expectations are asserted.
 """
 import tempfile
 import unittest
+import subprocess
+import sys
 from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
@@ -170,6 +172,32 @@ class ArchiveRecoveryTests(unittest.TestCase):
                 self.run_archive()
         self.assertEqual([FIRST], self.messages())
         self.assertEqual(0, self.run_archive()["pending"])
+        self.assertEqual([FIRST, SECOND], self.messages())
+
+    def test_hard_process_exit_after_original_commit_recovers_from_disk(self):
+        script = '''
+import os, sys
+from unittest.mock import patch
+sys.path.insert(0, "tests")
+from test_imap_archive_recovery import Mailbox
+from app.mail_client import ImapArchive, MailStore
+from app.v2.storage_runtime import create_or_verify_document
+store = MailStore(sys.argv[1], b"synthetic-recovery-master-key")
+account = store.account("alice", "work", "synthetic-password")
+def crash(*args, **kwargs):
+    create_or_verify_document(*args, **kwargs)
+    os._exit(86)
+with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
+    "app.imap_archive_recovery.create_or_verify_document", side_effect=crash
+), patch("app.v2.storage_runtime.runtime_storage_master_key", return_value=b"k" * 32):
+    ImapArchive(store).archive("alice", account)
+'''
+        child = subprocess.run([sys.executable, "-c", script, str(self.root)],
+                               cwd=Path(__file__).resolve().parents[1], capture_output=True, timeout=30)
+        self.assertEqual(86, child.returncode, child.stderr.decode("utf-8", "replace")[:500])
+        self.assertEqual([FIRST], self.messages())
+        recovered = self.run_archive()
+        self.assertEqual((1, 1, 0), (recovered["archived"], recovered["duplicates"], recovered["pending"]))
         self.assertEqual([FIRST, SECOND], self.messages())
 
     def test_uidvalidity_change_rescans_without_reusing_old_uid_meanings(self):
