@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -47,7 +48,7 @@ def _compose(config):
         "general_settings": {"master_key": "os.environ/LITELLM_MASTER_KEY", "disable_error_logs": True},
         "litellm_settings": {"num_retries": 0, "request_timeout": config["timeout"], "telemetry": False},
         "router_settings": {"num_retries": 0, "timeout": config["timeout"]}}
-    _atomic_write(directory() / "config.yaml", json.dumps(model_config).encode())
+    _atomic_write(directory() / "config.yaml", json.dumps(model_config).encode(), mode=0o644)
     compose = {"services": {"gateway": {
         "image": "docker.litellm.ai/berriai/litellm:v" + config["version"],
         "command": ["--config", "/app/config.yaml", "--port", "4000"],
@@ -111,7 +112,21 @@ def status():
     try:
         config = settings()
         path = directory() / "health.json"
-        health = json.loads(path.read_text()) if path.exists() else {}
+        try:
+            if path.exists() and path.stat().st_size > 65536:
+                raise ValueError("Statusdatei zu groß.")
+            health = json.loads(path.read_text()) if path.exists() else {}
+            if (not isinstance(health, dict) or type(health.get("ok", False)) is not bool
+                    or not isinstance(health.get("message", ""), str)
+                    or not isinstance(health.get("code", ""), str)):
+                raise ValueError("Statusformat ungültig.")
+            updated_at = float(health.get("updated_at", 0))
+            if not math.isfinite(updated_at):
+                raise ValueError("Statuszeit ungültig.")
+            health = {"ok": health.get("ok", False), "message": health.get("message", "")[:256],
+                      "code": health.get("code", "unknown")[:80], "updated_at": updated_at}
+        except (ValueError, OSError, TypeError):
+            health = {"ok": False, "code": "unknown", "message": "Statusdatei nicht lesbar; Verbindung erneut testen."}
         if not config["enabled"]:
             health = {"ok": False, "message": "LiteLLM deaktiviert.", "code": "disabled"}
         elif health.get("updated_at", 0) < time.time() - 60:

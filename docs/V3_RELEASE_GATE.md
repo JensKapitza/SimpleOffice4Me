@@ -28,8 +28,24 @@ RC2 test counts below remain evidence for their original commits.
 
 Issue #588 has meanwhile been resolved by merged PRs #597 and #599, including
 MIME-decoded document search and Legacy/Shadow/V2 cutover coverage. Issue #587
-still requires recovery-safe IMAP checkpoints and remains open. This status
+is addressed by the subsequent recovery implementation described below. This status
 update adds no external client, device, hardware or production-data acceptance.
+
+## IMAP recovery evidence — 2026-10-05
+
+The existing archive now durably records open UIDs before processing, binds them
+to UIDVALIDITY and source configuration, and retries storage, metadata and
+confirmed attachment work without duplicate documents. Old checkpoints undergo
+one bounded reconciliation pass; a failed checkpoint write stops the run.
+The mail page exposes pending stages and notices for superseded namespaces.
+
+`tests/test_imap_archive_recovery.py` exercises public archive and HTTP contracts
+with synthetic messages and injected I/O/process aborts, using independent byte,
+count and output expectations. Coverage includes Legacy, Shadow, authoritative
+and encrypted V2, migration compatibility, permissions, UID ordering/limits,
+namespace changes, and restart boundaries around original and attachment commits.
+These are repository-level recovery tests, not production-mailserver, real-device,
+load or release approval. The remaining #505/#506 acceptance gates stay open.
 
 ## Historical repository assessment — 2026-10-02
 

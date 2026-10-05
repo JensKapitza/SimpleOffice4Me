@@ -1,6 +1,8 @@
 """Gateway negative cases and reversible operations; no provider billing in tests."""
 import io
 import json
+import os
+import stat
 import socket
 import tempfile
 import time
@@ -75,6 +77,9 @@ class LiteLLMTest(unittest.TestCase):
         self.assertEqual(['127.0.0.1:4000:4000'], doc['ports'])
         self.assertEqual('on-failure:3', service._compose({**config.settings(), 'autostart': True}) and json.loads(path.read_text())['services']['gateway']['restart'])
         self.assertNotIn('DATABASE_URL', doc['environment'])
+        if os.name == 'posix':
+            self.assertEqual(0o644, stat.S_IMODE((service.directory() / 'config.yaml').stat().st_mode))
+            self.assertEqual(0o600, stat.S_IMODE(config.settings_path().stat().st_mode))
 
     def test_invalid_config_rejected_without_changing_settings(self):
         self.enable()
@@ -234,3 +239,15 @@ class LiteLLMTest(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 service.action('start')
         self.assertEqual(before, service.backup())
+
+    def test_corrupt_health_preserves_settings_and_admin_page(self):
+        self.enable()
+        self.login()
+        target = service.directory() / 'health.json'
+        target.parent.mkdir(parents=True, exist_ok=True)
+        for raw in ('[]', '0', '{"updated_at":"bad"}', '{"updated_at":NaN}', 'broken'):
+            target.write_text(raw)
+            row = service.status()
+            self.assertEqual('test-model', row['settings']['model'])
+            self.assertFalse(row['health']['ok'])
+            self.assertEqual(200, self.client.get('/admin/mini-services/litellm').status_code)

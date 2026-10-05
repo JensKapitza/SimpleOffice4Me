@@ -70,7 +70,9 @@ selbst. Installation lädt nur das gewählte Image; Start verwendet `--pull neve
 
 Der generierte Compose-Stack liegt unter `instance/litellm/` (bei abweichender
 Mini-Service-Konfiguration neben dieser Datei). Das JSON-Dokument `config.yaml`
-ist gültiges YAML und enthält nur Secret-Referenzen. Keys werden dem
+ist gültiges YAML und enthält nur Secret-Referenzen. Diese nicht geheime Datei
+wird mit Modus 0644 für den Container ohne DAC-Override-Capability geschrieben;
+verschlüsselte Einstellungen bleiben 0600. Keys werden dem
 Docker-Prozess serverseitig per Umgebung übergeben; berechtigte Docker-/Host-
 Administratoren können Container-Umgebungen einsehen. Veröffentlichung nur auf
 `127.0.0.1:<Port>`, keine Internetfreigabe. Capabilities entfernt,
