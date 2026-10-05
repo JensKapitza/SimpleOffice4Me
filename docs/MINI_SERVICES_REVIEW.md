@@ -15,6 +15,11 @@ der ergänzenden Bewertung der aktuellen Abnahme, der Fehlermatrix und dem
 externen Abnahmeprotokoll erfasst. Die historische Qualitätsmatrix unten bleibt
 unverändert und enthält deshalb keine rückwirkend ergänzte SFTP-Spalte.
 
+PR #605 ergänzt das optionale LiteLLM-Gateway nach dieser historischen Basis.
+Die eigene Bewertung steht in `MINI_SERVICES_ACCEPTANCE.md`; Betrieb, Grenzen
+und unabhängige MCP-Rechte sind in [LITELLM_OPERATIONS.md](LITELLM_OPERATIONS.md)
+beschrieben. Software-/Containerprüfungen ersetzen keine Betreiber-/Lastabnahme.
+
 Der [Abnahmestand nach den Änderungen](MINI_SERVICES_ACCEPTANCE.md) wiederholt
 alle 43 Qualitätskriterien und enthält Messwerte, Nachweise sowie konkrete
 verbleibende Implementierungs- und Prüfaufgaben.

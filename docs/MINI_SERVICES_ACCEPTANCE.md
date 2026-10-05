@@ -202,6 +202,25 @@ Spaltenbewertung eingerechnet:
 Produktionsabnahme. Die SFTP-Zeilen der Fehler- und externen Abnahmematrix
 bleiben maßgeblich.
 
+### Ergänzende Bewertung: optionales LiteLLM-Gateway (#586 / PR #605)
+
+LiteLLM wird als eigener optionaler Dienst im vorhandenen Hub geführt, getrennt
+vom MCP-Benutzerzugang. Die historische Matrix erhält keine rückwirkende Spalte.
+Betriebsverträge und Mindestversionen stehen in [LITELLM_OPERATIONS.md](LITELLM_OPERATIONS.md).
+
+| Eigenschaft | Software-Nachweis | Verbleibender Betreiber-Nachweis |
+|---|---|---|
+| Installation / Upgrade | echtes gepinntes Containerimage in CI; Pull und Start mit geprüftem Digest | saubere Linux-/Docker-Desktop-Installation, explizites Upgrade-/Rollback-Ziel |
+| Start / Stop / Autostart | vorhandener Launcher/Compose, begrenzte Neustarts, Vorprüfung vor Stop; unbekannter Containerzustand verhindert Deaktivierungsbestätigung | Host-/Daemon-Ausfall und Wiederanlauf auf Zielplattform |
+| Konfiguration / Rechte | öffentliche Admin-API mit Rollen/CSRF/Audit und verschlüsselten Secrets | Betreiberrechte für Docker und externes Gateway |
+| Health / Recovery | begrenzte Liveness/Readiness/Modellprüfung, DNS-/TLS-/SSRF-Grenzen, kein automatischer Modell-POST-Retry | reale Provider-/Gateway-Ausfälle, Netzwechsel und externes CA-Setup |
+| Backup / Restore | verschlüsselte Konfiguration, falscher Schlüssel/defektes JSON abgewiesen, Restore bleibt deaktiviert | externe Gateway-Datenbank einschließlich Schlüssel separat sichern/wiederherstellen |
+| Bedienung | fünf sichtbare Admin-Aktionen je Desktop-/Mobilviewport im dünnen Browserablauf | vollständige Tastatur-/Accessibility-/Geräteabnahme |
+| Last / Dauerbetrieb | Timeout-, Payload- und Container-Ressourcenlimits | Last, Durchsatz, echte Providerkosten, mehrstündiger Betrieb |
+
+Diese Ergänzung ist keine Mini-Service-Gesamtabnahme. Die zugehörigen Fehler-
+und externen Prüffälle sind in den beiden Abnahmeprotokollen ergänzt.
+
 ## Reproduzierbare Messung
 
 Aus dem Repository: `python -m tools.mini_services_benchmark --iterations 5`.

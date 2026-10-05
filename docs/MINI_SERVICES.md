@@ -40,6 +40,16 @@ systemd-Konfiguration trennt Web- und Netzwerkrechte. `SIMPLEOFFICE_MINI_SERVICE
 kann den Python-Interpreter des Shell-Steuerpfads wählen. Keine Rechteerhöhung
 erfolgt automatisch durch eine Startaktion der Oberfläche.
 
+## Optionales LiteLLM-Gateway
+
+Der vorhandene Mini-Service-Hub führt LiteLLM getrennt als optionales lokales
+Docker-/Compose-Gateway oder externes HTTPS-Gateway. Einstellungen, Health-Test,
+Lifecycle und verschlüsseltes Backup/Restore stehen unter **LiteLLM konfigurieren**.
+Der normale Start benötigt weder Docker noch ein LiteLLM-Pythonpaket.
+[LITELLM_OPERATIONS.md](LITELLM_OPERATIONS.md) beschreibt Digest-Fixierung,
+Berechtigungen, Timeouts, Upgrade, Deaktivierung und Plattformgrenzen. MCP-Tokens
+und Objektberechtigungen bleiben separat; kein automatischer Vollzugriff.
+
 ## Status, Fehler und Recovery
 
 Gemeinsame Zustände: `unavailable`, `stopped`, `starting`, `running`, `degraded`,
