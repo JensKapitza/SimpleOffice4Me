@@ -303,7 +303,9 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 ## Voraussetzungen
 
-- Python **3.10 oder neuer**; die CI prüft unter anderem 3.10 und 3.14
+- Python **3.10 oder neuer**; die CI prüft 3.10 und 3.14 sowie ergänzend
+  3.15.0-rc.3 zur frühzeitigen Kompatibilitätsprüfung. Der Release Candidate
+  ersetzt keine stabile Produktionsruntime und keine 3.0-Release-Freigabe.
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
 - Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
   Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert
