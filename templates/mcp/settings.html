@@ -5,6 +5,7 @@
   <h1 class="h2">ChatGPT- und MCP-Zugang</h1>
   <p class="text-secondary">MCP bedient SimpleOffice im Namen deines Kontos. Funktionssperren und Dateiordner-Rechte gelten unverändert.</p>
   {% if secret %}<div class="alert alert-warning"><strong>Zugang jetzt kopieren – er wird nicht erneut angezeigt.</strong><pre class="mt-2 mb-0 user-select-all">{{ secret }}</pre></div>{% endif %}
+  {% if g.user.is_admin %}<p><a href="{{ url_for('litellm_admin.index') }}">LiteLLM-Gateway administrieren</a></p>{% endif %}
   <div class="row g-4">
     <section class="col-lg-5"><div class="card"><div class="card-header">Neuen Zugang anlegen</div><div class="card-body"><form method="post">
       <label class="form-label">Name</label><input class="form-control mb-3" required maxlength="80" name="name" placeholder="Mein ChatGPT">

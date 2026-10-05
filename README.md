@@ -316,3 +316,10 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 Die automatisierten Tests werden bei Pull Requests über GitHub Actions
 ausgeführt. Funktionsbezogene Tests befinden sich im Verzeichnis `tests/`.
+
+### Optionales LiteLLM-Gateway
+
+Lokalen oder externen LiteLLM-Betrieb über Administration → Mini Services konfigurieren.
+Installation, Health/Verbindungstest, sichere Keys, Upgrade, Backup/Restore und
+Deaktivierung: [LiteLLM-Betrieb](docs/LITELLM_OPERATIONS.md). Der MCP-Kern und seine
+Benutzerrechte bleiben getrennt; LiteLLM ist standardmäßig deaktiviert.
