@@ -1,6 +1,6 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 05.10.2026, geprüft gegen `main` `0732d90f0a74c27d783c4b2f5f27ff62df5acd38`.
+Stand: 05.10.2026, geprüft gegen `main` `f90087b0c421e6ed05f7e94222ced23d47c53956`.
 Der Abgleich aktualisiert den Stand vom 01.10. und berücksichtigt insbesondere
 die danach integrierten SFTP-Änderungen #553, #569, #572–#574 sowie die
 Federation-Änderung #571.
@@ -13,7 +13,7 @@ werden nicht als Nachweis für das gesamte Produkt gewertet.
 
 ## Abgleich mit aktuellem main vom 05.10.2026
 
-Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen. Der aktuelle main umfasst außerdem #577 (diese Doku-Aktualisierung), #594 (Federation-Katalog), #597 (EML-Suchindex) und #599 (V2-Prüfung des EML-Suchindexes). Diese PRs ergänzen keine Mini-Service-Protokolle oder Worker. PR #595 zur Federation-Mail-Policy ist offen und liegt außerhalb des Mini-Service-Laufzeitumfangs:
+Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen. Der aktuelle main umfasst außerdem #577 (diese Doku-Aktualisierung), #594 (Federation-Katalog), #597 (EML-Suchindex), #598 (SFTP-Uploadabschluss) und #599 (V2-Prüfung des EML-Suchindexes). Diese PRs ergänzen keine neuen Mini-Service-Dienste oder Worker; #598 härtet den bestehenden SFTP-Transport. PR #595 zur Federation-Mail-Policy ist ebenfalls gemergt und liegt außerhalb des Mini-Service-Laufzeitumfangs:
 
 - #338 ist gemergt: Blocklisten-Diagnose speichert nur noch den redigierten
   HTTPS-Origin; Pfad, Query und Fragment erreichen die Diagnose nicht.
@@ -70,12 +70,12 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 ### Status der Issue-Checkliste
 
-- **Aktueller Stand/CI/PR-Abgleich:** gegen `0732d90f` vom 05.10.2026
+- **Aktueller Stand/CI/PR-Abgleich:** gegen `f90087b0` vom 05.10.2026
   aktualisiert. PR #463 (Abnahme-Gates), #537 (Paketierung `tools`), #538
   (vorherige Abnahme), #539 (3.0-Release-Gate), #540 (Android-Reader), #541
   (Mail-Federation), #542 (Release-Gate-Aktualisierung), #553 (SFTP-Mini-Service), #577 (aktualisierte Abnahme-Dokumentation),
   #571 (Peer-Moderation) und #572–#574 (SFTP-Härtung) sind gemergt. PR #595 zur Federation-Mail-Policy
-  ist offen und betrifft nicht den Mini-Service-Worker. DHCP-Fremdservererkennung (#418) und sichere
+  ist gemergt und betrifft nicht den Mini-Service-Worker. DHCP-Fremdservererkennung (#418) und sichere
   UFW/firewalld-Verwaltung (#424) bleiben implementiert. Fachfremde PRs werden
   nicht als Mini-Services-Nachweis gewertet.
 - **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
@@ -254,10 +254,13 @@ keine reale Geräteabnahme.
 
 ## Aktuelle repositoryseitige Nachweise (05.10.2026)
 
-Aktueller Prüfstand: `main` `0732d90f0a74c27d783c4b2f5f27ff62df5acd38`.
-Die Mini-Service-spezifischen Workflows und Tests wurden zuletzt auf dem
-integrierten PR-#574-Stand `ea03d9df` vollständig ausgewertet; seitdem wurde
-kein Worker- oder Protokollpfad der Mini-Services geändert.
+Aktueller Prüfstand: `main` `f90087b0c421e6ed05f7e94222ced23d47c53956`.
+Die früheren Mini-Service-spezifischen Workflows und Tests wurden auf dem
+integrierten PR-#574-Stand `ea03d9df` ausgewertet. Seitdem ergänzt #598 die
+SFTP-Abschlusskorrektur für gelöschte Uploadziele und sichtbare Abschlussfehler.
+Auf `f90087b0` bestanden die sechs Regressionen in
+`tests/test_sftp_deleted_upload.py` erneut. Dieser gezielte Nachweis ersetzt
+weder die historische Loopback-Messung noch eine reale SFTP-Geräteabnahme.
 
 - Alle 19 Check-Runs auf `ea03d9df` sind erfolgreich, darunter Python 3.10,
   3.14 und 3.15.0-rc.2, Dependency-Audit, Security, Docker amd64/arm64,
@@ -282,7 +285,7 @@ kein Worker- oder Protokollpfad der Mini-Services geändert.
 
 PR #597 und #599 liefen anschließend mit vollständiger Python-Matrix (3.10,
 3.14 und 3.15.0-rc.2) sowie grünen Quality-, Dependency- und Security-Gates.
-PR #595 ist bei dieser Bestandsaufnahme weiterhin offen, betrifft aber die
+PR #595 ist bei dieser Bestandsaufnahme gemergt, betrifft aber die
 Federation-Mail-Policy und nicht die Mini-Service-Runtime.
 
 Diese Software-Nachweise sind keine externe Gesamtabnahme. Plattform-,
