@@ -31,6 +31,11 @@ class LiteLLMExternalTransportTest(unittest.TestCase):
                 .serial_number(1).not_valid_before(datetime.datetime(2020, 1, 1))
                 .not_valid_after(datetime.datetime(2040, 1, 1))
                 .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+                .add_extension(x509.KeyUsage(digital_signature=True, content_commitment=False,
+                    key_encipherment=True, data_encipherment=False, key_agreement=False,
+                    key_cert_sign=True, crl_sign=True, encipher_only=False, decipher_only=False), critical=True)
+                .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+                .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(key.public_key()), critical=False)
                 .add_extension(x509.SubjectAlternativeName([x509.DNSName('gateway.example')]), critical=False)
                 .sign(key, hashes.SHA256()))
         cert_path = self.root / 'ca.pem'
