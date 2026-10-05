@@ -54,6 +54,23 @@ def _password_authentication_enabled() -> bool:
 
 
 if paramiko is not None:
+    class _StatusSFTPServer(paramiko.SFTPServer):
+        def _process(self, packet_type, request_number, message):
+            from paramiko.sftp import CMD_CLOSE
+            if packet_type != CMD_CLOSE:
+                return super()._process(packet_type, request_number, message)
+            # Paramiko's default CLOSE discards the handle's commit status.
+            handle = message.get_binary()
+            if handle in self.folder_table:
+                del self.folder_table[handle]
+                self._send_status(request_number, paramiko.SFTP_OK)
+            elif handle in self.file_table:
+                result = self.file_table.pop(handle).close()
+                self._send_status(request_number, paramiko.SFTP_OK if result is None else result)
+            else:
+                self._send_status(request_number, paramiko.SFTP_BAD_MESSAGE, "Invalid handle")
+
+
     class _BufferedReadHandle(paramiko.SFTPHandle):
         def __init__(self, flags: int, content: bytes = b""):
             super().__init__(flags)
@@ -366,7 +383,7 @@ def _serve_client(client: socket.socket, host_key, app) -> None:
     transport.auth_timeout = 30
     transport.channel_timeout = 30
     transport.add_server_key(host_key)
-    transport.set_subsystem_handler("sftp", library.SFTPServer, RestrictedSFTP)
+    transport.set_subsystem_handler("sftp", _StatusSFTPServer, RestrictedSFTP)
     server = _AuthenticationServer(app)
     try:
         transport.start_server(server=server)

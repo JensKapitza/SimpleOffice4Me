@@ -115,6 +115,15 @@ Lesezugriffen. Die Uploadgrenze zählt vorhandene Bytes und alle angehängten
 Pakete zusammen. Wird sie überschritten, bleiben auch hier die ursprünglichen
 Dateiinhalte unverändert.
 
+Ein Upload auf eine beim Öffnen vorhandene Datei prüft beim Abschluss deren
+gespeicherte Prüfsumme. Wurde die Datei zwischenzeitlich geändert oder gelöscht,
+schlägt der Abschluss fehl; ein veralteter Upload legt die gelöschte Datei
+nicht erneut an. Neue Uploads ohne Vorgängerversion bleiben möglich. Diese
+Versionsprüfung liegt im gemeinsamen VFS und gilt auch für dessen andere
+Aufrufer mit vorgegebener Prüfsumme. Der integrierte Dienst übermittelt
+Abschlussfehler im SFTP-`CLOSE`-Status. Clients müssen diesen Status auswerten;
+Paramikos `SFTPFile.close()` unterdrückt solche Fehler auf Clientseite.
+
 SFTP-Lesezugriffe hinter dem Dateiende liefern EOF, auch für sehr große
 64-Bit-Offsets. Der Lesebereich wird auf die vorhandenen Bytes begrenzt;
 ungültige Bereiche werden mit einem Statusfehler beantwortet. Die Sitzung
