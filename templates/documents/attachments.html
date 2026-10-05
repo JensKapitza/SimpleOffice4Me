@@ -31,4 +31,5 @@
 {% if manifest.attachments %}<button type="submit" class="btn btn-danger" id="attachment-review-submit" disabled>Ausgewählte Anhänge prüfen und übernehmen</button><div class="form-text mt-2">Ausgewählte Dateien werden nicht direkt geöffnet, sondern zuerst in Quarantäne geschrieben und geprüft.</div>{% endif %}
 </form>
 <p class="small text-secondary mt-3">Die unveränderte EML-Datei bleibt erhalten. Dateinamen sind Metadaten und werden nicht als vertrauenswürdig behandelt.</p>
+<p class="small text-secondary">Grenzen: 512 MiB je EML-Datei, 100 Anhänge, 50 MiB je Anhang und 200 MiB für alle dekodierten Anhänge. Die Vorschau ist 30 Minuten gültig.</p>
 </main>{% endblock %}

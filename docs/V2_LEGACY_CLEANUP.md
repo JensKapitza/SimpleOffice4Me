@@ -233,3 +233,15 @@ revocation, ClamAV download gating, history and private generic-document access
 remain enforced. V1/shadow keep their existing namespace and unmanaged EML
 compatibility. Metadata, folder policies and other mail mutation/archiving paths
 remain compatibility consumers. This #471 increment does not release cleanup.
+
+Confirmed EML attachment extraction now obtains its source from verified
+StoragePort content in V1/shadow/plaintext V2/encrypted V2. Preview MIME parts and
+manifest SHA-256 are derived from the same verified bytes; confirmation rechecks
+current document visibility/deletion, actor, expiry and manifest hash before
+parsing or scanning. Missing/stale V2 projection content is not a source, and
+integrity failures publish neither preview nor import. The EML read buffer is
+bounded to 512 MiB plus one byte; existing decoded attachment quotas, ClamAV,
+quarantine, provenance, imports and audit remain in their existing services.
+Manifest schema stays compatible. Separate document inventory scans and other
+archiving mutations still have projection paths; metadata/policy and the global
+cleanup/rollback gate remain retained dependencies for #471.

@@ -21,11 +21,13 @@ from typing import Any, BinaryIO
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_under
-from .v2.storage_runtime import import_document
+from .v2.contracts import LogicalObjectId
+from .v2.storage_runtime import import_document, storage_for
 
 MAX_PARTS = 100
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 MAX_TOTAL_BYTES = 200 * 1024 * 1024
+MAX_EML_BYTES = 512 * 1024 * 1024
 MANIFEST_TTL_MINUTES = 30
 
 
@@ -203,10 +205,26 @@ class AttachmentSecurity:
         value = re.sub(r"[\x00-\x1f\x7f]+", "_", value).strip(" .")
         return value[:180] or f"attachment-{index}.bin"
 
-    def _message(self, source: Path):
-        if source.suffix.casefold() != ".eml" or not source.is_file() or source.is_symlink():
-            raise ValueError("source must be a regular .eml document")
-        return BytesParser(policy=policy.default).parsebytes(source.read_bytes())
+    def _verified_message(self, document: dict[str, Any], actor: str, expected_hash: str | None = None):
+        if Path(str(document.get("last_path", ""))).suffix.casefold() != ".eml":
+            raise ValueError("source must be an .eml document")
+        if document.get("deleted_at") or document.get("system_state") == "webdav_deleted":
+            raise ValueError("source document is deleted")
+        with io.BytesIO() as target:
+            result = storage_for(self.root, actor).copy_verified_range_to(
+                LogicalObjectId(document["document_id"]), target, start=0, length=MAX_EML_BYTES + 1,
+            )
+            if not result.ok:
+                raise ValueError("source content is unavailable or failed verification")
+            raw = target.getvalue()
+        if len(raw) > MAX_EML_BYTES or result.value.size != len(raw):
+            raise ValueError("source exceeds the 512 MiB EML limit")
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != result.value.version:
+            raise ValueError("source content failed verification")
+        if expected_hash is not None and digest != expected_hash:
+            raise ValueError("source changed after preview; create a new preview")
+        return BytesParser(policy=policy.default).parsebytes(raw), digest
 
     def _managed_document_path(self, relative_path: str) -> Path:
         path = resolve_under(self.root, str(relative_path or ""), strict=True)
@@ -217,8 +235,7 @@ class AttachmentSecurity:
     def preview_eml(self, document_id: str, actor: str) -> dict[str, Any]:
         store = DocumentStore(self.root)
         document = store.get_document(document_id)
-        source = self._managed_document_path(str(document.get("last_path", "")))
-        message = self._message(source)
+        message, source_hash = self._verified_message(document, actor)
         rows, total = [], 0
         for index, part in enumerate(message.walk()):
             filename = part.get_filename()
@@ -234,7 +251,7 @@ class AttachmentSecurity:
                 raise ValueError("decoded attachments exceed the 200 MiB total limit")
             rows.append({"part": index, "filename": self._safe_name(filename or "", index), "declared_filename": filename or "", "content_type": part.get_content_type(), "size": len(payload), "sha256": hashlib.sha256(payload).hexdigest(), "content_id": (part.get("Content-ID") or "").strip("<>")[:300]})
         manifest_id = uuid.uuid4().hex
-        manifest = {"version": 1, "manifest_id": manifest_id, "actor": actor, "source_type": "eml", "document_id": document_id, "source_path": document.get("last_path", ""), "source_sha256": sha256_file(source), "created_at": utc_now(), "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=MANIFEST_TTL_MINUTES)).isoformat(), "message": {"message_id": (message.get("Message-ID") or "").strip()[:500], "subject": str(message.get("Subject") or "")[:500], "from": str(message.get("From") or "")[:500]}, "attachments": rows}
+        manifest = {"version": 1, "manifest_id": manifest_id, "actor": actor, "source_type": "eml", "document_id": document_id, "source_path": document.get("last_path", ""), "source_sha256": source_hash, "created_at": utc_now(), "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=MANIFEST_TTL_MINUTES)).isoformat(), "message": {"message_id": (message.get("Message-ID") or "").strip()[:500], "subject": str(message.get("Subject") or "")[:500], "from": str(message.get("From") or "")[:500]}, "attachments": rows}
         self.manifests.mkdir(parents=True, exist_ok=True)
         atomic_json_write(self.manifests / f"{manifest_id}.json", manifest)
         store.history.record("attachment_extraction_previewed", actor, "documents", document_id, {"manifest_id": manifest_id, "attachments": [{"part": row["part"], "filename": row["filename"], "size": row["size"], "sha256": row["sha256"]} for row in rows]})
@@ -251,14 +268,12 @@ class AttachmentSecurity:
                 raise PermissionError("extraction preview belongs to another user")
             if datetime.fromisoformat(manifest["expires_at"]) < datetime.now(timezone.utc):
                 raise ValueError("extraction preview has expired")
-            source = self._managed_document_path(str(manifest.get("source_path", "")))
-            if sha256_file(source) != manifest["source_sha256"]:
-                raise ValueError("source changed after preview; create a new preview")
+            document = DocumentStore(self.root).get_document(manifest["document_id"])
+            message, _ = self._verified_message(document, actor, manifest["source_sha256"])
             allowed = {row["part"]: row for row in manifest["attachments"]}
             chosen = sorted(set(selected))
             if not chosen or any(index not in allowed for index in chosen):
                 raise ValueError("select at least one listed attachment")
-            message = self._message(source)
             parts = list(message.walk())
             results = []
             self.quarantine.mkdir(parents=True, exist_ok=True)

@@ -85,3 +85,30 @@ Es gibt keine Migration. Neue Daten liegen unter `.simpleoffice-meta/attachment-
 ## Tests
 
 Geprüft werden Vorschau ohne Extraktion, unveränderte Originalbytes, MIME/Base64, sichere Namen, Herkunftstags und -attribute, Benutzer-/Hashbindung, saubere Freigabe, Fund-Quarantäne, Scannerfehler, feste ClamAV-Aufrufe, Adminrechte und WebDAV-Kompatibilität.
+
+## Verifizierte EML-Quellen in V2
+
+Vorschau und bestätigte Extraktion lesen die Quelle über den bestehenden
+StoragePort. Der gesamte Inhalt wird vor MIME-Verarbeitung verifiziert;
+Manifest-Prüfsumme und MIME-Teile stammen aus denselben Bytes. Bei Bestätigung
+werden Dokumentberechtigung, Löschstatus, Benutzerbindung, Ablaufzeit und
+Quellhash erneut geprüft. Eine veränderte Quelle benötigt eine neue Vorschau.
+Bestehende Manifeste bleiben kompatibel; die logische Dokument-ID ist die
+Quellenidentität, der gespeicherte Quellpfad bleibt Herkunftsinformation.
+
+Im autoritativen V2-Modus funktionieren Vorschau und Extraktion mit fehlender
+oder veralteter Inhaltsprojektion, auch mit verschlüsselten Blobs. Fehler oder
+beschädigte Blobs erzeugen keine Vorschau und keinen Anhangimport; ein intakter
+Legacy-Inhalt wird nicht als Ersatzquelle gelesen. V1/Shadow prüfen weiterhin
+vollständig ihre bestehende Inhaltsquelle. Die Originaldatei wird nicht geändert.
+
+Die EML-Quellgrenze für diese Funktion beträgt 512 MiB, entsprechend der
+bestehenden Dokument-Uploadbasis. Höchstens diese Größe plus ein Prüfbyte wird
+beim Lesen gepuffert; größere Quellen werden vor MIME-Parsing zurückgewiesen.
+Bereits gespeicherte größere Dokumente werden dabei nicht gelöscht. Die Grenzen
+für 100 Anhänge, 50 MiB je Anhang und 200 MiB dekodiert insgesamt sowie ClamAV,
+Quarantäne, Herkunftsmetadaten und Freigabe-Audit gelten weiterhin.
+
+Diese Teilumsetzung von #471 entfernt keine Metadaten-/Policy-Projektion und
+gibt den Legacy-Cleanup nicht frei. Die separate Bestands-Virenscan-Funktion
+und weitere Archivierungswege haben weiterhin eigene Kompatibilitätspfade.

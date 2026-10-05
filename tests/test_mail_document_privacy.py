@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import app
-from app.attachment_security import ScanResult
+from app.attachment_security import AttachmentSecurity, ScanResult
 from app.db import ensure_auth_database, get_db
 from app.document_store import DocumentStore
 from app.document_store_part_1 import _DocumentStorePart1
@@ -158,6 +158,38 @@ class MailDocumentPrivacyTests(unittest.TestCase):
             response = self.clients["bob"].get(url)
             self.assertEqual(302, response.status_code)
             scan.assert_not_called()
+
+    def test_owner_can_confirm_verified_eml_extraction_but_other_users_are_denied(self):
+        message = EmailMessage()
+        message["Subject"] = "Confirmed extraction"
+        message.set_content("Synthetic message")
+        message.add_attachment(b"confirmed extraction marker", maintype="application", subtype="octet-stream", filename="evidence.bin")
+        archived = self.mail.archive_outbound("alice", self.mail.account("alice", "work"), message.as_bytes(), "sent", {})
+        if self.v2:
+            (self.root / archived["path"]).unlink()
+        url = f"/documents/{archived['document_id']}/attachments"
+        service = AttachmentSecurity(self.root, scanner=FakeScanner())
+        with patch("app.documents_routes_workflows._attachment_security", return_value=service):
+            self.assertEqual(404, self.clients["bob"].get(url).status_code)
+            response = self.clients["alice"].get(url)
+            self.assertEqual(200, response.status_code)
+            manifests = list(service.manifests.glob("*.json"))
+            self.assertEqual(1, len(manifests))
+            manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+            response = self.clients["bob"].post(url, data={
+                "manifest_id": manifest["manifest_id"], "parts": str(manifest["attachments"][0]["part"]),
+            })
+            self.assertEqual(404, response.status_code)
+            response = self.clients["alice"].post(url, data={
+                "manifest_id": manifest["manifest_id"], "parts": str(manifest["attachments"][0]["part"]),
+            })
+            self.assertEqual(302, response.status_code)
+        source = self.documents.get_document(archived["document_id"])
+        released = source["attributes"]["released_eml_attachments"]
+        self.assertEqual(1, len(released))
+        imported = self.documents.get_document(released[0])
+        self.assertEqual("clean", imported["attributes"]["malware_scan"]["verdict"])
+        self.assertEqual(archived["document_id"], imported["attributes"]["attachment_origin"]["source_document_id"])
 
     def test_document_listing_and_search_hide_private_mail_metadata(self):
         for url in ("/documents/", "/documents/search?q=tag%3Aemail", "/documents/search?q=name%3Aprivate-draft.txt"):
