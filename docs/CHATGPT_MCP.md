@@ -64,6 +64,30 @@ fachliche Änderungen, JSON-RPC-Fehler, Widerruf, Benutzertrennung und den Schut
 von Tokens und fachlichen Argumenten im Journal ab. Produktive Validatoren,
 Tokenfunktionen oder Datenbankabfragen berechnen keine erwarteten Testergebnisse.
 
+## Browser-Bedienprüfung
+
+Der bestehende Chromium-Lauf in
+`tests/browser/manual_screenshot_smoke.py` prüft ergänzend fünf sichtbare
+Bedienaktionen auf Desktop (1440 px) und in einer schmalen Ansicht (390 px):
+
+1. **Mehr → MCP** öffnet die Seite **ChatGPT- und MCP-Zugang**.
+2. **Zugang einmalig erzeugen** legt einen Lesezugang an; er erscheint in der Übersicht.
+3. **Widerrufen** kennzeichnet diesen Zugang sichtbar als widerrufen.
+4. Mit **Schreibende Werkzeuge erlauben** kann ein weiterer Zugang angelegt werden.
+5. Das **Verarbeitungsjournal** ist auf derselben Seite erreichbar.
+
+Dieselbe Liste eignet sich zur manuellen Browser-Prüfung mit einer isolierten
+Testinstanz und Testkonto. Bei schmalen Ansichten zuerst **Navigation öffnen**
+verwenden; die Zugangstabelle kann horizontal gescrollt werden.
+
+Der Ablauf nutzt echte Klicks und Formulare. Er wiederholt keine
+API-Schematests und prüft keine Datenbank-, CSS- oder internen Methodenwerte.
+Ergebnisse stehen unter `mcp_ui.checks` im bestehenden Browserbericht;
+Screenshots heißen `mcp-1440-*.png` beziehungsweise `mcp-390-*.png`.
+Die Erzeugungsantwort mit dem einmalig sichtbaren Geheimnis wird nicht
+aufgezeichnet: Vor jeder Aufnahme wird die Seite per GET neu geladen.
+Im Browser-CI ist MCP auf der primären Testinstanz aktiviert.
+
 ## Grenzen
 
 Der Server ist zustandslos und benötigt keine Server-Sent Events. Die Beispieldatei gilt für dateibasierte MCP-Clients; ChatGPT richtet die Verbindung über die Plugin-Oberfläche ein. OAuth-Discovery und ein eingebettetes Widget sind noch nicht enthalten. Destruktive Werkzeuge bleiben absichtlich ausgeschlossen.
