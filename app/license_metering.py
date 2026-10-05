@@ -57,7 +57,7 @@ def feature_for_endpoint(endpoint: str, path: str = "") -> str:
     feature use. Path matching is restricted to the documents blueprint.
     """
     value = str(endpoint or "")
-    if value.startswith("contact_audit.business_documents."):
+    if value.startswith(("contact_audit.business_documents.", "contact_audit.euer.")):
         return "documents"
     prefix = value.split(".", 1)[0]
     if prefix == "documents":
@@ -84,6 +84,7 @@ def feature_for_endpoint(endpoint: str, path: str = "") -> str:
     mapping = {
         "documents": "documents", "photo_upload": "documents", "inventory": "documents",
         "reader": "documents", "library": "documents", "business_documents": "documents",
+        "euer": "documents", "finance": "documents", "v3_finance": "documents",
         "v3_search": "documents", "v3_inbox": "documents", "s3_overlay": "webdav",
         "caldav": "calendar", "calendar": "calendar", "calendar_store": "calendar",
         "carddav": "contacts", "contact_audit": "contacts", "contact_tools": "contacts",
