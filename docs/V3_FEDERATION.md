@@ -41,7 +41,7 @@ Without `auto_accept: true`, a supported transfer is stored as `pending` for lat
 
 ## Object types
 
-Documents, contacts, calendar and tasks advertise schema version 1. Relations and activity are advertised only when their corresponding 3.0 capabilities are enabled.
+Documents, contacts, calendar, tasks and collaborative mail cases (`mail_cases`) advertise schema version 1. Relations and activity are advertised only when their corresponding 3.0 capabilities are enabled. Mail-case transfer additionally requires the peer-scoped mail-case policy and explicit remote-to-local user mapping described in `MAIL_VORGAENGE.md`.
 
 ## Compatibility
 
