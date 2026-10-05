@@ -174,13 +174,21 @@ class LiteLLMTest(unittest.TestCase):
         self.assertEqual('test-only-key', config.secret(restored, 'api_key'))
         self.assertEqual(payload['settings']['api_key_enc'], restored['api_key_enc'])
         original = config.settings_path().read_bytes()
+        application_key = app.config['SECRET_KEY']
+        app.config['SECRET_KEY'] = 'different-test-application-key'
+        try:
+            with self.assertRaises(ValueError):
+                service.restore(payload)
+        finally:
+            app.config['SECRET_KEY'] = application_key
+        self.assertEqual(original, config.settings_path().read_bytes())
         payload['settings']['api_key_enc'] = 'enc:v1:broken'
         with self.assertRaises(ValueError):
             service.restore(payload)
         self.assertEqual(original, config.settings_path().read_bytes())
 
     def test_admin_permissions_csrf_and_no_secrets_in_html(self):
-        for path in ['/admin/mini-services/litellm', '/admin/mini-services/litellm/backup']:
+        for path in ['/admin/mini-services/litellm', '/admin/mini-services/litellm/backup.json']:
             self.assertEqual(302, self.client.get(path).status_code)
         self.login(self.user)
         self.assertEqual(403, self.client.get('/admin/mini-services/litellm').status_code)
@@ -194,7 +202,7 @@ class LiteLLMTest(unittest.TestCase):
         self.assertEqual(403, self.client.post('/api/mini-services/litellm/settings', json={'enabled': False}).status_code)
         app.config['TEST_CSRF_PROTECTION'] = False
         self.assertEqual(200, self.client.post('/api/mini-services/litellm/settings', json={'enabled': False}).status_code)
-        response = self.client.get('/admin/mini-services/litellm/backup')
+        response = self.client.get('/admin/mini-services/litellm/backup.json')
         self.assertEqual('no-store', response.headers['Cache-Control'])
         restored = self.client.post('/admin/mini-services/litellm/restore', data={'backup': (io.BytesIO(response.data), 'backup.json')})
         self.assertEqual(302, restored.status_code)

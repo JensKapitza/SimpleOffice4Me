@@ -60,7 +60,7 @@ def action(name):
     return redirect(url_for("litellm_admin.index")), 303
 
 
-@bp.get("/backup")
+@bp.get("/backup.json")
 @admin_required
 def backup():
     audit("mini_service_backup", "service", "litellm")
