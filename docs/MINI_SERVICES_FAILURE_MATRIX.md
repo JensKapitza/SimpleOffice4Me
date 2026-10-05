@@ -3,7 +3,7 @@
 This matrix is the repository-side negative-case contract for issue #330.
 It separates deterministic CI evidence from scenarios that require real
 operating systems, networks or hardware. Rechecked against main
-`ea03d9dfb8cafa784af6c5daecb3964654636da1` on 2026-10-04. SFTP became a
+`0732d90f0a74c27d783c4b2f5f27ff62df5acd38` on 2026-10-05. SFTP became a
 managed Mini Service after the previous review; its failure cases are listed
 separately below.
 

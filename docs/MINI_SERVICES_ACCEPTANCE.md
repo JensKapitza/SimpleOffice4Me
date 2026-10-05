@@ -1,6 +1,6 @@
 # Mini Services: Abnahmestand nach den Änderungen
 
-Stand: 04.10.2026, geprüft gegen `main` `ea03d9dfb8cafa784af6c5daecb3964654636da1`.
+Stand: 05.10.2026, geprüft gegen `main` `0732d90f0a74c27d783c4b2f5f27ff62df5acd38`.
 Der Abgleich aktualisiert den Stand vom 01.10. und berücksichtigt insbesondere
 die danach integrierten SFTP-Änderungen #553, #569, #572–#574 sowie die
 Federation-Änderung #571.
@@ -11,9 +11,9 @@ und ungeprüfte Plattformen sind ausdrücklich markiert. Tests eines Teilpakets
 werden nicht als Nachweis für das gesamte Produkt gewertet.
 
 
-## Abgleich mit aktuellem main vom 04.10.2026
+## Abgleich mit aktuellem main vom 05.10.2026
 
-Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen:
+Seit dem letzten Matrixstand wurden weitere bereits bekannte Lücken geschlossen. Der aktuelle main umfasst außerdem #577 (diese Doku-Aktualisierung), #594 (Federation-Katalog), #597 (EML-Suchindex) und #599 (V2-Prüfung des EML-Suchindexes). Diese PRs ergänzen keine Mini-Service-Protokolle oder Worker. PR #595 zur Federation-Mail-Policy ist offen und liegt außerhalb des Mini-Service-Laufzeitumfangs:
 
 - #338 ist gemergt: Blocklisten-Diagnose speichert nur noch den redigierten
   HTTPS-Origin; Pfad, Query und Fragment erreichen die Diagnose nicht.
@@ -70,12 +70,12 @@ Die verbleibenden Punkte aus #330 werden ab jetzt in drei Klassen geführt:
 
 ### Status der Issue-Checkliste
 
-- **Aktueller Stand/CI/PR-Abgleich:** gegen `ea03d9df` vom 04.10.2026
+- **Aktueller Stand/CI/PR-Abgleich:** gegen `0732d90f` vom 05.10.2026
   aktualisiert. PR #463 (Abnahme-Gates), #537 (Paketierung `tools`), #538
   (vorherige Abnahme), #539 (3.0-Release-Gate), #540 (Android-Reader), #541
-  (Mail-Federation), #542 (Release-Gate-Aktualisierung), #553 (SFTP-Mini-Service),
-  #571 (Peer-Moderation) und #572–#574 (SFTP-Härtung) sind gemergt. Es gibt
-  keine offenen PRs. DHCP-Fremdservererkennung (#418) und sichere
+  (Mail-Federation), #542 (Release-Gate-Aktualisierung), #553 (SFTP-Mini-Service), #577 (aktualisierte Abnahme-Dokumentation),
+  #571 (Peer-Moderation) und #572–#574 (SFTP-Härtung) sind gemergt. PR #595 zur Federation-Mail-Policy
+  ist offen und betrifft nicht den Mini-Service-Worker. DHCP-Fremdservererkennung (#418) und sichere
   UFW/firewalld-Verwaltung (#424) bleiben implementiert. Fachfremde PRs werden
   nicht als Mini-Services-Nachweis gewertet.
 - **Inline-Hilfe:** durch #341 softwareseitig erledigt; visuelle Bedienabnahme
@@ -252,10 +252,12 @@ Issue #285 ist geschlossen; die Softwarekette kam über #333 und #346–#349 hin
 Die damals auf Heads geprüften Workflows belegen nur diese Commits und ersetzen
 keine reale Geräteabnahme.
 
-## Aktuelle repositoryseitige Nachweise (04.10.2026)
+## Aktuelle repositoryseitige Nachweise (05.10.2026)
 
-Prüfcommit vor den Dokumentationsänderungen:
-`ea03d9dfb8cafa784af6c5daecb3964654636da1`.
+Aktueller Prüfstand: `main` `0732d90f0a74c27d783c4b2f5f27ff62df5acd38`.
+Die Mini-Service-spezifischen Workflows und Tests wurden zuletzt auf dem
+integrierten PR-#574-Stand `ea03d9df` vollständig ausgewertet; seitdem wurde
+kein Worker- oder Protokollpfad der Mini-Services geändert.
 
 - Alle 19 Check-Runs auf `ea03d9df` sind erfolgreich, darunter Python 3.10,
   3.14 und 3.15.0-rc.2, Dependency-Audit, Security, Docker amd64/arm64,
@@ -274,9 +276,14 @@ Prüfcommit vor den Dokumentationsänderungen:
   erfolgreichen `test_sftp_*`-Gates in PR #574 abgedeckt. Die SFTP-Tests werden
   nicht mit den vier UDP-Diensten im Lifecycle-Mikrobenchmark vermischt.
 - Der aktuelle Benchmarkstand vom 01.10. bleibt als historische Loopback-
-  Messung erhalten; auf `ea03d9df` konnte er wegen der Socket-Sandbox nicht
+  Messung erhalten; im lokalen Container konnte er wegen der Socket-Sandbox nicht
   erneut gemessen werden. Gesamt-RSS, reale Last, Durchsatz, Hardware und
   Langzeitverhalten sind weiterhin externe Abnahmen.
+
+PR #597 und #599 liefen anschließend mit vollständiger Python-Matrix (3.10,
+3.14 und 3.15.0-rc.2) sowie grünen Quality-, Dependency- und Security-Gates.
+PR #595 ist bei dieser Bestandsaufnahme weiterhin offen, betrifft aber die
+Federation-Mail-Policy und nicht die Mini-Service-Runtime.
 
 Diese Software-Nachweise sind keine externe Gesamtabnahme. Plattform-,
 Hardware-, Last-, Durchsatz-, Accessibility- und Langzeitprüfungen bleiben
