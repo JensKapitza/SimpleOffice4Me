@@ -3,55 +3,18 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from email import policy
 from email.parser import BytesParser
-from pathlib import Path
 from typing import Any
 
-from .mail_client import MailStore, MAX_MESSAGE_BYTES, _owner_key
+from .mail_client import MailStore, MAX_MESSAGE_BYTES
 from .mail_reader import _header, _message_text
-from .safe_paths import relative_under, resolve_under
+from .mail_archive_storage import archive_path_by_id, read_archive_eml
+from .safe_paths import relative_under
 
 
-_ARCHIVE_ID = re.compile(r"^[0-9a-f]{128}$")
-
-
-def _owned_archive_base(store: MailStore, actor: str, account_id: str) -> Path:
-    store._owned_row(actor, account_id)
-    return (store.root / "email" / _owner_key(actor) / account_id).resolve()
-
-
-def _target_by_id(store: MailStore, actor: str, account_id: str, archive_id: str) -> Path:
-    archive_id = archive_id.strip().casefold()
-    if not _ARCHIVE_ID.fullmatch(archive_id):
-        raise ValueError("invalid archive message id")
-    base = _owned_archive_base(store, actor, account_id)
-    if not base.is_dir():
-        raise FileNotFoundError("mail archive does not exist")
-
-    matches: list[Path] = []
-    for target in base.rglob(f"{archive_id}.eml"):
-        if target.is_file() and not target.is_symlink():
-            matches.append(target.resolve())
-            if len(matches) > 1:
-                break
-    if len(matches) != 1:
-        raise FileNotFoundError("archive message does not exist or is ambiguous")
-    try:
-        matches[0].relative_to(base)
-    except ValueError:
-        raise PermissionError("archive message escaped owned archive") from None
-    return matches[0]
-
-
-def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
-    if not target.is_file() or target.is_symlink():
-        raise FileNotFoundError("archive message does not exist")
-
-    raw = target.read_bytes()
-    if len(raw) > MAX_MESSAGE_BYTES:
-        raise ValueError("message exceeds 100 MiB preview limit")
+def _preview_from_target(store: MailStore, actor: str, account_id: str, path: str) -> dict[str, Any]:
+    raw = read_archive_eml(store, actor, account_id, path)
     message = BytesParser(policy=policy.default).parsebytes(raw)
     attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
@@ -66,7 +29,7 @@ def _preview_from_target(store: MailStore, target: Path) -> dict[str, Any]:
             "sha256": hashlib.sha256(payload).hexdigest(),
         })
     return {
-        "path": str(target.relative_to(store.root)),
+        "path": relative_under(store.root, path, require_name=True).as_posix(),
         "sha512": hashlib.sha512(raw).hexdigest(),
         "subject": _header(message.get("Subject")) or "(ohne Betreff)",
         "from": _header(message.get("From")),
@@ -116,21 +79,12 @@ def preview_eml_bytes(raw: bytes) -> dict[str, Any]:
 
 def load_local_eml(store: MailStore, actor: str, account_id: str, relative_path: str) -> dict[str, Any]:
     """Load one owned archive EML without allowing path traversal or symlink escape."""
-    base = _owned_archive_base(store, actor, account_id)
-    relative = relative_under(store.root, relative_path, require_name=True)
-    if relative.suffix.casefold() != ".eml":
-        raise ValueError("invalid archive path")
-    target = resolve_under(store.root, relative, strict=True)
-    try:
-        target.relative_to(base)
-    except ValueError:
-        raise PermissionError("archive path is outside the owned mail archive") from None
-    return _preview_from_target(store, target)
+    return _preview_from_target(store, actor, account_id, relative_path)
 
 
 def load_local_eml_by_id(store: MailStore, actor: str, account_id: str, archive_id: str) -> dict[str, Any]:
     """Load an archived message by its SHA-512 filename instead of a client supplied path."""
-    return _preview_from_target(store, _target_by_id(store, actor, account_id, archive_id))
+    return _preview_from_target(store, actor, account_id, archive_path_by_id(store, actor, account_id, archive_id))
 
 
 def load_local_attachment_by_id(
@@ -143,10 +97,8 @@ def load_local_attachment_by_id(
     """Return one attachment payload from an owned archived EML by stable identifiers."""
     if part_index < 0 or part_index > 10000:
         raise ValueError("invalid attachment part")
-    target = _target_by_id(store, actor, account_id, archive_id)
-    raw = target.read_bytes()
-    if len(raw) > MAX_MESSAGE_BYTES:
-        raise ValueError("message exceeds 100 MiB preview limit")
+    path = archive_path_by_id(store, actor, account_id, archive_id)
+    raw = read_archive_eml(store, actor, account_id, path)
     message = BytesParser(policy=policy.default).parsebytes(raw)
     parts = list(message.walk())
     if part_index >= len(parts):

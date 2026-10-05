@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from email import policy
 from email.parser import BytesParser
+from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
 
@@ -106,6 +107,57 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         public_detail = self.clients["bob"].get(f"/documents/{self.public_id}")
         self.assertEqual(200, public_detail.status_code)
         self.assertIn("HTTPS-Link erzeugen", public_detail.get_data(as_text=True))
+
+    def test_archive_preview_and_case_read_are_scoped_and_revocable(self):
+        digest = self.archive["sha512"]
+        archive_url = f"/documents/mail/reader?account=work&mode=archive&mail={digest}"
+        response = self.clients["alice"].get(archive_url)
+        self.assertIn("private-marker", response.get_data(as_text=True))
+        case_url = f"/documents/mail/reader?mode=case&case={self.case_id}&case_mail={digest}"
+        response = self.clients["bob"].get(case_url)
+        self.assertIn("private-marker", response.get_data(as_text=True))
+        response = self.clients["bob"].get(
+            f"/documents/{self.archive['document_id']}/preview?case={self.case_id}&case_mail={digest}"
+        )
+        self.assertEqual(404, response.status_code)
+        response = self.clients["bob"].get(archive_url)
+        self.assertNotIn("private-marker", response.get_data(as_text=True))
+        self.cases.remove_participant("alice", self.case_id, self.participant)
+        response = self.clients["bob"].get(case_url)
+        self.assertNotIn("private-marker", response.get_data(as_text=True))
+
+    def test_mime_attachment_case_access_requires_link_and_clean_scan(self):
+        message = EmailMessage()
+        message["Subject"] = "Scanned attachment"
+        message.set_content("Synthetic body")
+        message.add_attachment(b"mime attachment marker", maintype="application", subtype="octet-stream", filename="invoice.bin")
+        account = self.mail.account("alice", "work")
+        archived = self.mail.archive_outbound("alice", account, message.as_bytes(), "sent", {})
+        if self.v2:
+            (self.root / archived["path"]).unlink()
+        url = f"/documents/mail/reader/case/{self.case_id}/attachment/{archived['sha512']}/2"
+        with patch("app.mail_reader_routes.scan_attachment_for_download", return_value={
+            "verdict": "clean", "scan_id": "synthetic-scan",
+        }) as scan:
+            response = self.clients["bob"].get(url)
+            self.assertEqual(302, response.status_code)
+            scan.assert_not_called()
+            self.cases.add_message("alice", self.case_id, "work", "sha512:" + archived["sha512"])
+            response = self.clients["bob"].get(url)
+            self.addCleanup(response.close)
+            self.assertEqual(200, response.status_code)
+            self.assertEqual(b"mime attachment marker", response.data)
+        with patch("app.mail_reader_routes.scan_attachment_for_download", return_value={
+            "verdict": "infected", "scan_id": "synthetic-scan",
+        }):
+            response = self.clients["bob"].get(url)
+            self.assertEqual(302, response.status_code)
+            self.assertNotEqual(b"mime attachment marker", response.data)
+        self.cases.remove_participant("alice", self.case_id, self.participant)
+        with patch("app.mail_reader_routes.scan_attachment_for_download") as scan:
+            response = self.clients["bob"].get(url)
+            self.assertEqual(302, response.status_code)
+            scan.assert_not_called()
 
     def test_document_listing_and_search_hide_private_mail_metadata(self):
         for url in ("/documents/", "/documents/search?q=tag%3Aemail", "/documents/search?q=name%3Aprivate-draft.txt"):

@@ -219,3 +219,17 @@ missing or stale content projection. Mail-case authorization, malware gating,
 SMTP approval/delegation, revocation and audit stay in their existing services.
 Document metadata, folder policies and other mail consumers remain projection
 dependencies; this scoped change for #471 does not release the cleanup gate.
+
+Local mail archive listing/search, EML previews, MIME attachment reads and
+manual IMAP archive duplicate detection now read verified StoragePort content.
+The authoritative V2 archive namespace uses ObjectCatalog locations, so missing
+or stale projection files and absent scan rows do not substitute for blob
+content. Full-object verification precedes MIME parsing; the buffer is limited
+to 100 MiB plus one byte and SHA-512 filenames must match the verified message.
+Invalid/unavailable entries are omitted from local search with sanitized
+technical diagnostics, while direct previews/downloads fail closed. Existing
+case grants are restricted to a linked message on the two case read routes;
+revocation, ClamAV download gating, history and private generic-document access
+remain enforced. V1/shadow keep their existing namespace and unmanaged EML
+compatibility. Metadata, folder policies and other mail mutation/archiving paths
+remain compatibility consumers. This #471 increment does not release cleanup.
