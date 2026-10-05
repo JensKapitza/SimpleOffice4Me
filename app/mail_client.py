@@ -663,72 +663,12 @@ class ImapArchive:
             connection.logout()
 
     def archive(self, actor: str, account: dict[str, Any], *, limit: int = 250, extract_attachments: bool = False) -> dict[str, Any]:
-        limit = max(1, min(int(limit), MAX_MESSAGES_PER_RUN))
-        connection = self._connect(account)
-        result = {"examined": 0, "archived": 0, "duplicates": 0, "attachments": 0, "errors": []}
-        self.store.ensure_private_archive(actor, account["id"])
-        state = self.store.archive_state(actor, account["id"])
-        known = set(state.get("sha512", []))
-        last_uid = int(state.get("last_uid", 0) or 0)
-        try:
-            status, _ = connection.select(account["folder"], readonly=True)  # EXAMINE: no flags, moves or deletes.
-            if status != "OK":
-                raise RuntimeError("IMAP EXAMINE failed")
-            raw_validity = connection.untagged_responses.get("UIDVALIDITY", [b""])[0]
-            uidvalidity = raw_validity.decode() if isinstance(raw_validity, bytes) else str(raw_validity)
-            if state.get("uidvalidity") and state.get("uidvalidity") != uidvalidity:
-                last_uid = 0
-            criterion = f"UID {last_uid + 1}:*" if last_uid else "ALL"
-            status, data = connection.uid("search", None, criterion)
-            if status != "OK":
-                raise RuntimeError("IMAP UID SEARCH failed")
-            uids = (data[0].split() if data and data[0] else [])[:limit]
-            for uid in uids:
-                try:
-                    status, fetched = connection.uid("fetch", uid, "(UID RFC822.SIZE BODY.PEEK[])")
-                    if status != "OK":
-                        raise RuntimeError("IMAP UID FETCH failed")
-                    raw = self._literal(fetched)
-                    if len(raw) > MAX_MESSAGE_BYTES:
-                        raise ValueError("message exceeds 100 MiB archive limit")
-                    digest = hashlib.sha512(raw).hexdigest()
-                    result["examined"] += 1
-                    last_uid = max(last_uid, int(uid))
-                    if digest in known:
-                        result["duplicates"] += 1
-                        continue
-                    message = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
-                    year = datetime.now(timezone.utc).strftime("%Y")
-                    path = f"email/{_owner_key(actor)}/{account['id']}/{year}/{digest}.eml"
-                    doc_store = DocumentStore(self.store.root)
-                    doc_store.ensure_folder_policy(self.store.root / Path(path).parent, actor)
-                    target = self.store.root / path
-                    if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
-                        known.add(digest)
-                        result["duplicates"] += 1
-                        continue
-                    document = create_document(doc_store.root, actor, path, raw, max_bytes=MAX_MESSAGE_BYTES)
-                    known.add(digest)
-                    doc_store.set_tags(document["document_id"], ["email", "source:imap", f"imap-account:{account['id']}"], actor)
-                    doc_store.set_attribute(document["document_id"], "email_origin", {"account_id": account["id"], "folder": account["folder"], "uidvalidity": uidvalidity, "uid": uid.decode(), "sha512": digest, "message_id": str(message.get("Message-ID", ""))[:500], "subject": str(message.get("Subject", ""))[:500], "from": str(message.get("From", ""))[:500]}, actor)
-                    result["archived"] += 1
-                    if extract_attachments:
-                        security = AttachmentSecurity(self.store.root)
-                        manifest = security.preview_eml(document["document_id"], actor)
-                        selected = [int(row["part"]) for row in manifest["attachments"]]
-                        if selected:
-                            extracted = security.extract(manifest["manifest_id"], selected, actor)
-                            result["attachments"] += sum(1 for row in extracted if row.get("document_id"))
-                except Exception as exc:
-                    result["errors"].append({"uid": uid.decode("ascii", "replace"), "error": str(exc)[:500]})
-            self.store.update_archive_state(actor, account["id"], {"uidvalidity": uidvalidity, "last_uid": last_uid, "sha512": sorted(known)[-100000:], "updated_at": utc_now()})
-            self.store.history.record("imap_archive_completed", actor, "mail-archive", account["id"], {k: v for k, v in result.items() if k != "errors"} | {"errors": len(result["errors"]), "folder": account["folder"], "last_uid": last_uid})
-            return result
-        finally:
-            try:
-                connection.logout()
-            except Exception:
-                pass
+        from .imap_archive_recovery import ArchiveRecovery
+
+        return ArchiveRecovery(self, actor, account).run(
+            max(1, min(int(limit), MAX_MESSAGES_PER_RUN)), extract_attachments,
+        )
+
 
 
 class ManageSieveClient:

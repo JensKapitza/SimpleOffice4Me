@@ -175,6 +175,7 @@ def _readonly_map(store: MailStore, accounts: list[dict]) -> dict[str, bool]:
 def index():
     store = _store()
     accounts = store.accounts(_actor())
+    archive_states = {row["id"]: store.archive_state(_actor(), row["id"]) for row in accounts}
     selected_id = request.args.get("account", "")
     selected = next((row for row in accounts if row["id"] == selected_id), accounts[0] if accounts else None)
     scripts = store.scripts_for(_actor(), selected["id"]) if selected else []
@@ -202,6 +203,7 @@ def index():
         delegation_users = [dict(row) for row in rows]
     return render_template(
         "documents/mail_client.html", accounts=accounts, selected=selected, scripts=scripts,
+        archive_states=archive_states,
         script_name=script_name, script_content=script_content, sieve_state=sieve_state,
         readonly=readonly, selected_read_only=readonly.get(selected["id"], True) if selected else True,
         delegations=delegations, delegation_users=delegation_users,
@@ -325,10 +327,10 @@ def archive(account_id: str):
         store = _store()
         account = _account_with_effective_password(store, account_id)
         result = ImapArchive(store).archive(_actor(), account, limit=int(request.form.get("limit", "250")), extract_attachments=request.form.get("extract_attachments") == "1")
-        flash(f"Archivlauf: {result['archived']} neue EML, {result['duplicates']} Duplikate, {result['attachments']} geprüfte Anhänge, {len(result['errors'])} Fehler.")
+        flash(f"Archivlauf: {result['archived']} neue EML, {result['duplicates']} Duplikate, {result['attachments']} geprüfte Anhänge, {len(result['errors'])} Fehler. {result.get('pending', 0)} offene Wiederholungen.")
     except Exception as exc:
         current_app.logger.warning("IMAP archive failed for %s: %s", _actor(), type(exc).__name__)
-        flash(f"Archivlauf abgebrochen: {exc}")
+        flash("Archivlauf abgebrochen. Verbindung, Speicher und Berechtigungen prüfen; offene Wiederholungen bleiben erhalten.")
     return redirect(url_for("mail_client.index", account=account_id))
 
 

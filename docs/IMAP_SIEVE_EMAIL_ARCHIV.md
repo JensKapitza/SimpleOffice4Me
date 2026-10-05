@@ -158,17 +158,46 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
 
 - TLS-, Login-, Ordner- oder Protokollfehler werden verständlich gemeldet; das
   Passwort wird nicht protokolliert.
-- **Bekannte Wiederanlauflücke ([#587](https://github.com/JensKapitza/SimpleOffice4Me/issues/587))**:
-  Der UID-Fortschritt wird derzeit bereits vor erfolgreicher lokaler Speicherung
-  erhöht und auch nach abgefangenen Speicherfehlern persistiert. Ein nachfolgender
-  inkrementeller Lauf kann deshalb fehlgeschlagene Nachrichten überspringen.
-  Ein fehlerfreier Folgelauf beweist keine vollständige Archivierung. Fehler-UIDs
-  und Originalnachrichten bis zur bestätigten Nacharchivierung aufbewahren;
-  Quellnachrichten nicht aufgrund des Checkpoints löschen. Es gibt derzeit keine
-  dokumentierte sichere UI-Aktion für eine gezielte Wiederholung solcher UIDs.
-  Archivzustandsdateien nicht ohne geprüfte Sicherung manuell verändern.
-- Ein neuer Lauf setzt am letzten UID-Stand fort. Bei geänderter `UIDVALIDITY`
-  wird erneut gelesen und über SHA-512 dedupliziert.
+- **Persistente Wiederaufnahme (#587)**: Jede UID wird vor der Verarbeitung
+  im vorhandenen benutzer-/kontogebundenen Archivzustand als offen gespeichert.
+  Der Fortschritt kann höhere UIDs erreichen, während frühere Fehler separat
+  offen bleiben. „Jetzt kopieren“ verarbeitet offene UIDs zuerst; der Abschluss
+  wird erst nach Originalspeicherung, Herkunftsmetadaten und einer ausdrücklich
+  bestätigten Anhangsübernahme gespeichert. Ein nicht schreibbarer Checkpoint
+  bricht den Lauf ab, statt ohne belastbaren Fortschritt weiterzuarbeiten.
+- Die Mailseite nennt offene UIDs und die ausstehende Stufe: Abruf,
+  EML-Speicherung, Herkunftsmetadaten oder Anhangsübernahme. Fehlerantworten und
+  Lauf-Audit enthalten keine Serverantworten, Mailtexte oder Passwörter.
+- Originale werden über den vorhandenen StoragePort bytegenau verifiziert;
+  identische EML werden auch bei einem Neustart, anderem Jahr oder geändertem
+  UID-Namensraum wiederverwendet. Im V2-Modus zählt die autoritative Quelle,
+  auch wenn die Legacy-Projektion fehlt. Andere Bytes am Ziel werden niemals
+  überschrieben oder als erfolgreicher Wiederanlauf akzeptiert.
+- Bestätigte Anhangsübernahme bleibt für diese offene UID nach einem Neustart
+  aktiv, auch wenn die Checkbox beim nächsten Lauf nicht erneut gesetzt wird.
+  Bereits abgeschlossene MIME-Teile werden nicht erneut importiert. Für noch
+  offene Teile verwendet dieselbe ClamAV-/Quarantäne-/Herkunftslogik feste,
+  private Ziele neben der EML unter `<SHA-512>.attachments/`; dadurch entsteht
+  auch bei einem Abbruch zwischen Import und Checkpoint kein zweites Dokument.
+  Infizierte Teile bleiben in Quarantäne. Neue Nachrichten ohne Bestätigung
+  werden weiterhin ausschließlich als originale EML archiviert.
+- Vorhandene alte Checkpoints werden ohne Datenlöschung übernommen. Weil sie
+  historische Lücken enthalten können, erfolgt einmalig ein erneuter Abgleich
+  ab der ersten UID, ebenfalls mit dem eingestellten Batch-Limit. Alte Zustände
+  belegen keine frühere Anhangsbestätigung; für deren erneute Übernahme muss
+  die Checkbox ausdrücklich gesetzt werden.
+- Ein Wechsel von `UIDVALIDITY`, Server, Anmeldung oder Quellordner beginnt
+  einen neuen Abgleich. Alte offene UIDs werden nicht auf andere Nachrichten
+  angewendet: Sie bleiben als frühere Wiederholungen im Archivzustand erhalten
+  und erzeugen einen sichtbaren Hinweis. Existieren ihre Nachrichten im neuen
+  Namensraum, finalisiert der neue Abgleich die vorhandenen EML und Anhänge.
+  Andernfalls Quellordner und vorhandene Originale prüfen; der Hinweis ist
+  keine erfolgreiche Nacharchivierung verschwundener Quellnachrichten.
+- Die Anwendung verändert weiterhin keine IMAP-Flags und verschiebt oder
+  löscht keine Quelle. Ein Lauf verarbeitet insgesamt höchstens das gewählte
+  Limit aus offenen und neuen UIDs (maximal 1.000). Eine dauerhaft fehlerhafte
+  UID kann bei einem Limit von 1 weitere Nachrichten zurückhalten; Limit
+  erhöhen oder die angezeigte Ursache beheben.
 - Fehlender oder fehlerhafter ClamAV verhindert die Anhangsübernahme, nicht aber
   die zuvor gespeicherte originale EML.
 - Kann die ausgehende EML nicht atomar archiviert und registriert werden, findet

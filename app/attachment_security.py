@@ -22,7 +22,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha25
 from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_under
 from .v2.contracts import LogicalObjectId
-from .v2.storage_runtime import import_document, storage_for
+from .v2.storage_runtime import create_or_verify_document, import_document, storage_for
 
 MAX_PARTS = 100
 MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
@@ -257,7 +257,7 @@ class AttachmentSecurity:
         store.history.record("attachment_extraction_previewed", actor, "documents", document_id, {"manifest_id": manifest_id, "attachments": [{"part": row["part"], "filename": row["filename"], "size": row["size"], "sha256": row["sha256"]} for row in rows]})
         return manifest
 
-    def extract(self, manifest_id: str, selected: list[int], actor: str) -> list[dict[str, Any]]:
+    def extract(self, manifest_id: str, selected: list[int], actor: str, *, idempotent: bool = False) -> list[dict[str, Any]]:
         path = self.manifests / f"{manifest_id}.json"
         with exclusive_file_lock(path.with_suffix(".lock")):
             try:
@@ -290,8 +290,17 @@ class AttachmentSecurity:
                     verdict = self.scanner.scan(quarantine_path)
                     record = {"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "source_type": "eml-attachment", "source_document_id": manifest["document_id"], "filename": row["filename"], "size": len(payload), "sha256": row["sha256"], **asdict(verdict)}
                     if verdict.verdict != "clean":
-                        destination = self.quarantine / f"{record['scan_id']}.infected"
-                        quarantine_path.replace(destination)
+                        quarantine_id = record["scan_id"]
+                        if idempotent:
+                            identity = f"{manifest['document_id']}:{manifest['source_sha256']}:{index}"
+                            quarantine_id = hashlib.sha256(identity.encode()).hexdigest()
+                        destination = self.quarantine / f"{quarantine_id}.infected"
+                        if idempotent and destination.exists():
+                            if destination.is_symlink() or sha256_file(destination) != row["sha256"]:
+                                raise ValueError("existing quarantine does not match retry content")
+                            quarantine_path.unlink()
+                        else:
+                            quarantine_path.replace(destination)
                         record["quarantine_id"] = destination.name
                         record["action"] = "quarantined"
                         self._record_scan(record)
@@ -299,8 +308,16 @@ class AttachmentSecurity:
                         continue
                     record["action"] = "allowed_import"
                     self._record_scan(record)
-                    with quarantine_path.open("rb") as handle:
-                        imported = import_document(self.root, actor, handle, row["filename"], max_bytes=MAX_ATTACHMENT_BYTES)
+                    if idempotent:
+                        source_path = Path(manifest["source_path"])
+                        destination = source_path.parent / f"{source_path.stem}.attachments" / f"{index}-{row['sha256']}-{row['filename']}"
+                        imported, _ = create_or_verify_document(
+                            self.root, actor, destination.as_posix(), payload,
+                            max_bytes=MAX_ATTACHMENT_BYTES,
+                        )
+                    else:
+                        with quarantine_path.open("rb") as handle:
+                            imported = import_document(self.root, actor, handle, row["filename"], max_bytes=MAX_ATTACHMENT_BYTES)
                     tags = ["attachment", "source:eml", f"source-document:{manifest['document_id']}", f"source-message:{hashlib.sha256(manifest['message']['message_id'].encode()).hexdigest()[:16] if manifest['message']['message_id'] else 'unknown'}"]
                     store = DocumentStore(self.root)
                     store.set_tags(imported["document_id"], [*imported.get("tags", []), *tags], actor)
@@ -314,7 +331,8 @@ class AttachmentSecurity:
                     quarantine_path.unlink(missing_ok=True)
                     results.append({**record, "document_id": imported["document_id"]})
                 except Exception:
-                    quarantine_path.rename(self.quarantine / f"{quarantine_path.stem}.error")
+                    if quarantine_path.exists():
+                        quarantine_path.rename(self.quarantine / f"{quarantine_path.stem}.error")
                     raise
         return results
 
