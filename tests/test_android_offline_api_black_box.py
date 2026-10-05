@@ -7,53 +7,18 @@ and IDs are opaque values received from the API, not calculated by test code.
 from __future__ import annotations
 
 import os
-import tempfile
-import unittest
-from html.parser import HTMLParser
-from pathlib import Path
 from unittest.mock import patch
 
 from app import app
-from app.db import ensure_auth_database
+from http_api_fixture import PublicHttpTestCase
 
 
-class CsrfMetadata(HTMLParser):
-    """Read the same public HTML metadata that a browser client receives."""
-
-    def __init__(self):
-        super().__init__()
-        self.token = ""
-
-    def handle_starttag(self, tag, attrs):
-        attributes = dict(attrs)
-        if tag == "meta" and attributes.get("name") == "csrf-token":
-            self.token = attributes.get("content", "")
-
-
-class AndroidOfflineApiBlackBoxTests(unittest.TestCase):
+class AndroidOfflineApiBlackBoxTests(PublicHttpTestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory()
-        self.addCleanup(temp.cleanup)
-        root = Path(temp.name)
-        previous = app.config.copy()
-        self.addCleanup(self._restore_config, previous)
-        app.config.update(
-            TESTING=True,
-            TEST_CSRF_PROTECTION=True,
-            DATABASE=str(root / "auth.sqlite3"),
-            DOCUMENT_ROOT=str(root / "documents"),
-        )
+        super().setUp()
         environment = patch.dict(os.environ, {"SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED": "1"})
         environment.start()
         self.addCleanup(environment.stop)
-        # The normal application-start schema initializer: no fixture INSERTs,
-        # domain methods, test password hashing or asserted persistence layout.
-        with app.app_context():
-            ensure_auth_database()
-
-        self.client = app.test_client()
-        self._register(self.client, "owner")
-        self._login(self.client, "owner")
         response = self.client.post(
             "/tasks/",
             data={
@@ -71,35 +36,6 @@ class AndroidOfflineApiBlackBoxTests(unittest.TestCase):
         self.assertEqual(1, len(tasks))
         self.task_id = tasks[0]["id"]
         self.base_version = tasks[0]["version"]
-
-    @staticmethod
-    def _restore_config(previous):
-        app.config.clear()
-        app.config.update(previous)
-
-    def _csrf_headers(self, client, path="/tasks/"):
-        page = client.get(path)
-        self.assertEqual(200, page.status_code)
-        parser = CsrfMetadata()
-        parser.feed(page.get_data(as_text=True))
-        self.assertTrue(parser.token, "Public HTML must supply the browser CSRF token")
-        return {"X-CSRF-Token": parser.token}
-
-    def _register(self, client, username):
-        response = client.post(
-            "/auth/register",
-            data={"username": username, "password": "test-only-api-password"},
-            headers=self._csrf_headers(client, "/auth/register"),
-        )
-        self.assertEqual(302, response.status_code)
-
-    def _login(self, client, username):
-        response = client.post(
-            "/auth/login",
-            data={"username": username, "password": "test-only-api-password"},
-            headers=self._csrf_headers(client, "/auth/login"),
-        )
-        self.assertEqual(302, response.status_code)
 
     def _operation(self, operation_id, status, *, base_version=None):
         return {

@@ -10,6 +10,7 @@ from .calendar_store import CalendarStore
 from .contact_store import ContactStore
 from .document_store import DocumentStore
 from .db import get_db
+from .mcp_arguments import validate_arguments
 from .mcp_auth import authenticate_token, create_token, operation_log, revoke_token, tokens_for_user
 from .project_store import ProjectStore
 from .virtual_filesystem import VirtualFileSystem
@@ -120,9 +121,14 @@ def endpoint():
     elif method=="ping": data={}
     elif method=="tools/list": data={"tools":[t for t in TOOLS if not TOOL_FEATURE.get(t["name"]) or has_feature(g.user,TOOL_FEATURE[t["name"]])]}
     elif method=="tools/call":
-        params=payload.get("params",{}); name=str(params.get("name","")); args=params.get("arguments",{})
+        params=payload.get("params",{})
+        if not isinstance(params,dict) or not isinstance(params.get("name"),str): return jsonify({"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params"},"id":rpc_id}),400
+        name=params["name"]; args=params.get("arguments",{})
         if not isinstance(args,dict) or len(str(args))>MAX_ARGUMENT_TEXT: return jsonify({"jsonrpc":"2.0","error":{"code":-32602,"message":"Invalid params"},"id":rpc_id}),400
         try:
+            tool=next((tool for tool in TOOLS if tool["name"]==name),None)
+            if tool is None: raise ValueError("unknown tool")
+            validate_arguments(args,tool["inputSchema"])
             value=_call(name,args); data=_result(value); audit("mcp_tool_call","mcp_tool",name,detail={"token_id":identity["token_id"],"request_id":g.request_id})
             get_db().execute("INSERT INTO mcp_operation(request_id,occurred_at,actor_id,token_id,tool,target_id,outcome) VALUES (?,datetime('now'),?,?,?,?,?)",(g.request_id,g.user["id"],identity["token_id"],name,str(args.get("document_id") or args.get("project_id") or ""),"success")); get_db().commit()
         except (KeyError,TypeError,ValueError,PermissionError) as exc:
