@@ -178,6 +178,13 @@ MCP wird davon unabhängig über `MCP_ENABLED` deaktiviert.
 - `python -m unittest discover -s tests -p 'test_litellm*.py' -v`: Konfiguration,
   Encryption, Rechte/CSRF/Audit, DNS/SSRF, echter HTTP-Transport, Fehlercodes,
   Größenlimits, Deadline, Retry-Verhalten, Lifecycle, Backup/Restore und Deaktivierung.
+- Öffentliche Mini-Service-API: Deaktivierungsfehler, Neustart-Vorprüfung,
+  Lifecycle-Status, unveränderte Health-Diagnose bei Eingabefehlern, rekursiv
+  beschädigte Dateien, Restore-Feedback und unveränderliches Containerimage.
+- Echter TLS-Testserver: Mehradress-Fallback vor einem einzelnen Modell-POST
+  sowie Ablehnung eines Zertifikats mit falschem Hostnamen.
+- Dünner Browserablauf auf Desktop/Mobil: Mini-Service-Link, Speichern,
+  deaktivierter Verbindungstest, Backup-Download und sichtbarer Restore-Fehler.
 - Bestehende 22 MCP-Tests bleiben eigenständig unverändert.
 - CI-Job **LiteLLM optional container operations**: gepinntes reales LiteLLM-
   Image, nicht kostenpflichtiges Mock-Modell, Installation/Readiness, OpenAI-
