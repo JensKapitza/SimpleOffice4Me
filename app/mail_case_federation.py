@@ -99,7 +99,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
-                          payload: dict, history=None) -> dict:
+                          payload: dict, history=None, local_user_active=None) -> dict:
     """Apply one idempotent event to an already shared local case.
 
     The incoming user must have an administrator mapping and the case must
@@ -119,6 +119,8 @@ def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
     local_user = MailCaseFederationIdentityStore(root).resolve(peer_id, remote_user)
     if not local_user:
         raise PermissionError("unknown federated user")
+    if local_user_active is not None and not bool(local_user_active(local_user)):
+        raise PermissionError("mapped local user is inactive")
     remote_case_id = str(payload.get("case_id") or "").strip()
     if not remote_case_id or len(remote_case_id) > 160:
         raise ValueError("invalid mail-case reference")
