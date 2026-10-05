@@ -3,6 +3,8 @@ import json
 import shutil
 import tempfile
 import unittest
+from email import policy
+from email.message import EmailMessage
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,6 +12,95 @@ from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 
 
 class DocumentStoreTest(unittest.TestCase):
+    def test_eml_backfill_indexes_decoded_headers_and_body_without_attachments(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            message = EmailMessage(policy=policy.SMTP)
+            message["Subject"] = "Grüße vom Überseehafen"
+            message["From"] = "Kranführer <sender@example.test>"
+            message["To"] = "Empfang <receiver@example.test>"
+            message["Cc"] = "Büro <office@example.test>"
+            message["Date"] = "Mon, 05 Oct 2026 08:00:00 +0000"
+            message.set_content("Kranführer melden Vollständigkeit.", cte="base64")
+            message.add_attachment(b"private attachment marker", maintype="text", subtype="plain", filename="anlage.txt")
+            (root / "mail.eml").write_bytes(message.as_bytes())
+            store = DocumentStore(root)
+
+            store.scan()
+            document = store.get_document(root / "mail.eml")
+            indexed = document["extracted_text"]
+
+            self.assertIn("Überseehafen", indexed)
+            self.assertIn("sender@example.test", indexed)
+            self.assertIn("receiver@example.test", indexed)
+            self.assertIn("Büro", indexed)
+            self.assertIn("Kranführer melden Vollständigkeit", indexed)
+            self.assertNotIn("private attachment marker", indexed)
+            for query in ("text:Überseehafen", "text:Kranführer", "text:receiver@example.test"):
+                with self.subTest(query=query):
+                    self.assertEqual(1, len(store.search_page(query)["results"]))
+
+    def test_eml_backfill_reindexes_existing_documents_and_caps_input(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / "existing.eml"
+            path.write_bytes(b"Subject: plain subject\\r\\n\\r\\nplain body")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(path)
+            document["extracted_text"] = "stale raw bytes"
+            store._save_document(document)
+
+            self.assertEqual(1, store.refresh_missing_text("tester", force=True))
+            self.assertIn("Subject: plain subject", store.get_document(path)["extracted_text"])
+
+            import app.document_store_part_5 as document_store_part_5
+
+            with patch.object(document_store_part_5, "MAX_EML_INDEX_BYTES", 4):
+                with self.assertRaisesRegex(RuntimeError, "size limit"):
+                    DocumentStore._file_text(path)
+
+    def test_eml_backfill_handles_quoted_printable_and_html_only_bodies(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            quoted = EmailMessage(policy=policy.SMTP)
+            quoted["Subject"] = "=?utf-8?Q?Gr=C3=BC=C3=9Fe?="
+            quoted.set_content("Prüfung über Quoted-Printable.", cte="quoted-printable")
+            (root / "quoted.eml").write_bytes(quoted.as_bytes())
+
+            html_only = EmailMessage(policy=policy.SMTP)
+            html_only["Subject"] = "HTML Nachricht"
+            html_only.set_content(
+                "<html><body><p>Lesbarer HTML-Inhalt</p><script>nicht indexieren</script></body></html>",
+                subtype="html",
+                cte="quoted-printable",
+            )
+            (root / "html.eml").write_bytes(html_only.as_bytes())
+
+            store = DocumentStore(root)
+            store.scan()
+
+            self.assertEqual(1, len(store.search_page("text:Grüße")["results"]))
+            self.assertEqual(1, len(store.search_page("text:Prüfung")["results"]))
+            self.assertEqual(1, len(store.search_page("text:Lesbarer")["results"]))
+            self.assertEqual([], store.search_page("text:nicht")["results"])
+
+    def test_eml_backfill_tolerates_unknown_charset_and_malformed_mime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "unknown-charset.eml").write_bytes(
+                b"Subject: charset test\\r\\nContent-Type: text/plain; charset=x-not-real\\r\\n"
+                b"Content-Transfer-Encoding: base64\\r\\n\\r\\n"
+                b"SGVsbG8gZnJvbSBtYWxmb3JtZWQgTUlNRS4="
+            )
+            (root / "malformed.eml").write_bytes(b"not a valid header\\xff\\r\\n\\r\\nreadable fallback")
+            store = DocumentStore(root)
+
+            store.scan()
+
+            self.assertEqual(1, len(store.search_page("text:Hello")["results"]))
+            self.assertEqual(1, len(store.search_page("text:fallback")["results"]))
+
     def test_oversized_upload_is_removed_from_staging(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
