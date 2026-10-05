@@ -335,6 +335,19 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
         self.assertEqual(1, len(set(quarantine_ids)))
         self.assertEqual([], DocumentStore(self.root).search_page("tag:source:eml")["results"])
 
+    def test_long_unicode_attachment_filename_is_archived_without_storage_error(self):
+        message = EmailMessage()
+        message.set_content("Long attachment filename")
+        message.add_attachment(b"REPORT", maintype="application", subtype="octet-stream", filename="報" * 180 + ":?.bin")
+        self.mailbox.messages = {7: message.as_bytes()}
+        with patch("app.attachment_security.ClamAV.scan", return_value=ScanResult("clean", "synthetic", "fake")):
+            result = self.run_archive(extract_attachments=True)
+        self.assertEqual((1, 0, []), (result["attachments"], result["pending"], result["errors"]))
+        rows = DocumentStore(self.root).search_page("tag:source:eml")["results"]
+        self.assertEqual(1, len(rows))
+        with materialize_verified_object(self.root, "alice", rows[0]["document_id"]) as source:
+            self.assertEqual(b"REPORT", source.read_bytes())
+
 
 class ShadowArchiveRecoveryTests(ArchiveRecoveryTests):
     mode = "shadow"

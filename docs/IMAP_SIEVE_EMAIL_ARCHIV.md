@@ -177,7 +177,8 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
   aktiv, auch wenn die Checkbox beim nächsten Lauf nicht erneut gesetzt wird.
   Bereits abgeschlossene MIME-Teile werden nicht erneut importiert. Für noch
   offene Teile verwendet dieselbe ClamAV-/Quarantäne-/Herkunftslogik feste,
-  private Ziele neben der EML unter `<SHA-512>.attachments/`; dadurch entsteht
+  private Ziele im Jahrgangsordner unter `attachments/<stabile Identität>-<Name>`;
+  der vorhandene Dateinamenvalidator begrenzt den ASCII-Zielnamen. Dadurch entsteht
   auch bei einem Abbruch zwischen Import und Checkpoint kein zweites Dokument.
   Infizierte Teile bleiben in Quarantäne. Neue Nachrichten ohne Bestätigung
   werden weiterhin ausschließlich als originale EML archiviert.

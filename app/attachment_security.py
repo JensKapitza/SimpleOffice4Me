@@ -20,7 +20,7 @@ from typing import Any, BinaryIO
 
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
-from .safe_paths import resolve_under
+from .safe_paths import resolve_under, safe_filename
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import create_or_verify_document, import_document, storage_for
 
@@ -289,11 +289,12 @@ class AttachmentSecurity:
                 try:
                     verdict = self.scanner.scan(quarantine_path)
                     record = {"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "source_type": "eml-attachment", "source_document_id": manifest["document_id"], "filename": row["filename"], "size": len(payload), "sha256": row["sha256"], **asdict(verdict)}
+                    retry_id = ""
+                    if idempotent:
+                        identity = f"{manifest['document_id']}:{manifest['source_sha256']}:{index}"
+                        retry_id = hashlib.sha256(identity.encode()).hexdigest()
                     if verdict.verdict != "clean":
-                        quarantine_id = record["scan_id"]
-                        if idempotent:
-                            identity = f"{manifest['document_id']}:{manifest['source_sha256']}:{index}"
-                            quarantine_id = hashlib.sha256(identity.encode()).hexdigest()
+                        quarantine_id = retry_id or record["scan_id"]
                         destination = self.quarantine / f"{quarantine_id}.infected"
                         if idempotent and destination.exists():
                             if destination.is_symlink() or sha256_file(destination) != row["sha256"]:
@@ -310,7 +311,8 @@ class AttachmentSecurity:
                     self._record_scan(record)
                     if idempotent:
                         source_path = Path(manifest["source_path"])
-                        destination = source_path.parent / f"{source_path.stem}.attachments" / f"{index}-{row['sha256']}-{row['filename']}"
+                        name = safe_filename(row["filename"], fallback="attachment.bin", max_length=48)
+                        destination = source_path.parent / "attachments" / f"{retry_id}-{name}"
                         imported, _ = create_or_verify_document(
                             self.root, actor, destination.as_posix(), payload,
                             max_bytes=MAX_ATTACHMENT_BYTES,
