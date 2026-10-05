@@ -236,3 +236,12 @@ class McpApiBlackBoxTests(PublicHttpTestCase):
         for sensitive in (self.read_token, self.write_token,
                           "confidential-business-title", "private-description-marker"):
             self.assertNotIn(sensitive, text)
+
+    def test_rejected_identifier_payload_is_not_repeated_in_the_public_journal(self):
+        """A non-string document ID is rejected without journaling its contents."""
+        denied = self._tool("fetch", {"document_id": {"private": "confidential-invalid-target"}})
+        self.assertTrue(denied.get("isError", False))
+        listing = self.client.get("/settings/mcp")
+        self.assertEqual(200, listing.status_code)
+        self.assertIn("fetch", listing.get_data(as_text=True))
+        self.assertNotIn("confidential-invalid-target", listing.get_data(as_text=True))

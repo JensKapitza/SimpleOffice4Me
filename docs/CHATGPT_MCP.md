@@ -38,6 +38,10 @@ JSON-RPC-Fehler `-32602` mit der ursprünglichen Request-ID.
 
 Jeder Werkzeugaufruf wird in `mcp_operation` mit Request-ID, Zeitpunkt, Benutzer, Token-ID, Werkzeug, sicherem Zielbezeichner, Ergebnis und Fehlerklasse protokolliert. Zusätzlich entsteht ein Security-Audit-Ereignis. Tokens, Passwörter, vollständige Argumente und Dateiinhalte gelangen nicht ins Log. Die Request-ID verbindet den Vorgang mit dem allgemeinen Anwendungsfehlerprotokoll.
 
+Bei abgelehnten Aufrufen bleibt der Zielbezeichner leer: Ein übermitteltes
+ID-Feld kann ungültig sein oder fachliche Inhalte statt einer ID enthalten.
+Werkzeug, Ergebnis und Fehlerklasse bleiben zur Diagnose sichtbar.
+
 Tokens bestehen aus 40 zufälligen URL-sicheren Bytes und werden nur als SHA-256-Prüfwert gespeichert. Sie sind einzeln widerrufbar, maximal 365 Tage gültig und bei Kontosperrung sofort unbrauchbar. `SIMPLEOFFICE_MCP=0` deaktiviert die Schnittstelle ohne Datenänderung. Die Datenbankmigration ist rein additiv.
 
 Ein Widerruf wirkt ab dem nächsten Aufruf, auch bei weiterhin angemeldetem
