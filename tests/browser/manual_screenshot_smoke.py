@@ -22,6 +22,7 @@ from playwright.sync_api import sync_playwright
 
 from browser_artifacts import make_html_snapshot_writer, slug
 from layout_checks import check_readable_layout
+from mcp_smoke import run_mcp_smoke
 from page_crawl import (
     CrawlFrontier,
     MAX_QUERY_VARIANTS_PER_PATH,
@@ -646,6 +647,7 @@ def main() -> int:
         "failures": [],
         "html5": {"doctype": "html5", "snapshots": []},
         "peer_to_peer": {"enabled": PEER_TO_PEER, "checks": []},
+        "mcp_ui": {"checks": []},
     }
 
     frontier = CrawlFrontier(
@@ -720,6 +722,13 @@ def main() -> int:
                 raise RuntimeError("Anmeldung des Browser-Testbenutzers ist fehlgeschlagen.")
 
             page.wait_for_selector("nav[aria-label='Hauptnavigation']")
+
+            run_mcp_smoke(page, output_dir=OUTPUT_DIR, run_id=RUN_ID, checks=summary["mcp_ui"]["checks"])
+            page.set_viewport_size({"width": 390, "height": 844})
+            page.goto(f"{BASE_URL}/documents/", wait_until="domcontentloaded")
+            run_mcp_smoke(page, output_dir=OUTPUT_DIR, run_id=RUN_ID, checks=summary["mcp_ui"]["checks"])
+            page.set_viewport_size({"width": 1440, "height": 1000})
+            page.goto(f"{BASE_URL}/documents/", wait_until="domcontentloaded")
 
             raw_links = page.locator(
                 "a.nav-link:not(.dropdown-toggle), a.dropdown-item"
