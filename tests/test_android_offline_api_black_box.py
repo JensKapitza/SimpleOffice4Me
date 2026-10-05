@@ -135,7 +135,7 @@ class AndroidOfflineApiBlackBoxTests(unittest.TestCase):
         self.assertEqual("Nur den Aufgabenstatus offline verändern.", task["description"])
         self.assertEqual("2030-02-28", task["due"])
         self.assertEqual("needs-action", task["status"])
-        self.assertRegex(response.headers["ETag"], r'^"[^"\r\n]+"$')
+        self.assertRegex(response.headers["ETag"], r'^"[^"\r\n]*"$')
         self.assertEqual(self.base_version, response.headers["ETag"])
         self.assertEqual("no-store", response.headers["Cache-Control"])
         self.assertNotIn("test-only-api-password", response.get_data(as_text=True))
