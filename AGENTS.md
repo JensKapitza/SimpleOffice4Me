@@ -16,13 +16,6 @@ Regeln sind in dieser Reihenfolge anzuwenden:
 
 Bestehende funktionierende Implementierungen zuerst verstehen und gezielt verbessern. Ein Architekturwechsel ist nur zulässig, wenn ein konkreter technischer Grund dokumentiert ist.
 
-Für C#-/MetaBridge-Arbeiten gelten zusätzlich, sofern diese Dateien im jeweiligen Repository oder Teilbaum vorhanden sind, als verbindliche Referenz:
-
-- `instruction.md`
-- `BrabenderCodeAnalysis.ruleset`
-- vorhandene `README`- und `docs/`-Dokumentation
-- vorhandene Solution-, Projekt-, Build- und Testkonfiguration
-
 ## 2. Arbeitsweise des Agenten
 
 Der Agent arbeitet pragmatisch, autonom, batch-orientiert und root-cause-orientiert. Lösbare Aufgaben werden direkt umgesetzt, statt unnötig lange Planungsphasen zu erzeugen.
@@ -55,17 +48,6 @@ Daraus folgt:
 - Optionale Funktionen sollen nach Möglichkeit optionale Abhängigkeiten bleiben.
 - Entwicklung und Produktion klar getrennt halten.
 
-### C# / MetaBridge
-
-Diese Regeln gelten nur dort, wo C#-/MetaBridge-Projekte tatsächlich vorhanden sind:
-
-- Bestehende Target Frameworks nicht pauschal ändern; Upgrades schrittweise entlang der Projektabhängigkeiten planen und testen.
-- Bestehende Layer und Verantwortlichkeiten erhalten: Web/UI, Business-Logik, Services, Persistenz, gemeinsame Bibliotheken und Hardware-Abstraktionen nicht ohne Grund vermischen.
-- Gemeinsame Bibliotheken auf Seiteneffekte in abhängigen Projekten prüfen.
-- Drittanbieter-Code nur auf ausdrückliche Anweisung ändern.
-- Vorhandene APIs und Verträge nur mit klarer Begründung ändern; Breaking Changes dokumentieren.
-- Vorhandene Projekttechnologien wie MongoDB, Razor Views, Gulp/Sass/Less, log4net, NUnit, Coverlet und interne NuGet-Feeds berücksichtigen, sofern sie im betroffenen Projekt verwendet werden.
-
 ## 4. Codegröße und Struktur
 
 Für Python gelten die durch CI überwachten Grenzwerte:
@@ -81,17 +63,6 @@ Zusätzlich:
 - Vor neuen Abstraktionen zuerst nach bestehender vergleichbarer Logik suchen.
 - Änderungen müssen zum vorhandenen Stil, zu Hilfsfunktionen und zur bestehenden Architektur passen.
 - Seiteneffekte möglichst begrenzen und Datenflüsse klar halten.
-
-### C#-Konventionen
-
-Sofern im betroffenen Projekt vorhanden:
-
-- Bestehende Naming-, Namespace-, Datei- und Pattern-Konventionen übernehmen.
-- Neuron-Konventionen berücksichtigen, wenn das Projekt sie verwendet: `mPrefix`, `_Prefix`, PascalCase, SRP und Boy-Scout-Regel.
-- Vorhandene gemeinsame Bausteine bevorzugen, z. B. Glia-DI, `Maybe<T>`, Dapper, FluentMigrator und bestehende Konfigurationshierarchien.
-- Vorhandene Patterns bevorzugen, z. B. File Assertions, Smart Detection, Scriban-Templates, Service Overrides, Named Tuples, `DataFaker`, parametrisierte Konfiguration, Partial Files und vorhandene Package-Reference-Muster.
-- Keine ungenutzten Felder, Variablen, Parameter oder Catch-Blöcke zurücklassen.
-- Neue C#-Dateien nur dann mit projektspezifischem UTF-8-BOM/Copyright anlegen, wenn diese Vorgabe im Projekt tatsächlich besteht.
 
 ## 5. Sicherheitsregeln
 
@@ -133,10 +104,6 @@ Warnungen werden ursächlich reduziert. Reihenfolge:
 4. Stilwarnungen, sofern risikoarm und mit vertretbarem Aufwand lösbar
 
 Keine pauschalen Unterdrückungen verwenden. Eine Ausnahme ist nur zulässig, wenn sie ausdrücklich gefordert oder technisch notwendig, lokal begrenzt und dokumentiert ist.
-
-### MetaBridge-Analyzer
-
-Wenn `BrabenderCodeAnalysis.ruleset` vorhanden ist, ist diese Datei maßgeblich. Insbesondere gelten dann die dort definierten Schweregrade. Falls die Regeln dort entsprechend konfiguriert sind, sind `CA1823`, `C6259` und `SX1101` ohne unbegründete Unterdrückung zu behandeln. Deaktivierte `SA...`-Regeln dürfen nicht eigenmächtig als neue Pflichtregeln eingeführt werden.
 
 ## 8. Datenintegrität und Migrationen
 
@@ -245,17 +212,6 @@ Regeln:
 - CI muss mindestens Python 3.10 und Python 3.14 abdecken.
 - Dateigrößen- und Funktionsgrößen-Gates nicht umgehen.
 
-### C#- und MetaBridge-Prüfungen
-
-Nur anwenden, wenn entsprechende Projekte vorhanden sind:
-
-- Den kleinsten passenden Build ausführen; bei gemeinsam genutzten Bibliotheken anschließend betroffene abhängige Projekte prüfen.
-- Mindestens die betroffene Solution oder den passenden Solution Filter bauen und relevante NUnit-Tests ausführen.
-- Web- und Desktop-Anteile getrennt prüfen, wenn nur einer der Bereiche betroffen ist.
-- Bei Datenbankänderungen Migrationen, Rückwärtskompatibilität, vorhandene Nutzerdaten und Rollback testen.
-- Bei Hardware-, Netzwerk- oder Protokolländerungen Fehler, Timeouts, Neustart und fehlende Geräteverbindungen testen.
-- Coverage- und Analyzer-Warnungen als Qualitätsindikatoren behandeln; Prüfungen nicht durch Deaktivieren oder Entfernen umgehen.
-
 ## 14. Dokumentation
 
 Dokumentation ist Bestandteil der Implementierung.
@@ -304,7 +260,6 @@ Vor dem Implementieren:
 1. Betroffenen Code, Tests und angrenzende Funktionen lesen.
 2. Vergleichbare vorhandene Lösungen und gemeinsame Hilfslogik identifizieren.
 3. Bestehende Architektur, Datenflüsse und Abhängigkeiten verstehen.
-4. Bei C#/MetaBridge zuerst `instruction.md`, Ruleset, README, Solution- und Projektdateien lesen, sofern vorhanden.
 
 Beim Implementieren:
 
@@ -376,7 +331,6 @@ Eine Aufgabe gilt für den betroffenen Umfang erst als abgeschlossen, wenn die a
 - Dokumentation aktualisiert
 - Bedienung konsistent
 - keine bekannten kritischen TODOs oder Debug-Hacks offen
-- bei C#/MetaBridge: vorhandene Projektinstruktionen, Analyzer, Builds und abhängige Projekte berücksichtigt
 
 ## 22. Session-Kurzvorgabe
 
