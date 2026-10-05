@@ -322,6 +322,7 @@ class VirtualFileSystem:
         content: bytes,
         *,
         expected_sha256: str = "",
+        create_only: bool = False,
         max_bytes: int = 512 * 1024 * 1024,
     ) -> dict[str, Any]:
         payload = bytes(content)
@@ -332,6 +333,8 @@ class VirtualFileSystem:
         if resource.exists():
             self.require(actor, resource, "write")
             resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
+            if create_only:
+                raise FileExistsError("destination resource already exists")
             document = self.store.get_document(resource)
             stored = self._storage_value(
                 storage.replace_bytes(
