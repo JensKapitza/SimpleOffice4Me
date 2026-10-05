@@ -1,6 +1,8 @@
 """CRM mail previews must consume verified storage, with document permissions."""
 import io
 import tempfile
+from email import policy
+from email.message import EmailMessage
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -78,6 +80,32 @@ class CrmEmlStorageTests(unittest.TestCase):
         self.assertEqual("Verified mail", preview["subject"])
         self.assertIn("Original body", preview["text"])
         self.assertNotIn("Untrusted", preview["text"])
+
+    def test_decoded_eml_search_survives_shadow_v2_and_missing_projection(self):
+        message = EmailMessage(policy=policy.SMTP)
+        message["Subject"] = "Prüfung vom Überseehafen"
+        message.set_content("Kranführer bestätigen den Base64-Transport.", cte="base64")
+        payload = message.as_bytes()
+        indexed = DocumentStore(self.root)
+        document = indexed.import_upload(io.BytesIO(payload), "searchable.eml", "admin")
+        document_id = document["document_id"]
+        projection = self.root / document["last_path"]
+
+        self.assertEqual(1, len(indexed.search_page("text:Überseehafen")["results"]))
+
+        backup = Path(self.temp.name) / "backup"
+        create_migration_backup(self.root, backup)
+        transfer_legacy_documents(self.root, backup)
+        prepare_shadow(self.root, apply=True, acknowledge_local_plaintext=True)
+        self.assertEqual(1, len(indexed.search_page("text:Kranführer")["results"]))
+        activate_v2(self.root, apply=True, acknowledge_local_plaintext=True)
+
+        projection.unlink()
+        results = indexed.search_page("text:Überseehafen")["results"]
+        self.assertIn(document_id, {row["document_id"] for row in results})
+        self.assertEqual(document["sha256"], indexed.get_document(document_id)["sha256"])
+        with materialize_verified_object(self.root, "admin", document_id, suffix=".eml") as verified:
+            self.assertEqual(payload, verified.read_bytes())
 
     def test_corrupt_blob_fails_without_fallback_to_intact_projection(self):
         self.activate()
