@@ -79,16 +79,44 @@ Teilnehmer können als `local_user` oder als vorbereiteter
 `federated_user` mit `peer_id` und `remote_user_id` modelliert werden.
 Diese Datenstruktur gibt keine IMAP-/SMTP-Credentials weiter. Der v3-Federation-
 Envelope handelt den Objekttyp `mail_cases` unabhängig von den älteren
-Mail-Fingerprint-Endpunkten aus. Empfangende Administratoren können entfernte
-Benutzer-IDs peergebunden einem aktiven lokalen Benutzer zuordnen. Die Zuordnung
-liegt in `mail-cases.sqlite3`, kann über die Admin-Endpunkte unter
-`/admin/federation/peer-discovery/mail-case-identities` angelegt, ersetzt und
-entfernt werden und wird in der Federation-Ereignishistorie protokolliert.
+Mail-Fingerprint-Endpunkten aus.
+
+Die Datenklasse wird pro Peer in der vorhandenen Federation-Verwaltung
+explizit freigeschaltet. `send`, `receive` und `auto_accept` sind getrennte
+Schalter unter **Federation → Peers → Mail-Vorgang-Federation** und sind ohne
+explizite Freigabe aus. Zusätzlich können empfangende Administratoren auf der
+vorhandenen Seite **Federation → Netzwerk** entfernte Benutzer-IDs peergebunden
+einem aktiven lokalen Benutzer zuordnen. Die Zuordnung liegt weiterhin in
+`mail-cases.sqlite3`; die JSON-Endpunkte unter
+`/admin/federation/peer-discovery/mail-case-identities` bleiben für
+administrative Integrationen erhalten. Änderungen und Widerrufe werden in der
+Federation-Ereignishistorie protokolliert.
 
 Die Zuordnung allein schaltet noch keine Fallübertragung frei: direkter Trust,
 ausgehandelte `mail_cases`-Version und die Receive-Policy des Peers bleiben
 erforderlich. Eine fehlende oder ungültige Zuordnung darf nie auf einen
-gleichnamigen lokalen Benutzer zurückfallen.
+gleichnamigen lokalen Benutzer zurückfallen. Der lokale Benutzer wird außerdem
+bei jedem über den v3-HTTP-Empfang automatisch angewendeten Mail-Vorgang-Ereignis
+erneut gegen die bestehende Benutzerverwaltung geprüft; ein inzwischen
+deaktivierter Benutzer führt zu einer serverseitigen Ablehnung.
+
+Wird eine Zuordnung auf einen anderen aktiven lokalen Benutzer geändert, werden
+bereits vorhandene Schattenvorgänge derselben Peer-/Remote-Identität atomar auf
+diesen Benutzer umgehängt. Beim Widerruf werden die daraus entstandenen lokalen
+Schattenvorgang-ACLs sofort entzogen. Die Vorgangsdaten selbst bleiben für
+Audit, erneute Zuordnung und Synchronisation erhalten, sind über die widerrufene
+lokale Identität aber nicht mehr sichtbar.
+
+Diese Eigentümerübertragung ist an die gespeicherte Remote-Identität des
+ursprünglichen Einladenden gebunden. Die Zuordnung weiterer Teilnehmer erweitert
+keine lokalen ACLs und ändert den Vorgangseigentümer nicht; unabhängig erteilte
+lokale Teilnehmerrechte bleiben beim Widerruf ihrer Remote-Zuordnung erhalten.
+Beim Schema-Upgrade wird der Einladende nur aus eindeutig zuordenbaren alten
+Schattenvorgängen übernommen. Mehrdeutige Altbestände benötigen eine manuelle
+Prüfung der Teilnehmer; sie erhalten keine automatisch abgeleiteten Eigentümerrechte.
+Die Eigentümerbindung, Einladungsdaten und Replay-Quittung werden gemeinsam
+transaktional gespeichert. Eine zwischen Identitätsauflösung und Anwendung
+widerrufene oder geänderte Zuordnung kann keinen neuen Schattenvorgang erzeugen.
 
 Der berechtigte lokale Teilnehmer kann über „Vorgang an Peer einladen“ einen
 Vorgang an einen zuvor hinzugefügten föderierten Teilnehmer senden. Die

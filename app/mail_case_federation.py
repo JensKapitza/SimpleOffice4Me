@@ -15,6 +15,7 @@ from pathlib import Path
 from .document_store import CONTROL_DIR
 from .federation_core import sanitize_peer_id
 from .federation_store import FederationStore
+from .mail_case_store import PERMISSIONS
 from .sqlite_utils import connect as sqlite_connect
 
 
@@ -99,7 +100,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
-                          payload: dict, history=None) -> dict:
+                          payload: dict, history=None, local_user_active=None) -> dict:
     """Apply one idempotent event to an already shared local case.
 
     The incoming user must have an administrator mapping and the case must
@@ -119,6 +120,8 @@ def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
     local_user = MailCaseFederationIdentityStore(root).resolve(peer_id, remote_user)
     if not local_user:
         raise PermissionError("unknown federated user")
+    if local_user_active is not None and not bool(local_user_active(local_user)):
+        raise PermissionError("mapped local user is inactive")
     remote_case_id = str(payload.get("case_id") or "").strip()
     if not remote_case_id or len(remote_case_id) > 160:
         raise ValueError("invalid mail-case reference")
@@ -133,8 +136,31 @@ def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
             raise ValueError("invalid case invitation title")
         case_id = uuid.uuid5(uuid.NAMESPACE_URL,
                              f"simpleoffice:mail-case:{peer_id}:{remote_case_id}").hex
-        now = _utc()
-        with cases._db(write=True) as db:
+    else:
+        case_id = identities.local_case_id(peer_id, remote_case_id) or remote_case_id
+    with cases._db(write=True) as db:
+        mapping = db.execute(
+            """SELECT local_user_id FROM mail_case_federation_identity
+               WHERE peer_id=? AND remote_user_id=?""", (peer_id, remote_user),
+        ).fetchone()
+        if mapping is None or mapping["local_user_id"] != local_user:
+            raise PermissionError("mail-case mapping changed before event application")
+        db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_receipt(
+            message_id TEXT PRIMARY KEY, digest TEXT NOT NULL, result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL)""")
+        digest = hashlib.sha256(encoded).hexdigest()
+        prior = db.execute(
+            "SELECT digest,result_json FROM mail_case_federation_receipt WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        if prior:
+            if prior["digest"] != digest:
+                raise ValueError("mail-case event replay mismatch")
+            return json.loads(prior["result_json"])
+
+        if operation == "case_invitation":
+            identities._bind_shadow_case(db, peer_id, remote_case_id, case_id, remote_user)
+            now = _utc()
             db.execute(
                 """INSERT OR IGNORE INTO mail_case
                    (id,title,status,account_id,account_owner,created_by,created_at,updated_at,closed_at)
@@ -157,22 +183,6 @@ def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
                  json.dumps(sorted({"read", "comment", "compose", "send_request", "manage_mail"})),
                  f"federated:{peer_id}:{remote_user}", now),
             )
-        identities.map_case(peer_id, remote_case_id, case_id)
-    else:
-        case_id = identities.local_case_id(peer_id, remote_case_id) or remote_case_id
-    with cases._db(write=True) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_receipt(
-            message_id TEXT PRIMARY KEY, digest TEXT NOT NULL, result_json TEXT NOT NULL,
-            created_at TEXT NOT NULL)""")
-        digest = hashlib.sha256(encoded).hexdigest()
-        prior = db.execute(
-            "SELECT digest,result_json FROM mail_case_federation_receipt WHERE message_id=?",
-            (message_id,),
-        ).fetchone()
-        if prior:
-            if prior["digest"] != digest:
-                raise ValueError("mail-case event replay mismatch")
-            return json.loads(prior["result_json"])
 
         case = db.execute("SELECT id FROM mail_case WHERE id=?", (case_id,)).fetchone()
         if case is None:
@@ -326,6 +336,7 @@ class MailCaseFederationIdentityStore:
 
     def _initialize(self) -> None:
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_identity(
                 peer_id TEXT NOT NULL,
                 remote_user_id TEXT NOT NULL,
@@ -339,15 +350,65 @@ class MailCaseFederationIdentityStore:
                 remote_case_id TEXT NOT NULL,
                 local_case_id TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                remote_owner_user_id TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY(peer_id, remote_case_id),
                 UNIQUE(peer_id, local_case_id)
             )""")
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(mail_case_federation_case)")}
+            if "remote_owner_user_id" not in columns:
+                db.execute("ALTER TABLE mail_case_federation_case ADD COLUMN remote_owner_user_id TEXT NOT NULL DEFAULT ''")
+                self._backfill_shadow_owners(db)
             db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_outbox(
                 message_id TEXT PRIMARY KEY, peer_id TEXT NOT NULL, payload_json TEXT NOT NULL,
                 state TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
                 next_attempt REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0,
                 last_error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )""")
+
+    @staticmethod
+    def _backfill_shadow_owners(db) -> None:
+        tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"mail_case", "mail_case_participant"}.issubset(tables):
+            return
+        mappings = db.execute(
+            """SELECT mapping.* FROM mail_case_federation_case mapping
+               JOIN mail_case c ON c.id=mapping.local_case_id
+               WHERE mapping.remote_owner_user_id='' AND c.account_id='federation:' || mapping.peer_id"""
+        ).fetchall()
+        for mapping in mappings:
+            expected = uuid.uuid5(uuid.NAMESPACE_URL,
+                                 f"simpleoffice:mail-case:{mapping['peer_id']}:{mapping['remote_case_id']}").hex
+            if mapping["local_case_id"] != expected:
+                continue
+            owners = db.execute(
+                """SELECT remote_user_id FROM mail_case_participant
+                   WHERE case_id=? AND participant_type='federated_user' AND peer_id=?
+                     AND added_by='federated:' || peer_id || ':' || remote_user_id""",
+                (expected, mapping["peer_id"]),
+            ).fetchall()
+            if len(owners) == 1:
+                db.execute(
+                    """UPDATE mail_case_federation_case SET remote_owner_user_id=?
+                       WHERE peer_id=? AND remote_case_id=? AND remote_owner_user_id=''""",
+                    (owners[0]["remote_user_id"], mapping["peer_id"], mapping["remote_case_id"]),
+                )
+
+    @staticmethod
+    def _bind_shadow_case(db, peer_id, remote_case_id, case_id, remote_user) -> None:
+        prior = db.execute(
+            """SELECT local_case_id,remote_owner_user_id FROM mail_case_federation_case
+               WHERE peer_id=? AND remote_case_id=?""", (peer_id, remote_case_id),
+        ).fetchone()
+        if prior and (prior["local_case_id"] != case_id or prior["remote_owner_user_id"] != remote_user):
+            raise PermissionError("shadow case belongs to another remote identity")
+        case = db.execute("SELECT account_id FROM mail_case WHERE id=?", (case_id,)).fetchone()
+        if case and case["account_id"] != f"federation:{peer_id}":
+            raise PermissionError("shadow case conflicts with local case")
+        db.execute(
+            """INSERT OR IGNORE INTO mail_case_federation_case
+               (peer_id,remote_case_id,local_case_id,remote_owner_user_id) VALUES(?,?,?,?)""",
+            (peer_id, remote_case_id, case_id, remote_user),
+        )
 
     def map_case(self, peer_id: str, remote_case_id: str, local_case_id: str) -> None:
         with self._db() as db:
@@ -485,6 +546,34 @@ class MailCaseFederationIdentityStore:
                 ).fetchall()
         return [dict(row) for row in rows]
 
+    @staticmethod
+    def _owner_permissions_json() -> str:
+        return json.dumps(sorted(PERMISSIONS))
+
+    @staticmethod
+    def _shadow_case_ids(db, peer_id: str, remote_user_id: str) -> list[str]:
+        tables = {
+            str(row["name"])
+            for row in db.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type='table' AND name IN (
+                       'mail_case_federation_case','mail_case_participant'
+                   )"""
+            ).fetchall()
+        }
+        if "mail_case_federation_case" not in tables or "mail_case_participant" not in tables:
+            return []
+        rows = db.execute(
+            """SELECT DISTINCT mapping.local_case_id
+               FROM mail_case_federation_case mapping
+               JOIN mail_case c ON c.id=mapping.local_case_id
+               WHERE mapping.peer_id=?
+                 AND c.account_id='federation:' || mapping.peer_id
+                 AND mapping.remote_owner_user_id=?""",
+            (peer_id, remote_user_id),
+        ).fetchall()
+        return [str(row["local_case_id"]) for row in rows]
+
     def set(self, peer_id: str, remote_user_id: str, local_user_id: str, *, updated_by: str) -> dict:
         peer_id = sanitize_peer_id(peer_id)
         remote_user_id = self._remote_user(remote_user_id)
@@ -495,17 +584,66 @@ class MailCaseFederationIdentityStore:
         peer = FederationStore(self.root).get_peer(peer_id)
         if not peer or not peer.get("enabled"):
             raise ValueError("mail-case identity requires an enabled peer")
-        with self._db() as db:
+        db = self._db()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            previous = db.execute(
+                """SELECT local_user_id FROM mail_case_federation_identity
+                   WHERE peer_id=? AND remote_user_id=?""",
+                (peer_id, remote_user_id),
+            ).fetchone()
+            previous_user = str(previous["local_user_id"]) if previous else ""
             db.execute(
                 """INSERT INTO mail_case_federation_identity(peer_id,remote_user_id,local_user_id,updated_by,updated_at)
                    VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(peer_id,remote_user_id) DO UPDATE SET
                    local_user_id=excluded.local_user_id,updated_by=excluded.updated_by,updated_at=CURRENT_TIMESTAMP""",
                 (peer_id, remote_user_id, local_user_id, updated_by),
             )
+            for case_id in self._shadow_case_ids(db, peer_id, remote_user_id):
+                if previous_user and previous_user != local_user_id:
+                    db.execute(
+                        """DELETE FROM mail_case_participant
+                           WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                        (case_id, previous_user),
+                    )
+                existing = db.execute(
+                    """SELECT id FROM mail_case_participant
+                       WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                    (case_id, local_user_id),
+                ).fetchone()
+                if existing is None:
+                    db.execute(
+                        """INSERT INTO mail_case_participant(
+                               case_id,participant_type,local_user_id,peer_id,remote_user_id,
+                               permissions_json,added_by,added_at
+                           ) VALUES(?,'local_user',?,NULL,NULL,?,?,CURRENT_TIMESTAMP)""",
+                        (
+                            case_id,
+                            local_user_id,
+                            self._owner_permissions_json(),
+                            f"federation-mapping:{updated_by}",
+                        ),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE mail_case_participant SET permissions_json=? WHERE id=?",
+                        (self._owner_permissions_json(), int(existing["id"])),
+                    )
+                db.execute(
+                    """UPDATE mail_case SET account_owner=?,updated_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND account_id=?""",
+                    (local_user_id, case_id, f"federation:{peer_id}"),
+                )
             row = db.execute(
                 "SELECT peer_id,remote_user_id,local_user_id,updated_by,updated_at FROM mail_case_federation_identity WHERE peer_id=? AND remote_user_id=?",
                 (peer_id, remote_user_id),
             ).fetchone()
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
         return dict(row)
 
     def resolve(self, peer_id: str, remote_user_id: str) -> str | None:
@@ -522,12 +660,41 @@ class MailCaseFederationIdentityStore:
     def remove(self, peer_id: str, remote_user_id: str) -> bool:
         peer_id = sanitize_peer_id(peer_id)
         remote_user_id = self._remote_user(remote_user_id)
-        with self._db() as db:
-            cursor = db.execute(
+        db = self._db()
+        try:
+            db.execute("BEGIN IMMEDIATE")
+            mapping = db.execute(
+                """SELECT local_user_id FROM mail_case_federation_identity
+                   WHERE peer_id=? AND remote_user_id=?""",
+                (peer_id, remote_user_id),
+            ).fetchone()
+            if mapping is None:
+                db.commit()
+                return False
+            local_user_id = str(mapping["local_user_id"])
+            case_ids = self._shadow_case_ids(db, peer_id, remote_user_id)
+            db.execute(
                 "DELETE FROM mail_case_federation_identity WHERE peer_id=? AND remote_user_id=?",
                 (peer_id, remote_user_id),
             )
-        return cursor.rowcount > 0
+            for case_id in case_ids:
+                db.execute(
+                    """DELETE FROM mail_case_participant
+                       WHERE case_id=? AND participant_type='local_user' AND local_user_id=?""",
+                    (case_id, local_user_id),
+                )
+                db.execute(
+                    """UPDATE mail_case SET account_owner='',updated_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND account_id=? AND account_owner=?""",
+                    (case_id, f"federation:{peer_id}", local_user_id),
+                )
+            db.commit()
+            return True
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
 
 
 def retry_due_mail_case_events(root: str | Path, local_peer_id: str, *, limit: int = 5) -> dict:
