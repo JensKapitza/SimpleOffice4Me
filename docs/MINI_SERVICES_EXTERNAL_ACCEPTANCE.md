@@ -1,7 +1,7 @@
 # Mini Services external acceptance protocol
 
 Repository basis checked on 2026-10-05: `main` at
-`0732d90f0a74c27d783c4b2f5f27ff62df5acd38`. Issue #330 remains open.
+`f90087b0c421e6ed05f7e94222ced23d47c53956`. Issue #330 remains open.
 The software implementations for Screen and DLNA are present in main; this
 protocol records their runtime checks separately from CI and build evidence.
 Managed SFTP is included as well; its Paramiko and system OpenSSH modes have
