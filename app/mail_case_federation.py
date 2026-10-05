@@ -496,6 +496,17 @@ class MailCaseFederationIdentityStore:
 
     @staticmethod
     def _shadow_case_ids(db, peer_id: str, remote_user_id: str) -> list[str]:
+        tables = {
+            str(row["name"])
+            for row in db.execute(
+                """SELECT name FROM sqlite_master
+                   WHERE type='table' AND name IN (
+                       'mail_case_federation_case','mail_case_participant'
+                   )"""
+            ).fetchall()
+        }
+        if "mail_case_federation_case" not in tables or "mail_case_participant" not in tables:
+            return []
         rows = db.execute(
             """SELECT DISTINCT mapping.local_case_id
                FROM mail_case_federation_case mapping
