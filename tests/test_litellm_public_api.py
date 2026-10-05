@@ -161,6 +161,8 @@ elif args[0] == 'compose':
         self.assertIn(['pull', expected], self.calls())
         compose = json.loads((self.root / 'litellm' / 'compose.json').read_text())
         self.assertEqual(expected, compose['services']['gateway']['image'])
+        # Isolate the digest contract from the separate running-container edit guard.
+        self.assertEqual(200, self.client.post('/api/mini-services/litellm/stop', json={}).status_code)
         response = self.client.post('/api/mini-services/litellm/settings', json={'version': '1.100.2'})
         self.assertEqual(400, response.status_code)
         self.assertEqual('1.100.1', self.status()['settings']['version'])
