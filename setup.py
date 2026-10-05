@@ -53,7 +53,7 @@ setup(
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
         "security": ["pip-audit>=2.7,<3"],
-        "quality": ["ruff==0.16.9"],
+        "quality": ["ruff==0.16.10"],
         "ocr": [
             "rapidocr==3.9.2",
             "onnxruntime==1.24.3; python_version == '3.10'",

@@ -32,7 +32,7 @@ security = [
   "pip-audit>=2.7,<3",
 ]
 quality = [
-  "ruff==0.16.9",
+  "ruff==0.16.10",
 ]
 sftp = [
   "paramiko>=3.5,<6",
