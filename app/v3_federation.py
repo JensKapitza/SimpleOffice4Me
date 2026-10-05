@@ -8,7 +8,7 @@ import json
 import re
 from pathlib import Path
 import sqlite3
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from .federation_core import sanitize_peer_id
 from .federation_store import FederationStore
@@ -357,12 +357,19 @@ class FederationContractStore:
 
 
 class FederationContract:
-    def __init__(self, root: str | Path, local_peer_id: str):
+    def __init__(
+        self,
+        root: str | Path,
+        local_peer_id: str,
+        *,
+        mail_case_user_active: Callable[[str], bool] | None = None,
+    ):
         self.root = Path(root).expanduser().resolve()
         self.local_peer_id = sanitize_peer_id(local_peer_id)
         self.store = FederationContractStore(self.root)
         self.peers = self.store.federation
         self.trust = FederationTrustStore(self.root)
+        self.mail_case_user_active = mail_case_user_active
 
     def _directly_trusted(self, peer_id: str) -> bool:
         edge = self.trust.get_trust(peer_id, LOCAL_PEER)
@@ -433,6 +440,7 @@ class FederationContract:
                     envelope.sender_instance,
                     envelope.message_id,
                     envelope.payload or {},
+                    local_user_active=self.mail_case_user_active,
                 )
             except PermissionError:
                 self.store.store(envelope, "rejected", error_class="mail_case_acl_denied")
