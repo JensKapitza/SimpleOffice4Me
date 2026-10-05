@@ -315,6 +315,8 @@
   {% elif active_view == 'peers' %}
     {% set peer_policy = edit_peer.get('policy', {}) if edit_peer else {} %}
     {% set document_policy = peer_policy.get('documents', {}) if peer_policy else {} %}
+    {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
+    {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
     <div class="row g-4">
       <section class="col-xl-5" id="peer-form">
         <div class="card shadow-sm">
@@ -327,6 +329,7 @@
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
               <input type="hidden" name="_documents_policy_form" value="1">
+              <input type="hidden" name="_mail_cases_policy_form" value="1">
               <div class="col-md-6">
                 <label class="form-label" for="peer-id">Peer-ID</label>
                 <input class="form-control" id="peer-id" name="peer_id" value="{{ edit_peer.peer_id if edit_peer else '' }}" {% if edit_peer %}readonly{% endif %} required>
@@ -363,6 +366,29 @@
                 </div>
               </fieldset>
 
+              <fieldset class="col-12">
+                <legend class="h6 mb-2">Mail-Vorgang-Federation</legend>
+                <div class="vstack gap-2 border rounded p-3">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="mail_cases_send" value="1" {% if mail_case_policy.get('send', false) %}checked{% endif %}>
+                    <span class="form-check-label">Mail-Vorgänge an diesen Peer senden</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="mail_cases_receive" value="1" {% if mail_case_policy.get('receive', false) %}checked{% endif %}>
+                    <span class="form-check-label">Mail-Vorgänge von diesem Peer empfangen</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="mail_cases_auto_accept" value="1" {% if mail_case_policy.get('auto_accept', false) %}checked{% endif %}>
+                    <span class="form-check-label">Nach Trust-, Capability-, Policy- und Benutzerprüfung automatisch anwenden</span>
+                  </label>
+                  <div class="form-text">
+                    Standard ist aus. Für den Versand von Mail-Vorgängen benötigt der Peer zusätzlich eine HTTPS-Adresse,
+                    direkten Trust, ausgehandelte v3-<code>mail_cases</code>-Capability und eine explizite Benutzerzuordnung.
+                    IMAP-/SMTP-Zugangsdaten werden nicht übertragen.
+                  </div>
+                </div>
+              </fieldset>
+
               <div class="col-12 form-check ms-2">
                 <input class="form-check-input" type="checkbox" name="enabled" value="1" id="fed-enabled" {% if not edit_peer or edit_peer.configured_enabled %}checked{% endif %}>
                 <label class="form-check-label" for="fed-enabled">Peer aktiv</label>
@@ -374,7 +400,7 @@
                   <div class="pt-2">
                     <label class="form-label" for="policy-json">Policy JSON</label>
                     <textarea class="form-control font-monospace" id="policy-json" name="policy_json" rows="5">{{ peer_policy|tojson if edit_peer else '{}' }}</textarea>
-                    <div class="form-text">Die Dokument-Berechtigungen oben werden beim Speichern in den Bereich „documents“ übernommen.</div>
+                    <div class="form-text">Die sichtbaren Dokument- und Mail-Vorgang-Berechtigungen oben werden beim Speichern in die zugehörigen Policy-Bereiche übernommen.</div>
                   </div>
                 </details>
               </div>

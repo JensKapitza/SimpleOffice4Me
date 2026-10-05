@@ -275,6 +275,20 @@ def save_peer():
                 "receive": request.form.get("documents_receive") == "1",
                 "seed": request.form.get("documents_seed") == "1",
             }
+        if request.form.get("_mail_cases_policy_form") == "1":
+            data_classes = policy.get("data_classes")
+            if not isinstance(data_classes, dict):
+                data_classes = {}
+            mail_cases = data_classes.get("mail_cases")
+            if not isinstance(mail_cases, dict):
+                mail_cases = {}
+            mail_cases.update({
+                "send": request.form.get("mail_cases_send") == "1",
+                "receive": request.form.get("mail_cases_receive") == "1",
+                "auto_accept": request.form.get("mail_cases_auto_accept") == "1",
+            })
+            data_classes["mail_cases"] = mail_cases
+            policy["data_classes"] = data_classes
         _store().save_peer(peer_id, label, base_url, token, policy, request.form.get("enabled") == "1")
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:

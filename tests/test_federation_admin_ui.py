@@ -108,6 +108,66 @@ class FederationAdminUiTests(unittest.TestCase):
         )
         self.assertEqual({"send": True, "receive": False}, policy["chat"])
 
+    def test_peer_form_maps_mail_case_policy_without_losing_advanced_policy(self):
+        response = self.client.post(
+            "/admin/federation/peers",
+            data={
+                "peer_id": "mail-peer",
+                "label": "Mail Peer",
+                "base_url": "https://mail-peer.example.test",
+                "enabled": "1",
+                "_mail_cases_policy_form": "1",
+                "mail_cases_send": "1",
+                "mail_cases_receive": "1",
+                "mail_cases_auto_accept": "1",
+                "policy_json": '{"chat":{"send":true,"receive":false},"data_classes":{"mail_cases":{"future_option":"keep"}}}',
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(302, response.status_code)
+        peer = FederationStore(self.root).get_peer("mail-peer")
+        self.assertEqual(
+            {
+                "future_option": "keep",
+                "send": True,
+                "receive": True,
+                "auto_accept": True,
+            },
+            peer["policy"]["data_classes"]["mail_cases"],
+        )
+        self.assertEqual(
+            {"send": True, "receive": False},
+            peer["policy"]["chat"],
+        )
+
+        response = self.client.get(
+            "/admin/federation?view=peers&edit_peer=mail-peer"
+        )
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Mail-Vorgang-Federation", body)
+        self.assertIn('name="mail_cases_send" value="1" checked', body)
+        self.assertIn('name="mail_cases_receive" value="1" checked', body)
+        self.assertIn('name="mail_cases_auto_accept" value="1" checked', body)
+
+    def test_mail_case_policy_defaults_to_deny_in_peer_form(self):
+        response = self.client.get("/admin/federation?view=peers")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Mail-Vorgang-Federation", body)
+        self.assertNotIn('name="mail_cases_send" value="1" checked', body)
+        self.assertNotIn('name="mail_cases_receive" value="1" checked', body)
+        self.assertNotIn('name="mail_cases_auto_accept" value="1" checked', body)
+
+    def test_peer_discovery_exposes_mail_case_mapping_controls(self):
+        response = self.client.get("/admin/federation/peer-discovery")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Mail-Vorgänge · Benutzerzuordnung", body)
+        self.assertIn('name="remote_user_id"', body)
+        self.assertIn('name="local_user_id"', body)
+        self.assertIn("<code>mail_cases</code>-Policy", body)
+
     def test_edit_peer_prefills_form(self):
         FederationStore(self.root).save_peer(
             "office-b",

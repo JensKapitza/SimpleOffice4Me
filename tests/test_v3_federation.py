@@ -161,6 +161,42 @@ class V3FederationContractTests(unittest.TestCase):
         self.assertEqual("quarantined", result["status"])
         self.assertEqual("capability_not_negotiated", result["error"])
 
+    def test_auto_accepted_mail_case_event_rechecks_local_user_activation(self):
+        self.peers.save_peer(
+            self.peer_id, "Remote", "https://remote.example.test", "",
+            policy={"data_classes": {"mail_cases": {"receive": True, "auto_accept": True}}},
+        )
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case("owner", "Shared", "account-1", "mail-1")
+        cases.add_participant(
+            "owner", case_id, local_user_id="alice", permissions=("read", "comment"),
+        )
+        cases.add_participant(
+            "owner", case_id, peer_id=self.peer_id,
+            remote_user_id="remote-disabled", permissions=("read", "comment"),
+        )
+        MailCaseFederationIdentityStore(self.root).set(
+            self.peer_id, "remote-disabled", "alice", updated_by="admin",
+        )
+        guarded = FederationContract(
+            self.root,
+            self.local_id,
+            mail_case_user_active=lambda _username: False,
+        )
+        result = guarded.receive(self.envelope(
+            message_id="message-mail-case-disabled",
+            type="mail_cases",
+            payload={
+                "operation": "comment",
+                "case_id": case_id,
+                "actor_id": "remote-disabled",
+                "body": "Darf nicht angewendet werden",
+            },
+        ))
+        self.assertEqual("rejected", result["status"])
+        self.assertEqual("mail_case_acl_denied", result["error"])
+        self.assertEqual([], cases.get_case("alice", case_id)["comments"])
+
     def test_auto_accepted_mail_case_comment_uses_mapping_and_both_acls(self):
         self.peers.save_peer(
             self.peer_id, "Remote", "https://remote.example.test", "",

@@ -40,8 +40,9 @@ def mail_case_identities():
 @bp.post("/mail-case-identities")
 @admin_required
 def set_mail_case_identity():
-    data = request.get_json(silent=True)
-    if not isinstance(data, dict):
+    json_request = request.is_json
+    data = request.get_json(silent=True) if json_request else request.form
+    if data is None or (json_request and not isinstance(data, dict)):
         return jsonify({"error": "invalid_mapping"}), 400
     peer_id = str(data.get("peer_id") or "")
     local_user_id = str(data.get("local_user_id") or "").strip()
@@ -50,7 +51,10 @@ def set_mail_case_identity():
         (local_user_id,),
     ).fetchone()
     if not user:
-        return jsonify({"error": "unknown_or_disabled_local_user"}), 400
+        if json_request:
+            return jsonify({"error": "unknown_or_disabled_local_user"}), 400
+        flash("Lokaler Benutzer ist nicht aktiv oder nicht vorhanden.")
+        return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
     try:
         mapping = MailCaseFederationIdentityStore(_root()).set(
             peer_id,
@@ -59,12 +63,37 @@ def set_mail_case_identity():
             updated_by=_actor(),
         )
     except ValueError:
-        return jsonify({"error": "invalid_mapping_or_peer"}), 400
+        if json_request:
+            return jsonify({"error": "invalid_mapping_or_peer"}), 400
+        flash("Mail-Vorgang-Zuordnung ist ungültig oder der Peer ist nicht aktiv.")
+        return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
     FederationStore(_root()).record_event(
         "mail_case_federation_identity_mapped", peer_id=peer_id,
         detail={"remote_user_id": mapping["remote_user_id"], "local_user_id": mapping["local_user_id"], "updated_by": _actor()},
     )
-    return jsonify({"mapping": mapping}), 200
+    if json_request:
+        return jsonify({"mapping": mapping}), 200
+    flash("Federation-Benutzerzuordnung gespeichert.")
+    return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
+
+
+@bp.post("/mail-case-identities/remove")
+@admin_required
+def remove_mail_case_identity_form():
+    peer_id = str(request.form.get("peer_id") or "")
+    remote_user_id = str(request.form.get("remote_user_id") or "")
+    try:
+        removed = MailCaseFederationIdentityStore(_root()).remove(peer_id, remote_user_id)
+    except ValueError:
+        flash("Mail-Vorgang-Zuordnung ist ungültig.")
+        return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
+    if removed:
+        FederationStore(_root()).record_event(
+            "mail_case_federation_identity_removed", peer_id=peer_id,
+            detail={"remote_user_id": remote_user_id, "updated_by": _actor()},
+        )
+    flash("Federation-Benutzerzuordnung widerrufen." if removed else "Federation-Benutzerzuordnung war nicht vorhanden.")
+    return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
 
 
 @bp.delete("/mail-case-identities")
@@ -292,6 +321,12 @@ def dashboard():
         lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
         compatibility_requirements=requirements(),
+        mail_case_mappings=MailCaseFederationIdentityStore(_root()).list(),
+        mail_case_local_users=[
+            dict(row) for row in get_db().execute(
+                "SELECT username,display_name FROM user WHERE is_disabled=0 ORDER BY username COLLATE NOCASE"
+            ).fetchall()
+        ],
     )
 
 
@@ -794,4 +829,3 @@ def preview_policy(peer_id):
     except (RuntimeError, TypeError, ValueError):
         flash("Policy-Vorschau konnte nicht sicher ausgewertet werden; Ergebnis ist fail-closed.")
     return _policy_redirect(peer_id)
-

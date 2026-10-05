@@ -160,7 +160,7 @@ class MailCaseStore:
             if "content_sha512" not in message_columns:
                 db.execute("ALTER TABLE mail_case_message ADD COLUMN content_sha512 TEXT NOT NULL DEFAULT ''")
             db.execute(
-                "UPDATE mail_case SET account_owner=created_by WHERE account_owner=''"
+                "UPDATE mail_case SET account_owner=created_by WHERE account_owner='' AND account_id NOT LIKE 'federation:%'"
             )
             draft_columns = {
                 row["name"] for row in db.execute("PRAGMA table_info(mail_case_draft)")

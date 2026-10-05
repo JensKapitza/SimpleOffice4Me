@@ -6,6 +6,7 @@ import os
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
+from .db import get_db
 from .v3_capabilities import enabled
 from .v3_federation import FederationContract, capability_descriptor
 
@@ -31,6 +32,13 @@ def _local_peer_id() -> str:
         os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
         or "simpleoffice-local"
     )
+
+
+def _active_local_user(username: str) -> bool:
+    return get_db().execute(
+        "SELECT 1 FROM user WHERE username=? COLLATE NOCASE AND is_disabled=0",
+        (str(username),),
+    ).fetchone() is not None
 
 
 @bp.before_request
@@ -79,6 +87,7 @@ def receive():
         result = FederationContract(
             current_app.config["DOCUMENT_ROOT"],
             _local_peer_id(),
+            mail_case_user_active=_active_local_user,
         ).receive(payload)
     except (TypeError, ValueError):
         return jsonify({"status": "rejected", "error": "invalid_envelope"}), 400
