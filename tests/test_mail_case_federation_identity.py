@@ -46,6 +46,51 @@ class MailCaseFederationIdentityTests(unittest.TestCase):
         self.assertIsNone(self.store.resolve("remote-peer", "remote-user-42"))
         self.assertFalse(self.store.remove("remote-peer", "remote-user-42"))
 
+    def test_shadow_case_access_moves_with_mapping_and_is_revoked_on_remove(self):
+        self.store.set("remote-peer", "remote-owner", "alice", updated_by="admin")
+        invitation = apply_mail_case_event(self.root, "remote-peer", "invite-reassign", {
+            "operation": "case_invitation", "case_id": "source-case-reassign",
+            "actor_id": "remote-owner", "title": "Neu zuordnen",
+        })
+        case_id = invitation["case_id"]
+        cases = MailCaseStore(self.root)
+        self.assertEqual(case_id, cases.list_cases("alice")[0]["id"])
+
+        self.store.set("remote-peer", "remote-owner", "bob", updated_by="admin")
+        self.assertEqual([], cases.list_cases("alice"))
+        reassigned = cases.get_case("bob", case_id)
+        self.assertEqual("bob", reassigned["account_owner"])
+
+        self.assertTrue(self.store.remove("remote-peer", "remote-owner"))
+        self.assertEqual([], cases.list_cases("bob"))
+        with cases._db() as db:
+            row = db.execute("SELECT account_owner FROM mail_case WHERE id=?", (case_id,)).fetchone()
+        self.assertEqual("", row["account_owner"])
+
+    def test_active_user_guard_blocks_mapped_but_disabled_user(self):
+        cases = MailCaseStore(self.root)
+        case_id = cases.create_case("owner", "Federated case", "account-1", "mail-1")
+        cases.add_participant(
+            "owner", case_id, local_user_id="alice", permissions=("read", "comment"),
+        )
+        cases.add_participant(
+            "owner", case_id, peer_id="remote-peer", remote_user_id="remote-42",
+            permissions=("read", "comment"),
+        )
+        self.store.set("remote-peer", "remote-42", "alice", updated_by="admin")
+        with self.assertRaises(PermissionError):
+            apply_mail_case_event(
+                self.root,
+                "remote-peer",
+                "disabled-user-event",
+                {
+                    "operation": "comment", "case_id": case_id,
+                    "actor_id": "remote-42", "body": "Blockieren",
+                },
+                local_user_active=lambda _username: False,
+            )
+        self.assertEqual([], cases.get_case("alice", case_id)["comments"])
+
     def test_disabled_or_invalid_peer_and_untrusted_identifiers_fail_closed(self):
         self.peers.save_peer("disabled-peer", "Disabled", "https://disabled.example.test", "", enabled=False)
         with self.assertRaises(ValueError):
@@ -94,6 +139,49 @@ class MailCaseFederationIdentityTests(unittest.TestCase):
         actions = [event["action"] for event in self.peers.events(limit=20)]
         self.assertIn("mail_case_federation_identity_mapped", actions)
         self.assertIn("mail_case_federation_identity_removed", actions)
+
+    def test_admin_form_can_create_and_revoke_mapping_without_json_client(self):
+        app = Flask(__name__)
+        app.config.update(
+            TESTING=True,
+            TEST_CSRF_PROTECTION=False,
+            SECRET_KEY="mail-case-federation-form-test",
+            DATABASE=str(self.root / "form-users.sqlite3"),
+            DOCUMENT_ROOT=str(self.root),
+        )
+        database.init_app(app)
+        app.register_blueprint(admin_bp)
+        user = {"id": 1, "username": "admin", "is_admin": True, "is_disabled": False}
+        app.before_request(lambda: setattr(g, "user", user))
+        with app.app_context():
+            database.ensure_auth_database()
+            db = database.get_db()
+            db.execute(
+                """INSERT INTO user(username,password,display_name,is_admin,is_disabled,auth_version,created_at,updated_at)
+                   VALUES(?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
+                ("alice", generate_password_hash("test-password"), "Alice", 0, 0),
+            )
+            db.commit()
+        client = app.test_client()
+        response = client.post(
+            "/admin/federation/peer-discovery/mail-case-identities",
+            data={
+                "peer_id": "remote-peer",
+                "remote_user_id": "remote-form-user",
+                "local_user_id": "alice",
+            },
+            follow_redirects=False,
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertEqual("alice", self.store.resolve("remote-peer", "remote-form-user"))
+
+        response = client.post(
+            "/admin/federation/peer-discovery/mail-case-identities/remove",
+            data={"peer_id": "remote-peer", "remote_user_id": "remote-form-user"},
+            follow_redirects=False,
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertIsNone(self.store.resolve("remote-peer", "remote-form-user"))
 
     def test_inbound_comment_checks_both_acls_and_is_idempotent(self):
         cases = MailCaseStore(self.root)
