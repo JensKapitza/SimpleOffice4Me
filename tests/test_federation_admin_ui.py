@@ -161,7 +161,7 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn("Mail-Vorgänge · Benutzerzuordnung", body)
         self.assertIn('name="remote_user_id"', body)
         self.assertIn('name="local_user_id"', body)
-        self.assertIn("Federation-Benutzerzuordnung", body)
+        self.assertIn("<code>mail_cases</code>-Policy", body)
 
     def test_edit_peer_prefills_form(self):
         FederationStore(self.root).save_peer(
