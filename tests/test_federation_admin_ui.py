@@ -120,14 +120,19 @@ class FederationAdminUiTests(unittest.TestCase):
                 "mail_cases_send": "1",
                 "mail_cases_receive": "1",
                 "mail_cases_auto_accept": "1",
-                "policy_json": '{"chat":{"send":true,"receive":false}}',
+                "policy_json": '{"chat":{"send":true,"receive":false},"data_classes":{"mail_cases":{"future_option":"keep"}}}',
             },
             follow_redirects=False,
         )
         self.assertEqual(302, response.status_code)
         peer = FederationStore(self.root).get_peer("mail-peer")
         self.assertEqual(
-            {"send": True, "receive": True, "auto_accept": True},
+            {
+                "future_option": "keep",
+                "send": True,
+                "receive": True,
+                "auto_accept": True,
+            },
             peer["policy"]["data_classes"]["mail_cases"],
         )
         self.assertEqual(
