@@ -187,6 +187,20 @@ class LiteLLMTest(unittest.TestCase):
             service.restore(payload)
         self.assertEqual(original, config.settings_path().read_bytes())
 
+    def test_deactivation_removes_already_stopped_owned_containers(self):
+        self.enable(mode='local', provider_model='openai/test')
+        calls = []
+        def docker(args, **kwargs):
+            calls.append(args)
+            return b'abcdef123456\n' if args[0] == 'ps' else b''
+        with patch.object(service, '_docker', side_effect=docker):
+            service.save_settings({'enabled': False})
+        self.assertFalse(config.settings()['enabled'])
+        self.assertEqual('ps', calls[0][0])
+        self.assertIn('-aq', calls[0])
+        self.assertEqual(['stop', '--time', '5', 'abcdef123456'], calls[1])
+        self.assertEqual(['rm', 'abcdef123456'], calls[2])
+
     def test_admin_permissions_csrf_and_no_secrets_in_html(self):
         for path in ['/admin/mini-services/litellm', '/admin/mini-services/litellm/backup.json']:
             self.assertEqual(302, self.client.get(path).status_code)

@@ -147,10 +147,11 @@ def save_settings(value):
             raise RuntimeError("LiteLLM-Aktion läuft bereits.")
         clean = prepare(value)
         previous = settings()
-        if previous["mode"] == "local" and _running():
-            if clean["enabled"]:
+        if previous["mode"] == "local":
+            if not clean["enabled"]:
+                _stop()  # Remove stopped containers and their injected secrets too.
+            elif _running():
                 raise ValueError("Lokalen Dienst vor Konfigurationsänderungen stoppen.")
-            _stop()
         persist(clean)
         _record({"ok": False, "code": "unknown", "message": "Konfiguration geändert; Verbindungstest erforderlich."})
         return public(clean)
