@@ -228,3 +228,32 @@ Mechanismen: SMTP nutzt die von Python ausgehandelte AUTH-Methode; ManageSieve
 unterstützt derzeit nur `PLAIN` innerhalb TLS. OAuth2, SCRAM für ManageSieve,
 `CHECKSCRIPT`, serverseitiger Skriptdownload, DSN-Auswertung, Versandwarteschlange,
 automatische Wiederholung und Hintergrundplanung sind bewusst nicht implementiert.
+
+### Verifizierte lokale Archivzugriffe
+
+Archivliste und -suche, EML-Vorschau, MIME-Anhangdownload und die
+Duplikatprüfung beim manuellen IMAP-Archivieren lesen über den bestehenden
+StoragePort. V2 verwendet den ObjectCatalog für den Archiv-Namespace; fehlende
+oder veraltete Inhaltsdateien und fehlende Scan-Indexzeilen sind dort keine
+Ersatzquelle. V1/Shadow behalten den bestehenden Dateinamensraum, einschließlich
+vorhandener noch nicht indizierter EML-Dateien.
+
+Vor MIME-Verarbeitung wird das gesamte Objekt verifiziert. Namespace,
+SHA-256, Länge und bei den üblichen SHA-512-Dateinamen die Nachrichtenidentität
+müssen stimmen. Maximal 100 MiB plus ein Prüfbyte werden gepuffert;
+zu große oder beschädigte Nachrichten werden nicht geparst. Nicht verfügbare
+Einträge werden mit einer technischen Diagnose ohne Nachrichtendaten aus der
+Archivsuche ausgelassen; direktes Öffnen zeigt eine sichere Fehlermeldung.
+Ein intakter Legacy-Inhalt wird bei einem V2-Fehler nicht als Fallback verwendet.
+
+Fallteilnehmer dürfen weiterhin ausschließlich die explizit verknüpfte
+Nachricht eines lesbaren Falls über dessen Vorschau-/Anhangroute öffnen.
+Kontoinhaber, Konto und SHA-512-Referenz werden zusätzlich am zentralen
+Dokumentzugriff geprüft; Widerruf und Entfernung der Zuordnung bleiben wirksam.
+Generische Dokumentrouten und öffentliche Freigaben erteilen dadurch keine
+Archivberechtigung. MIME-Anhangdownloads benötigen weiterhin einen sauberen
+ClamAV-Befund und werden wie bisher protokolliert.
+
+Dies ist eine Teilumsetzung von Issue #471. Metadaten, Ordner-/Access-Policies,
+andere Archivierungswege und das globale Cleanup-/Rollback-Gate bleiben
+Kompatibilitätsabhängigkeiten; es werden keine Legacy-Daten gelöscht.

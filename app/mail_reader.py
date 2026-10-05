@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import logging
 import re
 from datetime import datetime, timezone
 from email import policy
@@ -21,6 +22,7 @@ from typing import Any
 from .document_store import DocumentStore
 from .mail_client import ImapArchive, MailStore, MAX_MESSAGE_BYTES, _owner_key
 from .v2.storage_runtime import create_document
+from .mail_archive_storage import archive_document, archive_locations, read_archive_eml
 
 
 MAX_BROWSER_MESSAGES = 200
@@ -219,8 +221,14 @@ class MailReader:
             target = self.store.root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             documents.ensure_folder_policy(target.parent, actor)
-            if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
-                document = documents.get_document(path)
+            try:
+                existing = read_archive_eml(self.store, actor, account["id"], path)
+            except FileNotFoundError:
+                existing = None
+            if existing is not None:
+                if hashlib.sha512(existing).hexdigest() != digest:
+                    raise ValueError("archive message identity mismatch")
+                document = archive_document(self.store, actor, account["id"], path)
                 duplicate = True
             else:
                 document = create_document(documents.root, actor, path, raw, max_bytes=MAX_MESSAGE_BYTES)
@@ -246,21 +254,17 @@ class MailReader:
         account_id = str(account_id)
         # Ownership check without requiring a real password.
         self.store._owned_row(actor, account_id)
-        base = self.store.root / "email" / _owner_key(actor) / account_id
-        if not base.is_dir():
-            return []
         needle = query.strip().casefold()
         rows: list[dict[str, Any]] = []
-        for path in sorted(base.rglob("*.eml"), key=lambda item: item.stat().st_mtime if item.exists() else 0, reverse=True):
-            if not path.is_file() or path.is_symlink():
-                continue
+        for path in archive_locations(self.store, actor, account_id):
             try:
-                raw = path.read_bytes()
+                raw = read_archive_eml(self.store, actor, account_id, path)
                 message = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
-            except OSError:
+            except (OSError, ValueError, PermissionError, RuntimeError) as exc:
+                logging.getLogger(__name__).warning("Mail archive entry unavailable (%s)", type(exc).__name__)
                 continue
             row = {
-                "path": str(path.relative_to(self.store.root)),
+                "path": path,
                 "subject": _header(message.get("Subject")) or "(ohne Betreff)",
                 "from": _header(message.get("From")),
                 "to": _header(message.get("To")),

@@ -23,6 +23,7 @@ def private_mail_document(document: dict[str, Any]) -> bool:
 def mail_document_visible(
     document: dict[str, Any], actor: str, root, *, case_context=False,
     archive_send_case: str = "", archive_send_draft: str = "",
+    archive_read_case: str = "", archive_read_id: str = "",
 ) -> bool:
     if not private_mail_document(document):
         return True
@@ -30,6 +31,19 @@ def mail_document_visible(
     if len(parts) >= 2 and parts[0] == "email":
         if parts[1] == hashlib.sha256(actor.encode("utf-8")).hexdigest()[:32]:
             return True
+        if archive_read_case and re.fullmatch(r"[0-9a-f]{128}", archive_read_id.casefold()):
+            from .mail_case_store import MailCaseStore
+            try:
+                case = MailCaseStore(root).get_case(actor, archive_read_case)
+            except (KeyError, PermissionError, ValueError):
+                return False
+            digest = archive_read_id.casefold()
+            return bool(
+                len(parts) >= 5 and parts[-1] == f"{digest}.eml"
+                and parts[1] == hashlib.sha256(case["account_owner"].encode("utf-8")).hexdigest()[:32]
+                and parts[2] == case["account_id"]
+                and any(row["mail_reference"] == f"sha512:{digest}" for row in case["messages"])
+            )
         # An authorized delegated send must archive under the account owner,
         # without granting the delegate general access to that owner's archive.
         if not archive_send_case or len(parts) != 6 or parts[3] != "sent":
