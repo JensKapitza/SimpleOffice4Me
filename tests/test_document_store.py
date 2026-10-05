@@ -34,6 +34,7 @@ class DocumentStoreTest(unittest.TestCase):
             self.assertIn("sender@example.test", indexed)
             self.assertIn("receiver@example.test", indexed)
             self.assertIn("Büro", indexed)
+            self.assertIn("Date: Mon, 05 Oct 2026 08:00:00 +0000", indexed)
             self.assertIn("Kranführer melden Vollständigkeit", indexed)
             self.assertNotIn("private attachment marker", indexed)
             for query in ("text:Überseehafen", "text:Kranführer", "text:receiver@example.test"):
@@ -45,6 +46,7 @@ class DocumentStoreTest(unittest.TestCase):
             root = Path(temp)
             path = root / "existing.eml"
             path.write_bytes(b"Subject: plain subject\r\n\r\nplain body")
+            original = path.read_bytes()
             store = DocumentStore(root)
             store.scan()
             document = store.get_document(path)
@@ -53,6 +55,7 @@ class DocumentStoreTest(unittest.TestCase):
 
             self.assertEqual(1, store.refresh_missing_text("tester", force=True))
             self.assertIn("Subject: plain subject", store.get_document(path)["extracted_text"])
+            self.assertEqual(original, path.read_bytes())
 
             import app.document_store_part_5 as document_store_part_5
 
