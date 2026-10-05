@@ -119,6 +119,22 @@ Content-defined block manifests, catalog listing, repair and rebalance
 still have projection consumers, so Federation remains a cleanup blocker and
 retained data must not be deleted.
 
+The legacy Federation document catalog now obtains each advertised object's
+hash, size and namespace location from `StoragePort.stat`. Authoritative V2
+catalog listings therefore do not depend on physical projection files or scan
+rows, including in encrypted V2 mode. The wire format, tags, origin metadata,
+sort order, generation hash and pagination remain compatible. Existing legacy
+deletion markers and authoritative tombstones still omit objects. V1/shadow
+continues to use the legacy storage adapter and requires its readable namespace.
+
+Storage failures return a sanitized 503 rather than a successful partial
+generation, which could otherwise mark remote objects unavailable. The catalog
+is a metadata advertisement: it does not materialize or verify all advertised
+content bytes. Downloads still perform their own complete integrity checks.
+Metadata enumeration, tags, origin and modification timestamps still use
+`DocumentStore`; catalog listing is not yet a projection-free read model and
+does not release the cleanup gate.
+
 The document-scoped `/federation/v2/blocks/documents/<id>/manifest` and block
 download routes now use a private verified StoragePort snapshot. Manifest
 hashes and block bytes come from the same snapshot, including in encrypted V2

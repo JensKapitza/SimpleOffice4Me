@@ -9,8 +9,10 @@ import os
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .document_origin import document_origin_tags
-from .document_store import DocumentStore, sha256_file
-from .safe_paths import resolve_under
+from .document_store import DocumentStore
+from .federation_core import normalize_sha256
+from .v2.contracts import ErrorCode, LogicalObjectId
+from .v2.storage_runtime import storage_for
 
 bp = Blueprint("federation_catalog_http", __name__, url_prefix="/federation/v1/catalog")
 MAX_PAGE_SIZE = 1000
@@ -53,22 +55,23 @@ def _bounded_int(value: str, default: int, minimum: int, maximum: int) -> int:
 
 def _catalog_rows() -> list[dict]:
     store = _store()
+    storage = storage_for(store.root, "federation-transfer")
     rows = []
     for item in store.list_documents():
-        try:
-            path = resolve_under(store.root, str(item.get("last_path", "")), strict=True)
-        except (OSError, ValueError):
+        if item.get("system_state") == "webdav_deleted" or item.get("deleted_at"):
             continue
-        if not path.is_file() or path.is_symlink():
-            continue
-        digest = str(item.get("sha256") or "").casefold()
-        if len(digest) != 64:
-            digest = sha256_file(path)
+        result = storage.stat(LogicalObjectId(str(item.get("document_id") or "")))
+        if not result.ok:
+            if result.error.code in {ErrorCode.NOT_FOUND, ErrorCode.FORBIDDEN, ErrorCode.INVALID_INPUT}:
+                continue
+            raise RuntimeError("catalog storage metadata unavailable")
+        stored = result.value
+        digest = normalize_sha256(stored.version)
         rows.append({
-            "document_id": str(item.get("document_id", "")),
+            "document_id": stored.object_id.value,
             "blob_hash": digest,
-            "path": str(item.get("last_path", "")),
-            "size": path.stat().st_size,
+            "path": stored.location.relative_path,
+            "size": stored.size,
             "modified_at": str(item.get("last_seen_at") or ""),
             "state": str(item.get("state") or "new")[:120],
             "tags": sorted({str(tag) for tag in item.get("tags", []) if str(tag).strip()}, key=str.casefold),
@@ -92,7 +95,10 @@ def _generation(rows: list[dict]) -> str:
 
 @bp.get("/documents")
 def document_index():
-    rows = _catalog_rows()
+    try:
+        rows = _catalog_rows()
+    except (OSError, RuntimeError, ValueError):
+        return jsonify({"error": "catalog_unavailable"}), 503
     generation = _generation(rows)
     cursor = _bounded_int(request.args.get("cursor", "0"), 0, 0, max(0, len(rows)))
     limit = _bounded_int(request.args.get("limit", "250"), 250, 1, MAX_PAGE_SIZE)
