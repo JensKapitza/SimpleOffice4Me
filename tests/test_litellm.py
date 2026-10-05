@@ -201,3 +201,36 @@ class LiteLLMTest(unittest.TestCase):
             self.assertEqual('unauthorized', failed.json['health']['code'])
         events = database.get_db().execute("SELECT outcome FROM security_event WHERE target_id='litellm' AND action='mini_service_scan'").fetchall()
         self.assertEqual('failure', events[-1][0])
+
+    def test_autostart_and_failed_install_diagnostics(self):
+        with patch.object(service, 'action') as action:
+            service.autostart()
+            action.assert_not_called()
+            self.enable(autostart=True)
+            service.autostart()
+            action.assert_not_called()
+            self.enable(mode='local', provider_model='openai/test', autostart=True)
+            service.autostart()
+            action.assert_called_once_with('start')
+        self.login()
+        with patch.object(service, '_running', return_value=False), patch.object(service, '_docker', side_effect=RuntimeError('private secret payload')):
+            response = self.client.post('/admin/mini-services/litellm/action/install', follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'LiteLLM-Aktion fehlgeschlagen', response.data)
+        self.assertNotIn(b'private secret payload', response.data)
+        self.assertEqual('RuntimeError', service.status()['health']['code'])
+
+    def test_corrupt_config_restore_and_start_failure_do_not_destroy_backup(self):
+        self.enable()
+        payload = json.loads(service.backup())
+        config.settings_path().write_text('corrupt')
+        with patch.object(service, '_running', return_value=False):
+            service.restore(payload)
+        self.assertFalse(config.settings()['enabled'])
+        self.assertEqual('test-only-key', config.secret(config.settings(), 'api_key'))
+        self.enable(mode='local', provider_model='openai/test')
+        before = service.backup()
+        with patch.object(service, '_docker', side_effect=FileNotFoundError('missing Docker')):
+            with self.assertRaises(FileNotFoundError):
+                service.action('start')
+        self.assertEqual(before, service.backup())

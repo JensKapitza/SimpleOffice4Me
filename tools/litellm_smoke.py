@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import socket
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,6 +26,17 @@ def ready(service, gateway, *, expected=True):
         if bool(result["health"]["ok"]) == expected:
             return
         time.sleep(1)
+    print("Last gateway diagnostic:", result["health"]["code"])
+    ids = service._docker(["ps", "-aq", "--filter", "label=com.docker.compose.project=" + service._project(), "--format", "{{.ID}}"]).decode().split()
+    for ident in ids:
+        state = service._docker(["inspect", "--format", "{{json .State}}", ident]).decode()
+        print("CI container state:", state)
+        logged = subprocess.run(["docker", "logs", "--tail", "60", ident],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=5, check=False)
+        logs = logged.stdout.decode(errors="replace")
+        for key in ("api_key", "provider_key"):
+            logs = logs.replace(service.secret(service.settings(), key), "[redacted]")
+        print(re.sub(r"sk-[A-Za-z0-9_-]+", "[redacted]", logs))
     raise RuntimeError("LiteLLM container readiness gate failed")
 
 
@@ -42,6 +55,9 @@ def main():
 
         def mock_compose(settings):
             path = original_compose(settings)
+            compose = json.loads(path.read_text())
+            compose["services"]["gateway"]["logging"] = {"driver": "local"}
+            path.write_text(json.dumps(compose))
             target = service.directory() / "config.yaml"
             data = json.loads(target.read_text())
             data["model_list"][0]["litellm_params"]["mock_response"] = "CI_GATEWAY_OK"
@@ -51,7 +67,7 @@ def main():
         with app.app_context(), patch.object(service, "_compose", side_effect=mock_compose):
             service.save_settings({"enabled": True, "mode": "local", "port": port,
                                    "model": "ci-model", "provider_model": "openai/ci-model",
-                                   "api_key": "sk-" + secrets.token_hex(32), "provider_key": "sk-ci-not-a-provider-key",
+                                   "api_key": "sk-" + secrets.token_hex(32), "provider_key": "sk-" + secrets.token_hex(32),
                                    "timeout": 2, "retries": 0})
             try:
                 service.action("install")
@@ -61,7 +77,7 @@ def main():
                 if result["choices"][0]["message"]["content"] != "CI_GATEWAY_OK":
                     raise RuntimeError("OpenAI completion gate failed")
                 saved = json.loads(service.backup())
-                candidate = {**config.settings(), "api_key_enc": config.prepare({"api_key": "sk-invalid-ci-only"})["api_key_enc"]}
+                candidate = {**config.settings(), "api_key_enc": config.prepare({"api_key": "sk-" + secrets.token_hex(32)})["api_key_enc"]}
                 if gateway.probe(candidate)["code"] != "unauthorized":
                     raise RuntimeError("Invalid key gate failed")
                 service.action("restart")

@@ -24,7 +24,8 @@ class GatewayError(RuntimeError):
 
 
 def _resolve(host, port, timeout):
-    if not _RESOLVERS.acquire(blocking=False):
+    resolver = _RESOLVERS
+    if not resolver.acquire(blocking=False):
         raise GatewayError("resolver_busy")
     results = queue.Queue(maxsize=1)
 
@@ -34,7 +35,7 @@ def _resolve(host, port, timeout):
         except OSError as exc:
             results.put(exc)
         finally:
-            _RESOLVERS.release()
+            resolver.release()
 
     threading.Thread(target=run, name="litellm-dns", daemon=True).start()
     try:
@@ -115,6 +116,8 @@ def _exchange(config, path, body, timeout):
             value = json.loads(data)
         except (ValueError, UnicodeError) as exc:
             raise GatewayError("invalid_response") from exc
+        if path == "/health/liveliness" and value == "I'm alive!":
+            return {"status": "alive"}
         if not isinstance(value, dict):
             raise GatewayError("invalid_response")
         return value

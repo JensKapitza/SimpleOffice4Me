@@ -1,7 +1,9 @@
 {% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <h1 class="h2">LiteLLM Gateway</h1>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <p><a href="{{ url_for('mini_services_admin.index') }}">Mini Services</a> · <a href="{{ url_for('mcp.settings') }}">MCP-Zugänge</a></p>
   <p class="text-secondary">Optionaler OpenAI-kompatibler Dienst. MCP ist {{ 'aktiviert' if mcp_enabled else 'deaktiviert' }} und verwendet separate Benutzerrechte und Zugänge.</p>
   <div class="alert {{ 'alert-success' if service.health.ok else 'alert-secondary' }}" role="status">{{ service.health.message }}</div>
