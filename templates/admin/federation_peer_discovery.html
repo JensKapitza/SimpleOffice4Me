@@ -190,6 +190,72 @@
     </table>
   </div>
 </div>
+
+<section class="card mt-3" id="mail-case-identities">
+  <div class="card-header"><strong>Mail-Vorgänge · Benutzerzuordnung</strong></div>
+  <div class="card-body border-bottom">
+    <p class="small text-secondary">
+      Ordne die Benutzer-ID der Gegenstelle explizit einem aktiven lokalen Benutzer zu.
+      Die Zuordnung ist peergebunden und erteilt allein noch keinen Zugriff:
+      Trust, <code>mail_cases</code>-Policy und die Vorgangs-ACL werden zusätzlich geprüft.
+    </p>
+    <form method="post" action="{{ url_for('federation_peer_admin.set_mail_case_identity') }}" class="row g-2 align-items-end">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="col-md-4">
+        <label class="form-label" for="mail-case-peer">Peer</label>
+        <select class="form-select" id="mail-case-peer" name="peer_id" required>
+          <option value="">Bitte wählen</option>
+          {% for peer in peers if peer.enabled %}
+          <option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label" for="mail-case-remote-user">Remote-Benutzer-ID</label>
+        <input class="form-control" id="mail-case-remote-user" name="remote_user_id" maxlength="160" required>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label" for="mail-case-local-user">Lokaler Benutzer</label>
+        <select class="form-select" id="mail-case-local-user" name="local_user_id" required>
+          <option value="">Bitte wählen</option>
+          {% for user in mail_case_local_users %}
+          <option value="{{ user.username }}">{{ user.display_name or user.username }} · {{ user.username }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-1">
+        <button class="btn btn-primary w-100" type="submit" aria-label="Benutzerzuordnung speichern">+</button>
+      </div>
+    </form>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead>
+        <tr><th scope="col">Peer</th><th scope="col">Remote-ID</th><th scope="col">Lokal</th><th scope="col">Geändert von</th><th scope="col">Aktion</th></tr>
+      </thead>
+      <tbody>
+        {% for mapping in mail_case_mappings %}
+        <tr>
+          <td><code>{{ mapping.peer_id }}</code></td>
+          <td>{{ mapping.remote_user_id }}</td>
+          <td>{{ mapping.local_user_id }}</td>
+          <td class="small text-secondary">{{ mapping.updated_by }} · {{ mapping.updated_at }}</td>
+          <td>
+            <form method="post" action="{{ url_for('federation_peer_admin.remove_mail_case_identity_form') }}">
+              <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="peer_id" value="{{ mapping.peer_id }}">
+              <input type="hidden" name="remote_user_id" value="{{ mapping.remote_user_id }}">
+              <button class="btn btn-sm btn-outline-danger" type="submit">Widerrufen</button>
+            </form>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-secondary text-center py-3">Noch keine Mail-Vorgang-Benutzerzuordnung vorhanden.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 </main>
 <script src="{{ url_for('static', filename='js/federation_qr_scan.js') }}"></script>
 {% endblock %}
