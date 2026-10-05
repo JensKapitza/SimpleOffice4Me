@@ -15,6 +15,7 @@ from pathlib import Path
 from .document_store import CONTROL_DIR
 from .federation_core import sanitize_peer_id
 from .federation_store import FederationStore
+from .mail_case_store import PERMISSIONS
 from .sqlite_utils import connect as sqlite_connect
 
 
@@ -489,10 +490,7 @@ class MailCaseFederationIdentityStore:
 
     @staticmethod
     def _owner_permissions_json() -> str:
-        return json.dumps(sorted({
-            "read", "comment", "compose", "send_request",
-            "manage_participants", "manage_status", "manage_mail",
-        }))
+        return json.dumps(sorted(PERMISSIONS))
 
     @staticmethod
     def _shadow_case_ids(db, peer_id: str, remote_user_id: str) -> list[str]:
