@@ -76,7 +76,7 @@ Alle Eingaben sind grundsätzlich nicht vertrauenswürdig.
 - Berechtigungsprüfungen serverseitig erzwingen; UI-Prüfungen allein reichen nicht.
 - Shell-Aufrufe ohne Shell-Interpolation bevorzugen; ungeprüfte Nutzereingaben niemals direkt in Shell-Kommandos einsetzen.
 - Externe URLs und Redirects validieren, wenn dadurch Serverzugriffe ausgelöst werden.
-- HTML-, Razor- und JavaScript-Ausgaben kontextgerecht encoden; serverseitige Validierung bleibt erforderlich.
+- HTML- und JavaScript-Ausgaben kontextgerecht encoden; serverseitige Validierung bleibt erforderlich.
 - Fehlerberichte dürfen keine vollständigen fachlichen Nutzdaten enthalten. Zentrales Fehlerreporting übermittelt nur minimale technische Diagnosedaten.
 - `pip-audit` ist als Dependency-Sicherheitsprüfung Bestandteil der CI.
 - Die CRA-Prüfung über `tools/cra_check.py` ist Bestandteil der CI.
