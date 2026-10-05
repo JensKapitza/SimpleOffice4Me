@@ -2,7 +2,9 @@
 import unittest
 from unittest.mock import patch
 
+from flask import Flask, g
 import test_mail_case_federation_identity as fixture
+from app.federation_peer_admin import bp as admin_bp
 from app.mail_case_federation import MailCaseFederationIdentityStore, apply_mail_case_event
 from app.mail_case_store import MailCaseStore
 
@@ -30,6 +32,22 @@ class MailCaseMappingPermissionTests(unittest.TestCase):
         self.assertEqual(["read"], case["permissions"])
         with self.assertRaises(PermissionError):
             cases.add_participant("bob", case_id, local_user_id="carol")
+
+    def test_admin_mapping_rejects_non_object_json_without_internal_error(self):
+        app = Flask(__name__)
+        app.config.update(TESTING=True, TEST_CSRF_PROTECTION=False,
+                          SECRET_KEY="synthetic-mapping-input", DOCUMENT_ROOT=str(self.root))
+        app.register_blueprint(admin_bp)
+        user = {"id": 1, "username": "admin", "is_admin": True, "is_disabled": False}
+        app.before_request(lambda: setattr(g, "user", user))
+        client = app.test_client()
+        for body in ("[]", "[1]", "true", "1", '"text"', "null"):
+            with self.subTest(body=body):
+                response = client.post("/admin/federation/peer-discovery/mail-case-identities",
+                                       data=body, content_type="application/json")
+                self.assertEqual(400, response.status_code)
+                self.assertEqual({"error": "invalid_mapping"}, response.json)
+        self.assertEqual([], self.store.list())
 
     def test_revoking_non_owner_identity_preserves_independent_local_acl(self):
         cases, case_id = self.shadow()

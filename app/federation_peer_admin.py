@@ -42,7 +42,7 @@ def mail_case_identities():
 def set_mail_case_identity():
     json_request = request.is_json
     data = request.get_json(silent=True) if json_request else request.form
-    if data is None:
+    if data is None or (json_request and not isinstance(data, dict)):
         return jsonify({"error": "invalid_mapping"}), 400
     peer_id = str(data.get("peer_id") or "")
     local_user_id = str(data.get("local_user_id") or "").strip()
@@ -829,4 +829,3 @@ def preview_policy(peer_id):
     except (RuntimeError, TypeError, ValueError):
         flash("Policy-Vorschau konnte nicht sicher ausgewertet werden; Ergebnis ist fail-closed.")
     return _policy_redirect(peer_id)
-
