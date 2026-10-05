@@ -69,6 +69,7 @@ class LiteLLMTransportTest(unittest.TestCase):
                                       (400, b'{"error":{"type":"no_db_connection"}}', 'unauthorized'),
                                       (400, b'{"error":{"type":"bad_request_error"}}', 'gateway_rejected'),
                                       (200, b'not-json', 'invalid_response'), (200, b'[]', 'invalid_response'),
+                                      (200, ('[' * 2000 + '0' + ']' * 2000).encode(), 'invalid_response'),
                                       (200, b'x' * (MAX_BYTES + 1), 'response_too_large')]:
             Handler.status, Handler.payload, Handler.calls = status, payload, []
             with self.subTest(code=code), self.assertRaisesRegex(GatewayError, '^' + code + '$'):
@@ -83,8 +84,11 @@ class LiteLLMTransportTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 1.3)
         self.server.shutdown()
         self.server.server_close()
-        with self.assertRaisesRegex(GatewayError, 'unreachable'):
-            request_gateway('/v1/models', config=self.config)
+        from app import litellm_gateway as gateway
+        with patch.object(gateway, 'addresses', wraps=gateway.addresses) as addresses:
+            with self.assertRaisesRegex(GatewayError, 'unreachable'):
+                request_gateway('/v1/models', config={**self.config, 'retries': 2})
+            self.assertEqual(3, addresses.call_count)
 
     def test_request_limit_before_network_payload(self):
         with self.assertRaisesRegex(GatewayError, 'request_too_large'):
@@ -129,6 +133,16 @@ class LiteLLMTransportTest(unittest.TestCase):
         unreachable.close.assert_called()
         working.connect.assert_called_once_with(answers[1][4])
         connection.request.assert_called_once()
+
+    def test_unsupported_address_family_falls_back_before_request(self):
+        from app import litellm_gateway as gateway
+        sock = MagicMock()
+        from urllib.parse import urlsplit
+        with patch.object(gateway.socket, 'socket', side_effect=[OSError('IPv6 disabled'), sock]):
+            result = gateway._connect(urlsplit('http://gateway.example'),
+                                      [(10, ('::1', 80)), (2, ('1.1.1.1', 80))], time.monotonic() + 1, [None])
+        self.assertIs(sock, result)
+        sock.connect.assert_called_once_with(('1.1.1.1', 80))
 
     def test_no_address_failover_after_request_or_tls_validation_failure(self):
         from app import litellm_gateway as gateway

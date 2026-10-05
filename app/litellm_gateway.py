@@ -70,13 +70,15 @@ def _connect(parsed, targets, deadline, sockets):
     if parsed.scheme == "https":
         tls = ssl.create_default_context()
         tls.minimum_version = ssl.TLSVersion.TLSv1_2
+    last_error = None
     for family, address in targets:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise GatewayError("timeout")
-        sock = socket.socket(family, socket.SOCK_STREAM)
-        sockets[0] = sock
+        sock = None
         try:
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sockets[0] = sock
             sock.settimeout(remaining)
             sock.connect(address)
             remaining = deadline - time.monotonic()
@@ -90,9 +92,15 @@ def _connect(parsed, targets, deadline, sockets):
         except ssl.SSLError:
             sock.close()
             raise  # Certificate/TLS failures cannot justify another target.
-        except OSError:
-            sock.close()
-    raise GatewayError("timeout" if time.monotonic() >= deadline else "unreachable")
+        except OSError as exc:
+            last_error = exc
+            if sock is not None:
+                sock.close()
+    if time.monotonic() >= deadline:
+        raise GatewayError("timeout")
+    if last_error is not None:
+        raise last_error  # Preserve bounded GET retries in request_gateway().
+    raise GatewayError("unreachable")
 
 
 def _exchange(config, path, body, timeout):
