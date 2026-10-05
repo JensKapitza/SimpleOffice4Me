@@ -64,7 +64,7 @@ class DocumentStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             quoted = EmailMessage(policy=policy.SMTP)
-            quoted["Subject"] = "=?utf-8?Q?Gr=C3=BC=C3=9Fe?="
+            quoted["Subject"] = "Grüße"
             quoted.set_content("Prüfung über Quoted-Printable.", cte="quoted-printable")
             (root / "quoted.eml").write_bytes(quoted.as_bytes())
 
