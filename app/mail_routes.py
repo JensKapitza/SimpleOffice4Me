@@ -175,7 +175,12 @@ def _readonly_map(store: MailStore, accounts: list[dict]) -> dict[str, bool]:
 def index():
     store = _store()
     accounts = store.accounts(_actor())
-    archive_states = {row["id"]: store.archive_state(_actor(), row["id"]) for row in accounts}
+    archive_states, archive_state_errors = {}, []
+    for row in accounts:
+        try:
+            archive_states[row["id"]] = store.archive_state(_actor(), row["id"])
+        except (OSError, ValueError):
+            archive_state_errors.append(row["id"])
     selected_id = request.args.get("account", "")
     selected = next((row for row in accounts if row["id"] == selected_id), accounts[0] if accounts else None)
     scripts = store.scripts_for(_actor(), selected["id"]) if selected else []
@@ -204,6 +209,7 @@ def index():
     return render_template(
         "documents/mail_client.html", accounts=accounts, selected=selected, scripts=scripts,
         archive_states=archive_states,
+        archive_state_errors=archive_state_errors,
         script_name=script_name, script_content=script_content, sieve_state=sieve_state,
         readonly=readonly, selected_read_only=readonly.get(selected["id"], True) if selected else True,
         delegations=delegations, delegation_users=delegation_users,

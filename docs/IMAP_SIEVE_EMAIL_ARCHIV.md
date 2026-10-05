@@ -165,6 +165,9 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
   wird erst nach Originalspeicherung, Herkunftsmetadaten und einer ausdrücklich
   bestätigten Anhangsübernahme gespeichert. Ein nicht schreibbarer Checkpoint
   bricht den Lauf ab, statt ohne belastbaren Fortschritt weiterzuarbeiten.
+  Ein beschädigter oder nicht lesbarer Index gilt nicht als leer: Die Datei
+  bleibt unverändert und die Mailseite nennt die erforderliche Wiederherstellung
+  aus einer geprüften Sicherung beziehungsweise Korrektur der Leserechte.
 - Die Mailseite nennt offene UIDs und die ausstehende Stufe: Abruf,
   EML-Speicherung, Herkunftsmetadaten oder Anhangsübernahme. Fehlerantworten und
   Lauf-Audit enthalten keine Serverantworten, Mailtexte oder Passwörter.
@@ -187,6 +190,9 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
   ab der ersten UID, ebenfalls mit dem eingestellten Batch-Limit. Alte Zustände
   belegen keine frühere Anhangsbestätigung; für deren erneute Übernahme muss
   die Checkbox ausdrücklich gesetzt werden.
+  Ältere Programmversionen kennen die neuen offenen Wiederholungen nicht;
+  ein Downgrade ist daher keine geprüfte Recovery. Quellnachrichten erhalten
+  und Wiederanlauf sowie Sicherung auf der korrigierten Version prüfen.
 - Ein Wechsel von `UIDVALIDITY`, Server, Anmeldung oder Quellordner beginnt
   einen neuen Abgleich. Alte offene UIDs werden nicht auf andere Nachrichten
   angewendet: Sie bleiben als frühere Wiederholungen im Archivzustand erhalten

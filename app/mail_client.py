@@ -307,12 +307,25 @@ class MailStore:
             return []
         return [{"name": p.stem, "size": p.stat().st_size, "sha512": hashlib.sha512(p.read_bytes()).hexdigest()} for p in sorted(folder.glob("*.sieve")) if p.is_file() and not p.is_symlink()]
 
+    def _archive_index(self) -> dict[str, Any]:
+        """Only a genuinely absent checkpoint is empty; never erase unreadable state."""
+        try:
+            payload = json.loads(self.index_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {"version": 1, "accounts": {}}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ValueError("Archivzustand ist beschädigt; Sicherung prüfen.") from None
+        if (not isinstance(payload, dict) or not isinstance(payload.get("accounts"), dict)
+                or any(not isinstance(row, dict) for row in payload["accounts"].values())):
+            raise ValueError("Archivzustand ist beschädigt; Sicherung prüfen.")
+        return payload
+
     def archive_state(self, actor: str, account_id: str) -> dict[str, Any]:
-        return self._read(self.index_path, {"version": 1, "accounts": {}}).get("accounts", {}).get(f"{actor}:{_safe_id(account_id)}", {})
+        return self._archive_index()["accounts"].get(f"{actor}:{_safe_id(account_id)}", {})
 
     def update_archive_state(self, actor: str, account_id: str, state: dict[str, Any]) -> None:
         with exclusive_file_lock(self.index_path.with_suffix(".lock")):
-            payload = self._read(self.index_path, {"version": 1, "accounts": {}})
+            payload = self._archive_index()
             payload.setdefault("accounts", {})[f"{actor}:{_safe_id(account_id)}"] = state
             self.control.mkdir(parents=True, exist_ok=True)
             atomic_json_write(self.index_path, payload)

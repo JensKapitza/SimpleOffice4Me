@@ -223,6 +223,15 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
         self.mailbox.untagged_responses = {"UIDVALIDITY": [b"42"]}
         self.assertEqual(2, self.run_archive()["archived"])
 
+    def test_corrupt_checkpoint_is_not_replaced_with_an_empty_success_state(self):
+        self.run_archive()
+        damaged = b'{"accounts": invalid checkpoint'
+        self.store.index_path.write_bytes(damaged)
+        with self.assertRaises(ValueError):
+            self.run_archive()
+        self.assertEqual(damaged, self.store.index_path.read_bytes())
+        self.assertEqual([FIRST, SECOND], self.messages())
+
     def test_reused_uid_with_changed_bytes_stays_pending_and_preserves_original(self):
         with patch.object(DocumentStore, "set_tags", side_effect=SystemExit):
             with self.assertRaises(SystemExit):
@@ -396,3 +405,14 @@ class ArchiveRecoveryHttpTests(unittest.TestCase):
                 response = client.post("/documents/mail/accounts/work/archive", follow_redirects=True)
             self.assertEqual(200, response.status_code)
             self.assertIn("0 offene Wiederholungen", response.text)
+            checkpoint = MailStore(base / "documents", b"synthetic-recovery-http-master-key").index_path
+            damaged = b'{"accounts": invalid checkpoint'
+            checkpoint.write_bytes(damaged)
+            response = client.get("/documents/mail")
+            self.assertEqual(200, response.status_code)
+            self.assertIn("Archivzustand konnte nicht sicher gelesen werden", response.text)
+            with patch.object(ImapArchive, "_connect", return_value=mailbox):
+                response = client.post("/documents/mail/accounts/work/archive", follow_redirects=True)
+            self.assertEqual(200, response.status_code)
+            self.assertIn("Archivlauf abgebrochen", response.text)
+            self.assertEqual(damaged, checkpoint.read_bytes())
