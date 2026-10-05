@@ -44,7 +44,7 @@ class DocumentStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             path = root / "existing.eml"
-            path.write_bytes(b"Subject: plain subject\\r\\n\\r\\nplain body")
+            path.write_bytes(b"Subject: plain subject\r\n\r\nplain body")
             store = DocumentStore(root)
             store.scan()
             document = store.get_document(path)
@@ -89,11 +89,11 @@ class DocumentStoreTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             (root / "unknown-charset.eml").write_bytes(
-                b"Subject: charset test\\r\\nContent-Type: text/plain; charset=x-not-real\\r\\n"
-                b"Content-Transfer-Encoding: base64\\r\\n\\r\\n"
+                b"Subject: charset test\r\nContent-Type: text/plain; charset=x-not-real\r\n"
+                b"Content-Transfer-Encoding: base64\r\n\r\n"
                 b"SGVsbG8gZnJvbSBtYWxmb3JtZWQgTUlNRS4="
             )
-            (root / "malformed.eml").write_bytes(b"not a valid header\\xff\\r\\n\\r\\nreadable fallback")
+            (root / "malformed.eml").write_bytes(b"not a valid header\xff\r\n\r\nreadable fallback")
             store = DocumentStore(root)
 
             store.scan()
