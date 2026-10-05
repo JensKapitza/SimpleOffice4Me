@@ -61,14 +61,21 @@ Historische Release-Prüfungen behalten Datum, Commit und damalige Testzahlen.
 Die bisherige Mailanleitung versprach, dass eine UID erst nach atomarer
 Speicherung und Metadatenregistrierung als bearbeitet gespeichert wird.
 `ImapArchive.archive()` erhöht den Fortschritt jedoch vorher. Mit bestehendem
-FakeIMAP, temporärem MailStore und synthetischem Speicherfehler für UID 7:
+FakeIMAP, temporärem MailStore, synthetischem Speicherfehler für UID 7 und
+erfolgreicher Archivierung der nachfolgenden UID 8:
 
 | Beobachtung | Ergebnis |
 |---|---|
-| Erster Lauf | `examined=1`, `archived=0`, Fehler für UID 7 |
-| Persistierter Checkpoint | `last_uid=7` |
-| Zweite Suche | `UID 8:*` |
-| Zweiter Lauf | `examined=0`, `archived=0`, keine Fehler |
+| Erster Lauf | `examined=2`, `archived=1`, Fehler für UID 7 |
+| Persistierter Checkpoint | `last_uid=8` |
+| Zweite Suche | `UID 9:*`; Mock liefert entsprechend der rückwärts interpretierten Bereichsgrenze die höchste UID 8 |
+| Zweiter Lauf | `examined=1`, `archived=0`, `duplicates=1`, keine Fehler; UID 7 wird nicht erneut angefordert |
+
+IMAP-Bereiche werden unabhängig von der Reihenfolge ihrer Grenzen ausgewertet.
+Bei einem Start oberhalb der höchsten UID kann `N:*` die höchste bestehende
+UID erneut enthalten. Die Reproduktion berücksichtigt dies ausdrücklich und
+belegt die Lücke anhand der früher fehlgeschlagenen UID 7, nicht anhand einer
+angenommenen leeren Folgesuche.
 
 Die Quelle bleibt unverändert, das lokale Archiv kann eine Lücke behalten.
 [#587](https://github.com/JensKapitza/SimpleOffice4Me/issues/587) beschreibt

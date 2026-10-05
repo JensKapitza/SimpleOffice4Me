@@ -43,8 +43,9 @@ zwei reproduzierte Korrekturbedarfe. Sie sind durch die oben beschriebenen
 Sicherheitskorrekturen nicht erledigt:
 
 - [#587: IMAP-Checkpoint überspringt fehlgeschlagene UIDs](https://github.com/JensKapitza/SimpleOffice4Me/issues/587):
-  Ein synthetischer Speicherfehler für UID 7 führt trotzdem zu `last_uid=7`;
-  die nächste Suche beginnt bei UID 8. Es kann eine lokale Archivlücke entstehen.
+  Ein synthetischer Speicherfehler für UID 7 und Erfolg für UID 8 führen zu
+  `last_uid=8`; die nächste Suche `UID 9:*` kann UID 8 erneut liefern, aber
+  nicht UID 7. Es kann eine lokale Archivlücke entstehen.
 - [#588: MIME-Suchindex und Vorschau unterscheiden sich](https://github.com/JensKapitza/SimpleOffice4Me/issues/588):
   Nach Text-Backfill bleiben RFC-2047-/Base64-Inhalte mit decodierten Begriffen
   unauffindbar, obwohl die Vorschau korrekt ist. Nachprüfung des geschlossenen #74.
