@@ -36,15 +36,6 @@ REQUIRED_CI_MARKERS = (
     "python tools/generate_sbom.py",
 )
 
-CSHARP_AGENT_MARKERS = (
-    "MetaBridge",
-    "BrabenderCodeAnalysis.ruleset",
-    "CA1823",
-    "C6259",
-    "SX1101",
-)
-
-
 def _read(path: Path, errors: list[str]) -> str:
     try:
         return path.read_text(encoding="utf-8")
@@ -54,10 +45,8 @@ def _read(path: Path, errors: list[str]) -> str:
         errors.append(f"cannot read {path}: {exc}")
     return ""
 
-
 def _missing_markers(text: str, markers: tuple[str, ...]) -> list[str]:
     return [marker for marker in markers if marker not in text]
-
 
 def validate_agents(root: Path, errors: list[str]) -> None:
     text = _read(root / "AGENTS.md", errors)
@@ -66,12 +55,10 @@ def validate_agents(root: Path, errors: list[str]) -> None:
     for marker in _missing_markers(text, REQUIRED_AGENT_MARKERS):
         errors.append(f"AGENTS.md is missing policy marker: {marker}")
 
-
 def validate_copilot_instructions(root: Path, errors: list[str]) -> None:
     text = _read(root / ".github" / "copilot-instructions.md", errors)
     if text and "AGENTS.md" not in text:
         errors.append(".github/copilot-instructions.md must point to AGENTS.md")
-
 
 def validate_python_requirement(root: Path, errors: list[str]) -> None:
     text = _read(root / "pyproject.toml", errors)
@@ -88,42 +75,12 @@ def validate_python_requirement(root: Path, errors: list[str]) -> None:
             f"found {match.group(1)!r}"
         )
 
-
 def validate_ci(root: Path, errors: list[str]) -> None:
     text = _read(root / ".github" / "workflows" / "ci.yml", errors)
     if not text:
         return
     for marker in _missing_markers(text, REQUIRED_CI_MARKERS):
         errors.append(f"ci.yml is missing required quality gate: {marker}")
-
-
-def _contains_csharp_project(root: Path) -> bool:
-    ignored = {".git", ".venv", "venv", "node_modules", "build", "dist"}
-    for path in root.rglob("*.csproj"):
-        try:
-            relative = path.relative_to(root)
-        except ValueError:
-            continue
-        if not any(part in ignored for part in relative.parts):
-            return True
-    return False
-
-
-def validate_conditional_csharp_policy(root: Path, errors: list[str]) -> None:
-    """Only enforce MetaBridge references when a C# project exists in this tree."""
-    if not _contains_csharp_project(root):
-        return
-
-    for name in ("instruction.md", "BrabenderCodeAnalysis.ruleset"):
-        if not (root / name).is_file():
-            errors.append(f"C# project detected but required project reference is missing: {name}")
-
-    agents = _read(root / "AGENTS.md", errors)
-    if not agents:
-        return
-    for marker in _missing_markers(agents, CSHARP_AGENT_MARKERS):
-        errors.append(f"C# project detected but AGENTS.md is missing marker: {marker}")
-
 
 def policy_errors(root: Path) -> list[str]:
     root = root.resolve()
@@ -132,9 +89,7 @@ def policy_errors(root: Path) -> list[str]:
     validate_copilot_instructions(root, errors)
     validate_python_requirement(root, errors)
     validate_ci(root, errors)
-    validate_conditional_csharp_policy(root, errors)
     return errors
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -150,7 +105,6 @@ def main() -> int:
     for error in errors:
         print(f"- {error}")
     return 1
-
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -72,6 +72,7 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             tests/browser/manual_screenshot_smoke.py \
+            tests/browser/mcp_smoke.py \
             tests/browser/page_crawl.py \
             tests/browser/route_inventory.py
 
@@ -104,7 +105,7 @@ jobs:
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
-            -e SIMPLEOFFICE_MCP=0 \
+            -e SIMPLEOFFICE_MCP=1 \
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
             -e SIMPLEOFFICE_V3_SAMPLE_ENABLED=1 \
             -e SIMPLEOFFICE_V3_RELATIONS_ENABLED=1 \

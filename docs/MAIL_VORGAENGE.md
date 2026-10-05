@@ -107,6 +107,17 @@ Schattenvorgang-ACLs sofort entzogen. Die Vorgangsdaten selbst bleiben für
 Audit, erneute Zuordnung und Synchronisation erhalten, sind über die widerrufene
 lokale Identität aber nicht mehr sichtbar.
 
+Diese Eigentümerübertragung ist an die gespeicherte Remote-Identität des
+ursprünglichen Einladenden gebunden. Die Zuordnung weiterer Teilnehmer erweitert
+keine lokalen ACLs und ändert den Vorgangseigentümer nicht; unabhängig erteilte
+lokale Teilnehmerrechte bleiben beim Widerruf ihrer Remote-Zuordnung erhalten.
+Beim Schema-Upgrade wird der Einladende nur aus eindeutig zuordenbaren alten
+Schattenvorgängen übernommen. Mehrdeutige Altbestände benötigen eine manuelle
+Prüfung der Teilnehmer; sie erhalten keine automatisch abgeleiteten Eigentümerrechte.
+Die Eigentümerbindung, Einladungsdaten und Replay-Quittung werden gemeinsam
+transaktional gespeichert. Eine zwischen Identitätsauflösung und Anwendung
+widerrufene oder geänderte Zuordnung kann keinen neuen Schattenvorgang erzeugen.
+
 Der berechtigte lokale Teilnehmer kann über „Vorgang an Peer einladen“ einen
 Vorgang an einen zuvor hinzugefügten föderierten Teilnehmer senden. Die
 Empfangsinstanz erstellt einen lokalen Schattenvorgang mit eigener Fall-ID und

@@ -136,8 +136,31 @@ def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
             raise ValueError("invalid case invitation title")
         case_id = uuid.uuid5(uuid.NAMESPACE_URL,
                              f"simpleoffice:mail-case:{peer_id}:{remote_case_id}").hex
-        now = _utc()
-        with cases._db(write=True) as db:
+    else:
+        case_id = identities.local_case_id(peer_id, remote_case_id) or remote_case_id
+    with cases._db(write=True) as db:
+        mapping = db.execute(
+            """SELECT local_user_id FROM mail_case_federation_identity
+               WHERE peer_id=? AND remote_user_id=?""", (peer_id, remote_user),
+        ).fetchone()
+        if mapping is None or mapping["local_user_id"] != local_user:
+            raise PermissionError("mail-case mapping changed before event application")
+        db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_receipt(
+            message_id TEXT PRIMARY KEY, digest TEXT NOT NULL, result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL)""")
+        digest = hashlib.sha256(encoded).hexdigest()
+        prior = db.execute(
+            "SELECT digest,result_json FROM mail_case_federation_receipt WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        if prior:
+            if prior["digest"] != digest:
+                raise ValueError("mail-case event replay mismatch")
+            return json.loads(prior["result_json"])
+
+        if operation == "case_invitation":
+            identities._bind_shadow_case(db, peer_id, remote_case_id, case_id, remote_user)
+            now = _utc()
             db.execute(
                 """INSERT OR IGNORE INTO mail_case
                    (id,title,status,account_id,account_owner,created_by,created_at,updated_at,closed_at)
@@ -160,22 +183,6 @@ def apply_mail_case_event(root: str | Path, peer_id: str, message_id: str,
                  json.dumps(sorted({"read", "comment", "compose", "send_request", "manage_mail"})),
                  f"federated:{peer_id}:{remote_user}", now),
             )
-        identities.map_case(peer_id, remote_case_id, case_id)
-    else:
-        case_id = identities.local_case_id(peer_id, remote_case_id) or remote_case_id
-    with cases._db(write=True) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_receipt(
-            message_id TEXT PRIMARY KEY, digest TEXT NOT NULL, result_json TEXT NOT NULL,
-            created_at TEXT NOT NULL)""")
-        digest = hashlib.sha256(encoded).hexdigest()
-        prior = db.execute(
-            "SELECT digest,result_json FROM mail_case_federation_receipt WHERE message_id=?",
-            (message_id,),
-        ).fetchone()
-        if prior:
-            if prior["digest"] != digest:
-                raise ValueError("mail-case event replay mismatch")
-            return json.loads(prior["result_json"])
 
         case = db.execute("SELECT id FROM mail_case WHERE id=?", (case_id,)).fetchone()
         if case is None:
@@ -329,6 +336,7 @@ class MailCaseFederationIdentityStore:
 
     def _initialize(self) -> None:
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_identity(
                 peer_id TEXT NOT NULL,
                 remote_user_id TEXT NOT NULL,
@@ -342,15 +350,65 @@ class MailCaseFederationIdentityStore:
                 remote_case_id TEXT NOT NULL,
                 local_case_id TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                remote_owner_user_id TEXT NOT NULL DEFAULT '',
                 PRIMARY KEY(peer_id, remote_case_id),
                 UNIQUE(peer_id, local_case_id)
             )""")
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(mail_case_federation_case)")}
+            if "remote_owner_user_id" not in columns:
+                db.execute("ALTER TABLE mail_case_federation_case ADD COLUMN remote_owner_user_id TEXT NOT NULL DEFAULT ''")
+                self._backfill_shadow_owners(db)
             db.execute("""CREATE TABLE IF NOT EXISTS mail_case_federation_outbox(
                 message_id TEXT PRIMARY KEY, peer_id TEXT NOT NULL, payload_json TEXT NOT NULL,
                 state TEXT NOT NULL DEFAULT 'queued', attempts INTEGER NOT NULL DEFAULT 0,
                 next_attempt REAL NOT NULL DEFAULT 0, lease_until REAL NOT NULL DEFAULT 0,
                 last_error TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL
             )""")
+
+    @staticmethod
+    def _backfill_shadow_owners(db) -> None:
+        tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"mail_case", "mail_case_participant"}.issubset(tables):
+            return
+        mappings = db.execute(
+            """SELECT mapping.* FROM mail_case_federation_case mapping
+               JOIN mail_case c ON c.id=mapping.local_case_id
+               WHERE mapping.remote_owner_user_id='' AND c.account_id='federation:' || mapping.peer_id"""
+        ).fetchall()
+        for mapping in mappings:
+            expected = uuid.uuid5(uuid.NAMESPACE_URL,
+                                 f"simpleoffice:mail-case:{mapping['peer_id']}:{mapping['remote_case_id']}").hex
+            if mapping["local_case_id"] != expected:
+                continue
+            owners = db.execute(
+                """SELECT remote_user_id FROM mail_case_participant
+                   WHERE case_id=? AND participant_type='federated_user' AND peer_id=?
+                     AND added_by='federated:' || peer_id || ':' || remote_user_id""",
+                (expected, mapping["peer_id"]),
+            ).fetchall()
+            if len(owners) == 1:
+                db.execute(
+                    """UPDATE mail_case_federation_case SET remote_owner_user_id=?
+                       WHERE peer_id=? AND remote_case_id=? AND remote_owner_user_id=''""",
+                    (owners[0]["remote_user_id"], mapping["peer_id"], mapping["remote_case_id"]),
+                )
+
+    @staticmethod
+    def _bind_shadow_case(db, peer_id, remote_case_id, case_id, remote_user) -> None:
+        prior = db.execute(
+            """SELECT local_case_id,remote_owner_user_id FROM mail_case_federation_case
+               WHERE peer_id=? AND remote_case_id=?""", (peer_id, remote_case_id),
+        ).fetchone()
+        if prior and (prior["local_case_id"] != case_id or prior["remote_owner_user_id"] != remote_user):
+            raise PermissionError("shadow case belongs to another remote identity")
+        case = db.execute("SELECT account_id FROM mail_case WHERE id=?", (case_id,)).fetchone()
+        if case and case["account_id"] != f"federation:{peer_id}":
+            raise PermissionError("shadow case conflicts with local case")
+        db.execute(
+            """INSERT OR IGNORE INTO mail_case_federation_case
+               (peer_id,remote_case_id,local_case_id,remote_owner_user_id) VALUES(?,?,?,?)""",
+            (peer_id, remote_case_id, case_id, remote_user),
+        )
 
     def map_case(self, peer_id: str, remote_case_id: str, local_case_id: str) -> None:
         with self._db() as db:
@@ -508,13 +566,11 @@ class MailCaseFederationIdentityStore:
         rows = db.execute(
             """SELECT DISTINCT mapping.local_case_id
                FROM mail_case_federation_case mapping
-               JOIN mail_case_participant remote
-                 ON remote.case_id=mapping.local_case_id
+               JOIN mail_case c ON c.id=mapping.local_case_id
                WHERE mapping.peer_id=?
-                 AND remote.participant_type='federated_user'
-                 AND remote.peer_id=?
-                 AND remote.remote_user_id=?""",
-            (peer_id, peer_id, remote_user_id),
+                 AND c.account_id='federation:' || mapping.peer_id
+                 AND mapping.remote_owner_user_id=?""",
+            (peer_id, remote_user_id),
         ).fetchall()
         return [str(row["local_case_id"]) for row in rows]
 

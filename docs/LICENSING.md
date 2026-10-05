@@ -5,6 +5,12 @@ Die lokale Nutzungserfassung zählt erfolgreiche HTTP-Anfragen (Status 200 bis
 Anfragen erhöhen die Zähler nicht. Aktive Benutzer werden pro Monat über ihre
 lokale Benutzer-ID zusammengeführt.
 
+EÜR, Finanzen und der V3-Geschäftsbeleg-Lebenszyklus zählen zur Gruppe
+`documents`, ebenso wie Rechnungen und andere Geschäftsbelege. Die
+verschachtelte Registrierung unter dem Kontakt-Blueprint ändert diese
+Zuordnung nicht. Echte Kontaktseiten zählen weiterhin zu `contacts`.
+Die Korrektur gilt für neue Anfragen; historische Zuordnungen bleiben erhalten.
+
 WebDAV-, CalDAV- und CardDAV-Clients benötigen keine Browser-Sitzung. Nach
 Prüfung der App-Zugangsdaten wird das authentifizierte DAV-Konto dem lokalen
 Benutzer zugeordnet. WebDAV zählt zur Gruppe `webdav`, CalDAV zu `calendar` und
