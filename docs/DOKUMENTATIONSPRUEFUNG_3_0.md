@@ -5,6 +5,26 @@ Prüfdatum: **2026-10-05**. Codebasis: `main` bei
 Umfang: Dokumentation, Logo und GitHub-Issue-Pflege; keine Änderungen an
 Anwendungscode, Tests, Abhängigkeiten, Migrationen oder Laufzeitkonfiguration.
 
+## Implementierte IMAP-Recovery-Korrektur — 2026-10-05
+
+Der nachfolgende historische Befund zu #587 wurde nun im bestehenden
+`ImapArchive`/`MailStore` behoben: UIDVALIDITY- und quellengebundene offene UIDs,
+getrennte Wiederanlaufstufen, idempotente private Anhangsziele, sichtbare
+Wiederholungen und Abbruch bei einem nicht schreibbaren Checkpoint.
+Die Korrektur verwendet den vorhandenen StoragePort und ClamAV-/Quarantänepfad.
+Die [Mail-Anleitung](IMAP_SIEVE_EMAIL_ARCHIV.md#fehler--und-ausfallverhalten)
+beschreibt die einmalige Übernahme alter Checkpoints, bestehende Originale,
+frühere UID-Namensräume und bestätigte Anhangsübernahme nach einem Neustart.
+
+Die öffentlichen Archivoperationen werden mit synthetischen IMAP-Eingaben,
+realem temporärem Speicher und I/O-/Prozessabbruchfehlern geprüft. Erwartet werden
+unabhängig festgelegte EML-Bytes, Dokumentanzahlen, Rückgabewerte und HTTP-Ausgaben;
+private Recovery-Methoden werden nicht als Testvertrag festgeschrieben.
+Legacy, Shadow, autoritatives und verschlüsseltes V2 sind abgedeckt.
+Das ergänzt Software-Recovery-Nachweise für #587 und erteilt weiterhin keine
+Geräte-, Last- oder 3.0-Release-Freigabe. Die ältere Tabelle unten beschreibt
+ausdrücklich den Stand vor dieser Implementierung.
+
 ## Nachprüfung offener Issues — 2026-10-05
 
 Code- und Ticketbasis dieser Nachprüfung ist `main`
