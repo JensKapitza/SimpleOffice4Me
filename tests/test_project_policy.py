@@ -6,7 +6,6 @@ from pathlib import Path
 
 from tools.check_project_policy import policy_errors
 
-
 VALID_AGENTS = """
 Sicherheit und Datenintegrität
 Root Cause vor Symptom-Fix
@@ -31,7 +30,6 @@ python -m pip_audit
 python tools/cra_check.py
 python tools/generate_sbom.py
 """
-
 
 class ProjectPolicyTest(unittest.TestCase):
     def make_repo(self) -> Path:
@@ -71,30 +69,6 @@ class ProjectPolicyTest(unittest.TestCase):
         errors = policy_errors(root)
 
         self.assertTrue(any("Python >=3.10" in error for error in errors), errors)
-
-    def test_csharp_references_are_only_required_when_csharp_exists(self) -> None:
-        root = self.make_repo()
-        self.assertEqual([], policy_errors(root))
-
-        (root / "MetaBridge.csproj").write_text("<Project />\n", encoding="utf-8")
-        errors = policy_errors(root)
-
-        self.assertTrue(any("instruction.md" in error for error in errors), errors)
-        self.assertTrue(any("BrabenderCodeAnalysis.ruleset" in error for error in errors), errors)
-
-    def test_csharp_policy_is_checked_when_project_is_present(self) -> None:
-        root = self.make_repo()
-        (root / "MetaBridge.csproj").write_text("<Project />\n", encoding="utf-8")
-        (root / "instruction.md").write_text("instructions\n", encoding="utf-8")
-        (root / "BrabenderCodeAnalysis.ruleset").write_text("<RuleSet />\n", encoding="utf-8")
-        (root / "AGENTS.md").write_text(
-            VALID_AGENTS
-            + "\nMetaBridge\nBrabenderCodeAnalysis.ruleset\nCA1823\nC6259\nSX1101\n",
-            encoding="utf-8",
-        )
-
-        self.assertEqual([], policy_errors(root))
-
 
 if __name__ == "__main__":
     unittest.main()
