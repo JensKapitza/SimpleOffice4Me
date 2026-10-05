@@ -194,6 +194,40 @@ Wenn eine Funktion wie Google Play Services, der Google Code Scanner oder ein be
 
 ## Tests und CI
 
+### Black-Box-Verträge der Offline-HTTP-API
+
+`tests/test_android_offline_api_black_box.py` prüft die bestehenden Verträge
+über den Flask-HTTP-Testclient. Konten, Logins und Aufgaben entstehen über
+`/auth/register`, `/auth/login` und `/tasks/`; direkte Datenbank-/Store-Eingaben
+und Session-Manipulationen werden dafür nicht verwendet. Lediglich isolierte
+Installationspfade, Capability-Konfiguration und die reguläre Schema-
+Initialisierung gehören zur Testumgebung. CSRF bleibt eingeschaltet.
+
+| Öffentlicher API-Aufruf / Eingabe | Unabhängig festgelegter Vertrag |
+|---|---|
+| `GET /api/v3/android-offline/tasks/<id>` nach Aufgabenerstellung | Titel, Beschreibung, Datum und Status entsprechen den eingegebenen Fachwerten; starker ETag, `no-store`, keine Credential-Felder |
+| `POST /api/v3/android-offline/sync`, `task_status=completed`, aktueller Basis-ETag | Ergebnis `synced`; folgende GET-Anfrage zeigt `completed`, Titel/Beschreibung/Fälligkeit bleiben erhalten |
+| Dieselbe Operation erneut nach einer späteren erfolgreichen Änderung, aus neuer Sitzung | Idempotenter Replay; kein Zurücksetzen des neueren Status und keine weitere Versionsänderung |
+| Neue Operation mit veraltetem Basis-ETag | Ergebnis `conflict`; kein Last-Write-Wins und keine Versionsänderung |
+| Andere Mutation, zusätzliche fachliche Payload-Felder oder unbekannter Status | Ergebnis `rejected`; ursprüngliche Fachwerte und Version bleiben erhalten |
+| Zugriff eines anderen Benutzers auf eine private Aufgabe | Keine Auflistung; bekannte fremde ID berechtigt nicht zur Mutation |
+| Cookie-authentifizierter Sync ohne CSRF-Token | HTTP 403; keine Status-/Versionsänderung |
+| Zwei Benutzer mit derselben Operation-ID für jeweils eigene Aufgaben | Zwei unabhängige Änderungen; keine benutzerübergreifende Wiederverwendung eines Receipts |
+
+IDs und ETags werden als undurchsichtige Eingabewerte aus öffentlichen
+Antworten übernommen. Der Test berechnet keine Hashes, rekonstruiert keine
+Versionen und verwendet keine Produktivhelfer für erwartete Ergebnisse.
+Die erwarteten Fachwerte stehen als feste Literale im Test. Authentisierung,
+Mutation und Kontrolle laufen durch die tatsächlichen HTTP-Routen; es wird
+kein Erfolgsresultat gemockt. Netzwerktransport, APK und Geräteverhalten sind
+damit weiterhin keine abgenommenen Testgegenstände.
+
+Ausführen:
+
+```bash
+python -m unittest discover -s tests -p test_android_offline_api_black_box.py -v
+```
+
 Die Regressionstests prüfen insbesondere:
 
 - `ACTION_SEND`, `ACTION_SEND_MULTIPLE` und `ACTION_VIEW content://` im Manifest;
