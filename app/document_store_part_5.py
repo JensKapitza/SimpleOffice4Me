@@ -5,6 +5,8 @@ from .sqlite_utils import connect as sqlite_connect
 
 from .document_store_core import *  # noqa: F401,F403
 
+MAX_EML_INDEX_BYTES = 25 * 1024 * 1024
+
 
 class _DocumentStorePart5:
     @staticmethod
@@ -55,7 +57,35 @@ class _DocumentStorePart5:
     @staticmethod
     def _file_text(path: Path) -> tuple[str, str]:
         suffix = path.suffix.lower()
-        if suffix in {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".log", ".eml", ".ics", ".vcf", ".py", ".java", ".js", ".css", ".sql", ".yml", ".yaml"}:
+        if suffix == ".eml":
+            from email import policy
+            from email.parser import BytesParser
+
+            from .mail_reader import _header, _message_text
+
+            try:
+                if path.stat().st_size > MAX_EML_INDEX_BYTES:
+                    raise RuntimeError("EML exceeds text-index size limit")
+                with path.open("rb") as source:
+                    message = BytesParser(policy=policy.default).parse(source)
+            except OSError as exc:
+                raise RuntimeError("EML text extraction could not read the source") from exc
+            fields = (
+                ("Subject", message.get("Subject")),
+                ("From", message.get("From")),
+                ("To", message.get("To")),
+                ("Cc", message.get("Cc")),
+                ("Date", message.get("Date")),
+                ("Message-ID", message.get("Message-ID")),
+            )
+            header_text = "\n".join(
+                f"{name}: {value}"
+                for name, raw in fields
+                if (value := _header(raw))
+            )
+            body_text = _message_text(message)
+            return "\n\n".join(part for part in (header_text, body_text) if part), "eml"
+        if suffix in {".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm", ".log", ".ics", ".vcf", ".py", ".java", ".js", ".css", ".sql", ".yml", ".yaml"}:
             return path.read_text(encoding="utf-8", errors="replace"), "plain_text"
         if suffix in {".docx", ".odt", ".xlsx", ".ods"}:
             try:
