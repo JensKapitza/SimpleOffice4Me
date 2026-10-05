@@ -1,5 +1,24 @@
 # SimpleOffice4Me
 
+<img src="docs/assets/simpleoffice-documentation-logo.png" width="180" alt="SimpleOffice4Me: weißer Dokumentordner auf Petrol mit goldenen Verbindungen">
+
+## Orientierung für Version 3.0
+
+Die 3.0-Erweiterungen bauen auf dem bestehenden V2/Post-V2-System auf. Ihre
+16 registrierten Capabilities sind standardmäßig deaktiviert. Die Paketversion
+ist derzeit weiterhin **2.0.0**; die 3.0-Release-Freigabe in
+[#506](https://github.com/JensKapitza/SimpleOffice4Me/issues/506) ist offen.
+Ein geschlossenes Funktions-Issue bedeutet daher keine Gesamtfreigabe für 3.0.
+
+- [Dokumentationsübersicht mit vollständigem Markdown-Dateiregister](docs/README.md)
+- [3.0-Betrieb: Funktionen, Schalter, Freigaben und Rückkehr](docs/V3_BETRIEBSLEITFADEN.md)
+- [Konfigurationsregister mit Quellen und Sicherheitsgrenzen](docs/KONFIGURATIONSREGISTER.md)
+- [Dokumentations- und Issue-Prüfung samt bekannten Abweichungen](docs/DOKUMENTATIONSPRUEFUNG_3_0.md)
+
+Das [Dokumentationslogo](docs/assets/README.md) greift die vorhandene
+Ordner-/Petrol-Marke auf. „2080“ ist seine gestalterische Zukunftsidee;
+Prüfdaten und Release-Aussagen beziehen sich auf den tatsächlichen Stand.
+
 SimpleOffice4Me ist eine selbst betriebene Office-, Dokumenten- und
 CRM-Anwendung auf Basis von Python und Flask. Sie bündelt Dokumente, Kontakte,
 Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
@@ -284,7 +303,7 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 ## Voraussetzungen
 
-- Python 3
+- Python **3.10 oder neuer**; die CI prüft unter anderem 3.10 und 3.14
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
 - Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
   Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert

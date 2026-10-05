@@ -1,6 +1,21 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository assessment — 2026-10-02
+## Current documentation assessment — 2026-10-05
+
+Documentation/code-read basis: `main` at
+`2abc3ef6a02c173304d6c23352f48497730b7068` (PR #585).
+The package still declares version 2.0.0. The new
+[3.0 operator guide](V3_BETRIEBSLEITFADEN.md) lists all sixteen registered,
+default-off capabilities and distinguishes implementation from release approval.
+
+The [documentation and closed-issue review](DOKUMENTATIONSPRUEFUNG_3_0.md)
+records two reproduced mail correctness findings (#587/#588), corrected
+documentation and secret-scan scope. This documentation-only assessment adds
+no production-data, client/device, workload or worker-crash acceptance evidence.
+The release decision remains **not approved**; #505/#506 stay open. The earlier
+test counts below describe their dated snapshots and are not new test results.
+
+## Historical repository assessment — 2026-10-02
 
 Production-code basis: `main` at `f7c04a14083772f0a97df8214f43105ba63e94f5`
 (PR #548). All eleven PR workflows passed, including Python 3.10/3.14/3.15 RC,

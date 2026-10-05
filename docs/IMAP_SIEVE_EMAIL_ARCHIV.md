@@ -158,8 +158,15 @@ Skripte. Aus dem ZIP wurde kein Quellcode übernommen.
 
 - TLS-, Login-, Ordner- oder Protokollfehler werden verständlich gemeldet; das
   Passwort wird nicht protokolliert.
-- Erst nach atomarer lokaler Speicherung und Metadatenregistrierung wird eine UID
-  als bearbeitet gespeichert.
+- **Bekannte Wiederanlauflücke ([#587](https://github.com/JensKapitza/SimpleOffice4Me/issues/587))**:
+  Der UID-Fortschritt wird derzeit bereits vor erfolgreicher lokaler Speicherung
+  erhöht und auch nach abgefangenen Speicherfehlern persistiert. Ein nachfolgender
+  inkrementeller Lauf kann deshalb fehlgeschlagene Nachrichten überspringen.
+  Ein fehlerfreier Folgelauf beweist keine vollständige Archivierung. Fehler-UIDs
+  und Originalnachrichten bis zur bestätigten Nacharchivierung aufbewahren;
+  Quellnachrichten nicht aufgrund des Checkpoints löschen. Es gibt derzeit keine
+  dokumentierte sichere UI-Aktion für eine gezielte Wiederholung solcher UIDs.
+  Archivzustandsdateien nicht ohne geprüfte Sicherung manuell verändern.
 - Ein neuer Lauf setzt am letzten UID-Stand fort. Bei geänderter `UIDVALIDITY`
   wird erneut gelesen und über SHA-512 dedupliziert.
 - Fehlender oder fehlerhafter ClamAV verhindert die Anhangsübernahme, nicht aber
