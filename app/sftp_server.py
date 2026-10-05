@@ -99,6 +99,7 @@ if paramiko is not None:
             super().__init__(flags)
             self.vfs, self.actor, self.path = vfs, actor, path
             self.expected_sha256 = ""
+            self.create_only = True
             self.app = app
             self.max_bytes = _bounded_environment_integer(
                 "SIMPLEOFFICE_SFTP_MAX_BYTES", 512 * 1024 * 1024, 1, 8 * 1024 * 1024 * 1024,
@@ -109,6 +110,7 @@ if paramiko is not None:
             if resource.is_file() and not resource.is_symlink():
                 original = vfs.read_bytes(actor, path)
                 self.expected_sha256 = hashlib.sha256(original).hexdigest()
+                self.create_only = False
                 if not flags & os.O_TRUNC:
                     self.buffer.write(original)
             if flags & os.O_APPEND:
@@ -152,6 +154,7 @@ if paramiko is not None:
                 self.vfs.write_bytes(
                     self.actor, self.path, content,
                     expected_sha256=self.expected_sha256,
+                    create_only=self.create_only,
                     max_bytes=self.max_bytes,
                 )
                 return paramiko.SFTP_OK

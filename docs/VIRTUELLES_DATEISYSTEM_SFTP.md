@@ -118,7 +118,10 @@ Dateiinhalte unverändert.
 Ein Upload auf eine beim Öffnen vorhandene Datei prüft beim Abschluss deren
 gespeicherte Prüfsumme. Wurde die Datei zwischenzeitlich geändert oder gelöscht,
 schlägt der Abschluss fehl; ein veralteter Upload legt die gelöschte Datei
-nicht erneut an. Neue Uploads ohne Vorgängerversion bleiben möglich. Diese
+nicht erneut an. War das Ziel beim Öffnen noch nicht vorhanden, darf der
+Upload ausschließlich eine neue Datei anlegen. Legt zwischenzeitlich ein
+anderer Upload oder VFS-Aufrufer denselben Pfad an, schlägt der spätere
+Abschluss fehl und erhält die zuerst gespeicherten Inhalte. Diese
 Versionsprüfung liegt im gemeinsamen VFS und gilt auch für dessen andere
 Aufrufer mit vorgegebener Prüfsumme. Der integrierte Dienst übermittelt
 Abschlussfehler im SFTP-`CLOSE`-Status. Clients müssen diesen Status auswerten;
