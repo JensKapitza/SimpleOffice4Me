@@ -5,6 +5,31 @@ Prüfdatum: **2026-10-05**. Codebasis: `main` bei
 Umfang: Dokumentation, Logo und GitHub-Issue-Pflege; keine Änderungen an
 Anwendungscode, Tests, Abhängigkeiten, Migrationen oder Laufzeitkonfiguration.
 
+## Nachprüfung offener Issues — 2026-10-05
+
+Code- und Ticketbasis dieser Nachprüfung ist `main`
+`f90087b0` (gemergter Federation-PR #595). Die ursprüngliche
+Dokumentationsprüfung unten bleibt ein historischer Nachweis ihres damaligen
+Umfangs. Die Nachprüfung erweitert die CI um die inzwischen veröffentlichte
+Python-Runtime RC3; sie verändert keine Anwendungslogik und erteilt keine
+Release- oder externe Gerätefreigabe.
+
+| Ticket | Nachgewiesen erledigt | Verbleibender Umfang / Entscheidung |
+|---|---|---|
+| #588, geschlossen | MIME-Suchkorrektur #597 und Legacy/Shadow/V2-Nachprüfung #599 gemergt | Erledigt; keine zweite Implementierung |
+| #587 | Befund zu vorzeitigem `last_uid` im aktuellen Code bestätigt | Offen: persistente Recovery für Speicher, Herkunftsmetadaten, Anhänge und Prozessabbruch; bloßes Verschieben der UID-Zuweisung reicht nicht |
+| #586 | MCP-Server, Tokens/Rechte/Audit; Schemakorrektur und API-Verträge #591 sowie Desktop-/Mobil-Bedienprüfung #592 gemergt | Offen: optionale LiteLLM-Betriebsintegration, zentrale Administration, Health und Fehler-/Recovery-Abnahme |
+| #474 | Bisherige Standards-Baseline und CI bestehen; offizieller RC3-Tag und GitHub-Actions-Linux-Runtime sind veröffentlicht | Zusätzliche CI von RC2 auf RC3 aktualisiert; fortlaufender Tracker bleibt offen |
+| #471 | StoragePort-Federation-Katalog #594 und sichere Mail-Vorgang-Policy/Benutzerzuordnung #595 gemergt | Offen: weitere Enumeration/Readmodels, Rollback-/Restore-Nachweise und gesperrtes destruktives Legacy-Cleanup |
+| #483 | Repository-Reader #540 und folgende API-/APK-Prüfungen vorhanden | Offen: praktische APK-, Touch-, Back-, Resume- und Geräteabnahme; Browseransicht ersetzt diese nicht |
+| #505 / #506 | 16 Teilissues geschlossen; vorhandene Capability-/Fallback-Matrix #549 und Dokumentation #589 | Offen: gemeinsamer Release-Commit mit realen Upgrade-/Recovery-/Client-/Geräte-/Lastnachweisen; Paketversion und Release-Freigabe unverändert |
+| #330 | Umfangreiche Software-/CI-Nachweise; SFTP-Abschlusskorrektur #598 gemergt | Offen: reale Plattform-, Netzwerk-, Hardware-, Last- und Langzeitabnahme; vorhandenen Dokumentations-PR #600 berücksichtigen |
+
+Keines der acht noch offenen Tickets ist allein durch Dokumentationspflege
+oder erfolgreiche CI vollständig erledigt. Nachweise und Lösungs-PRs werden
+am jeweiligen Ticket verknüpft; historische Testergebnisse werden nicht als
+neue externe Abnahme umgedeutet.
+
 ## Ergebnis und Versionsgrenze
 
 Für die acht zentralen Funktionsfreigaben aus

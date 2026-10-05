@@ -15,6 +15,22 @@ no production-data, client/device, workload or worker-crash acceptance evidence.
 The release decision remains **not approved**; #505/#506 stay open. The earlier
 test counts below describe their dated snapshots and are not new test results.
 
+## Runtime tracking — 2026-10-05
+
+The additional compatibility job now selects Python `3.15.0-rc.3` rather than
+RC2. Publication was verified against the official
+[CPython RC3 tag](https://github.com/python/cpython/releases/tag/v3.15.0rc3)
+and the [GitHub Actions runtime release](https://github.com/actions/python-versions/releases/tag/3.15.0-rc.3-37256039299),
+published on 2026-10-05 with an Ubuntu 24.04 x64 build. Python 3.10 and 3.14
+remain in the required matrix. Issue #474 remains an ongoing tracker; RC3 is
+not a final Python release or approval for SimpleOffice4Me 3.0. Historical
+RC2 test counts below remain evidence for their original commits.
+
+Issue #588 has meanwhile been resolved by merged PRs #597 and #599, including
+MIME-decoded document search and Legacy/Shadow/V2 cutover coverage. Issue #587
+still requires recovery-safe IMAP checkpoints and remains open. This status
+update adds no external client, device, hardware or production-data acceptance.
+
 ## Historical repository assessment — 2026-10-02
 
 Production-code basis: `main` at `f7c04a14083772f0a97df8214f43105ba63e94f5`
