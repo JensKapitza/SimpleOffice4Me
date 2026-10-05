@@ -78,8 +78,9 @@ def main():
                     raise RuntimeError("OpenAI completion gate failed")
                 saved = json.loads(service.backup())
                 candidate = {**config.settings(), "api_key_enc": config.prepare({"api_key": "sk-" + secrets.token_hex(32)})["api_key_enc"]}
-                if gateway.probe(candidate)["code"] != "unauthorized":
-                    raise RuntimeError("Invalid key gate failed")
+                invalid_key = gateway.probe(candidate)
+                if invalid_key["code"] != "unauthorized":
+                    raise RuntimeError("Invalid key gate failed: " + invalid_key["code"])
                 service.action("restart")
                 ready(service, gateway)
                 service.save_settings({"enabled": False})

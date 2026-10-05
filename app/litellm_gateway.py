@@ -108,6 +108,16 @@ def _exchange(config, path, body, timeout):
             raise GatewayError("response_too_large")
         if response.status in (401, 403):
             raise GatewayError("unauthorized")
+        if response.status == 400 and config["mode"] == "local":
+            # Database-free LiteLLM checks the master key first, then rejects
+            # unknown virtual keys with this documented proxy error (HTTP 400).
+            try:
+                rejected = json.loads(data)
+            except (ValueError, UnicodeError) as exc:
+                raise GatewayError("gateway_rejected") from exc
+            error = rejected.get("error") if isinstance(rejected, dict) else None
+            if isinstance(error, dict) and error.get("type") == "no_db_connection":
+                raise GatewayError("unauthorized")
         if response.status == 429 or response.status >= 500:
             raise GatewayError("temporarily_unavailable")
         if response.status != 200:
@@ -143,7 +153,7 @@ def request_gateway(path, body=None, *, config=None):
         try:
             return _exchange(config, path, body, remaining)
         except (OSError, http.client.HTTPException) as exc:
-            error = GatewayError("timeout" if isinstance(exc, TimeoutError) else "unreachable")
+            error = GatewayError("timeout" if isinstance(exc, TimeoutError) or time.monotonic() >= deadline else "unreachable")
         except GatewayError as exc:
             if exc.code != "temporarily_unavailable":
                 raise

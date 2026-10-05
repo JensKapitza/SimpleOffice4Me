@@ -66,6 +66,8 @@ class LiteLLMTransportTest(unittest.TestCase):
     def test_auth_redirect_invalid_response_and_response_limit(self):
         for status, payload, code in [(401, b'{}', 'unauthorized'), (403, b'{}', 'unauthorized'),
                                       (302, b'{}', 'gateway_rejected'), (503, b'{}', 'temporarily_unavailable'),
+                                      (400, b'{"error":{"type":"no_db_connection"}}', 'unauthorized'),
+                                      (400, b'{"error":{"type":"bad_request_error"}}', 'gateway_rejected'),
                                       (200, b'not-json', 'invalid_response'), (200, b'[]', 'invalid_response'),
                                       (200, b'x' * (MAX_BYTES + 1), 'response_too_large')]:
             Handler.status, Handler.payload, Handler.calls = status, payload, []
@@ -76,7 +78,7 @@ class LiteLLMTransportTest(unittest.TestCase):
     def test_timeout_and_closed_endpoint_are_controlled(self):
         Handler.delay = 1.5
         started = time.monotonic()
-        with self.assertRaises(GatewayError):
+        with self.assertRaisesRegex(GatewayError, "^timeout$"):
             request_gateway('/v1/models', config=self.config)
         self.assertLess(time.monotonic() - started, 1.3)
         self.server.shutdown()

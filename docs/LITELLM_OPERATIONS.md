@@ -109,7 +109,9 @@ Keine automatischen Provider-Fallbacks mit veränderten Datenfreigaben.
 Fehlercodes: `disabled`, `unauthorized`, `unreachable`, `timeout`,
 `temporarily_unavailable`, `endpoint_blocked`, `model_missing`,
 `invalid_response`, `request_too_large`, `response_too_large`.
-Bei 401/403 Key/Rechte prüfen; bei `model_missing` Alias kontrollieren; bei
+Bei 401/403 Key/Rechte prüfen. Der lokale Datenbankfreie Betrieb liefert
+für unbekannte Keys außerdem HTTP 400 mit `no_db_connection`; der Adapter
+ordnet dies gezielt als `unauthorized` ein. bei `model_missing` Alias kontrollieren; bei
 Timeout/Erreichbarkeit Gateway und Netzwerk prüfen; bei SSRF-Sperre ausschließlich
 den tatsächlich benötigten internen CIDR freigeben. Diagnose/Audit enthalten
 keine Providerantworten, Prompts oder Exception-Payloads.
