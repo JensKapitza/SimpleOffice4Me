@@ -52,6 +52,7 @@ setup(
     ],
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
+        "web-export": ["playwright==1.55.0"],
         "security": ["pip-audit>=2.7,<3"],
         "quality": ["ruff==0.16.10"],
         "ocr": [
