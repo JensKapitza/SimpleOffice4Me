@@ -350,6 +350,8 @@ app.register_blueprint(v3_entity_routes.bp)
 
 from . import mcp
 app.register_blueprint(mcp.bp)
+from . import web_export
+app.register_blueprint(web_export.bp)
 from . import error_relay
 app.register_blueprint(error_relay.bp)
 from . import datalogger
