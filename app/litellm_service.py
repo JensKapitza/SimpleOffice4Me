@@ -119,7 +119,7 @@ def status():
                 raise ValueError("Statuszeit ungültig.")
             health = {"ok": health.get("ok", False), "message": health.get("message", "")[:256],
                       "code": health.get("code", "unknown")[:80], "updated_at": updated_at}
-        except (ValueError, OSError, TypeError, RecursionError):
+        except (ValueError, OSError, TypeError, OverflowError, RecursionError):
             health = {"ok": False, "code": "unknown", "message": "Statusdatei nicht lesbar; Verbindung erneut testen."}
         if not config["enabled"]:
             health = {"ok": False, "message": "LiteLLM deaktiviert.", "code": "disabled"}

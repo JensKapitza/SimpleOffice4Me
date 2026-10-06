@@ -123,20 +123,26 @@ elif args[0] == 'compose':
         import time
         target.write_text(json.dumps({'ok': True, 'code': 'ready', 'message': 'Gateway bereit',
                                       'updated_at': time.time()}))
-        response = self.client.post('/api/mini-services/litellm/settings', json={'timeout': 0})
-        self.assertEqual(400, response.status_code)
-        self.assertEqual('running', self.status()['state'])
-        self.assertTrue(self.status()['health']['ok'])
-        self.assertIsNone(self.status()['last_error'])
+        for timeout in (0, None, [], {}, True, 10**400):
+            with self.subTest(timeout_type=type(timeout).__name__):
+                response = self.client.post('/api/mini-services/litellm/settings', json={'timeout': timeout})
+                self.assertEqual(400, response.status_code)
+                self.assertEqual('running', self.status()['state'])
+                self.assertTrue(self.status()['health']['ok'])
+                self.assertIsNone(self.status()['last_error'])
 
     def test_recursive_corrupt_runtime_files_leave_admin_and_catalog_accessible(self):
         """Damaged settings fail safely; damaged health keeps the valid configuration available."""
         self.configure_local()
         raw = '[' * 2000 + '0' + ']' * 2000
         health = self.root / 'litellm' / 'health.json'
-        health.write_text(raw)
-        self.assertEqual('synthetic-model', self.status()['settings']['model'])
-        self.assertEqual('unknown', self.status()['health']['code'])
+        for corrupted in (raw, json.dumps({'updated_at': 10**400})):
+            with self.subTest(corrupted=corrupted[:20]):
+                health.write_text(corrupted)
+                self.assertEqual('synthetic-model', self.status()['settings']['model'])
+                self.assertEqual('unknown', self.status()['health']['code'])
+                self.assertEqual(200, self.client.get('/api/mini-services').status_code)
+                self.assertEqual(200, self.client.get('/admin/mini-services/litellm').status_code)
         (self.root / 'litellm-service.json').write_text(raw)
         self.assertEqual('failed', self.status()['state'])
         self.assertEqual(200, self.client.get('/api/mini-services').status_code)

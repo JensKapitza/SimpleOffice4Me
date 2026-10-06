@@ -38,7 +38,12 @@ def validate(value):
         result[key] = int(result[key])
     if not 1024 <= result["port"] <= 65535 or not 0 <= result["retries"] <= 2:
         raise ValueError("Port oder Wiederholungen außerhalb des zulässigen Bereichs.")
-    result["timeout"] = float(result["timeout"])
+    if type(result["timeout"]) not in (str, int, float):
+        raise ValueError("Timeout muss eine Zahl sein.")
+    try:
+        result["timeout"] = float(result["timeout"])
+    except (ValueError, OverflowError) as exc:
+        raise ValueError("Timeout muss zwischen 1 und 30 Sekunden liegen.") from exc
     if not math.isfinite(result["timeout"]) or not 1 <= result["timeout"] <= 30:
         raise ValueError("Timeout muss zwischen 1 und 30 Sekunden liegen.")
     for key in ("model", "provider_model"):

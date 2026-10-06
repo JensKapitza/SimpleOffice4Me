@@ -202,3 +202,13 @@ Referenzen:
 - https://docs.litellm.ai/docs/proxy/deploy
 - https://docs.litellm.ai/docs/proxy/virtual_keys
 - https://github.com/BerriAI/litellm/blob/v1.100.1/pyproject.toml
+
+### Ungültige numerische Eingaben und beschädigte Statusdateien
+
+Die Settings-API akzeptiert für `timeout` Zahlen und numerische Formularwerte
+von 1 bis 30 Sekunden. Boolesche Werte, `null`, Listen, Objekte und übergroße
+Zahlen werden mit HTTP 400 abgelehnt; gespeicherte Einstellungen und die letzte
+erfolgreiche Verbindungsdiagnose bleiben erhalten. Unlesbare oder numerisch
+ungültige Zeitstempel in der Statusdatei machen den Mini-Service-Katalog nicht
+unzugänglich: Der Dienst meldet einen unbekannten Status und verlangt einen
+neuen Verbindungstest.
