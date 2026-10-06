@@ -18,7 +18,7 @@ def main():
     from playwright.sync_api import sync_playwright
     with sync_playwright() as pw:
         browser=pw.chromium.launch(headless=True)
-        context=browser.new_context(extra_http_headers={"X-SimpleOffice-Export-Token":str(payload["token"])})
+        context=browser.new_context()
         page=context.new_page()
         page.route("**/*",lambda route: route.continue_() if _same_origin(route.request.url,origin) else route.abort())
         response=context.request.get(urljoin(base,"web-export/session"),headers={"X-SimpleOffice-Export-Token":str(payload["token"])},timeout=15000)
