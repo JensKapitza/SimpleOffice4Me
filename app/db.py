@@ -170,6 +170,25 @@ def ensure_auth_database() -> None:
         )"""
     )
     db.execute(
+        """CREATE TABLE IF NOT EXISTS web_export_setting (
+            id INTEGER PRIMARY KEY CHECK(id=1),
+            token_minutes INTEGER NOT NULL DEFAULT 5 CHECK(token_minutes>=1),
+            export_uses INTEGER NOT NULL DEFAULT 5 CHECK(export_uses>=1),
+            updated_at TEXT, updated_by INTEGER,
+            FOREIGN KEY (updated_by) REFERENCES user(id)
+        )"""
+    )
+    db.execute(
+        """CREATE TABLE IF NOT EXISTS web_export_token (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL, token_hash TEXT NOT NULL UNIQUE, token_prefix TEXT NOT NULL,
+            auth_version INTEGER NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
+            remaining_uses INTEGER NOT NULL CHECK(remaining_uses>=0), last_used_at TEXT, revoked_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES user(id)
+        )"""
+    )
+    db.execute("CREATE INDEX IF NOT EXISTS web_export_token_user ON web_export_token(user_id, revoked_at, expires_at)")
+    db.execute(
         """CREATE TABLE IF NOT EXISTS mcp_token (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,

@@ -41,6 +41,21 @@
     <button type="button" class="btn btn-sm btn-outline-primary" id="pwa-update-apply">{{ 'Update now' if g.language|default('de') == 'en' else 'Jetzt aktualisieren' }}</button>
   </div>
   {% block header %}{% endblock %}
+  {% if g.user and not session.get('web_export_read_only') %}
+  <div class="container-fluid py-2 border-bottom d-flex flex-wrap justify-content-end gap-2" data-web-export-toolbar>
+    <form method="post" action="{{ url_for('web_export.download') }}" class="d-flex gap-2 align-items-center">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="target" value="{{ request.full_path if request.query_string else request.path }}">
+      <select class="form-select form-select-sm" name="media" aria-label="{{ 'Export view' if g.language|default('de') == 'en' else 'Exportansicht' }}">
+        <option value="print">{{ 'Print' if g.language|default('de') == 'en' else 'Druckansicht' }}</option>
+        <option value="screen">{{ 'Screen' if g.language|default('de') == 'en' else 'Bildschirmansicht' }}</option>
+      </select>
+      <button class="btn btn-sm btn-outline-secondary" name="format" value="pdf" type="submit"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+      <button class="btn btn-sm btn-outline-secondary" name="format" value="png" type="submit"><i class="fa-solid fa-image"></i> PNG</button>
+      {% if g.user['is_admin'] %}<a class="btn btn-sm btn-link" href="{{ url_for('web_export.settings') }}">{{ 'Export settings' if g.language|default('de') == 'en' else 'Export-Einstellungen' }}</a>{% endif %}
+    </form>
+  </div>
+  {% endif %}
   {% if license_ui.state.bad_client %}
   <div class="alert alert-danger rounded-0 border-start-0 border-end-0 mb-0 d-flex flex-wrap justify-content-between align-items-center gap-2" role="alert" id="license-blocked-banner">
     <span><strong>{{ 'Billing warning:' if g.language|default('de') == 'en' else 'Abrechnungshinweis:' }}</strong> {{ license_ui.state.message or ('The license master marked this client as blocked. Local work remains available; federation is degraded.' if g.language|default('de') == 'en' else 'Der Lizenz-Master hat diesen Client gesperrt. Die lokale Arbeit bleibt möglich; Federation ist absichtlich herabgestuft.') }}</span>
