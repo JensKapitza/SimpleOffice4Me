@@ -69,6 +69,14 @@ def validate(value):
                 or parsed.query or parsed.fragment or parsed.path not in ("", "/", "/v1", "/v1/")
                 or "\\" in url or parsed.port == 0):
             raise ValueError("Externes Gateway benötigt HTTPS ohne Zugangsdaten, Query oder freien Pfad.")
+        try:
+            ascii_host = parsed.hostname.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError("Gateway-Hostname ist kein gültiger DNS-Name.") from exc
+        labels = ascii_host.rstrip(".").split(".")
+        if (not ascii_host or len(ascii_host.rstrip(".")) > 253
+                or any(not label or len(label) > 63 for label in labels)):
+            raise ValueError("Gateway-Hostname ist kein gültiger DNS-Name.")
         result["base_url"] = url.rstrip("/").removesuffix("/v1")
     for key in SECRET_FIELDS:
         encrypted = result.get(key + "_enc", "")
