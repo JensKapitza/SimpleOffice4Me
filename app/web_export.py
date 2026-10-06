@@ -110,7 +110,7 @@ def _consume_token(secret: str):
     db.execute("BEGIN IMMEDIATE")
     try:
         row = db.execute(
-            """SELECT t.id AS token_id,t.user_id,t.auth_version,t.expires_at,t.revoked_at,
+            """SELECT t.id AS token_id,t.user_id,t.user_id AS id,t.auth_version,t.expires_at,t.revoked_at,
                       t.remaining_uses,u.username,u.is_admin,u.is_disabled,u.auth_version AS current_auth_version
                FROM web_export_token t JOIN user u ON u.id=t.user_id
                WHERE t.token_hash=?""",
