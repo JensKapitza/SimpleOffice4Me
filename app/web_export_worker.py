@@ -21,14 +21,16 @@ def main():
         context=browser.new_context(extra_http_headers={"X-SimpleOffice-Export-Token":str(payload["token"])})
         page=context.new_page()
         page.route("**/*",lambda route: route.continue_() if _same_origin(route.request.url,origin) else route.abort())
-        response=page.goto(urljoin(base,"web-export/session"),wait_until="domcontentloaded",timeout=15000)
-        if response is None or response.status != 204:
+        response=context.request.get(urljoin(base,"web-export/session"),headers={"X-SimpleOffice-Export-Token":str(payload["token"])},timeout=15000)
+        if response.status != 204:
             raise RuntimeError("export authentication rejected")
         context.set_extra_http_headers({})
         response=page.goto(target,wait_until="networkidle",timeout=30000)
         if response is None or response.status >= 400:
             raise RuntimeError("target rejected")
         page.emulate_media(media=str(payload["media"]))
+        page.add_style_tag(content="[data-web-export-toolbar]{display:none!important}")
+        page.evaluate("() => document.fonts ? document.fonts.ready : Promise.resolve()")
         if payload["format"]=="pdf":
             page.pdf(path=str(Path(payload["output"])),print_background=True,prefer_css_page_size=True)
         else:
