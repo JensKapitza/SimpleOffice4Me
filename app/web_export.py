@@ -180,7 +180,9 @@ def download():
     except RuntimeError as exc:
         abort(503, description=str(exc))
 
-    suffix = "." + export_format
+    # Keep path components independent from request data. The suffix is selected only
+    # from fixed literals after the format allowlist above.
+    suffix = ".pdf" if export_format == "pdf" else ".png"
     output = tempfile.NamedTemporaryFile(prefix="simpleoffice-export-", suffix=suffix, delete=False)
     output.close()
     output_path = Path(output.name)
