@@ -203,6 +203,20 @@ def download():
             cwd=str(Path(current_app.root_path).parent),
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
+        if proc.returncode == 23:
+            with _token_lock:
+                _token_cache.pop(int(g.user["id"]), None)
+            token = _renderer_token(g.user)
+            payload["token"] = token
+            proc = subprocess.run(
+                [sys.executable, "-m", "app.web_export_worker"],
+                input=json.dumps(payload),
+                text=True,
+                capture_output=True,
+                timeout=60,
+                cwd=str(Path(current_app.root_path).parent),
+                env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            )
         if proc.returncode != 0 or not output_path.is_file() or output_path.stat().st_size == 0:
             current_app.logger.warning(
                 "web_export_failed request_id=%s code=%s error=%s",
