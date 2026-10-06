@@ -106,6 +106,32 @@ class LiteLLMTest(unittest.TestCase):
         with patch.object(gateway, '_resolve', return_value=resolved('1.1.1.1') + resolved('127.0.0.1')):
             with self.assertRaises(gateway.GatewayError):
                 gateway.addresses(cfg, 'gateway.example', 443)
+        site_local = [(socket.AF_INET6, socket.SOCK_STREAM, 6, '', ('fec0::1', 443, 0, 0))]
+        with patch.object(gateway, '_resolve', return_value=site_local):
+            with self.assertRaisesRegex(gateway.GatewayError, 'endpoint_blocked'):
+                gateway.addresses(cfg, 'gateway.example', 443)
+        with patch.object(gateway, '_resolve', return_value=site_local):
+            allowed = gateway.addresses({**cfg, 'allowed_networks': ['fec0::1/128']}, 'gateway.example', 443)
+            self.assertEqual('fec0::1', allowed[0][1][0])
+
+    def test_gateway_hostname_idna_is_validated_before_persist(self):
+        self.enable()
+        original = config.settings_path().read_bytes()
+        with self.assertRaisesRegex(ValueError, 'DNS-Name'):
+            config.prepare({'base_url': 'https://' + ('é' * 100) + '.example'})
+        self.assertEqual(original, config.settings_path().read_bytes())
+
+    def test_completion_bounds_content_before_serializing_request(self):
+        self.enable()
+        with patch.object(gateway, 'request_gateway') as request:
+            with self.assertRaisesRegex(ValueError, 'zu groß'):
+                gateway.completion([{'role': 'user', 'content': 'x' * (gateway.MAX_BYTES + 1)}])
+            request.assert_not_called()
+        with patch.object(gateway, 'request_gateway') as request:
+            chunk = 'ä' * (gateway.MAX_BYTES // 3)
+            with self.assertRaisesRegex(ValueError, 'zu groß'):
+                gateway.completion([{'role': 'user', 'content': chunk}, {'role': 'assistant', 'content': chunk}])
+            request.assert_not_called()
 
     def test_finite_retry_no_retry_for_auth_or_completion(self):
         self.enable(retries=2)
@@ -274,6 +300,13 @@ class LiteLLMTest(unittest.TestCase):
             self.assertEqual('test-model', row['settings']['model'])
             self.assertFalse(row['health']['ok'])
             self.assertEqual(200, self.client.get('/admin/mini-services/litellm').status_code)
+
+    def test_unused_disabled_local_mode_can_return_to_external_without_docker(self):
+        config.persist(config.prepare({'enabled': False, 'mode': 'local'}))
+        with patch.object(service, '_running') as running:
+            result = service.save_settings({'mode': 'external'})
+        self.assertEqual('external', result['mode'])
+        running.assert_not_called()
 
     def test_missing_docker_cannot_disable_or_restore_a_local_gateway(self):
         self.enable(mode='local', provider_model='openai/test')
