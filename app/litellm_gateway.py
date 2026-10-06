@@ -188,6 +188,9 @@ def request_gateway(path, body=None, *, config=None):
             raise GatewayError("timeout")
         try:
             return _exchange(config, path, body, remaining)
+        except ssl.SSLError as exc:
+            # A certificate/handshake failure is terminal, including idempotent health requests.
+            raise GatewayError("unreachable") from exc
         except (OSError, http.client.HTTPException) as exc:
             error = GatewayError("timeout" if isinstance(exc, TimeoutError) or time.monotonic() >= deadline else "unreachable")
         except GatewayError as exc:

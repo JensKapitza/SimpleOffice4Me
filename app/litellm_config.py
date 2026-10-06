@@ -49,7 +49,7 @@ def validate(value):
     for key in ("model", "provider_model"):
         if not isinstance(result[key], str) or len(result[key]) > 160 or any(ord(c) < 32 for c in result[key]):
             raise ValueError("Modellnamen prüfen.")
-    if not isinstance(result["version"], str) or not re.fullmatch(r"1\.(?:9[8-9]|[1-9][0-9]{2,})\.\d+", result["version"]):
+    if not isinstance(result["version"], str) or len(result["version"]) > 64 or not re.fullmatch(r"1\.(?:9[8-9]|[1-9][0-9]{2,})\.\d+", result["version"]):
         raise ValueError("Gepinnte LiteLLM-Version ab 1.98.0 erforderlich.")
     if "image_digest" not in value and result["version"] != DEFAULTS["version"]:
         result["image_digest"] = ""

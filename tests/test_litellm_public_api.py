@@ -1,4 +1,5 @@
 """Observable Mini Service contracts; synthetic Docker process, no provider billing."""
+import csv
 import io
 import json
 import os
@@ -31,10 +32,13 @@ import json, os, sys
 from pathlib import Path
 root = Path(os.environ['FAKE_DOCKER_ROOT'])
 args = sys.argv[1:]
+if args and args[0].startswith('--host='): args = args[1:]
 with (root / 'calls.jsonl').open('a') as out:
     out.write(json.dumps(args) + '\\n')
 running = root / 'running'
-if args[0] == 'ps':
+if args[0] == 'context':
+    print(os.environ.get('FAKE_DOCKER_CONTEXT_ENDPOINT', 'unix:///var/run/docker.sock'))
+elif args[0] == 'ps':
     if running.exists(): print('abcdef123456')
 elif args[0] == 'stop':
     running.unlink(missing_ok=True)
@@ -93,15 +97,17 @@ elif args[0] == 'compose':
     def test_start_and_stop_expose_lifecycle_states_without_false_fault(self):
         """POST start/stop return starting/stopped, also visible on a subsequent GET."""
         self.configure_local()
-        started = self.client.post('/api/mini-services/litellm/start', json={})
-        self.assertEqual(200, started.status_code)
-        self.assertEqual('starting', started.json['state'])
-        self.assertIsNone(started.json['last_error'])
-        stopped = self.client.post('/api/mini-services/litellm/stop', json={})
-        self.assertEqual(200, stopped.status_code)
-        self.assertEqual('stopped', self.status()['state'])
-        self.assertIsNone(self.status()['last_error'])
-        self.assertFalse((self.root / 'running').exists())
+        for endpoint in ('unix:///var/run/docker.sock', 'npipe:////./pipe/dockerDesktopLinuxEngine'):
+            with self.subTest(endpoint=endpoint), patch.dict(os.environ, {'DOCKER_HOST': endpoint, 'DOCKER_CONTEXT': ''}):
+                started = self.client.post('/api/mini-services/litellm/start', json={})
+                self.assertEqual(200, started.status_code)
+                self.assertEqual('starting', started.json['state'])
+                self.assertIsNone(started.json['last_error'])
+                stopped = self.client.post('/api/mini-services/litellm/stop', json={})
+                self.assertEqual(200, stopped.status_code)
+                self.assertEqual('stopped', self.status()['state'])
+                self.assertIsNone(self.status()['last_error'])
+                self.assertFalse((self.root / 'running').exists())
 
     def test_restart_with_unusable_secret_keeps_existing_gateway_running(self):
         """A changed application key fails preflight; no Docker stop/remove is sent."""
@@ -172,3 +178,55 @@ elif args[0] == 'compose':
         response = self.client.post('/api/mini-services/litellm/settings', json={'version': '1.100.2'})
         self.assertEqual(400, response.status_code)
         self.assertEqual('1.100.1', self.status()['settings']['version'])
+
+    def test_remote_docker_endpoints_cannot_start_local_gateway(self):
+        """A local start rejects remote host/context endpoints before injecting secrets."""
+        self.configure_local()
+        for environment in ({'DOCKER_HOST': 'ssh://remote.example'},
+                            {'DOCKER_HOST': 'tcp://remote.example:2376'},
+                            {'DOCKER_CONTEXT': 'remote', 'FAKE_DOCKER_CONTEXT_ENDPOINT': 'ssh://remote.example'}):
+            with self.subTest(environment=environment), patch.dict(os.environ, environment):
+                response = self.client.post('/api/mini-services/litellm/start', json={})
+                self.assertEqual(503, response.status_code)
+                self.assertFalse((self.root / 'running').exists())
+        self.assertFalse(any(call[0] in ('compose', 'image', 'pull') for call in self.calls()))
+
+    def test_overlong_version_is_rejected_without_corrupting_configuration(self):
+        """A huge version string cannot persist a configuration the API cannot read back."""
+        self.configure_local()
+        original = self.client.get('/admin/mini-services/litellm/backup.json').data
+        response = self.client.post('/api/mini-services/litellm/settings',
+                                    json={'version': '1.' + '9' * 70000 + '.1',
+                                          'image_digest': 'sha256:' + 'a' * 64})
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(original, self.client.get('/admin/mini-services/litellm/backup.json').data)
+        self.assertEqual('1.100.1', self.status()['settings']['version'])
+
+    def test_failed_deactivation_write_keeps_running_gateway_and_original_settings(self):
+        """A filesystem commit failure yields 503 before stopping the existing container."""
+        self.configure_local()
+        (self.root / 'running').touch()
+        original = self.client.get('/admin/mini-services/litellm/backup.json').data
+        real_replace = Path.replace
+
+        def failing_replace(source, destination):
+            if Path(destination) == self.root / 'litellm-service.json':
+                raise PermissionError('synthetic configuration commit failure')
+            return real_replace(source, destination)
+
+        with patch.object(Path, 'replace', failing_replace):
+            response = self.client.post('/api/mini-services/litellm/settings', json={'enabled': False})
+        self.assertEqual(503, response.status_code)
+        self.assertTrue((self.root / 'running').exists())
+        self.assertEqual(original, self.client.get('/admin/mini-services/litellm/backup.json').data)
+
+    def test_failed_backup_is_reported_as_failure_in_public_audit_export(self):
+        """A damaged configuration returns 503 and exports one failed backup audit event."""
+        (self.root / 'litellm-service.json').write_text('broken')
+        response = self.client.get('/admin/mini-services/litellm/backup.json')
+        self.assertEqual(503, response.status_code)
+        exported = self.client.get('/admin/logs/export?format=csv&action=mini_service_backup')
+        self.assertEqual(200, exported.status_code)
+        rows = list(csv.DictReader(io.StringIO(exported.data.decode('utf-8-sig'))))
+        outcomes = [row['outcome'] for row in rows if row['record_type'] == 'event']
+        self.assertEqual(['failure'], outcomes)

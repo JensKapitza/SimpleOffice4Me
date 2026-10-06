@@ -63,8 +63,14 @@ def action(name):
 @bp.get("/backup.json")
 @admin_required
 def backup():
+    try:
+        data = service.backup()
+    except ERRORS as exc:
+        audit("mini_service_backup", "service", "litellm", outcome="failure",
+              detail={"error_type": type(exc).__name__})
+        return jsonify({"error": "LiteLLM-Sicherung fehlgeschlagen. Konfiguration und Dateirechte prüfen."}), 503
     audit("mini_service_backup", "service", "litellm")
-    return Response(service.backup(), mimetype="application/json", headers={
+    return Response(data, mimetype="application/json", headers={
         "Content-Disposition": 'attachment; filename="litellm-backup.json"', "Cache-Control": "no-store"})
 
 

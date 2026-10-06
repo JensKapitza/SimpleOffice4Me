@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -23,10 +24,35 @@ def _project():
     return "simpleoffice-litellm-" + hashlib.sha256(str(directory().resolve()).encode()).hexdigest()[:12]
 
 
+def _local_docker_host(environment):
+    host = environment.get("DOCKER_HOST", "") if not environment.get("DOCKER_CONTEXT") else ""
+    if not host:
+        # Context inspection must never receive the decrypted gateway/provider keys.
+        inspection_env = {k: v for k, v in environment.items()
+                          if k not in {"LITELLM_MASTER_KEY", "SIMPLEOFFICE_LITELLM_PROVIDER_KEY"}}
+        context = environment.get("DOCKER_CONTEXT", "")
+        result = subprocess.run(["docker", "context", "inspect", *([context] if context else []),
+                                 "--format", "{{.Endpoints.docker.Host}}"], env=inspection_env,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, timeout=3, check=False)
+        if result.returncode:
+            raise RuntimeError("Lokalen Docker-Endpunkt nicht ermittelbar; Docker-Kontext prüfen.")
+        host = result.stdout.decode("utf-8").strip()
+    if (len(host) > 4096 or any(ord(c) < 32 for c in host)
+            or not (host.startswith("unix:///") or re.fullmatch(r"npipe:////\./pipe/[A-Za-z0-9_.-]+", host))):
+        raise RuntimeError("Lokaler LiteLLM-Betrieb benötigt einen lokalen Docker-Socket; Remote-Kontexte sind gesperrt.")
+    return host
+
+
 def _docker(args, *, environment=None, timeout=12):
     if not shutil.which("docker"):
         raise RuntimeError("Docker mit Compose v2 fehlt; externen Betrieb wählen oder Docker installieren.")
-    result = subprocess.run(["docker", *args], env=environment, stdin=subprocess.DEVNULL,
+    environment = dict(os.environ if environment is None else environment)
+    host = _local_docker_host(environment)
+    # Freeze the checked endpoint; neither environment nor active context may redirect this command.
+    for key in ("DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_TLS", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH"):
+        environment.pop(key, None)
+    result = subprocess.run(["docker", "--host=" + host, *args], env=environment, stdin=subprocess.DEVNULL,
                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout, check=False)
     if result.returncode:
         raise RuntimeError("Docker-Aktion fehlgeschlagen; Installation, Image und Dienstrechte prüfen.")
@@ -147,12 +173,20 @@ def save_settings(value):
             raise RuntimeError("LiteLLM-Aktion läuft bereits.")
         clean = prepare(value)
         previous = settings()
+        deactivating = previous["mode"] == "local" and not clean["enabled"]
         if previous["mode"] == "local":
-            if not clean["enabled"]:
-                _stop()  # Remove stopped containers and their injected secrets too.
-            elif _running():
+            running = _running()  # Preflight Docker availability and the local endpoint before committing.
+            if clean["enabled"] and running:
                 raise ValueError("Lokalen Dienst vor Konfigurationsänderungen stoppen.")
+        # Commit disabled state first: a write failure must not stop the existing container,
+        # and a crash after stopping must not leave an enabled autostart configuration.
         persist(clean)
+        if deactivating:
+            try:
+                _stop()  # Remove stopped containers and their injected secrets too.
+            except (RuntimeError, OSError, subprocess.TimeoutExpired):
+                persist(previous)
+                raise
         _record({"ok": False, "code": "unknown", "message": "Konfiguration geändert; Verbindungstest erforderlich."})
         return public(clean)
 

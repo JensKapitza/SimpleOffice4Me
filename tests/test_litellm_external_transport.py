@@ -117,8 +117,9 @@ class LiteLLMExternalTransportTest(unittest.TestCase):
 
     def test_certificate_for_different_hostname_is_rejected_before_http_request(self):
         """Trusting the test CA never permits a certificate with the wrong gateway hostname."""
-        persist(prepare({'base_url': 'https://wrong.example:' + str(self.server.server_port)}))
-        dns, routes, _ = self.route()
+        persist(prepare({'base_url': 'https://wrong.example:' + str(self.server.server_port), 'retries': 2}))
+        dns, routes, attempted = self.route()
         with dns, routes, self.assertRaisesRegex(GatewayError, '^unreachable$'):
             request_gateway('/v1/models')
         self.assertEqual([], self.requests)
+        self.assertEqual(['1.1.1.1'], attempted)

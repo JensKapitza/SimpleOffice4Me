@@ -165,8 +165,12 @@ des externen Gateway-Betreibers; dessen Restore muss zur verwendeten Gateway-
 Version passen. Die SimpleOffice-Sicherung ersetzt diese Datenbanksicherung nicht.
 
 Deaktivieren unterbindet neue Gateway-Anfragen und stoppt/entfernt den lokal
-verwalteten Container vor dem Speichern. Scheitert Stop, wird Deaktivierung
-nicht als abgeschlossen gespeichert. Auch ein fehlender Docker-Client gilt
+verwalteten Container. Nach einer Docker-Vorprüfung wird der deaktivierte Zustand
+atomar gespeichert, bevor Stop/Remove beginnt: Scheitert die Speicherung, bleibt
+der Container unverändert; ein Absturz nach Stop hinterlässt keinen aktivierten
+Autostart. Scheitert Stop/Remove, wird die vorherige Konfiguration wiederhergestellt
+und die Aktion als fehlgeschlagen gemeldet. Scheitert auch diese Wiederherstellung,
+müssen Konfiguration und Containerzustand vor einem erneuten Start geprüft werden. Auch ein fehlender Docker-Client gilt
 als unbekannter Zustand, nicht als erfolgreicher Stop. Einstellungen und verschlüsselte Keys
 bleiben erhalten. Bei beschädigter Konfiguration funktioniert die Stop-Aktion
 anhand der eigenen Compose-Labels auch ohne Entschlüsselung. Extern wird nur
@@ -212,3 +216,19 @@ erfolgreiche Verbindungsdiagnose bleiben erhalten. Unlesbare oder numerisch
 ungültige Zeitstempel in der Statusdatei machen den Mini-Service-Katalog nicht
 unzugänglich: Der Dienst meldet einen unbekannten Status und verlangt einen
 neuen Verbindungstest.
+
+### Zusätzliche Review-Grenzen
+
+Lokaler Docker-Betrieb akzeptiert ausschließlich Unix-Sockets oder die lokale
+Windows-Docker-Engine-Pipe. SSH-/TCP-Endpunkte werden auch bei gesetztem
+`DOCKER_HOST`, `DOCKER_CONTEXT` oder gespeichertem Remote-Kontext abgewiesen.
+Kontextinspektion erhält keine entschlüsselten Gateway-/Provider-Keys; jeder
+Lifecycle-Befehl bindet anschließend den geprüften lokalen Endpunkt ausdrücklich.
+Remote-Docker wird nicht durch einen stillen Wechsel auf einen anderen Daemon ersetzt.
+
+Versionsstrings sind auf 64 Zeichen begrenzt. Fehlgeschlagene TLS-Zertifikats-/
+Handshake-Prüfungen werden auch bei konfigurierten Retries nicht wiederholt;
+der bestehende Fehlercode bleibt `unreachable`. CA und Gateway-Hostname prüfen.
+Ein fehlgeschlagener Konfigurationsbackup liefert HTTP 503 und einen Audit-Eintrag
+mit Ergebnis `failure`; ein erfolgreicher Audit-Eintrag entsteht erst nach der
+Serialisierung der Sicherung.

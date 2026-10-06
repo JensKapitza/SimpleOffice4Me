@@ -196,10 +196,9 @@ class LiteLLMTest(unittest.TestCase):
         with patch.object(service, '_docker', side_effect=docker):
             service.save_settings({'enabled': False})
         self.assertFalse(config.settings()['enabled'])
-        self.assertEqual('ps', calls[0][0])
-        self.assertIn('-aq', calls[0])
-        self.assertEqual(['stop', '--time', '5', 'abcdef123456'], calls[1])
-        self.assertEqual(['rm', 'abcdef123456'], calls[2])
+        self.assertTrue(any(call[0] == 'ps' and '-aq' in call for call in calls))
+        self.assertIn(['stop', '--time', '5', 'abcdef123456'], calls)
+        self.assertIn(['rm', 'abcdef123456'], calls)
 
     def test_admin_permissions_csrf_and_no_secrets_in_html(self):
         for path in ['/admin/mini-services/litellm', '/admin/mini-services/litellm/backup.json']:
