@@ -174,8 +174,8 @@ def save_settings(value):
         clean = prepare(value)
         previous = settings()
         deactivating = previous["mode"] == "local" and not clean["enabled"]
-        if previous["mode"] == "local":
-            running = _running()  # Preflight Docker availability and the local endpoint before committing.
+        if previous["mode"] == "local" and (previous["enabled"] or clean["mode"] == "local"):
+            running = _running()  # Preflight only while local state can still own a managed container.
             if clean["enabled"] and running:
                 raise ValueError("Lokalen Dienst vor Konfigurationsänderungen stoppen.")
         # Commit disabled state first: a write failure must not stop the existing container,
