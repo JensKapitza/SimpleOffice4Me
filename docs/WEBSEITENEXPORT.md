@@ -1,0 +1,19 @@
+# Webseitenexport (Issue #606)
+
+Der erste Ausbau exportiert angemeldete SimpleOffice-Seiten als PDF oder PNG mit dem vorhandenen Playwright/Chromium-Stack. Die Aktion sitzt im gemeinsamen `templates/layout.html`.
+
+## Sicherheitsvertrag
+
+Der Renderer akzeptiert keine beliebigen URLs. `SIMPLEOFFICE_SERVER_PUBLIC_URL` legt die einzige zulässige Origin fest; Requests zu anderen Origins werden im Browser abgebrochen. Das Export-Token wird nur über `X-SimpleOffice-Export-Token` übertragen, gehasht in SQLite gespeichert und niemals in URL oder Kommandozeile geschrieben.
+
+Der Token-Austausch erzeugt eine Sitzung des tatsächlichen Benutzers mit dessen `auth_version`. Gesperrte Konten, widerrufene/abgelaufene Tokens und geänderte `auth_version` werden abgewiesen. Der Nutzungszähler wird unter `BEGIN IMMEDIATE` atomar verbraucht. Die Renderer-Sitzung blockiert alle mutierenden HTTP-Methoden.
+
+Administratoren können unter `/web-export/settings` Gültigkeit (mindestens 1 Minute) und Anzahl Exporte pro Token (mindestens 1) setzen. `POST /web-export/revoke` widerruft aktive Export-Tokens des Benutzers.
+
+## Betrieb
+
+Playwright ist optional. Für den Export müssen das Python-Paket und Chromium installiert sein. Der normale SimpleOffice-Betrieb startet auch ohne Playwright. Chromium wird mit seiner Sandbox gestartet; `--no-sandbox` wird nicht automatisch gesetzt.
+
+PDF verwendet `page.pdf(print_background=True)` und enthält Browser-Text als durchsuchbaren PDF-Text. PNG verwendet einen Full-Page-Screenshot. Druck- und Bildschirmansicht werden über `page.emulate_media()` gewählt.
+
+Nicht Bestandteil dieses PR: Ablage als Dokument, LibreOffice-Konvertierung, OCR und Export fremder Webseiten oder unvertrauenswürdiger HTML-Dateien.
