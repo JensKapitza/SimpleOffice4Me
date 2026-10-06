@@ -38,7 +38,7 @@ Release- oder externe Gerätefreigabe.
 |---|---|---|
 | #588, geschlossen | MIME-Suchkorrektur #597 und Legacy/Shadow/V2-Nachprüfung #599 gemergt | Erledigt; keine zweite Implementierung |
 | #587 | Befund zu vorzeitigem `last_uid` im aktuellen Code bestätigt | Offen: persistente Recovery für Speicher, Herkunftsmetadaten, Anhänge und Prozessabbruch; bloßes Verschieben der UID-Zuweisung reicht nicht |
-| #586 | MCP-Server, Tokens/Rechte/Audit; Schemakorrektur und API-Verträge #591 sowie Desktop-/Mobil-Bedienprüfung #592 gemergt | Offen: optionale LiteLLM-Betriebsintegration, zentrale Administration, Health und Fehler-/Recovery-Abnahme |
+| #586 | MCP-Server, Tokens/Rechte/Audit; Schemakorrektur und API-Verträge #591 sowie Desktop-/Mobil-Bedienprüfung #592 gemergt | LiteLLM-Betriebsumfang in [LITELLM_OPERATIONS.md](LITELLM_OPERATIONS.md): lokale/externe Konfiguration, Health, zentrale Administration und Recovery implementiert; Abschluss erst nach grünen Software- und Container-Gates |
 | #474 | Bisherige Standards-Baseline und CI bestehen; offizieller RC3-Tag und GitHub-Actions-Linux-Runtime sind veröffentlicht | Zusätzliche CI von RC2 auf RC3 aktualisiert; fortlaufender Tracker bleibt offen |
 | #471 | StoragePort-Federation-Katalog #594 und sichere Mail-Vorgang-Policy/Benutzerzuordnung #595 gemergt | Offen: weitere Enumeration/Readmodels, Rollback-/Restore-Nachweise und gesperrtes destruktives Legacy-Cleanup |
 | #483 | Repository-Reader #540 und folgende API-/APK-Prüfungen vorhanden | Offen: praktische APK-, Touch-, Back-, Resume- und Geräteabnahme; Browseransicht ersetzt diese nicht |
@@ -96,7 +96,7 @@ Historische Release-Prüfungen behalten Datum, Commit und damalige Testzahlen.
 | Android, Bücherregal und Offline | [Android](ANDROID.md), [Integration](ANDROID_INTEGRATION.md), [Reader](DIGITALES_BUECHERREGAL.md) |
 | Mini Services, Audio, Telefonie und Bildschirm | [Gemeinsamer Betrieb](MINI_SERVICES.md), [Abnahme](MINI_SERVICES_EXTERNAL_ACCEPTANCE.md), [Audio](AUDIO_STREAMER.md), [Telefonie](TELEPHONY.md), [Bildschirm](screen-sharing-miracast.md) |
 | Chat, Shopping, Inventar, Ortstermine, Gamification | [Chat](CHAT.md), [Shopping](SHOPPING.md), [Inventar](INVENTAR_MARKETPLACE_SUCHEN.md), [Ortstermine](SITE_VISITS.md), [Datenqualität](DATA_QUALITY_GAMIFICATION.md) |
-| MCP und Erweiterungen | [Bestehender MCP-Server](CHATGPT_MCP.md), [Extension-API](V3_EXTENSIONS.md); zusätzlicher LiteLLM-/Betriebsumfang in #586 noch offen |
+| MCP und Erweiterungen | [Bestehender MCP-Server](CHATGPT_MCP.md), [Extension-API](V3_EXTENSIONS.md); [LiteLLM-Betrieb](LITELLM_OPERATIONS.md); #586-Abschluss abhängig von Software-/Container-Gates |
 | Installation, Updates, Produktion und Sicherheit | [Erststart](ERSTSTART_UND_DESKTOP_SETUP.md), [Updates](GIT_FREIES_UPDATE.md), [Produktion](PRODUKTIONSBETRIEB.md), [Security](SECURITY.md), [CRA](CRA.md) |
 
 ## Konkrete Korrektur-Issues

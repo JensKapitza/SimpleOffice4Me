@@ -309,6 +309,12 @@ def start(configure_only: bool = False) -> None:
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"SFTP-Autostart fehlgeschlagen ({type(exc).__name__}). Mini-Service-Konfiguration prüfen.", file=sys.stderr)
     try:
+        from app.litellm_service import autostart as litellm_autostart
+        with app.app_context():
+            litellm_autostart()
+    except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+        print(f"LiteLLM-Autostart fehlgeschlagen ({type(exc).__name__}). Mini-Service-Konfiguration prüfen.", file=sys.stderr)
+    try:
         mini_worker = start_mini_worker()
     except (OSError, ValueError) as exc:
         mini_worker = None

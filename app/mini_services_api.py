@@ -68,6 +68,8 @@ def _catalog():
     row = safe_status()
     row["scan"] = store.scan("sftp")
     rows.append(row)
+    from .litellm_service import status as litellm_status
+    rows.append(litellm_status())
     return {"services": rows, "worker": {key: status.get(key) for key in ("state", "pid", "updated_at", "stale", "config_error")}}
 
 
@@ -98,6 +100,10 @@ def operation(ident):
 @bp.post("/<service>/settings")
 @admin_required
 def settings(service):
+    if service == "litellm":
+        from .litellm_admin import perform
+        result, code = perform("settings", request.get_json(silent=True))
+        return jsonify(result), code
     if service == "sftp":
         return _sftp_action("settings")
     if service in {"audio-sender", "audio-receiver", "audio-output"}:
@@ -115,6 +121,10 @@ def settings(service):
 @bp.post("/<service>/<action>")
 @admin_required
 def action(service, action):
+    if service == "litellm":
+        from .litellm_admin import perform
+        result, code = perform(action)
+        return jsonify(result), code
     if service == "sftp" and action in {"start", "stop", "restart", "scan"}:
         return _sftp_action(action)
     if service in {"audio-sender", "audio-receiver", "audio-output"} and action in {"start", "stop", "restart", "scan"}:

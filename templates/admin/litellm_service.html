@@ -1,0 +1,42 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h2">LiteLLM Gateway</h1>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <p><a href="{{ url_for('mini_services_admin.index') }}">Mini Services</a> · <a href="{{ url_for('mcp.settings') }}">MCP-Zugänge</a></p>
+  <p class="text-secondary">Optionaler OpenAI-kompatibler Dienst. MCP ist {{ 'aktiviert' if mcp_enabled else 'deaktiviert' }} und verwendet separate Benutzerrechte und Zugänge.</p>
+  <div class="alert {{ 'alert-success' if service.health.ok else 'alert-secondary' }}" role="status">{{ service.health.message }}</div>
+  <form method="post" class="card card-body mb-4">
+    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="enabled" {{ 'checked' if config.enabled else '' }}><label class="form-check-label" for="enabled">LiteLLM aktivieren</label></div>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label" for="mode">Betriebsart</label><select class="form-select" name="mode" id="mode"><option value="external" {{ 'selected' if config.mode == 'external' else '' }}>Externes Gateway</option><option value="local" {{ 'selected' if config.mode == 'local' else '' }}>Lokaler Docker-Mini-Service</option></select></div>
+      <div class="col-md-6"><label class="form-label" for="base_url">Externe Gateway-URL</label><input class="form-control" id="base_url" name="base_url" value="{{ config.base_url }}" maxlength="512" placeholder="https://gateway.example.org/v1"></div>
+      <div class="col-md-6"><label class="form-label" for="model">Standardmodell / Gateway-Alias</label><input class="form-control" id="model" name="model" value="{{ config.model }}" maxlength="160"></div>
+      <div class="col-md-6"><label class="form-label" for="api_key">Gateway-Key {{ '(vorhanden)' if config.api_key_configured else '' }}</label><input class="form-control" id="api_key" type="password" name="api_key" autocomplete="new-password"><div class="form-text">Leer lassen, um den gespeicherten Key zu behalten. Extern einen auf Modelle begrenzten Key verwenden.</div></div>
+      <div class="col-md-6"><label class="form-label" for="timeout">Timeout je Operation (Sekunden)</label><input class="form-control" id="timeout" type="number" name="timeout" min="1" max="30" step="0.1" value="{{ config.timeout }}"></div>
+      <div class="col-md-6"><label class="form-label" for="retries">Zusätzliche Versuche bei Statusprüfungen</label><input class="form-control" id="retries" type="number" name="retries" min="0" max="2" value="{{ config.retries }}"><div class="form-text">Modellanfragen werden nicht automatisch wiederholt.</div></div>
+      <div class="col-12"><label class="form-label" for="allowed_networks">Explizit freigegebene interne Gateway-Netze (CIDR, durch Komma getrennt)</label><input class="form-control" id="allowed_networks" name="allowed_networks" value="{{ config.allowed_networks|join(', ') }}"><div class="form-text">Extern ist HTTPS Pflicht. Loopback, Link-Local und Metadatenadressen bleiben gesperrt.</div></div>
+    </div>
+    <fieldset class="mt-4"><legend class="h5">Lokaler Betrieb</legend><p class="small">Docker Engine mit Compose v2 (auch Docker Desktop). Auf Android/Termux externes Gateway verwenden. Lokaler Zugang ist auf Loopback begrenzt.</p><div class="row g-3">
+      <div class="col-md-4"><label class="form-label" for="port">Lokaler Port</label><input class="form-control" id="port" type="number" name="port" min="1024" max="65535" value="{{ config.port }}"></div>
+      <div class="col-md-4"><label class="form-label" for="version">Gepinnte LiteLLM-Version</label><input class="form-control" id="version" name="version" value="{{ config.version }}"></div>
+      <div class="col-12"><label class="form-label" for="image_digest">Freigegebener Image-Digest</label><input class="form-control" id="image_digest" name="image_digest" value="{{ config.image_digest }}" maxlength="71" aria-describedby="image-digest-help"><div class="form-text" id="image-digest-help">SHA-256 aus der vertrauenswürdigen Registry. Bei Versionswechsel den zugehörigen Digest prüfen und eintragen.</div></div>
+      <div class="col-md-4"><label class="form-label" for="provider_model">Provider-Modell</label><input class="form-control" id="provider_model" name="provider_model" value="{{ config.provider_model }}" placeholder="openai/dein-modell" maxlength="160"></div>
+      <div class="col-md-6"><label class="form-label" for="provider_key">Provider-Key {{ '(vorhanden)' if config.provider_key_configured else '' }}</label><input class="form-control" id="provider_key" type="password" name="provider_key" autocomplete="new-password"><div class="form-text">Leer lassen behält den Key. Nur für lokalen Betrieb.</div></div>
+      <div class="col-md-6"><div class="form-check mt-4"><input class="form-check-input" id="autostart" type="checkbox" name="autostart" value="1" {{ 'checked' if config.autostart else '' }}><label class="form-check-label" for="autostart">Docker-Neustartregel aktivieren (maximal drei Fehlerneustarts)</label></div></div>
+    </div></fieldset>
+    <p class="small mt-3">Lokalen Dienst vor Änderungen stoppen. Deaktivieren stoppt und entfernt den verwalteten Container; Einstellungen bleiben erhalten.</p>
+    <button class="btn btn-primary align-self-start mt-2" type="submit">Einstellungen speichern</button>
+  </form>
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    {% for action, label in [('scan', 'Verbindung testen'), ('install', 'Gepinntes Image installieren / aktualisieren'), ('start', 'Starten'), ('stop', 'Stoppen'), ('restart', 'Neustart')] %}
+    {% if config.mode == 'local' or action == 'scan' %}<form method="post" action="{{ url_for('litellm_admin.action', name=action) }}"><button class="btn btn-outline-primary" type="submit">{{ label }}</button></form>{% endif %}
+    {% endfor %}
+  </div>
+  <section class="card card-body"><h2 class="h5">Backup / Restore</h2><p>Die Sicherung enthält verschlüsselte Keys und benötigt den ursprünglichen SimpleOffice-Anwendungsschlüssel. Restore setzt LiteLLM deaktiviert zurück. Eine externe Gateway-Datenbank wird beim Anbieter gesichert.</p>
+    <p><a class="btn btn-outline-secondary" href="{{ url_for('litellm_admin.backup') }}">Verschlüsselte Konfiguration sichern</a></p>
+    <form method="post" enctype="multipart/form-data" action="{{ url_for('litellm_admin.restore') }}"><label class="form-label" for="backup">Sicherung (JSON)</label><input class="form-control mb-3" type="file" name="backup" id="backup" accept="application/json,.json" required><button class="btn btn-outline-danger" type="submit">Deaktivierte Konfiguration wiederherstellen</button></form>
+  </section>
+</main>
+{% endblock %}

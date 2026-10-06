@@ -57,6 +57,13 @@ Legend:
 | SFTP | REMOVE targets a directory or RMDIR targets a file | reject wrong object type; preserve filesystem state | CI: `test_sftp_remove` (#572–#573) |
 | SFTP (system OpenSSH) | service/account/host key unavailable or misconfigured | report system-mode failure; never silently switch to Paramiko identity | External: installed system service and real client |
 | SFTP | real network loss, client interruption or daemon restart | bounded recovery; no false success or orphan transfer state | External: Linux and Windows client/system acceptance |
+| LiteLLM | disabled or Docker unavailable | ordinary app stays usable; unqueryable local container is not reported as safely deactivated | CI: `test_litellm_public_api` |
+| LiteLLM | restart preflight cannot decrypt credentials or validate deployment | do not stop the existing container before preflight succeeds | CI: `test_litellm`, `test_litellm_public_api` |
+| LiteLLM | unauthorized key, unreachable endpoint, slow DNS / response, redirect or blocked address | bounded safe diagnostic; no redirect, no billable POST retry | CI: `test_litellm_transport`, `test_litellm_external_transport` |
+| LiteLLM | invalid settings, concurrent action or damaged runtime JSON | preserve measured health for rejected actions; admin/catalog remain available for corrupt files | CI: `test_litellm`, `test_litellm_public_api` |
+| LiteLLM | invalid restore or wrong application key | preserve configuration, show failure, successful restore stays disabled | CI: `test_litellm`, `test_litellm_public_api`; browser smoke |
+| LiteLLM | mutable tag or unapproved upgrade | execute only an explicitly configured SHA-256 digest; version change does not silently retain an unrelated default | CI: configuration/API tests and real container operations |
+| LiteLLM | real provider outage, daemon/host restart, external DB recovery, endurance | record independent target-platform evidence; never substitute a mock completion | External: LiteLLM protocol below |
 | Screen | unsupported/missing platform launcher | controlled user message; only error type audited | CI: screen tests + diagnostic audit |
 | Screen | session/signaling bounds exceeded | reject boundedly; no unbounded signaling queue | CI: screen tests |
 | Screen | native Miracast/Cast/WebRTC runtime | verify actual sender/receiver behavior | External |

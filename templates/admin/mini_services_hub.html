@@ -16,7 +16,7 @@
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   {% set settings_links = {
-    'sftp': url_for('mini_services_admin.sftp'),
+    'litellm': url_for('litellm_admin.index'), 'sftp': url_for('mini_services_admin.sftp'),
     'dhcp': url_for('mini_services_admin.network'),
     'dns': url_for('mini_services_admin.network'),
     'gateway': url_for('mini_services_admin.network'),
@@ -42,6 +42,7 @@
   </section>
 
   <div class="row g-3">
+    <div class="col-sm-6 col-xl-3"><article class="card h-100"><div class="card-body d-flex flex-column"><h2 class="h5">LiteLLM / MCP</h2><p class="text-secondary small">Optionales LLM-Gateway: lokaler oder externer Betrieb, Verbindungstest und gesicherte Konfiguration.</p><a class="btn btn-primary mt-auto" href="{{ url_for('litellm_admin.index') }}">LiteLLM konfigurieren</a><a class="btn btn-outline-secondary mt-2" href="{{ url_for('mcp.settings') }}">MCP-Zugänge</a></div></article></div>
     <div class="col-sm-6 col-xl-3">
       <article class="card h-100">
         <div class="card-body d-flex flex-column">

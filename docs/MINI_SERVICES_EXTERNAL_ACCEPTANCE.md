@@ -90,6 +90,30 @@ Use real independent clients:
 - PXE: boot at least one real or independently virtualized PXE client from a
   configured profile. HTTP/TFTP request success alone is not boot success.
 
+## Optional LiteLLM gateway
+
+Use [LITELLM_OPERATIONS.md](LITELLM_OPERATIONS.md) for installation and approved
+image/version settings. Accept local Linux and Docker Desktop separately from
+an external HTTPS gateway (including Android/Termux clients):
+
+1. start the normal application with LiteLLM disabled and Docker absent;
+2. install the approved digest, start, probe and restart the local gateway;
+3. interrupt the daemon/host or network, then verify truthful status and explicit
+   recovery without repeated billable completions;
+4. remove Docker access while a container runs: disabling must report failure,
+   retain the enabled setting and require resolving the unknown container state;
+5. save encrypted settings and the application key separately, stop/disable,
+   restore and confirm disabled state; test an approved upgrade and rollback;
+6. for external persistent gateways, independently restore their database and
+   keys on the matching gateway version; the application backup does not include them;
+7. verify authenticated HTTPS with the deployed CA/hostname, provider policy and
+   model permissions; record load/endurance and costs with operator-approved data;
+8. keep MCP tokens/permissions separate and verify absence of implicit model access
+   to private SimpleOffice objects.
+
+The real container CI uses a non-billable mock model. Browser viewport checks
+exercise admin actions; neither proof replaces these operator/platform runs.
+
 ## SFTP
 
 On a clean Linux installation, test the integrated Paramiko mode and, where

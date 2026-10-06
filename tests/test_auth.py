@@ -210,6 +210,9 @@ class AuthTest(unittest.TestCase):
             self.assertNotIn("plain-access-secret", oauth["access_token"])
             self.assertNotIn("plain-refresh-secret", oauth["refresh_token"])
 
+    # This security check temporarily uses production flags. A mail retry worker
+    # must not outlive the disposable auth fixture or race its directory cleanup.
+    @patch.dict(os.environ, {"SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER": "0"})
     def test_public_registration_is_closed_after_bootstrap_by_default(self):
         self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
         previous = {key: app.config.get(key) for key in ("TESTING", "TEST_CSRF_PROTECTION", "ALLOW_PUBLIC_REGISTRATION")}

@@ -1,0 +1,247 @@
+"""Bounded OpenAI transport. DNS addresses are checked and pinned per connection."""
+from __future__ import annotations
+
+import http.client
+import ipaddress
+import json
+import socket
+import queue
+import threading
+import ssl
+import time
+from urllib.parse import urlsplit
+
+from .litellm_config import gateway_url, secret, settings
+
+MAX_BYTES = 1024 * 1024
+_RESOLVERS = threading.BoundedSemaphore(4)
+
+
+class GatewayError(RuntimeError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+def _resolve(host, port, timeout):
+    resolver = _RESOLVERS
+    if not resolver.acquire(blocking=False):
+        raise GatewayError("resolver_busy")
+    results = queue.Queue(maxsize=1)
+
+    def run():
+        try:
+            results.put(socket.getaddrinfo(host, port, type=socket.SOCK_STREAM))
+        except OSError as exc:
+            results.put(exc)
+        finally:
+            resolver.release()
+
+    threading.Thread(target=run, name="litellm-dns", daemon=True).start()
+    try:
+        result = results.get(timeout=timeout)
+    except queue.Empty as exc:
+        raise GatewayError("timeout") from exc
+    if isinstance(result, OSError):
+        raise result
+    return result
+
+
+def addresses(config, host, port, timeout=10):
+    if config["mode"] == "local":
+        return [(socket.AF_INET, ("127.0.0.1", port))]
+    networks = [ipaddress.ip_network(n) for n in config["allowed_networks"]]
+    result = []
+    for family, _, _, _, address in _resolve(host, port, timeout):
+        ip = ipaddress.ip_address(address[0])
+        explicitly_allowed = any(ip in network for network in networks)
+        if (ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified
+                or ip.is_reserved or getattr(ip, "ipv4_mapped", None)
+                or (getattr(ip, "is_site_local", False) and not explicitly_allowed)
+                or not (ip.is_global or explicitly_allowed)):
+            raise GatewayError("endpoint_blocked")
+        result.append((family, address))
+    if not result:
+        raise GatewayError("unreachable")
+    return result
+
+
+def _connect(parsed, targets, deadline, sockets):
+    # Failover is only safe before any HTTP request (especially a billable POST).
+    tls = None
+    if parsed.scheme == "https":
+        tls = ssl.create_default_context()
+        tls.minimum_version = ssl.TLSVersion.TLSv1_2
+    last_error = None
+    for family, address in targets:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise GatewayError("timeout")
+        sock = None
+        try:
+            sock = socket.socket(family, socket.SOCK_STREAM)
+            sockets[0] = sock
+            sock.settimeout(remaining)
+            sock.connect(address)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GatewayError("timeout")
+            sock.settimeout(remaining)
+            if tls is not None:
+                sock = tls.wrap_socket(sock, server_hostname=parsed.hostname)
+                sockets[0] = sock
+            return sock
+        except ssl.SSLError:
+            sock.close()
+            raise  # Certificate/TLS failures cannot justify another target.
+        except OSError as exc:
+            last_error = exc
+            if sock is not None:
+                sock.close()
+    if time.monotonic() >= deadline:
+        raise GatewayError("timeout")
+    if last_error is not None:
+        raise last_error  # Preserve bounded GET retries in request_gateway().
+    raise GatewayError("unreachable")
+
+
+def _exchange(config, path, body, timeout):
+    parsed = urlsplit(gateway_url(config))
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    deadline = time.monotonic() + timeout
+    targets = addresses(config, parsed.hostname, port, timeout)
+    timeout = deadline - time.monotonic()
+    if timeout <= 0:
+        raise GatewayError("timeout")
+    # Never perform a second hostname lookup; preserve TLS hostname verification.
+    connection = http.client.HTTPConnection(parsed.hostname, port, timeout=timeout)
+    sockets = [None]
+
+    def interrupt():
+        if sockets[0] is None:
+            return
+        try:
+            sockets[0].shutdown(socket.SHUT_RDWR)
+        except OSError:
+            return
+
+    timer = threading.Timer(timeout, interrupt)
+    timer.daemon = True
+    timer.start()
+    try:
+        sock = _connect(parsed, targets, deadline, sockets)
+        connection.sock = sock
+        raw = None if body is None else json.dumps(body).encode()
+        if raw is not None and len(raw) > MAX_BYTES:
+            raise GatewayError("request_too_large")
+        connection.request("GET" if raw is None else "POST", path, body=raw,
+                           headers={"Authorization": "Bearer " + secret(config, "api_key"),
+                                    "Content-Type": "application/json"})
+        response = connection.getresponse()
+        data = response.read(MAX_BYTES + 1)
+        if time.monotonic() >= deadline:
+            raise GatewayError("timeout")
+        if len(data) > MAX_BYTES:
+            raise GatewayError("response_too_large")
+        if response.status in (401, 403):
+            raise GatewayError("unauthorized")
+        if response.status == 400 and config["mode"] == "local":
+            # Database-free LiteLLM checks the master key first, then rejects
+            # unknown virtual keys with this documented proxy error (HTTP 400).
+            try:
+                rejected = json.loads(data)
+            except (ValueError, UnicodeError, RecursionError) as exc:
+                raise GatewayError("gateway_rejected") from exc
+            error = rejected.get("error") if isinstance(rejected, dict) else None
+            if isinstance(error, dict) and error.get("type") == "no_db_connection":
+                raise GatewayError("unauthorized")
+        if response.status == 429 or response.status >= 500:
+            raise GatewayError("temporarily_unavailable")
+        if response.status != 200:
+            raise GatewayError("gateway_rejected")
+        try:
+            value = json.loads(data)
+        except (ValueError, UnicodeError, RecursionError) as exc:
+            raise GatewayError("invalid_response") from exc
+        if path == "/health/liveliness" and value == "I'm alive!":
+            return {"status": "alive"}
+        if not isinstance(value, dict):
+            raise GatewayError("invalid_response")
+        return value
+    finally:
+        timer.cancel()
+        connection.close()
+        if sockets[0] is not None:
+            sockets[0].close()
+
+
+def request_gateway(path, body=None, *, config=None):
+    config = config or settings()
+    if not config["enabled"]:
+        raise GatewayError("disabled")
+    if path not in {"/health/liveliness", "/health/readiness", "/v1/models", "/v1/chat/completions"}:
+        raise ValueError("Unbekannte Gateway-Operation.")
+    deadline = time.monotonic() + config["timeout"]
+    # Retry only idempotent checks, never billable/model POST requests.
+    attempts = config["retries"] + 1 if body is None else 1
+    for attempt in range(attempts):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise GatewayError("timeout")
+        try:
+            return _exchange(config, path, body, remaining)
+        except ssl.SSLError as exc:
+            # A certificate/handshake failure is terminal, including idempotent health requests.
+            raise GatewayError("unreachable") from exc
+        except (OSError, http.client.HTTPException) as exc:
+            error = GatewayError("timeout" if isinstance(exc, TimeoutError) or time.monotonic() >= deadline else "unreachable")
+        except GatewayError as exc:
+            if exc.code != "temporarily_unavailable":
+                raise
+            error = exc
+        if attempt + 1 == attempts:
+            raise error
+        time.sleep(min(.2 * (attempt + 1), max(0, deadline - time.monotonic())))
+    raise GatewayError("unreachable")
+
+
+def completion(messages, *, max_tokens=256):
+    config = settings()
+    if (not isinstance(messages, list) or not 1 <= len(messages) <= 100 or type(max_tokens) is not int
+            or not 1 <= max_tokens <= 4096):
+        raise ValueError("Nachrichten oder Tokenlimit prüfen.")
+    content_bytes = 0
+    for message in messages:
+        if (not isinstance(message, dict) or set(message) != {"role", "content"}
+                or message["role"] not in {"system", "user", "assistant"}
+                or not isinstance(message["content"], str)):
+            raise ValueError("Ungültige Nachricht.")
+        content = message["content"]
+        # Bound attacker-controlled text before json.dumps can materialize a huge request.
+        if len(content) > MAX_BYTES:
+            raise ValueError("Nachrichteninhalt zu groß.")
+        content_bytes += len(content.encode("utf-8"))
+        if content_bytes > MAX_BYTES:
+            raise ValueError("Nachrichteninhalt zu groß.")
+    return request_gateway("/v1/chat/completions", {"model": config["model"], "messages": messages,
+                           "max_tokens": max_tokens, "stream": False}, config=config)
+
+
+def probe(config=None):
+    config = config or settings()
+    if not config["enabled"]:
+        return {"ok": False, "code": "disabled", "message": "LiteLLM deaktiviert."}
+    try:
+        deadline = time.monotonic() + config["timeout"]
+        models = {}
+        for path in ("/health/liveliness", "/health/readiness", "/v1/models"):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise GatewayError("timeout")
+            models = request_gateway(path, config={**config, "timeout": remaining})
+        if not isinstance(models.get("data"), list) or not any(
+                isinstance(row, dict) and row.get("id") == config["model"] for row in models["data"]):
+            raise GatewayError("model_missing")
+        return {"ok": True, "code": "ready", "message": "Gateway bereit; Key und Standardmodell geprüft."}
+    except GatewayError as exc:
+        return {"ok": False, "code": exc.code, "message": "Gateway-Prüfung fehlgeschlagen: " + exc.code}

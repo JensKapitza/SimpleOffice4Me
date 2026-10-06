@@ -37,9 +37,9 @@
     return (count ? '✓ ' + count + ' Treffer' : '○ Keine Treffer') +
       (scan.scope ? ' · ' + scan.scope : '') + when;
   };
-  const request = async (path, method = 'GET', body) => {
+  const request = async (path, method = 'GET', body, timeoutSeconds = 15) => {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 15000);
+    const timer = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
     try {
       const token = document.querySelector('meta[name="csrf-token"]');
       const response = await fetch(base + path, {method, credentials: 'same-origin', cache: 'no-store',
@@ -67,7 +67,7 @@
     root.querySelectorAll('button').forEach(button => { button.disabled = true; });
     report(action === 'scan' ? '↻ Geräte und Dienste werden gesucht …' : '↻ Aktion wird ausgeführt …');
     try {
-      const result = await request('/' + id + '/' + action, 'POST', body || {});
+      const result = await request('/' + id + '/' + action, 'POST', body || {}, views.get(id).actionTimeout);
       if (result.id && result.state === 'queued' && result.action) await waitOperation(result.id);
       await refresh();
       report(action === 'scan' ? `${result.count} Treffer. ${result.scope || ''}` : '✓ Aktion abgeschlossen.');
@@ -135,6 +135,8 @@
     const data = await request('');
     data.services.forEach(service => {
       const view = views.get(service.id) || createCard(service);
+      const actionTimeout = Number(service.action_timeout_seconds);
+      view.actionTimeout = Number.isFinite(actionTimeout) && actionTimeout >= 15 && actionTimeout <= 120 ? actionTimeout : 15;
       view.status.textContent = labels[service.state] || service.state;
       view.health.textContent = service.health ? service.health.message : '';
       view.error.textContent = service.last_error ? `${service.last_error.message} ${service.last_error.action}` : '';
