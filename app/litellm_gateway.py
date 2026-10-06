@@ -54,9 +54,11 @@ def addresses(config, host, port, timeout=10):
     result = []
     for family, _, _, _, address in _resolve(host, port, timeout):
         ip = ipaddress.ip_address(address[0])
+        explicitly_allowed = any(ip in network for network in networks)
         if (ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_unspecified
                 or ip.is_reserved or getattr(ip, "ipv4_mapped", None)
-                or not (ip.is_global or any(ip in network for network in networks))):
+                or (getattr(ip, "is_site_local", False) and not explicitly_allowed)
+                or not (ip.is_global or explicitly_allowed)):
             raise GatewayError("endpoint_blocked")
         result.append((family, address))
     if not result:
@@ -208,11 +210,19 @@ def completion(messages, *, max_tokens=256):
     if (not isinstance(messages, list) or not 1 <= len(messages) <= 100 or type(max_tokens) is not int
             or not 1 <= max_tokens <= 4096):
         raise ValueError("Nachrichten oder Tokenlimit prüfen.")
+    content_bytes = 0
     for message in messages:
         if (not isinstance(message, dict) or set(message) != {"role", "content"}
                 or message["role"] not in {"system", "user", "assistant"}
                 or not isinstance(message["content"], str)):
             raise ValueError("Ungültige Nachricht.")
+        content = message["content"]
+        # Bound attacker-controlled text before json.dumps can materialize a huge request.
+        if len(content) > MAX_BYTES:
+            raise ValueError("Nachrichteninhalt zu groß.")
+        content_bytes += len(content.encode("utf-8"))
+        if content_bytes > MAX_BYTES:
+            raise ValueError("Nachrichteninhalt zu groß.")
     return request_gateway("/v1/chat/completions", {"model": config["model"], "messages": messages,
                            "max_tokens": max_tokens, "stream": False}, config=config)
 
