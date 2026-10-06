@@ -3,6 +3,7 @@ import threading
 import unittest
 from datetime import datetime, timedelta, timezone
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database, get_db
@@ -67,6 +68,19 @@ class WebExportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
         response = client.post("/web-export/revoke")
         self.assertEqual(response.status_code, 403)
+
+    def test_export_rejects_path_like_format_before_creating_tempfile(self):
+        client = app.test_client()
+        with client.session_transaction() as sess:
+            sess["user_id"] = 1
+            sess["auth_version"] = 7
+        with patch("app.web_export.tempfile.NamedTemporaryFile") as temporary_file:
+            response = client.post(
+                "/web-export/download",
+                data={"target": "/", "format": "../../tmp/owned", "media": "print"},
+            )
+        self.assertEqual(response.status_code, 400)
+        temporary_file.assert_not_called()
 
     def test_export_token_concurrent_consumption_allows_only_one(self):
         secret = "so_export_" + "g" * 40
