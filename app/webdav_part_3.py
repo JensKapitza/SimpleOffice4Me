@@ -455,16 +455,25 @@ def _live_properties(
         **(_search_discovery_live_properties(collection=collection) if searchable else {}),
     }
     path = resource or (_document_path(document) if document else None)
+    stat = None
+    authoritative_file = bool(document and not collection and _vfs()._authoritative_v2())
     if path is not None:
         created_at = _resource_creationdate(path, document, collection=collection)
         if created_at:
             values[f"{{{DAV}}}creationdate"] = _xml_element(
                 f"{{{DAV}}}creationdate", created_at,
             )
-        stat = path.stat()
-        values[f"{{{DAV}}}getlastmodified"] = _xml_element(
-            f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
-        )
+        if authoritative_file:
+            modified_at = int(document.get("updated_at") or document.get("modified_at") or 0)
+            if modified_at > 0:
+                values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+                    f"{{{DAV}}}getlastmodified", formatdate(modified_at, usegmt=True),
+                )
+        else:
+            stat = path.stat()
+            values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+                f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
+            )
     if collection:
         resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
         ElementTree.SubElement(resource_type, f"{{{DAV}}}collection")
@@ -490,7 +499,10 @@ def _live_properties(
         return values
     values.update({
         f"{{{DAV}}}resourcetype": _xml_element(f"{{{DAV}}}resourcetype"),
-        f"{{{DAV}}}getcontentlength": _xml_element(f"{{{DAV}}}getcontentlength", str(stat.st_size)),
+        f"{{{DAV}}}getcontentlength": _xml_element(
+            f"{{{DAV}}}getcontentlength",
+            str(int(document.get("size", 0))) if authoritative_file else str(stat.st_size),
+        ),
         f"{{{DAV}}}getcontenttype": _xml_element(f"{{{DAV}}}getcontenttype", mimetypes.guess_type(path.name)[0] or "application/octet-stream"),
         f"{{{DAV}}}getetag": _xml_element(f"{{{DAV}}}getetag", _etag(document or {})),
     })
