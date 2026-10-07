@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import threading
 import unicodedata
 import uuid
