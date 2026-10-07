@@ -2,6 +2,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.v3_jobs import JobStore, JobWorker, RetryableJobError
 
@@ -58,6 +59,27 @@ class V3JobTests(unittest.TestCase):
         self.store.enqueue("a",{},"alice",idempotency_key="4")
         metrics=self.store.metrics()
         self.assertEqual(1,metrics["queued"])
+
+
+    def test_new_worker_instance_recovers_expired_process_lease(self):
+        job=self.store.enqueue("test",{"payload":"kept"},"alice",idempotency_key="process-restart")
+        abandoned=self.store.claim("worker-before-crash",lease_seconds=5,now=100)
+        self.assertEqual(job.job_id,abandoned.job_id)
+        self.assertEqual("running",abandoned.state)
+
+        seen=[]
+        replacement=JobWorker(
+            JobStore(self.root),
+            {"test":lambda current: seen.append((current.job_id,current.payload))},
+            "worker-after-restart",
+        )
+        with patch("app.v3_jobs.time.time", return_value=104):
+            self.assertIsNone(replacement.run_once())
+        with patch("app.v3_jobs.time.time", return_value=106):
+            recovered=replacement.run_once()
+        self.assertEqual("succeeded",recovered.state)
+        self.assertEqual(2,recovered.attempt)
+        self.assertEqual([(job.job_id,{"payload":"kept"})],seen)
 
 
 if __name__=="__main__":

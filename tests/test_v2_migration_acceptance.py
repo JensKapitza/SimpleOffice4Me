@@ -7,6 +7,7 @@ import unittest
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 from app.v2.blob_store import BlobStore
 from app.v2.contracts import LogicalObjectId
@@ -167,6 +168,66 @@ class V2MigrationAcceptanceTests(unittest.TestCase):
             self.assertFalse(result["ready"])
             self.assertFalse(result["completed"])
             self.assertEqual("v1", load_cutover_state(root).mode)
+
+
+    def test_interrupted_transfer_resumes_without_duplicate_or_data_loss(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base = Path(temp)
+            root = base / "documents"
+            root.mkdir()
+            metadata_dir = root / ".simpleoffice-meta" / "documents"
+            metadata_dir.mkdir(parents=True)
+            contents = {
+                "first": b"release-gate-first",
+                "second": b"release-gate-second",
+            }
+            for name, content in contents.items():
+                document = root / "inbox" / (name + ".bin")
+                document.parent.mkdir(exist_ok=True)
+                document.write_bytes(content)
+                (metadata_dir / (name + ".json")).write_text(
+                    json.dumps({
+                        "document_id": "release-gate-" + name,
+                        "last_path": "inbox/" + name + ".bin",
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                    }),
+                    encoding="utf-8",
+                )
+            backup = base / "backup"
+            create_migration_backup(root, backup)
+
+            original_write = BlobStore.write_stream
+            calls = 0
+
+            def interrupted_write(store, object_id, stream, **kwargs):
+                nonlocal calls
+                calls += 1
+                if calls == 2:
+                    raise OSError("simulated process interruption")
+                return original_write(store, object_id, stream, **kwargs)
+
+            with patch.object(BlobStore, "write_stream", interrupted_write):
+                with self.assertRaises(OSError):
+                    transfer_legacy_documents(root, backup)
+
+            store = BlobStore(root)
+            first = store.verify(LogicalObjectId("release-gate-first"))
+            self.assertEqual(hashlib.sha256(contents["first"]).hexdigest(), first.content_sha256)
+            self.assertFalse((root / ".simpleoffice-v2" / "migration-transfer.json").exists())
+
+            resumed = transfer_legacy_documents(root, backup)
+            self.assertEqual(2, resumed["documents"])
+            self.assertEqual(1, resumed["already_present_documents"])
+            self.assertEqual(1, resumed["migrated_documents"])
+            for name, content in contents.items():
+                version = store.verify(LogicalObjectId("release-gate-" + name))
+                self.assertEqual(hashlib.sha256(content).hexdigest(), version.content_sha256)
+
+            repeated = transfer_legacy_documents(root, backup)
+            self.assertEqual(2, repeated["already_present_documents"])
+            self.assertEqual(2, repeated["already_cataloged_documents"])
+            self.assertEqual(0, repeated["migrated_documents"])
+            self.assertEqual(0, repeated["cataloged_documents"])
 
 
 if __name__ == "__main__":
