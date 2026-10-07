@@ -426,7 +426,14 @@ def file_tree(username: str, relative_path: str):
             )
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
-    if resource.is_file() and not resource.is_symlink():
+    catalog_entry = None
+    if _vfs()._authoritative_v2() and not is_collection:
+        try:
+            catalog_entry = _vfs().authoritative_entry(resource)
+            document = _store().get_document(catalog_entry.object_id.value)
+        except (FileNotFoundError, ValueError):
+            document = None
+    elif resource.is_file() and not resource.is_symlink():
         try:
             document = _tree_document(resource)
         except ValueError:
