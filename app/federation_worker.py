@@ -76,8 +76,7 @@ def _configured_peer_proof(url, token, method, body):
         base = peer["base_url"].rstrip("/")
         if peer["enabled"] and url.startswith(base + "/") and store.peer_token(peer["peer_id"]) == token:
             path = urllib.parse.urlsplit(url[len(base):]).path
-            source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
-            return peer_auth_headers(local_peer_id(), source_token, method, path, body)
+            return peer_auth_headers(local_peer_id(), token, method, path, body)
     return {}
 
 
