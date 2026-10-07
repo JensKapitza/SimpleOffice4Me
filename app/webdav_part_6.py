@@ -427,7 +427,7 @@ def file_tree(username: str, relative_path: str):
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     catalog_entry = None
-    if _vfs()._authoritative_v2() and not is_collection:
+    if request.method in {"GET", "HEAD"} and _vfs()._authoritative_v2() and not is_collection:
         try:
             catalog_entry = _vfs().authoritative_entry(resource)
             document = _store().get_document(catalog_entry.object_id.value)
