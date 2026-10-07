@@ -23,8 +23,8 @@ FORMAT_VERSION = 1
 _REMAINING_CONTENT_PROJECTION_CONSUMERS = (
     "DocumentStore mutation/recovery still persists plaintext document files",
     "WebDAV document access still resolves managed document paths directly",
-    "business/rental/photo/contact/replication consumers still resolve managed document paths directly",
-    "federation block indexing, repair and rebalance still resolve managed document paths directly",
+    "remaining DocumentStore enumeration and metadata/policy read models still depend on the compatibility namespace",
+    "legacy global federation block index/cache, repair and rebalance still depend on compatibility paths",
 )
 
 
