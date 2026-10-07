@@ -694,7 +694,6 @@ def endpoint(path: str):
                 current_app.config["DOCUMENT_ROOT"],
                 f"webdav:{username}",
                 str(document["document_id"]),
-                suffix=Path(document_path.name).suffix,
             )
             try:
                 source = materialized.__enter__()
