@@ -35,6 +35,12 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         tree_partial = self.client.get(
             tree_url, headers={**self.auth, "Range": "bytes=6-11"}
         )
+        tree_proppatch = self.client.open(
+            tree_url,
+            method="PROPPATCH",
+            data='<d:propertyupdate xmlns:d="DAV:" xmlns:t="urn:simpleoffice:test"><d:set><d:prop><t:projection>must-not-write</t:projection></d:prop></d:set></d:propertyupdate>',
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
 
         self.assertEqual(200, full.status_code)
         self.assertEqual(b"first office version", full.data)
@@ -60,6 +66,7 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertEqual(b"office", tree_partial.data)
         self.assertEqual(full.headers["ETag"], tree_full.headers["ETag"])
         self.assertEqual(full.headers["Last-Modified"], tree_full.headers["Last-Modified"])
+        self.assertEqual(404, tree_proppatch.status_code)
 
     def test_libreoffice_page_exposes_url_but_never_app_password(self):
         response = self.client.get(f"/documents/{self.document['document_id']}/libreoffice")
