@@ -238,6 +238,21 @@ class VirtualFileSystem:
 
         return sorted(result.values(), key=lambda item: item.name.casefold())
 
+    def authoritative_children(self, path: str | Path):
+        """Return active V2 catalog files directly below a virtual directory."""
+        if not self._authoritative_v2():
+            return []
+        relative = self.relative(self.resolve(path))
+        prefix = "" if relative == "." else relative.rstrip("/") + "/"
+        children = []
+        for entry in self._catalog().list():
+            if entry.state is not CatalogState.ACTIVE or not entry.location.relative_path.startswith(prefix):
+                continue
+            remainder = entry.location.relative_path[len(prefix):]
+            if remainder and "/" not in remainder:
+                children.append(entry)
+        return children
+
     def authoritative_entry(self, path: str | Path):
         """Return the active V2 catalog entry for a virtual file path."""
         if not self._authoritative_v2():
