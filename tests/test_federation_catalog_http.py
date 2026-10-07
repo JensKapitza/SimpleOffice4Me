@@ -18,6 +18,8 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
+        self.context = self.app.app_context()
+        self.context.push()
         self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "catalog-token"
         store = DocumentStore(self.root)
@@ -40,6 +42,7 @@ class FederationCatalogHttpTest(unittest.TestCase):
         )
 
     def tearDown(self):
+        self.context.pop()
         if self.previous is None:
             os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
         else:
