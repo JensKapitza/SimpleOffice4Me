@@ -26,7 +26,7 @@ env:
 
 jobs:
   server-deb:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SIMPLEOFFICE_SERVER_PUBLIC_URL: ${{ github.event_name == 'pull_request' && 'https://ci.simpleoffice4me.invalid' || 'https://simpleoffice4me.back2heaven.de' }}
       SIMPLEOFFICE_SERVER_PEER_ID: ${{ github.event_name == 'pull_request' && 'license-master-ci' || 'license-master' }}
