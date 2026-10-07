@@ -463,12 +463,11 @@ def _live_properties(
             values[f"{{{DAV}}}creationdate"] = _xml_element(
                 f"{{{DAV}}}creationdate", created_at,
             )
+        catalog_entry = _vfs().authoritative_entry(path) if authoritative_file else None
         if authoritative_file:
-            modified_at = int(document.get("updated_at") or document.get("modified_at") or 0)
-            if modified_at > 0:
-                values[f"{{{DAV}}}getlastmodified"] = _xml_element(
-                    f"{{{DAV}}}getlastmodified", formatdate(modified_at, usegmt=True),
-                )
+            values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+                f"{{{DAV}}}getlastmodified", formatdate(catalog_entry.updated_at, usegmt=True),
+            )
         else:
             stat = path.stat()
             values[f"{{{DAV}}}getlastmodified"] = _xml_element(
@@ -501,7 +500,7 @@ def _live_properties(
         f"{{{DAV}}}resourcetype": _xml_element(f"{{{DAV}}}resourcetype"),
         f"{{{DAV}}}getcontentlength": _xml_element(
             f"{{{DAV}}}getcontentlength",
-            str(int(document.get("size", 0))) if authoritative_file else str(stat.st_size),
+            str(catalog_entry.size) if authoritative_file else str(stat.st_size),
         ),
         f"{{{DAV}}}getcontenttype": _xml_element(f"{{{DAV}}}getcontenttype", mimetypes.guess_type(path.name)[0] or "application/octet-stream"),
         f"{{{DAV}}}getetag": _xml_element(f"{{{DAV}}}getetag", _etag(document or {})),
