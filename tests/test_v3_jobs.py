@@ -60,5 +60,24 @@ class V3JobTests(unittest.TestCase):
         self.assertEqual(1,metrics["queued"])
 
 
+    def test_new_worker_instance_recovers_expired_process_lease(self):
+        job=self.store.enqueue("test",{"payload":"kept"},"alice",idempotency_key="process-restart")
+        abandoned=self.store.claim("worker-before-crash",lease_seconds=5,now=100)
+        self.assertEqual(job.job_id,abandoned.job_id)
+        self.assertEqual("running",abandoned.state)
+
+        seen=[]
+        replacement=JobWorker(
+            JobStore(self.root),
+            {"test":lambda current: seen.append((current.job_id,current.payload))},
+            "worker-after-restart",
+        )
+        self.assertIsNone(replacement.run_once(now=104))
+        recovered=replacement.run_once(now=106)
+        self.assertEqual("succeeded",recovered.state)
+        self.assertEqual(2,recovered.attempt)
+        self.assertEqual([(job.job_id,{"payload":"kept"})],seen)
+
+
 if __name__=="__main__":
     unittest.main()
