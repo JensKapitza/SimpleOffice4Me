@@ -52,9 +52,12 @@ Dokumentkatalog bezieht die autoritativen Dokumentfelder im V2-Modus über
 verifizierte, private Materialisierung statt die persistente
 DocumentStore-Klartextprojektion.
 
-OAuth/OIDC ist dafür keine generelle Laufzeitvoraussetzung. Die vorhandenen
-Peer-Protokolle verwenden ihre dokumentierten peer-spezifischen
-Authentisierungs- und Autorisierungsnachweise. HTTPS bleibt für produktive
+OAuth/OIDC ist dafür keine generelle Laufzeitvoraussetzung. Endpunkte mit
+Peer-HMAC binden den Nachweis an den jeweiligen Peer. Daneben existieren noch
+Kompatibilitätsendpunkte, insbesondere V3 und der Legacy-Katalog, die den
+gemeinsamen `SIMPLEOFFICE_FEDERATION_TOKEN` als Bearer prüfen. Dieser Token
+isoliert Anmeldeinformationen und Impersonation-Risiko daher nicht pro Peer und
+ist eine ausdrücklich verbleibende Härtungsgrenze. HTTPS bleibt für produktive
 Netzverbindungen erforderlich; lokale Denies, Scope-Grenzen und
 Capability-Prüfungen dürfen durch keinen Transport umgangen werden.
 
