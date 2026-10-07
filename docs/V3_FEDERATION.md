@@ -11,7 +11,9 @@ SIMPLEOFFICE_V3_FEDERATION_ENABLED=true
 SIMPLEOFFICE_FEDERATION_PEER_ID=<stable local peer id>
 ```
 
-Authentication continues to use the configured federation bearer token (`SIMPLEOFFICE_FEDERATION_TOKEN`). Enabling the 3.0 capability does not grant trust and does not enable any data class automatically.
+Peer identity is authenticated with the existing SOFP peer-bound HMAC contract. The proof binds the configured peer ID, HTTP method and path, timestamp, nonce and request-body hash to that peer's unique credential. Identity-bearing operations such as `POST /receive` and `POST /peers/<peer_id>/capabilities` require this proof; the authenticated peer must match the envelope sender or path peer.
+
+The global `SIMPLEOFFICE_FEDERATION_TOKEN` remains temporarily accepted only for identity-neutral compatibility calls such as `GET /capabilities`. It authenticates access to the server but **does not establish peer identity** and cannot authorize an envelope sender. Existing legacy catalog reads likewise keep the bearer compatibility path while preferring peer HMAC. Operators should configure a unique token per peer and migrate callers to HMAC before the legacy compatibility path is removed. Enabling the 3.0 capability does not grant trust and does not enable any data class automatically.
 
 ## Contract
 

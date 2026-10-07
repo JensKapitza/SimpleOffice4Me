@@ -7,6 +7,7 @@ import os
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .db import get_db
+from .federation_peer_auth import authenticate as authenticate_peer, authenticated_peer
 from .v3_capabilities import enabled
 from .v3_federation import FederationContract, capability_descriptor
 
@@ -19,12 +20,30 @@ def _bearer() -> str:
     return header[7:].strip() if header.startswith("Bearer ") else ""
 
 
-def _authorized() -> bool:
+def _legacy_bearer_authorized() -> bool:
+    """Compatibility only: authenticates the server credential, never a peer identity."""
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     supplied = _bearer()
     if expected and supplied and hmac.compare_digest(expected, supplied):
         return True
     return bool(current_app.testing and not expected)
+
+
+def _authenticated_peer() -> str:
+    root = current_app.config["DOCUMENT_ROOT"]
+    cached = authenticated_peer(root, request)
+    if cached:
+        return cached
+    try:
+        return authenticate_peer(root, request)
+    except (TypeError, ValueError):
+        return ""
+
+
+def _authorized() -> bool:
+    # Peer HMAC is preferred. The shared bearer remains a bounded compatibility
+    # path for identity-neutral calls only.
+    return bool(_authenticated_peer()) or _legacy_bearer_authorized()
 
 
 def _local_peer_id() -> str:
@@ -64,6 +83,11 @@ def capabilities():
 
 @bp.post("/peers/<peer_id>/capabilities")
 def remember_capabilities(peer_id: str):
+    source_peer = _authenticated_peer()
+    if not source_peer:
+        return jsonify({"error": "peer_authentication_required"}), 401
+    if source_peer != peer_id:
+        return jsonify({"error": "peer_identity_mismatch"}), 403
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"error": "invalid_capabilities"}), 400
@@ -80,9 +104,14 @@ def remember_capabilities(peer_id: str):
 
 @bp.post("/receive")
 def receive():
+    source_peer = _authenticated_peer()
+    if not source_peer:
+        return jsonify({"status": "rejected", "error": "peer_authentication_required"}), 401
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return jsonify({"status": "rejected", "error": "invalid_envelope"}), 400
+    if str(payload.get("sender_instance") or "").strip() != source_peer:
+        return jsonify({"status": "rejected", "error": "peer_identity_mismatch"}), 403
     try:
         result = FederationContract(
             current_app.config["DOCUMENT_ROOT"],

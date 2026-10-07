@@ -7,6 +7,8 @@ from flask import Flask
 
 from app.document_store import DocumentStore
 from app.federation_catalog_http import bp
+from app.federation_peer_auth import headers as peer_headers
+from app.federation_store import FederationStore
 
 
 class FederationCatalogHttpTest(unittest.TestCase):
@@ -16,6 +18,8 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
+        self.context = self.app.app_context()
+        self.context.push()
         self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "catalog-token"
         store = DocumentStore(self.root)
@@ -33,8 +37,12 @@ class FederationCatalogHttpTest(unittest.TestCase):
         )
         self.client = self.app.test_client()
         self.auth = {"Authorization": "Bearer catalog-token"}
+        FederationStore(self.root).save_peer(
+            "remote-peer", "Remote", "https://remote.example.test", "remote-peer-token",
+        )
 
     def tearDown(self):
+        self.context.pop()
         if self.previous is None:
             os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
         else:
@@ -44,6 +52,17 @@ class FederationCatalogHttpTest(unittest.TestCase):
     def test_catalog_requires_authentication(self):
         response = self.client.get("/federation/v1/catalog/documents")
         self.assertEqual(response.status_code, 401)
+
+    def test_catalog_accepts_peer_bound_hmac_without_legacy_bearer(self):
+        path = "/federation/v1/catalog/documents"
+        response = self.client.get(
+            path, headers=peer_headers("remote-peer", "remote-peer-token", "GET", path, b""),
+        )
+        self.assertEqual(response.status_code, 200)
+
+    def test_catalog_keeps_global_bearer_as_identity_neutral_legacy_compatibility(self):
+        response = self.client.get("/federation/v1/catalog/documents", headers=self.auth)
+        self.assertEqual(response.status_code, 200)
 
     def test_catalog_exports_documents_and_origin_tags(self):
         response = self.client.get("/federation/v1/catalog/documents", headers=self.auth)

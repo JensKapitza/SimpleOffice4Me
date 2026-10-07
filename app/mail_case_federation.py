@@ -15,6 +15,7 @@ from pathlib import Path
 from .document_store import CONTROL_DIR
 from .federation_core import sanitize_peer_id
 from .federation_store import FederationStore
+from .federation_peer_auth import headers as peer_auth_headers
 from .mail_case_store import PERMISSIONS
 from .sqlite_utils import connect as sqlite_connect
 
@@ -70,12 +71,16 @@ def send_mail_case_event(root: str | Path, local_peer_id: str, peer_id: str,
     token = contract.peers.peer_token(peer_id)
     if not token:
         raise PermissionError("peer federation credential is not configured")
+    path = "/federation/v3/receive"
+    body = json.dumps(envelope.to_mapping(), ensure_ascii=False,
+                      separators=(",", ":")).encode("utf-8")
+    signed_headers = peer_auth_headers(local_peer_id, token, "POST", path, body)
     request = urllib.request.Request(
-        f"{base_url}/federation/v3/receive",
-        data=json.dumps(envelope.to_mapping(), ensure_ascii=False,
-                        separators=(",", ":")).encode("utf-8"),
+        f"{base_url}{path}",
+        data=body,
         headers={"Authorization": f"Bearer {token}",
-                 "Content-Type": "application/json", "Accept": "application/json"},
+                 "Content-Type": "application/json", "Accept": "application/json",
+                 **signed_headers},
         method="POST",
     )
     opener = urllib.request.build_opener(_NoRedirect())
