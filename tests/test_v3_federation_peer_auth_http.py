@@ -25,6 +25,11 @@ class V3FederationPeerAuthHttpTest(unittest.TestCase):
         os.environ["SIMPLEOFFICE_V3_FEDERATION_ENABLED"] = "true"
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "legacy-global-token"
         os.environ["SIMPLEOFFICE_FEDERATION_PEER_ID"] = "local-peer"
+        self.app = Flask(__name__)
+        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
+        self.app.register_blueprint(v3_bp)
+        self.context = self.app.app_context()
+        self.context.push()
         self.store = FederationStore(self.root)
         self.store.save_peer(
             "remote-peer", "Remote", "https://remote.example.test", "remote-peer-token",
@@ -36,12 +41,10 @@ class V3FederationPeerAuthHttpTest(unittest.TestCase):
         FederationContract(self.root, "local-peer").store.remember_capabilities(
             "remote-peer", {"envelope_versions": [1], "objects": {"documents": [1]}},
         )
-        self.app = Flask(__name__)
-        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
-        self.app.register_blueprint(v3_bp)
         self.client = self.app.test_client()
 
     def tearDown(self):
+        self.context.pop()
         for key, value in self.saved.items():
             if value is None:
                 os.environ.pop(key, None)
