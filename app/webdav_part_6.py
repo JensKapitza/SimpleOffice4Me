@@ -689,6 +689,24 @@ def endpoint(path: str):
     current_etag = _etag(document)
     common_headers = {"ETag": current_etag, "Accept-Ranges": "bytes", "Cache-Control": "private, no-cache"}
     if request.method in {"GET", "HEAD"}:
+        if _vfs()._authoritative_v2():
+            materialized = materialize_verified_object(
+                current_app.config["DOCUMENT_ROOT"],
+                f"webdav:{username}",
+                str(document["document_id"]),
+                suffix=Path(document_path.name).suffix,
+            )
+            try:
+                source = materialized.__enter__()
+                response = _download_response(
+                    source, username, document, "application/octet-stream",
+                    property_path=document_path,
+                )
+            except Exception:
+                materialized.__exit__(*sys.exc_info())
+                raise
+            response.call_on_close(lambda: materialized.__exit__(None, None, None))
+            return response
         return _download_response(document_path, username, document, "application/octet-stream")
     if request.method == "LOCK":
         response = _lock_request(username, document_path, document, request.url)
