@@ -2,6 +2,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.v3_jobs import JobStore, JobWorker, RetryableJobError
 
@@ -72,8 +73,10 @@ class V3JobTests(unittest.TestCase):
             {"test":lambda current: seen.append((current.job_id,current.payload))},
             "worker-after-restart",
         )
-        self.assertIsNone(replacement.run_once(now=104))
-        recovered=replacement.run_once(now=106)
+        with patch("app.v3_jobs.time.time", return_value=104):
+            self.assertIsNone(replacement.run_once())
+        with patch("app.v3_jobs.time.time", return_value=106):
+            recovered=replacement.run_once()
         self.assertEqual("succeeded",recovered.state)
         self.assertEqual(2,recovered.attempt)
         self.assertEqual([(job.job_id,{"payload":"kept"})],seen)
