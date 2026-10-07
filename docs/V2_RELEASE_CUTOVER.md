@@ -64,16 +64,18 @@ the compatibility namespace; this does not enable destructive legacy cleanup.
 
 ## Remaining post-2.0 cleanup
 
-Issue #471 continues to track the remaining compatibility window:
+This section records the compatibility inventory at the **2.0 cutover**. At that
+point #471 still included DocumentStore mutation/recovery, WebDAV, direct
+business/rental/photo/contact/replication readers and legacy Federation
+managed-file consumers. Several of those content readers were subsequently
+migrated to verified StoragePort materialization.
 
-- DocumentStore mutation/recovery still persists plaintext document files,
-- WebDAV still has direct managed-file path consumers,
-- business/rental/photo/contact/replication paths still contain direct document
-  file consumers,
-- legacy federation transfer still contains a direct managed-file path consumer.
-
-Those paths must move to StoragePort/V2 materialization before the global
-`requires_legacy_projection` capability can safely become false.
+For the current removal decision, do not use this historical cutover snapshot
+as the live blocker list. The authoritative current inventory is
+`legacy_cleanup_status(...)` together with
+[V2 Legacy Cleanup](V2_LEGACY_CLEANUP.md). The global
+`requires_legacy_projection` capability must remain true until that current
+inventory, Shadow/Rollback acceptance and Restore acceptance are clear.
 
 ## Release claim
 
