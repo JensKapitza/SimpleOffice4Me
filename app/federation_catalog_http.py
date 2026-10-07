@@ -11,6 +11,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore
 from .federation_core import normalize_sha256
+from .federation_peer_auth import authenticate as authenticate_peer
 from .v2.contracts import ErrorCode, LogicalObjectId
 from .v2.storage_runtime import storage_for
 
@@ -23,9 +24,17 @@ def _store() -> DocumentStore:
 
 
 def _authorized() -> bool:
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        authenticate_peer(root, request)
+        return True
+    except (TypeError, ValueError):
+        pass
     from .federation_moderation_auth import legacy_peer_allowed
-    if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
+    if not legacy_peer_allowed(root, request):
         return False
+    # Compatibility only. This bearer authenticates access to the legacy
+    # catalog, but it must never be treated as proof of a particular peer.
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if not expected:
         return bool(current_app.testing)
