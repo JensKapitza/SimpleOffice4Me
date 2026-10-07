@@ -697,9 +697,11 @@ def endpoint(path: str):
             )
             try:
                 source = materialized.__enter__()
+                catalog_entry = _vfs().authoritative_entry(document_path)
                 response = _download_response(
                     source, username, document, "application/octet-stream",
                     property_path=document_path,
+                    modified_at=catalog_entry.updated_at,
                 )
             except Exception:
                 materialized.__exit__(*sys.exc_info())
