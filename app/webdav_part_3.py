@@ -647,6 +647,16 @@ def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tu
     if depth == "0":
         return []
     members: list[tuple[Path, bool, dict | None]] = []
+    catalog_members: dict[str, tuple[Path, bool, dict | None]] = {}
+    if username and _vfs()._authoritative_v2():
+        for entry in _vfs().authoritative_children(resource):
+            virtual_path = _vfs().resolve(entry.location.relative_path)
+            try:
+                document = _store().get_document(entry.object_id.value)
+            except ValueError:
+                continue
+            if _vfs().allows(username, virtual_path, "read"):
+                catalog_members[virtual_path.name] = (virtual_path, False, document)
     pending: list[tuple[Path, int]] = [(resource, 0)]
     visited = 0
     while pending:
@@ -657,7 +667,7 @@ def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tu
             raise _PropfindLimitError("tree-changed", len(members), 0) from exc
         nested_collections: list[tuple[Path, int]] = []
         for child in children:
-            if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
+            if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ".simpleoffice-v2"} or child.is_symlink():
                 continue
             if username and not _vfs().allows(username, child, "read"):
                 continue
@@ -684,6 +694,16 @@ def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tu
                     members.append((child, False, document))
             except OSError as exc:
                 raise _PropfindLimitError("tree-changed", len(members), 0) from exc
+        if parent == resource:
+            existing = {item[0].name for item in members}
+            for name, item in sorted(catalog_members.items(), key=lambda pair: pair[0].casefold()):
+                if name not in existing:
+                    members.append(item)
+                    visited += 1
+                    if visited > MAX_WEBDAV_COLLECTION_MEMBERS:
+                        raise _PropfindLimitError(
+                            "member-count", visited, MAX_WEBDAV_COLLECTION_MEMBERS,
+                        )
         pending.extend(reversed(nested_collections))
     return members
 
