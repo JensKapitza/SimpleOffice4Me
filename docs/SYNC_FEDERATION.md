@@ -54,10 +54,14 @@ DocumentStore-Klartextprojektion.
 
 OAuth/OIDC ist dafür keine generelle Laufzeitvoraussetzung. Endpunkte mit
 Peer-HMAC binden den Nachweis an den jeweiligen Peer. Daneben existieren noch
-Kompatibilitätsendpunkte, insbesondere V3 und der Legacy-Katalog, die den
-gemeinsamen `SIMPLEOFFICE_FEDERATION_TOKEN` als Bearer prüfen. Dieser Token
-isoliert Anmeldeinformationen und Impersonation-Risiko daher nicht pro Peer und
-ist eine ausdrücklich verbleibende Härtungsgrenze. HTTPS bleibt für produktive
+Kompatibilitätsendpunkte. V3 verlangt für identitätsbehaftete Aufrufe wie
+`/receive` und Peer-Capability-Updates inzwischen den vorhandenen Peer-HMAC;
+der authentifizierte Peer muss zur Sender-ID im Envelope bzw. zur Peer-ID im
+Pfad passen. Der Legacy-Katalog bevorzugt denselben Peer-HMAC, akzeptiert den
+gemeinsamen `SIMPLEOFFICE_FEDERATION_TOKEN` während des Kompatibilitätsfensters
+aber weiterhin als rein serverbezogenen Bearer. Dieser Bearer beweist niemals
+eine Peer-Identität und darf nicht für peerbezogene Autorisierung verwendet
+werden. HTTPS bleibt für produktive
 Netzverbindungen erforderlich; lokale Denies, Scope-Grenzen und
 Capability-Prüfungen dürfen durch keinen Transport umgangen werden.
 
