@@ -238,6 +238,31 @@ class VirtualFileSystem:
 
         return sorted(result.values(), key=lambda item: item.name.casefold())
 
+    def authoritative_children(self, path: str | Path):
+        """Return active V2 catalog files directly below a virtual directory."""
+        if not self._authoritative_v2():
+            return []
+        relative = self.relative(self.resolve(path))
+        prefix = "" if relative == "." else relative.rstrip("/") + "/"
+        children = []
+        for entry in self._catalog().list():
+            if entry.state is not CatalogState.ACTIVE or not entry.location.relative_path.startswith(prefix):
+                continue
+            remainder = entry.location.relative_path[len(prefix):]
+            if remainder and "/" not in remainder:
+                children.append(entry)
+        return children
+
+    def authoritative_entry(self, path: str | Path):
+        """Return the active V2 catalog entry for a virtual file path."""
+        if not self._authoritative_v2():
+            return None
+        relative = self.relative(self.resolve(path))
+        catalog = self._catalog().get_by_location(StorageLocation(relative))
+        if not catalog.ok or catalog.value.state is not CatalogState.ACTIVE:
+            raise FileNotFoundError(relative)
+        return catalog.value
+
     def file_entry(self, actor: str, path: str | Path) -> VirtualEntry:
         """Return authorized file metadata without exposing a physical storage path."""
         resource = self.require(actor, path, "read")

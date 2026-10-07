@@ -7,7 +7,46 @@ else:
     from webdav_test_base import *
 
 
+from app.v2.cutover import activate_v2, prepare_shadow
+from app.v2.migration import create_migration_backup, transfer_legacy_documents
+
+
 class WebDavDocumentTestPart1(WebDavTestBase):
+    def test_authoritative_v2_stable_get_head_and_range_do_not_require_plaintext_projection(self):
+        root = Path(app.config["DOCUMENT_ROOT"])
+        backup = Path(self.temp.name) / "v2-backup"
+        create_migration_backup(root, backup)
+        transfer_legacy_documents(root, backup)
+        prepare_shadow(root, apply=True, acknowledge_local_plaintext=True)
+        activate_v2(root, apply=True, acknowledge_local_plaintext=True)
+        (root / "angebot.odt").unlink()
+
+        full = self.client.get(self.url, headers=self.auth)
+        head = self.client.head(self.url, headers=self.auth)
+        partial = self.client.get(self.url, headers={**self.auth, "Range": "bytes=6-11"})
+        propfind = self.client.open(self.url, method="PROPFIND", headers={**self.auth, "Depth": "0"})
+        listing = self.client.open(self.files, method="PROPFIND", headers={**self.auth, "Depth": "1"})
+        not_modified = self.client.get(
+            self.url, headers={**self.auth, "If-Modified-Since": full.headers["Last-Modified"]}
+        )
+
+        self.assertEqual(200, full.status_code)
+        self.assertEqual(b"first office version", full.data)
+        self.assertEqual(200, head.status_code)
+        self.assertEqual(b"", head.data)
+        self.assertEqual(str(len(b"first office version")), head.headers["Content-Length"])
+        self.assertEqual(206, partial.status_code)
+        self.assertEqual(b"office", partial.data)
+        self.assertEqual("bytes 6-11/20", partial.headers["Content-Range"])
+        self.assertEqual(full.headers["ETag"], head.headers["ETag"])
+        self.assertEqual(full.headers["ETag"], partial.headers["ETag"])
+        self.assertEqual(207, propfind.status_code)
+        self.assertIn("20", propfind.get_data(as_text=True))
+        self.assertEqual(207, listing.status_code)
+        self.assertIn("angebot.odt", listing.get_data(as_text=True))
+        self.assertEqual(304, not_modified.status_code)
+        self.assertEqual(full.headers["Last-Modified"], head.headers["Last-Modified"])
+
     def test_libreoffice_page_exposes_url_but_never_app_password(self):
         response = self.client.get(f"/documents/{self.document['document_id']}/libreoffice")
         body = response.get_data(as_text=True)

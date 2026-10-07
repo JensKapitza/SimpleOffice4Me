@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import shutil
+import sys
 import threading
 import unicodedata
 import uuid
@@ -43,6 +44,7 @@ from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_file_under
 from .ssh_keys import add_key, keys_for, revoke_key
 from .virtual_filesystem import VirtualFileSystem
+from .v2.materialize import materialize_verified_object
 from .db import get_db
 
 
@@ -690,12 +692,21 @@ def _missing_method_privilege(method: str) -> str:
 def _document_path(document: dict) -> Path:
     store = _store()
     try:
+        if _vfs()._authoritative_v2():
+            # The retained V1 projection is not authoritative in V2 mode.
+            # Keep the user-visible namespace for ACLs/WebDAV properties even
+            # when no plaintext managed file exists at that location.
+            return _vfs().resolve(str(document.get("last_path", "")))
         return resolve_file_under(store.root, str(document.get("last_path", "")))
     except (OSError, ValueError) as exc:
         raise ValueError("document unavailable") from exc
 
 
 def _etag(document: dict) -> str:
+    if _vfs()._authoritative_v2():
+        digest = str(document.get("sha256", "")).strip().lower()
+        if re.fullmatch(r"[0-9a-f]{64}", digest):
+            return f'"{digest}"'
     path = _document_path(document)
     return f'"{sha256_file(path)}"'
 

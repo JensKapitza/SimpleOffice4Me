@@ -224,7 +224,7 @@ def _iter_file_range(handle, start: int, end: int):
         yield chunk
 
 
-def _download_response(path: Path, username: str, document: dict, media_type: str) -> Response:
+def _download_response(path: Path, username: str, document: dict, media_type: str, *, property_path: Path | None = None, modified_at: int | None = None) -> Response:
     """Return a conditional, range-capable response from one stable open-file snapshot."""
     try:
         handle = path.open("rb")
@@ -239,7 +239,8 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
         size = stat.st_size
         etag = f'"{digest.hexdigest()}"'
         representation_digest = _digest_value("sha-256", digest.digest())
-        last_modified = formatdate(stat.st_mtime, usegmt=True)
+        resource_mtime = int(stat.st_mtime) if modified_at is None else int(modified_at)
+        last_modified = formatdate(resource_mtime, usegmt=True)
         headers = {
             "ETag": etag,
             "Repr-Digest": representation_digest,
@@ -247,7 +248,7 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
             "Accept-Ranges": "bytes",
             "Cache-Control": "private, no-cache",
         }
-        content_language = _content_language(username, path, document)
+        content_language = _content_language(username, property_path or path, document)
         if content_language:
             headers["Content-Language"] = content_language
 
@@ -258,7 +259,7 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
         if if_match is None:
             unmodified = request.headers.get("If-Unmodified-Since")
             unmodified_at = _http_date_timestamp(unmodified) if unmodified else None
-            if unmodified_at is not None and int(stat.st_mtime) > unmodified_at:
+            if unmodified_at is not None and resource_mtime > unmodified_at:
                 handle.close()
                 return Response("", 412, headers)
 
@@ -269,7 +270,7 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
         if if_none_match is None:
             modified = request.headers.get("If-Modified-Since")
             modified_at = _http_date_timestamp(modified) if modified else None
-            if modified_at is not None and int(stat.st_mtime) <= modified_at:
+            if modified_at is not None and resource_mtime <= modified_at:
                 handle.close()
                 return Response("", 304, headers)
 

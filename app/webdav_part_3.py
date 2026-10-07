@@ -455,16 +455,24 @@ def _live_properties(
         **(_search_discovery_live_properties(collection=collection) if searchable else {}),
     }
     path = resource or (_document_path(document) if document else None)
+    stat = None
+    authoritative_file = bool(document and not collection and _vfs()._authoritative_v2())
     if path is not None:
         created_at = _resource_creationdate(path, document, collection=collection)
         if created_at:
             values[f"{{{DAV}}}creationdate"] = _xml_element(
                 f"{{{DAV}}}creationdate", created_at,
             )
-        stat = path.stat()
-        values[f"{{{DAV}}}getlastmodified"] = _xml_element(
-            f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
-        )
+        catalog_entry = _vfs().authoritative_entry(path) if authoritative_file else None
+        if authoritative_file:
+            values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+                f"{{{DAV}}}getlastmodified", formatdate(catalog_entry.updated_at, usegmt=True),
+            )
+        else:
+            stat = path.stat()
+            values[f"{{{DAV}}}getlastmodified"] = _xml_element(
+                f"{{{DAV}}}getlastmodified", formatdate(stat.st_mtime, usegmt=True),
+            )
     if collection:
         resource_type = ElementTree.Element(f"{{{DAV}}}resourcetype")
         ElementTree.SubElement(resource_type, f"{{{DAV}}}collection")
@@ -490,7 +498,10 @@ def _live_properties(
         return values
     values.update({
         f"{{{DAV}}}resourcetype": _xml_element(f"{{{DAV}}}resourcetype"),
-        f"{{{DAV}}}getcontentlength": _xml_element(f"{{{DAV}}}getcontentlength", str(stat.st_size)),
+        f"{{{DAV}}}getcontentlength": _xml_element(
+            f"{{{DAV}}}getcontentlength",
+            str(catalog_entry.size) if authoritative_file else str(stat.st_size),
+        ),
         f"{{{DAV}}}getcontenttype": _xml_element(f"{{{DAV}}}getcontenttype", mimetypes.guess_type(path.name)[0] or "application/octet-stream"),
         f"{{{DAV}}}getetag": _xml_element(f"{{{DAV}}}getetag", _etag(document or {})),
     })
@@ -636,6 +647,16 @@ def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tu
     if depth == "0":
         return []
     members: list[tuple[Path, bool, dict | None]] = []
+    catalog_members: dict[str, tuple[Path, bool, dict | None]] = {}
+    if username and _vfs()._authoritative_v2():
+        for entry in _vfs().authoritative_children(resource):
+            virtual_path = _vfs().resolve(entry.location.relative_path)
+            try:
+                document = _store().get_document(entry.object_id.value)
+            except ValueError:
+                continue
+            if _vfs().allows(username, virtual_path, "read"):
+                catalog_members[virtual_path.name] = (virtual_path, False, document)
     pending: list[tuple[Path, int]] = [(resource, 0)]
     visited = 0
     while pending:
@@ -646,7 +667,7 @@ def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tu
             raise _PropfindLimitError("tree-changed", len(members), 0) from exc
         nested_collections: list[tuple[Path, int]] = []
         for child in children:
-            if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE} or child.is_symlink():
+            if child.name in {CONTROL_DIR, HISTORY_DIR, POLICY_FILE, ".simpleoffice-v2"} or child.is_symlink():
                 continue
             if username and not _vfs().allows(username, child, "read"):
                 continue
@@ -673,6 +694,16 @@ def _propfind_members(resource: Path, depth: str, username: str = "") -> list[tu
                     members.append((child, False, document))
             except OSError as exc:
                 raise _PropfindLimitError("tree-changed", len(members), 0) from exc
+        if parent == resource:
+            existing = {item[0].name for item in members}
+            for name, item in sorted(catalog_members.items(), key=lambda pair: pair[0].casefold()):
+                if name not in existing:
+                    members.append(item)
+                    visited += 1
+                    if visited > MAX_WEBDAV_COLLECTION_MEMBERS:
+                        raise _PropfindLimitError(
+                            "member-count", visited, MAX_WEBDAV_COLLECTION_MEMBERS,
+                        )
         pending.extend(reversed(nested_collections))
     return members
 
