@@ -166,13 +166,14 @@ I/O. The separate catalog listing and content-defined block manifest,
 repair and rebalance still retain projection dependencies.
 
 The gate now publishes an explicit remaining-consumer inventory. Persistent V2
-writes/recovery still project document content into `DocumentStore`, WebDAV
-still has direct managed-file consumers, and business/rental/photo/contact/
-replication plus catalog listing and content-defined block indexing,
-repair and rebalance still include compatibility-path readers. Directory and
-access-policy handling also continues to use the compatibility namespace.
-Therefore the global cleanup flag must remain true and destructive cleanup
-remains blocked.
+writes/recovery still project document content into `DocumentStore`, and WebDAV
+still has direct managed-file consumers. The earlier business/rental/photo/
+contact/replication content readers have been reduced by the StoragePort
+migrations documented above; the remaining dependency is DocumentStore-based
+enumeration and metadata/policy read models, including catalog metadata.
+Legacy global Federation block indexing/cache, repair and rebalance also retain
+compatibility-path dependencies. Therefore the global cleanup flag must remain
+true and destructive cleanup remains blocked.
 
 These retained paths are an explicit post-V2 compatibility window tracked by
 #471. They do not change V2 storage authority and must not be bypassed by a
