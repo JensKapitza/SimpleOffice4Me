@@ -42,12 +42,33 @@ Ein externes Archiv erhält im Wurzelordner die kleine Datei `.simpleoffice-arch
 
 Die Suche liest nur den Wurzelordner eines Laufwerks und folgt keinen Links. So ist sie schnell und durchsucht keine fremden Daten. Der konkrete Einhängepunkt wird zuletzt gesehen gespeichert; nicht angeschlossene Archive bleiben als „nicht verbunden“ sichtbar.
 
-## Föderation: Katalog teilen, Verantwortung behalten
+## Föderation: aktueller Stand und Kompatibilitätsgrenze
 
-Für die nächste Ausbaustufe wird jeder Knoten einen kleinen, signierten Katalog-Endpunkt anbieten. Er liefert nur die vom Eigentümer freigegebenen Felder: Dokument-ID, Titel/Pfad-Alias, Hash, Tags, Zustand, Version, Aufbewahrungsstatus und eine Abruf-URL. Die Datei selbst und private Notizen bleiben beim verantwortlichen System, bis eine berechtigte Person sie explizit öffnet.
+Föderation ist keine reine Zukunftsplanung mehr. SimpleOffice4Me besitzt heute
+authentifizierte Peer-Kopplung, Katalog- und Transferpfade sowie den persistenten
+V2-Desired-State-Pfad mit deny-first Route Policy und Capability-Grants. Der
+Dokumentkatalog bezieht die autoritativen Dokumentfelder im V2-Modus über
+`StoragePort`; dokumentgebundene V2-Downloads und Blockmanifeste verwenden
+verifizierte, private Materialisierung statt die persistente
+DocumentStore-Klartextprojektion.
 
-Ein föderierter Suchtreffer zeigt daher immer Eigentümer-Knoten und Archiv-ID, Online-Status der Originaldatei, Rechte für Metadaten/Datei/Bearbeitung sowie die unveränderliche Hash-/Versionskennung.
+OAuth/OIDC ist dafür keine generelle Laufzeitvoraussetzung. Die vorhandenen
+Peer-Protokolle verwenden ihre dokumentierten peer-spezifischen
+Authentisierungs- und Autorisierungsnachweise. HTTPS bleibt für produktive
+Netzverbindungen erforderlich; lokale Denies, Scope-Grenzen und
+Capability-Prüfungen dürfen durch keinen Transport umgangen werden.
 
-Knoten tauschen Katalogänderungen inkrementell über Ereignis-IDs aus; keine globale Schreibreplikation. Änderungen an einem fremden Dokument werden als signierte Anfrage an den Eigentümer gesendet und dort mit Benutzer und Git-Revision protokolliert. Dies ermöglicht eine Cockpit-artige zentrale Sicht, ohne Zuständigkeiten oder Aufbewahrungsfristen zu vermischen.
+Ältere SOFP-v1- und `federation_transfer`-Pfade bleiben für Alt-Peers bewusst
+erhalten. Insbesondere globale Legacy-Blockindex/-cache-, Reparatur- und
+Rebalance-Pfade sowie weitere DocumentStore-basierte Enumeration und
+Metadaten-/Policy-Readmodelle gehören noch zum Kompatibilitätsfenster. Sie
+dürfen erst entfernt werden, wenn die in
+[V2 Legacy Cleanup](V2_LEGACY_CLEANUP.md) dokumentierten Readiness-,
+Shadow-/Rollback- und Restore-Gates erfüllt sind. Der aktuelle
+`legacy_cleanup_status(...)`-Gate ist deshalb fail-closed; zurückbehaltene
+Legacy-Daten sind noch keine freigegebenen Löschkandidaten.
 
-Vor einer produktiven Föderation sind OAuth/OIDC, pro Knoten ein Schlüsselpaar, HTTPS und ein Rechteabgleich zwingend. Sie werden nicht durch einen offenen Dateishare ersetzt.
+Die Protokollgrenzen und aktuellen V2-/V3-Federationspfade sind in
+[Federation Protocol](FEDERATION_PROTOCOL.md),
+[V2 Federation Jobs](V2_FEDERATION_JOBS.md) und
+[V3 Federation](V3_FEDERATION.md) beschrieben.
