@@ -224,7 +224,7 @@ def _iter_file_range(handle, start: int, end: int):
         yield chunk
 
 
-def _download_response(path: Path, username: str, document: dict, media_type: str) -> Response:
+def _download_response(path: Path, username: str, document: dict, media_type: str, *, property_path: Path | None = None) -> Response:
     """Return a conditional, range-capable response from one stable open-file snapshot."""
     try:
         handle = path.open("rb")
@@ -247,7 +247,7 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
             "Accept-Ranges": "bytes",
             "Cache-Control": "private, no-cache",
         }
-        content_language = _content_language(username, path, document)
+        content_language = _content_language(username, property_path or path, document)
         if content_language:
             headers["Content-Language"] = content_language
 
