@@ -84,8 +84,16 @@ echo "SimpleOffice4Me: installiere Build-Abhaengigkeiten ..."
 run_root apt-get update
 run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 
-if ! python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1; then
-  echo "Python >= 3.10 wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
+if [ -r /etc/os-release ] \
+  && [ "$(. /etc/os-release; printf '%s' "${ID:-}")" = "ubuntu" ] \
+  && [ "$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")" = "22.04" ] \
+  && [ "$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')" = "3.10" ]; then
+  run_root env SIMPLEOFFICE_RUNTIME_PROOF_DIR=/var/cache/simpleoffice4me/runtime-proof \
+    python3 "$ROOT/simpleoffice_runtime_support.py" --write-proof
+fi
+
+if ! python3 "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
+  echo "CPython 3.11–3.14 oder Ubuntu-22.04-System-Python 3.10 wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
   exit 2
 fi
 

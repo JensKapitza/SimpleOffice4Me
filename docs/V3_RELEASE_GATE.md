@@ -21,7 +21,7 @@ The additional compatibility job now selects Python `3.15.0-rc.3` rather than
 RC2. Publication was verified against the official
 [CPython RC3 tag](https://github.com/python/cpython/releases/tag/v3.15.0rc3)
 and the [GitHub Actions runtime release](https://github.com/actions/python-versions/releases/tag/3.15.0-rc.3-37256039299),
-published on 2026-10-05 with an Ubuntu 24.04 x64 build. Python 3.10 and 3.14
+published on 2026-10-05 with an Ubuntu 24.04 x64 build. Canonical Ubuntu 22.04 system Python 3.10 (limited vendor exception), 3.11 and 3.14
 remain in the required matrix. Issue #474 remains an ongoing tracker; RC3 is
 not a final Python release or approval for SimpleOffice4Me 3.0. Historical
 RC2 test counts below remain evidence for their original commits.
@@ -167,3 +167,7 @@ The 15 skipped tests are optional integration checks. A local raw-interpreter ru
 ## Required to approve #506
 
 Attach dated evidence for each external item above to the intended release commit, including the tested build/commit, deployment configuration, client/device/peer versions, dataset/workload characteristics, results, failures, and recovery actions. Keep #506 open until all open and partial items are closed with that evidence. Keep roadmap #505 open until its own Definition of Done and the selected 3.0 release gate are both satisfied.
+
+Runtime support after upstream 3.10 EOL is defined in [PYTHON_RUNTIME_SUPPORT.md](PYTHON_RUNTIME_SUPPORT.md).
+Historical 3.10 runs below are compatibility evidence, not upstream security support.
+3.15 RC3 remains a prerelease probe; final release and a new acceptance review are required before production approval.

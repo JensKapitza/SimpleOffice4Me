@@ -17,22 +17,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  windows-runtime-start:
+    name: Windows runtime selection
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up supported Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Verify existing venv selection and rejection before installation
+        run: python -m unittest discover -s tests -p test_windows_runtime_start.py -v
+
   tests:
-    name: Python ${{ matrix.python-version }}
-    runs-on: ubuntu-24.04
+    name: Python ${{ matrix.python-version }} (${{ matrix.runtime }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.14", "3.15.0-rc.3"]
+        include:
+          - {python-version: "3.10", os: ubuntu-22.04, runtime: jammy-system}
+          - {python-version: "3.11", os: ubuntu-24.04, runtime: stable}
+          - {python-version: "3.14", os: ubuntu-24.04, runtime: stable}
+          - {python-version: "3.15.0-rc.3", os: ubuntu-24.04, runtime: prerelease}
+    env:
+      SIMPLEOFFICE_ALLOW_PRERELEASE: ${{ matrix.runtime == 'prerelease' && '1' || '0' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Canonical Jammy Python (no setup-python upstream 3.10)
+        if: matrix.runtime == 'jammy-system'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --only-upgrade python3.10 python3.10-minimal libpython3.10-stdlib libpython3.10-minimal
+          sudo apt-get install -y python3.10-venv
+          /usr/bin/python3.10 -m venv "$RUNNER_TEMP/jammy-python"
+          echo "$RUNNER_TEMP/jammy-python/bin" >> "$GITHUB_PATH"
       - name: Set up Python
+        if: matrix.runtime != 'jammy-system'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+      - name: Create authenticated Jammy runtime proof
+        if: matrix.runtime == 'jammy-system'
+        run: sudo /usr/bin/python3.10 simpleoffice_runtime_support.py --write-proof
+      - name: Check runtime support contract
+        run: python simpleoffice_runtime_support.py
       - name: Install project
         run: |
           python -m pip install --upgrade pip

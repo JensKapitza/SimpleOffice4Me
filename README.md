@@ -303,9 +303,12 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 ## Voraussetzungen
 
-- Python **3.10 oder neuer**; die CI prüft 3.10 und 3.14 sowie ergänzend
-  3.15.0-rc.3 zur frühzeitigen Kompatibilitätsprüfung. Der Release Candidate
-  ersetzt keine stabile Produktionsruntime und keine 3.0-Release-Freigabe.
+- **CPython 3.11–3.14** für Produktion. Begrenzte Ausnahme: Canonicals
+  unverändertes System-Python 3.10 auf Ubuntu 22.04 bis **31.05.2027**, auch in
+  daraus erzeugten venvs, mit aktivierten und installierten Sicherheitsupdates.
+  Upstream-/PPA-/selbst gebautes Python 3.10 ist nicht unterstützt. Die
+  [Runtime-Policy](docs/PYTHON_RUNTIME_SUPPORT.md) erklärt Metadaten und Prüfungen.
+  Python 3.15.0-rc.3 wird separat getestet und ist nicht für Produktion freigegeben.
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
 - Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
   Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert

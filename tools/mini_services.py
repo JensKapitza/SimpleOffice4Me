@@ -2,6 +2,8 @@
 """Dedicated DHCP/DNS/TFTP/routing/SIP worker; no Flask dependency."""
 from __future__ import annotations
 
+from simpleoffice_runtime_support import require_supported_runtime
+
 import argparse
 import errno
 import json
@@ -9,6 +11,7 @@ import logging
 import os
 import signal
 import sqlite3
+import sys
 import threading
 import time
 from pathlib import Path
@@ -463,6 +466,7 @@ class Worker:
             self.next_firewall_snapshot = 0
 
     def start(self) -> None:
+        require_supported_runtime()
         self.control.recover_interrupted()
         self.firewall_control.recover_interrupted()
         self.tick()
@@ -578,6 +582,12 @@ def main(argv=None) -> None:
     parser.add_argument("--password-stdin", action="store_true", help="Passwort einmalig von stdin statt verdeckt vom Terminal lesen")
     parser.add_argument("--web-timeout", type=int, choices=range(1, 61), default=None, metavar="1..60", help="HTTP-Timeout je Anfrage; keine automatische Wiederholung")
     args = parser.parse_args(argv)
+    if args.command in {"start", "restart"}:
+        try:
+            require_supported_runtime()
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(78) from exc
     web_service = args.service in WEB_SERVICES or (args.command == "scan" and args.service in SERVICE_NAMES)
     if web_service and (not args.username or args.operation or args.config or args.wait is not None):
         parser.error("Webaktionen benötigen --username; --operation, --wait und --config gelten nur für Netzwerkdienste (Webinstanz über --web-url)")

@@ -13,6 +13,7 @@ WorkingDirectory=/opt/simpleoffice4me
 Environment=PYTHONPATH=/opt/simpleoffice4me
 ExecStart=/opt/simpleoffice4me/.venv/bin/python -m tools.mini_services --config /var/lib/simpleoffice4me/instance/mini-services.json
 Restart=on-failure
+RestartPreventExitStatus=78
 RestartSec=3
 TimeoutStopSec=15
 UMask=0077

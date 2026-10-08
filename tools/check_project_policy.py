@@ -24,7 +24,11 @@ REQUIRED_AGENT_MARKERS = (
 
 REQUIRED_CI_MARKERS = (
     '"3.10"',
+    '"3.11"',
     '"3.14"',
+    "jammy-system",
+    "ubuntu-22.04",
+    "python simpleoffice_runtime_support.py",
     "python tools/check_project_policy.py .",
     "python tools/check_file_size.py . --limit 1000",
     "python tools/check_function_size.py app tools --limit 300",
@@ -71,7 +75,7 @@ def validate_python_requirement(root: Path, errors: list[str]) -> None:
     requirement = match.group(1).replace(" ", "")
     if ">=3.10" not in requirement:
         errors.append(
-            "pyproject.toml requires-python must retain Python >=3.10 support; "
+            "pyproject.toml requires-python must retain Python >=3.10 syntax compatibility for the vendor exception; "
             f"found {match.group(1)!r}"
         )
 

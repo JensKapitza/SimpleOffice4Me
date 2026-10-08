@@ -41,8 +41,9 @@ Daraus folgt:
 
 ### Python / SimpleOffice4Me
 
-- Python: mindestens 3.10.
-- CI: mindestens Python 3.10 und Python 3.14.
+- Produktion: CPython 3.11–3.14; 3.10 nur als unverändertes Canonical-System-Python auf Ubuntu 22.04 bis 31.05.2027 (siehe docs/PYTHON_RUNTIME_SUPPORT.md).
+- `requires-python >=3.10` ist die technische Syntaxgrenze, keine Upstream-Supportzusage.
+- CI: Ubuntu-22.04-System-Python 3.10, Python 3.11 und 3.14; Python 3.15 RC3 separat ohne Produktionsfreigabe.
 - Flask 3.x bleibt die Web-Basis.
 - Neue Abhängigkeiten vermeiden. Notwendige Laufzeitabhängigkeiten sauber in `pyproject.toml` pflegen.
 - Optionale Funktionen sollen nach Möglichkeit optionale Abhängigkeiten bleiben.
@@ -209,7 +210,7 @@ Regeln:
 - Regressionen bestehender Funktionen nicht akzeptieren.
 - Tests nicht entfernen oder abschwächen, um CI grün zu bekommen.
 - Wenn ein Test wegen bewusst geänderter Spezifikation angepasst wird, muss die neue Erwartung fachlich begründet sein.
-- CI muss mindestens Python 3.10 und Python 3.14 abdecken.
+- CI muss Canonical-System-Python 3.10 auf Ubuntu 22.04 sowie Python 3.11 und 3.14 abdecken.
 - Dateigrößen- und Funktionsgrößen-Gates nicht umgehen.
 
 ## 14. Dokumentation
@@ -324,7 +325,7 @@ Eine Aufgabe gilt für den betroffenen Umfang erst als abgeschlossen, wenn die a
 - Tests erfolgreich
 - Code kompiliert
 - Größenlimits eingehalten
-- CI für Python 3.10 und 3.14 berücksichtigt
+- CI für Ubuntu-22.04-System-Python 3.10 sowie 3.11 und 3.14 berücksichtigt
 - `pip-audit` erfolgreich oder Abweichung begründet dokumentiert
 - `tools/cra_check.py` erfolgreich oder Abweichung begründet dokumentiert
 - Release-SBOM berücksichtigt

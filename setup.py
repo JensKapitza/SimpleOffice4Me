@@ -6,7 +6,13 @@ Keep the compatibility metadata aligned with ``pyproject.toml`` so this path
 never installs an ``UNKNOWN`` distribution or skips runtime dependencies.
 """
 
+from pathlib import Path
+import runpy
+
 from setuptools import setup
+
+# Also enforce the policy in isolated PEP 517 and legacy editable builds.
+runpy.run_path(str(Path(__file__).with_name("simpleoffice_runtime_support.py")))["require_supported_runtime"]()
 
 
 RUNTIME_DEPENDENCIES = [
@@ -19,6 +25,7 @@ RUNTIME_DEPENDENCIES = [
     "pypdf>=5.0,<7",
     "waitress>=3.0,<4",
     "cryptography>=48.0.1,<51",
+    "dnspython>=2.6,<3",
     "watchdog>=6,<7",
     "tzdata>=2024.1",
 ]
@@ -28,9 +35,13 @@ setup(
     name="simpleoffice4me",
     version="2.0.0",
     description="Self-hosted, file-based document management",
+    # Syntax floor only; vendor security policy is checked above.
     python_requires=">=3.10",
+    classifiers=[f"Programming Language :: Python :: 3.{minor}" for minor in range(11, 15)],
     packages=["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"],
     py_modules=[
+        "simpleoffice_runtime_support",
+        "simpleoffice_recovery_cli",
         "simpleoffice_version",
         "simpleoffice_mini_core",
         "simpleoffice_mini_runtime",
@@ -67,7 +78,7 @@ setup(
     entry_points={
         "console_scripts": [
             "simpleoffice-sftp=app.sftp_server:serve",
-            "simpleoffice-v2-recovery=app.v2.recovery_cli:main",
+            "simpleoffice-v2-recovery=simpleoffice_recovery_cli:main",
         ]
     },
 )

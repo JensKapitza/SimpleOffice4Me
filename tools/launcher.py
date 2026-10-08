@@ -270,6 +270,12 @@ def first_start_configure(interactive: bool = True) -> dict[str, object]:
 
 
 def start(configure_only: bool = False) -> None:
+    from simpleoffice_runtime_support import require_supported_runtime
+    try:
+        require_supported_runtime()
+    except RuntimeError as exc:
+        print(f"SimpleOffice4Me wurde nicht gestartet: {exc}", file=sys.stderr, flush=True)
+        raise SystemExit(78) from exc
     config = first_start_configure()
     if configure_only:
         print(f"Einrichtung gespeichert: {CONFIG_PATH}")
@@ -384,6 +390,13 @@ def main() -> None:
         default="start",
     )
     args = parser.parse_args()
+    if args.command in {"start", "restart", "setup"}:
+        from simpleoffice_runtime_support import require_supported_runtime
+        try:
+            require_supported_runtime()
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            raise SystemExit(78) from exc
     if args.command == "master-status":
         print_master_identity_status()
         return
