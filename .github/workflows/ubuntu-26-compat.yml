@@ -1,0 +1,188 @@
+name: Ubuntu 26.04 compatibility
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - 'android/apk/**'
+      - 'desktop/**'
+      - 'app/**'
+      - 'templates/**'
+      - 'static/**'
+      - 'tools/**'
+      - 'packaging/**'
+      - 'deploy/**'
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'build-dep.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+concurrency:
+  group: ubuntu-26-compat-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: Python application
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --editable ".[security,sftp]"
+      - name: Run policy, compile and unit-test gates
+        run: |
+          python tools/check_project_policy.py .
+          python tools/check_file_size.py . --limit 1000
+          python tools/check_function_size.py app tools --limit 300
+          python -m compileall -q app tools
+          python -m unittest discover -s tests -v
+
+  desktop-linux:
+    name: Desktop Linux packaging
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install Electron dependencies
+        working-directory: desktop/electron
+        run: npm ci --no-audit --no-fund
+      - name: Build and package desktop application
+        working-directory: desktop/electron
+        run: |
+          npm run sync:version
+          npm run build:backend
+          npm run package:desktop
+      - name: Verify AppImage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t appimages < <(find desktop/electron/dist -maxdepth 1 -type f -name '*.AppImage' -print)
+          test "${#appimages[@]}" -eq 1
+          chmod +x "${appimages[0]}"
+          file "${appimages[0]}" | grep -E 'ELF 64-bit.*x86-64'
+          "${appimages[0]}" --appimage-version
+
+  android-arm64:
+    name: Android ARM64 toolchain
+    runs-on: ubuntu-26.04
+    timeout-minutes: 35
+    env:
+      SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
+      SIMPLEOFFICE_ANDROID_PYTHON: '3.13'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Select Chaquopy build interpreter
+        shell: bash
+        run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          gradle-version: '8.13'
+      - name: Build and verify APK
+        working-directory: android/apk
+        run: gradle --no-daemon assembleDebug
+      - name: Verify APK host tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=android/apk/app/build/outputs/apk/debug/app-debug.apk
+          unzip -t "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          "$APKSIGNER" verify --verbose "$APK"
+          "$ZIPALIGN" -c -P 16 -v 4 "$APK"
+
+  browser-host:
+    # Playwright does not yet publish a Chromium/dependency bundle for Ubuntu 26.04.
+    # Keep the browser smoke host on 24.04 until upstream support lands; the other
+    # jobs in this workflow exercise the 26.04 runner migration explicitly.
+    name: Playwright Chromium host dependencies (Ubuntu 24.04 compatibility hold)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Install pinned Playwright and Chromium dependencies
+        run: |
+          python -m pip install 'playwright==1.55.0'
+          python -m playwright install --with-deps chromium
+          python -m playwright install --list
+
+  docker-host:
+    name: Docker and Buildx host
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Validate Docker host and Compose
+        run: |
+          docker version
+          docker compose version
+          docker compose -f deploy/pi/compose.yaml config >/dev/null
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build amd64 image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: false
+          tags: simpleoffice4me:ubuntu-26-compat
+
+  server-deb-host:
+    name: Server DEB host tooling
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    env:
+      SIMPLEOFFICE_SERVER_PUBLIC_URL: https://ci.simpleoffice4me.invalid
+      SIMPLEOFFICE_SERVER_PEER_ID: license-master-ci
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build server DEB on its Debian 12 target
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm -i             -v "$PWD:/work"             -w /work             -e SIMPLEOFFICE_SERVER_PUBLIC_URL             -e SIMPLEOFFICE_SERVER_PEER_ID             debian:12-slim bash -s <<'INNER'
+          set -euo pipefail
+          bash ./build-dep.sh
+          bash packaging/build-server.sh
+          INNER
+      - name: Verify Ubuntu 26.04 host can inspect package
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEB="$(find dist/packages -maxdepth 1 -type f -name 'simpleoffice4me-server_*.deb' -print -quit)"
+          test -n "$DEB"
+          test "$(dpkg-deb -f "$DEB" Package)" = simpleoffice4me-server
+          dpkg-deb -c "$DEB" >/dev/null
