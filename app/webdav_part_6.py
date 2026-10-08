@@ -5,8 +5,6 @@ from .webdav_part_5 import *
 
 
 def _handle_tree_propfind(username: str, resource, is_collection: bool, document):
-    if not is_collection and document is None:
-        return Response("not found", 404)
     depth = request.headers.get("Depth", "infinity").casefold()
     if depth not in {"0", "1", "infinity"}:
         return Response("PROPFIND Depth must be 0, 1 or infinity", 400)
@@ -30,12 +28,21 @@ def _handle_tree_propfind(username: str, resource, is_collection: bool, document
     g._webdav_mutation_lock = mutation_lock
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
-    if resource.is_file() and not resource.is_symlink():
+    catalog_entry = None
+    if _vfs()._authoritative_v2() and not is_collection:
+        try:
+            catalog_entry = _vfs().authoritative_entry(resource)
+            document = _store().get_document(catalog_entry.object_id.value)
+        except (FileNotFoundError, ValueError):
+            document = None
+    elif resource.is_file() and not resource.is_symlink():
         try:
             document = _tree_document(resource)
         except ValueError:
             return Response("not found", 404)
     elif not is_collection:
+        return Response("not found", 404)
+    if not is_collection and document is None:
         return Response("not found", 404)
     effective_depth = depth if is_collection else "0"
     href = _tree_url(username, _store().relative(resource), collection=is_collection)
@@ -419,7 +426,14 @@ def file_tree(username: str, relative_path: str):
             )
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
-    if resource.is_file() and not resource.is_symlink():
+    catalog_entry = None
+    if request.method in {"GET", "HEAD"} and _vfs()._authoritative_v2() and not is_collection:
+        try:
+            catalog_entry = _vfs().authoritative_entry(resource)
+            document = _store().get_document(catalog_entry.object_id.value)
+        except (FileNotFoundError, ValueError):
+            document = None
+    elif resource.is_file() and not resource.is_symlink():
         try:
             document = _tree_document(resource)
         except ValueError:
@@ -452,6 +466,25 @@ def file_tree(username: str, relative_path: str):
     if request.method in {"GET", "HEAD"}:
         if document is None:
             return Response("not found", 404)
+        if catalog_entry is not None:
+            materialized = materialize_verified_object(
+                current_app.config["DOCUMENT_ROOT"],
+                f"webdav:{username}",
+                str(document["document_id"]),
+            )
+            try:
+                source = materialized.__enter__()
+                response = _download_response(
+                    source, username, document,
+                    mimetypes.guess_type(resource.name)[0] or "application/octet-stream",
+                    property_path=resource,
+                    modified_at=catalog_entry.updated_at,
+                )
+            except Exception:
+                materialized.__exit__(*sys.exc_info())
+                raise
+            response.call_on_close(lambda: materialized.__exit__(None, None, None))
+            return response
         return _download_response(
             resource, username, document,
             mimetypes.guess_type(resource.name)[0] or "application/octet-stream",

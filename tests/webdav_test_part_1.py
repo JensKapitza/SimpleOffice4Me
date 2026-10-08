@@ -29,6 +29,19 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         not_modified = self.client.get(
             self.url, headers={**self.auth, "If-Modified-Since": full.headers["Last-Modified"]}
         )
+        tree_url = f"{self.files}/angebot.odt"
+        tree_full = self.client.get(tree_url, headers=self.auth)
+        tree_head = self.client.head(tree_url, headers=self.auth)
+        tree_partial = self.client.get(
+            tree_url, headers={**self.auth, "Range": "bytes=6-11"}
+        )
+        tree_propfind = self.client.open(tree_url, method="PROPFIND", headers={**self.auth, "Depth": "0"})
+        tree_proppatch = self.client.open(
+            tree_url,
+            method="PROPPATCH",
+            data='<d:propertyupdate xmlns:d="DAV:" xmlns:t="urn:simpleoffice:test"><d:set><d:prop><t:projection>must-not-write</t:projection></d:prop></d:set></d:propertyupdate>',
+            headers={**self.auth, "Content-Type": "application/xml"},
+        )
 
         self.assertEqual(200, full.status_code)
         self.assertEqual(b"first office version", full.data)
@@ -46,6 +59,17 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertIn("angebot.odt", listing.get_data(as_text=True))
         self.assertEqual(304, not_modified.status_code)
         self.assertEqual(full.headers["Last-Modified"], head.headers["Last-Modified"])
+        self.assertEqual(207, tree_propfind.status_code)
+        self.assertIn("20", tree_propfind.get_data(as_text=True))
+        self.assertEqual(200, tree_full.status_code)
+        self.assertEqual(b"first office version", tree_full.data)
+        self.assertEqual(200, tree_head.status_code)
+        self.assertEqual(b"", tree_head.data)
+        self.assertEqual(206, tree_partial.status_code)
+        self.assertEqual(b"office", tree_partial.data)
+        self.assertEqual(full.headers["ETag"], tree_full.headers["ETag"])
+        self.assertEqual(full.headers["Last-Modified"], tree_full.headers["Last-Modified"])
+        self.assertEqual(404, tree_proppatch.status_code)
 
     def test_libreoffice_page_exposes_url_but_never_app_password(self):
         response = self.client.get(f"/documents/{self.document['document_id']}/libreoffice")
