@@ -119,8 +119,11 @@ jobs:
           "$ZIPALIGN" -c -P 16 -v 4 "$APK"
 
   browser-host:
-    name: Playwright Chromium host dependencies
-    runs-on: ubuntu-26.04
+    # Playwright does not yet publish a Chromium/dependency bundle for Ubuntu 26.04.
+    # Keep the browser smoke host on 24.04 until upstream support lands; the other
+    # jobs in this workflow exercise the 26.04 runner migration explicitly.
+    name: Playwright Chromium host dependencies (Ubuntu 24.04 compatibility hold)
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
