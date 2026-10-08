@@ -5,8 +5,6 @@ from .webdav_part_5 import *
 
 
 def _handle_tree_propfind(username: str, resource, is_collection: bool, document):
-    if not is_collection and document is None:
-        return Response("not found", 404)
     depth = request.headers.get("Depth", "infinity").casefold()
     if depth not in {"0", "1", "infinity"}:
         return Response("PROPFIND Depth must be 0, 1 or infinity", 400)
@@ -43,6 +41,8 @@ def _handle_tree_propfind(username: str, resource, is_collection: bool, document
         except ValueError:
             return Response("not found", 404)
     elif not is_collection:
+        return Response("not found", 404)
+    if not is_collection and document is None:
         return Response("not found", 404)
     effective_depth = depth if is_collection else "0"
     href = _tree_url(username, _store().relative(resource), collection=is_collection)
