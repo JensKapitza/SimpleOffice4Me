@@ -59,7 +59,12 @@ def validate(value):
     networks = result["allowed_networks"]
     if not isinstance(networks, list) or len(networks) > 16:
         raise ValueError("Netzwerkfreigaben müssen eine Liste mit höchstens 16 CIDRs sein.")
-    result["allowed_networks"] = [str(ipaddress.ip_network(n, strict=True)) for n in networks]
+    if any(not isinstance(n, str) or not n or len(n) > 128 for n in networks):
+        raise ValueError("Netzwerkfreigaben müssen CIDR-Zeichenketten sein.")
+    try:
+        result["allowed_networks"] = [str(ipaddress.ip_network(n, strict=True)) for n in networks]
+    except ValueError as exc:
+        raise ValueError("Ungültige CIDR-Netzwerkfreigabe.") from exc
     url = result["base_url"]
     if not isinstance(url, str) or len(url) > 512 or any(c.isspace() or ord(c) < 32 for c in url):
         raise ValueError("Gateway-URL prüfen.")
