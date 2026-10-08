@@ -35,6 +35,7 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         tree_partial = self.client.get(
             tree_url, headers={**self.auth, "Range": "bytes=6-11"}
         )
+        tree_propfind = self.client.open(tree_url, method="PROPFIND", headers={**self.auth, "Depth": "0"})
         tree_proppatch = self.client.open(
             tree_url,
             method="PROPPATCH",
@@ -58,6 +59,8 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertIn("angebot.odt", listing.get_data(as_text=True))
         self.assertEqual(304, not_modified.status_code)
         self.assertEqual(full.headers["Last-Modified"], head.headers["Last-Modified"])
+        self.assertEqual(207, tree_propfind.status_code)
+        self.assertIn("20", tree_propfind.get_data(as_text=True))
         self.assertEqual(200, tree_full.status_code)
         self.assertEqual(b"first office version", tree_full.data)
         self.assertEqual(200, tree_head.status_code)
