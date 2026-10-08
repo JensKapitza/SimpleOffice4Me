@@ -31,7 +31,7 @@ def _handle_tree_propfind(username: str, resource, is_collection: bool, document
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     catalog_entry = None
-    if request.method in {"GET", "HEAD"} and _vfs()._authoritative_v2() and not is_collection:
+    if _vfs()._authoritative_v2() and not is_collection:
         try:
             catalog_entry = _vfs().authoritative_entry(resource)
             document = _store().get_document(catalog_entry.object_id.value)
