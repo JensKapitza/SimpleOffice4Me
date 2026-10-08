@@ -189,8 +189,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y awscli
+          python -m pip install 'awscli==1.42.59'
+          aws --version
           python tests/browser/aws_cli_s3_smoke.py
 
       - name: Export live Flask route inventory
