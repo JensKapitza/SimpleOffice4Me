@@ -218,7 +218,7 @@ def action(name):
             path = _compose(config)
             _docker(["image", "inspect", image_reference(config)], timeout=3)
             _docker(["compose", "--project-name", _project(), "--file", str(path),
-                     "config", "--quiet"], environment=environment, timeout=3)
+                     "config", "--quiet"], environment=environment, timeout=15)
             if name == "restart":
                 _stop()
             _docker(["compose", "--project-name", _project(), "--file", str(path),
