@@ -30,6 +30,11 @@ on:
         required: true
         default: '50'
         type: string
+      aws_s3_smoke:
+        description: Real AWS CLI S3 upload/download smoke
+        required: true
+        default: false
+        type: boolean
       fail_on_console_errors:
         description: Browser-Console-Errors als Testfehler behandeln
         required: true
@@ -106,6 +111,7 @@ jobs:
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
             -e SIMPLEOFFICE_MCP=1 \
+            -e SIMPLEOFFICE_S3_OVERLAY_ENABLED=true \
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
             -e SIMPLEOFFICE_V3_SAMPLE_ENABLED=1 \
             -e SIMPLEOFFICE_V3_RELATIONS_ENABLED=1 \
@@ -177,6 +183,15 @@ jobs:
           docker logs simpleoffice-browser-peer-a || true
           docker logs simpleoffice-browser-peer-b || true
           exit 1
+
+      - name: Real AWS CLI S3 compatibility smoke
+        if: github.event_name == 'workflow_dispatch' && inputs.aws_s3_smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y awscli
+          python tests/browser/aws_cli_s3_smoke.py
 
       - name: Export live Flask route inventory
         id: route_inventory
