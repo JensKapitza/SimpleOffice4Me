@@ -1,14 +1,25 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 set "ROOT=%~dp0"
+set "CHECK_SYSTEM=0"
 cd /d "%ROOT%"
 
+set "PYTHON=python"
+rem Existing venvs are validated directly and never probe bootstrap launchers.
+if exist ".venv\Scripts\python.exe" goto :launcher_ready
+setlocal EnableDelayedExpansion
 where py >nul 2>nul
-if %errorlevel%==0 (
-  set "PYTHON=py -3"
-) else (
-  set "PYTHON=python"
+if !errorlevel!==0 (
+  for %%V in (3.14 3.13 3.12 3.11) do (
+    if not defined SUPPORTED_PYTHON (
+      py -%%V simpleoffice_runtime_support.py >nul 2>nul
+      if not errorlevel 1 set "SUPPORTED_PYTHON=py -%%V"
+    )
+  )
 )
+if defined SUPPORTED_PYTHON (set "SELECTED_PYTHON=!SUPPORTED_PYTHON!") else (set "SELECTED_PYTHON=python")
+for /f "delims=" %%P in ("!SELECTED_PYTHON!") do endlocal & set "PYTHON=%%~P"
+:launcher_ready
 
 if /I "%~1"=="mini-services" goto :control
 if /I "%~1"=="status" goto :control
@@ -17,11 +28,19 @@ if /I "%~1"=="restart" goto :control
 
 call :parse_args %*
 if errorlevel 1 exit /b %errorlevel%
+if "%CHECK_SYSTEM%"=="1" goto :check_system
 
-if not exist ".venv\Scripts\python.exe" (
-  %PYTHON% -m venv ".venv"
-  if errorlevel 1 goto :python_error
-)
+rem A supported existing venv takes precedence over the launcher's newest Python.
+if exist ".venv\Scripts\python.exe" goto :validate_venv
+%PYTHON% "%ROOT%simpleoffice_runtime_support.py"
+if errorlevel 1 goto :python_error
+%PYTHON% -m venv ".venv"
+if errorlevel 1 goto :python_error
+
+:validate_venv
+
+".venv\Scripts\python.exe" "%ROOT%simpleoffice_runtime_support.py"
+if errorlevel 1 goto :python_error
 
 call ".venv\Scripts\activate.bat"
 rem Keep the project-owned venv complete on every start. This upgrades an
@@ -54,7 +73,7 @@ if /I "%~1"=="--port" goto :port
 if /I "%~1"=="--threads" goto :threads
 if /I "%~1"=="--channel-timeout" goto :channel_timeout
 if /I "%~1"=="--reindex-osm" goto :reindex_osm
-if /I "%~1"=="--check-system" goto :check_system
+if /I "%~1"=="--check-system" goto :request_system_check
 if /I "%~1"=="--help" goto :help
 if /I "%~1"=="-h" goto :help
 echo Unbekannte Option: %~1
@@ -136,7 +155,15 @@ set "SIMPLEOFFICE_OSM_REINDEX_ON_START=1"
 shift
 goto :parse_args
 
+:request_system_check
+set "CHECK_SYSTEM=1"
+shift
+goto :parse_args
+
 :check_system
+if exist ".venv\Scripts\python.exe" set "PYTHON=.venv\Scripts\python.exe"
+%PYTHON% "%ROOT%simpleoffice_runtime_support.py"
+if errorlevel 1 goto :python_error
 %PYTHON% "%ROOT%tools\system_requirements.py"
 exit /b %errorlevel%
 
@@ -166,7 +193,7 @@ echo   start.bat --google-json C:\simpleoffice\google-oauth.json --trusted-proxy
 exit /b 0
 
 :python_error
-echo Python 3.10 oder neuer wurde nicht gefunden oder konnte keine virtuelle Umgebung erstellen.
+echo CPython 3.11 bis 3.14 wurde nicht gefunden oder konnte keine virtuelle Umgebung erstellen.
 exit /b 1
 
 :install_error

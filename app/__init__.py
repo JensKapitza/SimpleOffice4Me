@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #export PYTHONIOENCODING=utf8
+from simpleoffice_runtime_support import require_supported_runtime
+
+if not getattr(__import__("sys"), "_simpleoffice_recovery_import", False):
+    require_supported_runtime()
+else:
+    delattr(__import__("sys"), "_simpleoffice_recovery_import")
+
 from pathlib import Path
 
 import os

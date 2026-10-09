@@ -120,7 +120,7 @@ sudo systemctl restart simpleoffice4me
 
 ## Abhaengigkeiten und Daten
 
-Als Basisabhaengigkeiten werden Python >= 3.10, `python3-venv`, `git` und `ca-certificates` eingetragen. Beim **Server-Paket** werden zusaetzlich Poppler, Tesseract OCR (Deutsch/Englisch), ImageMagick, Ghostscript, Java, FFmpeg, Coturn, ClamAV samt Daemon, LibreOffice, CUPS-Client, rsync/OpenSSH-Client, iproute2 und nftables als echte `Depends` eingetragen. Damit installiert `apt` den vollstaendigen Server-Funktionssatz automatisch. Beim Client bleiben diese Werkzeuge `Recommends`.
+Als Basisabhaengigkeiten werden CPython 3.11–3.14 (3.10 ausschließlich Canonical-Systempaket auf Ubuntu 22.04 bis 31.05.2027 gemäß [Runtime-Policy](../docs/PYTHON_RUNTIME_SUPPORT.md)), `python3-venv`, `git` und `ca-certificates` eingetragen. Beim **Server-Paket** werden zusaetzlich Poppler, Tesseract OCR (Deutsch/Englisch), ImageMagick, Ghostscript, Java, FFmpeg, Coturn, ClamAV samt Daemon, LibreOffice, CUPS-Client, rsync/OpenSSH-Client, iproute2 und nftables als echte `Depends` eingetragen. Damit installiert `apt` den vollstaendigen Server-Funktionssatz automatisch. Beim Client bleiben diese Werkzeuge `Recommends`.
 
 Das Server-Paket baut außerdem die Python-Extras `ocr`, `sftp`, `banking` und `erasure` samt Abhaengigkeiten in das Offline-Wheelhouse ein. `postinst.sh` installiert diese Extras ohne Internetzugriff aus dem Paket.
 

@@ -26,9 +26,9 @@ esac
 
 PACKAGE_NAME="${SIMPLEOFFICE_PACKAGE_NAME:-simpleoffice4me-${BUILD_ROLE}}"
 VERSION="${SIMPLEOFFICE_PACKAGE_VERSION:-$(python3 - <<'PY'
-import tomllib
+import re
 from pathlib import Path
-print(tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version'])
+print(re.search(r'^version = "([^"]+)"', Path("pyproject.toml").read_text(), re.MULTILINE).group(1))
 PY
 )}"
 ITERATION="${SIMPLEOFFICE_PACKAGE_ITERATION:-1}"
@@ -76,8 +76,8 @@ command -v fpm >/dev/null 2>&1 || {
 }
 command -v python3 >/dev/null 2>&1 || { echo "python3 fehlt." >&2; exit 2; }
 command -v tar >/dev/null 2>&1 || { echo "tar fehlt." >&2; exit 2; }
-python3 -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' || {
-  echo "Python >= 3.10 wird zum Bauen benötigt." >&2
+python3 "$ROOT/simpleoffice_runtime_support.py" || {
+  echo "CPython 3.11–3.14 oder Ubuntu-22.04-System-Python 3.10 wird zum Bauen benötigt." >&2
   exit 2
 }
 
@@ -216,6 +216,8 @@ fpm \
   "${FPM_RECOMMEND_ARGS[@]}" \
   --config-files "/etc/simpleoffice4me/simpleoffice.env" \
   --after-install "$ROOT/packaging/postinst.sh" \
+  --deb-interest-noawait "/usr/bin/python3.10" \
+  --deb-interest-noawait "/usr/lib/python3.10" \
   --before-remove "$ROOT/packaging/prerm.sh" \
   --after-remove "$ROOT/packaging/postrm.sh" \
   --package "$OUT_DIR/${PACKAGE_NAME}_${VERSION}-${ITERATION}_${ARCH}.deb" \

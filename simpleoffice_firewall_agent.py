@@ -6,6 +6,8 @@ separate rollback process/timer before the first rule is changed.
 """
 from __future__ import annotations
 
+from simpleoffice_runtime_support import require_supported_runtime
+
 import argparse
 import fcntl
 import json
@@ -30,7 +32,7 @@ _RICH_PORT = re.compile(r'port\s+port="(\d+)(?:-(\d+))?"\s+protocol="(tcp|udp)"'
 _RICH_SOURCE = re.compile(r'source\s+address="([^"]+)"', re.I)
 
 
-def _safe_error(_exc: BaseException) -> str:
+def error_detail(_exc: BaseException) -> str:
     return "Firewall-Aktion fehlgeschlagen. Agent- und Systemprotokoll prüfen."
 
 
@@ -718,7 +720,7 @@ def _serve_connection(connection: socket.socket) -> None:
         payload = json.loads(bytes(data).split(b"\n", 1)[0].decode("utf-8"))
         response = handle_request(payload)
     except Exception as exc:
-        response = {"ok": False, "error": _safe_error(exc), "error_type": type(exc).__name__}
+        response = {"ok": False, "error": error_detail(exc), "error_type": type(exc).__name__}
     try:
         connection.sendall((json.dumps(response, separators=(",", ":")) + "\n").encode("utf-8"))
     finally:
@@ -726,6 +728,7 @@ def _serve_connection(connection: socket.socket) -> None:
 
 
 def serve(socket_path: str | Path = AGENT_SOCKET) -> None:
+    require_supported_runtime()
     recover_pending()
     if int(os.environ.get("LISTEN_FDS", "0") or 0) > 0:
         listener = socket.fromfd(3, socket.AF_UNIX, socket.SOCK_STREAM)
@@ -775,7 +778,11 @@ def main(argv=None) -> None:
         return
     if not args.serve:
         parser.error("--serve, --rollback-plan oder --rollback-pending erforderlich")
-    serve()
+    try:
+        serve()
+    except RuntimeError as exc:
+        print(error_detail(exc), file=sys.stderr)
+        raise SystemExit(78) from exc
 
 
 if __name__ == "__main__":

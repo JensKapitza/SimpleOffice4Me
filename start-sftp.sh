@@ -28,10 +28,37 @@ if [ "$IS_TERMUX" -eq 1 ]; then
   fi
 fi
 
-if ! command -v "$PYTHON_BOOTSTRAP" >/dev/null 2>&1; then
-  echo "Python 3 wurde nicht gefunden." >&2
-  exit 1
-fi
+run_privileged() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    return 126
+  fi
+}
+
+bootstrap_jammy_runtime_proof() {
+  python="$1"
+  [ -r /etc/os-release ] || return 0
+  (. /etc/os-release; [ "${ID:-}" = ubuntu ] && [ "${VERSION_ID:-}" = 22.04 ]) || return 0
+  [ "$("$python" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null)" = "3.10" ] || return 0
+  proof_dir="${SIMPLEOFFICE_RUNTIME_PROOF_DIR:-/var/cache/simpleoffice4me/runtime-proof}"
+  if [ -f "$proof_dir/jammy-python310.json" ] \
+    && env SIMPLEOFFICE_RUNTIME_PROOF_DIR="$proof_dir" "$python" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
+    return 0
+  fi
+  run_privileged env SIMPLEOFFICE_RUNTIME_PROOF_DIR="$proof_dir" "$python" "$ROOT/simpleoffice_runtime_support.py" --write-proof
+}
+
+check_bootstrap() {
+  if ! command -v "$PYTHON_BOOTSTRAP" >/dev/null 2>&1; then
+    echo "Python 3 wurde nicht gefunden." >&2
+    return 1
+  fi
+  bootstrap_jammy_runtime_proof "$PYTHON_BOOTSTRAP" || return 1
+  "$PYTHON_BOOTSTRAP" "$ROOT/simpleoffice_runtime_support.py"
+}
 
 VENV_PYTHON="$VENV/bin/python"
 
@@ -60,22 +87,30 @@ raise SystemExit(1)
 PY
 }
 
+if [ -x "$VENV_PYTHON" ]; then
+  bootstrap_jammy_runtime_proof "$VENV_PYTHON"
+  "$VENV_PYTHON" "$ROOT/simpleoffice_runtime_support.py"
+fi
+
 if [ "$IS_TERMUX" -eq 1 ] && [ -x "$VENV_PYTHON" ]; then
   if ! venv_uses_system_site_packages \
-    || ! "$VENV_PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1 \
     || termux_venv_has_local_native_packages; then
     echo "Vorhandene Termux-venv ist isoliert, veraltet oder überschreibt native Pakete; erstelle sie sauber neu."
+    check_bootstrap
     rm -rf "$VENV"
   fi
 fi
 
 if [ ! -x "$VENV_PYTHON" ]; then
+  check_bootstrap
   if [ "$IS_TERMUX" -eq 1 ]; then
     "$PYTHON_BOOTSTRAP" -m venv --system-site-packages "$VENV"
   else
     "$PYTHON_BOOTSTRAP" -m venv "$VENV"
   fi
 fi
+
+"$VENV_PYTHON" "$ROOT/simpleoffice_runtime_support.py"
 
 if [ "$IS_TERMUX" -eq 1 ]; then
   # Auch ein späterer versehentlicher pip-Aufruf darf diese Android-nativen

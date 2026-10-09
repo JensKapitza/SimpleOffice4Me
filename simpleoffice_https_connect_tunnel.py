@@ -2,6 +2,8 @@
 """Narrow HTTPS-CONNECT client for explicitly allowed Mini Services targets."""
 from __future__ import annotations
 
+from simpleoffice_runtime_support import require_supported_runtime
+
 import argparse
 import base64
 import socket
@@ -99,6 +101,7 @@ def _stdin_to_socket(sock: socket.socket, stop: threading.Event) -> None:
 
 
 def tunnel(config_path: Path, target: str) -> int:
+    require_supported_runtime()
     sock = _connect(config_path, target)
     stop = threading.Event()
     writer = threading.Thread(target=_stdin_to_socket, args=(sock, stop), daemon=True)
@@ -136,7 +139,9 @@ def main(argv=None) -> None:
     parser.add_argument("--target", required=True, help="Explizit freigegebenes Ziel Host:Port")
     parser.add_argument("--check", action="store_true", help="Nur CONNECT-Handshake prüfen")
     args = parser.parse_args(argv)
+    from simpleoffice_runtime_support import require_supported_runtime
     try:
+        require_supported_runtime()
         code = check(Path(args.config), args.target) if args.check else tunnel(Path(args.config), args.target)
     except (OSError, ValueError, ConnectionError, ssl.SSLError) as exc:
         print(f"Tunnel fehlgeschlagen: {type(exc).__name__}", file=sys.stderr)

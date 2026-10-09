@@ -61,7 +61,8 @@ innerhalb von SimpleOffice4Me.
 
 ## Voraussetzungen
 
-- Python 3.10 oder neuer,
+- CPython 3.11–3.14; Ubuntu-22.04-System-Python 3.10 nur bis 31.05.2027
+  gemäß [Runtime-Policy](PYTHON_RUNTIME_SUPPORT.md),
 - ein freier TCP-Port,
 - Schreibzugriff auf Projekt-, Instanz- und Dokumentordner,
 - für öffentliche Erreichbarkeit ein vorgeschalteter TLS-Proxy wie Caddy,

@@ -24,7 +24,7 @@ TOP_PREFIXES = (
 )
 SINK_NAMES = {"audit", "flash", "jsonify", "print"}
 LOG_METHODS = {"critical", "debug", "error", "exception", "info", "log", "warning"}
-SAFE_EXCEPTION_WRAPPERS = {"error_detail", "type"}
+SAFE_EXCEPTION_WRAPPERS = {"_safe_error", "error_detail", "type"}
 
 
 def sources() -> list[Path]:

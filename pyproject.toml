@@ -6,7 +6,15 @@ build-backend = "setuptools.build_meta"
 name = "simpleoffice4me"
 version = "2.0.0"
 description = "Self-hosted, file-based document management"
+# Syntax floor for the Ubuntu 22.04 vendor exception, not upstream 3.10 support.
+# Production policy is enforced by simpleoffice_runtime_support.py.
 requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+]
 dependencies = [
   "Flask>=3.0,<4",
   "argon2-cffi>=23.1,<26",
@@ -49,11 +57,13 @@ erasure = [
 
 [project.scripts]
 simpleoffice-sftp = "app.sftp_server:serve"
-simpleoffice-v2-recovery = "app.v2.recovery_cli:main"
+simpleoffice-v2-recovery = "simpleoffice_recovery_cli:main"
 
 [tool.setuptools]
 packages = ["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"]
 py-modules = [
+  "simpleoffice_runtime_support",
+  "simpleoffice_recovery_cli",
   "simpleoffice_version",
   "simpleoffice_mini_core",
   "simpleoffice_mini_runtime",

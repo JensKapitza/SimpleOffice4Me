@@ -40,8 +40,8 @@ class FpmPackagingTests(unittest.TestCase):
         ):
             self.assertIn(package, script)
         self.assertIn("gem install --no-document fpm", script)
-        self.assertIn("python3 -c", script)
-        self.assertIn("Python >= 3.10", script)
+        self.assertIn('python3 "$ROOT/simpleoffice_runtime_support.py"', script)
+        self.assertIn("Ubuntu-22.04-System-Python 3.10", script)
 
     def test_postinst_installs_without_pypi_and_preserves_state(self):
         postinst = (ROOT / "packaging" / "postinst.sh").read_text(encoding="utf-8")
