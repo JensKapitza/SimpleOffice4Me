@@ -138,7 +138,7 @@ class MiniServicesConfigTests(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *_args): return False
             def geturl(self): return "https://lists.example/block.txt"
-            def read(self, _limit): return ("0.0.0.0 " + self.domain + "\\n").encode()
+            def read(self, _limit): return ("0.0.0.0 " + self.domain + "\n").encode()
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "mini-services.json"
