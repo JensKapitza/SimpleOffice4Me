@@ -49,8 +49,13 @@ import json
 from app import app
 from app.db import ensure_auth_database, get_db
 from app.s3_overlay import credentials
+from app.settings_store import SettingsStore
 with app.app_context():
     ensure_auth_database()
+    store = SettingsStore(app.config['DOCUMENT_ROOT'])
+    settings = store.settings()
+    settings['s3'] = {'enabled': True}
+    store.save(settings, 's3-smoke-test')
     db = get_db()
     db.execute("INSERT OR IGNORE INTO user(username,password,is_admin,is_disabled,auth_version) VALUES(?,?,?,?,?)", ("s3-smoke-user", "disabled-smoke-login", 0, 0, 1))
     db.commit()
