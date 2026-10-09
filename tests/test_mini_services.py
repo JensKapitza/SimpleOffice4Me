@@ -131,6 +131,53 @@ class MiniServicesConfigTests(unittest.TestCase):
                 self.assertNotIn(secret, serialized)
 
 
+    def test_overlapping_blocklists_count_unique_domains_for_limit(self):
+        class Response:
+            def __init__(self, domain):
+                self.domain = domain
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def geturl(self): return "https://lists.example/block.txt"
+            def read(self, _limit): return ("0.0.0.0 " + self.domain + "\n").encode()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mini-services.json"
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["dns"]["blocklist_urls"] = [
+                "https://lists.example/one", "https://lists.example/two"
+            ]
+            with mock.patch("simpleoffice_mini_services._https_open", side_effect=[
+                Response("ads.example"), Response("ads.example")
+            ]):
+                result = refresh_blocklists(config, path, max_domains=1)
+            self.assertEqual(1, result["domains"])
+            self.assertFalse(result["preserved_previous"])
+            self.assertTrue(all(source["ok"] for source in result["sources"]))
+
+    def test_distinct_blocklists_still_enforce_domain_limit(self):
+        class Response:
+            def __init__(self, domain):
+                self.domain = domain
+            def __enter__(self): return self
+            def __exit__(self, *_args): return False
+            def geturl(self): return "https://lists.example/block.txt"
+            def read(self, _limit): return ("0.0.0.0 " + self.domain + "\n").encode()
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "mini-services.json"
+            config = copy.deepcopy(DEFAULT_CONFIG)
+            config["dns"]["blocklist_urls"] = [
+                "https://lists.example/one", "https://lists.example/two"
+            ]
+            with mock.patch("simpleoffice_mini_services._https_open", side_effect=[
+                Response("ads.example"), Response("tracker.example")
+            ]):
+                result = refresh_blocklists(config, path, max_domains=1)
+            self.assertTrue(result["preserved_previous"] is False)
+            self.assertEqual(1, result["domains"])
+            self.assertFalse(result["sources"][1]["ok"])
+            self.assertEqual("ads.example\n", blocklist_path(path).read_text(encoding="utf-8"))
+
     def test_failed_refresh_preserves_last_active_blocklist(self):
         class Response:
             def __enter__(self): return self
