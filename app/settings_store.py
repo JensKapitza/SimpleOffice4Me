@@ -313,7 +313,13 @@ class SettingsStore:
             raise ValueError("a named user is required")
         # Partial updates from ordinary preferences must not reset the admin-only S3 switch.
         if "s3" not in settings:
-            settings = {**settings, "s3": self.settings()["s3"]}
+            s3_state = self.settings()["s3"]
+            if not self.path.exists():
+                # Preserve the old Flask configuration on the first settings save.
+                from flask import current_app, has_app_context
+                if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
+                    s3_state = {"enabled": True}
+            settings = {**settings, "s3": s3_state}
         normalized = self._validate(settings)
         atomic_json_write(self.path, normalized)
         self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
