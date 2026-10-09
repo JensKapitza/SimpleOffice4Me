@@ -41,7 +41,10 @@ def _s3_settings_store():
 
 
 def _s3_is_enabled():
-    return _s3_settings_store().settings().get("s3", {}).get("enabled", False) is True
+    store = _s3_settings_store()
+    if not store.path.exists():
+        return current_app.config.get("S3_OVERLAY_ENABLED", False) is True
+    return store.settings().get("s3", {}).get("enabled", False) is True
 
 
 class S3Error(Exception):
