@@ -311,6 +311,9 @@ class SettingsStore:
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
             raise ValueError("a named user is required")
+        # Partial updates from ordinary preferences must not reset the admin-only S3 switch.
+        if "s3" not in settings:
+            settings = {**settings, "s3": self.settings()["s3"]}
         normalized = self._validate(settings)
         atomic_json_write(self.path, normalized)
         self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
