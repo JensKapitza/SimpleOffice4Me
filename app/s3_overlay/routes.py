@@ -26,15 +26,6 @@ from app.v3_inbox import record_completed_best_effort
 
 from . import auth, credentials
 from app.settings_store import SettingsStore
-
-
-def _s3_settings_store():
-    return SettingsStore(current_app.config['DOCUMENT_ROOT'])
-
-
-def _s3_is_enabled():
-    settings = _s3_settings_store().settings()
-    return settings.get('s3', {}).get('enabled', False) is True
 from .objects import DocumentObjects
 from .multipart import MultipartError, MultipartStore
 from .xml import document as xml_document, element, error as xml_error
@@ -43,6 +34,14 @@ from .xml import document as xml_document, element, error as xml_error
 bp = Blueprint("s3_overlay", __name__)
 S3_PREFIX = "/s3"
 BUCKET = "simpleoffice"
+
+
+def _s3_settings_store():
+    return SettingsStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _s3_is_enabled():
+    return _s3_settings_store().settings().get("s3", {}).get("enabled", False) is True
 
 
 class S3Error(Exception):
@@ -722,7 +721,10 @@ def manage():
         action = request.form.get("action", "create")
         try:
             if action == "toggle":
-                enabled = request.form.get("enabled") == "1"
+                value = request.form.get("enabled")
+                if value not in {"0", "1"}:
+                    raise ValueError("Ungültiger S3-Status.")
+                enabled = value == "1"
                 store = _s3_settings_store()
                 settings = store.settings()
                 settings["s3"] = {"enabled": enabled}
