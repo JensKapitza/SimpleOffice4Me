@@ -93,7 +93,7 @@ def refresh_blocklists(
             if len(data) > max_download_bytes:
                 raise ValueError("Blockliste ist größer als das Download-Limit")
             found = parse_blocklist_text(data.decode("utf-8", errors="replace"))
-            if len(domains) + len(found) > max_domains:
+            if len(domains | found) > max_domains:
                 raise ValueError("Gesamtzahl der Blocklist-Domains überschreitet das Limit")
             domains.update(found)
             sources.append(
