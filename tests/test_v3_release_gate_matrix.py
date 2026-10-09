@@ -14,6 +14,7 @@ from app.calendar_collections import CalendarCollections
 from app.contact_store import ContactStore
 from app.document_store import DocumentStore
 from app.s3_overlay import credentials
+from app.settings_store import SettingsStore
 from app.todo_store import TodoStore
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
@@ -128,7 +129,10 @@ class V3ReleaseGateMatrixTests(unittest.TestCase):
                 )
                 for key in active:
                     env["SIMPLEOFFICE_V3_" + key.upper() + "_ENABLED"] = "1"
-                app.config["S3_OVERLAY_ENABLED"] = name == "s3-on"
+                settings_store = SettingsStore(root)
+                settings = settings_store.settings()
+                settings["s3"]["enabled"] = name == "s3-on"
+                settings_store.save(settings, "release-matrix")
                 with patch.dict(os.environ, env), self.subTest(profile=name):
                     with app.app_context():
                         db.ensure_auth_database()
