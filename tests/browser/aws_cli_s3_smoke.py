@@ -65,8 +65,12 @@ with app.app_context():
                "AWS_EC2_METADATA_DISABLED": "true",
                "AWS_MAX_ATTEMPTS": "1"}
         def aws(*args, expected=0):
-            return run(["aws", "--endpoint-url", ENDPOINT, "--no-cli-pager",
-                        *args], env=env, expected=expected)
+            operation = args[1] if len(args) > 1 else "unknown"
+            try:
+                return run(["aws", "--endpoint-url", ENDPOINT, "--no-cli-pager",
+                            *args], env=env, expected=expected)
+            except RuntimeError as exc:
+                raise RuntimeError(f"AWS CLI S3 operation {operation} failed: {exc}") from exc
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "aws-config"
             config.write_text("[default]\ns3 =\n    addressing_style = path\n")
