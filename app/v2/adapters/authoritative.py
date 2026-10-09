@@ -82,6 +82,24 @@ class V2AuthoritativeStorageAdapter:
             return OperationResult.success(entry.version_id)
         return self._error(ErrorCode.CONFLICT, "document content changed since it was opened")
 
+    def _restore_missing_projection(self, entry: CatalogEntry) -> OperationResult[dict]:
+        content = self.primary.read_bytes(entry.object_id)
+        if not content.ok:
+            return OperationResult(error=content.error)
+        payload = bytes(content.value)
+        if len(payload) != entry.size or hashlib.sha256(payload).hexdigest() != entry.content_sha256:
+            return self._error(ErrorCode.INTEGRITY_ERROR, "authoritative V2 content differs from catalog")
+        try:
+            metadata = self.store.create_document_at(
+                entry.location.relative_path,
+                payload,
+                self.actor,
+                document_id=entry.object_id.value,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            return self._projection_failure(exc)
+        return OperationResult.success(metadata)
+
     def _projection_preflight(
         self,
         entry: CatalogEntry,
@@ -93,7 +111,18 @@ class V2AuthoritativeStorageAdapter:
             if editable:
                 self.store._require_document_editable(metadata)
         except (OSError, RuntimeError, ValueError) as exc:
-            return self._projection_failure(exc)
+            target = resolve_under(self.root, entry.location.relative_path, strict=False)
+            if target.exists():
+                return self._projection_failure(exc)
+            restored = self._restore_missing_projection(entry)
+            if not restored.ok:
+                return OperationResult(error=restored.error)
+            metadata = restored.value
+            if editable:
+                try:
+                    self.store._require_document_editable(metadata)
+                except (OSError, RuntimeError, ValueError) as restore_exc:
+                    return self._projection_failure(restore_exc)
         if str(metadata.get("last_path") or "") != entry.location.relative_path:
             return self._error(ErrorCode.INTEGRITY_ERROR, "legacy projection location differs from V2")
         if str(metadata.get("sha256") or "") != entry.content_sha256:
