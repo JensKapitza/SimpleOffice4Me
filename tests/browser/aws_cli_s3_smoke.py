@@ -19,6 +19,19 @@ def run(command, *, env=None, expected=0):
         import re
         error = re.search(r"\(([^()]{1,80})\) when calling the", result.stderr)
         error_code = error.group(1) if error else "unknown"
+        # Classify transport failures without logging raw stderr or credentials.
+        stderr = result.stderr.lower()
+        if error_code == "unknown":
+            for marker, classification in (
+                ("could not connect to the endpoint url", "EndpointConnectionError"),
+                ("connection was closed", "ConnectionClosedError"),
+                ("ssl validation failed", "SSLError"),
+                ("failed to connect to proxy url", "ProxyConnectionError"),
+                ("invalid endpoint", "InvalidEndpoint"),
+            ):
+                if marker in stderr:
+                    error_code = classification
+                    break
         raise RuntimeError(f"AWS CLI operation failed (exit={result.returncode}, expected={expected}, s3_error={error_code})")
     return result
 
