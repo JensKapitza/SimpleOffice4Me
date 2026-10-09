@@ -19,6 +19,19 @@ def run(command, *, env=None, expected=0):
         import re
         error = re.search(r"\(([^()]{1,80})\) when calling the", result.stderr)
         error_code = error.group(1) if error else "unknown"
+        # Classify transport failures without logging raw stderr or credentials.
+        stderr = result.stderr.lower()
+        if error_code == "unknown":
+            for marker, classification in (
+                ("could not connect to the endpoint url", "EndpointConnectionError"),
+                ("connection was closed", "ConnectionClosedError"),
+                ("ssl validation failed", "SSLError"),
+                ("failed to connect to proxy url", "ProxyConnectionError"),
+                ("invalid endpoint", "InvalidEndpoint"),
+            ):
+                if marker in stderr:
+                    error_code = classification
+                    break
         raise RuntimeError(f"AWS CLI operation failed (exit={result.returncode}, expected={expected}, s3_error={error_code})")
     return result
 
@@ -52,8 +65,12 @@ with app.app_context():
                "AWS_EC2_METADATA_DISABLED": "true",
                "AWS_MAX_ATTEMPTS": "1"}
         def aws(*args, expected=0):
-            return run(["aws", "--endpoint-url", ENDPOINT, "--no-cli-pager",
-                        *args], env=env, expected=expected)
+            operation = args[1] if len(args) > 1 else "unknown"
+            try:
+                return run(["aws", "--endpoint-url", ENDPOINT, "--no-cli-pager",
+                            *args], env=env, expected=expected)
+            except RuntimeError as exc:
+                raise RuntimeError(f"AWS CLI S3 operation {operation} failed: {exc}") from exc
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp) / "aws-config"
             config.write_text("[default]\ns3 =\n    addressing_style = path\n")
