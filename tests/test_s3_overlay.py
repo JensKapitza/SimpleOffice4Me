@@ -754,7 +754,10 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(403, denied.status_code)
 
     def test_overlay_is_disabled_by_default(self):
-        app.config["S3_OVERLAY_ENABLED"] = False
+        store = SettingsStore(self.root / "documents")
+        settings = store.settings()
+        settings["s3"]["enabled"] = False
+        store.save(settings, "s3-test")
         response = self.client.get("/s3/")
         self.assertEqual(404, response.status_code)
         self.assertIn(b"NotFound", response.data)
