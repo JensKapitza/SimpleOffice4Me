@@ -101,7 +101,7 @@ def _handle_tree_put(username: str, resource, document, is_collection: bool, key
         digest_error = _verify_content_digest(content, username, resource)
         if digest_error is not None:
             return digest_error
-        quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
+        quota_error = _check_quota(username, "PUT", resource, len(content) - int(document.get("size", 0)))
         if quota_error is not None:
             return quota_error
         scan_error = _webdav_upload_scan_error(content, username, resource)
@@ -427,7 +427,7 @@ def file_tree(username: str, relative_path: str):
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     catalog_entry = None
-    if request.method in {"GET", "HEAD"} and _vfs()._authoritative_v2() and not is_collection:
+    if request.method in {"GET", "HEAD", "PUT"} and _vfs()._authoritative_v2() and not is_collection:
         try:
             catalog_entry = _vfs().authoritative_entry(resource)
             document = _store().get_document(catalog_entry.object_id.value)
