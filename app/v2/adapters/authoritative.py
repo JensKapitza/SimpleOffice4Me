@@ -90,15 +90,21 @@ class V2AuthoritativeStorageAdapter:
         if len(payload) != entry.size or hashlib.sha256(payload).hexdigest() != entry.content_sha256:
             return self._error(ErrorCode.INTEGRITY_ERROR, "authoritative V2 content differs from catalog")
         try:
-            metadata = self.store.create_document_at(
-                entry.location.relative_path,
-                payload,
-                self.actor,
-                document_id=entry.object_id.value,
-            )
+            metadata = self.store.get_document(entry.object_id.value)
+            target = resolve_under(self.root, entry.location.relative_path, strict=False)
+            if target.exists() or not target.parent.is_dir() or target.parent.is_symlink():
+                return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection cannot be restored safely")
+            temporary = target.with_name(f".{target.name}.{entry.object_id.value}.projection")
+            try:
+                with temporary.open("xb") as handle:
+                    handle.write(payload)
+                    handle.flush()
+                temporary.replace(target)
+            finally:
+                temporary.unlink(missing_ok=True)
+            return OperationResult.success(metadata)
         except (OSError, RuntimeError, ValueError) as exc:
             return self._projection_failure(exc)
-        return OperationResult.success(metadata)
 
     def _projection_preflight(
         self,
