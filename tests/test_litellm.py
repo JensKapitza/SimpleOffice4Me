@@ -54,6 +54,12 @@ class LiteLLMTest(unittest.TestCase):
         config.persist(result)
         return result
 
+    def test_invalid_cidr_types(self):
+        for value in (None, 0, True, {}, [], "", "invalid", "x" * 129):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError):
+                    config.validate({"allowed_networks": [value]})
+
     def test_disabled_is_optional_and_no_network(self):
         self.assertFalse(config.settings()['enabled'])
         with patch.object(gateway, '_exchange') as exchange:
