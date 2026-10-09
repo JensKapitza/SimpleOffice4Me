@@ -101,7 +101,8 @@ def _handle_tree_put(username: str, resource, document, is_collection: bool, key
         digest_error = _verify_content_digest(content, username, resource)
         if digest_error is not None:
             return digest_error
-        quota_error = _check_quota(username, "PUT", resource, len(content) - int(document.get("size", 0)))
+        current_size = resource.stat().st_size if resource.is_file() else int(document.get("size", 0))
+        quota_error = _check_quota(username, "PUT", resource, len(content) - current_size)
         if quota_error is not None:
             return quota_error
         scan_error = _webdav_upload_scan_error(content, username, resource)
@@ -772,7 +773,8 @@ def endpoint(path: str):
         digest_error = _verify_content_digest(content, username, document_path)
         if digest_error is not None:
             return digest_error
-        quota_error = _check_quota(username, "PUT", document_path, len(content) - document_path.stat().st_size)
+        current_size = document_path.stat().st_size if document_path.is_file() else int(document.get("size", 0))
+        quota_error = _check_quota(username, "PUT", document_path, len(content) - current_size)
         if quota_error is not None:
             return quota_error
         scan_error = _webdav_upload_scan_error(content, username, document_path)
