@@ -367,7 +367,7 @@ class VirtualFileSystem:
                 raise FileExistsError("destination resource already exists")
             if authoritative_entry is not None:
                 object_id = authoritative_entry.object_id
-                current_version = authoritative_entry.content_hash
+                current_version = authoritative_entry.content_sha256
             else:
                 resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
                 document = self.store.get_document(resource)
