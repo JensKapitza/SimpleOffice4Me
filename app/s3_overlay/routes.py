@@ -25,6 +25,16 @@ from app.db import get_db
 from app.v3_inbox import record_completed_best_effort
 
 from . import auth, credentials
+from app.settings_store import SettingsStore
+
+
+def _s3_settings_store():
+    return SettingsStore(current_app.config['DOCUMENT_ROOT'])
+
+
+def _s3_is_enabled():
+    settings = _s3_settings_store().settings()
+    return settings.get('s3', {}).get('enabled', False) is True
 from .objects import DocumentObjects
 from .multipart import MultipartError, MultipartStore
 from .xml import document as xml_document, element, error as xml_error
@@ -44,7 +54,7 @@ class S3Error(Exception):
 
 
 def _enabled() -> bool:
-    if not current_app.config.get("S3_OVERLAY_ENABLED", False):
+    if not _s3_is_enabled():
         raise S3Error("NotFound", "S3 overlay is disabled", 404)
     host = request.host.split(":", 1)[0].strip("[]").casefold()
     if not request.is_secure and host not in {"localhost", "127.0.0.1", "::1"}:
@@ -706,13 +716,20 @@ def _list_multipart_uploads(identity: dict):
 def manage():
     if not is_admin(g.user):
         abort(403)
-    if not current_app.config.get("S3_OVERLAY_ENABLED", False):
-        flash("S3-Overlay ist deaktiviert. SIMPLEOFFICE_S3_OVERLAY_ENABLED=true setzt es frei.")
+
     generated = None
     if request.method == "POST":
         action = request.form.get("action", "create")
         try:
-            if action == "revoke":
+            if action == "toggle":
+                enabled = request.form.get("enabled") == "1"
+                store = _s3_settings_store()
+                settings = store.settings()
+                settings["s3"] = {"enabled": enabled}
+                store.save(settings, str(g.user["username"]))
+                audit("s3_overlay_toggled", "s3-overlay", "global", detail={"enabled": enabled})
+                flash("S3-Overlay aktiviert." if enabled else "S3-Overlay deaktiviert.")
+            elif action == "revoke":
                 if not credentials.revoke(str(g.user["username"]), request.form.get("access_key", "")):
                     raise ValueError("S3-Zugang nicht gefunden.")
                 audit("s3_credential_revoked", "s3-credential", request.form.get("access_key", ""))
@@ -726,5 +743,5 @@ def manage():
         except (OSError, ValueError, TypeError) as exc:
             flash(str(exc))
     return render_template("admin/s3_overlay.html", credentials=credentials.list_for(str(g.user["username"])), generated=generated,
-                           enabled=bool(current_app.config.get("S3_OVERLAY_ENABLED", False)), endpoint=request.url_root.rstrip("/") + S3_PREFIX,
+                           enabled=_s3_is_enabled(), endpoint=request.url_root.rstrip("/") + S3_PREFIX,
                            region=current_app.config.get("S3_OVERLAY_REGION", "us-east-1"), bucket=BUCKET)
