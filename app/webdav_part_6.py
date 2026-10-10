@@ -101,7 +101,7 @@ def _handle_tree_put(username: str, resource, document, is_collection: bool, key
         digest_error = _verify_content_digest(content, username, resource)
         if digest_error is not None:
             return digest_error
-        current_size = resource.stat().st_size if resource.is_file() else int(document.get("size", 0))
+        current_size = (\n            resource.stat().st_size if resource.is_file()\n            else _vfs().authoritative_entry(resource).size if _vfs()._authoritative_v2()\n            else int(document.get("size", 0))\n        )
         quota_error = _check_quota(username, "PUT", resource, len(content) - current_size)
         if quota_error is not None:
             return quota_error
@@ -773,7 +773,7 @@ def endpoint(path: str):
         digest_error = _verify_content_digest(content, username, document_path)
         if digest_error is not None:
             return digest_error
-        current_size = document_path.stat().st_size if document_path.is_file() else int(document.get("size", 0))
+        current_size = (\n            document_path.stat().st_size if document_path.is_file()\n            else _vfs().authoritative_entry(document_path).size if _vfs()._authoritative_v2()\n            else int(document.get("size", 0))\n        )
         quota_error = _check_quota(username, "PUT", document_path, len(content) - current_size)
         if quota_error is not None:
             return quota_error
