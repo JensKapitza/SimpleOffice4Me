@@ -166,7 +166,7 @@ def _jammy_runtime_failure_details() -> str:
             problems.append("Python-Basis wird nicht von python3.10-minimal bereitgestellt.")
         for package in JAMMY_PACKAGES:
             try:
-                status = _command("dpkg-query", "-W", "-f=${Status}\\n${Version}", package).splitlines()
+                status = _command("dpkg-query", "-W", "-f=${Status}\n${Version}", package).splitlines()
                 if len(status) != 2 or status[0] != "install ok installed":
                     problems.append(f"{package}: nicht vollstaendig installiert.")
                     continue
@@ -179,7 +179,7 @@ def _jammy_runtime_failure_details() -> str:
                 problems.append(f"{package}: Paketpruefung fehlgeschlagen ({type(exc).__name__}: {exc}).")
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         problems.append(f"Systempruefung fehlgeschlagen ({type(exc).__name__}: {exc}).")
-    return "\\n".join(problems) if problems else "Keine Einzelursache ermittelt; siehe APT-Konfiguration und Interpreter-Pfad."
+    return "\n".join(problems) if problems else "Keine Einzelursache ermittelt; siehe APT-Konfiguration und Interpreter-Pfad."
 
 
 def write_runtime_proof(directory: Path = RUNTIME_PROOF_DIR) -> None:
@@ -190,7 +190,7 @@ def write_runtime_proof(directory: Path = RUNTIME_PROOF_DIR) -> None:
     mirrors and CI runners do not reliably retain/download the exact archive.
     """
     if not _jammy_python(allow_network=True, verify_archive_bytes=False):
-        raise RuntimeError("Ubuntu-22.04-Runtime konnte nicht verifiziert werden.\\n" + _jammy_runtime_failure_details())
+        raise RuntimeError("Ubuntu-22.04-Runtime konnte nicht verifiziert werden.\n" + _jammy_runtime_failure_details())
     proof = {"packages": {}}
     for package in JAMMY_PACKAGES:
         version = _command("dpkg-query", "-W", "-f=${Version}", package)
