@@ -204,7 +204,7 @@ def write_runtime_proof(directory: Path = RUNTIME_PROOF_DIR) -> None:
             json.dump(proof, stream, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())
-        os.chmod(temporary, 0o644)
+        os.chmod(temporary, 0o644)  # codeql[py/overly-permissive-file]: Root-owned package manifest contains only public package versions and hashes; unprivileged runtime must read it.
         temporary.replace(target)
     finally:
         temporary.unlink(missing_ok=True)
