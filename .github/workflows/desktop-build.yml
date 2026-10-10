@@ -2,14 +2,8 @@ name: Desktop build
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'desktop/**'
-      - '.github/workflows/desktop-build.yml'
-      - 'app/**'
-      - 'templates/**'
-      - 'static/**'
-      - 'pyproject.toml'
+  push:
+    branches: [main]
 
 permissions:
   contents: read

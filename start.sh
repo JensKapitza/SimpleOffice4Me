@@ -12,6 +12,7 @@ NATIVE_PM=""
 DISTRO_NAME="Linux"
 USE_SYSTEM_SITE_PACKAGES=0
 NATIVE_PACKAGES_FOUND=0
+STANDALONE=0
 
 usage() {
   cat <<'EOF'
@@ -37,6 +38,7 @@ Optionen:
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
   --check-system              Systemwerkzeuge prüfen, ohne Serverstart/Installation
+  --standalone                Python 3.12 unabhängig vom System herunterladen und verwenden
   --help                      Diese Hilfe anzeigen
 
 Beim Start werden unter Linux zuerst vorhandene/native Distribution-Pakete
@@ -130,6 +132,8 @@ while [ "$#" -gt 0 ]; do
       export SIMPLEOFFICE_OSM_REINDEX_ON_START=1; shift ;;
     --check-system)
       CHECK_SYSTEM=1; shift ;;
+    --standalone)
+      STANDALONE=1; shift ;;
     --help|-h)
       usage; exit 0 ;;
     *)
@@ -510,8 +514,59 @@ print("Termux-native Web-Pakete und Zeitzonendaten sind vorhanden und verwendbar
 PY
 }
 
+setup_standalone_runtime() {
+  if [ "$IS_TERMUX" -eq 1 ]; then
+    echo "--standalone wird unter Termux nicht unterstützt." >&2
+    return 2
+  fi
+  if [ "$CHECK_SYSTEM" -eq 1 ]; then
+    echo "--standalone und --check-system lassen sich nicht kombinieren." >&2
+    return 2
+  fi
+
+  local uv_cmd managed_python
+  local tools_dir="$ROOT/.runtime-tools"
+  VENV="$ROOT/.venv-standalone"
+  mkdir -p "$tools_dir"
+  if command -v uv >/dev/null 2>&1; then
+    uv_cmd="$(command -v uv)"
+  else
+    uv_cmd="$tools_dir/uv-bootstrap/bin/uv"
+    if [ ! -x "$uv_cmd" ]; then
+      echo "Standalone: installiere uv über pip in die projektlokale Werkzeugumgebung ..."
+      "$BOOTSTRAP_PYTHON" -m venv "$tools_dir/uv-bootstrap" || {
+        echo "Python-venv fehlt. Ubuntu: sudo apt install python3-venv" >&2
+        return 1
+      }
+      "$tools_dir/uv-bootstrap/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'uv>=0.9,<1' || return 1
+    fi
+  fi
+  echo "Standalone: prüfe verwaltete CPython-3.12-Laufzeit ..."
+  UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" python install 3.12 || return 1
+  managed_python="$(UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" python find --managed-python 3.12)" || return 1
+  [ -x "$managed_python" ] || { echo "Kein ausführbares verwaltetes Python gefunden." >&2; return 1; }
+
+  if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
+    echo "Standalone: vorhandene Laufzeit $VENV wird wiederverwendet."
+  else
+    # Keep the default .venv untouched; never silently delete a broken environment.
+    if [ -e "$VENV" ]; then
+      echo "Standalone-Umgebung $VENV ist nicht verwendbar; keine automatische Löschung." >&2
+      return 1
+    fi
+    UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" venv --python "$managed_python" --seed "$VENV" || return 1
+  fi
+  PYTHON="$VENV/bin/python"
+  BOOTSTRAP_PYTHON="$PYTHON"
+  SIMPLEOFFICE_NATIVE_PACKAGES=0
+  export SIMPLEOFFICE_NATIVE_PACKAGES
+}
+
 detect_linux_distribution
 detect_native_package_manager
+if [ "$STANDALONE" -eq 1 ]; then
+  setup_standalone_runtime
+fi
 
 RUNTIME_PYTHON="$PYTHON"
 if [ -x "$VENV/bin/python" ]; then

@@ -1,10 +1,7 @@
 name: Release security, protocols and performance
 on:
-  pull_request:
-    paths:
-      - 'app/**'
-      - 'tests/**'
-      - '.github/workflows/release-security-protocol-performance.yml'
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * 1'
