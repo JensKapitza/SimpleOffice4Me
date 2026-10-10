@@ -69,3 +69,35 @@ class S3AdminToggleTests(unittest.TestCase):
         latest = SettingsStore(self.temp.name).settings()
         self.assertEqual(latest["interface"]["default_language"], "en")
         self.assertTrue(latest["s3"]["enabled"])
+
+    def test_concurrent_partial_saves_across_processes(self):
+        import multiprocessing
+        import os
+        if os.name != "posix":
+            self.skipTest("POSIX advisory lock regression")
+        context = multiprocessing.get_context("fork")
+        start = context.Event()
+        root = self.temp.name
+
+        def update_preferences():
+            start.wait()
+            SettingsStore(root).save({"interface": {"default_language": "en"}}, "user")
+
+        def toggle_s3():
+            start.wait()
+            SettingsStore(root).set_s3_enabled(True, "admin")
+
+        workers = [context.Process(target=update_preferences), context.Process(target=toggle_s3)]
+        for worker in workers:
+            worker.start()
+        start.set()
+        for worker in workers:
+            worker.join(timeout=15)
+            if worker.is_alive():
+                worker.terminate()
+                worker.join()
+                self.fail("settings writer deadlocked")
+            self.assertEqual(worker.exitcode, 0)
+        latest = SettingsStore(root).settings()
+        self.assertEqual(latest["interface"]["default_language"], "en")
+        self.assertTrue(latest["s3"]["enabled"])
