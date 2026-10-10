@@ -669,6 +669,24 @@ else
   "$VENV/bin/python" -m pip install --disable-pip-version-check --editable "$ROOT"
 fi
 
+# Standalone runs with its own isolated Python and must ship its own renderer.
+# Never install into the system interpreter or the normal .venv.
+if [ "$STANDALONE" -eq 1 ]; then
+  echo "Standalone: prüfe Playwright und Chromium für PDF/PNG-Webexport ..."
+  if ! "$VENV/bin/python" -c 'import playwright.sync_api' >/dev/null 2>&1; then
+    "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.55.0' || {
+      echo "Standalone: Playwright-Installation fehlgeschlagen." >&2
+      exit 1
+    }
+  fi
+  if ! "$VENV/bin/python" -c 'from pathlib import Path; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); executable=p.chromium.executable_path; p.stop(); assert Path(executable).is_file()' >/dev/null 2>&1; then
+    "$VENV/bin/python" -m playwright install chromium || {
+      echo "Standalone: Chromium-Installation fehlgeschlagen. Prüfe Netzwerkzugang und Systembibliotheken." >&2
+      exit 1
+    }
+  fi
+fi
+
 "$VENV/bin/python" "$ROOT/tools/install_invoice_validator.py" || true
 "$VENV/bin/python" "$ROOT/tools/install_xrechnung_validator.py" || true
 cd "$ROOT"
