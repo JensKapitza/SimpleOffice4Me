@@ -7,10 +7,8 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
-import dns.exception
-import dns.resolver
 from flask import current_app
 
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
@@ -88,14 +86,47 @@ def _open_profile(request):
 
 
 def resolve_authority_id(record_name: str) -> str:
-    """Read the designated node fingerprint from a DNS TXT record."""
-    resolver = dns.resolver.Resolver(configure=True)
-    resolver.cache = None
-    answers = resolver.resolve(record_name.rstrip(".") + ".", "TXT", lifetime=TIMEOUT_SECONDS)
+    """Resolve a master TXT authority using HTTPS DNS (stdlib only).
+
+    The resolver uses Cloudflare's DNS-over-HTTPS JSON endpoint. No redirects,
+    implicit proxies, or unbounded responses are permitted. Failure is closed:
+    callers never infer an authority ID from an unsuccessful response.
+    """
+    name = MasterClusterSettings.validate({
+        "mode": "active-active", "txt_record_name": record_name
+    })["txt_record_name"]
+    url = "https://cloudflare-dns.com/dns-query?" + urlencode({"name": name + ".", "type": "TXT"})
+    request = urllib.request.Request(url, headers={"Accept": "application/dns-json"})
+    # The normal urllib opener may use environment proxies. Use a direct,
+    # TLS-validated connection and reject redirects to keep the authority fixed.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirectHandler)
+    with opener.open(request, timeout=TIMEOUT_SECONDS) as response:
+        if response.status != 200:
+            raise ValueError("DNS-over-HTTPS returned a non-success status")
+        raw = response.read(65537)
+    if len(raw) > 65536:
+        raise ValueError("DNS-over-HTTPS response exceeds size limit")
+    payload = json.loads(raw.decode("utf-8"))
+    if not isinstance(payload, dict) or payload.get("Status") != 0 or payload.get("TC") is True:
+        raise ValueError("DNS-over-HTTPS query failed")
+    answers = payload.get("Answer", [])
+    if not isinstance(answers, list) or len(answers) > 100:
+        raise ValueError("invalid DNS-over-HTTPS answers")
     values = set()
     for answer in answers:
-        text = b"".join(answer.strings).decode("ascii", errors="strict").strip()
-        match = _AUTHORITY_VALUE.fullmatch(text)
+        if not isinstance(answer, dict) or answer.get("type") != 16:
+            continue
+        if str(answer.get("name", "")).rstrip(".").casefold() != name:
+            continue
+        data = answer.get("data")
+        if not isinstance(data, str) or len(data) > 1024:
+            raise ValueError("invalid TXT record data")
+        # DoH JSON represents TXT character-strings as quoted segments.
+        segments = re.findall(r'"((?:[^"\\\\]|\\\\.)*)"', data)
+        if not segments or re.sub(r'"((?:[^"\\\\]|\\\\.)*)"', "", data).strip():
+            raise ValueError("invalid TXT record encoding")
+        decoded = "".join(bytes(s, "utf-8").decode("unicode_escape") for s in segments)
+        match = _AUTHORITY_VALUE.fullmatch(decoded.strip())
         if match:
             values.add(match.group(1))
     if len(values) != 1:
@@ -149,7 +180,7 @@ def inspect_master_address(root) -> dict:
     if settings["txt_record_name"]:
         try:
             authority_id = resolve_authority_id(settings["txt_record_name"])
-        except (dns.exception.DNSException, OSError, UnicodeDecodeError, ValueError) as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
             authority_error = type(exc).__name__
 
     remote_id = ""
