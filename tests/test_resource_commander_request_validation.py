@@ -38,6 +38,17 @@ class ResourceMutationInputTests(unittest.TestCase):
                 with self.subTest(value=bad), self.assertRaises(BadRequest):
                     _json_text({"path": bad}, "path")
 
+    def test_query_parameters_reject_nul_and_oversized_values(self):
+        from app.resource_commander import _query_text
+        from werkzeug.exceptions import BadRequest
+        for value in ("x" * 4097, "x%00y"):
+            with self.subTest(value=value[:20]):
+                with self.app.test_request_context("/?path=" + value):
+                    with self.assertRaises(BadRequest):
+                        _query_text("path")
+        with self.app.test_request_context("/?path=folder%2Fitem"):
+            self.assertEqual(_query_text("path"), "folder/item")
+
     def test_copy_smart_flag_accepts_only_json_boolean(self):
         from app.resource_commander import _json_boolean
         from werkzeug.exceptions import BadRequest
