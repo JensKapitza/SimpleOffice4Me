@@ -132,6 +132,26 @@ class RuntimeSupportTests(unittest.TestCase):
         for result in ("unowned", OSError("dpkg unavailable"), subprocess.TimeoutExpired("dpkg", 10)):
             self.assertFalse(self.provenance(overrides={("dpkg-query", "-S", "/usr/bin/python3.10"): result}))
 
+    def test_failed_runtime_proof_reports_failing_package_without_relaxing_gate(self):
+        version = "3.10.12-1~22.04.13"
+        package_policy, origins = self.apt_policies(version)
+
+        def command(*args):
+            if args[:2] == ("dpkg-query", "-S"):
+                return "python3.10-minimal: /usr/bin/python3.10"
+            if args[:2] == ("dpkg-query", "-W"):
+                return "install ok installed\n" + version
+            if args[:2] == ("dpkg", "--verify"):
+                return "??5?????? /usr/bin/python3.10" if args[-1] == "python3.10-minimal" else ""
+            return origins if len(args) == 2 else package_policy
+
+        with patch.object(policy, "_jammy_python", return_value=False), \
+                patch.object(policy.Path, "read_text", return_value='ID=ubuntu\nVERSION_ID="22.04"'), \
+                patch.object(policy.sys, "_base_executable", "/usr/bin/python3.10"), \
+                patch.object(policy, "_command", side_effect=command):
+            with self.assertRaisesRegex(RuntimeError, "python3.10-minimal: dpkg --verify"):
+                policy.write_runtime_proof()
+
     def test_jammy_rejects_installed_bytes_that_do_not_match_canonical_archive(self):
         self.assertFalse(self.provenance(canonical_bytes=False))
 
