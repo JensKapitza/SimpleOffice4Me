@@ -149,6 +149,39 @@ def _package_manifest(package: str) -> dict[str, str]:
     return manifest
 
 
+def _jammy_runtime_failure_details() -> str:
+    """Explain a rejected distro interpreter without weakening the runtime gate."""
+    problems = []
+    try:
+        release = dict(
+            line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
+            if "=" in line and not line.startswith("#")
+        )
+        if release.get("ID", "").strip('"') != "ubuntu" or release.get("VERSION_ID", "").strip('"') != "22.04":
+            problems.append("Betriebssystem ist nicht Ubuntu 22.04.")
+        base = Path(getattr(sys, "_base_executable", sys.executable)).resolve()
+        if base != Path("/usr/bin/python3.10"):
+            problems.append(f"Python-Basis {base} ist nicht /usr/bin/python3.10.")
+        elif _command("dpkg-query", "-S", str(base)) != "python3.10-minimal: /usr/bin/python3.10":
+            problems.append("Python-Basis wird nicht von python3.10-minimal bereitgestellt.")
+        for package in JAMMY_PACKAGES:
+            try:
+                status = _command("dpkg-query", "-W", "-f=${Status}\n${Version}", package).splitlines()
+                if len(status) != 2 or status[0] != "install ok installed":
+                    problems.append(f"{package}: nicht vollstaendig installiert.")
+                    continue
+                if not _canonical_package_version(status[1], package):
+                    problems.append(f"{package} ({status[1]}): APT-Kandidat oder Ubuntu-Jammy-Herkunft nicht bestaetigt; apt-cache policy pruefen.")
+                verification = _command("dpkg", "--verify", package)
+                if verification:
+                    problems.append(f"{package}: dpkg --verify meldet Abweichungen: {verification[:300]}")
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                problems.append(f"{package}: Paketpruefung fehlgeschlagen ({type(exc).__name__}: {exc}).")
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        problems.append(f"Systempruefung fehlgeschlagen ({type(exc).__name__}: {exc}).")
+    return "\n".join(problems) if problems else "Keine Einzelursache ermittelt; siehe APT-Konfiguration und Interpreter-Pfad."
+
+
 def write_runtime_proof(directory: Path = RUNTIME_PROOF_DIR) -> None:
     """Persist root-owned Jammy evidence after local package-integrity checks.
 
@@ -157,7 +190,7 @@ def write_runtime_proof(directory: Path = RUNTIME_PROOF_DIR) -> None:
     mirrors and CI runners do not reliably retain/download the exact archive.
     """
     if not _jammy_python(allow_network=True, verify_archive_bytes=False):
-        raise RuntimeError("Ubuntu-22.04-Runtime konnte nicht verifiziert werden.")
+        raise RuntimeError("Ubuntu-22.04-Runtime konnte nicht verifiziert werden.\n" + _jammy_runtime_failure_details())
     proof = {"packages": {}}
     for package in JAMMY_PACKAGES:
         version = _command("dpkg-query", "-W", "-f=${Version}", package)
