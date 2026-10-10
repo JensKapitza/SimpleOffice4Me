@@ -135,7 +135,7 @@ a { text-underline-offset: .16em; }
 .site-map-empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; color: var(--bs-secondary-color); }
 .site-visit .form-label { margin-bottom: .25rem; }
 @media (max-width: 575.98px) { .site-map { min-height: 300px; } .site-room { padding: .25rem; min-width: 65px; } .site-room > strong, .site-room > small { font-size: .68rem; } }
-@media print { body * { visibility: hidden !important; } .asset-label, .asset-label * { visibility: visible !important; } .asset-label { position: absolute; inset: 0; } }
+@media print { body:has(.asset-label) * { visibility: hidden !important; } body:has(.asset-label) .asset-label, body:has(.asset-label) .asset-label * { visibility: visible !important; } body:has(.asset-label) .asset-label { position: absolute; inset: 0; } }
 
 .site-unassigned { position: absolute; z-index: 3; right: .75rem; bottom: .75rem; max-width: 70%; padding: .5rem; border: 1px solid var(--bs-border-color); border-radius: .5rem; background: var(--bs-body-bg); box-shadow: 0 2px 10px #0002; font-size: .75rem; }
 .site-unassigned .site-map-asset { position: static; transform: none; }
