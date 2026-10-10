@@ -107,7 +107,8 @@ class WebExportTests(unittest.TestCase):
         from werkzeug.exceptions import BadRequest
         from app.web_export import download
 
-        # Exercise input validation independently of global availability checks.
+        # Test the view's validation directly. The application-wide request hooks
+        # are tested separately and may reject requests before reaching this view.
         with app.test_request_context(
             "/web-export/download", method="POST",
             data={"target": "/", "format": "../../tmp/owned", "media": "print"},
