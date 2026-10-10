@@ -180,7 +180,12 @@ def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
             os.close(descriptor)
             raise
         with handle:
-            os.fchmod(handle.fileno(), 0o600)
+            secure_chmod = getattr(os, "fchmod", None)
+            if secure_chmod is not None:
+                secure_chmod(handle.fileno(), 0o600)
+            else:
+                # Windows lacks fchmod; mkstemp created the file exclusively.
+                os.chmod(temporary, 0o600)
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())

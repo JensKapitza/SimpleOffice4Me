@@ -66,6 +66,16 @@ class ConfigurationSecurityTests(unittest.TestCase):
             self.assertEqual(path.read_bytes(), b'{"secret":"test"}')
             self.assertEqual(list(Path(directory).iterdir()), [path])
 
+    def test_atomic_write_uses_chmod_when_fchmod_unavailable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            with patch("simpleoffice_mini_core.os.fchmod", None, create=True):
+                with patch("simpleoffice_mini_core.os.chmod", wraps=os.chmod) as chmod:
+                    _atomic_write(path, b'{"enabled":false}')
+                    chmod.assert_called_once()
+                    self.assertEqual(chmod.call_args.args[1], 0o600)
+            self.assertEqual(path.read_bytes(), b'{"enabled":false}')
+
     def test_atomic_write_closes_descriptor_if_wrapping_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
