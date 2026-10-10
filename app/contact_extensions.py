@@ -371,7 +371,7 @@ def register(bp) -> None:
         query = request.args.get("q", "").strip(); country = request.args.get("country", "de").strip() or "de"; field = request.args.get("field", "").strip()
         root = current_app.config["DOCUMENT_ROOT"]; index_status = LocalAddressIndex(root).status()
         if len(query) < 3: return jsonify({"candidates": [], "suggestions": [], "unique": None, "shown": 0, "index_count": index_status["count"], "source": "local_osm", "ready": index_status["ready"], "attribution": "© OpenStreetMap contributors"})
-        try: candidates = search_address(query, root=root, country_code=country, limit=8)
+        try: candidates = search_address(query, root=root, country_code=country, limit=20)
         except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
             current_app.logger.warning("Local OSM address lookup failed: %s", exc)
             return jsonify({"error": "local_address_index_unavailable", "candidates": [], "unique": None, "source": "local_osm", "attribution": "© OpenStreetMap contributors"}), 503
