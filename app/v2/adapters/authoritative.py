@@ -91,10 +91,16 @@ class V2AuthoritativeStorageAdapter:
             return self._error(ErrorCode.INTEGRITY_ERROR, "authoritative V2 content differs from catalog")
         try:
             metadata = self.store.get_document(entry.object_id.value)
-            target = resolve_under(self.root, entry.location.relative_path, strict=False)
-            if target.exists() or not target.parent.is_dir() or target.parent.is_symlink():
+            relative = self.store._safe_managed_relative_path(entry.location.relative_path, require_name=True)
+            target = self.root / relative
+            current = self.root
+            for part in relative.parts:
+                current = current / part
+                if current.is_symlink():
+                    return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection path contains a symlink")
+            if target.exists() or not target.parent.is_dir():
                 return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection cannot be restored safely")
-            # Only clean up temporary files created by this invocation.
+            # NamedTemporaryFile gives each restoration its own exclusive path.
             temporary = None
             try:
                 with tempfile.NamedTemporaryFile(
@@ -105,10 +111,18 @@ class V2AuthoritativeStorageAdapter:
                     handle.write(payload)
                     handle.flush()
                 temporary.replace(target)
+                temporary = None
+                self.store._write_xattrs(
+                    target,
+                    str(metadata["document_id"]),
+                    entry.content_sha256,
+                    list(metadata.get("tags", [])),
+                )
+                self.store._scan_file(target, force_hash=True)
             finally:
                 if temporary is not None:
                     temporary.unlink(missing_ok=True)
-            return OperationResult.success(metadata)
+            return OperationResult.success(self.store.get_document(entry.object_id.value))
         except (OSError, RuntimeError, ValueError) as exc:
             return self._projection_failure(exc)
 
