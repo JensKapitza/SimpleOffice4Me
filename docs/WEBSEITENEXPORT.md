@@ -4,7 +4,7 @@ Der erste Ausbau exportiert angemeldete SimpleOffice-Seiten als PDF oder PNG mit
 
 ## Sicherheitsvertrag
 
-Der Renderer akzeptiert keine beliebigen URLs. `SIMPLEOFFICE_SERVER_PUBLIC_URL` legt die einzige zulässige Origin fest; Requests zu anderen Origins werden im Browser abgebrochen. Das Export-Token wird nur über `X-SimpleOffice-Export-Token` übertragen, gehasht in SQLite gespeichert und niemals in URL oder Kommandozeile geschrieben.
+Der Renderer akzeptiert keine beliebigen URLs. `SIMPLEOFFICE_SERVER_PUBLIC_URL` legt im normalen Serverbetrieb die einzige zulässige Origin fest; Requests zu anderen Origins werden im Browser abgebrochen. Bei lokalem Zugriff über `localhost`, `127.0.0.0/8` oder `::1` wird ohne gesetzte Variable ausschließlich die aktuelle Loopback-Origin verwendet. Das Export-Token wird nur über `X-SimpleOffice-Export-Token` übertragen, gehasht in SQLite gespeichert und niemals in URL oder Kommandozeile geschrieben.
 
 Der Token-Austausch erzeugt eine Sitzung des tatsächlichen Benutzers mit dessen `auth_version`. Gesperrte Konten, widerrufene/abgelaufene Tokens und geänderte `auth_version` werden abgewiesen. Der Nutzungszähler wird unter `BEGIN IMMEDIATE` atomar verbraucht. Die Renderer-Sitzung blockiert alle mutierenden HTTP-Methoden.
 
@@ -12,7 +12,7 @@ Administratoren können unter `/web-export/settings` Gültigkeit (mindestens 1 M
 
 ## Betrieb
 
-Playwright ist optional. Für den Export müssen das Python-Paket und Chromium installiert sein. Der normale SimpleOffice-Betrieb startet auch ohne Playwright. Chromium wird mit seiner Sandbox gestartet; `--no-sandbox` wird nicht automatisch gesetzt.
+Playwright ist optional. Für den Export müssen das Python-Paket und Chromium installiert sein. Ein lokal gestartetes SimpleOffice auf `localhost`/Loopback benötigt keine zusätzliche Public-URL-Konfiguration; bei Zugriff über LAN, DNS-Namen oder Reverse Proxy bleibt `SIMPLEOFFICE_SERVER_PUBLIC_URL` erforderlich. Der normale SimpleOffice-Betrieb startet auch ohne Playwright. Chromium wird mit seiner Sandbox gestartet; `--no-sandbox` wird nicht automatisch gesetzt.
 
 PDF verwendet `page.pdf(print_background=True)` und enthält Browser-Text als durchsuchbaren PDF-Text. PNG verwendet einen Full-Page-Screenshot. Druck- und Bildschirmansicht werden über `page.emulate_media()` gewählt.
 
