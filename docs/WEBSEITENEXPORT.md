@@ -21,3 +21,7 @@ Nicht Bestandteil dieses PR: Ablage als Dokument, LibreOffice-Konvertierung, OCR
 ### Standalone-Start
 
 Bei `./start.sh --standalone` werden Playwright (`playwright==1.55.0`) und die dazu passende Chromium-Binary in der isolierten `.venv-standalone` installiert, falls sie fehlen. Bereits vorhandene Komponenten werden beim nächsten Start wiederverwendet. Dafür ist beim ersten Start Netzwerkzugang erforderlich. Fehlende Linux-Systembibliotheken lassen sich bei Bedarf mit `.venv-standalone/bin/python -m playwright install-deps chromium` ergänzen; dieser Schritt benötigt in der Regel administrative Rechte und wird deshalb nicht ungefragt vom Startskript ausgeführt.
+
+### Regulärer Linux-Start und Standalone
+
+Sowohl `./start.sh` als auch `./start.sh --standalone` prüfen Playwright und die passende Chromium-Binary in der jeweils **aktiven** virtuellen Python-Umgebung. Fehlende Komponenten werden nachinstalliert. Bestehende Installationen werden wiederverwendet. Bei Download- oder Installationsfehlern startet die Anwendung weiter, der Export bleibt aber deaktiviert und der Installer zeigt eine Warnung. Auf Termux wird die Linux-Chromium-Installation nicht versucht. Optional kann die automatische Prüfung mit `SIMPLEOFFICE_WEB_EXPORT_INSTALL=0` deaktiviert werden. Fehlende Linux-Systembibliotheken müssen gegebenenfalls über `<aktive-venv>/bin/python -m playwright install-deps chromium` mit entsprechenden Rechten nachinstalliert werden.
