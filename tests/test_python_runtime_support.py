@@ -232,6 +232,22 @@ class RuntimeSupportTests(unittest.TestCase):
         self.assertEqual(classifiers, legacy["classifiers"])
         self.assertEqual(">=3.10", legacy["python_requires"])
 
+    def test_standalone_option_keeps_system_python_and_default_venv_untouched(self):
+        starter = (ROOT / "start.sh").read_text()
+        self.assertIn("--standalone)", starter)
+        self.assertIn('VENV="$ROOT/.venv-standalone"', starter)
+        self.assertIn('UV_PYTHON_INSTALL_DIR="$tools_dir/python"', starter)
+        self.assertIn('"$uv_cmd" python install 3.12', starter)
+        self.assertIn('"$uv_cmd" python find --managed-python 3.12', starter)
+        self.assertIn('SIMPLEOFFICE_NATIVE_PACKAGES=0', starter)
+        self.assertIn('PYTHON="$VENV/bin/python"', starter)
+
+    def test_standalone_rejects_mixed_readonly_system_check(self):
+        starter = (ROOT / "start.sh").read_text()
+        self.assertIn('if [ "$CHECK_SYSTEM" -eq 1 ]; then', starter)
+        self.assertIn('--standalone und --check-system', starter)
+        self.assertIn('if [ -e "$VENV" ]; then', starter)
+
     def test_starters_preserve_an_existing_unsupported_venv(self):
         for starter, shell in (("start.sh", "bash"), ("start-sftp.sh", "sh")):
             with self.subTest(starter=starter), tempfile.TemporaryDirectory() as directory:
