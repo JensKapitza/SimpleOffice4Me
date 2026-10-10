@@ -9,7 +9,7 @@
 
 {% block body %}
 <header class="resource-commander-header">
-  <strong class="d-inline-flex align-items-center gap-2"><img src="{{ url_for('static', filename='icons/simpleoffice-documentation-logo.png') }}" alt="" width="36" height="36" style="object-fit:contain" decoding="async">Resource Commander</strong>
+  <strong class="d-inline-flex align-items-center gap-2"><img src="{{ url_for('static', filename='icons/simpleoffice-documentation-logo.png') }}" alt="" width="36" height="36" style="object-fit:contain" loading="lazy" decoding="async">Resource Commander</strong>
   <a href="{{ url_for('documents.dashboard') }}">Dokumente</a>
   <a href="{{ url_for('federation_admin.dashboard') }}">Federation</a>
   <span>F5 Kopieren · F6 Verschieben · F7 Ordner · F8 Löschen</span>
