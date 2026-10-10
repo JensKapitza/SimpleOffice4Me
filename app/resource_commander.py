@@ -1,6 +1,10 @@
 """Two-pane Resource Commander for local, mail and federation resources."""
 from __future__ import annotations
 
+from io import BytesIO
+import re
+from urllib.parse import urlsplit
+
 from flask import Blueprint, Response, abort, current_app, g, jsonify, render_template, request, send_file
 
 from .auth import login_required
@@ -165,6 +169,40 @@ def upload_entry():
         request.stream,
         name=request.args.get("name", "upload.bin"),
     )
+    return jsonify({"entry": entry.to_dict()}), 201
+
+
+@bp.post("/api/web-link")
+def create_web_link():
+    """Save a website as a local .url shortcut; never fetch the supplied URL."""
+    _api_access()
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise ProviderError("Ungültige Eingabe")
+    url = payload.get("url", "")
+    if not isinstance(url, str) or len(url) > 2048 or any(ord(c) < 32 for c in url):
+        raise ProviderError("Ungültige URL")
+    parsed = urlsplit(url)
+    if parsed.scheme not in {"https", "http"} or not parsed.hostname or parsed.username or parsed.password:
+        raise ProviderError("Nur HTTP(S)-Webadressen ohne Zugangsdaten sind erlaubt")
+    try:
+        _ = parsed.port
+    except ValueError as exc:
+        raise ProviderError("Ungültiger URL-Port") from exc
+    title = payload.get("name") or parsed.hostname
+    if not isinstance(title, str):
+        raise ProviderError("Ungültiger Linkname")
+    name = re.sub(r"[^\\w .()-]", "_", title, flags=re.UNICODE).strip(" .")
+    if not name or len(name) > 100 or name in {".", ".."}:
+        raise ProviderError("Ungültiger Linkname")
+    if name.lower().endswith(".url"):
+        name = name[:-4].rstrip(" .")
+    if not name:
+        raise ProviderError("Ungültiger Linkname")
+    provider = _registry().get("self")
+    _require(provider, "write")
+    data = ("[InternetShortcut]\\r\\nURL=" + url + "\\r\\n").encode("utf-8")
+    entry = provider.upload(str(payload.get("path", "")), BytesIO(data), name=name + ".url")
     return jsonify({"entry": entry.to_dict()}), 201
 
 
