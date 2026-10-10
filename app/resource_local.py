@@ -107,6 +107,7 @@ class LocalResourceProvider:
             folder = resolve_directory_under(self.root, path or ".")
         except (OSError, ValueError) as exc:
             raise ProviderError("Ziel ist kein sicheres Verzeichnis") from exc
+        self._deny_internal(name)
         safe_name = safe_filename(name, fallback="upload.bin")
         self._deny_internal(safe_name)
         try:
@@ -125,6 +126,7 @@ class LocalResourceProvider:
         try:
             self._deny_internal(path)
             folder = resolve_directory_under(self.root, path or ".")
+            self._deny_internal(name)
             safe_name = safe_filename(name, fallback="folder")
             self._deny_internal(safe_name)
             target = resolve_for_write_under(
@@ -152,6 +154,8 @@ class LocalResourceProvider:
         try:
             self._deny_internal(target_path)
             folder = resolve_directory_under(self.root, target_path or ".")
+            if name is not None:
+                self._deny_internal(name)
             destination_name = safe_filename(name, fallback=source.name) if name else source.name
             self._deny_internal(destination_name)
             target = resolve_for_write_under(
