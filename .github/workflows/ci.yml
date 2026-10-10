@@ -31,9 +31,34 @@ jobs:
       - name: Verify existing venv selection and rejection before installation
         run: python -m unittest discover -s tests -p test_windows_runtime_start.py -v
 
+  pr-regression:
+    name: PR regression (Python 3.14)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install application
+        run: python -m pip install --editable ".[security]"
+      - name: Run launcher, packaging, Android workflow and runtime regression tests
+        run: |
+          python -m unittest discover -s tests -p 'test_python_runtime_support.py' -v
+          python -m unittest discover -s tests -p 'test_start_script.py' -v
+          python -m unittest discover -s tests -p 'test_android_apk_build_matrix.py' -v
+      - name: Validate policy and compilation
+        run: |
+          python tools/check_project_policy.py .
+          python -m compileall -q app tools
+
   tests:
     name: Python ${{ matrix.python-version }} (${{ matrix.runtime }})
-    if: github.event_name != 'pull_request' || matrix.python-version == '3.14'
+    if: github.event_name != 'pull_request'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
