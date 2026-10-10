@@ -2,16 +2,9 @@ name: Android APK build
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - 'android/apk/**'
-      - 'app/**'
-      - 'templates/**'
-      - 'static/**'
-      - 'tools/**'
-      - 'simpleoffice_*.py'
-      - 'pyproject.toml'
-      - '.github/workflows/android-apk-build.yml'
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
