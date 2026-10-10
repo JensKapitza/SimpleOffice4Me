@@ -12,9 +12,11 @@
   <strong>Resource Commander</strong>
   <a href="{{ url_for('documents.dashboard') }}">Dokumente</a>
   <a href="{{ url_for('federation_admin.dashboard') }}">Federation</a>
-  <span>F5 Kopieren · F6 Verschieben · F7 Ordner · F8 Löschen</span>
+  <span class="resource-commander-legend">Lokal sofort verfügbar · F5 Kopieren · F6 Verschieben · F7 Ordner · F8 Löschen</span>
   <span class="resource-commander-legend">= identisch · ~ wahrscheinlich · ≠ verschieden · →/← fehlt</span>
 </header>
+
+<nav class="resource-commander-quickbar" aria-label="Commander-Schnellzugriff"><button type="button" id="commander-local">Lokal ↔ Lokal</button><button type="button" id="commander-link">+ Weblink als Datei</button><span>Für SFTP/SSH ist eine geprüfte Verbindung erforderlich; keine direkte Serverfreigabe.</span></nav>
 
 <main id="main-content" class="resource-commander-grid">
   {% for side in ['left', 'right'] %}
