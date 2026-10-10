@@ -167,6 +167,9 @@ def blocklist_meta_path(config_path: str | Path | None = None) -> Path:
 
 
 def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
+    # Mini-service configuration may contain credentials; never grant group/other access.
+    if mode != 0o600:
+        raise ValueError("Atomic mini-service configuration files must use mode 0600")
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
     temporary = Path(name)
@@ -177,7 +180,7 @@ def _atomic_write(path: Path, data: bytes, mode: int = 0o600) -> None:
             os.close(descriptor)
             raise
         with handle:
-            os.chmod(temporary, mode)
+            os.fchmod(handle.fileno(), 0o600)
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())

@@ -289,7 +289,7 @@ class StorageMasterKeyRotationTests(unittest.TestCase):
             encode_trustee_key(trustee_key) + "\n",
             encoding="ascii",
         )
-        os.chmod(trustee_file, 0o640)
+        os.chmod(trustee_file, 0o640)  # codeql[py/overly-permissive-file]: Deliberate negative test; rejects group-readable trustee keys.
 
         with self.assertRaisesRegex(ValueError, "group/world"):
             rotate_storage_master_key(

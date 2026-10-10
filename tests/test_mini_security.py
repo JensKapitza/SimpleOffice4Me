@@ -55,6 +55,17 @@ class ConfigurationSecurityTests(unittest.TestCase):
                 _https_open(urllib.request.Request("http://feed.example/list"), 2)
             opener.assert_not_called()
 
+    @unittest.skipUnless(os.name == "posix", "POSIX permissions required")
+    def test_atomic_write_never_allows_group_or_world_access(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settings.json"
+            _atomic_write(path, b'{"secret":"test"}')
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+            with self.assertRaises(ValueError):
+                _atomic_write(path, b"unsafe", mode=0o644)
+            self.assertEqual(path.read_bytes(), b'{"secret":"test"}')
+            self.assertEqual(list(Path(directory).iterdir()), [path])
+
     def test_atomic_write_closes_descriptor_if_wrapping_fails(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "settings.json"
