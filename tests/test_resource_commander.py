@@ -31,6 +31,39 @@ class LocalResourceProviderTests(unittest.TestCase):
         with self.assertRaises(ProviderError):
             self.provider.stat("../outside.txt")
 
+    def test_internal_metadata_is_never_accessible_by_direct_path(self):
+        import io
+
+        metadata = self.root / ".simpleoffice-meta"
+        metadata.mkdir()
+        secret = metadata / "credentials.json"
+        secret.write_text('{"token":"not-public"}', encoding="utf-8")
+        (self.root / "public.txt").write_text("public", encoding="utf-8")
+
+        attempts = [
+            lambda: self.provider.stat(".simpleoffice-meta/credentials.json"),
+            lambda: self.provider.open(".simpleoffice-meta/credentials.json"),
+            lambda: self.provider.read_range(".simpleoffice-meta/credentials.json", 0, 100),
+            lambda: self.provider.list(".simpleoffice-meta"),
+            lambda: self.provider.search("credentials", ".simpleoffice-meta"),
+            lambda: self.provider.delete(".simpleoffice-meta/credentials.json"),
+            lambda: self.provider.move(".simpleoffice-meta/credentials.json", "."),
+            lambda: self.provider.move("public.txt", ".simpleoffice-meta"),
+            lambda: self.provider.move("public.txt", ".", name=".simpleoffice-meta"),
+            lambda: self.provider.upload(".simpleoffice-meta", io.BytesIO(b"payload"), name="new"),
+            lambda: self.provider.upload(".", io.BytesIO(b"payload"), name=".simpleoffice-meta"),
+            lambda: self.provider.mkdir(".", ".simpleoffice-meta"),
+        ]
+        for attempt in attempts:
+            with self.subTest(operation=attempt):
+                with self.assertRaises(ProviderError):
+                    result = attempt()
+                    if result is not None and hasattr(result, "close"):
+                        result.close()
+        self.assertEqual(secret.read_text(encoding="utf-8"), '{"token":"not-public"}')
+        self.assertEqual((self.root / "public.txt").read_text(encoding="utf-8"), "public")
+        self.assertNotIn(".simpleoffice-meta", [e.name for e in self.provider.list()])
+
     def test_symlink_is_not_listed(self):
         target = self.root / "target.txt"
         target.write_text("x", encoding="utf-8")
