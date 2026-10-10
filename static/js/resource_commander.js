@@ -482,16 +482,47 @@
       updateSmart(side);
       updateProviderContext(side);
     }
-    const federationIndex = state.providers.findIndex(provider => provider.kind === 'federation');
+    // An unconfigured installation must work locally on both sides immediately.
+    const federationIndex = -1;
     if (federationIndex >= 0) {
       pane('right').querySelector('.provider').selectedIndex = federationIndex;
-    } else if (state.providers.length > 1) {
-      pane('right').querySelector('.provider').selectedIndex = 1;
     }
     updateProviderContext('right');
     setActive('left');
     await Promise.all([load('left'), load('right')]);
   }
+
+  document.getElementById('commander-local').addEventListener('click', () => {
+    for (const side of ['left', 'right']) {
+      pane(side).querySelector('.provider').value = 'self';
+      state[side].smart = false;
+      state[side].capabilities = null;
+      setPath(side, '');
+      updateSmart(side);
+      updateProviderContext(side);
+      load(side);
+    }
+    setActive('left');
+  });
+
+  document.getElementById('commander-link').addEventListener('click', async () => {
+    const side = state.active;
+    if (providerId(side) !== 'self' || state[side].smart) {
+      setStatus(side, 'Weblinks können nur im lokalen Dateibereich gespeichert werden.');
+      return;
+    }
+    const url = window.prompt('Webadresse (https://…)');
+    if (url === null) return;
+    const name = window.prompt('Dateiname / Bezeichnung (optional)', '');
+    if (name === null) return;
+    try {
+      await post('/resource-commander/api/web-link', {url: url.trim(), name: name.trim(), path: currentPath(side)});
+      await load(side);
+      setStatus(side, 'Weblink als .url-Datei gespeichert.');
+    } catch (error) {
+      setStatus(side, error.message);
+    }
+  });
 
   document.getElementById('copy').addEventListener('click', () => copy(state.active, other(state.active)));
   document.getElementById('move').addEventListener('click', () => move(state.active, other(state.active)));
