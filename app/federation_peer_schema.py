@@ -47,10 +47,20 @@ CREATE TABLE IF NOT EXISTS federation_discovery_state(
 """
 
 
+_ALLOWED_MIGRATIONS = {
+    ("federation_peer_identity", "public_key"): "TEXT NOT NULL DEFAULT ''",
+    ("federation_trust_attestation", "relay_hops_remaining"): "INTEGER NOT NULL DEFAULT 0",
+}
+
+
 def _ensure_column(db, table, name, definition):
-    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table})").fetchall()}
+    # SQL identifiers and DDL types cannot be parameterized. Never interpolate
+    # caller-controlled schema fragments, even in internal migration helpers.
+    if _ALLOWED_MIGRATIONS.get((table, name)) != definition:
+        raise ValueError("unapproved federation schema migration")
+    columns = {row["name"] for row in db.execute(f'PRAGMA table_info("{table}")').fetchall()}
     if name not in columns:
-        db.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+        db.execute(f'ALTER TABLE "{table}" ADD COLUMN "{name}" {definition}')
 
 
 def ensure_schema(store):
