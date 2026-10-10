@@ -74,7 +74,7 @@ class StorageKeySetupTests(unittest.TestCase):
 
     @unittest.skipUnless(os.name == "posix", "permission check requires POSIX modes")
     def test_group_readable_password_file_is_rejected(self):
-        os.chmod(self.unlock_phrase_file, 0o640)
+        os.chmod(self.unlock_phrase_file, 0o640)  # codeql[py/overly-permissive-file]: Deliberate negative test; checks insecure group-readable secrets are rejected.
 
         with self.assertRaisesRegex(ValueError, "group/world"):
             load_master_password_file(
