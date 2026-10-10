@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from pypdf import PdfReader
+from PIL import Image, ImageStat
 from playwright.sync_api import sync_playwright
 
 BASE_URL=os.environ.get("BASE_URL","http://127.0.0.1:8080").rstrip("/")
@@ -44,9 +45,20 @@ def main():
         # CSS and JavaScript are active in the rendered application before export.
         assert page.evaluate("() => getComputedStyle(document.body).display")!="none"
         assert page.evaluate("() => typeof window.SimpleOfficeTranslations")=="object"
+        # Print mode must keep the normal application content visible.
+        page.emulate_media(media="print")
+        assert page.evaluate("""() => {
+            const content = document.querySelector('main') || document.body;
+            return getComputedStyle(content).visibility !== 'hidden'
+                && !!content.innerText.trim();
+        }"""), "Print CSS hides page content"
+        page.emulate_media(media="screen")
         pdf=export(page,"pdf","print")
         png=export(page,"png","screen")
         assert pdf.stat().st_size>1000 and png.stat().st_size>1000
+        with Image.open(png) as image:
+            rgb = image.convert("RGB")
+            assert max(ImageStat.Stat(rgb).stddev) > 3, "PNG appears blank/monochrome"
         text="\n".join((p.extract_text() or "") for p in PdfReader(str(pdf)).pages)
         assert text.strip(), "PDF must contain searchable text"
         # Exercise the second media mode for each format as well.
