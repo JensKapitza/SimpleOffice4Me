@@ -408,15 +408,24 @@ class VirtualFileSystem:
         source_path = self.require(actor, source, "read")
         destination_path = self.resolve(destination)
         self.require(actor, destination_path.parent, "write")
-        source_path = resolve_under(self.root, source_path.relative_to(self.root), strict=True)
+        authoritative_entry = None
+        if self._authoritative_v2() and not source_path.exists():
+            authoritative_entry = self.authoritative_entry(source_path)
+        if authoritative_entry is None:
+            source_path = resolve_under(self.root, source_path.relative_to(self.root), strict=True)
+            if not source_path.is_file() or source_path.is_symlink():
+                raise ValueError("COPY source must be a regular file")
+            source_document = self.store.get_document(source_path)
+            source_id = LogicalObjectId(str(source_document["document_id"]))
+            source_version = str(source_document.get("sha256", ""))
+        else:
+            source_document = self.store.get_document(authoritative_entry.object_id.value)
+            source_id = authoritative_entry.object_id
+            source_version = authoritative_entry.content_sha256
         destination_path = resolve_for_write_under(
             self.root, destination_path.relative_to(self.root)
         )
-        if not source_path.is_file() or source_path.is_symlink():
-            raise ValueError("COPY source must be a regular file")
-        source_document = self.store.get_document(source_path)
         storage = self._storage(actor)
-        source_id = LogicalObjectId(str(source_document["document_id"]))
         if destination_path.exists():
             if not replace:
                 raise FileExistsError(self.relative(destination_path))
@@ -437,7 +446,7 @@ class VirtualFileSystem:
                 )
             )
             return self.store.get_document(stored.object_id.value)
-        if expected_source_sha256 and expected_source_sha256 != str(source_document.get("sha256", "")):
+        if expected_source_sha256 and expected_source_sha256 != source_version:
             raise ValueError("source content changed since it was opened")
         stored = self._storage_value(
             storage.copy(
