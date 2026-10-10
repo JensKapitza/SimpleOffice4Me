@@ -9,8 +9,14 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-import dns.exception
-import dns.resolver
+try:
+    import dns.exception
+    import dns.resolver
+except ModuleNotFoundError as exc:
+    if exc.name != "dns":
+        raise
+    dns = None  # Android client runtime does not bundle dnspython.
+
 from flask import current_app
 
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
@@ -89,6 +95,8 @@ def _open_profile(request):
 
 def resolve_authority_id(record_name: str) -> str:
     """Read the designated node fingerprint from a DNS TXT record."""
+    if dns is None:
+        raise OSError("DNS TXT authority lookup requires dnspython")
     resolver = dns.resolver.Resolver(configure=True)
     resolver.cache = None
     answers = resolver.resolve(record_name.rstrip(".") + ".", "TXT", lifetime=TIMEOUT_SECONDS)
@@ -149,7 +157,7 @@ def inspect_master_address(root) -> dict:
     if settings["txt_record_name"]:
         try:
             authority_id = resolve_authority_id(settings["txt_record_name"])
-        except (dns.exception.DNSException, OSError, UnicodeDecodeError, ValueError) as exc:
+        except ((dns.exception.DNSException,) if dns is not None else ()) + (OSError, UnicodeDecodeError, ValueError) as exc:
             authority_error = type(exc).__name__
 
     remote_id = ""
