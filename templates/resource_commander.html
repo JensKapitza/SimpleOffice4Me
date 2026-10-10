@@ -45,6 +45,26 @@
   {% endfor %}
 </main>
 
+<dialog id="commander-dialog" class="commander-dialog" aria-labelledby="commander-dialog-title">
+  <form id="commander-dialog-form" method="dialog">
+    <header class="commander-dialog-header">
+      <h2 id="commander-dialog-title">Aktion</h2>
+      <button type="button" id="commander-dialog-close" class="commander-dialog-close" aria-label="Schließen">×</button>
+    </header>
+    <p id="commander-dialog-message" class="commander-dialog-message"></p>
+    <div id="commander-dialog-fields">
+      <label id="commander-dialog-primary-label" for="commander-dialog-primary">Bezeichnung</label>
+      <input id="commander-dialog-primary" autocomplete="off" maxlength="2048">
+      <label id="commander-dialog-secondary-label" for="commander-dialog-secondary">Name</label>
+      <input id="commander-dialog-secondary" autocomplete="off" maxlength="120">
+    </div>
+    <footer class="commander-dialog-buttons">
+      <button type="button" id="commander-dialog-cancel">Abbrechen</button>
+      <button type="submit" id="commander-dialog-confirm">Speichern</button>
+    </footer>
+  </form>
+</dialog>
+
 <div class="resource-commander-actions" role="group" aria-label="Dateiaktionen">
   <button id="copy" type="button">F5 Kopieren →</button>
   <button id="move" type="button">F6 Verschieben →</button>
