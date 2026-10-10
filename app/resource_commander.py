@@ -61,6 +61,30 @@ def _bounded_int(value: str, *, minimum: int, maximum: int, label: str) -> int:
     return min(parsed, maximum)
 
 
+def _json_object() -> dict:
+    """Reject arrays/scalars and oversized fields before any resource mutation."""
+    if not request.is_json:
+        abort(400, description="JSON object required")
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        abort(400, description="JSON object required")
+    return payload
+
+
+def _json_text(payload: dict, key: str, default: str = "", *, maximum: int = 4096) -> str:
+    value = payload.get(key, default)
+    if not isinstance(value, str) or len(value) > maximum or "\\x00" in value:
+        abort(400, description=f"Invalid {key}")
+    return value
+
+
+def _json_boolean(payload: dict, key: str, default: bool = False) -> bool:
+    value = payload.get(key, default)
+    if type(value) is not bool:
+        abort(400, description=f"Invalid {key}")
+    return value
+
+
 @bp.get("")
 @login_required
 def page():
@@ -171,34 +195,34 @@ def upload_entry():
 @bp.post("/api/mkdir")
 def mkdir_entry():
     _api_access()
-    payload = request.get_json(silent=True) or {}
-    provider = _registry().get(payload.get("provider", "self"))
+    payload = _json_object()
+    provider = _registry().get(_json_text(payload, "provider", "self", maximum=120))
     _require(provider, "write")
     _require(provider, "folders")
-    entry = provider.mkdir(str(payload.get("path", "")), str(payload.get("name", "")))
+    entry = provider.mkdir(_json_text(payload, "path"), _json_text(payload, "name"))
     return jsonify({"entry": entry.to_dict()}), 201
 
 
 @bp.post("/api/delete")
 def delete_entry():
     _api_access()
-    payload = request.get_json(silent=True) or {}
-    provider = _registry().get(payload.get("provider", "self"))
+    payload = _json_object()
+    provider = _registry().get(_json_text(payload, "provider", "self", maximum=120))
     _require(provider, "delete")
-    provider.delete(str(payload.get("id", "")))
+    provider.delete(_json_text(payload, "id"))
     return jsonify({"ok": True})
 
 
 @bp.post("/api/move")
 def move_entry():
     _api_access()
-    payload = request.get_json(silent=True) or {}
-    provider = _registry().get(payload.get("provider", "self"))
+    payload = _json_object()
+    provider = _registry().get(_json_text(payload, "provider", "self", maximum=120))
     _require(provider, "move")
     entry = provider.move(
-        str(payload.get("id", "")),
-        str(payload.get("path", "")),
-        name=str(payload.get("name") or "") or None,
+        _json_text(payload, "id"),
+        _json_text(payload, "path"),
+        name=_json_text(payload, "name") or None,
     )
     return jsonify({"entry": entry.to_dict()})
 
@@ -206,23 +230,23 @@ def move_entry():
 @bp.post("/api/copy")
 def copy_entry():
     _api_access()
-    payload = request.get_json(silent=True) or {}
+    payload = _json_object()
     source = _registry().get(
-        str(payload.get("source_provider", "self")),
-        smart=bool(payload.get("source_smart")),
+        _json_text(payload, "source_provider", "self", maximum=120),
+        smart=_json_boolean(payload, "source_smart"),
     )
-    target = _registry().get(str(payload.get("target_provider", "self")))
+    target = _registry().get(_json_text(payload, "target_provider", "self", maximum=120))
     _require(source, "read")
     _require(source, "copy")
     _require(target, "write")
-    entry = source.stat(str(payload.get("id", "")))
+    entry = source.stat(_json_text(payload, "id"))
     if entry.kind != "file":
         raise ProviderError("Ordnerkopien werden nur elementweise ausgeführt")
     with source.open(entry.resource_id) as stream:
         created = target.upload(
-            str(payload.get("target_path", "")),
+            _json_text(payload, "target_path"),
             stream,
-            name=str(payload.get("name") or entry.name),
+            name=_json_text(payload, "name", entry.name),
             metadata=entry.metadata,
         )
     return jsonify({"entry": created.to_dict()})
