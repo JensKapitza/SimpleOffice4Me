@@ -91,19 +91,22 @@ class MasterClusterReachabilityTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             master_cluster.MasterClusterSettings.validate({"mode": "active-active", "txt_record_name": "bad..name"})
 
-    def test_txt_authority_record_requires_one_sha256_node_id(self):
-        fingerprint = "a" * 64
-        answer = MagicMock()
-        answer.strings = [f"simpleoffice-master-id={fingerprint}".encode("ascii")]
-        with patch.object(master_cluster.dns.resolver.Resolver, "resolve", return_value=[answer]):
-            with patch.object(master_cluster.dns.resolver.Resolver, "read_resolv_conf"):
-                self.assertEqual(master_cluster.resolve_authority_id("_simpleoffice-master.example"), fingerprint)
+    def _dns_response(self, answers, status=0):
+        response = self._response({"Status": status, "Answer": answers})
+        return response
 
-        answer.strings = [b"simpleoffice-master-id=invalid"]
-        with patch.object(master_cluster.dns.resolver.Resolver, "resolve", return_value=[answer]):
-            with patch.object(master_cluster.dns.resolver.Resolver, "read_resolv_conf"):
-                with self.assertRaises(ValueError):
-                    master_cluster.resolve_authority_id("_simpleoffice-master.example")
+    def test_txt_authority_record_requires_one_sha256_node_id(self):
+        name = "_simpleoffice-master.example"
+        answer = {"name": name + ".", "type": 16, "data": '"simpleoffice-master-id=' + "a" * 64 + '"'}
+        opener = MagicMock()
+        opener.open.return_value = self._dns_response([answer])
+        with patch.object(master_cluster.urllib.request, "build_opener", return_value=opener):
+            self.assertEqual(master_cluster.resolve_authority_id(name), "a" * 64)
+        self.assertIn("cloudflare-dns.com", opener.open.call_args.args[0].full_url)
+        opener.open.return_value = self._dns_response([{"name": name + ".", "type": 16, "data": '"invalid"'}])
+        with patch.object(master_cluster.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(ValueError):
+                master_cluster.resolve_authority_id(name)
 
     def test_standard_txt_name_can_be_saved_and_loaded(self):
         settings = master_cluster.MasterClusterSettings(self.root)
@@ -129,14 +132,28 @@ class MasterClusterReachabilityTests(unittest.TestCase):
         self.assertEqual("unreachable", result["reachability"])
 
     def test_conflicting_txt_authorities_are_rejected(self):
-        answers = []
-        for value in ("a" * 64, "b" * 64):
-            answer = MagicMock()
-            answer.strings = [f"simpleoffice-master-id={value}".encode()]
-            answers.append(answer)
-        with patch.object(master_cluster.dns.resolver.Resolver, "resolve", return_value=answers):
+        name = "_simpleoffice-master.example"
+        answers = [
+            {"name": name + ".", "type": 16, "data": '"simpleoffice-master-id=' + value + '"'}
+            for value in ("a" * 64, "b" * 64)
+        ]
+        opener = MagicMock()
+        opener.open.return_value = self._dns_response(answers)
+        with patch.object(master_cluster.urllib.request, "build_opener", return_value=opener):
             with self.assertRaises(ValueError):
-                master_cluster.resolve_authority_id("_simpleoffice-master.example")
+                master_cluster.resolve_authority_id(name)
+
+    def test_dns_failure_and_malformed_data_fail_closed(self):
+        name = "_simpleoffice-master.example"
+        opener = MagicMock()
+        with patch.object(master_cluster.urllib.request, "build_opener", return_value=opener):
+            for payload in ({"Status": 2, "Answer": []}, {"Status": 0, "Answer": "bad"}):
+                opener.open.return_value = self._response(payload)
+                with self.assertRaises(ValueError):
+                    master_cluster.resolve_authority_id(name)
+            opener.open.side_effect = OSError("offline")
+            with self.assertRaises(OSError):
+                master_cluster.resolve_authority_id(name)
 
     def test_oversized_profile_is_rejected(self):
         response = self._response({})

@@ -17,3 +17,7 @@ Playwright ist optional. Für den Export müssen das Python-Paket und Chromium i
 PDF verwendet `page.pdf(print_background=True)` und enthält Browser-Text als durchsuchbaren PDF-Text. PNG verwendet einen Full-Page-Screenshot. Druck- und Bildschirmansicht werden über `page.emulate_media()` gewählt.
 
 Nicht Bestandteil dieses PR: Ablage als Dokument, LibreOffice-Konvertierung, OCR und Export fremder Webseiten oder unvertrauenswürdiger HTML-Dateien.
+
+### Standalone-Start
+
+Bei `./start.sh --standalone` werden Playwright (`playwright==1.55.0`) und die dazu passende Chromium-Binary in der isolierten `.venv-standalone` installiert, falls sie fehlen. Bereits vorhandene Komponenten werden beim nächsten Start wiederverwendet. Dafür ist beim ersten Start Netzwerkzugang erforderlich. Fehlende Linux-Systembibliotheken lassen sich bei Bedarf mit `.venv-standalone/bin/python -m playwright install-deps chromium` ergänzen; dieser Schritt benötigt in der Regel administrative Rechte und wird deshalb nicht ungefragt vom Startskript ausgeführt.

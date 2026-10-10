@@ -4,6 +4,32 @@
 }
 
 @media (max-width: 991.98px) {
+  /* Keep navigation and controls below Android status bars and camera cutouts. */
+  :root {
+    --so-mobile-top-clearance: max(56px, env(safe-area-inset-top, 0px));
+  }
+
+  body {
+    padding-top: var(--so-mobile-top-clearance);
+  }
+
+  /* Fixed navigation does not participate in body layout. */
+  .navbar.fixed-top,
+  header.fixed-top {
+    top: var(--so-mobile-top-clearance);
+  }
+
+  body::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: var(--so-mobile-top-clearance);
+    background: var(--bs-body-bg, #fff);
+    border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+    pointer-events: none;
+    z-index: 0;
+  }
+
   html {
     scroll-padding-bottom: calc(var(--so-keyboard-inset) + max(1rem, env(safe-area-inset-bottom)));
   }

@@ -160,8 +160,13 @@
       if (!active || value(active).length < 3) { hideAll(); return; }
       const requestId = ++serial;
       const menu = ensureMenu(active); menu.replaceChildren();
-      const q = [value(city), value(postal), value(street), value(state)].filter(Boolean).join(' ');
+      // Prioritize the edited field. Stale values in other fields must not suppress suggestions.
       const field = active.dataset.addressField || '';
+      const activeValue = value(active);
+      const context = field === 'street'
+        ? [value(postal) || value(city)]
+        : field === 'city' ? [value(postal)] : [];
+      const q = [activeValue, ...context].filter(Boolean).join(' ');
       const params = new URLSearchParams({q, country: (value(country) || 'DE').toLowerCase(), field});
       if (status) status.textContent = message('Lokale Adresssuche …', 'Searching the local address index …');
       try {
