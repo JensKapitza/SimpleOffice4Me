@@ -71,6 +71,16 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertEqual(full.headers["Last-Modified"], tree_full.headers["Last-Modified"])
         self.assertEqual(404, tree_proppatch.status_code)
 
+        copied_url = f"{self.files}/angebot-copy.odt"
+        copied = self.client.open(
+            tree_url,
+            method="COPY",
+            headers={**self.auth, "Destination": copied_url},
+        )
+        copied_read = self.client.get(copied_url, headers=self.auth)
+        self.assertEqual(201, copied.status_code)
+        self.assertEqual(b"first office version", copied_read.data)
+
         updated = self.client.put(
             tree_url,
             data=b"updated without projection",

@@ -310,7 +310,7 @@ def _handle_tree_copy_move(username: str, identity, resource, document, is_colle
         elif manifest is not None and depth == "infinity":
             growth = int(manifest["total_bytes"])
         else:
-            growth = resource.stat().st_size if document else 0
+            growth = _vfs().file_entry(username, resource).size if document else 0
         quota_error = _check_quota(username, "COPY", destination, growth)
         if quota_error is not None:
             return quota_error
@@ -434,7 +434,7 @@ def file_tree(username: str, relative_path: str):
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     catalog_entry = None
-    if request.method in {"GET", "HEAD", "PUT"} and _vfs()._authoritative_v2() and not is_collection:
+    if request.method in {"GET", "HEAD", "PUT", "COPY"} and _vfs()._authoritative_v2() and not is_collection:
         try:
             catalog_entry = _vfs().authoritative_entry(resource)
             document = _store().get_document(catalog_entry.object_id.value)

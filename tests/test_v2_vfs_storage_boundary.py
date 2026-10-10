@@ -81,6 +81,32 @@ class V2VirtualFileSystemStorageBoundaryTests(unittest.TestCase):
         self.assertEqual("team/copied.txt", row.value.location.relative_path)
         self.assertEqual(b"existing", self.vfs.read_bytes("admin", "team/copied.txt"))
 
+    def test_authoritative_v2_copy_does_not_require_plaintext_source_projection(self):
+        activate_v2(
+            self.root,
+            apply=True,
+            acknowledge_local_plaintext=True,
+        )
+        (self.root / "team" / "existing.txt").unlink()
+
+        copied = self.vfs.copy_file(
+            "admin",
+            "team/existing.txt",
+            "team/copied-without-projection.txt",
+            expected_source_sha256=self.existing["sha256"],
+        )
+
+        self.assertNotEqual(self.existing["document_id"], copied["document_id"])
+        self.assertEqual(
+            b"existing",
+            self.vfs.read_bytes("admin", "team/copied-without-projection.txt"),
+        )
+        self.assertEqual(
+            b"existing",
+            (self.root / "team" / "existing.txt").read_bytes(),
+        )
+        self.assertFalse(load_cutover_state(self.root).dirty)
+
     def test_vfs_copy_overwrite_preserves_destination_identity(self):
         destination = self.vfs.write_bytes("admin", "team/destination.txt", b"old")
         result = self.vfs.copy_file(
