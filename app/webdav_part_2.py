@@ -36,8 +36,12 @@ def _http_precondition_error(username: str, resource: Path, document: dict | Non
             modified_at = int(resource.stat().st_mtime)
         except OSError:
             try:
-                modified_at = int(document.get("updated_at", 0)) if document is not None else None
-            except (TypeError, ValueError):
+                if document is not None and _vfs()._authoritative_v2():
+                    catalog_entry = _vfs().authoritative_entry(resource)
+                    modified_at = int(catalog_entry.updated_at.timestamp())
+                else:
+                    modified_at = int(document.get("updated_at", 0)) if document is not None else None
+            except (FileNotFoundError, TypeError, ValueError):
                 modified_at = None
         if modified_at:
             headers["Last-Modified"] = formatdate(modified_at, usegmt=True)
