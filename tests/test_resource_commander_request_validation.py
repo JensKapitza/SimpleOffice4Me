@@ -34,7 +34,7 @@ class ResourceMutationInputTests(unittest.TestCase):
         from app.resource_commander import _json_text
         with self.app.test_request_context("/"):
             from werkzeug.exceptions import BadRequest
-            for bad in ([], {}, True, 17, None, "../\\x00secret", "x" * 4097):
+            for bad in ([], {}, True, 17, None, "../\x00secret", "x" * 4097):
                 with self.subTest(value=bad), self.assertRaises(BadRequest):
                     _json_text({"path": bad}, "path")
 
