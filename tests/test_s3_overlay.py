@@ -22,6 +22,7 @@ from app.document_store import DocumentStore
 from app.mail_client import MailStore, _owner_key
 from app.object_store import ObjectStore
 from app.s3_overlay import auth, credentials
+from app.settings_store import SettingsStore
 
 
 def _signing_key(secret: str, day: str, region: str = "us-east-1") -> bytes:
@@ -77,6 +78,10 @@ class S3OverlayTests(unittest.TestCase):
             db.execute("INSERT INTO user(username,password,is_admin,is_disabled,auth_version) VALUES('s3-user','x',0,0,1)")
             db.commit()
         (self.root / "documents").mkdir(parents=True, exist_ok=True)
+        store = SettingsStore(self.root / "documents")
+        settings = store.settings()
+        settings["s3"]["enabled"] = True
+        store.save(settings, "s3-test")
         inbox = self.root / "documents" / "inbox"
         inbox.mkdir()
         (inbox / "readme.txt").write_bytes(b"S3 overlay test data")
@@ -749,7 +754,10 @@ class S3OverlayTests(unittest.TestCase):
         self.assertEqual(403, denied.status_code)
 
     def test_overlay_is_disabled_by_default(self):
-        app.config["S3_OVERLAY_ENABLED"] = False
+        store = SettingsStore(self.root / "documents")
+        settings = store.settings()
+        settings["s3"]["enabled"] = False
+        store.save(settings, "s3-test")
         response = self.client.get("/s3/")
         self.assertEqual(404, response.status_code)
         self.assertIn(b"NotFound", response.data)

@@ -7,8 +7,9 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('documents.index') }}">Dokumente</a>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
-  {% if not enabled %}<div class="alert alert-warning">Das Overlay ist ausgeschaltet. Zum Aktivieren SIMPLEOFFICE_S3_OVERLAY_ENABLED=true setzen und den Dienst neu starten.</div>{% endif %}
+  {% if not enabled %}<div class="alert alert-warning">Das Overlay ist ausgeschaltet. Du kannst es hier aktivieren.</div>{% endif %}
   {% if generated %}<section class="alert alert-success" aria-live="assertive"><h2 class="h5">Secret jetzt kopieren</h2><p>Das Secret wird nur bei der Erstellung angezeigt.</p><dl class="row mb-0"><dt class="col-sm-3">Access Key</dt><dd class="col-sm-9"><code>{{ generated.access_key }}</code></dd><dt class="col-sm-3">Secret Key</dt><dd class="col-sm-9 text-break"><code>{{ generated.secret_key }}</code></dd></dl></section>{% endif %}
+  <form method="post" action="{{ url_for('s3_overlay.manage') }}" class="card mb-4"><div class="card-body"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="action" value="toggle"><input type="hidden" name="enabled" value="{{ '0' if enabled else '1' }}"><strong>S3-Schnittstelle: {{ 'Aktiv' if enabled else 'Deaktiviert' }}</strong><p class="small">Änderungen gelten sofort und bleiben nach einem Neustart erhalten.</p><button type="submit" class="btn btn-outline-primary">{{ 'S3 deaktivieren' if enabled else 'S3 aktivieren' }}</button></div></form>
   <div class="row g-4">
     <section class="col-lg-5"><div class="card"><div class="card-header"><strong>S3-Zugang erstellen</strong></div><div class="card-body">
       <p class="small">Endpoint: <code>{{ endpoint }}</code><br>Bucket: <code>{{ bucket }}</code> · Region: <code>{{ region }}</code></p>
@@ -31,6 +32,6 @@
   </div>
   <section class="card mt-4"><div class="card-header"><strong>Verbindungsbeispiele</strong></div><div class="card-body"><p class="mb-1">AWS CLI mit dem Endpoint aus dieser Seite und Path-Style aktivieren:</p><pre class="mb-0"><code>aws configure set default.s3.addressing_style path
 aws --endpoint-url {{ endpoint }} s3 ls s3://{{ bucket }}/
-aws --endpoint-url {{ endpoint }} s3 cp ./datei.pdf s3://{{ bucket }}/inbox/datei.pdf</code></pre><p class="small text-secondary mt-3 mb-0">Der Endpoint ist deaktiviert, bis SIMPLEOFFICE_S3_OVERLAY_ENABLED=true gesetzt ist. Für Nicht-Localhost ist HTTPS erforderlich.</p></div></section>
+aws --endpoint-url {{ endpoint }} s3 cp ./datei.pdf s3://{{ bucket }}/inbox/datei.pdf</code></pre><p class="small text-secondary mt-3 mb-0">Der Endpoint lässt sich oben aktivieren oder deaktivieren. Für Nicht-Localhost ist HTTPS erforderlich.</p></div></section>
 </main>
 {% endblock %}

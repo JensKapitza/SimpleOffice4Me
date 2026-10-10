@@ -350,7 +350,11 @@ def default_registry(
         or cfg.get("CLAMAV_SCANNER")
     )
     registry.register("clamav", _clamav_probe(clamav_configured), timeout_seconds=5.0)
-    registry.register("s3", _s3_probe(bool(cfg.get("S3_OVERLAY_ENABLED"))), timeout_seconds=0.5)
+    from .settings_store import SettingsStore
+    s3_store = SettingsStore(root)
+    s3_enabled = (s3_store.settings()["s3"]["enabled"] is True if s3_store.path.exists()
+                  else cfg.get("S3_OVERLAY_ENABLED") is True)
+    registry.register("s3", _s3_probe(s3_enabled), timeout_seconds=0.5)
     registry.register("federation", _federation_probe(bool(caps.get("v3.federation"))), timeout_seconds=1.0)
     return registry
 

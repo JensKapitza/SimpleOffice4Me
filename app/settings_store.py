@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,11 +13,31 @@ from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 
 
+_SETTINGS_LOCK = threading.RLock()
+
+
+@contextmanager
+def _settings_write_lock(path: Path):
+    """Serialize read/merge/write across threads and POSIX worker processes."""
+    with _SETTINGS_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with (path.parent / "settings.write.lock").open("a+b") as handle:
+            if os.name == "posix":
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "posix":
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "interface": {"default_language": "de", "timezone": "Europe/Berlin"},
     "documents": {"default_state": "new", "default_tags": [], "upload_to_archive": False},
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
+    "s3": {"enabled": False},
 }
 
 TRANSLATIONS = {
@@ -310,16 +333,33 @@ class SettingsStore:
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
             raise ValueError("a named user is required")
-        normalized = self._validate(settings)
-        atomic_json_write(self.path, normalized)
-        self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
-        return normalized
+        with _settings_write_lock(self.path):
+            latest = self.settings()
+            if not self.path.exists():
+                from flask import current_app, has_app_context
+                if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
+                    latest["s3"] = {"enabled": True}
+            # Ordinary preferences and admin S3 changes share one atomic merge.
+            # Only sections supplied by the caller are replaced.
+            merged = {**latest, **settings}
+            normalized = self._validate(merged)
+            atomic_json_write(self.path, normalized)
+            self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
+            return normalized
+
+    def set_s3_enabled(self, enabled: bool, actor: str) -> dict[str, Any]:
+        if not isinstance(enabled, bool):
+            raise ValueError("S3 enabled must be boolean")
+        return self.save({"s3": {"enabled": enabled}}, actor)
 
     def _validate(self, settings: dict[str, Any]) -> dict[str, Any]:
         interface = settings.get("interface", {})
         documents = settings.get("documents", {})
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
+        s3 = settings.get("s3", {})
+        if not isinstance(s3.get("enabled", False), bool):
+            raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "de"))
         if language not in TRANSLATIONS:
             raise ValueError("unsupported default language")
@@ -334,4 +374,4 @@ class SettingsStore:
         if not 15 <= duration <= 480 or not 1 <= expiry <= 365:
             raise ValueError("calendar duration or share expiry outside allowed range")
         tags = [str(tag).strip() for tag in documents.get("default_tags", []) if str(tag).strip()]
-        return {"interface": {"default_language": language, "timezone": timezone}, "documents": {"default_state": str(documents.get("default_state", "new")).strip() or "new", "default_tags": sorted(set(tags), key=str.casefold), "upload_to_archive": documents.get("upload_to_archive") is True}, "calendar": {"default_visibility": visibility, "default_public_notice": str(calendar.get("default_public_notice", "Belegt")).strip(), "default_duration_minutes": duration}, "sharing": {"default_expiry_days": expiry}}
+        return {"interface": {"default_language": language, "timezone": timezone}, "documents": {"default_state": str(documents.get("default_state", "new")).strip() or "new", "default_tags": sorted(set(tags), key=str.casefold), "upload_to_archive": documents.get("upload_to_archive") is True}, "calendar": {"default_visibility": visibility, "default_public_notice": str(calendar.get("default_public_notice", "Belegt")).strip(), "default_duration_minutes": duration}, "sharing": {"default_expiry_days": expiry}, "s3": {"enabled": s3.get("enabled", False)}}
