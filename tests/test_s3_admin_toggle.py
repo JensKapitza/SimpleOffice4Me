@@ -47,3 +47,25 @@ class S3AdminToggleTests(unittest.TestCase):
         with app.app_context():
             self.store.save({"interface": {"default_language": "en"}}, "user")
         self.assertFalse(SettingsStore(self.temp.name).settings()["s3"]["enabled"])
+
+    def test_partial_preferences_and_admin_toggle_preserve_each_other(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        barrier = Barrier(2)
+
+        def update_preferences():
+            barrier.wait()
+            self.store.save({"interface": {"default_language": "en"}}, "user")
+
+        def toggle_s3():
+            barrier.wait()
+            SettingsStore(self.temp.name).set_s3_enabled(True, "admin")
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first = executor.submit(update_preferences)
+            second = executor.submit(toggle_s3)
+            first.result()
+            second.result()
+        latest = SettingsStore(self.temp.name).settings()
+        self.assertEqual(latest["interface"]["default_language"], "en")
+        self.assertTrue(latest["s3"]["enabled"])
