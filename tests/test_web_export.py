@@ -103,17 +103,22 @@ class WebExportTests(unittest.TestCase):
         self.assertIn("Playwright", error.exception.description)
 
     def test_export_rejects_path_like_format_before_creating_tempfile(self):
-        client = app.test_client()
-        with client.session_transaction() as sess:
-            sess["user_id"] = 1
-            sess["auth_version"] = 7
-        with patch("app.web_export.tempfile.NamedTemporaryFile") as temporary_file:
-            response = client.post(
-                "/web-export/download",
-                data={"target": "/", "format": "../../tmp/owned", "media": "print"},
-            )
-        self.assertEqual(response.status_code, 400)
-        temporary_file.assert_not_called()
+        from flask import g
+        from werkzeug.exceptions import BadRequest
+        from app.web_export import download
+
+        # Test the view's validation directly. The application-wide request hooks
+        # are tested separately and may reject requests before reaching this view.
+        with app.test_request_context(
+            "/web-export/download", method="POST",
+            data={"target": "/", "format": "../../tmp/owned", "media": "print"},
+            base_url="http://127.0.0.1:8080",
+        ):
+            g.user = {"id": 1}
+            with patch("app.web_export.tempfile.NamedTemporaryFile") as temporary_file:
+                with self.assertRaises(BadRequest):
+                    download()
+            temporary_file.assert_not_called()
 
     def test_export_token_concurrent_consumption_allows_only_one(self):
         secret = "so_export_" + "g" * 40
