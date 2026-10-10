@@ -133,6 +133,14 @@ class V2AuthoritativeStorageAdapter:
             return self._error(ErrorCode.INTEGRITY_ERROR, "legacy projection location differs from V2")
         if str(metadata.get("sha256") or "") != entry.content_sha256:
             return self._error(ErrorCode.INTEGRITY_ERROR, "legacy projection digest differs from V2")
+        # Missing plaintext does not cause metadata access to fail.
+        lexical_target = self.root / entry.location.relative_path
+        if lexical_target.is_symlink():
+            return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection is a symlink")
+        if not lexical_target.exists():
+            restored = self._restore_missing_projection(entry)
+            if not restored.ok:
+                return OperationResult(error=restored.error)
         content = self.legacy.read_bytes(entry.object_id)
         if not content.ok:
             return OperationResult(error=content.error)
