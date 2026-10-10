@@ -1,4 +1,5 @@
 import hashlib
+import os
 import threading
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database, get_db
-from app.web_export import _consume_token
+from app.web_export import _configured_base_url, _consume_token
 
 
 class WebExportTests(unittest.TestCase):
@@ -68,6 +69,21 @@ class WebExportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 204)
         response = client.post("/web-export/revoke")
         self.assertEqual(response.status_code, 403)
+
+    def test_local_loopback_export_does_not_require_public_url(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SERVER_PUBLIC_URL": ""}):
+            with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
+                with app.test_request_context("/", base_url="http://127.0.0.1:8080"):
+                    self.assertEqual(_configured_base_url(), "http://127.0.0.1:8080")
+                with app.test_request_context("/", base_url="http://localhost:8080"):
+                    self.assertEqual(_configured_base_url(), "http://localhost:8080")
+
+    def test_non_loopback_export_still_requires_explicit_public_url(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SERVER_PUBLIC_URL": ""}):
+            with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
+                with app.test_request_context("/", base_url="http://office.example.test:8080"):
+                    with self.assertRaisesRegex(RuntimeError, "SIMPLEOFFICE_SERVER_PUBLIC_URL"):
+                        _configured_base_url()
 
     def test_export_rejects_path_like_format_before_creating_tempfile(self):
         client = app.test_client()
