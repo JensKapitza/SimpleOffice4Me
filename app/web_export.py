@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import json
+import importlib.util
 import os
 import secrets
 import subprocess
@@ -206,6 +207,13 @@ def download():
     output = tempfile.NamedTemporaryFile(prefix="simpleoffice-export-", suffix=suffix, delete=False)
     output.close()
     output_path = Path(output.name)
+    if importlib.util.find_spec("playwright") is None:
+        output_path.unlink(missing_ok=True)
+        abort(503, description=(
+            "Playwright ist in der Python-Umgebung des laufenden Servers nicht installiert. "
+            "Mit derselben Python-Umgebung installieren: python -m pip install '.[web-export]' "
+            "und python -m playwright install chromium."
+        ))
     token = _renderer_token(g.user)
     payload = {
         "base_url": base_url,
@@ -244,7 +252,20 @@ def download():
                 "web_export_failed request_id=%s code=%s error=%s",
                 getattr(g, "request_id", ""), proc.returncode, (proc.stderr or "")[-500:].replace(token, "[redacted]"),
             )
-            abort(503, description="Webseitenexport konnte nicht gerendert werden. Playwright/Chromium prüfen.")
+            output_path.unlink(missing_ok=True)
+            error = proc.stderr or ""
+            if "Executable doesn't exist" in error or "playwright install" in error:
+                message = "Playwright-Chromium fehlt. Mit der Python-Umgebung des Servers ausführen: python -m playwright install chromium."
+            elif "Host system is missing dependencies" in error:
+                message = "Chromium-Systembibliotheken fehlen. Unter Linux mit passenden Rechten: python -m playwright install-deps chromium."
+            elif "ModuleNotFoundError: No module named 'playwright'" in error:
+                message = "Playwright fehlt in der Server-Python-Umgebung: python -m pip install '.[web-export]'."
+            else:
+                message = (
+                    "Webseitenexport konnte nicht gerendert werden. "
+                    "Details stehen im Server-Log unter web_export_failed (request_id)."
+                )
+            abort(503, description=message)
         audit("web_export", "page", target_id=target, outcome="success", detail={"format": export_format, "media": media})
         filename = "simpleoffice-seite" + suffix
         response = send_file(output_path, as_attachment=True, download_name=filename)
