@@ -42,16 +42,18 @@
   </div>
   {% block header %}{% endblock %}
   {% if g.user and not session.get('web_export_read_only') %}
+  {% set export_available, export_reason = web_export_availability() %}
   <div class="container-fluid py-2 border-bottom d-flex flex-wrap justify-content-end gap-2" data-web-export-toolbar>
     <form method="post" action="{{ url_for('web_export.download') }}" class="d-flex gap-2 align-items-center">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="target" value="{{ request.full_path if request.query_string else request.path }}">
-      <select class="form-select form-select-sm" name="media" aria-label="{{ 'Export view' if g.language|default('de') == 'en' else 'Exportansicht' }}">
+      <select {% if not export_available %}disabled{% endif %} class="form-select form-select-sm" name="media" aria-label="{{ 'Export view' if g.language|default('de') == 'en' else 'Exportansicht' }}">
         <option value="print">{{ 'Print' if g.language|default('de') == 'en' else 'Druckansicht' }}</option>
         <option value="screen">{{ 'Screen' if g.language|default('de') == 'en' else 'Bildschirmansicht' }}</option>
       </select>
-      <button class="btn btn-sm btn-outline-secondary" name="format" value="pdf" type="submit"><i class="fa-solid fa-file-pdf"></i> PDF</button>
-      <button class="btn btn-sm btn-outline-secondary" name="format" value="png" type="submit"><i class="fa-solid fa-image"></i> PNG</button>
+      <button {% if not export_available %}disabled title="{{ export_reason }}" aria-disabled="true"{% endif %} class="btn btn-sm btn-outline-secondary" name="format" value="pdf" type="submit"><i class="fa-solid fa-file-pdf"></i> PDF</button>
+      <button {% if not export_available %}disabled title="{{ export_reason }}" aria-disabled="true"{% endif %} class="btn btn-sm btn-outline-secondary" name="format" value="png" type="submit"><i class="fa-solid fa-image"></i> PNG</button>
+      {% if not export_available %}<span class="small text-muted align-self-center" role="status">{{ export_reason }}</span>{% endif %}
       {% if g.user['is_admin'] %}<a class="btn btn-sm btn-link" href="{{ url_for('web_export.settings') }}">{{ 'Export settings' if g.language|default('de') == 'en' else 'Export-Einstellungen' }}</a>{% endif %}
     </form>
   </div>

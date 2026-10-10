@@ -27,6 +27,30 @@ _token_cache: dict[int, tuple[str, int]] = {}
 _token_lock = threading.Lock()
 
 
+
+def web_export_availability() -> tuple[bool, str]:
+    """Check the running server environment before enabling export controls."""
+    if importlib.util.find_spec("playwright") is None:
+        return False, "Playwright ist auf dem Server nicht installiert."
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as playwright:
+            executable = Path(playwright.chromium.executable_path)
+            if not executable.is_file():
+                return False, "Playwright-Chromium ist auf dem Server nicht installiert."
+    except Exception:
+        return False, "Playwright/Chromium ist auf dem Server nicht verfügbar."
+    try:
+        _configured_base_url()
+    except RuntimeError as exc:
+        return False, str(exc)
+    return True, ""
+
+
+@bp.app_context_processor
+def inject_web_export_availability():
+    return {"web_export_availability": web_export_availability}
+
 def _now() -> datetime:
     return datetime.now(timezone.utc).replace(microsecond=0)
 
@@ -196,6 +220,9 @@ def download():
     media = request.form.get("media", "print").strip().lower()
     if export_format not in {"pdf", "png"} or media not in {"print", "screen"}:
         abort(400, description="Ungültiges Exportformat.")
+    available, reason = web_export_availability()
+    if not available:
+        abort(503, description=reason)
     try:
         base_url = _configured_base_url()
     except RuntimeError as exc:
