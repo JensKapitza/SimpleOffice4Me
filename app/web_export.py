@@ -215,14 +215,14 @@ def enforce_renderer_read_only():
 def download():
     if g.get("user") is None:
         abort(401)
-    available, reason = web_export_availability()
-    if not available:
-        abort(503, description=reason)
     target = _safe_target(request.form.get("target", "/"))
     export_format = request.form.get("format", "pdf").strip().lower()
     media = request.form.get("media", "print").strip().lower()
     if export_format not in {"pdf", "png"} or media not in {"print", "screen"}:
         abort(400, description="Ungültiges Exportformat.")
+    available, reason = web_export_availability()
+    if not available:
+        abort(503, description=reason)
     try:
         base_url = _configured_base_url()
     except RuntimeError as exc:
