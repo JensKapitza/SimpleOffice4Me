@@ -30,3 +30,20 @@ class S3AdminToggleTests(unittest.TestCase):
         settings["s3"]["enabled"] = "false"
         with self.assertRaisesRegex(ValueError, "S3 enabled"):
             self.store.save(settings, "test-admin")
+
+    def test_first_partial_save_preserves_legacy_enabled_config(self):
+        from flask import Flask
+        app = Flask(__name__)
+        app.config["S3_OVERLAY_ENABLED"] = True
+        with app.app_context():
+            self.store.save({"interface": {"default_language": "de"}}, "user")
+        self.assertTrue(SettingsStore(self.temp.name).settings()["s3"]["enabled"])
+
+    def test_partial_save_does_not_reenable_explicitly_disabled_s3(self):
+        from flask import Flask
+        app = Flask(__name__)
+        app.config["S3_OVERLAY_ENABLED"] = True
+        self.store.save({"s3": {"enabled": False}}, "admin")
+        with app.app_context():
+            self.store.save({"interface": {"default_language": "en"}}, "user")
+        self.assertFalse(SettingsStore(self.temp.name).settings()["s3"]["enabled"])
