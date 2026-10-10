@@ -94,14 +94,20 @@ class V2AuthoritativeStorageAdapter:
             target = resolve_under(self.root, entry.location.relative_path, strict=False)
             if target.exists() or not target.parent.is_dir() or target.parent.is_symlink():
                 return self._error(ErrorCode.INTEGRITY_ERROR, "compatibility projection cannot be restored safely")
-            temporary = target.with_name(f".{target.name}.{entry.object_id.value}.projection")
+            # Only clean up temporary files created by this invocation.
+            temporary = None
             try:
-                with temporary.open("xb") as handle:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", prefix=f".{target.name}.projection-",
+                    dir=target.parent, delete=False,
+                ) as handle:
+                    temporary = Path(handle.name)
                     handle.write(payload)
                     handle.flush()
                 temporary.replace(target)
             finally:
-                temporary.unlink(missing_ok=True)
+                if temporary is not None:
+                    temporary.unlink(missing_ok=True)
             return OperationResult.success(metadata)
         except (OSError, RuntimeError, ValueError) as exc:
             return self._projection_failure(exc)
