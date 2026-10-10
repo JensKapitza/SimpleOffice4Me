@@ -64,7 +64,7 @@ def _bounded_int(value: str, *, minimum: int, maximum: int, label: str) -> int:
 
 def _query_text(key: str, default: str = "", *, maximum: int = 4096) -> str:
     value = request.args.get(key, default)
-    if not isinstance(value, str) or len(value) > maximum or "\\x00" in value:
+    if not isinstance(value, str) or len(value) > maximum or "\x00" in value:
         abort(400, description=f"Invalid {key}")
     return value
 
@@ -82,7 +82,7 @@ def _json_object() -> dict:
 
 def _json_text(payload: dict, key: str, default: str = "", *, maximum: int = 4096) -> str:
     value = payload.get(key, default)
-    if not isinstance(value, str) or len(value) > maximum or "\\x00" in value:
+    if not isinstance(value, str) or len(value) > maximum or "\x00" in value:
         abort(400, description=f"Invalid {key}")
     return value
 
