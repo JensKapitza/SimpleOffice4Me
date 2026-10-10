@@ -31,7 +31,15 @@ class LocalResourceProvider:
         self.root.mkdir(parents=True, exist_ok=True)
         self.root = normalize_path(self.root, strict=True)
 
+    def _deny_internal(self, value: str | Path) -> None:
+        # Metadata is internal even when the caller knows the exact path.
+        # Check every segment; hiding it from directory listings is insufficient.
+        parts = str(value or "").replace("\\\\", "/").split("/")
+        if ".simpleoffice-meta" in parts:
+            raise ProviderError("Interne Metadaten sind nicht freigegeben")
+
     def _resolve(self, value: str, *, require_exists: bool = False) -> Path:
+        self._deny_internal(value)
         try:
             candidate = resolve_under(self.root, str(value or ""), strict=require_exists)
         except (OSError, ValueError) as exc:
@@ -42,6 +50,7 @@ class LocalResourceProvider:
 
     def _entry(self, path: Path) -> ResourceEntry:
         try:
+            self._deny_internal(path.relative_to(self.root))
             path = resolve_under(self.root, path.relative_to(self.root), strict=True)
         except (OSError, ValueError) as exc:
             raise ProviderError("Ressource liegt ausserhalb des verwalteten Bereichs") from exc
@@ -58,6 +67,7 @@ class LocalResourceProvider:
 
     def list(self, path: str = "") -> Iterable[ResourceEntry]:
         try:
+            self._deny_internal(path)
             folder = resolve_directory_under(self.root, path or ".")
         except (OSError, ValueError) as exc:
             raise ProviderError("Kein sicheres Verzeichnis") from exc
@@ -75,6 +85,7 @@ class LocalResourceProvider:
 
     def open(self, resource_id: str) -> BinaryIO:
         try:
+            self._deny_internal(resource_id)
             path = resolve_file_under(self.root, resource_id)
         except (OSError, ValueError) as exc:
             raise ProviderError("Ressource ist keine sichere regulaere Datei") from exc
@@ -82,6 +93,7 @@ class LocalResourceProvider:
 
     def read_range(self, resource_id: str, offset: int, length: int) -> bytes:
         try:
+            self._deny_internal(resource_id)
             path = resolve_file_under(self.root, resource_id)
         except (OSError, ValueError) as exc:
             raise ProviderError("Ressource ist keine sichere regulaere Datei") from exc
@@ -91,10 +103,13 @@ class LocalResourceProvider:
 
     def upload(self, path: str, source: BinaryIO, *, name: str, metadata=None) -> ResourceEntry:
         try:
+            self._deny_internal(path)
             folder = resolve_directory_under(self.root, path or ".")
         except (OSError, ValueError) as exc:
             raise ProviderError("Ziel ist kein sicheres Verzeichnis") from exc
+        self._deny_internal(name)
         safe_name = safe_filename(name, fallback="upload.bin")
+        self._deny_internal(safe_name)
         try:
             target = resolve_for_write_under(
                 self.root, (folder.relative_to(self.root) / safe_name).as_posix()
@@ -109,8 +124,11 @@ class LocalResourceProvider:
 
     def mkdir(self, path: str, name: str) -> ResourceEntry:
         try:
+            self._deny_internal(path)
             folder = resolve_directory_under(self.root, path or ".")
+            self._deny_internal(name)
             safe_name = safe_filename(name, fallback="folder")
+            self._deny_internal(safe_name)
             target = resolve_for_write_under(
                 self.root, (folder.relative_to(self.root) / safe_name).as_posix()
             )
@@ -134,8 +152,12 @@ class LocalResourceProvider:
         if source == self.root or source.is_symlink():
             raise ProviderError("Ressource darf nicht verschoben werden")
         try:
+            self._deny_internal(target_path)
             folder = resolve_directory_under(self.root, target_path or ".")
+            if name is not None:
+                self._deny_internal(name)
             destination_name = safe_filename(name, fallback=source.name) if name else source.name
+            self._deny_internal(destination_name)
             target = resolve_for_write_under(
                 self.root, (folder.relative_to(self.root) / destination_name).as_posix()
             )
