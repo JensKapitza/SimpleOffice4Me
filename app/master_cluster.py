@@ -121,11 +121,13 @@ def resolve_authority_id(record_name: str) -> str:
         data = answer.get("data")
         if not isinstance(data, str) or len(data) > 1024:
             raise ValueError("invalid TXT record data")
-        # DoH JSON represents TXT character-strings as quoted segments.
-        segments = re.findall(r'"((?:[^"\\\\]|\\\\.)*)"', data)
-        if not segments or re.sub(r'"((?:[^"\\\\]|\\\\.)*)"', "", data).strip():
+        # The authority value is ASCII and has no escaping or split segments.
+        # Reject ambiguous encodings rather than guessing at TXT semantics.
+        if not (data.startswith('"') and data.endswith('"')):
             raise ValueError("invalid TXT record encoding")
-        decoded = "".join(bytes(s, "utf-8").decode("unicode_escape") for s in segments)
+        decoded = data[1:-1]
+        if '"' in decoded or "\\\\" in decoded:
+            raise ValueError("unsupported TXT record escaping")
         match = _AUTHORITY_VALUE.fullmatch(decoded.strip())
         if match:
             values.add(match.group(1))
