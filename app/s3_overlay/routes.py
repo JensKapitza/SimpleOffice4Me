@@ -729,9 +729,7 @@ def manage():
                     raise ValueError("Ungültiger S3-Status.")
                 enabled = value == "1"
                 store = _s3_settings_store()
-                settings = store.settings()
-                settings["s3"] = {"enabled": enabled}
-                store.save(settings, str(g.user["username"]))
+                store.set_s3_enabled(enabled, str(g.user["username"]))
                 audit("s3_overlay_toggled", "s3-overlay", "global", detail={"enabled": enabled})
                 flash("S3-Overlay aktiviert." if enabled else "S3-Overlay deaktiviert.")
             elif action == "revoke":
