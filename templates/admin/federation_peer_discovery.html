@@ -125,7 +125,10 @@
       <button id="qr-camera-button" class="btn btn-success" type="button"><i class="fas fa-camera me-1" aria-hidden="true"></i>Kamera öffnen</button>
       <label class="btn btn-outline-secondary mb-0" for="qr-image"><i class="fas fa-image me-1" aria-hidden="true"></i>Bild auswählen</label>
       <input id="qr-image" class="visually-hidden" type="file" accept="image/*">
-      <input id="qr-camera-image" class="visually-hidden" type="file" accept="image/*" capture="environment">
+      <div id="qr-camera-panel" class="w-100 border rounded p-2" hidden>
+        <video id="qr-camera-preview" autoplay muted playsinline class="w-100 rounded" style="max-height:360px;object-fit:contain" aria-label="Live-Kamerabild zum Scannen des Peer-QR-Codes"></video>
+        <button id="qr-camera-close" class="btn btn-outline-secondary btn-sm mt-2" type="button">Kamera schließen</button>
+      </div>
     </div>
     <textarea id="qr-payload" class="form-control mb-2 font-monospace" name="payload" rows="3" placeholder="QR-Payload (alternativ manuell einfügen)" required></textarea>
     <div class="form-check mb-2"><input class="form-check-input" id="verify-in-person" type="checkbox" name="verify_in_person" value="1"><label class="form-check-label" for="verify-in-person">Peer ist persönlich/live gesehen und Fingerprint wurde gemeinsam geprüft. Nur Prüfung setzen, Vertrauen bleibt NONE.</label></div>
