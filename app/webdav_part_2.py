@@ -38,7 +38,7 @@ def _http_precondition_error(username: str, resource: Path, document: dict | Non
             try:
                 if document is not None and _vfs()._authoritative_v2():
                     catalog_entry = _vfs().authoritative_entry(resource)
-                    modified_at = int(catalog_entry.updated_at.timestamp())
+                    modified_at = int(catalog_entry.updated_at)
                 else:
                     modified_at = int(document.get("updated_at", 0)) if document is not None else None
             except (FileNotFoundError, TypeError, ValueError):
