@@ -33,6 +33,7 @@ jobs:
 
   tests:
     name: Python ${{ matrix.python-version }} (${{ matrix.runtime }})
+    if: github.event_name != 'pull_request' || matrix.python-version == '3.14'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -86,6 +87,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   litellm-operations:
+    if: github.event_name != 'pull_request'
     name: LiteLLM optional container operations
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -106,6 +108,7 @@ jobs:
         run: python tools/litellm_smoke.py
 
   docker-error-relay:
+    if: github.event_name != 'pull_request'
     name: Docker error relay
     runs-on: ubuntu-24.04
     timeout-minutes: 15
