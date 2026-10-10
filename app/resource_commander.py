@@ -192,7 +192,7 @@ def create_web_link():
     title = payload.get("name") or parsed.hostname
     if not isinstance(title, str):
         raise ProviderError("Ungültiger Linkname")
-    name = re.sub(r"[^\\w .()-]", "_", title, flags=re.UNICODE).strip(" .")
+    name = re.sub(r"[^\w .()-]", "_", title, flags=re.UNICODE).strip(" .")
     if not name or len(name) > 100 or name in {".", ".."}:
         raise ProviderError("Ungültiger Linkname")
     if name.lower().endswith(".url"):
@@ -201,7 +201,7 @@ def create_web_link():
         raise ProviderError("Ungültiger Linkname")
     provider = _registry().get("self")
     _require(provider, "write")
-    data = ("[InternetShortcut]\\r\\nURL=" + url + "\\r\\n").encode("utf-8")
+    data = ("[InternetShortcut]\r\nURL=" + url + "\r\n").encode("utf-8")
     entry = provider.upload(str(payload.get("path", "")), BytesIO(data), name=name + ".url")
     return jsonify({"entry": entry.to_dict()}), 201
 
