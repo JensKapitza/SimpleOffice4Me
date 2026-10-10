@@ -35,7 +35,10 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertIn("SimpleOffice4Me-Android-arm32.apk", text)
         self.assertIn("simpleoffice4me-android-arm32-installable", text)
         self.assertIn("page-size: '4'", text)
-        self.assertIn("- 'pyproject.toml'", text)
+        self.assertIn("workflow_dispatch:", text)
+        self.assertIn("push:", text)
+        self.assertIn("- main", text)
+        self.assertNotIn("pull_request:", text)
         self.assertIn("assets/simpleoffice/pyproject.toml", text)
         self.assertIn("Verify APK package version matches project version", text)
 
