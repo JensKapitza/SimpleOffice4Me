@@ -9,3 +9,11 @@
 .resource-commander-context-badge.is-error{border-color:color-mix(in srgb,crimson 55%,CanvasText 20%);background:color-mix(in srgb,crimson 8%,Canvas)}
 .resource-commander-actions button:disabled{opacity:.48;cursor:not-allowed}
 @media(max-width:760px){.resource-commander-context{align-items:flex-start}.resource-commander-context-detail{width:100%}}
+
+.resource-commander-quickbar{display:flex;flex-wrap:wrap;align-items:center;gap:.55rem;padding:.65rem 1rem;background:color-mix(in srgb,Highlight 6%,Canvas);border-bottom:1px solid color-mix(in srgb,CanvasText 20%,transparent)}
+.resource-commander-quickbar button{border:1px solid color-mix(in srgb,CanvasText 30%,transparent);border-radius:.45rem;padding:.4rem .75rem;background:Canvas;color:CanvasText;font-weight:600}
+.resource-commander-quickbar button:hover{background:color-mix(in srgb,Highlight 15%,Canvas)}
+.resource-commander-quickbar span{font-size:.82rem;opacity:.75}
+.resource-commander-pane{background:Canvas}
+.resource-commander-row:focus-visible,.resource-commander-quickbar button:focus-visible{outline:2px solid Highlight;outline-offset:-2px}
+@media(max-width:760px){.resource-commander-quickbar{padding:.5rem}.resource-commander-quickbar button{flex:1 1 auto}.resource-commander-grid{min-height:65vh}}
