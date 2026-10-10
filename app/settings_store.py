@@ -3,11 +3,33 @@
 from __future__ import annotations
 
 import copy
+from contextlib import contextmanager
+import os
+import threading
 from pathlib import Path
 from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
+
+
+_SETTINGS_LOCK = threading.RLock()
+
+
+@contextmanager
+def _settings_write_lock(path: Path):
+    """Serialize read/merge/write across threads and POSIX worker processes."""
+    with _SETTINGS_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with (path.parent / "settings.write.lock").open("a+b") as handle:
+            if os.name == "posix":
+                import fcntl
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if os.name == "posix":
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -311,19 +333,24 @@ class SettingsStore:
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
             raise ValueError("a named user is required")
-        # Partial updates from ordinary preferences must not reset the admin-only S3 switch.
-        if "s3" not in settings:
-            s3_state = self.settings()["s3"]
+        with _settings_write_lock(self.path):
+            latest = self.settings()
             if not self.path.exists():
-                # Preserve the old Flask configuration on the first settings save.
                 from flask import current_app, has_app_context
                 if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
-                    s3_state = {"enabled": True}
-            settings = {**settings, "s3": s3_state}
-        normalized = self._validate(settings)
-        atomic_json_write(self.path, normalized)
-        self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
-        return normalized
+                    latest["s3"] = {"enabled": True}
+            # Ordinary preferences and admin S3 changes share one atomic merge.
+            # Only sections supplied by the caller are replaced.
+            merged = {**latest, **settings}
+            normalized = self._validate(merged)
+            atomic_json_write(self.path, normalized)
+            self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
+            return normalized
+
+    def set_s3_enabled(self, enabled: bool, actor: str) -> dict[str, Any]:
+        if not isinstance(enabled, bool):
+            raise ValueError("S3 enabled must be boolean")
+        return self.save({"s3": {"enabled": enabled}}, actor)
 
     def _validate(self, settings: dict[str, Any]) -> dict[str, Any]:
         interface = settings.get("interface", {})
