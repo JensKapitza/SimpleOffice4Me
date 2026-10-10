@@ -86,19 +86,21 @@ class WebExportTests(unittest.TestCase):
                         _configured_base_url()
 
     def test_missing_playwright_returns_install_instructions(self):
-        client = app.test_client()
-        with client.session_transaction() as sess:
-            sess["user_id"] = 1
-            sess["auth_version"] = 7
-        with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
-            with patch("app.web_export.importlib.util.find_spec", return_value=None):
-                response = client.post(
-                    "/web-export/download",
-                    data={"target": "/", "format": "pdf", "media": "print"},
-                    base_url="http://127.0.0.1:8080",
-                )
-        self.assertEqual(response.status_code, 503)
-        self.assertIn(b"playwright", response.data.lower())
+        from flask import g
+        from werkzeug.exceptions import ServiceUnavailable
+        from app.web_export import download
+
+        with app.test_request_context(
+            "/web-export/download", method="POST",
+            data={"target": "/", "format": "pdf", "media": "print"},
+            base_url="http://127.0.0.1:8080",
+        ):
+            g.user = {"id": 1}
+            with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
+                with patch("app.web_export.importlib.util.find_spec", return_value=None):
+                    with self.assertRaises(ServiceUnavailable) as error:
+                        download()
+        self.assertIn("Playwright", error.exception.description)
 
     def test_export_rejects_path_like_format_before_creating_tempfile(self):
         client = app.test_client()
