@@ -27,18 +27,24 @@ def _record_http_precondition_failure(
 
 def _http_precondition_error(username: str, resource: Path, document: dict | None) -> Response | None:
     """Evaluate unsafe-request HTTP preconditions in RFC 9110 precedence order."""
-    exists = (document is not None and resource.is_file() and not resource.is_symlink()) or (
-        resource.is_dir() and not resource.is_symlink()
-    )
+    exists = document is not None or (resource.is_dir() and not resource.is_symlink())
     current_etag = _etag(document) if document is not None and exists else ""
     modified_at: int | None = None
     headers = {"Cache-Control": "private, no-cache"}
     if exists:
         try:
             modified_at = int(resource.stat().st_mtime)
-            headers["Last-Modified"] = formatdate(modified_at, usegmt=True)
         except OSError:
-            modified_at = None
+            try:
+                if document is not None and _vfs()._authoritative_v2():
+                    catalog_entry = _vfs().authoritative_entry(resource)
+                    modified_at = int(catalog_entry.updated_at)
+                else:
+                    modified_at = int(document.get("updated_at", 0)) if document is not None else None
+            except (FileNotFoundError, TypeError, ValueError):
+                modified_at = None
+        if modified_at:
+            headers["Last-Modified"] = formatdate(modified_at, usegmt=True)
     if current_etag:
         headers["ETag"] = current_etag
 

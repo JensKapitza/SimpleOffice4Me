@@ -355,17 +355,29 @@ class VirtualFileSystem:
             raise ValueError("document exceeds the configured upload size limit")
         resource = self.resolve(path)
         storage = self._storage(actor)
-        if resource.exists():
+        authoritative_entry = None
+        if self._authoritative_v2() and not resource.exists():
+            try:
+                authoritative_entry = self.authoritative_entry(resource)
+            except FileNotFoundError:
+                pass
+        if resource.exists() or authoritative_entry is not None:
             self.require(actor, resource, "write")
-            resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
             if create_only:
                 raise FileExistsError("destination resource already exists")
-            document = self.store.get_document(resource)
+            if authoritative_entry is not None:
+                object_id = authoritative_entry.object_id
+                current_version = authoritative_entry.content_sha256
+            else:
+                resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
+                document = self.store.get_document(resource)
+                object_id = LogicalObjectId(str(document["document_id"]))
+                current_version = str(document.get("sha256", ""))
             stored = self._storage_value(
                 storage.replace_bytes(
-                    LogicalObjectId(str(document["document_id"])),
+                    object_id,
                     payload,
-                    expected_version=expected_sha256 or str(document.get("sha256", "")),
+                    expected_version=expected_sha256 or current_version,
                 )
             )
             return self.store.get_document(stored.object_id.value)

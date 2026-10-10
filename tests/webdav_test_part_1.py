@@ -71,6 +71,16 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertEqual(full.headers["Last-Modified"], tree_full.headers["Last-Modified"])
         self.assertEqual(404, tree_proppatch.status_code)
 
+        updated = self.client.put(
+            tree_url,
+            data=b"updated without projection",
+            headers={**self.auth, "If-Match": tree_full.headers["ETag"]},
+        )
+        reread = self.client.get(tree_url, headers=self.auth)
+        self.assertEqual(204, updated.status_code)
+        self.assertEqual(b"updated without projection", reread.data)
+        self.assertNotEqual(tree_full.headers["ETag"], reread.headers["ETag"])
+
     def test_libreoffice_page_exposes_url_but_never_app_password(self):
         response = self.client.get(f"/documents/{self.document['document_id']}/libreoffice")
         body = response.get_data(as_text=True)

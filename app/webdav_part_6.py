@@ -101,7 +101,14 @@ def _handle_tree_put(username: str, resource, document, is_collection: bool, key
         digest_error = _verify_content_digest(content, username, resource)
         if digest_error is not None:
             return digest_error
-        quota_error = _check_quota(username, "PUT", resource, len(content) - resource.stat().st_size)
+        current_size = (
+            resource.stat().st_size
+            if resource.is_file()
+            else _vfs().authoritative_entry(resource).size
+            if _vfs()._authoritative_v2()
+            else int(document.get("size", 0))
+        )
+        quota_error = _check_quota(username, "PUT", resource, len(content) - current_size)
         if quota_error is not None:
             return quota_error
         scan_error = _webdav_upload_scan_error(content, username, resource)
@@ -427,7 +434,7 @@ def file_tree(username: str, relative_path: str):
     is_collection = resource.is_dir() and not resource.is_symlink()
     document = None
     catalog_entry = None
-    if request.method in {"GET", "HEAD"} and _vfs()._authoritative_v2() and not is_collection:
+    if request.method in {"GET", "HEAD", "PUT"} and _vfs()._authoritative_v2() and not is_collection:
         try:
             catalog_entry = _vfs().authoritative_entry(resource)
             document = _store().get_document(catalog_entry.object_id.value)
@@ -772,7 +779,14 @@ def endpoint(path: str):
         digest_error = _verify_content_digest(content, username, document_path)
         if digest_error is not None:
             return digest_error
-        quota_error = _check_quota(username, "PUT", document_path, len(content) - document_path.stat().st_size)
+        current_size = (
+            document_path.stat().st_size
+            if document_path.is_file()
+            else _vfs().authoritative_entry(document_path).size
+            if _vfs()._authoritative_v2()
+            else int(document.get("size", 0))
+        )
+        quota_error = _check_quota(username, "PUT", document_path, len(content) - current_size)
         if quota_error is not None:
             return quota_error
         scan_error = _webdav_upload_scan_error(content, username, document_path)
