@@ -180,7 +180,16 @@ class MailCaseRouteTests(unittest.TestCase):
                 "/documents/mail/reader?account=work&folder=INBOX"
             )
         self.assertEqual(200, inbox_list.status_code)
-        self.assertIn("Vorgang: Kundenfall", inbox_list.get_data(as_text=True))
+        # PR #651 renders the case in its configurable table column.
+        # Assert the association on the message row, not an unrelated case sidebar.
+        from bs4 import BeautifulSoup
+        inbox_html = BeautifulSoup(inbox_list.get_data(as_text=True), "html.parser")
+        subject = inbox_html.select_one(".mail-message-table .mail-subject-link")
+        self.assertIsNotNone(subject)
+        self.assertEqual("Angebot", subject.get_text(strip=True))
+        case_cell = subject.find_parent("tr").select_one('[data-mail-col="case"]')
+        self.assertIsNotNone(case_cell)
+        self.assertEqual("Kundenfall", case_cell.get_text(strip=True))
 
         cases = MailCaseStore(self.root)
         case_id = cases.list_cases("alice")[0]["id"]
