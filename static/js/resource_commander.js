@@ -149,6 +149,8 @@
   function makeRow(side, entry) {
     const row = document.createElement('div');
     row.className = 'resource-commander-row';
+    row.tabIndex = 0;
+    row.setAttribute('role', 'button');
     row.dataset.id = entry.resource_id;
     row.dataset.kind = entry.kind;
     row.dataset.name = String(entry.name || '').toLocaleLowerCase();
@@ -169,14 +171,21 @@
     modified.textContent = entry.modified || '';
     row.append(icon, cmp, name, size, modified);
 
-    row.addEventListener('click', () => {
-      pane(side).querySelectorAll('.selected').forEach(item => item.classList.remove('selected'));
+    const selectEntry = () => {
+      pane(side).querySelectorAll('.selected').forEach(item => {
+        item.classList.remove('selected');
+        item.setAttribute('aria-pressed', 'false');
+      });
       row.classList.add('selected');
+      row.setAttribute('aria-pressed', 'true');
       state[side].selected = entry;
       setActive(side);
-    });
+    };
+    row.setAttribute('aria-pressed', 'false');
+    row.addEventListener('click', selectEntry);
+    row.addEventListener('focus', selectEntry);
 
-    row.addEventListener('dblclick', () => {
+    const openEntry = () => {
       if (entry.kind === 'folder') {
         const base = currentPath(side);
         const child = String(entry.path || entry.name || '').split('/').filter(Boolean).pop() || '';
@@ -190,6 +199,12 @@
         smart: state[side].smart ? '1' : '0',
       });
       window.open(`/resource-commander/api/download?${params}`, '_blank', 'noopener,noreferrer');
+    };
+    row.addEventListener('dblclick', openEntry);
+    row.addEventListener('keydown', event => {
+      if (event.repeat) return;
+      if (event.key === 'Enter') { event.preventDefault(); selectEntry(); openEntry(); }
+      if (event.key === ' ') { event.preventDefault(); row.click(); }
     });
     return row;
   }
@@ -367,8 +382,62 @@
     }
   }
 
+  function commanderPrompt({title, message = '', primaryLabel = '', secondaryLabel = '', confirmText = 'Speichern', danger = false}) {
+    const dialog = document.getElementById('commander-dialog');
+    if (dialog.open) return Promise.resolve(null);
+    const opener = document.activeElement;
+    const form = document.getElementById('commander-dialog-form');
+    const fields = document.getElementById('commander-dialog-fields');
+    const primary = document.getElementById('commander-dialog-primary');
+    const secondary = document.getElementById('commander-dialog-secondary');
+    document.getElementById('commander-dialog-title').textContent = title;
+    document.getElementById('commander-dialog-message').textContent = message;
+    document.getElementById('commander-dialog-primary-label').textContent = primaryLabel;
+    document.getElementById('commander-dialog-secondary-label').textContent = secondaryLabel;
+    document.getElementById('commander-dialog-secondary-label').hidden = !secondaryLabel;
+    secondary.hidden = !secondaryLabel;
+    fields.hidden = !primaryLabel;
+    primary.required = Boolean(primaryLabel);
+    primary.disabled = !primaryLabel;
+    secondary.disabled = !secondaryLabel;
+    primary.value = '';
+    secondary.value = '';
+    const confirm = document.getElementById('commander-dialog-confirm');
+    confirm.textContent = confirmText;
+    confirm.style.background = danger ? '#a61c2b' : '';
+    confirm.style.borderColor = danger ? '#a61c2b' : '';
+    return new Promise(resolve => {
+      let finished = false;
+      const settle = value => {
+        if (finished) return;
+        finished = true;
+        form.removeEventListener('submit', accept);
+        dialog.removeEventListener('close', closed);
+        dialog.removeEventListener('cancel', cancelled);
+        if (dialog.open) dialog.close();
+        if (opener?.isConnected) opener.focus({preventScroll: true});
+        resolve(value);
+      };
+      const accept = event => {
+        event.preventDefault();
+        settle({primary: primary.value.trim(), secondary: secondary.value.trim()});
+      };
+      const closed = () => settle(null);
+      const cancelled = event => { event.preventDefault(); settle(null); };
+      form.addEventListener('submit', accept);
+      dialog.addEventListener('close', closed);
+      dialog.addEventListener('cancel', cancelled);
+      document.getElementById('commander-dialog-cancel').onclick = () => settle(null);
+      document.getElementById('commander-dialog-close').onclick = () => settle(null);
+      dialog.showModal();
+      if (primaryLabel) primary.focus();
+      else (danger ? document.getElementById('commander-dialog-cancel') : confirm).focus();
+    });
+  }
+
   async function mkdir(side) {
-    const name = window.prompt('Ordnername');
+    const answer = await commanderPrompt({title: 'Ordner erstellen', primaryLabel: 'Ordnername', confirmText: 'Erstellen'});
+    const name = answer?.primary;
     if (!name) return;
     try {
       await post('/resource-commander/api/mkdir', {
@@ -384,7 +453,9 @@
 
   async function remove(side) {
     const entry = state[side].selected;
-    if (!entry || !window.confirm(`${entry.name} löschen?`)) return;
+    if (!entry) return;
+    const answer = await commanderPrompt({title: 'Datei löschen?', message: `${entry.name} wirklich löschen?`, confirmText: 'Löschen', danger: true});
+    if (!answer) return;
     try {
       await post('/resource-commander/api/delete', {
         provider: providerId(side),
@@ -430,7 +501,8 @@
 
   function bind(side) {
     const element = pane(side);
-    element.addEventListener('mousedown', () => setActive(side));
+    element.addEventListener('pointerdown', () => setActive(side));
+    element.addEventListener('focusin', () => setActive(side));
     element.querySelector('.provider').addEventListener('change', () => {
       state[side].smart = false;
       state[side].capabilities = null;
@@ -511,10 +583,10 @@
       setStatus(side, 'Weblinks können nur im lokalen Dateibereich gespeichert werden.');
       return;
     }
-    const url = window.prompt('Webadresse (https://…)');
-    if (url === null) return;
-    const name = window.prompt('Dateiname / Bezeichnung (optional)', '');
-    if (name === null) return;
+    const answer = await commanderPrompt({title: 'Weblink speichern', primaryLabel: 'Webadresse (https://…)', secondaryLabel: 'Dateiname (optional)'});
+    if (!answer) return;
+    const url = answer.primary;
+    const name = answer.secondary;
     try {
       await post('/resource-commander/api/web-link', {url: url.trim(), name: name.trim(), path: currentPath(side)});
       await load(side);
@@ -566,7 +638,11 @@
     const mapping = {F5: 'copy', F6: 'move', F7: 'mkdir', F8: 'delete'};
     const button = mapping[event.key];
     if (!button) return;
+    // Suppress browser F5/F6 defaults as well as Commander actions in a modal.
     event.preventDefault();
+    if (event.repeat || document.getElementById('commander-dialog').open
+      || document.activeElement?.isContentEditable
+      || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
     document.getElementById(button).click();
   });
 

@@ -132,9 +132,11 @@ jobs:
           python-version: '3.12'
       - name: Install pinned Playwright and Chromium dependencies
         run: |
-          python -m pip install 'playwright==1.55.0'
+          python -m pip install 'playwright==1.55.0' 'Jinja2>=3.1.2,<4'
           python -m playwright install --with-deps chromium
           python -m playwright install --list
+      - name: Resource Commander browser regressions
+        run: python -m unittest discover -s tests -p test_resource_commander_browser.py -v
 
   docker-host:
     name: Docker and Buildx host

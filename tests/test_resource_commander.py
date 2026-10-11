@@ -44,7 +44,7 @@ class LocalResourceProviderTests(unittest.TestCase):
             lambda: self.provider.stat(".simpleoffice-meta/credentials.json"),
             lambda: self.provider.open(".simpleoffice-meta/credentials.json"),
             lambda: self.provider.read_range(".simpleoffice-meta/credentials.json", 0, 100),
-            lambda: self.provider.list(".simpleoffice-meta"),
+            lambda: list(self.provider.list(".simpleoffice-meta")),
             lambda: self.provider.search("credentials", ".simpleoffice-meta"),
             lambda: self.provider.delete(".simpleoffice-meta/credentials.json"),
             lambda: self.provider.move(".simpleoffice-meta/credentials.json", "."),
