@@ -85,6 +85,15 @@ def detail(document_id: str):
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
     security = _attachment_security()
     safe_attachments = _released_eml_attachments(store, document)
+    eml_attachments = []
+    if Path(str(document.get("last_path", ""))).suffix.casefold() == ".eml":
+        from .contact_extensions import _eml_preview
+        try:
+            eml_attachments = _eml_preview(
+                Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"])
+            )["attachments"]
+        except (OSError, RuntimeError, ValueError):
+            current_app.logger.warning("EML attachment metadata unavailable for document %s", document_id)
     return render_template(
         "documents/detail.html",
         document=document,
@@ -101,6 +110,7 @@ def detail(document_id: str):
         document_tasks=[row for row in _todos().items(str(g.user["username"])) if document_id in row.get("document_ids", [])],
         malware_scan=security.latest_document_scan(document),
         safe_attachments=safe_attachments,
+        eml_attachments=eml_attachments,
     )
 
 
