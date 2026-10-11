@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import AVFoundation
 
 @main
 struct SimpleOffice4MeApp: App {
@@ -57,6 +58,8 @@ struct OfficeWebView: UIViewRepresentable {
     }
     func updateUIView(_ view: WKWebView, context: Context) {}
     final class Coordinator: NSObject, WKUIDelegate {
+        private var permissionAlert: UIAlertController?
+
         @available(iOS 15.0, *)
         func webView(_ webView: WKWebView,
                      requestMediaCapturePermissionFor origin: WKSecurityOrigin,
@@ -69,6 +72,27 @@ struct OfficeWebView: UIViewRepresentable {
                   origin.host == url.host,
                   origin.port == (url.port ?? 443) else {
                 decisionHandler(.deny)
+                return
+            }
+            let status = AVCaptureDevice.authorizationStatus(for: .video)
+            if status == .denied || status == .restricted {
+                decisionHandler(.deny)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self = self, self.permissionAlert == nil,
+                          let presenter = webView.window?.rootViewController else { return }
+                    let alert = UIAlertController(title: "Kamera nicht freigegeben",
+                        message: "Aktiviere den Kamerazugriff für SimpleOffice4Me in den iPhone-Einstellungen, um Bücher und Dokumente zu scannen.",
+                        preferredStyle: .alert)
+                    alert.addAction(UIAlertAction(title: "Abbrechen", style: .cancel) { _ in self.permissionAlert = nil })
+                    alert.addAction(UIAlertAction(title: "Einstellungen", style: .default) { _ in
+                        self.permissionAlert = nil
+                        if let settings = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(settings)
+                        }
+                    })
+                    self.permissionAlert = alert
+                    presenter.present(alert, animated: true)
+                }
                 return
             }
             decisionHandler(.prompt)
