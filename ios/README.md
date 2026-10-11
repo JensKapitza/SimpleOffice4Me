@@ -21,3 +21,17 @@ The GitHub workflow compiles an unsigned simulator app only. It does not claim t
 ## Limitations
 
 The remote server must have a valid HTTPS certificate. Login and cookies are handled by WKWebView. Native file picking, camera permissions, downloads, notifications, deep links and background behavior need device testing and dedicated integration before production release.
+
+## Signiertes IPA lokal erstellen
+
+Xcode mit aktivierter Apple-Developer-Team-Signierung und XcodeGen installieren. Eine eindeutige, in deinem Team registrierte Bundle-ID verwenden.
+
+```sh
+export APPLE_TEAM_ID=YOUR_TEAM_ID
+export IOS_BUNDLE_ID=de.example.simpleoffice4me
+bash ios/build-ipa.sh
+```
+
+Das Skript archiviert für echte iOS-Geräte und exportiert mit `ExportOptions.example.plist` für App Store Connect. Für Ad-hoc-Verteilung muss die Exportmethode und die Provisionierung passend geändert werden. Ohne gültige Signierungsidentität kann der Export nicht erfolgreich sein. Die Datei `ios/build/export/*.ipa` entsteht erst nach erfolgreichem Export.
+
+CI baut derzeit nur den Simulator ohne Signierung; geheime Apple-Zertifikate werden nicht im Repository gespeichert.
