@@ -41,6 +41,7 @@
 .commander-dialog-close{width:48px;height:48px;border-radius:.6rem;font-size:1.7rem}
 .commander-dialog-message{margin:0;overflow-wrap:anywhere}
 #commander-dialog-fields{display:grid;gap:.4rem}
+#commander-dialog-fields[hidden],#commander-dialog-secondary-label[hidden],#commander-dialog-secondary[hidden]{display:none}
 #commander-dialog-fields input{min-height:48px;width:100%;padding:.65rem;border-radius:.5rem;border:1px solid color-mix(in srgb,CanvasText 35%,Canvas)}
 .commander-dialog-buttons button{min-height:48px;padding:.5rem 1rem;border-radius:.6rem;flex:1}
 .commander-dialog-buttons button[type=submit]{background:Highlight;color:HighlightText;border:1px solid Highlight}
