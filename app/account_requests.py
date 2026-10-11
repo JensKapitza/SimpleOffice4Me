@@ -27,7 +27,7 @@ def new():
         username = request.form.get('username','').strip()
         email = request.form.get('email','').strip().lower()
         password = request.form.get('password','')
-        if not re.fullmatch(r'[A-Za-z0-9_.-]{3,64}', username) or len(email)>254 or not re.fullmatch(r'[^@\\s]+@[^@\\s]+\\.[^@\\s]+', email) or not 12<=len(password)<=128:
+        if not re.fullmatch(r'[A-Za-z0-9_.-]{3,64}', username) or len(email)>254 or not re.fullmatch(r'[^@\s]+@[^@\s]+\.[^@\s]+', email) or not 12<=len(password)<=128:
             abort(400)
         db = _db()
         if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
