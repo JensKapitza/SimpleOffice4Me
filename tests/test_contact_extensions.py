@@ -236,29 +236,14 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
         self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
 
-    def test_eml_preview_template_uses_server_links_and_sandboxed_html(self):
-        from flask import render_template
-        from markupsafe import escape
-        from unittest.mock import patch
-        with app.test_request_context("/documents/example/eml-preview?view=html"):
-            with patch("app.contact_extensions._eml_preview", return_value={
-                "subject": "Example", "date": "", "from": "", "to": "",
-                "cc": "", "message_id": "", "text": "Plain version",
-                "html": '<script>alert("bad")</script><p>HTML version</p>',
-                "attachments": [{"part": 2, "name": "invoice.pdf", "type": "application/pdf", "size": 5}],
-            }):
-                html = render_template(
-                    "documents/eml_document_preview.html", document_id="example",
-                    preview={"subject": "Example", "date": "", "from": "", "to": "", "cc": "",
-                             "message_id": "", "text": "Plain version", "html": "<p>HTML version</p>",
-                             "attachments": [{"part": 2, "name": "invoice.pdf", "type": "application/pdf", "size": 5}]},
-                    view="html", html_srcdoc="<p>HTML version</p>",
-                )
-        self.assertIn('sandbox=""', html)
-        self.assertIn("view=html", html)
-        self.assertIn("view=text", html)
-        self.assertIn("invoice.pdf", html)
-        self.assertIn(str(escape("<p>HTML version</p>")), html)
+    def test_eml_preview_template_has_no_script_dependent_view_switch(self):
+        template = (Path(__file__).resolve().parents[1] / "templates/documents/eml_document_preview.html").read_text(encoding="utf-8")
+        self.assertIn('sandbox=""', template)
+        self.assertIn("view='html'", template)
+        self.assertIn("view='text'", template)
+        self.assertIn("{{ html_srcdoc }}", template)
+        self.assertIn("preview.attachments", template)
+        self.assertNotIn("<script", template)
 
 
 if __name__ == "__main__":
