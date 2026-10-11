@@ -1,6 +1,9 @@
 """Persistent account requests. No user account is created before admin approval."""
 import sqlite3
-from flask import Blueprint, abort, flash, g, redirect, render_template_string, request, url_for
+import hashlib
+import hmac
+import time
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template_string, request, url_for
 from .db import get_db
 from .auth import _registration_enabled
 from .password_security import hash_password
@@ -22,8 +25,34 @@ def _db():
     db = get_db()
     db.execute("""CREATE TABLE IF NOT EXISTS account_request (id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE, email TEXT NOT NULL, password_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, decided_at TEXT)""")
     db.execute("CREATE UNIQUE INDEX IF NOT EXISTS account_request_pending_username ON account_request(username) WHERE status = 'pending'")
+    db.execute("CREATE TABLE IF NOT EXISTS account_request_throttle (client_key TEXT PRIMARY KEY, window_started INTEGER NOT NULL, attempts INTEGER NOT NULL)")
     db.commit()
     return db
+
+def _check_request_rate(db) -> None:
+    """Bound expensive password hashing and spam per client without storing raw IPs."""
+    client_ip = request.remote_addr or "unknown"
+    key = hmac.new(
+        str(current_app.config["SECRET_KEY"]).encode("utf-8"),
+        client_ip.encode("utf-8", "replace"),
+        hashlib.sha256,
+    ).hexdigest()
+    now = int(time.time())
+    db.execute(
+        """INSERT INTO account_request_throttle (client_key, window_started, attempts)
+           VALUES (?, ?, 1)
+           ON CONFLICT(client_key) DO UPDATE SET
+             attempts = CASE WHEN ? - window_started >= 3600 THEN 1 ELSE attempts + 1 END,
+             window_started = CASE WHEN ? - window_started >= 3600 THEN ? ELSE window_started END""",
+        (key, now, now, now, now),
+    )
+    row = db.execute(
+        "SELECT attempts, window_started FROM account_request_throttle WHERE client_key = ?", (key,)
+    ).fetchone()
+    db.commit()
+    if int(row["attempts"]) > 5:
+        abort(429, description="Zu viele Kontoanträge. Bitte später erneut versuchen.")
+
 
 @bp.route('/new', methods=['GET','POST'])
 def new():
@@ -36,6 +65,7 @@ def new():
         if not (3 <= len(username) <= 64 and all(ch.isascii() and (ch.isalnum() or ch in '_.-') for ch in username)) or not _valid_email(email) or not 12<=len(password)<=128:
             abort(400)
         db = _db()
+        _check_request_rate(db)
         if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
             try:
                 db.execute('INSERT INTO account_request(username,email,password_hash) VALUES (?,?,?)',(username,email,hash_password(password)))
