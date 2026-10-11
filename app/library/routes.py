@@ -272,7 +272,7 @@ def print_location(location_id: str):
         flash(f"Regaletikett {location['code']} wurde gedruckt.")
     except (OSError, PrinterError, ValueError) as exc:
         library.record_print(_actor(), kind="location", status="failed", summary=location_id, error=str(exc))
-        flash(f"Etikett konnte nicht gedruckt werden: {exc}")
+        flash("Etikett konnte nicht gedruckt werden. Bitte Druckereinstellungen prüfen.")
     return redirect(url_for("library.index", location=location_id) + "#locations")
 
 
@@ -345,7 +345,7 @@ def printer_print(kind: str):
         flash("Etikett wurde an den Brother-Drucker gesendet.")
     except (OSError, PrinterError, ValueError) as exc:
         library.record_print(_actor(), kind=kind, status="failed", summary=kind, error=str(exc))
-        flash(f"Drucken fehlgeschlagen: {exc}")
+        flash("Drucken fehlgeschlagen. Bitte Drucker und Eingaben prüfen.")
     return redirect(url_for("library.index") + "#printer")
 
 
@@ -359,7 +359,7 @@ def printer_cut():
         flash("Vorschub/Schnitt wurde an den Drucker gesendet.")
     except (OSError, PrinterError, ValueError) as exc:
         library.record_print(_actor(), kind="cut", status="failed", summary="Vorschub und Schnitt", error=str(exc))
-        flash(f"Vorschub/Schnitt fehlgeschlagen: {exc}")
+        flash("Vorschub/Schnitt fehlgeschlagen. Bitte Drucker prüfen.")
     return redirect(url_for("library.index") + "#printer")
 
 
@@ -439,7 +439,8 @@ def analyze_ocr_upload():
             straighten=request.form.get("straighten", "1") == "1",
         )
     except (ValueError, TypeError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        logger.info("OCR image optimization rejected: %s", type(exc).__name__)
+        return jsonify({"error": "Ungültiges Bild, Dateiformat oder PDF-Seite"}), 400
     with tempfile.TemporaryDirectory(prefix="library-ocr-") as directory:
         image_path = Path(directory) / "page.png"
         image_path.write_bytes(optimized)
