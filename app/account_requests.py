@@ -62,13 +62,15 @@ def new():
     if not _registration_enabled():
         abort(403)
     if request.method == 'POST':
+        # Apply the throttle before parsing potentially attacker-controlled fields.
+        # Even malformed requests must count towards the public endpoint quota.
+        db = _db()
+        _check_request_rate(db)
         username = request.form.get('username','').strip()
         email = request.form.get('email','').strip().lower()
         password = request.form.get('password','')
         if not (3 <= len(username) <= 64 and all(ch.isascii() and (ch.isalnum() or ch in '_.-') for ch in username)) or not _valid_email(email) or not 12<=len(password)<=128:
             abort(400)
-        db = _db()
-        _check_request_rate(db)
         if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
             try:
                 db.execute('INSERT INTO account_request(username,email,password_hash) VALUES (?,?,?)',(username,email,hash_password(password)))
