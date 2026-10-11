@@ -335,7 +335,7 @@ def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
         payload = part.get_payload(decode=True) or b""
-        attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": len(payload)})
+        attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": len(payload), "inline": part.get_content_disposition() == "inline"})
     html_body = ""
     for part in message.walk():
         if part.get_content_type() != "text/html" or part.get_content_disposition() == "attachment" or part.get_filename():
