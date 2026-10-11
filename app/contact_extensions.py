@@ -324,7 +324,7 @@ def _parse_address_rows(text: str) -> list[dict[str, str]]:
     return result
 
 
-def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
+def _eml_preview(root: Path, document_id: str, actor: str, *, include_body: bool = True) -> dict[str, Any]:
     store = DocumentStore(root); document = store.get_document(document_id)
     if Path(str(document.get("last_path") or "")).suffix.casefold() != ".eml":
         raise ValueError("document is not a regular EML file")
@@ -334,9 +334,30 @@ def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
     attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
-        payload = part.get_payload(decode=True) or b""
-        attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": len(payload)})
-    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "attachments": attachments}
+        # MIME bytes are already parsed; avoid allocating a second decoded copy
+        # of every potentially large attachment just to display its size.
+        raw_payload = part.get_payload(decode=False)
+        transfer_encoding = (part.get("Content-Transfer-Encoding") or "").lower().strip()
+        if isinstance(raw_payload, str) and transfer_encoding == "base64":
+            encoded = "".join(raw_payload.split())
+            attachment_size = max(0, (len(encoded) * 3 // 4) - encoded.endswith("=") - encoded.endswith("=="))
+        elif isinstance(raw_payload, str):
+            attachment_size = len(raw_payload.encode("utf-8", "surrogateescape"))
+        else:
+            attachment_size = len(part.get_payload(decode=True) or b"")
+        attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": attachment_size, "inline": part.get_content_disposition() == "inline", "content_id": str(part.get("Content-ID", "")).strip("<> \t\r\n")[:256]})
+    html_body = ""
+    for part in message.walk() if include_body else ():
+        if part.get_content_type() != "text/html" or part.get_content_disposition() == "attachment" or part.get_filename():
+            continue
+        try:
+            candidate = part.get_content()
+        except (LookupError, UnicodeError, ValueError):
+            continue
+        if isinstance(candidate, str):
+            html_body = candidate[:262144]
+            break
+    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message) if include_body else "", "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments), "has_inline_images": any(item["inline"] and item["type"].startswith("image/") for item in attachments)}
 
 
 def register(bp) -> None:
@@ -462,7 +483,13 @@ def register(bp) -> None:
         except (OSError, RuntimeError, ValueError) as exc:
             current_app.logger.warning("CRM mail preview rejected (%s)", type(exc).__name__)
             abort(404)
-        response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id))
+        view = "html" if request.args.get("view") == "html" and preview.get("html") else "text"
+        # srcdoc is sandboxed and has an internal CSP denying scripts, network, and forms.
+        html_srcdoc = ('<meta http-equiv="Content-Security-Policy" content="'
+                       "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
+                       "img-src data:; font-src 'none'; form-action 'none'; base-uri 'none'"
+                       '"><meta charset="utf-8">' + preview.get("html", "")) if view == "html" else ""
+        response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id, view=view, html_srcdoc=html_srcdoc))
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
@@ -474,6 +501,6 @@ def register(bp) -> None:
         except (OSError, RuntimeError, ValueError) as exc:
             current_app.logger.warning("CRM mail metadata rejected (%s)", type(exc).__name__)
             abort(404)
-        response = jsonify({key: preview[key] for key in ("subject", "from", "to", "cc", "date", "message_id")})
+        response = jsonify({key: preview[key] for key in ("subject", "from", "to", "cc", "reply_to", "date", "message_id", "attachment_count", "attachment_bytes")})
         response.headers["Cache-Control"] = "private, no-store"
         return response

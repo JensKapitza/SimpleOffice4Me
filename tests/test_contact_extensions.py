@@ -215,6 +215,65 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn("receiver@example.test", preview["to"])
         self.assertIn("Hello world", preview["text"])
         self.assertEqual("note.txt", preview["attachments"][0]["name"])
+        self.assertEqual(1, preview["attachment_count"])
+        self.assertEqual(len(b"attachment"), preview["attachment_bytes"])
+
+
+    def test_eml_preview_decodes_html_without_including_attachment_html(self):
+        from email.message import EmailMessage
+        store = DocumentStore(self.root)
+        message = EmailMessage()
+        message["Subject"] = "HTML test"
+        message["From"] = "sender@example.test"
+        message["To"] = "receiver@example.test"
+        message["Reply-To"] = "helpdesk@example.test"
+        message.set_content("Plain version")
+        message.add_alternative("<p>HTML version</p><script>alert(1)</script>", subtype="html")
+        message.add_attachment(b"file contents", maintype="application", subtype="octet-stream", filename="invoice.pdf")
+        message.get_payload()[-1]["Content-ID"] = "<invoice@example.test>"
+        (self.root / "html-test.eml").write_bytes(message.as_bytes())
+        store.scan()
+        document = store.get_document(self.root / "html-test.eml")
+        preview = _eml_preview(self.root, document["document_id"], "admin")
+        self.assertEqual("helpdesk@example.test", preview["reply_to"])
+        self.assertIn("Plain version", preview["text"])
+        self.assertIn("<p>HTML version</p>", preview["html"])
+        self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
+        self.assertEqual("invoice@example.test", preview["attachments"][0]["content_id"])
+        metadata_only = _eml_preview(self.root, document["document_id"], "admin", include_body=False)
+        self.assertEqual("", metadata_only["text"])
+        self.assertEqual("", metadata_only["html"])
+        self.assertEqual(preview["attachments"], metadata_only["attachments"])
+        self.assertFalse(preview["attachments"][0]["inline"])
+        self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
+
+    def test_named_inline_html_attachment_is_not_used_as_email_body(self):
+        from email.message import EmailMessage
+        message = EmailMessage()
+        message["From"] = "sender@example.test"
+        message.set_content("Ordinary body")
+        message.add_attachment("<h1>Attached only</h1>", subtype="html", filename="attachment.html", disposition="inline")
+        path = self.root / "named-inline.eml"
+        path.write_bytes(message.as_bytes())
+        store = DocumentStore(self.root)
+        store.scan()
+        document = store.get_document(path)
+        preview = _eml_preview(self.root, document["document_id"], "admin")
+        self.assertEqual("", preview["html"])
+        self.assertIn("Ordinary body", preview["text"])
+        self.assertEqual("attachment.html", preview["attachments"][0]["name"])
+        self.assertTrue(preview["attachments"][0]["inline"])
+        self.assertEqual("", preview["attachments"][0]["content_id"])
+        self.assertFalse(preview["has_inline_images"])
+
+    def test_eml_preview_template_has_no_script_dependent_view_switch(self):
+        template = (Path(__file__).resolve().parents[1] / "templates/documents/eml_document_preview.html").read_text(encoding="utf-8")
+        self.assertIn('sandbox=""', template)
+        self.assertIn("view='html'", template)
+        self.assertIn("view='text'", template)
+        self.assertIn("{{ html_srcdoc }}", template)
+        self.assertIn("preview.attachments", template)
+        self.assertNotIn("<script", template)
 
 
 if __name__ == "__main__":
