@@ -66,9 +66,26 @@ jobs:
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
+      - name: Smoke-test frozen Python backend
+        shell: bash
+        run: |
+          python desktop/python-setup/smoke_packaged_backend.py "desktop/python-setup/dist/simpleoffice-python${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Package Electron app
         working-directory: desktop/electron
         run: npm run package:desktop
+      - name: Verify packaged backend payload
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path('desktop/electron/dist')
+          binary = 'simpleoffice-python.exe' if sys.platform == 'win32' else 'simpleoffice-python'
+          candidates = list(root.rglob(binary))
+          if not candidates:
+              raise SystemExit(f'Missing bundled backend {binary} in {root}')
+          print('Packaged backends:', *candidates, sep='\n')
+          PY
       - name: Prepare installable Linux AppImage
         if: matrix.artifact == 'linux'
         shell: bash
