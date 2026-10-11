@@ -347,7 +347,7 @@ def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
         if isinstance(candidate, str):
             html_body = candidate[:262144]
             break
-    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "html": html_body, "attachments": attachments}
+    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments)}
 
 
 def register(bp) -> None:
@@ -491,6 +491,6 @@ def register(bp) -> None:
         except (OSError, RuntimeError, ValueError) as exc:
             current_app.logger.warning("CRM mail metadata rejected (%s)", type(exc).__name__)
             abort(404)
-        response = jsonify({key: preview[key] for key in ("subject", "from", "to", "cc", "date", "message_id")})
+        response = jsonify({key: preview[key] for key in ("subject", "from", "to", "cc", "reply_to", "date", "message_id", "attachment_count", "attachment_bytes")})
         response.headers["Cache-Control"] = "private, no-store"
         return response
