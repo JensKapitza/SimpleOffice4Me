@@ -11,7 +11,7 @@
       <p class="project-page-subtitle">{{ 'Your projects at a glance' if g.language == 'en' else 'Deine Projekte im Überblick' }}</p>
     </div>
     <button type="button" class="btn btn-primary px-3" data-bs-toggle="collapse" data-bs-target="#new-project" aria-expanded="false" aria-controls="new-project">
-      <i class="fas fa-plus" aria-hidden="true"></i>{{ 'New project' if g.language == 'en' else 'Projekt anlegen' }}
+      {{ 'New project' if g.language == 'en' else 'Projekt anlegen' }}
     </button>
   </div>
 
@@ -51,7 +51,7 @@
           <textarea id="project-description" name="description" class="form-control" rows="3"></textarea>
         </div>
         <div class="col-12 d-flex justify-content-end">
-          <button type="submit" class="btn btn-primary"><i class="fas fa-plus" aria-hidden="true"></i>{{ 'Create project' if g.language == 'en' else 'Projekt erstellen' }}</button>
+          <button type="submit" class="btn btn-primary">{{ 'Create project' if g.language == 'en' else 'Projekt erstellen' }}</button>
         </div>
       </form>
     </div>
@@ -78,7 +78,7 @@
 
   <div class="project-list-meta">
     <span><strong data-project-count>{{ projects|length }}</strong> {{ 'projects' if g.language == 'en' else 'Projekte' }}</span>
-    <span><i class="fas fa-arrow-down-wide-short me-1" aria-hidden="true"></i>{{ 'Recently changed first' if g.language == 'en' else 'Zuletzt geändert zuerst' }}</span>
+    <span>{{ 'Recently changed first' if g.language == 'en' else 'Zuletzt geändert zuerst' }}</span>
   </div>
 
   <div class="project-list">
@@ -124,7 +124,7 @@
         <span class="project-empty-icon" aria-hidden="true"><i class="far fa-folder-open"></i></span>
         <h2 class="h5">{{ 'No projects yet' if g.language == 'en' else 'Noch keine Projekte' }}</h2>
         <p class="text-secondary">{{ 'Create your first project to keep tasks, time and resources together.' if g.language == 'en' else 'Lege dein erstes Projekt an und behalte Aufgaben, Zeiten und Ressourcen gemeinsam im Blick.' }}</p>
-        <button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#new-project" aria-expanded="false" aria-controls="new-project"><i class="fas fa-plus" aria-hidden="true"></i>{{ 'New project' if g.language == 'en' else 'Projekt anlegen' }}</button>
+        <button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#new-project" aria-expanded="false" aria-controls="new-project">{{ 'New project' if g.language == 'en' else 'Projekt anlegen' }}</button>
       </section>
     {% endfor %}
   </div>
