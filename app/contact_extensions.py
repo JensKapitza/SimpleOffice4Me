@@ -336,7 +336,18 @@ def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
         payload = part.get_payload(decode=True) or b""
         attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": len(payload)})
-    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "attachments": attachments}
+    html_body = ""
+    for part in message.walk():
+        if part.get_content_type() != "text/html" or part.get_content_disposition() == "attachment":
+            continue
+        try:
+            candidate = part.get_content()
+        except (LookupError, UnicodeError, ValueError):
+            continue
+        if isinstance(candidate, str):
+            html_body = candidate[:262144]
+            break
+    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "html": html_body, "attachments": attachments}
 
 
 def register(bp) -> None:
@@ -462,7 +473,13 @@ def register(bp) -> None:
         except (OSError, RuntimeError, ValueError) as exc:
             current_app.logger.warning("CRM mail preview rejected (%s)", type(exc).__name__)
             abort(404)
-        response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id))
+        view = "html" if request.args.get("view") == "html" and preview.get("html") else "text"
+        # srcdoc is sandboxed and has an internal CSP denying scripts, network, and forms.
+        html_srcdoc = ('<meta http-equiv="Content-Security-Policy" content="'
+                       "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
+                       "img-src data:; font-src 'none'; form-action 'none'; base-uri 'none'"
+                       '"><meta charset="utf-8">' + preview.get("html", "")) if view == "html" else ""
+        response = current_app.make_response(render_template("documents/eml_document_preview.html", preview=preview, document_id=document_id, view=view, html_srcdoc=html_srcdoc))
         response.headers["Cache-Control"] = "private, no-store"
         return response
 
