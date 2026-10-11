@@ -230,6 +230,7 @@ class ContactExtensionsTest(unittest.TestCase):
         message.set_content("Plain version")
         message.add_alternative("<p>HTML version</p><script>alert(1)</script>", subtype="html")
         message.add_attachment(b"file contents", maintype="application", subtype="octet-stream", filename="invoice.pdf")
+        message.get_payload()[-1]["Content-ID"] = "<invoice@example.test>"
         (self.root / "html-test.eml").write_bytes(message.as_bytes())
         store.scan()
         document = store.get_document(self.root / "html-test.eml")
@@ -238,6 +239,7 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn("Plain version", preview["text"])
         self.assertIn("<p>HTML version</p>", preview["html"])
         self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
+        self.assertEqual("invoice@example.test", preview["attachments"][0]["content_id"])
         self.assertFalse(preview["attachments"][0]["inline"])
         self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
 
