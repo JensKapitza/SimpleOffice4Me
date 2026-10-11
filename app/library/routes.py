@@ -410,7 +410,7 @@ def optimize_ocr_image():
                                   brighten=request.form.get("brighten", "1") == "1",
                                   straighten=request.form.get("straighten", "1") == "1")
     except ValueError as exc:
-        return jsonify({"error": str(exc)}), 400
+        logger.info("OCR input rejected: %s", type(exc).__name__)\n        return jsonify({"error": "Dateiformat, Seitennummer oder Bildgröße ungültig"}), 400
     return Response(optimized, mimetype="image/png", headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
