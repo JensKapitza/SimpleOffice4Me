@@ -227,7 +227,8 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "", *, s
             x0 = left + index * module
             draw.rectangle((x0, bar_top, x0 + module - 1, bar_bottom), fill="black")
     text_width = box[2] - box[0]
-    if show_text:\n        draw.text((max(0, (label.printable_width - text_width) // 2), height - caption_height - 8 - box[1]), caption_text, font=font, fill="black")
+    if show_text:
+        draw.text((max(0, (label.printable_width - text_width) // 2), height - caption_height - 8 - box[1]), caption_text, font=font, fill="black")
     return image
 
 
