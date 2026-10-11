@@ -214,7 +214,7 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn("sender@example.test", preview["from"])
         self.assertIn("receiver@example.test", preview["to"])
         self.assertIn("Hello world", preview["text"])
-        self.assertEqual("note.txt", preview["attachments"][0]["name"])
+        self.assertEqual("note.txt", preview["attachments"][0]["name"])\n        self.assertEqual(1, preview["attachment_count"])\n        self.assertEqual(len(b"attachment"), preview["attachment_bytes"])
 
 
     def test_eml_preview_decodes_html_without_including_attachment_html(self):
@@ -231,7 +231,7 @@ class ContactExtensionsTest(unittest.TestCase):
         store.scan()
         document = store.get_document(self.root / "html-test.eml")
         preview = _eml_preview(self.root, document["document_id"], "admin")
-        self.assertIn("Plain version", preview["text"])
+        self.assertEqual("helpdesk@example.test", preview["reply_to"])\n        self.assertIn("Plain version", preview["text"])
         self.assertIn("<p>HTML version</p>", preview["html"])
         self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
         self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
