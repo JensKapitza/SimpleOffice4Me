@@ -22,16 +22,15 @@ def optimize_page(data: bytes, *, brighten: bool = True, straighten: bool = True
     # EXIF orientation is authoritative. Avoid guessing 90/180 degree text orientation.
     if straighten:
         # Estimate only small page skew from high-contrast horizontal edges.
-        import math
         gray = ImageOps.grayscale(image)
-        gray.thumbnail((900, 900))
+        gray.thumbnail((360, 360))
         edges = gray.filter(ImageFilter.FIND_EDGES)
         best_angle, best_score = 0.0, 0.0
-        for tenths in range(-30, 31, 5):
+        for tenths in range(-30, 31, 10):
             angle = tenths / 10.0
             rotated = edges.rotate(angle, resample=Image.Resampling.BILINEAR, expand=False)
             pixels = rotated.point(lambda x: 255 if x > 65 else 0)
-            hist = [sum(1 for v in range(pixels.width) if pixels.getpixel((v, y)) > 0) for y in range(0, pixels.height, 3)]
+            hist = [sum(1 for v in range(pixels.width) if pixels.getpixel((v, y)) > 0) for y in range(0, pixels.height, 4)]
             if not hist:
                 continue
             mean = sum(hist) / len(hist)
