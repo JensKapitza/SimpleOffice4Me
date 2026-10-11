@@ -74,11 +74,18 @@ def new():
         # Hash regardless of account existence to reduce username-enumeration
         # timing differences. Rate limiting above bounds this expensive step.
         password_digest = hash_password(password)
-        if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
-            try:
-                db.execute('INSERT INTO account_request(username,email,password_hash) VALUES (?,?,?)',(username,email,password_digest))
-                db.commit()
-            except sqlite3.IntegrityError:
+        # Serialize account admission with the registration setting and admin approval.
+        db.execute("BEGIN IMMEDIATE")
+        try:
+            enabled = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
+            if enabled is None or not bool(enabled[0]):
+                abort(403)
+            if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
+                db.execute('INSERT OR IGNORE INTO account_request(username,email,password_hash) VALUES (?,?,?)',
+                           (username,email,password_digest))
+            db.commit()
+        finally:
+            if db.in_transaction:
                 db.rollback()
         flash('Falls noch kein Antrag vorliegt, wurde er zur Prüfung eingereicht.')
         return redirect(url_for('auth.login'))
