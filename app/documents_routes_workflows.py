@@ -90,7 +90,7 @@ def detail(document_id: str):
         from .contact_extensions import _eml_preview
         try:
             eml_attachments = _eml_preview(
-                Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"])
+                Path(current_app.config["DOCUMENT_ROOT"]), document_id, str(g.user["username"]), include_body=False
             )["attachments"]
         except (OSError, RuntimeError, ValueError):
             current_app.logger.warning("EML attachment metadata unavailable for document %s", document_id)
