@@ -44,7 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (!('BarcodeDetector' in window)) {
-      status.textContent = 'Dieser Browser unterstützt keine QR-Erkennung im Kamerabild. Bitte einen kompatiblen Browser oder den Bild-Upload verwenden.';
+      imageInput.setAttribute('capture', 'environment');
+      status.textContent = 'Die Kamera kann ein Foto aufnehmen, aber dieser Browser hat keinen eingebauten QR-Decoder. Bitte QR-Code als Foto aufnehmen; zur automatischen Auswertung ist ein zusätzlicher Decoder erforderlich.';
+      imageInput.click();
       return;
     }
 
@@ -87,7 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = imageInput.files?.[0];
     if (!file) return;
     if (!('BarcodeDetector' in window)) {
-      status.textContent = 'QR-Erkennung wird von diesem Browser nicht unterstützt. Payload bitte manuell einfügen.';
+      status.textContent = 'Foto ausgewählt. Dieser Browser bietet keinen QR-Decoder; die Bildauswertung benötigt eine zusätzliche Decoder-Implementierung. QR-Payload bitte vorerst manuell einfügen.';
+      imageInput.value = '';
       return;
     }
     status.textContent = 'QR-Code wird gelesen …';
