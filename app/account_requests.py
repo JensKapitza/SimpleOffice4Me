@@ -1,5 +1,4 @@
 """Persistent account requests. No user account is created before admin approval."""
-import re
 import sqlite3
 from flask import Blueprint, abort, flash, g, redirect, render_template_string, request, url_for
 from .db import get_db
@@ -34,7 +33,7 @@ def new():
         username = request.form.get('username','').strip()
         email = request.form.get('email','').strip().lower()
         password = request.form.get('password','')
-        if not re.fullmatch(r'[A-Za-z0-9_.-]{3,64}', username) or len(email)>254 or not _valid_email(email) or not 12<=len(password)<=128:
+        if not (3 <= len(username) <= 64 and all(ch.isascii() and (ch.isalnum() or ch in '_.-') for ch in username)) or not _valid_email(email) or not 12<=len(password)<=128:
             abort(400)
         db = _db()
         if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
