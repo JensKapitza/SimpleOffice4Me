@@ -7,6 +7,8 @@
       <h1 class="h2 mb-1">Bibliothek</h1>
       <p class="text-secondary mb-0">Regale beschriften, viele Bücher nacheinander einscannen und jedes Buch später mit einem Scan wiederfinden.</p>
     </div>
+    <a class="btn btn-primary" href="#bulk-scan"><i class="fas fa-camera me-1" aria-hidden="true"></i>Massen-Scan starten</a>
+    <a class="btn btn-outline-primary" href="{{ url_for('library.export_books_csv') }}"><i class="fas fa-file-export me-1" aria-hidden="true"></i>Bücher als CSV exportieren</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar-Schnellerfassung</a>
   </div>
 
