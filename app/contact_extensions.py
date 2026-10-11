@@ -334,8 +334,18 @@ def _eml_preview(root: Path, document_id: str, actor: str, *, include_body: bool
     attachments: list[dict[str, Any]] = []
     for index, part in enumerate(message.walk()):
         if part.get_content_disposition() != "attachment" and not part.get_filename(): continue
-        payload = part.get_payload(decode=True) or b""
-        attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": len(payload), "inline": part.get_content_disposition() == "inline", "content_id": str(part.get("Content-ID", "")).strip("<> \t\r\n")[:256]})
+        # MIME bytes are already parsed; avoid allocating a second decoded copy
+        # of every potentially large attachment just to display its size.
+        raw_payload = part.get_payload(decode=False)
+        transfer_encoding = (part.get("Content-Transfer-Encoding") or "").lower().strip()
+        if isinstance(raw_payload, str) and transfer_encoding == "base64":
+            encoded = "".join(raw_payload.split())
+            attachment_size = max(0, (len(encoded) * 3 // 4) - encoded.endswith("=") - encoded.endswith("=="))
+        elif isinstance(raw_payload, str):
+            attachment_size = len(raw_payload.encode("utf-8", "surrogateescape"))
+        else:
+            attachment_size = len(part.get_payload(decode=True) or b"")
+        attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": attachment_size, "inline": part.get_content_disposition() == "inline", "content_id": str(part.get("Content-ID", "")).strip("<> \t\r\n")[:256]})
     html_body = ""
     for part in message.walk() if include_body else ():
         if part.get_content_type() != "text/html" or part.get_content_disposition() == "attachment" or part.get_filename():
