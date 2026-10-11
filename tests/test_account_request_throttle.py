@@ -33,16 +33,14 @@ class AccountRequestThrottleTests(unittest.TestCase):
             ):
                 _check_request_rate(db)
             with patch("app.account_requests.time.time", return_value=7200):
-                with patch("app.account_requests.time.time", return_value=3600), app.test_request_context(
+                with app.test_request_context(
                     "/auth/account-requests/new", method="POST",
                     environ_base={"REMOTE_ADDR": "192.0.2.10"},
                 ):
                     _check_request_rate(db)
-            attempts = db.execute(
-                "SELECT attempts FROM account_request_throttle WHERE client_key IN "
-                "(SELECT client_key FROM account_request_throttle ORDER BY attempts DESC LIMIT 1)"
-            ).fetchone()["attempts"]
-            self.assertEqual(1, attempts)
+            self.assertEqual([1, 1], [row["attempts"] for row in db.execute(
+                "SELECT attempts FROM account_request_throttle ORDER BY attempts"
+            )])
             self.assertEqual(
                 2, db.execute("SELECT COUNT(*) FROM account_request_throttle").fetchone()[0]
             )
