@@ -159,10 +159,14 @@ def register():
                 enabled = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
                 if not current_admin and enabled is not None and not bool(enabled[0]):
                     abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+                # The pre-lock account count is advisory only. Concurrent bootstrap
+                # requests must not create a second active user without approval.
+                first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+                if not first_user and not current_admin:
+                    return redirect(url_for('account_requests.new'), code=303)
                 if db.execute('SELECT id FROM user WHERE username = ?', (username,)).fetchone() is not None:
                     error = 'Der Benutzername ist bereits vergeben.'
                 else:
-                    first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
                     db.execute(
                         'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
                         (username, password_hash, int(first_user)),
