@@ -415,11 +415,14 @@ def optimize_ocr_image():
         return jsonify({"error": "Bild fehlt"}), 400
     data = upload.read(MAX_UPLOAD + 1)
     try:
+        page = int(request.form.get("page", "1")) - 1
+        if page < 0:
+            raise ValueError("Invalid page number")
         optimized, source_format = optimize_upload(data,
-                                  page=int(request.form.get("page", "1")) - 1,
+                                  page=page,
                                   brighten=request.form.get("brighten", "1") == "1",
                                   straighten=request.form.get("straighten", "1") == "1")
-    except ValueError as exc:
+    except (ValueError, TypeError) as exc:
         logger.info("OCR input rejected: %s", type(exc).__name__)
         return jsonify({"error": "Dateiformat, Seitennummer oder Bildgröße ungültig"}), 400
     return Response(optimized, mimetype="image/png", headers={
