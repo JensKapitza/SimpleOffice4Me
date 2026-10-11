@@ -71,9 +71,12 @@ def new():
         password = request.form.get('password','')
         if not (3 <= len(username) <= 64 and all(ch.isascii() and (ch.isalnum() or ch in '_.-') for ch in username)) or not _valid_email(email) or not 12<=len(password)<=128:
             abort(400)
+        # Hash regardless of account existence to reduce username-enumeration
+        # timing differences. Rate limiting above bounds this expensive step.
+        password_digest = hash_password(password)
         if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
             try:
-                db.execute('INSERT INTO account_request(username,email,password_hash) VALUES (?,?,?)',(username,email,hash_password(password)))
+                db.execute('INSERT INTO account_request(username,email,password_hash) VALUES (?,?,?)',(username,email,password_digest))
                 db.commit()
             except sqlite3.IntegrityError:
                 db.rollback()
