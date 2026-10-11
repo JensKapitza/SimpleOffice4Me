@@ -11,6 +11,21 @@ document.addEventListener('DOMContentLoaded', () => {
   let stream = null;
   let scanning = false;
   let scanTimer = null;
+  const scanCanvas = document.createElement('canvas');
+  const scanContext = scanCanvas.getContext('2d', {willReadFrequently: true});
+
+  function decodePixels(source) {
+    if (typeof window.jsQR !== 'function' || !scanContext) return '';
+    const width = source.videoWidth || source.width;
+    const height = source.videoHeight || source.height;
+    if (!width || !height) return '';
+    const scale = Math.min(1, 1200 / Math.max(width, height));
+    scanCanvas.width = Math.max(1, Math.round(width * scale));
+    scanCanvas.height = Math.max(1, Math.round(height * scale));
+    scanContext.drawImage(source, 0, 0, scanCanvas.width, scanCanvas.height);
+    const frame = scanContext.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+    return window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'})?.data || '';
+  }
 
   function acceptPayload(value) {
     if (!value.startsWith('sofp://peer/')) {
@@ -41,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (scanning || stream) return;
     if (!('BarcodeDetector' in window)) {
       imageInput.setAttribute('capture', 'environment');
-      status.textContent = 'Die Kamera kann ein Foto aufnehmen, aber dieser Browser hat keinen eingebauten QR-Decoder. Bitte QR-Code als Foto aufnehmen; zur automatischen Auswertung ist ein zusätzlicher Decoder erforderlich.';
+      status.textContent = 'Foto aufnehmen und QR-Code lokal auswerten.';
       imageInput.click();
       setTimeout(() => imageInput.removeAttribute('capture'), 0);
       return;
@@ -53,7 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     cameraButton.disabled = true;
     try {
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      const detector = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } }, audio: false
       });
