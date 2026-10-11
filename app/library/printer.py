@@ -202,7 +202,7 @@ def _code128_bits(value: str) -> str:
     return "".join(modules)
 
 
-def render_barcode(value: str, settings: dict[str, Any], caption: str = "") -> Image.Image:
+def render_barcode(value: str, settings: dict[str, Any], caption: str = "", *, show_text: bool = True) -> Image.Image:
     label = LABELS.get(str(settings.get("label", "62")).lower())
     if label is None:
         raise PrinterError("Unbekannte Etikettengröße")
@@ -212,7 +212,7 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "") -> I
     module = max(1, usable // len(bits))
     barcode_width = len(bits) * module
     font = load_font(str(settings.get("font_name", "DejaVuSans")), max(16, min(int(settings.get("font_size", 56)) // 2, 60)), bool(settings.get("bold")))
-    caption_text = " ".join(str(caption or value).split())[:120]
+    caption_text = " ".join(str(caption or value).split())[:120] if show_text else ""
     probe = Image.new("RGB", (label.printable_width, 100), "white")
     box = _text_bbox(ImageDraw.Draw(probe), caption_text, font)
     caption_height = max(1, box[3] - box[1])
@@ -227,7 +227,7 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "") -> I
             x0 = left + index * module
             draw.rectangle((x0, bar_top, x0 + module - 1, bar_bottom), fill="black")
     text_width = box[2] - box[0]
-    draw.text((max(0, (label.printable_width - text_width) // 2), height - caption_height - 8 - box[1]), caption_text, font=font, fill="black")
+    if show_text:\n        draw.text((max(0, (label.printable_width - text_width) // 2), height - caption_height - 8 - box[1]), caption_text, font=font, fill="black")
     return image
 
 
