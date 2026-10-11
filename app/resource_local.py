@@ -167,6 +167,7 @@ class LocalResourceProvider:
         return self._entry(target)
 
     def search(self, query: str, path: str = "") -> Iterable[ResourceEntry]:
+        self._deny_internal(path)
         needle = str(query or "").casefold().strip()
         if not needle:
             return []

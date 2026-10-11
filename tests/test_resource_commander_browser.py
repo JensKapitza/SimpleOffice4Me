@@ -24,7 +24,7 @@ class CommanderBrowserTests(unittest.TestCase):
             raise unittest.SkipTest("Requires Chromium")
         cls.browser = cls.pw.chromium.launch(args=["--no-sandbox"])
         env = Environment(loader=ChoiceLoader([
-            DictLoader({"layout.html": '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="csrf-token" content="test-token">{% block script %}{% endblock %}{% block body %}{% endblock %}<script src="/static/js/security.js"></script>'}),
+            DictLoader({"layout.html": '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="csrf-token" content="test-token">{% block script %}{% endblock %}{% block body %}{% endblock %}<script src="/static/js/security.js"></script><script src="/static/js/global_ui.js"></script><script src="/static/js/global_quickwins.js"></script><script src="/static/js/mobile_viewport.js"></script>'}),
             FileSystemLoader(ROOT / "templates"),
         ]), autoescape=True)
         cls.html = env.get_template("resource_commander.html").render(
@@ -167,10 +167,10 @@ class CommanderBrowserTests(unittest.TestCase):
             self.assertGreaterEqual(box["height"], 44)
         self.page.locator("#commander-link").tap()
         self.page.evaluate("""() => {
-            document.documentElement.dataset.soKeyboardOpen = '1';
-            document.documentElement.style.setProperty('--so-keyboard-inset', '300px');
-            document.documentElement.style.setProperty('--so-visual-viewport-height', '544px');
+            Object.defineProperty(window.visualViewport, 'height', {get: () => 544});
+            window.visualViewport.dispatchEvent(new Event('resize'));
         }""")
+        self.page.wait_for_function("document.documentElement.dataset.soKeyboardOpen === '1'")
         box = self.page.locator("#commander-dialog").bounding_box()
         self.assertLessEqual(box["y"] + box["height"], 544)
         self.page.locator("#commander-dialog-cancel").tap()
