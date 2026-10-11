@@ -391,3 +391,22 @@ def export_books_csv():
                     mimetype="text/csv", headers={
                         "Content-Disposition": "attachment; filename=library-books.csv",
                         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@bp.post("/ocr/optimize")
+@login_required
+def optimize_ocr_image():
+    """Return a preview copy; never replace the source image implicitly."""
+    from .image_preprocessing import MAX_UPLOAD, optimize_page
+    upload = request.files.get("image")
+    if upload is None:
+        return jsonify({"error": "Bild fehlt"}), 400
+    data = upload.read(MAX_UPLOAD + 1)
+    try:
+        optimized = optimize_page(data,
+                                  brighten=request.form.get("brighten", "1") == "1",
+                                  straighten=request.form.get("straighten", "1") == "1")
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return Response(optimized, mimetype="image/png", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
