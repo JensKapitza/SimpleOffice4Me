@@ -154,7 +154,10 @@ def register():
             password_hash = hash_password(password)
             db.execute("BEGIN IMMEDIATE")
             try:
-                if not _registration_enabled() and not current_admin:
+                # Do not call _registration_enabled() here: its commit would release
+                # the BEGIN IMMEDIATE lock before the bootstrap role is assigned.
+                enabled = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
+                if not current_admin and enabled is not None and not bool(enabled[0]):
                     abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
                 if db.execute('SELECT id FROM user WHERE username = ?', (username,)).fetchone() is not None:
                     error = 'Der Benutzername ist bereits vergeben.'
