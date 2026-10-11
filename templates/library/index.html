@@ -63,15 +63,15 @@
       <div class="d-flex flex-wrap gap-2 mt-2"><button type="button" class="btn btn-outline-primary" data-scan-target="bulk-book-code"><i class="fas fa-camera me-1" aria-hidden="true"></i>Kamera starten</button><span class="small text-secondary align-self-center">USB-/Bluetooth-Barcodescanner können einfach in das Feld schreiben und Enter senden.</span></div>
       <div class="border rounded p-3 mt-3" id="ocr-page-tools">
         <h3 class="h6">Buchseite für OCR vorbereiten</h3>
-        <form id="library-ocr-optimize-form" data-url="{{ url_for('library.optimize_ocr_image') }}">
+        <form id="library-ocr-optimize-form" data-url="{{ url_for('library.optimize_ocr_image') }}" data-analyze-url="{{ url_for('library.analyze_ocr_upload') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <label for="library-ocr-page" class="form-label">Titelblatt, Impressum, Foto oder PDF</label>
           <input id="library-ocr-page" name="image" type="file" accept="image/*,application/pdf" class="form-control mb-2" required>
           <label class="form-label" for="library-ocr-page-number">PDF-Seite (ab 1)</label><input class="form-control mb-2" type="number" name="page" id="library-ocr-page-number" min="1" max="2000" value="1"><div class="form-check"><input class="form-check-input" type="checkbox" name="straighten" value="1" id="ocr-straighten" checked><label class="form-check-label" for="ocr-straighten">Orientierung und Schräglage korrigieren</label></div>
           <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="brighten" value="1" id="ocr-brighten" checked><label class="form-check-label" for="ocr-brighten">Bild aufhellen und optimieren</label></div>
-          <button class="btn btn-outline-primary" type="submit">Bild optimieren</button>
+          <button class="btn btn-outline-primary" type="submit">Bild optimieren</button> <button class="btn btn-primary" type="button" id="library-ocr-analyze">Text erkennen</button>
         </form>
-        <div id="library-ocr-result" class="mt-2" role="status" aria-live="polite"></div>
+        <div id="library-ocr-result" class="mt-2" role="status" aria-live="polite"></div><label class="form-label mt-2" for="library-ocr-text">Erkannter Text (zum Kopieren oder als Notiz)</label><textarea id="library-ocr-text" class="form-control" rows="5" readonly></textarea><label class="form-label mt-2" for="library-ocr-tags">Tag-Vorschläge (prüfen und übernehmen)</label><textarea id="library-ocr-tags" class="form-control" rows="2"></textarea>
         <img id="library-ocr-preview" class="img-fluid mt-2" alt="Optimierte Buchseite" hidden>
         <a id="library-ocr-download" class="btn btn-outline-secondary mt-2" download="buchseite-optimiert.png" hidden>Optimiertes Bild speichern</a>
       </div>
@@ -194,6 +194,22 @@
     } catch (error) { status.textContent = 'Kamera konnte nicht geöffnet werden: ' + error; }
   }));
 
+  document.getElementById('library-ocr-analyze')?.addEventListener('click', async () => {
+    const form = document.getElementById('library-ocr-optimize-form');
+    const data = new FormData(form);
+    data.set('straighten', form.elements.straighten.checked ? '1' : '0');
+    data.set('brighten', form.elements.brighten.checked ? '1' : '0');
+    const result = document.getElementById('library-ocr-result');
+    result.textContent = 'Texterkennung läuft…';
+    try {
+      const response = await fetch(form.dataset.analyzeUrl, {method: 'POST', body: data});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'OCR fehlgeschlagen');
+      document.getElementById('library-ocr-text').value = payload.text || '';
+      document.getElementById('library-ocr-tags').value = (payload.suggested_tags || []).join(', ');
+      result.textContent = 'OCR abgeschlossen. Text und Tags können geprüft und kopiert werden; sie sind noch nicht gespeichert.';
+    } catch (error) { result.textContent = error.message; }
+  });
   document.getElementById('library-ocr-optimize-form')?.addEventListener('submit', async event => {
     event.preventDefault();
     const form = event.currentTarget;
