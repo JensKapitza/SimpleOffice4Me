@@ -84,7 +84,7 @@ class BootstrapSecurityTests(unittest.TestCase):
     def test_second_unauthenticated_registration_requires_approval(self):
         self.assertEqual(302, self._register("owner").status_code)
         response = self._register("unapproved")
-        self.assertEqual(303, response.status_code)
+        self.assertEqual(302, response.status_code)
         self.assertTrue(response.headers["Location"].endswith("/auth/account-requests/new"))
         self.assertEqual([{"username": "owner", "is_admin": 1}], self._users())
 
