@@ -38,6 +38,9 @@ def _check_request_rate(db) -> None:
         hashlib.sha256,
     ).hexdigest()
     now = int(time.time())
+    # Expire stale client keys so an internet-facing instance does not grow
+    # the throttle table indefinitely. The current window is preserved.
+    db.execute("DELETE FROM account_request_throttle WHERE window_started < ?", (now - 7200,))
     db.execute(
         """INSERT INTO account_request_throttle (client_key, window_started, attempts)
            VALUES (?, ?, 1)
