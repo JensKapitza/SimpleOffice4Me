@@ -47,11 +47,31 @@ struct ServerSetup: View {
 
 struct OfficeWebView: UIViewRepresentable {
     let url: URL
+    func makeCoordinator() -> Coordinator { Coordinator() }
     func makeUIView(context: Context) -> WKWebView {
         let view = WKWebView()
         view.allowsBackForwardNavigationGestures = true
+        view.uiDelegate = context.coordinator
         view.load(URLRequest(url: url))
         return view
     }
     func updateUIView(_ view: WKWebView, context: Context) {}
+    final class Coordinator: NSObject, WKUIDelegate {
+        @available(iOS 15.0, *)
+        func webView(_ webView: WKWebView,
+                     requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                     initiatedByFrame frame: WKFrameInfo,
+                     type: WKMediaCaptureType,
+                     decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            guard let url = webView.url,
+                  url.scheme == "https",
+                  origin.protocol == "https",
+                  origin.host == url.host,
+                  origin.port == (url.port ?? 443) else {
+                decisionHandler(.deny)
+                return
+            }
+            decisionHandler(.prompt)
+        }
+    }
 }
