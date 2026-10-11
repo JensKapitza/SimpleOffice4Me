@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ICON = re.compile(r"(?<![\w-])(fa-(?:[a-z][\w-]*))\b")
 STYLES = {"fa", "fas", "far", "fab", "fal", "fad", "fa-fw", "fa-lg", "fa-sm", "fa-xs", "fa-2x", "fa-3x", "fa-4x", "fa-5x", "fa-spin", "fa-pulse", "fa-stack", "fa-stack-1x", "fa-stack-2x", "fa-inverse", "fa-border", "fa-ul", "fa-li", "fa-pull-left", "fa-pull-right"}
 EXTENSIONS = {".html", ".jinja", ".jinja2", ".js", ".ts", ".css", ".py", ".vue", ".jsx", ".tsx"}
-SKIP = ("static/fontawesome-free-", "static/bootstrap-", "node_modules/", "vendor/", "dist/", "build/")
+SKIP = ("static/fontawesome-free-", "static/bootstrap-", "node_modules/", "vendor/", "static/vendor/", "dist/", "build/")
 
 
 def inventory() -> dict:
