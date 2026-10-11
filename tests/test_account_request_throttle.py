@@ -2,6 +2,8 @@
 import sqlite3
 import unittest
 
+from unittest.mock import patch
+
 from werkzeug.exceptions import TooManyRequests
 
 from app import app
@@ -30,6 +32,17 @@ class AccountRequestThrottleTests(unittest.TestCase):
                 environ_base={"REMOTE_ADDR": "192.0.2.11"},
             ):
                 _check_request_rate(db)
+            with patch("app.account_requests.time.time", return_value=7200):
+                with app.test_request_context(
+                    "/auth/account-requests/new", method="POST",
+                    environ_base={"REMOTE_ADDR": "192.0.2.10"},
+                ):
+                    _check_request_rate(db)
+            attempts = db.execute(
+                "SELECT attempts FROM account_request_throttle WHERE client_key IN "
+                "(SELECT client_key FROM account_request_throttle ORDER BY attempts DESC LIMIT 1)"
+            ).fetchone()["attempts"]
+            self.assertEqual(1, attempts)
             self.assertEqual(
                 2, db.execute("SELECT COUNT(*) FROM account_request_throttle").fetchone()[0]
             )
