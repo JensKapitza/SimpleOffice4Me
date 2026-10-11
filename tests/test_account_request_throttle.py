@@ -25,6 +25,30 @@ class AccountRequestThrottleTests(unittest.TestCase):
                 database.assert_called_once_with()
                 throttle.assert_called_once_with(database.return_value)
 
+    def test_registration_disabled_during_hash_is_rejected(self):
+        from unittest.mock import MagicMock
+        from werkzeug.exceptions import Forbidden
+
+        database = MagicMock()
+        database.in_transaction = True
+        database.execute.return_value.fetchone.return_value = (0,)
+        with app.test_request_context(
+            "/auth/account-requests/new", method="POST",
+            data={"username": "requested-user", "email": "user@example.test",
+                  "password": "a-long-secure-password"},
+        ):
+            with patch.object(account_requests, "_registration_enabled", return_value=True), \
+                 patch.object(account_requests, "_db", return_value=database), \
+                 patch.object(account_requests, "_check_request_rate"), \
+                 patch.object(account_requests, "hash_password", return_value="hashed"):
+                with self.assertRaises(Forbidden):
+                    account_requests.new()
+        self.assertTrue(any(
+            call.args[0] == "SELECT enabled FROM registration_settings WHERE id=1"
+            for call in database.execute.call_args_list
+        ))
+        database.rollback.assert_called()
+
     def test_sixth_request_is_limited_per_client(self):
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row
