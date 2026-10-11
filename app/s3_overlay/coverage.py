@@ -55,6 +55,8 @@ PERSISTENCE_COVERAGE = {
     "v3_federation": "excluded:federation envelopes, replay state and peer capabilities require trust-scoped access",
     # Auth, credentials, keys, encrypted payloads and recovery material.
     "android_auth": "excluded:authentication factors and device secrets",
+    "account_requests": "excluded:pending account requests contain credential hashes and approval records",
+    "auth": "excluded:registration and authentication records are internal security state",
     "db": "excluded:account hashes, session state and authorization records",
     "password_vault": "excluded:encrypted password vault payloads and unlock material",
     "s3_overlay.credentials": "excluded:encrypted S3 signing secrets",
