@@ -236,6 +236,22 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
         self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
 
+    def test_named_inline_html_attachment_is_not_used_as_email_body(self):
+        from email.message import EmailMessage
+        message = EmailMessage()
+        message["From"] = "sender@example.test"
+        message.set_content("Ordinary body")
+        message.add_attachment("<h1>Attached only</h1>", subtype="html", filename="attachment.html", disposition="inline")
+        path = self.root / "named-inline.eml"
+        path.write_bytes(message.as_bytes())
+        store = DocumentStore(self.root)
+        store.scan()
+        document = store.get_document(path)
+        preview = _eml_preview(self.root, document["document_id"], "admin")
+        self.assertEqual("", preview["html"])
+        self.assertIn("Ordinary body", preview["text"])
+        self.assertEqual("attachment.html", preview["attachments"][0]["name"])
+
     def test_eml_preview_template_has_no_script_dependent_view_switch(self):
         template = (Path(__file__).resolve().parents[1] / "templates/documents/eml_document_preview.html").read_text(encoding="utf-8")
         self.assertIn('sandbox=""', template)
