@@ -410,3 +410,42 @@ def optimize_ocr_image():
         return jsonify({"error": str(exc)}), 400
     return Response(optimized, mimetype="image/png", headers={
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@bp.post("/ocr/analyze")
+@login_required
+def analyze_ocr_upload():
+    """Recognize text in a photo or selected PDF page using local Tesseract."""
+    import tempfile
+    from .image_preprocessing import MAX_UPLOAD
+    from .ocr_input import optimize_upload
+    from ..object_vision import _run_tesseract
+
+    upload = request.files.get("image")
+    if upload is None:
+        return jsonify({"error": "Datei fehlt"}), 400
+    data = upload.read(MAX_UPLOAD + 1)
+    try:
+        page = int(request.form.get("page", "1")) - 1
+        if page < 0:
+            raise ValueError("Ungültige PDF-Seite")
+        optimized, source_format = optimize_upload(
+            data, page=page,
+            brighten=request.form.get("brighten", "1") == "1",
+            straighten=request.form.get("straighten", "1") == "1",
+        )
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    with tempfile.TemporaryDirectory(prefix="library-ocr-") as directory:
+        image_path = Path(directory) / "page.png"
+        image_path.write_bytes(optimized)
+        result = _run_tesseract(image_path)
+    if result.get("status") != "completed":
+        return jsonify({"error": result.get("error", "OCR nicht verfügbar"), "status": result.get("status")}), 503
+    import re
+    words = re.findall(r"[^\\W_][\\w-]{3,}", result.get("text", ""), flags=re.UNICODE)
+    keywords = list(dict.fromkeys(word.casefold()[:48] for word in words if not word.isdigit()))[:20]
+    return jsonify({"status": "completed", "source_format": source_format,
+                    "page": page + 1, "text": result.get("text", ""),
+                    "suggested_tags": keywords, "engine": "tesseract",
+                    "persisted": False})
