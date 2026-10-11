@@ -18,4 +18,5 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_NSCameraUsageDescription: "Kamera zum Scannen von Büchern, Dokumenten und QR-Codes."
         CODE_SIGN_STYLE: Automatic
