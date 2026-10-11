@@ -26,7 +26,7 @@ def main() -> None:
             "SIMPLEOFFICE_BACKGROUND_INDEX": "0",
             "SIMPLEOFFICE_OSM_INDEX": "0",
             "SIMPLEOFFICE_DATALOGGER": "0",
-            "PATH": str(binary.parent),
+            "PATH": os.pathsep.join(filter(None, (str(binary.parent), os.environ.get("PATH", "")))),
             "PYTHONHOME": "",
             "PYTHONPATH": "",
         })
@@ -66,6 +66,7 @@ def main() -> None:
                 if failure:
                     log.flush()
                     log.seek(0)
+                    log.seek(max(0, log.seek(0, os.SEEK_END) - 120000))
                     output = log.read().decode("utf-8", errors="replace")
                     print("=== Packaged backend stdout/stderr ===", file=sys.stderr)
                     print(output[-30000:] if output else "(no backend output)", file=sys.stderr)
