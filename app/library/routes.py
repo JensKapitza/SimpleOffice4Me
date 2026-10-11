@@ -366,32 +366,42 @@ def printer_cut():
 @bp.get("/export/books.csv")
 @login_required
 def export_books_csv():
-    """Download all physical library books without the UI's 500-row limit."""
-    output = io.StringIO(newline="")
-    writer = csv.writer(output)
-    writer.writerow(("ID", "Titel", "ISBN", "Autoren", "Genre", "Reihe", "Band", "Standort", "Regalcode"))
-    library = _store()
-    for item in _objects().objects():
-        fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
-        tags = {str(tag).casefold() for tag in item.get("tags", [])}
-        if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
-            continue
-        assignment = library.assignment(item["object_id"])
-        location_id = str((assignment or {}).get("location_id", ""))
-        values = (
-            item.get("display_id", ""), item.get("name", ""),
-            fields.get("isbn") or item.get("identifier", ""),
-            fields.get("authors", ""), fields.get("genre", ""),
-            fields.get("series", ""), fields.get("series_number", ""),
-            library.location_path(location_id) if location_id else item.get("location", ""),
-            fields.get("library_location_code", ""),
-        )
-        # Prevent spreadsheet formula execution when opened in Excel/LibreOffice.
-        writer.writerow([("'" + str(value)) if str(value).lstrip().startswith(("=", "+", "-", "@")) else value for value in values])
-    return Response("\ufeff".encode("utf-8") + output.getvalue().encode("utf-8"),
-                    mimetype="text/csv", headers={
-                        "Content-Disposition": "attachment; filename=library-books.csv",
-                        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    """Stream CSV rows to avoid accumulating the entire export in memory."""
+    from flask import stream_with_context
+
+    def generate():
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        yield "\ufeff"
+        writer.writerow(("ID", "Titel", "ISBN", "Autoren", "Genre", "Reihe", "Band", "Standort", "Regalcode"))
+        yield output.getvalue()
+        output.seek(0)
+        output.truncate(0)
+        library = _store()
+        for item in _objects().objects():
+            fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+            tags = {str(tag).casefold() for tag in item.get("tags", [])}
+            if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
+                continue
+            assignment = library.assignment(item["object_id"])
+            location_id = str((assignment or {}).get("location_id", ""))
+            values = (
+                item.get("display_id", ""), item.get("name", ""),
+                fields.get("isbn") or item.get("identifier", ""),
+                fields.get("authors", ""), fields.get("genre", ""),
+                fields.get("series", ""), fields.get("series_number", ""),
+                library.location_path(location_id) if location_id else item.get("location", ""),
+                fields.get("library_location_code", ""),
+            )
+            # Escape spreadsheet formulas while preserving the full field value.
+            writer.writerow([("'" + str(value)) if str(value).lstrip().startswith(("=", "+", "-", "@")) else value for value in values])
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+
+    return Response(stream_with_context(generate()), mimetype="text/csv", headers={
+        "Content-Disposition": "attachment; filename=library-books.csv",
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
 @bp.post("/ocr/optimize")
