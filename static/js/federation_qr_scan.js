@@ -1,6 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
   const imageInput = document.getElementById('qr-image');
   const cameraButton = document.getElementById('qr-camera-button');
+  const captureInput = document.createElement('input');
+  captureInput.type = 'file';
+  captureInput.accept = 'image/*';
+  captureInput.setAttribute('capture', 'environment');
+  captureInput.hidden = true;
+  document.body.appendChild(captureInput);
   const closeButton = document.getElementById('qr-camera-close');
   const preview = document.getElementById('qr-camera-preview');
   const cameraPanel = document.getElementById('qr-camera-panel');
@@ -55,10 +61,8 @@ document.addEventListener('DOMContentLoaded', () => {
   cameraButton.addEventListener('click', async () => {
     if (scanning || stream) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      imageInput.setAttribute('capture', 'environment');
       status.textContent = 'Foto aufnehmen und QR-Code lokal auswerten.';
-      imageInput.click();
-      setTimeout(() => imageInput.removeAttribute('capture'), 0);
+      captureInput.click();
       return;
     }
 
@@ -112,8 +116,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  imageInput.addEventListener('change', async () => {
-    const file = imageInput.files?.[0];
+  async function processImage(event) {
+    const sourceInput = event.currentTarget;
+    const file = sourceInput.files?.[0];
     if (!file) return;
     if (!('BarcodeDetector' in window) || !window.isSecureContext) {
       status.textContent = 'QR-Foto wird lokal ausgewertet …';
@@ -136,7 +141,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         } finally { bitmap.close?.(); }
       } catch (_error) { status.textContent = 'QR-Foto konnte nicht verarbeitet werden.'; }
-      finally { imageInput.value = ''; }
+      finally { sourceInput.value = ''; }
       return;
     }
     status.textContent = 'QR-Code wird gelesen …';
@@ -154,7 +159,9 @@ document.addEventListener('DOMContentLoaded', () => {
       status.textContent = 'QR-Code konnte nicht gelesen werden.';
     } finally {
       if (image && typeof image.close === 'function') image.close();
-      imageInput.value = '';
+      sourceInput.value = '';
     }
-  });
+  }
+  imageInput.addEventListener('change', processImage);
+  captureInput.addEventListener('change', processImage);
 });
