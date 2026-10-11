@@ -240,6 +240,10 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn("<p>HTML version</p>", preview["html"])
         self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
         self.assertEqual("invoice@example.test", preview["attachments"][0]["content_id"])
+        metadata_only = _eml_preview(self.root, document["document_id"], "admin", include_body=False)
+        self.assertEqual("", metadata_only["text"])
+        self.assertEqual("", metadata_only["html"])
+        self.assertEqual(preview["attachments"], metadata_only["attachments"])
         self.assertFalse(preview["attachments"][0]["inline"])
         self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
 
