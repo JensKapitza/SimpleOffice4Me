@@ -19,7 +19,7 @@ class AccountRequestThrottleTests(unittest.TestCase):
             "(client_key TEXT PRIMARY KEY, window_started INTEGER NOT NULL, attempts INTEGER NOT NULL)"
         )
         try:
-            with app.test_request_context(
+            with patch("app.account_requests.time.time", return_value=3600), app.test_request_context(
                 "/auth/account-requests/new", method="POST",
                 environ_base={"REMOTE_ADDR": "192.0.2.10"},
             ):
@@ -27,13 +27,13 @@ class AccountRequestThrottleTests(unittest.TestCase):
                     _check_request_rate(db)
                 with self.assertRaises(TooManyRequests):
                     _check_request_rate(db)
-            with app.test_request_context(
+            with patch("app.account_requests.time.time", return_value=3600), app.test_request_context(
                 "/auth/account-requests/new", method="POST",
                 environ_base={"REMOTE_ADDR": "192.0.2.11"},
             ):
                 _check_request_rate(db)
             with patch("app.account_requests.time.time", return_value=7200):
-                with app.test_request_context(
+                with patch("app.account_requests.time.time", return_value=3600), app.test_request_context(
                     "/auth/account-requests/new", method="POST",
                     environ_base={"REMOTE_ADDR": "192.0.2.10"},
                 ):
