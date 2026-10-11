@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   cameraButton.addEventListener('click', async () => {
     if (scanning || stream) return;
-    if (!('BarcodeDetector' in window)) {
+    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
       imageInput.setAttribute('capture', 'environment');
       status.textContent = 'Foto aufnehmen und QR-Code lokal auswerten.';
       imageInput.click();
@@ -62,10 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      status.textContent = 'Live-Kamera benötigt HTTPS oder localhost. Alternativ QR-Bild auswählen.';
-      return;
-    }
     cameraButton.disabled = true;
     try {
       const detector = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
@@ -104,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
   imageInput.addEventListener('change', async () => {
     const file = imageInput.files?.[0];
     if (!file) return;
-    if (!('BarcodeDetector' in window)) {
+    if (!('BarcodeDetector' in window) || !window.isSecureContext) {
       status.textContent = 'QR-Foto wird lokal ausgewertet …';
       try {
         const bitmap = await createImageBitmap(file);
