@@ -252,6 +252,8 @@ if trusted_proxy_hops > 0:
 
 from . import auth
 app.register_blueprint(auth.bp)
+from . import account_requests
+app.register_blueprint(account_requests.bp)
 
 from . import db
 db.init_app(app)
