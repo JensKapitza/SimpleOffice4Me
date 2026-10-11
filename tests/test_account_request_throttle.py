@@ -32,6 +32,8 @@ class AccountRequestThrottleTests(unittest.TestCase):
                 environ_base={"REMOTE_ADDR": "192.0.2.11"},
             ):
                 _check_request_rate(db)
+            db.execute("INSERT INTO account_request_throttle(client_key, window_started, attempts) VALUES (?, ?, ?)", ("expired", -10000, 1))
+            db.commit()
             with patch("app.account_requests.time.time", return_value=7200):
                 with app.test_request_context(
                     "/auth/account-requests/new", method="POST",
