@@ -55,3 +55,13 @@
 .commander-dialog{margin:auto auto max(0px,env(safe-area-inset-bottom,0px));width:100%;max-height:85dvh;border-radius:1rem 1rem 0 0}
 .commander-dialog form{padding:1rem 1rem max(1rem,env(safe-area-inset-bottom,0px))}
 }
+
+/* Keep narrow navigation targets and landscape cutouts usable. */
+.resource-commander-bar button{min-width:44px}
+.resource-commander-header a,.resource-commander-actions a{display:inline-flex;align-items:center;min-height:44px}
+.resource-commander-header,.resource-commander-quickbar,.resource-commander-actions{padding-left:max(1rem,env(safe-area-inset-left,0px));padding-right:max(1rem,env(safe-area-inset-right,0px))}
+.commander-dialog form{padding-left:max(1rem,env(safe-area-inset-left,0px));padding-right:max(1rem,env(safe-area-inset-right,0px))}
+.commander-dialog-close{flex-shrink:0}
+@media(max-width:760px){
+html[data-so-keyboard-open="1"] .commander-dialog{bottom:var(--so-keyboard-inset);max-height:calc(var(--so-visual-viewport-height) - 1rem)}
+}

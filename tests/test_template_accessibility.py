@@ -143,7 +143,15 @@ class TemplateAccessibilityTests(unittest.TestCase):
         self.assertGreaterEqual(len(forms), 180)
         self.assertGreaterEqual(len(navigation), 10)
         for path, tag in forms:
-            self.assertIn(_attributes(tag).get("method"), {"get", "post"}, path)
+            method = _attributes(tag).get("method")
+            self.assertIn(method, {"get", "post", "dialog"}, path)
+            if method == "dialog":
+                # Native dialog forms close a modal without a network submission.
+                from bs4 import BeautifulSoup
+                form_id = _attributes(tag).get("id")
+                self.assertTrue(form_id, path)
+                form = BeautifulSoup(self.templates[path], "html.parser").find("form", id=form_id)
+                self.assertIsNotNone(form.find_parent("dialog"), path)
         for path, tag in navigation:
             attributes = _attributes(tag)
             self.assertTrue(attributes.get("aria-label") or attributes.get("aria-labelledby"), path)

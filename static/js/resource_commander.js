@@ -171,12 +171,19 @@
     modified.textContent = entry.modified || '';
     row.append(icon, cmp, name, size, modified);
 
-    row.addEventListener('click', () => {
-      pane(side).querySelectorAll('.selected').forEach(item => item.classList.remove('selected'));
+    const selectEntry = () => {
+      pane(side).querySelectorAll('.selected').forEach(item => {
+        item.classList.remove('selected');
+        item.setAttribute('aria-pressed', 'false');
+      });
       row.classList.add('selected');
+      row.setAttribute('aria-pressed', 'true');
       state[side].selected = entry;
       setActive(side);
-    });
+    };
+    row.setAttribute('aria-pressed', 'false');
+    row.addEventListener('click', selectEntry);
+    row.addEventListener('focus', selectEntry);
 
     const openEntry = () => {
       if (entry.kind === 'folder') {
@@ -195,7 +202,8 @@
     };
     row.addEventListener('dblclick', openEntry);
     row.addEventListener('keydown', event => {
-      if (event.key === 'Enter') { event.preventDefault(); openEntry(); }
+      if (event.repeat) return;
+      if (event.key === 'Enter') { event.preventDefault(); selectEntry(); openEntry(); }
       if (event.key === ' ') { event.preventDefault(); row.click(); }
     });
     return row;
@@ -376,6 +384,8 @@
 
   function commanderPrompt({title, message = '', primaryLabel = '', secondaryLabel = '', confirmText = 'Speichern', danger = false}) {
     const dialog = document.getElementById('commander-dialog');
+    if (dialog.open) return Promise.resolve(null);
+    const opener = document.activeElement;
     const form = document.getElementById('commander-dialog-form');
     const fields = document.getElementById('commander-dialog-fields');
     const primary = document.getElementById('commander-dialog-primary');
@@ -405,6 +415,7 @@
         dialog.removeEventListener('close', closed);
         dialog.removeEventListener('cancel', cancelled);
         if (dialog.open) dialog.close();
+        if (opener?.isConnected) opener.focus({preventScroll: true});
         resolve(value);
       };
       const accept = event => {
@@ -419,7 +430,8 @@
       document.getElementById('commander-dialog-cancel').onclick = () => settle(null);
       document.getElementById('commander-dialog-close').onclick = () => settle(null);
       dialog.showModal();
-      if (primaryLabel) primary.focus(); else confirm.focus();
+      if (primaryLabel) primary.focus();
+      else (danger ? document.getElementById('commander-dialog-cancel') : confirm).focus();
     });
   }
 
@@ -490,6 +502,7 @@
   function bind(side) {
     const element = pane(side);
     element.addEventListener('pointerdown', () => setActive(side));
+    element.addEventListener('focusin', () => setActive(side));
     element.querySelector('.provider').addEventListener('change', () => {
       state[side].smart = false;
       state[side].capabilities = null;
@@ -624,8 +637,12 @@
   document.addEventListener('keydown', event => {
     const mapping = {F5: 'copy', F6: 'move', F7: 'mkdir', F8: 'delete'};
     const button = mapping[event.key];
-    if (!button || document.getElementById('commander-dialog').open || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
+    if (!button) return;
+    // Suppress browser F5/F6 defaults as well as Commander actions in a modal.
     event.preventDefault();
+    if (event.repeat || document.getElementById('commander-dialog').open
+      || document.activeElement?.isContentEditable
+      || /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '')) return;
     document.getElementById(button).click();
   });
 
