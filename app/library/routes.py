@@ -369,6 +369,10 @@ def export_books_csv():
     """Stream CSV rows to avoid accumulating the entire export in memory."""
     from flask import stream_with_context
 
+    # Capture request-scoped storage before the response starts streaming.
+    library = _store()
+    objects = _objects()
+
     def generate():
         output = io.StringIO(newline="")
         writer = csv.writer(output)
@@ -377,8 +381,7 @@ def export_books_csv():
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)
-        library = _store()
-        for item in _objects().objects():
+        for item in objects.objects():
             fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
             tags = {str(tag).casefold() for tag in item.get("tags", [])}
             if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
