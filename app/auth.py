@@ -74,9 +74,12 @@ def _google_json_request(url: str, *, data: bytes | None = None, headers: dict[s
 
 
 def _registration_enabled() -> bool:
-    if current_app.testing or current_app.config.get("ALLOW_PUBLIC_REGISTRATION"):
-        return True
-    return get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+    """Allow registration until an administrator disables it persistently."""
+    db = get_db()
+    db.execute("CREATE TABLE IF NOT EXISTS registration_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)))")
+    db.execute("INSERT OR IGNORE INTO registration_settings(id,enabled) VALUES(1,1)")
+    db.commit()
+    return bool(db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()[0])
 
 
 def _google_config() -> dict[str, str] | None:
@@ -125,6 +128,8 @@ def register():
     current_admin = getattr(g, "user", None) is not None and bool(g.user["is_admin"])
     if account_count and not public_registration and not current_admin:
         abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+    if account_count and not current_admin:
+        return redirect(url_for('account_requests.new'))
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
