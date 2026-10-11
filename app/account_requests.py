@@ -3,13 +3,14 @@ import re
 import sqlite3
 from flask import Blueprint, abort, flash, g, redirect, render_template_string, request, url_for
 from .db import get_db
+from .auth import _registration_enabled
 from .password_security import hash_password
 from .access_control import audit
 
 bp = Blueprint("account_requests", __name__, url_prefix="/auth/account-requests")
 
 FORM = """{% extends 'layout.html' %}{% block title %}Konto beantragen{% endblock %}{% block body %}<main class="auth-shell"><section class="auth-card"><h1>Konto beantragen</h1><form method="post"><label for="username">Benutzername</label><input class="form-control mb-3" id="username" name="username" maxlength="64" required><label for="email">E-Mail</label><input class="form-control mb-3" id="email" name="email" type="email" maxlength="254" required><label for="password">Passwort (mindestens 12 Zeichen)</label><input class="form-control mb-3" id="password" name="password" type="password" minlength="12" maxlength="128" required><button class="btn btn-primary w-100">Antrag senden</button></form></section></main>{% endblock %}"""
-ADMIN = """{% extends 'layout.html' %}{% block title %}Kontoanträge{% endblock %}{% block body %}<main class="container py-4"><h1>Kontoanträge</h1>{% for item in items %}<section class="card p-3 mb-3"><strong>{{ item['username'] }}</strong><span>{{ item['email'] }}</span><form method="post" action="{{ url_for('account_requests.decide', request_id=item['id']) }}"><button class="btn btn-primary" name="decision" value="approve">Freigeben</button><button class="btn btn-outline-danger" name="decision" value="reject">Ablehnen</button></form></section>{% else %}<p>Keine offenen Anträge.</p>{% endfor %}</main>{% endblock %}"""
+ADMIN = """{% extends 'layout.html' %}{% block title %}Kontoanträge{% endblock %}{% block body %}<main class="container py-4"><h1>Kontoanträge</h1><form method="post" action="{{ url_for('account_requests.registration_toggle') }}"><label><input type="checkbox" name="enabled" value="1" {% if registration_enabled %}checked{% endif %}> Registrierung zulassen</label><button class="btn btn-primary">Speichern</button></form>{% for item in items %}<section class="card p-3 mb-3"><strong>{{ item['username'] }}</strong><span>{{ item['email'] }}</span><form method="post" action="{{ url_for('account_requests.decide', request_id=item['id']) }}"><button class="btn btn-primary" name="decision" value="approve">Freigeben</button><button class="btn btn-outline-danger" name="decision" value="reject">Ablehnen</button></form></section>{% else %}<p>Keine offenen Anträge.</p>{% endfor %}</main>{% endblock %}"""
 
 def _db():
     db = get_db()
@@ -20,6 +21,8 @@ def _db():
 
 @bp.route('/new', methods=['GET','POST'])
 def new():
+    if not _registration_enabled():
+        abort(403)
     if request.method == 'POST':
         username = request.form.get('username','').strip()
         email = request.form.get('email','').strip().lower()
@@ -42,7 +45,7 @@ def admin():
     if g.user is None or not g.user['is_admin']:
         abort(403)
     items = _db().execute("SELECT id,username,email FROM account_request WHERE status='pending' ORDER BY id").fetchall()
-    return render_template_string(ADMIN,items=items)
+    return render_template_string(ADMIN,items=items,registration_enabled=_registration_enabled())
 
 @bp.post('/admin/<int:request_id>')
 def decide(request_id):
@@ -67,4 +70,15 @@ def decide(request_id):
         if db.in_transaction:
             db.rollback()
     audit('account_request','user',outcome=request.form['decision'])
+    return redirect(url_for('account_requests.admin'))
+
+@bp.post('/admin/registration')
+def registration_toggle():
+    if g.user is None or not g.user['is_admin'] or g.user['is_disabled']:
+        abort(403)
+    db = _db()
+    _registration_enabled()
+    db.execute('UPDATE registration_settings SET enabled=? WHERE id=1',(int(request.form.get('enabled')=='1'),))
+    db.commit()
+    audit('registration_setting','user',outcome='updated')
     return redirect(url_for('account_requests.admin'))
