@@ -214,7 +214,9 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn("sender@example.test", preview["from"])
         self.assertIn("receiver@example.test", preview["to"])
         self.assertIn("Hello world", preview["text"])
-        self.assertEqual("note.txt", preview["attachments"][0]["name"])\n        self.assertEqual(1, preview["attachment_count"])\n        self.assertEqual(len(b"attachment"), preview["attachment_bytes"])
+        self.assertEqual("note.txt", preview["attachments"][0]["name"])
+        self.assertEqual(1, preview["attachment_count"])
+        self.assertEqual(len(b"attachment"), preview["attachment_bytes"])
 
 
     def test_eml_preview_decodes_html_without_including_attachment_html(self):
@@ -224,6 +226,7 @@ class ContactExtensionsTest(unittest.TestCase):
         message["Subject"] = "HTML test"
         message["From"] = "sender@example.test"
         message["To"] = "receiver@example.test"
+        message["Reply-To"] = "helpdesk@example.test"
         message.set_content("Plain version")
         message.add_alternative("<p>HTML version</p><script>alert(1)</script>", subtype="html")
         message.add_attachment(b"file contents", maintype="application", subtype="octet-stream", filename="invoice.pdf")
@@ -231,9 +234,11 @@ class ContactExtensionsTest(unittest.TestCase):
         store.scan()
         document = store.get_document(self.root / "html-test.eml")
         preview = _eml_preview(self.root, document["document_id"], "admin")
-        self.assertEqual("helpdesk@example.test", preview["reply_to"])\n        self.assertIn("Plain version", preview["text"])
+        self.assertEqual("helpdesk@example.test", preview["reply_to"])
+        self.assertIn("Plain version", preview["text"])
         self.assertIn("<p>HTML version</p>", preview["html"])
-        self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])\n        self.assertFalse(preview["attachments"][0]["inline"])
+        self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
+        self.assertFalse(preview["attachments"][0]["inline"])
         self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
 
     def test_named_inline_html_attachment_is_not_used_as_email_body(self):
@@ -250,7 +255,9 @@ class ContactExtensionsTest(unittest.TestCase):
         preview = _eml_preview(self.root, document["document_id"], "admin")
         self.assertEqual("", preview["html"])
         self.assertIn("Ordinary body", preview["text"])
-        self.assertEqual("attachment.html", preview["attachments"][0]["name"])\n        self.assertTrue(preview["attachments"][0]["inline"])\n        self.assertFalse(preview["has_inline_images"])
+        self.assertEqual("attachment.html", preview["attachments"][0]["name"])
+        self.assertTrue(preview["attachments"][0]["inline"])
+        self.assertFalse(preview["has_inline_images"])
 
     def test_eml_preview_template_has_no_script_dependent_view_switch(self):
         template = (Path(__file__).resolve().parents[1] / "templates/documents/eml_document_preview.html").read_text(encoding="utf-8")
