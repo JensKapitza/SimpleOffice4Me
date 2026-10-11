@@ -217,5 +217,49 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertEqual("note.txt", preview["attachments"][0]["name"])
 
 
+    def test_eml_preview_decodes_html_without_including_attachment_html(self):
+        from email.message import EmailMessage
+        store = DocumentStore(self.root)
+        message = EmailMessage()
+        message["Subject"] = "HTML test"
+        message["From"] = "sender@example.test"
+        message["To"] = "receiver@example.test"
+        message.set_content("Plain version")
+        message.add_alternative("<p>HTML version</p><script>alert(1)</script>", subtype="html")
+        message.add_attachment(b"file contents", maintype="application", subtype="octet-stream", filename="invoice.pdf")
+        (self.root / "html-test.eml").write_bytes(message.as_bytes())
+        store.scan()
+        document = store.get_document(self.root / "html-test.eml")
+        preview = _eml_preview(self.root, document["document_id"], "admin")
+        self.assertIn("Plain version", preview["text"])
+        self.assertIn("<p>HTML version</p>", preview["html"])
+        self.assertEqual("invoice.pdf", preview["attachments"][0]["name"])
+        self.assertEqual(len(b"file contents"), preview["attachments"][0]["size"])
+
+    def test_eml_preview_template_uses_server_links_and_sandboxed_html(self):
+        from flask import render_template
+        from markupsafe import escape
+        from unittest.mock import patch
+        with app.test_request_context("/documents/example/eml-preview?view=html"):
+            with patch("app.contact_extensions._eml_preview", return_value={
+                "subject": "Example", "date": "", "from": "", "to": "",
+                "cc": "", "message_id": "", "text": "Plain version",
+                "html": '<script>alert("bad")</script><p>HTML version</p>',
+                "attachments": [{"part": 2, "name": "invoice.pdf", "type": "application/pdf", "size": 5}],
+            }):
+                html = render_template(
+                    "documents/eml_document_preview.html", document_id="example",
+                    preview={"subject": "Example", "date": "", "from": "", "to": "", "cc": "",
+                             "message_id": "", "text": "Plain version", "html": "<p>HTML version</p>",
+                             "attachments": [{"part": 2, "name": "invoice.pdf", "type": "application/pdf", "size": 5}]},
+                    view="html", html_srcdoc="<p>HTML version</p>",
+                )
+        self.assertIn('sandbox=""', html)
+        self.assertIn("view=html", html)
+        self.assertIn("view=text", html)
+        self.assertIn("invoice.pdf", html)
+        self.assertIn(str(escape("<p>HTML version</p>")), html)
+
+
 if __name__ == "__main__":
     unittest.main()
