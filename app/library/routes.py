@@ -397,13 +397,13 @@ def export_books_csv():
 @login_required
 def optimize_ocr_image():
     """Return a preview copy; never replace the source image implicitly."""
-    from .image_preprocessing import MAX_UPLOAD, optimize_page
+    from .image_preprocessing import MAX_UPLOAD\n    from .ocr_input import optimize_upload
     upload = request.files.get("image")
     if upload is None:
         return jsonify({"error": "Bild fehlt"}), 400
     data = upload.read(MAX_UPLOAD + 1)
     try:
-        optimized = optimize_page(data,
+        optimized, source_format = optimize_upload(data,\n                                  page=int(request.form.get("page", "1")) - 1,
                                   brighten=request.form.get("brighten", "1") == "1",
                                   straighten=request.form.get("straighten", "1") == "1")
     except ValueError as exc:
