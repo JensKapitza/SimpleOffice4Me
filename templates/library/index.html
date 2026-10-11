@@ -64,9 +64,9 @@
         <h3 class="h6">Buchseite für OCR vorbereiten</h3>
         <form id="library-ocr-optimize-form" data-url="{{ url_for('library.optimize_ocr_image') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <label for="library-ocr-page" class="form-label">Titelblatt, Impressum oder Rückseite</label>
-          <input id="library-ocr-page" name="image" type="file" accept="image/*" capture="environment" class="form-control mb-2" required>
-          <div class="form-check"><input class="form-check-input" type="checkbox" name="straighten" value="1" id="ocr-straighten" checked><label class="form-check-label" for="ocr-straighten">Orientierung und Schräglage korrigieren</label></div>
+          <label for="library-ocr-page" class="form-label">Titelblatt, Impressum, Foto oder PDF</label>
+          <input id="library-ocr-page" name="image" type="file" accept="image/*,application/pdf" class="form-control mb-2" required>
+          <label class="form-label" for="library-ocr-page-number">PDF-Seite (ab 1)</label><input class="form-control mb-2" type="number" name="page" id="library-ocr-page-number" min="1" max="2000" value="1"><div class="form-check"><input class="form-check-input" type="checkbox" name="straighten" value="1" id="ocr-straighten" checked><label class="form-check-label" for="ocr-straighten">Orientierung und Schräglage korrigieren</label></div>
           <div class="form-check mb-2"><input class="form-check-input" type="checkbox" name="brighten" value="1" id="ocr-brighten" checked><label class="form-check-label" for="ocr-brighten">Bild aufhellen und optimieren</label></div>
           <button class="btn btn-outline-primary" type="submit">Bild optimieren</button>
         </form>
