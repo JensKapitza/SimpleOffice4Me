@@ -14,7 +14,7 @@ def main() -> int:
     assets = sorted(p for p in paths if p.startswith(LEGACY))
     references = []
     for name in paths:
-        if name.startswith(LEGACY) or Path(name).suffix.lower() not in TEXT:
+        if name == "tools/audit_legacy_frontend.py" or name.startswith(LEGACY) or Path(name).suffix.lower() not in TEXT:
             continue
         try:
             lines = (ROOT / name).read_text(encoding="utf-8").splitlines()
