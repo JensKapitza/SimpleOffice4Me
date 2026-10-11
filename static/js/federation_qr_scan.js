@@ -54,7 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   cameraButton.addEventListener('click', async () => {
     if (scanning || stream) return;
-    if (!('BarcodeDetector' in window) || !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       imageInput.setAttribute('capture', 'environment');
       status.textContent = 'Foto aufnehmen und QR-Code lokal auswerten.';
       imageInput.click();
@@ -64,7 +64,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     cameraButton.disabled = true;
     try {
-      const detector = 'BarcodeDetector' in window ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+      let detector = null;
+      if (typeof window.BarcodeDetector === 'function') {
+        try { detector = new BarcodeDetector({ formats: ['qr_code'] }); }
+        catch (_error) { /* Use the bundled decoder instead. */ }
+      }
+      if (!detector && typeof window.jsQR !== 'function') {
+        throw new Error('No QR decoder available');
+      }
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } }, audio: false
       });
@@ -77,8 +84,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const scan = async () => {
         if (!scanning) return;
         try {
-          const codes = await detector.detect(preview);
-          const value = (codes[0]?.rawValue || '').trim();
+          let value = '';
+          if (detector) {
+            try {
+              const codes = await detector.detect(preview);
+              value = (codes[0]?.rawValue || '').trim();
+            } catch (_error) {
+              // Browser-native detection can fail; try the local decoder.
+            }
+          }
+          if (!value) value = decodePixels(preview).trim();
           if (value && acceptPayload(value)) {
             stopCamera();
             return;
@@ -93,7 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
       stopCamera();
       status.textContent = error?.name === 'NotAllowedError'
         ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
-        : 'Kamera konnte nicht gestartet werden. Kamera und Browserberechtigungen prüfen.';
+        : 'Kamera konnte nicht gestartet werden. Kamera, Browserberechtigungen und QR-Decoder prüfen.';
     }
   });
 
