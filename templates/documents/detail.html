@@ -17,26 +17,21 @@
 </p>
 </div>
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
-<a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}"><i class="fas fa-receipt me-1" aria-hidden="true"></i>Beleg buchen</a>
+<a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">Beleg buchen</a>
 <form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}">
 <input type="hidden" name="title" value="{{ 'Review: ' if g.language == 'en' else 'Prüfen: ' }}{{ document.last_path }}">
 <input type="hidden" name="description" value="{{ ('Review the document, perform the required work and record the result in this task: ' if g.language == 'en' else 'Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: ') }}{{ document.last_path }}">
 <button type="submit" class="btn btn-outline-primary">
-<i class="fas fa-list-check me-1">
-</i>{{ 'As task' if g.language == 'en' else 'Als Aufgabe' }}</button>
+{{ 'As task' if g.language == 'en' else 'Als Aufgabe' }}</button>
 </form>{% if document.last_path.lower().endswith('.eml') %}<a class="btn btn-warning" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">
-<i class="fas fa-paperclip me-1">
-</i>{{ 'Check attachments' if g.language == 'en' else 'Anhänge sicher prüfen' }}</a>{% endif %}<form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}">
+{{ 'Check attachments' if g.language == 'en' else 'Anhänge sicher prüfen' }}</a>{% endif %}<form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}">
 <button type="submit" class="btn btn-outline-danger">
-<i class="fas fa-shield-virus me-1" aria-hidden="true">
-</i>{{ 'Scan with ClamAV' if g.language == 'en' else 'Mit ClamAV prüfen' }}</button>
+{{ 'Scan with ClamAV' if g.language == 'en' else 'Mit ClamAV prüfen' }}</button>
 </form>
 <a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">
-<i class="fas fa-arrow-up-right-from-square me-1" aria-hidden="true">
-</i>{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
+{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
 <a class="btn btn-primary" href="{{ url_for('webdav.setup_document', document_id=document.document_id) }}">
-<i class="fas fa-pen-to-square me-1">
-</i>{{ 'Edit in LibreOffice' if g.language == 'en' else 'In LibreOffice bearbeiten' }}</a>
+{{ 'Edit in LibreOffice' if g.language == 'en' else 'In LibreOffice bearbeiten' }}</a>
 <span class="badge text-bg-secondary align-self-center">{{ document.state }}</span>
 </div>
 </div>{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}

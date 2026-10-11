@@ -7,7 +7,7 @@
   <div id="shopping-app" data-barcode-url="{{ url_for('shopping.barcode_lookup') }}" data-list-id="{{ selected.list_id if selected else '' }}"></div>
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div><h1 class="h2 mb-1">Einkaufen</h1><p class="text-secondary mb-0">Private und geteilte Listen, Mitbring-Aufträge und lokaler Barcode-Scan.</p></div>
-    <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="collapse" data-bs-target="#new-shopping-list" aria-controls="new-shopping-list" aria-expanded="false"><i class="fas fa-plus me-1"></i>Neue Liste</button>
+    <button type="button" class="btn btn-primary btn-lg" data-bs-toggle="collapse" data-bs-target="#new-shopping-list" aria-controls="new-shopping-list" aria-expanded="false">Neue Liste</button>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -97,7 +97,7 @@
               <input type="hidden" name="pack_size" value="{{ product.pack_size }}">
               <input type="hidden" name="price" value="{{ product.last_price }}">
               <input type="hidden" name="photo_id" value="{{ product.photo_id or '' }}">
-              <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-plus me-1"></i>Nachlegen</button>
+              <button class="btn btn-sm btn-outline-primary" type="submit">Nachlegen</button>
             </form>
             {% endif %}
           </div>
@@ -132,7 +132,7 @@
             <div class="col-md-4"><label class="form-label" for="shopping-brand">Marke</label><input id="shopping-brand" name="brand" class="form-control" maxlength="160"></div>
             <div class="col-md-4"><label class="form-label" for="shopping-pack-size">Packungsgröße</label><input id="shopping-pack-size" name="pack_size" class="form-control" maxlength="120" placeholder="z. B. 500 g"></div>
             <div class="col-md-4"><label class="form-label" for="shopping-price">Letzter / gewünschter Preis</label><input id="shopping-price" name="price" class="form-control" maxlength="80" inputmode="decimal"></div>
-            <div class="col-md-8"><label class="form-label" for="shopping-barcode">EAN / UPC / GTIN</label><div class="input-group"><input id="shopping-barcode" name="barcode" class="form-control" inputmode="numeric" autocomplete="off" maxlength="32"><button class="btn btn-outline-primary" type="button" id="shopping-barcode-check">Prüfen</button><button class="btn btn-primary" type="button" id="shopping-barcode-scan"><i class="fas fa-camera me-1"></i>Scannen</button></div><div class="form-text">Kamera ist optional; der Code kann immer manuell eingegeben werden.</div></div>
+            <div class="col-md-8"><label class="form-label" for="shopping-barcode">EAN / UPC / GTIN</label><div class="input-group"><input id="shopping-barcode" name="barcode" class="form-control" inputmode="numeric" autocomplete="off" maxlength="32"><button class="btn btn-outline-primary" type="button" id="shopping-barcode-check">Prüfen</button><button class="btn btn-primary" type="button" id="shopping-barcode-scan">Scannen</button></div><div class="form-text">Kamera ist optional; der Code kann immer manuell eingegeben werden.</div></div>
             <div class="col-md-4"><label class="form-label" for="shopping-priority">Priorität</label><input id="shopping-priority" name="priority" type="number" class="form-control" min="0" max="9" value="0"></div>
             <div class="col-12 col-md-8">
               <label class="form-label" for="shopping-product-photo">Produktfoto</label>
@@ -145,7 +145,7 @@
             </div>
             <div class="col-12"><div id="shopping-scan-status" class="alert alert-secondary py-2 mb-2" role="status" aria-live="polite">Noch kein Barcode geprüft.</div><div id="shopping-camera-box" class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-2" hidden><video id="shopping-camera" autoplay playsinline muted></video></div><button id="shopping-camera-stop" type="button" class="btn btn-sm btn-outline-secondary mb-2" hidden>Kamera stoppen</button></div>
             <div class="col-12"><label class="form-label" for="shopping-note">Notiz</label><input id="shopping-note" name="note" class="form-control" maxlength="2000"></div>
-            <div class="col-12 d-grid d-sm-block"><button type="submit" class="btn btn-success btn-lg"><i class="fas fa-plus me-1"></i>Hinzufügen</button></div>
+            <div class="col-12 d-grid d-sm-block"><button type="submit" class="btn btn-success btn-lg">Hinzufügen</button></div>
           </form>
         </div>
         {% endif %}
