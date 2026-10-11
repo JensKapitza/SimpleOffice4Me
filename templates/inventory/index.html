@@ -15,7 +15,7 @@
     </div>
     <div class="d-flex flex-wrap gap-2">
       <span id="inventory-network" class="badge text-bg-secondary align-self-center">Status</span>
-      <a class="btn btn-outline-secondary" href="{{ url_for('documents.objects') }}"><i class="fas fa-cubes me-1"></i>Alle Objekte</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('documents.objects') }}">Alle Objekte</a>
     </div>
   </div>
 
@@ -28,7 +28,7 @@
           <label class="form-label" for="inventory-find">Gegenstand wiederfinden</label>
           <input id="inventory-find" name="q" type="search" class="form-control form-control-lg" autocomplete="off" inputmode="search" placeholder="Inventarnummer, Name, Barcode, ISBN, NFC, Seriennummer oder Standort">
         </div>
-        <div class="col-md-3 d-grid"><button class="btn btn-outline-primary btn-lg" type="submit"><i class="fas fa-search me-2"></i>Suchen</button></div>
+        <div class="col-md-3 d-grid"><button class="btn btn-outline-primary btn-lg" type="submit">Suchen</button></div>
       </form>
       <div class="form-text">Exakte Kennungen werden direkt geöffnet. Für Namen, Standort, Hersteller und andere Felder wird automatisch die vollständige Objektliste verwendet.</div>
       <div id="inventory-find-results" class="mt-2" hidden></div>
@@ -47,8 +47,8 @@
         </div>
         <div class="card-body">
           <div class="row g-2 mb-3">
-            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode"><i class="fas fa-barcode me-2"></i>Barcode / ISBN scannen</button></div>
-            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc"><i class="fas fa-wifi me-2"></i>NFC lesen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode">Barcode / ISBN scannen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc">NFC lesen</button></div>
           </div>
           <div class="alert alert-secondary py-2 small" id="scan-status" role="status" aria-live="polite">ISBN kann jederzeit manuell eingegeben werden. ISBN-10 und ISBN-13 mit oder ohne Bindestriche werden unterstützt.</div>
           <div class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-3" id="camera-box" hidden><video id="camera-preview" autoplay playsinline muted></video></div>
@@ -107,8 +107,8 @@
             <input type="hidden" id="metadata-source" name="metadata_source">
             <input type="hidden" id="metadata-checked-at" name="metadata_checked_at">
             <div class="col-12 d-flex flex-wrap gap-2 sticky-bottom bg-body py-2 border-top">
-              <button id="inventory-save" class="btn btn-success btn-lg flex-grow-1" type="submit"><i class="fas fa-plus me-2"></i>Ins Inventar übernehmen</button>
-              <button class="btn btn-outline-dark book-only" type="button" id="amazon-search" hidden><i class="fab fa-amazon me-2"></i>Amazon suchen</button>
+              <button id="inventory-save" class="btn btn-success btn-lg flex-grow-1" type="submit">Ins Inventar übernehmen</button>
+              <button class="btn btn-outline-dark book-only" type="button" id="amazon-search" hidden>Amazon suchen</button>
             </div>
             <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" value="1" id="allow-duplicate" name="allow_duplicate"><label class="form-check-label" for="allow-duplicate">Trotz gleicher Barcode/NFC/ISBN-Kennung als weiteres Exemplar anlegen</label></div></div>
           </form>
@@ -126,7 +126,7 @@
             <div class="d-flex gap-3 align-items-start">
               {% set photos = item.inventory.photos|default([]) %}
               {% if photos %}<img src="{{ url_for('inventory.inventory_media', object_id=item.object_id, filename=photos[-1].filename) }}" alt="" loading="lazy" decoding="async" style="width:64px;height:64px;object-fit:cover" class="rounded border">{% endif %}
-              <div class="min-w-0 flex-grow-1"><div class="fw-semibold text-truncate">#{{ item.display_id }} {{ item.name }}</div><div class="small text-secondary text-truncate">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}{% if item.location %} · {{ item.location }}{% endif %}</div>{% if item.fields.get('isbn') %}<div class="small text-secondary">ISBN {{ item.fields.isbn }}</div>{% endif %}{% set rules = item.inventory.inspections|default([]) %}{% if rules %}{% set next_rule = rules|selectattr('active')|sort(attribute='next_due')|first %}{% if next_rule %}<div class="small mt-1"><i class="far fa-calendar-check me-1"></i>{{ next_rule.name }} · {{ next_rule.next_due }}</div>{% endif %}{% endif %}</div>
+              <div class="min-w-0 flex-grow-1"><div class="fw-semibold text-truncate">#{{ item.display_id }} {{ item.name }}</div><div class="small text-secondary text-truncate">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}{% if item.location %} · {{ item.location }}{% endif %}</div>{% if item.fields.get('isbn') %}<div class="small text-secondary">ISBN {{ item.fields.isbn }}</div>{% endif %}{% set rules = item.inventory.inspections|default([]) %}{% if rules %}{% set next_rule = rules|selectattr('active')|sort(attribute='next_due')|first %}{% if next_rule %}<div class="small mt-1">{{ next_rule.name }} · {{ next_rule.next_due }}</div>{% endif %}{% endif %}</div>
             </div>
           </a>
           {% else %}<div class="list-group-item text-secondary">Noch keine Inventarobjekte vorhanden.</div>{% endfor %}
