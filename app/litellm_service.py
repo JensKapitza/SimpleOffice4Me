@@ -72,7 +72,9 @@ def _compose(config):
         "general_settings": {"master_key": "os.environ/LITELLM_MASTER_KEY", "disable_error_logs": True},
         "litellm_settings": {"num_retries": 0, "request_timeout": config["timeout"], "telemetry": False},
         "router_settings": {"num_retries": 0, "timeout": config["timeout"]}}
-    _atomic_write(directory() / "config.yaml", json.dumps(model_config).encode(), mode=0o600)
+    # The mounted file contains only environment-variable references, not secret values.
+    # LiteLLM runs as a non-root UID and must be able to read the bind mount.
+    _atomic_write(directory() / "config.yaml", json.dumps(model_config).encode(), mode=0o644)
     compose = {"services": {"gateway": {
         "image": image_reference(config),
         "command": ["--config", "/app/config.yaml", "--port", "4000"],
