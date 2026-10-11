@@ -49,7 +49,7 @@ def new():
 
 @bp.get('/admin')
 def admin():
-    if g.user is None or not g.user['is_admin']:
+    if g.user is None or not g.user['is_admin'] or g.user['is_disabled']:
         abort(403)
     items = _db().execute("SELECT id,username,email FROM account_request WHERE status='pending' ORDER BY id").fetchall()
     return render_template_string(ADMIN,items=items,registration_enabled=_registration_enabled())
