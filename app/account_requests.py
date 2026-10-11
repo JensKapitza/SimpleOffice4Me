@@ -55,7 +55,7 @@ def admin():
 
 @bp.post('/admin/<int:request_id>')
 def decide(request_id):
-    if g.user is None or not g.user['is_admin']:
+    if g.user is None or not g.user['is_admin'] or g.user['is_disabled']:
         abort(403)
     if request.form.get('decision') not in ('approve','reject'):
         abort(400)
