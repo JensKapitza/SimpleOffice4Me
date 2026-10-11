@@ -66,6 +66,56 @@ class V2VirtualFileSystemStorageBoundaryTests(unittest.TestCase):
         self.assertEqual(CatalogState.DELETED, tombstone.value.state)
         self.assertFalse(load_cutover_state(self.root).dirty)
 
+    def test_authoritative_v2_move_does_not_require_plaintext_projection(self):
+        activate_v2(
+            self.root,
+            apply=True,
+            acknowledge_local_plaintext=True,
+        )
+        (self.root / "team" / "existing.txt").unlink()
+
+        moved = self.vfs.rename(
+            "admin",
+            "team/existing.txt",
+            "team/moved-without-projection.txt",
+            expected_source_sha256=self.existing["sha256"],
+        )
+
+        self.assertEqual(self.existing["document_id"], moved["document_id"])
+        row = self.catalog.get(LogicalObjectId(self.existing["document_id"]))
+        self.assertTrue(row.ok)
+        self.assertEqual("team/moved-without-projection.txt", row.value.location.relative_path)
+        self.assertEqual(
+            b"existing",
+            self.vfs.read_bytes("admin", "team/moved-without-projection.txt"),
+        )
+        self.assertFalse(load_cutover_state(self.root).dirty)
+
+    def test_authoritative_v2_delete_does_not_require_plaintext_projection(self):
+        activate_v2(
+            self.root,
+            apply=True,
+            acknowledge_local_plaintext=True,
+        )
+        (self.root / "team" / "existing.txt").unlink()
+
+        self.vfs.remove(
+            "admin",
+            "team/existing.txt",
+            expected_sha256=self.existing["sha256"],
+            directory=False,
+        )
+
+        row = self.catalog.get(
+            LogicalObjectId(self.existing["document_id"]),
+            include_deleted=True,
+        )
+        self.assertTrue(row.ok)
+        self.assertEqual(CatalogState.DELETED, row.value.state)
+        with self.assertRaises(FileNotFoundError):
+            self.vfs.read_bytes("admin", "team/existing.txt")
+        self.assertFalse(load_cutover_state(self.root).dirty)
+
     def test_vfs_copy_uses_storage_boundary_and_new_identity(self):
         copied = self.vfs.copy_file(
             "admin",
