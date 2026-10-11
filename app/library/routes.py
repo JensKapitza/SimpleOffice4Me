@@ -315,7 +315,8 @@ def _render_requested(kind: str):
     if kind == "text":
         return render_text(request.form.get("text", ""), settings)
     if kind == "barcode":
-        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""),\n                              show_text=request.form.get("barcode_style", "with_text") == "with_text")
+        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""),
+                              show_text=request.form.get("barcode_style", "with_text") == "with_text")
     if kind == "image":
         upload = request.files.get("image")
         return render_image(upload.read(12 * 1024 * 1024 + 1) if upload else b"", settings)
@@ -397,13 +398,15 @@ def export_books_csv():
 @login_required
 def optimize_ocr_image():
     """Return a preview copy; never replace the source image implicitly."""
-    from .image_preprocessing import MAX_UPLOAD\n    from .ocr_input import optimize_upload
+    from .image_preprocessing import MAX_UPLOAD
+    from .ocr_input import optimize_upload
     upload = request.files.get("image")
     if upload is None:
         return jsonify({"error": "Bild fehlt"}), 400
     data = upload.read(MAX_UPLOAD + 1)
     try:
-        optimized, source_format = optimize_upload(data,\n                                  page=int(request.form.get("page", "1")) - 1,
+        optimized, source_format = optimize_upload(data,
+                                  page=int(request.form.get("page", "1")) - 1,
                                   brighten=request.form.get("brighten", "1") == "1",
                                   straighten=request.form.get("straighten", "1") == "1")
     except ValueError as exc:
