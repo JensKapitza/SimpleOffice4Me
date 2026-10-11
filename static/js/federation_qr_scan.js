@@ -39,17 +39,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   cameraButton.addEventListener('click', async () => {
     if (scanning || stream) return;
-    if (!navigator.mediaDevices?.getUserMedia) {
-      status.textContent = 'Live-Kamera nicht verfügbar. HTTPS oder localhost und eine Kamerafreigabe sind erforderlich. Alternativ ein QR-Bild auswählen.';
-      return;
-    }
     if (!('BarcodeDetector' in window)) {
       imageInput.setAttribute('capture', 'environment');
       status.textContent = 'Die Kamera kann ein Foto aufnehmen, aber dieser Browser hat keinen eingebauten QR-Decoder. Bitte QR-Code als Foto aufnehmen; zur automatischen Auswertung ist ein zusätzlicher Decoder erforderlich.';
       imageInput.click();
+      imageInput.removeAttribute('capture');
       return;
     }
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      status.textContent = 'Live-Kamera benötigt HTTPS oder localhost. Alternativ QR-Bild auswählen.';
+      return;
+    }
     cameraButton.disabled = true;
     try {
       const detector = new BarcodeDetector({ formats: ['qr_code'] });
