@@ -1,6 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
   const imageInput = document.getElementById('qr-image');
   const cameraButton = document.getElementById('qr-camera-button');
+  const captureInput = document.createElement('input');
+  captureInput.type = 'file';
+  captureInput.accept = 'image/*';
+  captureInput.setAttribute('capture', 'environment');
+  captureInput.hidden = true;
+  document.body.appendChild(captureInput);
   const closeButton = document.getElementById('qr-camera-close');
   const preview = document.getElementById('qr-camera-preview');
   const cameraPanel = document.getElementById('qr-camera-panel');
@@ -11,6 +17,21 @@ document.addEventListener('DOMContentLoaded', () => {
   let stream = null;
   let scanning = false;
   let scanTimer = null;
+  const scanCanvas = document.createElement('canvas');
+  const scanContext = scanCanvas.getContext('2d', {willReadFrequently: true});
+
+  function decodePixels(source) {
+    if (typeof window.jsQR !== 'function' || !scanContext) return '';
+    const width = source.videoWidth || source.width;
+    const height = source.videoHeight || source.height;
+    if (!width || !height) return '';
+    const scale = Math.min(1, 1200 / Math.max(width, height));
+    scanCanvas.width = Math.max(1, Math.round(width * scale));
+    scanCanvas.height = Math.max(1, Math.round(height * scale));
+    scanContext.drawImage(source, 0, 0, scanCanvas.width, scanCanvas.height);
+    const frame = scanContext.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+    return window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'})?.data || '';
+  }
 
   function acceptPayload(value) {
     if (!value.startsWith('sofp://peer/')) {
@@ -40,17 +61,21 @@ document.addEventListener('DOMContentLoaded', () => {
   cameraButton.addEventListener('click', async () => {
     if (scanning || stream) return;
     if (!navigator.mediaDevices?.getUserMedia) {
-      status.textContent = 'Live-Kamera nicht verfügbar. HTTPS oder localhost und eine Kamerafreigabe sind erforderlich. Alternativ ein QR-Bild auswählen.';
-      return;
-    }
-    if (!('BarcodeDetector' in window)) {
-      status.textContent = 'Dieser Browser unterstützt keine QR-Erkennung im Kamerabild. Bitte einen kompatiblen Browser oder den Bild-Upload verwenden.';
+      status.textContent = 'Foto aufnehmen und QR-Code lokal auswerten.';
+      captureInput.click();
       return;
     }
 
     cameraButton.disabled = true;
     try {
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
+      let detector = null;
+      if (typeof window.BarcodeDetector === 'function') {
+        try { detector = new BarcodeDetector({ formats: ['qr_code'] }); }
+        catch (_error) { /* Use the bundled decoder instead. */ }
+      }
+      if (!detector && typeof window.jsQR !== 'function') {
+        throw new Error('No QR decoder available');
+      }
       stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: 'environment' } }, audio: false
       });
@@ -63,8 +88,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const scan = async () => {
         if (!scanning) return;
         try {
-          const codes = await detector.detect(preview);
-          const value = (codes[0]?.rawValue || '').trim();
+          let value = '';
+          if (detector) {
+            try {
+              const codes = await detector.detect(preview);
+              value = (codes[0]?.rawValue || '').trim();
+            } catch (_error) {
+              // Browser-native detection can fail; try the local decoder.
+            }
+          }
+          if (!value) value = decodePixels(preview).trim();
           if (value && acceptPayload(value)) {
             stopCamera();
             return;
@@ -79,33 +112,41 @@ document.addEventListener('DOMContentLoaded', () => {
       stopCamera();
       status.textContent = error?.name === 'NotAllowedError'
         ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
-        : 'Kamera konnte nicht gestartet werden. Kamera und Browserberechtigungen prüfen.';
+        : 'Kamera konnte nicht gestartet werden. Kamera, Browserberechtigungen und QR-Decoder prüfen.';
     }
   });
 
-  imageInput.addEventListener('change', async () => {
-    const file = imageInput.files?.[0];
+  async function processImage(event) {
+    const sourceInput = event.currentTarget;
+    const file = sourceInput.files?.[0];
     if (!file) return;
-    if (!('BarcodeDetector' in window)) {
-      status.textContent = 'QR-Erkennung wird von diesem Browser nicht unterstützt. Payload bitte manuell einfügen.';
-      return;
-    }
-    status.textContent = 'QR-Code wird gelesen …';
-    let image;
+    status.textContent = 'QR-Foto wird lokal ausgewertet …';
+    let bitmap;
     try {
-      image = await createImageBitmap(file);
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const codes = await detector.detect(image);
-      if (!codes.length) {
-        status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Bild auswählen.';
-        return;
+      bitmap = await createImageBitmap(file);
+      let value = '';
+      if (typeof window.BarcodeDetector === 'function') {
+        try {
+          const detector = new BarcodeDetector({ formats: ['qr_code'] });
+          const codes = await detector.detect(bitmap);
+          value = (codes[0]?.rawValue || '').trim();
+        } catch (_error) {
+          // Unsupported formats and native detector errors use the local decoder.
+        }
       }
-      acceptPayload((codes[0].rawValue || '').trim());
+      if (!value) value = decodePixels(bitmap).trim();
+      if (!value) {
+        status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Foto auswählen.';
+      } else {
+        acceptPayload(value);
+      }
     } catch (_error) {
-      status.textContent = 'QR-Code konnte nicht gelesen werden.';
+      status.textContent = 'QR-Foto konnte nicht verarbeitet werden.';
     } finally {
-      if (image && typeof image.close === 'function') image.close();
-      imageInput.value = '';
+      bitmap?.close?.();
+      sourceInput.value = '';
     }
-  });
+  }
+  imageInput.addEventListener('change', processImage);
+  captureInput.addEventListener('change', processImage);
 });
