@@ -120,45 +120,30 @@ document.addEventListener('DOMContentLoaded', () => {
     const sourceInput = event.currentTarget;
     const file = sourceInput.files?.[0];
     if (!file) return;
-    if (!('BarcodeDetector' in window) || !window.isSecureContext) {
-      status.textContent = 'QR-Foto wird lokal ausgewertet …';
-      try {
-        const bitmap = await createImageBitmap(file);
-        try {
-          const canvas = document.createElement('canvas');
-          const ratio = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
-          canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
-          canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
-          const context = canvas.getContext('2d', {willReadFrequently: true});
-          context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-          if (typeof window.jsQR === 'function') {
-            const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
-            const decoded = window.jsQR(pixels.data, pixels.width, pixels.height, {inversionAttempts: 'attemptBoth'});
-            if (decoded?.data) acceptPayload(decoded.data.trim());
-            else status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Foto auswählen.';
-          } else {
-            status.textContent = 'Dieser Browser benötigt den lokalen QR-Decoder (jsQR). Bitte BarcodeDetector verwenden oder Payload manuell einfügen.';
-          }
-        } finally { bitmap.close?.(); }
-      } catch (_error) { status.textContent = 'QR-Foto konnte nicht verarbeitet werden.'; }
-      finally { sourceInput.value = ''; }
-      return;
-    }
-    status.textContent = 'QR-Code wird gelesen …';
-    let image;
+    status.textContent = 'QR-Foto wird lokal ausgewertet …';
+    let bitmap;
     try {
-      image = await createImageBitmap(file);
-      const detector = new BarcodeDetector({ formats: ['qr_code'] });
-      const codes = await detector.detect(image);
-      if (!codes.length) {
-        status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Bild auswählen.';
-        return;
+      bitmap = await createImageBitmap(file);
+      let value = '';
+      if (typeof window.BarcodeDetector === 'function') {
+        try {
+          const detector = new BarcodeDetector({ formats: ['qr_code'] });
+          const codes = await detector.detect(bitmap);
+          value = (codes[0]?.rawValue || '').trim();
+        } catch (_error) {
+          // Unsupported formats and native detector errors use the local decoder.
+        }
       }
-      acceptPayload((codes[0].rawValue || '').trim());
+      if (!value) value = decodePixels(bitmap).trim();
+      if (!value) {
+        status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Foto auswählen.';
+      } else {
+        acceptPayload(value);
+      }
     } catch (_error) {
-      status.textContent = 'QR-Code konnte nicht gelesen werden.';
+      status.textContent = 'QR-Foto konnte nicht verarbeitet werden.';
     } finally {
-      if (image && typeof image.close === 'function') image.close();
+      bitmap?.close?.();
       sourceInput.value = '';
     }
   }
