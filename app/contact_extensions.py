@@ -324,7 +324,7 @@ def _parse_address_rows(text: str) -> list[dict[str, str]]:
     return result
 
 
-def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
+def _eml_preview(root: Path, document_id: str, actor: str, *, include_body: bool = True) -> dict[str, Any]:
     store = DocumentStore(root); document = store.get_document(document_id)
     if Path(str(document.get("last_path") or "")).suffix.casefold() != ".eml":
         raise ValueError("document is not a regular EML file")
@@ -337,7 +337,7 @@ def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
         payload = part.get_payload(decode=True) or b""
         attachments.append({"part": index, "name": _header(part.get_filename()) or f"Anhang-{index}", "type": part.get_content_type(), "size": len(payload), "inline": part.get_content_disposition() == "inline", "content_id": str(part.get("Content-ID", "")).strip("<> \t\r\n")[:256]})
     html_body = ""
-    for part in message.walk():
+    for part in message.walk() if include_body else ():
         if part.get_content_type() != "text/html" or part.get_content_disposition() == "attachment" or part.get_filename():
             continue
         try:
@@ -347,7 +347,7 @@ def _eml_preview(root: Path, document_id: str, actor: str) -> dict[str, Any]:
         if isinstance(candidate, str):
             html_body = candidate[:262144]
             break
-    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message), "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments), "has_inline_images": any(item["inline"] and item["type"].startswith("image/") for item in attachments)}
+    return {"subject": _header(message.get("Subject")) or "(ohne Betreff)", "from": _header(message.get("From")), "to": _header(message.get("To")), "cc": _header(message.get("Cc")), "reply_to": _header(message.get("Reply-To")), "date": _header(message.get("Date")), "message_id": _header(message.get("Message-ID")), "text": _message_text(message) if include_body else "", "html": html_body, "attachments": attachments, "attachment_count": len(attachments), "attachment_bytes": sum(item["size"] for item in attachments), "has_inline_images": any(item["inline"] and item["type"].startswith("image/") for item in attachments)}
 
 
 def register(bp) -> None:
