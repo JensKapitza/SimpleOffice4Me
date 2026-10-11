@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
       imageInput.setAttribute('capture', 'environment');
       status.textContent = 'Die Kamera kann ein Foto aufnehmen, aber dieser Browser hat keinen eingebauten QR-Decoder. Bitte QR-Code als Foto aufnehmen; zur automatischen Auswertung ist ein zusätzlicher Decoder erforderlich.';
       imageInput.click();
-      imageInput.removeAttribute('capture');
+      setTimeout(() => imageInput.removeAttribute('capture'), 0);
       return;
     }
 
@@ -90,8 +90,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const file = imageInput.files?.[0];
     if (!file) return;
     if (!('BarcodeDetector' in window)) {
-      status.textContent = 'Foto ausgewählt. Dieser Browser bietet keinen QR-Decoder; die Bildauswertung benötigt eine zusätzliche Decoder-Implementierung. QR-Payload bitte vorerst manuell einfügen.';
-      imageInput.value = '';
+      status.textContent = 'QR-Foto wird lokal ausgewertet …';
+      try {
+        const bitmap = await createImageBitmap(file);
+        try {
+          const canvas = document.createElement('canvas');
+          const ratio = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+          canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+          canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
+          const context = canvas.getContext('2d', {willReadFrequently: true});
+          context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+          if (typeof window.jsQR === 'function') {
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+            const decoded = window.jsQR(pixels.data, pixels.width, pixels.height, {inversionAttempts: 'attemptBoth'});
+            if (decoded?.data) acceptPayload(decoded.data.trim());
+            else status.textContent = 'Kein QR-Code erkannt. Bitte ein schärferes Foto auswählen.';
+          } else {
+            status.textContent = 'Dieser Browser benötigt den lokalen QR-Decoder (jsQR). Bitte BarcodeDetector verwenden oder Payload manuell einfügen.';
+          }
+        } finally { bitmap.close?.(); }
+      } catch (_error) { status.textContent = 'QR-Foto konnte nicht verarbeitet werden.'; }
+      finally { imageInput.value = ''; }
       return;
     }
     status.textContent = 'QR-Code wird gelesen …';
