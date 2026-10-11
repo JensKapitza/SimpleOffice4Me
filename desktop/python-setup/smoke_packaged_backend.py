@@ -8,43 +8,71 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-binary = Path(sys.argv[1]).resolve()
-if not binary.is_file():
-    raise SystemExit(f"Missing packaged backend: {binary}")
-with tempfile.TemporaryDirectory(prefix="simpleoffice-smoke-") as tmp:
-    env = os.environ.copy()
-    env.update({
-        "SIMPLEOFFICE_DATA_DIR": str(Path(tmp) / "data"),
-        "SIMPLEOFFICE_INSTANCE_DIR": str(Path(tmp) / "data" / "instance"),
-        "SIMPLEOFFICE_DOCUMENT_ROOT": str(Path(tmp) / "documents"),
-        "SIMPLEOFFICE_PORT": "18765",
-        "SIMPLEOFFICE_HOST": "127.0.0.1",
-        "SIMPLEOFFICE_BACKGROUND_INDEX": "0",
-        "SIMPLEOFFICE_OSM_INDEX": "0",
-        "SIMPLEOFFICE_DATALOGGER": "0",
-        "PATH": str(binary.parent),
-        "PYTHONHOME": "",
-        "PYTHONPATH": "",
-    })
-    proc = subprocess.Popen([str(binary)], cwd=tmp, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    try:
-        deadline = time.monotonic() + 90
-        while time.monotonic() < deadline:
-            if proc.poll() is not None:
-                raise RuntimeError(f"Backend exited with code {proc.returncode}")
+
+def main() -> None:
+    binary = Path(sys.argv[1]).resolve()
+    if not binary.is_file():
+        raise SystemExit(f"Missing packaged backend: {binary}")
+
+    with tempfile.TemporaryDirectory(prefix="simpleoffice-smoke-") as tmp:
+        root = Path(tmp)
+        env = os.environ.copy()
+        env.update({
+            "SIMPLEOFFICE_DATA_DIR": str(root / "data"),
+            "SIMPLEOFFICE_INSTANCE_DIR": str(root / "data" / "instance"),
+            "SIMPLEOFFICE_DOCUMENT_ROOT": str(root / "documents"),
+            "SIMPLEOFFICE_PORT": "18765",
+            "SIMPLEOFFICE_HOST": "127.0.0.1",
+            "SIMPLEOFFICE_BACKGROUND_INDEX": "0",
+            "SIMPLEOFFICE_OSM_INDEX": "0",
+            "SIMPLEOFFICE_DATALOGGER": "0",
+            "PATH": str(binary.parent),
+            "PYTHONHOME": "",
+            "PYTHONPATH": "",
+        })
+        log_path = root / "backend.log"
+        # A file avoids filling an unread PIPE during slow backend initialization.
+        with log_path.open("w+b") as log:
+            proc = subprocess.Popen(
+                [str(binary)], cwd=tmp, env=env, stdout=log,
+                stderr=subprocess.STDOUT,
+            )
+            failure = None
             try:
-                with urllib.request.urlopen("http://127.0.0.1:18765/", timeout=2) as response:
-                    if response.status < 500:
-                        print(f"Packaged backend HTTP smoke passed: {response.status}")
+                deadline = time.monotonic() + 90
+                while time.monotonic() < deadline:
+                    if proc.poll() is not None:
+                        failure = f"Backend exited with code {proc.returncode}"
                         break
-            except (urllib.error.URLError, TimeoutError):
-                time.sleep(1)
-        else:
-            raise RuntimeError("Packaged backend did not respond within 90 seconds")
-    finally:
-        proc.terminate()
-        try:
-            proc.communicate(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.communicate()
+                    try:
+                        with urllib.request.urlopen(
+                            "http://127.0.0.1:18765/", timeout=2
+                        ) as response:
+                            if response.status < 500:
+                                print(f"Packaged backend HTTP smoke passed: {response.status}")
+                                break
+                    except (urllib.error.URLError, TimeoutError):
+                        time.sleep(1)
+                else:
+                    failure = "Packaged backend did not respond within 90 seconds"
+            finally:
+                if proc.poll() is None:
+                    proc.terminate()
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                if failure:
+                    log.flush()
+                    log.seek(0)
+                    output = log.read().decode("utf-8", errors="replace")
+                    print("=== Packaged backend stdout/stderr ===", file=sys.stderr)
+                    print(output[-30000:] if output else "(no backend output)", file=sys.stderr)
+                    print("=== End packaged backend output ===", file=sys.stderr)
+            if failure:
+                raise RuntimeError(failure)
+
+
+if __name__ == "__main__":
+    main()
