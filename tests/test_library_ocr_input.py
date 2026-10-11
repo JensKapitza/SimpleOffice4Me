@@ -14,7 +14,7 @@ class OCRInputTests(unittest.TestCase):
         image.save(buffer, format="PNG")
         result, kind = optimize_upload(buffer.getvalue(), straighten=False)
         self.assertEqual(kind, "image")
-        self.assertTrue(result.startswith(b"\\x89PNG"))
+        self.assertTrue(result.startswith(bytes([0x89]) + b"PNG"))
 
     def test_reject_unknown_bytes(self):
         with self.assertRaises(ValueError):
