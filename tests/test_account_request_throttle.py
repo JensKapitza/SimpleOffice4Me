@@ -4,13 +4,27 @@ import unittest
 
 from unittest.mock import patch
 
-from werkzeug.exceptions import TooManyRequests
+from werkzeug.exceptions import BadRequest, TooManyRequests
+from app import account_requests
 
 from app import app
 from app.account_requests import _check_request_rate
 
 
 class AccountRequestThrottleTests(unittest.TestCase):
+    def test_invalid_submission_still_consumes_throttle_slot(self):
+        with app.test_request_context(
+            "/auth/account-requests/new", method="POST",
+            data={"username": "!", "email": "invalid", "password": "weak"},
+        ):
+            with patch.object(account_requests, "_registration_enabled", return_value=True), \
+                 patch.object(account_requests, "_db") as database, \
+                 patch.object(account_requests, "_check_request_rate") as throttle:
+                with self.assertRaises(BadRequest):
+                    account_requests.new()
+                database.assert_called_once_with()
+                throttle.assert_called_once_with(database.return_value)
+
     def test_sixth_request_is_limited_per_client(self):
         db = sqlite3.connect(":memory:")
         db.row_factory = sqlite3.Row
