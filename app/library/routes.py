@@ -315,7 +315,7 @@ def _render_requested(kind: str):
     if kind == "text":
         return render_text(request.form.get("text", ""), settings)
     if kind == "barcode":
-        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""))
+        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""),\n                              show_text=request.form.get("barcode_style", "with_text") == "with_text")
     if kind == "image":
         upload = request.files.get("image")
         return render_image(upload.read(12 * 1024 * 1024 + 1) if upload else b"", settings)
