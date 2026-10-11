@@ -69,7 +69,8 @@ class BootstrapSecurityTests(unittest.TestCase):
         return sorted(response.status_code for response in responses)
 
     def test_concurrent_first_registrations_close_admission_after_one_account(self):
-        self.assertEqual([302, 403], self._concurrent_registration(public=False))
+        # Registration settings allow account requests, not direct active users.
+        self.assertEqual([302, 302], self._concurrent_registration(public=False))
         users = self._users()
         self.assertEqual(1, len(users))
         self.assertEqual(1, users[0]["is_admin"])
@@ -77,8 +78,15 @@ class BootstrapSecurityTests(unittest.TestCase):
     def test_public_registration_still_grants_only_one_bootstrap_admin(self):
         self.assertEqual([302, 302], self._concurrent_registration(public=True))
         users = self._users()
-        self.assertEqual(2, len(users))
+        self.assertEqual(1, len(users))
         self.assertEqual(1, sum(user["is_admin"] for user in users))
+
+    def test_second_unauthenticated_registration_requires_approval(self):
+        self.assertEqual(302, self._register("owner").status_code)
+        response = self._register("unapproved")
+        self.assertEqual(303, response.status_code)
+        self.assertTrue(response.headers["Location"].endswith("/auth/account-requests/new"))
+        self.assertEqual([{"username": "owner", "is_admin": 1}], self._users())
 
     def _google_callback(self, client):
         client.get("/auth/google")
