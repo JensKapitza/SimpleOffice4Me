@@ -257,6 +257,7 @@ class ContactExtensionsTest(unittest.TestCase):
         self.assertIn("Ordinary body", preview["text"])
         self.assertEqual("attachment.html", preview["attachments"][0]["name"])
         self.assertTrue(preview["attachments"][0]["inline"])
+        self.assertEqual("", preview["attachments"][0]["content_id"])
         self.assertFalse(preview["has_inline_images"])
 
     def test_eml_preview_template_has_no_script_dependent_view_switch(self):
