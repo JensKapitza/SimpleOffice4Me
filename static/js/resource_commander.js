@@ -388,6 +388,8 @@
     secondary.hidden = !secondaryLabel;
     fields.hidden = !primaryLabel;
     primary.required = Boolean(primaryLabel);
+    primary.disabled = !primaryLabel;
+    secondary.disabled = !secondaryLabel;
     primary.value = '';
     secondary.value = '';
     const confirm = document.getElementById('commander-dialog-confirm');
@@ -401,6 +403,7 @@
         finished = true;
         form.removeEventListener('submit', accept);
         dialog.removeEventListener('close', closed);
+        dialog.removeEventListener('cancel', cancelled);
         if (dialog.open) dialog.close();
         resolve(value);
       };
@@ -409,8 +412,10 @@
         settle({primary: primary.value.trim(), secondary: secondary.value.trim()});
       };
       const closed = () => settle(null);
+      const cancelled = event => { event.preventDefault(); settle(null); };
       form.addEventListener('submit', accept);
       dialog.addEventListener('close', closed);
+      dialog.addEventListener('cancel', cancelled);
       document.getElementById('commander-dialog-cancel').onclick = () => settle(null);
       document.getElementById('commander-dialog-close').onclick = () => settle(null);
       dialog.showModal();
