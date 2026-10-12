@@ -369,6 +369,10 @@ def export_books_csv():
     """Stream CSV rows to avoid accumulating the entire export in memory."""
     from flask import stream_with_context
 
+    # Whole-catalog exports require administrator access until record-level ACL exists.
+    if not g.user["is_admin"] or g.user["is_disabled"]:
+        abort(403)
+
     # Capture request-scoped storage before the response starts streaming.
     library = _store()
     objects = _objects()
@@ -381,7 +385,7 @@ def export_books_csv():
         yield output.getvalue()
         output.seek(0)
         output.truncate(0)
-        for item in objects.objects():
+        for item in objects.iter_objects():
             fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
             tags = {str(tag).casefold() for tag in item.get("tags", [])}
             if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
