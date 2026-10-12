@@ -8,7 +8,7 @@
   <div id="login-qr-carousel" class="text-center" aria-roledescription="Karussell">
     {% for target in login_qr_targets %}
     <div class="login-qr-slide" data-qr-slide {% if not loop.first %}hidden{% endif %}>
-      {% if target.qr %}<img src="{{ target.qr }}" alt="QR-Code für {{ target.url }}" width="224" height="224" style="background:white;padding:8px;max-width:100%;height:auto" loading="lazy">{% endif %}
+      {% if target.qr %}<img src="{{ target.qr }}" alt="QR-Code für {{ target.url }}" width="224" height="224" style="background:white;padding:8px;max-width:100%;height:auto" loading="lazy" decoding="async">{% endif %}
       <p class="fw-semibold mt-2 mb-1">{{ target.label }}</p>
       <a class="small text-break d-block" href="{{ target.url }}">{{ target.url }}</a>
     </div>
