@@ -469,7 +469,7 @@ def analyze_ocr_upload():
         logger.warning("OCR failed with status %s", result.get("status"))
         return jsonify({"error": "OCR-Verarbeitung derzeit nicht verfügbar", "status": "failed"}), 503
     import re
-    words = re.findall(r"[^\\W_][\\w-]{3,}", result.get("text", ""), flags=re.UNICODE)
+    words = re.findall(r"[^\W_][\w-]{3,}", result.get("text", ""), flags=re.UNICODE)
     keywords = list(dict.fromkeys(word.casefold()[:48] for word in words if not word.isdigit()))[:20]
     return jsonify({"status": "completed", "source_format": source_format,
                     "page": page + 1, "text": result.get("text", ""),
