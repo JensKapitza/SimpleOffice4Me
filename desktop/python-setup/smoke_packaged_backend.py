@@ -29,6 +29,8 @@ def main() -> None:
             "PATH": os.pathsep.join(filter(None, (str(binary.parent), os.environ.get("PATH", "")))),
             "PYTHONHOME": "",
             "PYTHONPATH": "",
+            "PYTHONUTF8": "1",
+            "PYTHONIOENCODING": "utf-8",
         })
         log_path = root / "backend.log"
         # A file avoids filling an unread PIPE during slow backend initialization.
