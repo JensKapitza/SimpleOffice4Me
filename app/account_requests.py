@@ -212,6 +212,15 @@ def accept_invite(token):
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
+    # Reject invalid, expired or already used tokens before expensive password
+    # hashing. The authoritative check remains inside BEGIN IMMEDIATE below.
+    existing = db.execute(
+        """SELECT 1 FROM account_invitation AS i JOIN user AS u ON u.id=i.user_id
+           WHERE i.token_hash=? AND i.expires_at>? AND i.used_at IS NULL AND u.is_disabled=1""",
+        (digest, int(time.time())),
+    ).fetchone()
+    if existing is None:
+        abort(404)
     password = request.form.get('password', '')
     if not 12 <= len(password) <= 128:
         abort(400)
