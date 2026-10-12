@@ -5,7 +5,7 @@ import hmac
 import time
 import secrets
 import re
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template_string, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, redirect, render_template_string, request, url_for, make_response
 from .db import get_db
 from .auth import _registration_enabled
 from .password_security import hash_password
@@ -176,7 +176,10 @@ def invite():
     # Token appears only in the authenticated administrator's response.
     # It must be passed to the recipient over a trusted channel.
     link = url_for('account_requests.accept_invite', token=token, _external=True)
-    return render_template_string("""{% extends 'layout.html' %}{% block title %}Einladung{% endblock %}{% block body %}<main class="container py-4"><h1>Einladung erstellt</h1><p>Dieser Link wird nur einmal angezeigt. Sicher an den Benutzer übermitteln:</p><code id="invitation-link">{{ link }}</code></main>{% endblock %}""", link=link)
+    response = make_response(render_template_string("""{% extends 'layout.html' %}{% block title %}Einladung{% endblock %}{% block body %}<main class="container py-4"><h1>Einladung erstellt</h1><p>Dieser Link wird nur einmal angezeigt. Sicher an den Benutzer übermitteln:</p><code id="invitation-link">{{ link }}</code></main>{% endblock %}""", link=link))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @bp.route('/invite/<token>', methods=['GET', 'POST'])
@@ -194,7 +197,10 @@ def accept_invite(token):
         ).fetchone()
         if valid is None:
             abort(404)
-        return render_template_string(INVITE_FORM)
+        response = make_response(render_template_string(INVITE_FORM))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
     password = request.form.get('password', '')
     if not 12 <= len(password) <= 128:
         abort(400)
