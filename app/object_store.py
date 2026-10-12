@@ -63,6 +63,20 @@ class ObjectStore:
             ]
         return sorted(objects, key=lambda item: (int(item.get("sequence_id", 0)), item.get("name", "").casefold()))
 
+    def iter_objects(self):
+        """Iterate catalog entries without loading the entire inventory."""
+        self._ensure_sequences()
+        width = self.sequence_width()
+        for path in self.directory.glob("*.json"):
+            if path.name == "sequence.json":
+                continue
+            raw = self._read(path)
+            if not raw:
+                continue
+            item = self._normalized_item(raw)
+            item["display_id"] = self.format_sequence(item.get("sequence_id", 0), width)
+            yield item
+
     def object(self, object_id: str) -> dict[str, Any]:
         """Resolve a UUID or any zero-padded representation of the permanent sequence ID."""
         self._ensure_sequences()
@@ -229,7 +243,7 @@ class ObjectStore:
 
     def sequence_width(self, items: list[dict[str, Any]] | None = None) -> int:
         if items is None:
-            items = [item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path))]
+            items = (item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path)))
         highest = max((int(item.get("sequence_id", 0) or 0) for item in items), default=0)
         highest = max(highest, int(self._read_sequence_state().get("last", 0) or 0))
         return max(1, len(str(highest or 1)))
@@ -271,12 +285,14 @@ class ObjectStore:
         for path in self.directory.glob("*.json"):
             if path.name == "sequence.json": continue
             item = self._read(path)
-            if item and not int(item.get("sequence_id", 0) or 0): missing.append((path, item))
+            if item and not int(item.get("sequence_id", 0) or 0):
+                missing.append((path, str(item.get("created_at", "")), item.get("object_id", "")))
         if not missing: return
-        missing.sort(key=lambda row: (str(row[1].get("created_at", "")), row[1].get("object_id", "")))
+        # Keep only the legacy ordering keys, not every full metadata document.
+        missing.sort(key=lambda row: (row[1], row[2]))
         with exclusive_file_lock(self.sequence_lock):
             state = self._read_sequence_state(); last = max(int(state.get("last", 0) or 0), self._max_existing_sequence())
-            for path, item in missing:
+            for path, _, _ in missing:
                 fresh = self._read(path)
                 if not fresh or int(fresh.get("sequence_id", 0) or 0): continue
                 last += 1; fresh["sequence_id"] = last

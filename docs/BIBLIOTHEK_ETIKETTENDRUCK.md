@@ -79,3 +79,75 @@ Der Verlauf enthält keine Bilddaten und wird auf die letzten 500 Bibliotheksere
 - Bild-Uploads für Etiketten sind auf 12 MiB begrenzt.
 - Alle Browser-Schreibaktionen verwenden den vorhandenen CSRF-Schutz.
 - Druckeinstellungen enthalten keine Kennwörter. Falls ein Druckweg künftig Zugangsdaten benötigt, gehören diese in den bestehenden Secret-/Credential-Mechanismus und nicht in `library/state.json`.
+
+
+## CSV-Gesamt- und Auswahl-Export
+
+Administratoren erreichen **Bücher als CSV exportieren** im Bibliothekskopf.
+Die Checkboxen bei **Bücher & Standorte** wählen einzelne Exemplare aus;
+ohne Auswahl exportiert **CSV exportieren** den gesamten gültigen Buchbestand.
+Der Gesamtexport besitzt kein 500-Zeilen-Limit der Übersichten. Mehrere Exemplare
+mit derselben ISBN bleiben eigene Datensätze mit ihrer Inventarnummer.
+
+Der bestehende physische ObjectStore ist ein gemeinsamer Instanzbestand.
+Gesamt- und Auswahl-Exporte erfordern die zentrale Administratorberechtigung;
+reguläre Benutzer erhalten HTTP 403. Daten werden ausschließlich aus dem
+konfigurierten Dokumenten-Root gelesen. Benutzer-, Root- oder Tenant-Angaben in
+URL-Parametern ändern weder Rolle noch Datenquelle. `created_by` bleibt
+Erstellungsprovenienz, es wird keine parallele Objekt-Rechteverwaltung eingeführt.
+
+Die öffentliche API ist `GET /library/export/books.csv`. Wiederholte
+`object_id`-Parameter wählen UUIDs oder bestehende Inventarnummern aus. Doppelte
+Referenzen werden zusammengeführt. Maximal 500 Referenzen pro Auswahl sind
+zulässig (darüber HTTP 400); unbekannte, ungültige, außerhalb der Datenquelle
+liegende oder Nicht-Buch-Referenzen ergeben HTTP 404 vor der CSV-Ausgabe.
+Ohne Parameter werden alle Buchdatensätze zeilenweise gelesen. Bestehende
+Standortzuordnungen liefern Standortpfad und Regalcode auch ohne kopierte
+Standortfelder im Objekt. Der Standortindex wird einmal pro Export gelesen;
+Legacy-Inventarnummern behalten ihre bisherige Vergabereihenfolge.
+
+Spalten: `ID`, `Titel`, `ISBN`, `Autoren`, `Genre`, `Reihe`, `Band`, `Standort`,
+`Regalcode`. Ausgabe: UTF-8 mit BOM, CSV-Quoting, feste Dateibezeichnung,
+`Cache-Control: no-store` und `X-Content-Type-Options: nosniff`. Formelanfänge
+`=`, `+`, `-`, `@` werden auch hinter führenden Steuerzeichen, Leerraum oder BOM
+mit einem Apostroph geschützt. Die Originalwerte in der Bibliothek bleiben
+unverändert. Unbekannte Zusatzfelder werden nicht exportiert. Der Export ist eine
+Bibliotheksübersicht; die bestehende Datensicherung wird weiterhin separat genutzt.
+
+Der zentrale Audit erfasst Benutzer, Ergebnis und Zahl der erzeugten Zeilen,
+keine Titel, Bilder oder fachlichen Nutzdaten. Erfolg entsteht erst nach vollständiger
+Erzeugung; ein vorzeitig beendeter Stream wird als unvollständig protokolliert.
+Eine erzeugte Ausgabe ist keine Bestätigung, dass der Client sie gespeichert hat.
+
+## Lokale Buchseiten-Vorschau und OCR
+
+Im Massen-Scan können Fotos sowie optional einzelne PDF-Seiten vorbereitet werden.
+JPEG, PNG, WEBP, TIFF und BMP werden erkannt. Eingaben sind auf 12 MiB und
+24 Megapixel begrenzt; Bildbomben und ungültige Seiten sind HTTP-400-Eingabefehler.
+Fehlendes CSRF ergibt wie bei anderen geschützten Schreib-APIs HTTP 403.
+Vorschauen verwenden PNG und höchstens 2000 Pixel an der längsten Seite.
+Orientierung, Schräglage und Kontrast werden nur in der Vorschau geändert;
+das Original wird nicht ersetzt. Nach Wechsel von Datei oder Optionen werden
+alte Resultate verworfen, damit schnell folgende Bücher nicht vermischt werden.
+
+PDF-Rasterung verwendet das bereits für Dokumentvorschauen genutzte optionale
+Systemwerkzeug `pdftoppm`: eine ausgewählte Seite (1–2000), höchstens 15 Sekunden,
+private temporäre Dateien und keine neue Python-Parser-Abhängigkeit. Fehlende
+Werkzeuge oder unlesbare/geschützte PDFs benötigen eine Bilddatei als Fallback.
+Lokale Texterkennung nutzt den bestehenden Tesseract-Service mit 15 Sekunden
+pro Sprachversuch (höchstens zwei Versuche). Bestehende andere OCR-Aufrufer
+behalten ihr Zeitbudget. Die Oberfläche zeigt nicht verfügbare Funktionen an.
+
+Pro Instanz läuft nur eine Bild-/OCR-Anfrage gleichzeitig über die vorhandene
+Kontroll-Lease; parallele Anfragen erhalten HTTP 503 mit Wiederholungshinweis.
+Die APIs `/library/ocr/optimize` und `/library/ocr/analyze` verlangen Anmeldung
+und CSRF. Vorschau, erkannter Text und Tag-Vorschläge werden nicht automatisch
+als Buch oder Dokument gespeichert. Text und Vorschläge müssen vom Benutzer
+geprüft und bewusst übernommen werden; OCR-Ausfälle veröffentlichen keine
+Parser-/Prozessdetails oder Bilder im Diagnoseprotokoll.
+
+Diese Erweiterung verwendet die vorhandenen Inventar-, Standort-, Druck-, Auth-
+und OCR-Dienste. Die weiteren Anforderungen aus #658, insbesondere vollständige
+Werk-/Ausgabenmodelle und weitere Austauschformate, werden weiterhin im
+übergeordneten Issue geführt; sie werden durch diesen Teilumfang nicht als
+abgenommen markiert.

@@ -1,15 +1,22 @@
 """Library workflow UI: shelf labels, bulk book assignment and label printing."""
 from __future__ import annotations
 
+import csv
+import io
 import logging
+import shutil
 from pathlib import Path
+from functools import wraps
+from tools.service_control import exclusive_lease
 from typing import Any
 from urllib.parse import urlencode
 
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from ..auth import login_required
+from ..access_control import audit, is_admin
 from ..object_store import ObjectStore
+from ..document_store import CONTROL_DIR
 from .printer import (
     LABELS,
     MODELS,
@@ -26,6 +33,14 @@ from .store import LibraryStore
 
 bp = Blueprint("library", __name__, url_prefix="/library")
 logger = logging.getLogger(__name__)
+
+
+@bp.after_request
+def protect_export_and_ocr_responses(response):
+    if request.endpoint in {"library.export_books_csv", "library.optimize_ocr_image", "library.analyze_ocr_upload"}:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def _root() -> Path:
@@ -161,6 +176,8 @@ def index():
         books=_books_with_assignments(request.args.get("q", ""), 80),
         events=_store().recent_events(25),
         discovered=discover_printers(),
+        ocr_available=bool(shutil.which("tesseract")),
+        pdf_available=bool(shutil.which("pdftoppm")),
     )
 
 
@@ -270,7 +287,7 @@ def print_location(location_id: str):
         flash(f"Regaletikett {location['code']} wurde gedruckt.")
     except (OSError, PrinterError, ValueError) as exc:
         library.record_print(_actor(), kind="location", status="failed", summary=location_id, error=str(exc))
-        flash(f"Etikett konnte nicht gedruckt werden: {exc}")
+        flash("Etikett konnte nicht gedruckt werden. Bitte Druckereinstellungen prüfen.")
     return redirect(url_for("library.index", location=location_id) + "#locations")
 
 
@@ -313,7 +330,8 @@ def _render_requested(kind: str):
     if kind == "text":
         return render_text(request.form.get("text", ""), settings)
     if kind == "barcode":
-        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""))
+        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""),
+                              show_text=request.form.get("barcode_style", "with_text") == "with_text")
     if kind == "image":
         upload = request.files.get("image")
         return render_image(upload.read(12 * 1024 * 1024 + 1) if upload else b"", settings)
@@ -342,7 +360,7 @@ def printer_print(kind: str):
         flash("Etikett wurde an den Brother-Drucker gesendet.")
     except (OSError, PrinterError, ValueError) as exc:
         library.record_print(_actor(), kind=kind, status="failed", summary=kind, error=str(exc))
-        flash(f"Drucken fehlgeschlagen: {exc}")
+        flash("Drucken fehlgeschlagen. Bitte Drucker und Eingaben prüfen.")
     return redirect(url_for("library.index") + "#printer")
 
 
@@ -356,5 +374,165 @@ def printer_cut():
         flash("Vorschub/Schnitt wurde an den Drucker gesendet.")
     except (OSError, PrinterError, ValueError) as exc:
         library.record_print(_actor(), kind="cut", status="failed", summary="Vorschub und Schnitt", error=str(exc))
-        flash(f"Vorschub/Schnitt fehlgeschlagen: {exc}")
+        flash("Vorschub/Schnitt fehlgeschlagen. Bitte Drucker prüfen.")
     return redirect(url_for("library.index") + "#printer")
+
+
+def _csv_cell(value):
+    text = "" if value is None else str(value)
+    index = 0
+    while index < len(text) and (ord(text[index]) <= 32 or text[index].isspace() or text[index] == "\ufeff"):
+        index += 1
+    return "'" + text if text[index:].startswith(("=", "+", "-", "@")) else text
+
+
+@bp.get("/export/books.csv")
+@login_required
+def export_books_csv():
+    """Stream CSV rows to avoid accumulating the entire export in memory."""
+    from flask import stream_with_context
+
+    # Whole-catalog exports require administrator access until record-level ACL exists.
+    if not is_admin():
+        audit("library_books_export", "library", "books", outcome="failure", detail={"reason": "administrator_required"})
+        abort(403)
+
+    # Capture request-scoped storage before the response starts streaming.
+    library = _store()
+    objects = _objects()
+    placements = library.export_placements()
+    identifiers = request.args.getlist("object_id")
+    if len(identifiers) > 500:
+        abort(400)
+    selected = {}
+    for identifier in identifiers:
+        if not identifier or len(identifier) > 80:
+            abort(404)
+        try:
+            item = objects.object(identifier)
+        except ValueError:
+            abort(404)
+        tags = {str(tag).casefold() for tag in item.get("tags", [])}
+        if str(item.get("type", "")).casefold() not in {"book", "buch"} and not tags.intersection({"buch", "isbn"}):
+            abort(404)
+        selected[item["object_id"]] = item
+
+    def generate():
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        count = 0
+        completed = False
+        try:
+            yield "\ufeff"
+            writer.writerow(("ID", "Titel", "ISBN", "Autoren", "Genre", "Reihe", "Band", "Standort", "Regalcode"))
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
+            for item in (selected.values() if identifiers else objects.iter_objects()):
+                fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+                tags = {str(tag).casefold() for tag in item.get("tags", [])}
+                if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
+                    continue
+                placement = placements.get(item["object_id"], {})
+                values = (
+                    item.get("display_id", ""), item.get("name", ""),
+                    fields.get("isbn") or item.get("identifier", ""),
+                    fields.get("authors", ""), fields.get("genre", ""),
+                    fields.get("series", ""), fields.get("series_number", ""),
+                    placement.get("path") or item.get("location", ""),
+                    placement.get("code") or fields.get("library_location_code", ""),
+                )
+                # Escape spreadsheet formulas while preserving the full field value.
+                writer.writerow([_csv_cell(value) for value in values])
+                count += 1
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+
+            completed = True
+        finally:
+            audit("library_books_export", "library", "books",
+                  outcome="success" if completed else "failure",
+                  detail={"format": "csv", "rows": count, "complete": completed})
+
+    return Response(stream_with_context(generate()), mimetype="text/csv", headers={
+        "Content-Disposition": "attachment; filename=library-books.csv",
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+def _ocr_action(function):
+    @wraps(function)
+    def controlled():
+        with exclusive_lease(_root() / CONTROL_DIR / "library-ocr.lock") as acquired:
+            if not acquired:
+                return jsonify({"error": "Eine Bild-/OCR-Verarbeitung läuft bereits. Bitte erneut versuchen."}), 503
+            return function()
+    return controlled
+
+
+@bp.post("/ocr/optimize")
+@login_required
+@_ocr_action
+def optimize_ocr_image():
+    """Return a preview copy; never replace the source image implicitly."""
+    from .image_preprocessing import MAX_UPLOAD
+    from .ocr_input import optimize_upload
+    upload = request.files.get("image")
+    if upload is None:
+        return jsonify({"error": "Bild fehlt"}), 400
+    data = upload.read(MAX_UPLOAD + 1)
+    try:
+        page = int(request.form.get("page", "1")) - 1
+        if page < 0:
+            raise ValueError("Invalid page number")
+        optimized, source_format = optimize_upload(data,
+                                  page=page,
+                                  brighten=request.form.get("brighten", "1") == "1",
+                                  straighten=request.form.get("straighten", "1") == "1")
+    except (ValueError, TypeError) as exc:
+        logger.info("OCR input rejected: %s", type(exc).__name__)
+        return jsonify({"error": "Dateiformat, Seitennummer oder Bildgröße ungültig"}), 400
+    return Response(optimized, mimetype="image/png", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@bp.post("/ocr/analyze")
+@login_required
+@_ocr_action
+def analyze_ocr_upload():
+    """Recognize text in a photo or selected PDF page using local Tesseract."""
+    import tempfile
+    from .image_preprocessing import MAX_UPLOAD
+    from .ocr_input import optimize_upload
+    from ..object_vision import _run_tesseract
+
+    upload = request.files.get("image")
+    if upload is None:
+        return jsonify({"error": "Datei fehlt"}), 400
+    data = upload.read(MAX_UPLOAD + 1)
+    try:
+        page = int(request.form.get("page", "1")) - 1
+        if page < 0:
+            raise ValueError("Ungültige PDF-Seite")
+        optimized, source_format = optimize_upload(
+            data, page=page,
+            brighten=request.form.get("brighten", "1") == "1",
+            straighten=request.form.get("straighten", "1") == "1",
+        )
+    except (ValueError, TypeError) as exc:
+        logger.info("OCR image optimization rejected: %s", type(exc).__name__)
+        return jsonify({"error": "Ungültiges Bild, Dateiformat oder PDF-Seite"}), 400
+    with tempfile.TemporaryDirectory(prefix="library-ocr-") as directory:
+        image_path = Path(directory) / "page.png"
+        image_path.write_bytes(optimized)
+        result = _run_tesseract(image_path, timeout=15)
+    if result.get("status") != "completed":
+        logger.warning("OCR failed with status %s", result.get("status"))
+        return jsonify({"error": "OCR-Verarbeitung derzeit nicht verfügbar", "status": "failed"}), 503
+    import re
+    words = re.findall(r"[^\W_][\w-]{3,}", result.get("text", ""), flags=re.UNICODE)
+    keywords = list(dict.fromkeys(word.casefold()[:48] for word in words if not word.isdigit()))[:20]
+    return jsonify({"status": "completed", "source_format": source_format,
+                    "page": page + 1, "text": result.get("text", ""),
+                    "suggested_tags": keywords, "engine": "tesseract",
+                    "persisted": False})
