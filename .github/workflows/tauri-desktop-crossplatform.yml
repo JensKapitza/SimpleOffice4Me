@@ -28,6 +28,7 @@ jobs:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install --no-audit --no-fund
+      - run: npx tauri icon icon.svg
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
