@@ -26,6 +26,7 @@ def main() -> None:
             "SIMPLEOFFICE_BACKGROUND_INDEX": "0",
             "SIMPLEOFFICE_OSM_INDEX": "0",
             "SIMPLEOFFICE_DATALOGGER": "0",
+            "SIMPLEOFFICE_LOG_STDERR_ONLY": "1",
             "PATH": os.pathsep.join(filter(None, (str(binary.parent), os.environ.get("PATH", "")))),
             "PYTHONHOME": "",
             "PYTHONPATH": "",
@@ -33,11 +34,12 @@ def main() -> None:
             "PYTHONUTF8": "0",
             "PYTHONIOENCODING": "cp1252",
         })
-        log_path = root / "backend.log"
-        # A file avoids filling an unread PIPE during slow backend initialization.
-        with log_path.open("w+b") as log:
+        # Keep captured output outside the instance directory: Windows
+        # PyInstaller child processes can retain inherited log handles after
+        # the parent exits, blocking deletion of the temporary data directory.
+        with tempfile.TemporaryFile(mode="w+b") as log:
             proc = subprocess.Popen(
-                [str(binary)], cwd=tmp, env=env, stdout=log,
+                [str(binary)], cwd=str(binary.parent), env=env, stdout=log,
                 stderr=subprocess.STDOUT,
             )
             failure = None

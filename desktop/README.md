@@ -54,8 +54,8 @@ Optionale Systemprogramme wie LibreOffice, Ghostscript oder ClamAV werden nicht 
 
 Der PyInstaller-Build setzt den UTF-8-Modus bereits bei der Initialisierung
 des eingebetteten Python-Interpreters. Damit startet das Backend auch unter
-Windows mit einer anderen System-Codepage, ohne die UTF-8-Prüfung der Anwendung
-abzuschwächen. Die dynamisch geladenen ReportLab-Barcode-Module und Ressourcen
+Windows mit einer anderen System-Codepage. Der Test verlangt weiterhin eine
+UTF-8-kodierte öffentliche Anwendungsseite. Die dynamisch geladenen ReportLab-Barcode-Module und Ressourcen
 werden mitgepackt; dieselben bestehenden QR-/PDF-Funktionen bleiben verfügbar.
 
 Vor dem Electron-Packaging startet die CI auf Linux, Windows und macOS den
