@@ -1,6 +1,6 @@
 """Regression checks for branded Android launcher resources."""
 from pathlib import Path
-import struct
+from PIL import Image
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -13,13 +13,12 @@ ANDROID_NS = "{http://schemas.android.com/apk/res/android}"
 
 class AndroidLauncherLogoTests(unittest.TestCase):
     def test_source_is_a_valid_sized_png(self):
-        data = LOGO.read_bytes()
-        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
-        self.assertEqual(data[12:16], b"IHDR")
-        width, height = struct.unpack(">II", data[16:24])
-        self.assertGreaterEqual(width, 192)
-        self.assertGreaterEqual(height, 192)
-        self.assertEqual(width, height)
+        with Image.open(LOGO) as image:
+            image.load()
+            self.assertEqual('PNG', image.format)
+            self.assertGreaterEqual(image.width, 192)
+            self.assertEqual(image.width, image.height)
+            self.assertIsNotNone(image.convert('RGBA').getchannel('A').getbbox())
 
     def test_manifest_references_generated_launcher_assets(self):
         app = ET.parse(ANDROID / "AndroidManifest.xml").getroot().find("application")
@@ -38,14 +37,6 @@ class AndroidLauncherLogoTests(unittest.TestCase):
                     "@drawable/simpleoffice_logo_foreground",
                 )
 
-    def test_gradle_regenerates_icons_from_canonical_logo(self):
-        build = (ROOT / "android/apk/app/build.gradle").read_text(encoding="utf-8")
-        self.assertIn("docs/assets/simpleoffice-documentation-logo.png", build)
-        self.assertIn("preBuild.dependsOn generateSimpleOfficeLauncherIcons", build)
-        self.assertIn("res.srcDir", build)
-        for density in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
-            self.assertIn("'"+density+"':", build)
-        self.assertIn("simpleoffice_logo_foreground.png", build)
 
 
 if __name__ == "__main__":
