@@ -31,7 +31,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
-      - run: npm run build -- --locked
+      - run: npm run build -- -- --locked
       - name: Install native WebDriver test harness
         run: cargo install tauri-driver --version 2.1.0 --locked
       - name: Test actual native client navigation and server selection

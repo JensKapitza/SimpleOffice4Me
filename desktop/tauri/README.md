@@ -39,7 +39,7 @@ lockfiles. From `desktop/tauri`:
 npm ci --no-audit --no-fund
 npm run prepare:client
 npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
-npm run build -- --locked
+npm run build -- -- --locked
 ```
 
 Android additionally requires JDK 17, Android SDK platform/build-tools 35,

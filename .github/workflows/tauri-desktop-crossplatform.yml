@@ -35,7 +35,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
-      - run: npm run build -- --locked
+      - run: npm run build -- -- --locked
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-desktop-${{ matrix.name }}
