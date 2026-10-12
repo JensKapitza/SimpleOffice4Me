@@ -252,7 +252,7 @@ function createWindow() {
 }
 
 async function stopBackend() {
-  if (!backend || backend.exitCode !== null) return;
+  if (!backend || backend.exitCode !== null || backend.signalCode !== null) return;
   const processToStop = backend;
   if (process.platform === 'win32') {
     spawn('taskkill', ['/pid', String(processToStop.pid), '/t'], { windowsHide: true, stdio: 'ignore' });
@@ -263,7 +263,7 @@ async function stopBackend() {
     const timer = setTimeout(resolve, 5000);
     processToStop.once('exit', () => { clearTimeout(timer); resolve(); });
   });
-  if (processToStop.exitCode === null) {
+  if (processToStop.exitCode === null && processToStop.signalCode === null) {
     if (process.platform === 'win32') {
       // The onefile bootloader has a child; killing only its parent leaks the backend.
       spawn('taskkill', ['/pid', String(processToStop.pid), '/t', '/f'], {
