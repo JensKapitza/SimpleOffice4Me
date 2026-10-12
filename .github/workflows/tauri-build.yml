@@ -5,6 +5,7 @@ on:
       - 'desktop/tauri/**'
       - 'tools/prepare_tauri_client.py'
       - 'tools/smoke_tauri_client.py'
+      - 'tools/generate_sbom.py'
       - 'static/css/app.css'
       - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
       - 'docs/assets/simpleoffice-documentation-logo.png'
@@ -32,6 +33,16 @@ jobs:
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npm run build -- -- --locked
+      - name: Generate locked Rust dependency SBOM
+        working-directory: .
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path desktop/tauri/src-tauri/Cargo.toml > "$RUNNER_TEMP/tauri-cargo-metadata.json"
+          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" --output artifacts/tauri-rust-sbom.cdx.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-rust-sbom
+          path: artifacts/tauri-rust-sbom.cdx.json
+          if-no-files-found: error
       - name: Install native WebDriver test harness
         run: cargo install tauri-driver --version 2.1.0 --locked
       - name: Test actual native client navigation and server selection
