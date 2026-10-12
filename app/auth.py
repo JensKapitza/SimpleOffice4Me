@@ -76,10 +76,8 @@ def _google_json_request(url: str, *, data: bytes | None = None, headers: dict[s
 def _registration_enabled() -> bool:
     """Allow registration until an administrator disables it persistently."""
     db = get_db()
-    db.execute("CREATE TABLE IF NOT EXISTS registration_settings (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)))")
-    db.execute("INSERT OR IGNORE INTO registration_settings(id,enabled) VALUES(1,1)")
-    db.commit()
-    return bool(db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()[0])
+    row = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
+    return bool(row and row["enabled"])
 
 
 def _google_config() -> dict[str, str] | None:
