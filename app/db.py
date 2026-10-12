@@ -174,6 +174,13 @@ def ensure_auth_database() -> None:
     )""")
     db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS account_request_pending_username
         ON account_request(username) WHERE status='pending'""")
+    db.execute("""CREATE TABLE IF NOT EXISTS account_invitation (
+        user_id INTEGER PRIMARY KEY REFERENCES user(id) ON DELETE CASCADE,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at INTEGER NOT NULL,
+        used_at INTEGER
+    )""")
+    db.execute("CREATE INDEX IF NOT EXISTS account_invitation_expiry ON account_invitation(expires_at)")
     db.execute("""CREATE TABLE IF NOT EXISTS account_request_throttle (
         client_key TEXT PRIMARY KEY,
         window_started INTEGER NOT NULL,
