@@ -1,0 +1,16 @@
+[package]
+name = "simpleoffice4me_tauri"
+version = "0.1.0"
+description = "SimpleOffice4Me Tauri companion"
+authors = ["SimpleOffice4Me contributors"]
+edition = "2021"
+
+[lib]
+name = "simpleoffice4me_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
