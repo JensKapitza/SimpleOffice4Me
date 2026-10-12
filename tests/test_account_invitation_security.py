@@ -117,6 +117,18 @@ class InvitationSecurityTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM user WHERE username=? COLLATE NOCASE", ("admin",)
             ).fetchone()[0])
 
+    def test_unknown_token_does_not_hash_password(self):
+        from unittest.mock import patch
+        guest = app.test_client()
+        guest.get("/auth/login")
+        path = "/auth/account-requests/invite/" + "x" * 43
+        with patch("app.account_requests.hash_password") as password_hash:
+            response = guest.post(path, data={
+                "password": "a-secure-long-password", "_csrf_token": self._csrf(guest),
+            })
+        self.assertEqual(404, response.status_code)
+        password_hash.assert_not_called()
+
     def test_invitation_is_single_use(self):
         admin = self._admin()
         admin.get("/auth/account-requests/admin/invite")
