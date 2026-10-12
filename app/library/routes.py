@@ -466,7 +466,8 @@ def analyze_ocr_upload():
         image_path.write_bytes(optimized)
         result = _run_tesseract(image_path)
     if result.get("status") != "completed":
-        return jsonify({"error": result.get("error", "OCR nicht verfügbar"), "status": result.get("status")}), 503
+        logger.warning("OCR failed with status %s", result.get("status"))
+        return jsonify({"error": "OCR-Verarbeitung derzeit nicht verfügbar", "status": "failed"}), 503
     import re
     words = re.findall(r"[^\\W_][\\w-]{3,}", result.get("text", ""), flags=re.UNICODE)
     keywords = list(dict.fromkeys(word.casefold()[:48] for word in words if not word.isdigit()))[:20]
