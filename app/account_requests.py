@@ -14,7 +14,7 @@ from .access_control import audit
 bp = Blueprint("account_requests", __name__, url_prefix="/auth/account-requests")
 
 FORM = """{% extends 'layout.html' %}{% block title %}Konto beantragen{% endblock %}{% block body %}<main class="auth-shell"><section class="auth-card"><h1>Konto beantragen</h1><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label for="username">Benutzername</label><input class="form-control mb-3" id="username" name="username" maxlength="64" required><label for="email">E-Mail</label><input class="form-control mb-3" id="email" name="email" type="email" maxlength="254" required><label for="password">Passwort (mindestens 12 Zeichen)</label><input class="form-control mb-3" id="password" name="password" type="password" minlength="12" maxlength="128" required><button class="btn btn-primary w-100">Antrag senden</button></form></section></main>{% endblock %}"""
-ADMIN = """{% extends 'layout.html' %}{% block title %}Kontoanträge{% endblock %}{% block body %}<main class="container py-4"><h1>Kontoanträge</h1><p><a class="btn btn-primary" href="{{ url_for('account_requests.invite') }}">+ Benutzer</a></p><form method="post" action="{{ url_for('account_requests.registration_toggle') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label><input type="checkbox" name="enabled" value="1" {% if registration_enabled %}checked{% endif %}> Registrierung zulassen</label><button class="btn btn-primary">Speichern</button></form>{% for item in items %}<section class="card p-3 mb-3"><strong>{{ item['username'] }}</strong><span>{{ item['email'] }}</span><form method="post" action="{{ url_for('account_requests.decide', request_id=item['id']) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" name="decision" value="approve">Freigeben</button><button class="btn btn-outline-danger" name="decision" value="reject">Ablehnen</button></form></section>{% else %}<p>Keine offenen Anträge.</p>{% endfor %}</main>{% endblock %}"""
+ADMIN = """{% extends 'layout.html' %}{% block title %}Kontoanträge{% endblock %}{% block body %}<main class="container py-4"><h1>Kontoanträge</h1><p><a class="btn btn-primary" href="{{ url_for('account_requests.invite') }}">+ Benutzer</a></p><form method="post" action="{{ url_for('account_requests.registration_toggle') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label><input type="checkbox" name="enabled" value="1" {% if registration_enabled %}checked{% endif %}> Registrierung zulassen</label><button class="btn btn-primary">Speichern</button></form>{% for item in items %}<section class="card p-3 mb-3"><strong>{{ item['username'] }}</strong><span>{{ item['email'] }}</span><form method="post" action="{{ url_for('account_requests.decide', request_id=item['id']) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label><input type="checkbox" name="is_admin" value="1"> Administrator (erweiterte Rechte)</label><button class="btn btn-primary" name="decision" value="approve">Freigeben</button><button class="btn btn-outline-danger" name="decision" value="reject">Ablehnen</button></form></section>{% else %}<p>Keine offenen Anträge.</p>{% endfor %}</main>{% endblock %}"""
 
 INVITE_FORM = """{% extends 'layout.html' %}{% block title %}Passwort festlegen{% endblock %}{% block body %}<main class="auth-shell"><section class="auth-card"><h1>Passwort festlegen</h1><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label for="password">Neues Passwort (mindestens 12 Zeichen)</label><input class="form-control" id="password" name="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button class="btn btn-primary mt-3">Konto aktivieren</button></form></section></main>{% endblock %}"""
 
@@ -119,7 +119,7 @@ def decide(request_id):
         if item is None:
             abort(404)
         if request.form['decision']=='approve':
-            db.execute('INSERT INTO user(username,password,email,is_admin,created_at,updated_at) VALUES (?,?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',(item['username'],item['password_hash'],item['email']))
+            db.execute('INSERT INTO user(username,password,email,is_admin,created_at,updated_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',(item['username'],item['password_hash'],item['email'],int(request.form.get('is_admin') == '1')))
         db.execute("UPDATE account_request SET status=?,decided_at=CURRENT_TIMESTAMP WHERE id=?",(('approved' if request.form['decision']=='approve' else 'rejected'),request_id))
         db.commit()
     except sqlite3.IntegrityError:
@@ -146,7 +146,7 @@ def invite():
     """Admin-created accounts remain disabled until a one-time secret is redeemed."""
     _admin_required()
     if request.method == 'GET':
-        return render_template_string("""{% extends 'layout.html' %}{% block title %}Benutzer einladen{% endblock %}{% block body %}<main class="container py-4"><h1>+ Benutzer</h1><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label for="username">Benutzername</label><input id="username" name="username" class="form-control" maxlength="64" required><label for="email">E-Mail</label><input id="email" name="email" type="email" class="form-control" maxlength="254" required><button class="btn btn-primary mt-3">Einladung erstellen</button></form></main>{% endblock %}""")
+        return render_template_string("""{% extends 'layout.html' %}{% block title %}Benutzer einladen{% endblock %}{% block body %}<main class="container py-4"><h1>+ Benutzer</h1><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label for="username">Benutzername</label><input id="username" name="username" class="form-control" maxlength="64" required><label for="email">E-Mail</label><input id="email" name="email" type="email" class="form-control" maxlength="254" required><label class="d-block mt-3"><input type="checkbox" name="is_admin" value="1"> Administrator (erweiterte Rechte)</label><button class="btn btn-primary mt-3">Einladung erstellen</button></form></main>{% endblock %}""")
     username = request.form.get('username', '').strip()
     email = request.form.get('email', '').strip().lower()
     if not _valid_username(username) or not _valid_email(email):
@@ -158,8 +158,8 @@ def invite():
     try:
         cursor = db.execute(
             """INSERT INTO user(username,password,email,is_admin,is_disabled,created_at,updated_at)
-               VALUES (?,?,?,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
-            (username, hash_password(secrets.token_urlsafe(40)), email),
+               VALUES (?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
+            (username, hash_password(secrets.token_urlsafe(40)), email, int(request.form.get("is_admin") == "1")),
         )
         db.execute(
             'INSERT INTO account_invitation(user_id, token_hash, expires_at) VALUES (?,?,?)',
