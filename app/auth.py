@@ -10,6 +10,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
 
+from .login_qr import login_qr_targets
 from .db import get_db
 from .google_sync import sync_google_account
 from .access_control import audit, has_feature
@@ -185,6 +186,7 @@ def login():
             return render_template(
                 'auth/login.html', google_enabled=_google_config() is not None,
                 registration_enabled=_registration_enabled(),
+                login_qr_targets=login_qr_targets(),
             ), 429, {"Retry-After": str(retry_after)}
         user = db.execute(
             'SELECT * FROM user WHERE username = ?', (username,)
@@ -217,6 +219,7 @@ def login():
     return render_template(
         'auth/login.html', google_enabled=_google_config() is not None,
         registration_enabled=_registration_enabled(),
+                login_qr_targets=login_qr_targets(),
     )
 
 
