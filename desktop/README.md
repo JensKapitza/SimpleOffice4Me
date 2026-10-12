@@ -49,3 +49,21 @@ Der Electron-Renderer erhält kein Node.js. `nodeIntegration` ist aus, `contextI
 ## Externe Werkzeuge
 
 Optionale Systemprogramme wie LibreOffice, Ghostscript oder ClamAV werden nicht heimlich in das Electron-Paket kopiert. SimpleOffice erkennt sie wie bisher zur Laufzeit und verwendet seine vorhandenen Fallbacks. Das hält Lizenzierung, Updates und Sicherheitsgrenzen transparent.
+
+## Prüfung des eingefrorenen Backends
+
+Der PyInstaller-Build setzt den UTF-8-Modus bereits bei der Initialisierung
+des eingebetteten Python-Interpreters. Damit startet das Backend auch unter
+Windows mit einer anderen System-Codepage, ohne die UTF-8-Prüfung der Anwendung
+abzuschwächen. Die dynamisch geladenen ReportLab-Barcode-Module und Ressourcen
+werden mitgepackt; dieselben bestehenden QR-/PDF-Funktionen bleiben verfügbar.
+
+Vor dem Electron-Packaging startet die CI auf Linux, Windows und macOS den
+tatsächlichen Runtime-Binary in einem temporären Datenverzeichnis und prüft
+dessen öffentliche HTTP-Antwort. Ein fehlendes Modul, eine ungeeignete
+Interpreter-Initialisierung oder ein Startabsturz muss dieses Gate fehlschlagen
+lassen. Die Backend-Ausgabe wird bei einem Fehler zur Diagnose ausgegeben.
+
+Die ausschließlich generierte Build-Virtualenv `.build-venv` wird wie `.venv`
+von den Quellcodegrößen- und Repository-Secret-Prüfungen ausgenommen. Anwendung,
+Tests, Build-Skripte und versionierte Konfiguration bleiben vollständig geprüft.

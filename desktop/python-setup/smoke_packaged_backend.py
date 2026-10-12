@@ -29,6 +29,9 @@ def main() -> None:
             "PATH": os.pathsep.join(filter(None, (str(binary.parent), os.environ.get("PATH", "")))),
             "PYTHONHOME": "",
             "PYTHONPATH": "",
+            # The frozen runtime must select UTF-8 itself, even with a conflicting parent.
+            "PYTHONUTF8": "0",
+            "PYTHONIOENCODING": "cp1252",
         })
         log_path = root / "backend.log"
         # A file avoids filling an unread PIPE during slow backend initialization.
@@ -48,9 +51,13 @@ def main() -> None:
                         with urllib.request.urlopen(
                             "http://127.0.0.1:18765/", timeout=2
                         ) as response:
-                            if response.status < 500:
-                                print(f"Packaged backend HTTP smoke passed: {response.status}")
-                                break
+                            content = response.read(256000)
+                            if (response.status != 200 or response.headers.get_content_charset() != "utf-8"
+                                    or b"SimpleOffice4Me" not in content):
+                                failure = "Packaged backend did not serve the public UTF-8 application page"
+                            else:
+                                print("Packaged backend HTTP smoke passed: application page, HTTP 200, UTF-8")
+                            break
                     except (urllib.error.URLError, TimeoutError):
                         time.sleep(1)
                 else:
