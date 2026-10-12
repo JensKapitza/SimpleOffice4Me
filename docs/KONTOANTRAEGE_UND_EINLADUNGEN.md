@@ -62,7 +62,7 @@ Administratoren können Kontoanträge deaktivieren, die Einladungsdauer
 Ungültige Einstellungen liefern HTTP 400 und verändern die gespeicherten Werte
 nicht. Deaktivierte Anträge liefern 403; administrative Einladungen bleiben möglich.
 Bestehende Einladungen behalten ihre ursprüngliche Ablaufzeit. Neue und neu
- ausgestellte Einladungen verwenden die aktuelle Einstellung.
+ausgestellte Einladungen verwenden die aktuelle Einstellung.
 
 | API | Vertrag |
 | --- | --- |
@@ -91,3 +91,8 @@ Mailindex verwenden das bestehende Mailrecht. Google-OAuth bleibt der bestehende
 separat konfigurierte Identitätsanbieter: automatische Anlage weiterer Identitäten
 ist nur nach der bisherigen expliziten `GOOGLE_OAUTH_AUTO_PROVISION`-Freigabe
 zulässig und wird durch diesen lokalen Antragsablauf nicht neu aktiviert.
+
+Der Legacy-Schalter `SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION` erlaubt keine
+direkte öffentliche Kontenaktivierung mehr. Kontoanträge werden über die
+bestehende administrative Einstellung gesteuert, initial aktiviert und auf
+fünf Versuche je Clientadresse und Stunde begrenzt.
