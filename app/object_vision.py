@@ -135,7 +135,7 @@ def _run_rapidocr(path: Path) -> dict[str, Any]:
         }
 
 
-def _run_tesseract(path: Path) -> dict[str, Any]:
+def _run_tesseract(path: Path, *, timeout: float = 90) -> dict[str, Any]:
     executable = shutil.which("tesseract")
     if not executable:
         return {
@@ -150,10 +150,10 @@ def _run_tesseract(path: Path) -> dict[str, Any]:
     environment = ocr_subprocess_environment()
     command = [executable, str(path), "stdout", "-l", "deu+eng"]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=90, check=False, env=environment)
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False, env=environment)
         if result.returncode != 0 and "deu" in result.stderr.casefold():
             command[-1] = "eng"
-            result = subprocess.run(command, capture_output=True, text=True, timeout=90, check=False, env=environment)
+            result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, check=False, env=environment)
     except subprocess.TimeoutExpired:
         return {
             "engine": "tesseract",

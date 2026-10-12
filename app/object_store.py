@@ -285,12 +285,14 @@ class ObjectStore:
         for path in self.directory.glob("*.json"):
             if path.name == "sequence.json": continue
             item = self._read(path)
-            if item and not int(item.get("sequence_id", 0) or 0): missing.append((path, item))
+            if item and not int(item.get("sequence_id", 0) or 0):
+                missing.append((path, str(item.get("created_at", "")), item.get("object_id", "")))
         if not missing: return
-        missing.sort(key=lambda row: (str(row[1].get("created_at", "")), row[1].get("object_id", "")))
+        # Keep only the legacy ordering keys, not every full metadata document.
+        missing.sort(key=lambda row: (row[1], row[2]))
         with exclusive_file_lock(self.sequence_lock):
             state = self._read_sequence_state(); last = max(int(state.get("last", 0) or 0), self._max_existing_sequence())
-            for path, item in missing:
+            for path, _, _ in missing:
                 fresh = self._read(path)
                 if not fresh or int(fresh.get("sequence_id", 0) or 0): continue
                 last += 1; fresh["sequence_id"] = last

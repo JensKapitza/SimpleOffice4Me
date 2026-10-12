@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 MAX_BYTES = 2 * 1024 * 1024
-IGNORED_PARTS = {".git", ".venv", "venv", "node_modules", "vendor", "dist", "build", "__pycache__"}
+IGNORED_PARTS = {".git", ".venv", ".build-venv", "venv", "node_modules", "vendor", "dist", "build", "__pycache__"}
 PLACEHOLDER_MARKERS = ("placeholder", "example", "dummy", "changeme", "not-a-real", "test-only", "fake", "sample")
 
 PATTERNS = (

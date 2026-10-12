@@ -9,7 +9,7 @@
   <div class="card-body">
     <div class="row g-3 align-items-start">
       <div class="col-12 col-xl-5">
-        <h2 class="h4 mb-1"><i class="fas fa-network-wired me-2" aria-hidden="true"></i>Netzwerk scannen</h2>
+        <h2 class="h4 mb-1">Netzwerk scannen</h2>
         <p class="text-secondary mb-2">Sucht SimpleOffice-Geräte im gleichen lokalen Netz – egal ob die Geräte per WLAN oder LAN verbunden sind.</p>
         <div class="small"><span class="badge text-bg-warning me-1">Sicher</span>Gefundene Geräte werden nur als <strong>bekannt, nicht geprüft</strong> gespeichert und bleiben deaktiviert. Es werden keine Datenrechte automatisch vergeben.</div>
       </div>
@@ -24,7 +24,7 @@
           <label class="form-label mb-1" for="lan-port">SimpleOffice-Port</label>
           <input id="lan-port" class="form-control" name="port" type="number" min="1" max="65535" value="8080" inputmode="numeric" style="max-width:9rem">
         </div>
-        <div class="col-12"><button class="btn btn-primary" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Netzwerk scannen</button></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Netzwerk scannen</button></div>
       </form></div>
     </div>
   </div>
@@ -32,7 +32,7 @@
 
 <section class="card mb-3" id="compatibility-requirements">
   <div class="card-body">
-    <h2 class="h5 mb-2"><i class="fas fa-code-branch me-2" aria-hidden="true"></i>Kompatibilität / Mindestvoraussetzung</h2>
+    <h2 class="h5 mb-2">Kompatibilität / Mindestvoraussetzung</h2>
     <p class="small text-secondary mb-2">Erreichbar bedeutet noch nicht kompatibel. Für Federation muss sich der unterstützte Protokollbereich überschneiden; jede Fachfunktion wird zusätzlich separat geprüft. Vertrauen und Datenrechte bleiben davon unabhängig.</p>
     <div class="row g-2 small">
       <div class="col-12 col-lg-4"><strong>Federation:</strong> {{ compatibility_requirements.protocol_name }} v{{ compatibility_requirements.protocol_min }}{% if compatibility_requirements.protocol_max != compatibility_requirements.protocol_min %}–{{ compatibility_requirements.protocol_max }}{% endif %}</div>
@@ -53,7 +53,7 @@
   <div class="card-body">
     <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center">
       <div>
-        <h2 class="h4 mb-1"><i class="fas fa-mobile-screen-button me-2" aria-hidden="true"></i>Auf diesem Gerät empfangen</h2>
+        <h2 class="h4 mb-1">Auf diesem Gerät empfangen</h2>
         <p class="text-secondary mb-2">Aktiviere den Empfang nur dann, wenn ein anderes Gerät im gleichen lokalen Netzwerk Daten an dieses SimpleOffice senden soll.</p>
         {% if lan_receive.active %}
           <span class="badge text-bg-success">Empfang vorgemerkt</span>
@@ -94,7 +94,7 @@
 <div class="card card-body mb-3">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
     <div><h2 class="h5 mb-1">Connect QR-Codes</h2><p class="small text-secondary mb-0">Auf dem anderen Gerät scannen. Für jede aktuell erkannte IPv4-Adresse dieses Geräts wird ein eigener Connect-Code erzeugt – auch bei Hotspot/Tethering.</p></div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}"><i class="fas fa-rotate me-1" aria-hidden="true"></i>Aktualisieren</a>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">Aktualisieren</a>
   </div>
   {% if lan_connect_profiles %}
   <div class="row g-3">
@@ -122,8 +122,8 @@
   <form method="post" action="{{ url_for('federation_peer_admin.import_qr') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="d-flex flex-wrap gap-2 mb-2">
-      <button id="qr-camera-button" class="btn btn-success" type="button"><i class="fas fa-camera me-1" aria-hidden="true"></i>Kamera öffnen</button>
-      <label class="btn btn-outline-secondary mb-0" for="qr-image"><i class="fas fa-image me-1" aria-hidden="true"></i>Bild auswählen</label>
+      <button id="qr-camera-button" class="btn btn-success" type="button">Kamera öffnen</button>
+      <label class="btn btn-outline-secondary mb-0" for="qr-image">Bild auswählen</label>
       <input id="qr-image" class="visually-hidden" type="file" accept="image/*">
       <div id="qr-camera-panel" class="w-100 border rounded p-2" hidden>
         <video id="qr-camera-preview" autoplay muted playsinline class="w-100 rounded" style="max-height:360px;object-fit:contain" aria-label="Live-Kamerabild zum Scannen des Peer-QR-Codes"></video>
@@ -260,5 +260,6 @@
   </div>
 </section>
 </main>
+<script src="{{ url_for('static', filename='vendor/jsqr/jsQR.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/federation_qr_scan.js') }}"></script>
 {% endblock %}

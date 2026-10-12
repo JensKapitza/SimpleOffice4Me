@@ -17,8 +17,9 @@ def optimize_page(data: bytes, *, brighten: bool = True, straighten: bool = True
             if source.width * source.height > MAX_PIXELS:
                 raise ValueError("Bildauflösung überschreitet das Limit")
             image = ImageOps.exif_transpose(source).convert("RGB")
-    except (UnidentifiedImageError, OSError, ValueError) as exc:
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError) as exc:
         raise ValueError("Bild konnte nicht sicher verarbeitet werden") from exc
+    image.thumbnail((2000, 2000), Image.Resampling.LANCZOS)
     # EXIF orientation is authoritative. Avoid guessing 90/180 degree text orientation.
     if straighten:
         # Estimate only small page skew from high-contrast horizontal edges.

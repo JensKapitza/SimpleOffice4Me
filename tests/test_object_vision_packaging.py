@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -15,8 +16,14 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         self.assertNotIn("rapidocr", base_dependencies.casefold())
         self.assertNotIn("onnxruntime", base_dependencies.casefold())
         self.assertIn("ocr = [", optional_dependencies)
-        self.assertIn('"rapidocr==3.9.2"', optional_dependencies)
         ocr_extra = optional_dependencies.split("ocr = [", 1)[1].split("]", 1)[0]
+        setup_source = (self.root / "setup.py").read_text(encoding="utf-8")
+        pin_pattern = r"rapidocr==([0-9]+(?:\.[0-9]+){2})"
+        project_pin = re.search(pin_pattern, ocr_extra)
+        setup_pin = re.search(pin_pattern, setup_source)
+        self.assertIsNotNone(project_pin)
+        self.assertIsNotNone(setup_pin)
+        self.assertEqual(project_pin.group(1), setup_pin.group(1))
         self.assertIn("onnxruntime", ocr_extra.casefold())
         self.assertIn("python_version == '3.10'", ocr_extra)
         self.assertIn("python_version >= '3.11'", ocr_extra)

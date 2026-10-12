@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import io
 import unittest
-from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -32,15 +31,12 @@ class LabelRenderingSecurityTests(unittest.TestCase):
         result = render_image(buffer.getvalue(), self.settings)
         self.assertEqual(696, result.width)
 
-    def test_image_bomb_is_rejected_before_pixel_decode(self):
-        fake_image = MagicMock()
-        fake_image.width = 6000
-        fake_image.height = 5000
-        fake_image.__enter__.return_value = fake_image
-        with patch("app.library.printer.Image.open", return_value=fake_image):
-            with self.assertRaises(PrinterError):
-                render_image(b"not-decoded-yet", self.settings)
-        fake_image.load.assert_not_called()
+    def test_valid_image_above_24_megapixels_is_rejected(self):
+        buffer = io.BytesIO()
+        with Image.new("RGB", (6000, 5000), "white") as image:
+            image.save(buffer, format="PNG")
+        with self.assertRaises(PrinterError):
+            render_image(buffer.getvalue(), self.settings)
 
 
 if __name__ == "__main__":

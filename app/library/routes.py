@@ -4,14 +4,19 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import shutil
 from pathlib import Path
+from functools import wraps
+from tools.service_control import exclusive_lease
 from typing import Any
 from urllib.parse import urlencode
 
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from ..auth import login_required
+from ..access_control import audit, is_admin
 from ..object_store import ObjectStore
+from ..document_store import CONTROL_DIR
 from .printer import (
     LABELS,
     MODELS,
@@ -28,6 +33,14 @@ from .store import LibraryStore
 
 bp = Blueprint("library", __name__, url_prefix="/library")
 logger = logging.getLogger(__name__)
+
+
+@bp.after_request
+def protect_export_and_ocr_responses(response):
+    if request.endpoint in {"library.export_books_csv", "library.optimize_ocr_image", "library.analyze_ocr_upload"}:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 def _root() -> Path:
@@ -163,6 +176,8 @@ def index():
         books=_books_with_assignments(request.args.get("q", ""), 80),
         events=_store().recent_events(25),
         discovered=discover_printers(),
+        ocr_available=bool(shutil.which("tesseract")),
+        pdf_available=bool(shutil.which("pdftoppm")),
     )
 
 
@@ -363,6 +378,14 @@ def printer_cut():
     return redirect(url_for("library.index") + "#printer")
 
 
+def _csv_cell(value):
+    text = "" if value is None else str(value)
+    index = 0
+    while index < len(text) and (ord(text[index]) <= 32 or text[index].isspace() or text[index] == "\ufeff"):
+        index += 1
+    return "'" + text if text[index:].startswith(("=", "+", "-", "@")) else text
+
+
 @bp.get("/export/books.csv")
 @login_required
 def export_books_csv():
@@ -370,49 +393,86 @@ def export_books_csv():
     from flask import stream_with_context
 
     # Whole-catalog exports require administrator access until record-level ACL exists.
-    if not g.user["is_admin"] or g.user["is_disabled"]:
+    if not is_admin():
+        audit("library_books_export", "library", "books", outcome="failure", detail={"reason": "administrator_required"})
         abort(403)
 
     # Capture request-scoped storage before the response starts streaming.
     library = _store()
     objects = _objects()
+    placements = library.export_placements()
+    identifiers = request.args.getlist("object_id")
+    if len(identifiers) > 500:
+        abort(400)
+    selected = {}
+    for identifier in identifiers:
+        if not identifier or len(identifier) > 80:
+            abort(404)
+        try:
+            item = objects.object(identifier)
+        except ValueError:
+            abort(404)
+        tags = {str(tag).casefold() for tag in item.get("tags", [])}
+        if str(item.get("type", "")).casefold() not in {"book", "buch"} and not tags.intersection({"buch", "isbn"}):
+            abort(404)
+        selected[item["object_id"]] = item
 
     def generate():
         output = io.StringIO(newline="")
         writer = csv.writer(output)
-        yield "\ufeff"
-        writer.writerow(("ID", "Titel", "ISBN", "Autoren", "Genre", "Reihe", "Band", "Standort", "Regalcode"))
-        yield output.getvalue()
-        output.seek(0)
-        output.truncate(0)
-        for item in objects.iter_objects():
-            fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
-            tags = {str(tag).casefold() for tag in item.get("tags", [])}
-            if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
-                continue
-            assignment = library.assignment(item["object_id"])
-            location_id = str((assignment or {}).get("location_id", ""))
-            values = (
-                item.get("display_id", ""), item.get("name", ""),
-                fields.get("isbn") or item.get("identifier", ""),
-                fields.get("authors", ""), fields.get("genre", ""),
-                fields.get("series", ""), fields.get("series_number", ""),
-                library.location_path(location_id) if location_id else item.get("location", ""),
-                fields.get("library_location_code", ""),
-            )
-            # Escape spreadsheet formulas while preserving the full field value.
-            writer.writerow([("'" + str(value)) if str(value).lstrip().startswith(("=", "+", "-", "@")) else value for value in values])
+        count = 0
+        completed = False
+        try:
+            yield "\ufeff"
+            writer.writerow(("ID", "Titel", "ISBN", "Autoren", "Genre", "Reihe", "Band", "Standort", "Regalcode"))
             yield output.getvalue()
             output.seek(0)
             output.truncate(0)
+            for item in (selected.values() if identifiers else objects.iter_objects()):
+                fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
+                tags = {str(tag).casefold() for tag in item.get("tags", [])}
+                if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
+                    continue
+                placement = placements.get(item["object_id"], {})
+                values = (
+                    item.get("display_id", ""), item.get("name", ""),
+                    fields.get("isbn") or item.get("identifier", ""),
+                    fields.get("authors", ""), fields.get("genre", ""),
+                    fields.get("series", ""), fields.get("series_number", ""),
+                    placement.get("path") or item.get("location", ""),
+                    placement.get("code") or fields.get("library_location_code", ""),
+                )
+                # Escape spreadsheet formulas while preserving the full field value.
+                writer.writerow([_csv_cell(value) for value in values])
+                count += 1
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+
+            completed = True
+        finally:
+            audit("library_books_export", "library", "books",
+                  outcome="success" if completed else "failure",
+                  detail={"format": "csv", "rows": count, "complete": completed})
 
     return Response(stream_with_context(generate()), mimetype="text/csv", headers={
         "Content-Disposition": "attachment; filename=library-books.csv",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
 
 
+def _ocr_action(function):
+    @wraps(function)
+    def controlled():
+        with exclusive_lease(_root() / CONTROL_DIR / "library-ocr.lock") as acquired:
+            if not acquired:
+                return jsonify({"error": "Eine Bild-/OCR-Verarbeitung läuft bereits. Bitte erneut versuchen."}), 503
+            return function()
+    return controlled
+
+
 @bp.post("/ocr/optimize")
 @login_required
+@_ocr_action
 def optimize_ocr_image():
     """Return a preview copy; never replace the source image implicitly."""
     from .image_preprocessing import MAX_UPLOAD
@@ -438,6 +498,7 @@ def optimize_ocr_image():
 
 @bp.post("/ocr/analyze")
 @login_required
+@_ocr_action
 def analyze_ocr_upload():
     """Recognize text in a photo or selected PDF page using local Tesseract."""
     import tempfile
@@ -464,7 +525,7 @@ def analyze_ocr_upload():
     with tempfile.TemporaryDirectory(prefix="library-ocr-") as directory:
         image_path = Path(directory) / "page.png"
         image_path.write_bytes(optimized)
-        result = _run_tesseract(image_path)
+        result = _run_tesseract(image_path, timeout=15)
     if result.get("status") != "completed":
         logger.warning("OCR failed with status %s", result.get("status"))
         return jsonify({"error": "OCR-Verarbeitung derzeit nicht verfügbar", "status": "failed"}), 503

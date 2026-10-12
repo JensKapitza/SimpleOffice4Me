@@ -468,8 +468,15 @@ class VirtualFileSystem:
     ) -> None:
         resource = self.require(actor, path, "write")
         self.require(actor, resource.parent, "write")
-        resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-        is_directory = resource.is_dir()
+        authoritative_entry = None
+        if self._authoritative_v2() and not resource.exists():
+            try:
+                authoritative_entry = self.authoritative_entry(resource)
+            except FileNotFoundError:
+                authoritative_entry = None
+        if authoritative_entry is None:
+            resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
+        is_directory = authoritative_entry is None and resource.is_dir()
         if directory is True and not is_directory:
             raise NotADirectoryError(self.relative(resource))
         if directory is False and is_directory:
@@ -477,7 +484,11 @@ class VirtualFileSystem:
         if is_directory:
             self.store.delete_empty_collection(self.relative(resource), actor)
         else:
-            document = self.store.get_document(resource)
+            document = (
+                self.store.get_document(authoritative_entry.object_id.value)
+                if authoritative_entry is not None
+                else self.store.get_document(resource)
+            )
             self._storage_value(
                 self._storage(actor).delete(
                     LogicalObjectId(str(document["document_id"])),
@@ -500,7 +511,14 @@ class VirtualFileSystem:
         destination_path = self.resolve(destination)
         self.require(actor, source_path.parent, "write")
         self.require(actor, destination_path.parent, "write")
-        source_path = resolve_under(self.root, source_path.relative_to(self.root), strict=True)
+        authoritative_source = None
+        if self._authoritative_v2() and not source_path.exists():
+            try:
+                authoritative_source = self.authoritative_entry(source_path)
+            except FileNotFoundError:
+                authoritative_source = None
+        if authoritative_source is None:
+            source_path = resolve_under(self.root, source_path.relative_to(self.root), strict=True)
         destination_path = resolve_for_write_under(
             self.root, destination_path.relative_to(self.root)
         )
@@ -525,12 +543,16 @@ class VirtualFileSystem:
                 )
             )
             return self.store.get_document(stored.object_id.value)
-        if source_path.is_dir():
+        if authoritative_source is None and source_path.is_dir():
             self.store.move_collection(
                 self.relative(source_path), self.relative(destination_path), actor
             )
             return None
-        document = self.store.get_document(source_path)
+        document = (
+            self.store.get_document(authoritative_source.object_id.value)
+            if authoritative_source is not None
+            else self.store.get_document(source_path)
+        )
         stored = self._storage_value(
             self._storage(actor).move(
                 LogicalObjectId(str(document["document_id"])),

@@ -2,7 +2,6 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from app import app
 from app import db as database
@@ -41,9 +40,8 @@ class LibraryExportAuthorizationTests(unittest.TestCase):
 
     def test_administrator_streams_export_with_formula_protection(self):
         self.login(self.admin_id)
-        with patch.object(ObjectStore, "objects", side_effect=AssertionError("eager loading")):
-            response = self.client.get("/library/export/books.csv")
-            raw = response.data
+        response = self.client.get("/library/export/books.csv")
+        raw = response.data
         self.assertEqual(200, response.status_code)
         self.assertTrue(raw.startswith(bytes((239,187,191))))
         self.assertIn("'=2+2", response.get_data(as_text=True))

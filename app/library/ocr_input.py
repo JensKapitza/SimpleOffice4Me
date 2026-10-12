@@ -18,37 +18,37 @@ def optimize_upload(data: bytes, *, brighten: bool = True, straighten: bool = Tr
     if not data or len(data) > MAX_UPLOAD:
         raise ValueError("Datei fehlt oder überschreitet 12 MiB")
     if data.startswith(PDF_MAGIC):
+        import shutil
+        import subprocess
+        import tempfile
+        from pathlib import Path
+        executable = shutil.which("pdftoppm")
+        if not executable:
+            raise ValueError("PDF-Bildumwandlung ist auf diesem Server nicht verfügbar")
+        if not 0 <= page < 2000:
+            raise ValueError("PDF-Seite ungültig")
         try:
-            import fitz  # PyMuPDF; optional and subject to deployment license review
-        except ImportError as exc:
-            raise ValueError("PDF-Bildumwandlung ist auf diesem Server nicht verfügbar") from exc
-        try:
-            with fitz.open(stream=data, filetype="pdf") as document:
-                if document.needs_pass:
-                    raise ValueError("Passwortgeschützte PDF-Datei")
-                if document.page_count < 1 or document.page_count > 2000:
-                    raise ValueError("Ungültige PDF-Seitenzahl")
-                if page < 0 or page >= document.page_count:
-                    raise ValueError("PDF-Seite existiert nicht")
-                pdf_page = document.load_page(page)
-                # Cap raster dimensions before allocating large images.
-                bounds = pdf_page.rect
-                scale = min(2.0, 2800 / max(1, float(bounds.width), float(bounds.height)))
-                if scale <= 0:
-                    raise ValueError("Ungültige Seitengröße")
-                pixmap = pdf_page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
-                if pixmap.width * pixmap.height > 24_000_000:
-                    raise ValueError("PDF-Seite zu groß")
-                raster = pixmap.tobytes("png")
-        except ValueError:
-            raise
-        except Exception as exc:
+            with tempfile.TemporaryDirectory(prefix="library-pdf-") as directory:
+                source = Path(directory) / "input.pdf"
+                prefix = Path(directory) / "page"
+                source.write_bytes(data)
+                source.chmod(0o600)
+                result = subprocess.run([executable, "-f", str(page + 1), "-l", str(page + 1),
+                                         "-singlefile", "-scale-to", "2000", "-png", "--",
+                                         str(source), str(prefix)], stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        timeout=15, check=False)
+                target = prefix.with_suffix(".png")
+                if result.returncode or not target.is_file() or target.stat().st_size > MAX_UPLOAD:
+                    raise ValueError("PDF konnte nicht gerendert werden")
+                raster = target.read_bytes()
+        except (OSError, subprocess.TimeoutExpired) as exc:
             raise ValueError("PDF konnte nicht gerendert werden") from exc
         return optimize_page(raster, brighten=brighten, straighten=straighten), "pdf"
     try:
         with Image.open(io.BytesIO(data)) as image:
             if image.format not in {"JPEG", "PNG", "WEBP", "TIFF", "BMP"}:
                 raise ValueError("Bildformat wird nicht unterstützt")
-    except (UnidentifiedImageError, OSError) as exc:
+    except (UnidentifiedImageError, OSError, Image.DecompressionBombError) as exc:
         raise ValueError("Dateiformat wird nicht unterstützt") from exc
     return optimize_page(data, brighten=brighten, straighten=straighten), "image"
