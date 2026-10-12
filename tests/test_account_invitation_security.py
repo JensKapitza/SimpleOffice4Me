@@ -52,6 +52,20 @@ class InvitationSecurityTests(unittest.TestCase):
         self.assertEqual(403, admin.post("/auth/account-requests/admin/invite",
                                          data={"username": "member", "email": "member@example.test"}).status_code)
 
+    def test_admin_role_requires_explicit_admin_selection(self):
+        client = self._admin()
+        client.get("/auth/account-requests/admin/invite")
+        response = client.post("/auth/account-requests/admin/invite", data={
+            "username": "privileged", "email": "privileged@example.test",
+            "is_admin": "1", "_csrf_token": self._csrf(client),
+        })
+        self.assertEqual(200, response.status_code)
+        with app.app_context():
+            row = get_db().execute(
+                "SELECT is_admin, is_disabled FROM user WHERE username='privileged'"
+            ).fetchone()
+            self.assertEqual((1, 1), tuple(row))
+
     def test_invitation_is_single_use(self):
         admin = self._admin()
         admin.get("/auth/account-requests/admin/invite")
@@ -73,6 +87,7 @@ class InvitationSecurityTests(unittest.TestCase):
             "password": "a-secure-long-password", "_csrf_token": self._csrf(guest)
         }).status_code)
         self.assertEqual(404, guest.get(path).status_code)
+        self.assertEqual(404, guest.post(path, data={"password": "another-long-password", "_csrf_token": self._csrf(guest)}).status_code)
         with app.app_context():
             row = get_db().execute("SELECT is_disabled,is_admin FROM user WHERE username='newmember'").fetchone()
             self.assertEqual((0, 0), tuple(row))
