@@ -308,10 +308,18 @@ class LiteLLMTest(unittest.TestCase):
 
     def test_unused_disabled_local_mode_can_return_to_external_without_docker(self):
         config.persist(config.prepare({'enabled': False, 'mode': 'local'}))
-        with patch.object(service, '_running') as running:
+        with patch.object(service, '_running') as running, patch.object(service, '_stop') as stop:
             result = service.save_settings({'mode': 'external'})
         self.assertEqual('external', result['mode'])
         running.assert_not_called()
+        stop.assert_not_called()
+
+    def test_leaving_enabled_local_mode_stops_owned_resources(self):
+        self.enable(mode='local', provider_model='openai/test')
+        with patch.object(service, '_running', return_value=False), patch.object(service, '_stop') as stop:
+            result = service.save_settings({'mode': 'external', 'base_url': 'https://gateway.example/v1'})
+        self.assertEqual('external', result['mode'])
+        stop.assert_called_once()
 
     def test_missing_docker_cannot_disable_or_restore_a_local_gateway(self):
         self.enable(mode='local', provider_model='openai/test')
