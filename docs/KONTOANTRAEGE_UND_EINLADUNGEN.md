@@ -40,7 +40,9 @@ oder Referer. Auf dem Server liegt nur sein SHA-256-Hash. Antwortseiten tragen
 `Cache-Control: no-store` und `Referrer-Policy: no-referrer`.
 
 Den Link sicher übermitteln. Wenn ein eigenes E-Mail-Konto konfiguriert ist,
-kann der Administrator den Versand ausdrücklich auswählen. Dafür wird der
+kann der Administrator den Versand ausdrücklich auswählen. Das Absenderkonto
+muss zuvor in den bestehenden Mail-Einstellungen zum Schreiben freigegeben sein;
+neue Mailkonten sind standardmäßig schreibgeschützt. Dafür wird der
 vorhandene SMTP-Service mit den bestehenden TLS- und Eigentümerprüfungen benutzt.
 Es wird niemals ein Passwort per E-Mail versandt. Bei nicht bestätigtem Versand
 bleibt die Einladung nutzbar; Zustellung prüfen oder den Link sicher übermitteln.
