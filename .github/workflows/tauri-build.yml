@@ -155,10 +155,7 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: |
-            APK="$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -path '*/debug/*.apk' -print -quit)"
-            test -n "$APK"
-            python tools/smoke_tauri_android.py "$APK"
+          script: python tools/smoke_tauri_android.py "$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -path '*/debug/*.apk' -print -quit)"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
