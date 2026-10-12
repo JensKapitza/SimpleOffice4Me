@@ -11,6 +11,7 @@ ist derzeit weiterhin **2.0.0**; die 3.0-Release-Freigabe in
 Ein geschlossenes Funktions-Issue bedeutet daher keine Gesamtfreigabe für 3.0.
 
 - [Dokumentationsübersicht mit vollständigem Markdown-Dateiregister](docs/README.md)
+- [Tauri-2-Client für bestehende HTTPS-Server](desktop/tauri/README.md)
 - [3.0-Betrieb: Funktionen, Schalter, Freigaben und Rückkehr](docs/V3_BETRIEBSLEITFADEN.md)
 - [Konfigurationsregister mit Quellen und Sicherheitsgrenzen](docs/KONFIGURATIONSREGISTER.md)
 - [Dokumentations- und Issue-Prüfung samt bekannten Abweichungen](docs/DOKUMENTATIONSPRUEFUNG_3_0.md)

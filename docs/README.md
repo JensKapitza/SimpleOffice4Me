@@ -39,6 +39,8 @@ verlinkt.
 
 ## Dateien und Desktop-Integration
 
+- [Tauri-2-HTTPS-Client: Serverauswahl, Desktop/Android-Builds und Sicherheitsgrenzen](../desktop/tauri/README.md)
+
 - [S3-Overlay für Dokumente und Inbox-Imports](S3_OVERLAY.md)
 
 - [Systemwerkzeuge, ClamAV und Vorschau-Konverter](SYSTEMWERKZEUGE_VORSCHAU.md)
