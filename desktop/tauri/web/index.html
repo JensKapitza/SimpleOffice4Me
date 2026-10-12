@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>SimpleOffice4Me</title>
+<link rel="stylesheet" href="style.css">
+<script defer src="main.js"></script>
+</head>
+<body>
+<main>
+<h1>SimpleOffice4Me</h1>
+<p>Tauri-Client für einen vorhandenen SimpleOffice4Me-Server.</p>
+<form id="connect">
+<label for="endpoint">Serveradresse (HTTPS)</label>
+<input id="endpoint" type="url" autocomplete="url" inputmode="url" required placeholder="https://office.example.org">
+<p class="hint">Nur HTTPS. Eine lokale HTTP-Adresse ist ausschließlich auf Desktop-Systemen im Entwicklungsbetrieb vorgesehen.</p>
+<button type="submit">Verbinden</button>
+<p id="error" role="alert" aria-live="polite"></p>
+</form>
+</main>
+</body>
+</html>
