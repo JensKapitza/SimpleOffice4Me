@@ -36,7 +36,7 @@ def main() -> None:
         # the parent exits, blocking deletion of the temporary data directory.
         with tempfile.TemporaryFile(mode="w+b") as log:
             proc = subprocess.Popen(
-                [str(binary)], cwd=tmp, env=env, stdout=log,
+                [str(binary)], cwd=str(binary.parent), env=env, stdout=log,
                 stderr=subprocess.STDOUT,
             )
             failure = None
