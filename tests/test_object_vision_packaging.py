@@ -18,7 +18,7 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         self.assertIn("ocr = [", optional_dependencies)
         ocr_extra = optional_dependencies.split("ocr = [", 1)[1].split("]", 1)[0]
         setup_source = (self.root / "setup.py").read_text(encoding="utf-8")
-        pin_pattern = r"[\"\x27]rapidocr==([0-9]+(?:\\.[0-9]+){2})[\"\x27]"
+        pin_pattern = r"rapidocr==([0-9]+(?:\.[0-9]+){2})"
         project_pin = re.search(pin_pattern, ocr_extra)
         setup_pin = re.search(pin_pattern, setup_source)
         self.assertIsNotNone(project_pin)
