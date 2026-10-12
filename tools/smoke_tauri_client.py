@@ -7,6 +7,7 @@ where a temporary localhost certificate can be added to system trust.
 from __future__ import annotations
 
 import argparse
+import http.client
 import http.server
 import json
 import os
@@ -16,8 +17,6 @@ import subprocess
 import tempfile
 import threading
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 ELEMENT = 'element-6066-11e4-a52e-4f735466cecf'
@@ -56,7 +55,6 @@ def run(application):
         server.socket = context.wrap_socket(server.socket, server_side=True)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
-        base = 'http://127.0.0.1:4444'
         session = None
         log = (root / 'driver.log').open('w+')
         driver = subprocess.Popen(['tauri-driver', '--native-driver', 'WebKitWebDriver'],
@@ -64,10 +62,16 @@ def run(application):
 
         def command(method, endpoint, payload=None):
             encoded = None if payload is None else json.dumps(payload).encode()
-            request = urllib.request.Request(base + endpoint, data=encoded, method=method,
-                                             headers={'Content-Type': 'application/json'})
-            with urllib.request.urlopen(request, timeout=20) as response:
-                result = json.load(response)
+            connection = http.client.HTTPConnection('127.0.0.1', 4444, timeout=20)
+            try:
+                connection.request(method, endpoint, body=encoded,
+                                   headers={'Content-Type': 'application/json'})
+                response = connection.getresponse()
+                result = json.loads(response.read())
+                if response.status >= 400:
+                    raise ValueError(result)
+            finally:
+                connection.close()
             if isinstance(result.get('value'), dict) and result['value'].get('error'):
                 raise RuntimeError(result['value'])
             return result.get('value')
@@ -80,7 +84,7 @@ def run(application):
                     result = action()
                     if result:
                         return result
-                except (OSError, ValueError, urllib.error.URLError) as error:
+                except (OSError, ValueError) as error:
                     last = error
                 time.sleep(0.1)
             raise AssertionError(f'Public UI did not reach the expected state: {last}')
@@ -136,7 +140,7 @@ def run(application):
             if session:
                 try:
                     command('DELETE', '/session/' + session)
-                except (OSError, ValueError, urllib.error.URLError):
+                except (OSError, ValueError):
                     pass  # The process cleanup below also handles an exited WebView.
             driver.terminate()
             try:
