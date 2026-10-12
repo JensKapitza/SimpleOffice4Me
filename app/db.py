@@ -156,6 +156,29 @@ def ensure_auth_database() -> None:
         "DELETE FROM login_throttle WHERE blocked_until < ? AND window_started < ?",
         (timestamp, timestamp - 24 * 60 * 60),
     )
+    # Keep authentication DDL in startup migrations; request handlers must not commit it.
+    db.execute("""CREATE TABLE IF NOT EXISTS registration_settings (
+        id INTEGER PRIMARY KEY CHECK(id=1),
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))
+    )""")
+    db.execute("INSERT OR IGNORE INTO registration_settings(id,enabled) VALUES(1,1)")
+    db.execute("""CREATE TABLE IF NOT EXISTS account_request (
+        id INTEGER PRIMARY KEY,
+        username TEXT NOT NULL COLLATE NOCASE,
+        email TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+            CHECK(status IN ('pending','approved','rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        decided_at TEXT
+    )""")
+    db.execute("""CREATE UNIQUE INDEX IF NOT EXISTS account_request_pending_username
+        ON account_request(username) WHERE status='pending'""")
+    db.execute("""CREATE TABLE IF NOT EXISTS account_request_throttle (
+        client_key TEXT PRIMARY KEY,
+        window_started INTEGER NOT NULL,
+        attempts INTEGER NOT NULL
+    )""")
     db.execute(
         """CREATE TABLE IF NOT EXISTS oauth_token (
             provider TEXT NOT NULL,
