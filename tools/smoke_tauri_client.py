@@ -57,7 +57,7 @@ def run(application):
         thread.start()
         session = None
         log = (root / 'driver.log').open('w+')
-        driver = subprocess.Popen(['tauri-driver', '--native-driver', 'WebKitWebDriver'],
+        driver = subprocess.Popen(['tauri-driver', '--native-driver', shutil.which('WebKitWebDriver')],
                                   stdout=log, stderr=subprocess.STDOUT)
 
         def command(method, endpoint, payload=None):
