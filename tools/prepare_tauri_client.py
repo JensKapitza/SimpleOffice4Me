@@ -31,6 +31,30 @@ def prepare(root):
     cargo, count = re.subn(r'(?m)^(version\s*=\s*)"[^"]+"', lambda match: match.group(1) + json.dumps(version), cargo, count=1)
     if count != 1:
         raise ValueError('Rust package version is missing')
+    lock_updates = {}
+    node_lock_file = client / 'package-lock.json'
+    if node_lock_file.is_file():
+        node_lock = json.loads(node_lock_file.read_text(encoding='utf-8'))
+        node_lock['version'] = version
+        node_lock['packages']['']['version'] = version
+        lock_updates[node_lock_file] = json.dumps(node_lock, indent=2) + '\n'
+    rust_lock_file = client / 'src-tauri/Cargo.lock'
+    if rust_lock_file.is_file():
+        package_section = re.search(r'(?ms)^\[package\]\s*\n(.*?)(?=^\[|\Z)', cargo)
+        name_match = re.search(r'(?m)^name\s*=\s*"([^"\n]+)"', package_section.group(1)) if package_section else None
+        if not name_match:
+            raise ValueError('Rust package name is missing')
+        blocks = rust_lock_file.read_text(encoding='utf-8').split('[[package]]')
+        changed = 0
+        for index, block in enumerate(blocks[1:], 1):
+            name = re.search(r'(?m)^name\s*=\s*"([^"\n]+)"', block)
+            if name and name.group(1) == name_match.group(1) and not re.search(r'(?m)^source\s*=', block):
+                blocks[index], count = re.subn(r'(?m)^(version\s*=\s*)"[^"]+"',
+                                              lambda match: match.group(1) + json.dumps(version), block, count=1)
+                changed += count
+        if changed != 1:
+            raise ValueError('Rust lockfile root package is missing or ambiguous')
+        lock_updates[rust_lock_file] = '[[package]]'.join(blocks)
     assets = client / 'web/assets'
     assets.mkdir(parents=True, exist_ok=True)
     for source, name in (
@@ -42,6 +66,8 @@ def prepare(root):
     (client / 'package.json').write_text(json.dumps(package, indent=2) + '\n', encoding='utf-8')
     (client / 'src-tauri/tauri.conf.json').write_text(json.dumps(config, indent=2) + '\n', encoding='utf-8')
     cargo_file.write_text(cargo, encoding='utf-8')
+    for path, content in lock_updates.items():
+        path.write_text(content, encoding='utf-8')
     return {'version': version, 'assets': ['bootstrap.min.css', 'app.css', 'logo.png']}
 
 
@@ -51,7 +77,7 @@ def main():
     args = parser.parse_args()
     try:
         result = prepare(args.root)
-    except (OSError, ValueError, KeyError):
+    except (OSError, ValueError, KeyError, TypeError):
         print(json.dumps({'ok': False, 'error': 'Client metadata or shared assets are invalid'}))
         return 1
     print(json.dumps({'ok': True, **result}, sort_keys=True))

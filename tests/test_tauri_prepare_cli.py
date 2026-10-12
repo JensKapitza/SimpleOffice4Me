@@ -58,3 +58,21 @@ class TauriPreparationContractTests(unittest.TestCase):
             self.assertEqual(1, result.returncode)
             self.assertEqual({'ok': False, 'error': 'Client metadata or shared assets are invalid'},
                              json.loads(result.stdout))
+
+    def test_release_change_updates_only_root_lock_versions_and_keeps_locked_dependencies(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); self.fixture(root)
+            client = root / 'desktop/tauri'
+            node = {'version': '0.1.0', 'packages': {'': {'version': '0.1.0'},
+                    'node_modules/fixture-cli': {'version': '1.2.3', 'integrity': 'fixture-integrity'}}}
+            (client / 'package-lock.json').write_text(json.dumps(node))
+            dependency = '\nname = "fixture-lib"\nversion = "1.2.3"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "fixture-checksum"\n'
+            lock = 'version = 4\n\n[[package]]\nname = "fixture-client"\nversion = "0.1.0"\n\n[[package]]' + dependency
+            (client / 'src-tauri/Cargo.lock').write_text(lock)
+            result = self.invoke(root)
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual({'version': '2.4.6', 'packages': {'': {'version': '2.4.6'},
+                             'node_modules/fixture-cli': {'version': '1.2.3', 'integrity': 'fixture-integrity'}}},
+                             json.loads((client / 'package-lock.json').read_text()))
+            self.assertEqual('version = 4\n\n[[package]]\nname = "fixture-client"\nversion = "2.4.6"\n\n[[package]]' + dependency,
+                             (client / 'src-tauri/Cargo.lock').read_text())
