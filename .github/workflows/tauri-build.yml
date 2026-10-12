@@ -5,6 +5,7 @@ on:
       - 'desktop/tauri/**'
       - 'tools/prepare_tauri_client.py'
       - 'tools/smoke_tauri_client.py'
+      - 'tools/check_tauri_apk.py'
       - 'tools/generate_sbom.py'
       - 'static/css/app.css'
       - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
@@ -100,6 +101,13 @@ jobs:
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npx tauri android init --ci
       - run: npx tauri android build --apk --target aarch64 -- --locked
+      - name: Verify ARM64 APK and Android 16 KiB page compatibility
+        working-directory: .
+        run: |
+          APK="$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
+          test -n "$APK"
+          python tools/check_tauri_apk.py "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 "$APK"
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-android-arm64

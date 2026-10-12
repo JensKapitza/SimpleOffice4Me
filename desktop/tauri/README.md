@@ -43,7 +43,10 @@ npm run build -- -- --locked
 ```
 
 Android additionally requires JDK 17, Android SDK platform/build-tools 35,
-NDK 27.2.12479018 and the Rust ARM64 target:
+NDK 27.2.12479018 and the Rust ARM64 target. The target-specific Cargo
+configuration requests 16 KiB ELF load alignment for Android 15+ devices;
+CI verifies both ELF segments and APK zip alignment:
+
 
 ```sh
 rustup target add aarch64-linux-android
@@ -71,7 +74,7 @@ transitive dependencies: `proc-macro-error` 1.0.4 is unmaintained
 `VariantStrIter`/`array_iter_str` interface is not used by this client or its
 resolved consumers, according to source inspection. This limits the present
 exposure but is not a guarantee about future upstream usage. No advisories
-are suppressed. A compatible GTK/Tauri upstream fix remains necessary; a
+are suppressed. Upstream maintenance is tracked in [issue #675](https://github.com/JensKapitza/SimpleOffice4Me/issues/675). A compatible GTK/Tauri upstream fix remains necessary; a
 forced major-version substitution would break the current GTK bindings.
 
 ## Scope and operating limits
