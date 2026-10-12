@@ -33,7 +33,10 @@ def _lan_or_loopback(host: str | None) -> bool:
 
 
 def _local_client(hostname: str) -> bool:
-    # Loopback proxies can forward external traffic; require a local target too.
+    # Forwarded traffic may arrive from a loopback reverse proxy.
+    # Never disclose local interface addresses to such requests.
+    if any(request.headers.get(name) for name in ("Forwarded", "X-Forwarded-For", "X-Real-IP")):
+        return False
     return _lan_or_loopback(request.remote_addr) and _lan_or_loopback(hostname)
 
 def _addresses() -> list[str]:
