@@ -64,6 +64,8 @@ def main() -> None:
         "--noconfirm",
         "--clean",
         "--onefile",
+        # Frozen Python ignores normal interpreter environment flags on Windows.
+        "--python-option", "X utf8",
         "--name", "simpleoffice-python",
         "--distpath", str(DIST),
         "--workpath", str(WORK),
@@ -72,6 +74,9 @@ def main() -> None:
         "--collect-submodules", "app",
         "--collect-submodules", "tools",
         "--collect-data", "app",
+        # ReportLab barcode widgets import their implementations dynamically.
+        "--collect-submodules", "reportlab.graphics.barcode",
+        "--collect-data", "reportlab",
         # ObjectVision imports RapidOCR lazily so Android can use the same
         # application package without desktop-only native dependencies. Make
         # the desktop bundle explicit: include OCR models plus ONNX native

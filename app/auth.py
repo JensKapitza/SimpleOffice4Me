@@ -74,9 +74,10 @@ def _google_json_request(url: str, *, data: bytes | None = None, headers: dict[s
 
 
 def _registration_enabled() -> bool:
-    if current_app.testing or current_app.config.get("ALLOW_PUBLIC_REGISTRATION"):
-        return True
-    return get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+    """Allow registration until an administrator disables it persistently."""
+    db = get_db()
+    row = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
+    return bool(row and row["enabled"])
 
 
 def _google_config() -> dict[str, str] | None:
@@ -125,6 +126,8 @@ def register():
     current_admin = getattr(g, "user", None) is not None and bool(g.user["is_admin"])
     if account_count and not public_registration and not current_admin:
         abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+    if account_count and not current_admin:
+        return redirect(url_for('account_requests.new'))
     if request.method == 'POST':
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
@@ -149,12 +152,19 @@ def register():
             password_hash = hash_password(password)
             db.execute("BEGIN IMMEDIATE")
             try:
-                if not _registration_enabled() and not current_admin:
+                # Do not call _registration_enabled() here: its commit would release
+                # the BEGIN IMMEDIATE lock before the bootstrap role is assigned.
+                enabled = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
+                if not current_admin and enabled is not None and not bool(enabled[0]):
                     abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+                # The pre-lock account count is advisory only. Concurrent bootstrap
+                # requests must not create a second active user without approval.
+                first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
+                if not first_user and not current_admin:
+                    return redirect(url_for('account_requests.new'), code=303)
                 if db.execute('SELECT id FROM user WHERE username = ?', (username,)).fetchone() is not None:
                     error = 'Der Benutzername ist bereits vergeben.'
                 else:
-                    first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
                     db.execute(
                         'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',
                         (username, password_hash, int(first_user)),
@@ -185,6 +195,7 @@ def login():
             return render_template(
                 'auth/login.html', google_enabled=_google_config() is not None,
                 registration_enabled=_registration_enabled(),
+        bootstrap_registration=get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0,
             ), 429, {"Retry-After": str(retry_after)}
         user = db.execute(
             'SELECT * FROM user WHERE username = ?', (username,)
@@ -217,6 +228,7 @@ def login():
     return render_template(
         'auth/login.html', google_enabled=_google_config() is not None,
         registration_enabled=_registration_enabled(),
+        bootstrap_registration=get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0,
     )
 
 
@@ -341,8 +353,10 @@ def load_logged_in_user():
 
 FEATURE_BLUEPRINTS = {
     "documents": "documents", "calendar": "documents", "contacts": "documents",
-    "mail_routes": "mail", "contact_audit": "contacts", "webdav": "webdav",
+    "mail_routes": "mail", "mail_client": "mail", "contact_audit": "contacts", "webdav": "webdav",
     "tasks": "projects", "datalogger": "datalogger",
+    "library": "documents", "inventory": "documents", "shopping": "documents",
+    "mail_reader": "mail", "mail_index": "mail",
 }
 
 
