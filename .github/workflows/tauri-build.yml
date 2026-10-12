@@ -49,7 +49,15 @@ jobs:
         with:
           targets: aarch64-linux-android
       - name: Install SDK components
-        run: sdkmanager 'ndk;27.2.12479018' 'platforms;android-35' 'build-tools;35.0.0'
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$SDK_ROOT" || { echo 'Android SDK root is not configured'; exit 1; }
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER" || { echo 'Android SDK command-line tools are missing'; exit 1; }
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'ndk;27.2.12479018' 'platforms;android-35' 'build-tools;35.0.0'
       - name: Export NDK path
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - run: npm install --no-audit --no-fund
