@@ -22,12 +22,7 @@ def _valid_email(email: str) -> bool:
 
 
 def _db():
-    db = get_db()
-    db.execute("""CREATE TABLE IF NOT EXISTS account_request (id INTEGER PRIMARY KEY, username TEXT NOT NULL COLLATE NOCASE, email TEXT NOT NULL, password_hash TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, decided_at TEXT)""")
-    db.execute("CREATE UNIQUE INDEX IF NOT EXISTS account_request_pending_username ON account_request(username) WHERE status = 'pending'")
-    db.execute("CREATE TABLE IF NOT EXISTS account_request_throttle (client_key TEXT PRIMARY KEY, window_started INTEGER NOT NULL, attempts INTEGER NOT NULL)")
-    db.commit()
-    return db
+    return get_db()
 
 def _check_request_rate(db) -> None:
     """Bound expensive password hashing and spam per client without storing raw IPs."""
@@ -128,7 +123,6 @@ def registration_toggle():
     if g.user is None or not g.user['is_admin'] or g.user['is_disabled']:
         abort(403)
     db = _db()
-    _registration_enabled()
     db.execute('UPDATE registration_settings SET enabled=? WHERE id=1',(int(request.form.get('enabled')=='1'),))
     db.commit()
     audit('registration_setting','user',outcome='updated')
