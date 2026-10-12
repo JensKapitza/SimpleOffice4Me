@@ -5,7 +5,7 @@ import hmac
 import time
 import secrets
 import re
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template_string, request, url_for, make_response, render_template
+from flask import Blueprint, abort, current_app, flash, g, redirect, request, url_for, render_template
 from .db import get_db
 from .auth import _registration_enabled
 from .password_security import hash_password
@@ -13,7 +13,7 @@ from .access_control import FEATURES, audit, is_admin
 
 bp = Blueprint("account_requests", __name__, url_prefix="/auth/account-requests")
 
-FORM = """{% extends 'layout.html' %}{% block title %}Konto beantragen{% endblock %}{% block body %}<main class="auth-shell"><section class="auth-card"><h1>Konto beantragen</h1><form method="post"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><label for="username">Benutzername</label><input class="form-control mb-3" id="username" name="username" maxlength="64" required><label for="email">E-Mail</label><input class="form-control mb-3" id="email" name="email" type="email" maxlength="254" required><label for="password">Passwort (mindestens 12 Zeichen)</label><input class="form-control mb-3" id="password" name="password" type="password" minlength="12" maxlength="128" required><button type="submit" class="btn btn-primary w-100">Antrag senden</button></form></section></main>{% endblock %}"""
+
 
 
 
@@ -115,7 +115,7 @@ def new():
                 db.rollback()
         flash('Falls noch kein Antrag vorliegt, wurde er zur Prüfung eingereicht.')
         return redirect(url_for('auth.login'))
-    return render_template_string(FORM)
+    return render_template("auth/account_request.html")
 
 @bp.get('/admin')
 def admin():
