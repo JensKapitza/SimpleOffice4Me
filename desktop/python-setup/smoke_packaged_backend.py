@@ -26,6 +26,7 @@ def main() -> None:
             "SIMPLEOFFICE_BACKGROUND_INDEX": "0",
             "SIMPLEOFFICE_OSM_INDEX": "0",
             "SIMPLEOFFICE_DATALOGGER": "0",
+            "SIMPLEOFFICE_LOG_STDERR_ONLY": "1",
             "PATH": os.pathsep.join(filter(None, (str(binary.parent), os.environ.get("PATH", "")))),
             "PYTHONHOME": "",
             "PYTHONPATH": "",
