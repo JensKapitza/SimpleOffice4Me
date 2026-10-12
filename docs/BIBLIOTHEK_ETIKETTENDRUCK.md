@@ -151,3 +151,7 @@ und OCR-Dienste. Die weiteren Anforderungen aus #658, insbesondere vollständige
 Werk-/Ausgabenmodelle und weitere Austauschformate, werden weiterhin im
 übergeordneten Issue geführt; sie werden durch diesen Teilumfang nicht als
 abgenommen markiert.
+
+NUL-Zeichen werden nur im CSV-Ausgabewert entfernt; gespeicherte Metadaten
+bleiben unverändert. Das ermöglicht den Export auch mit dem unterstützten
+Ubuntu-22.04-System-Python 3.10. Die Formelabsicherung greift danach weiterhin.

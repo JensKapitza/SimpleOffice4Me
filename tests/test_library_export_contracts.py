@@ -75,7 +75,7 @@ class LibraryExportContracts(unittest.TestCase):
         self.assertEqual(1, len(rows))
         self.assertEqual("'=2+2", rows[0]['Titel'])
         self.assertEqual('Müller; Ångström', rows[0]['Autoren'])
-        self.assertEqual("'\x00=1+1", rows[0]['Genre'])
+        self.assertEqual("'=1+1", rows[0]['Genre'])
         self.assertEqual('9780000000001', rows[0]['ISBN'])
 
     def test_foreign_missing_traversal_and_nonbook_ids_fail_before_csv(self):
