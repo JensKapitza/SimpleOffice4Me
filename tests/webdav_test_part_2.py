@@ -375,7 +375,6 @@ class WebDavDocumentTestPart2(WebDavTestBase):
         self.assertEqual(302, missing_confirmation.status_code)
         self.assertFalse((self.store.root / "angebot.odt").exists())
 
-        self.client.get("/auth/logout")
         self.client.post("/auth/register", data={"username": "other", "password": "other-browser-password"})
         self.client.post("/auth/login", data={"username": "other", "password": "other-browser-password"})
         page = self.client.get("/documents/recovery")

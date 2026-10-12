@@ -1,0 +1,20 @@
+{% extends 'layout.html' %}
+{% block header %}{% include 'documents/nav.html' %}{% endblock %}
+{% block body %}<main id="main-content" class="container-xl py-4">
+<h1>Kontoanträge</h1><p><a class="btn btn-primary" href="{{ url_for('account_requests.invite') }}">+ Benutzer</a> <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzerverwaltung</a></p>
+{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+<form class="card p-3 mb-4" method="post" action="{{ url_for('account_requests.registration_toggle') }}">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<label class="form-check-label"><input class="form-check-input" type="checkbox" name="enabled" value="1" {% if settings.enabled %}checked{% endif %}> Kontoanträge zulassen</label>
+<label class="form-label mt-2" for="invitation-minutes">Einladung gültig (Minuten)</label><input class="form-control" id="invitation-minutes" name="invitation_minutes" type="number" min="1" max="10080" value="{{ settings.invitation_minutes }}">
+<label class="form-label mt-2" for="request-quota">Anträge pro Stunde und Clientadresse</label><input class="form-control" id="request-quota" name="requests_per_hour" type="number" min="1" max="100" value="{{ settings.requests_per_hour }}">
+<button type="submit" class="btn btn-primary mt-3">Speichern</button></form>
+{% for item in items %}<section class="card p-3 mb-3"><h2 class="h5">{{ item.username }}</h2><p>{{ item.email }}</p>
+<form method="post" action="{{ url_for('account_requests.decide', request_id=item.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<label class="form-check-label"><input class="form-check-input" type="checkbox" name="is_admin" value="1"> Administrator (erweiterte Rechte)</label>
+<label class="form-label d-block mt-2" for="parent-{{ item.id }}">Übergeordneter Benutzer (optional)</label><select class="form-select" id="parent-{{ item.id }}" name="parent_user_id"><option value="">Keine Zuordnung</option>{% for user in account_users %}<option value="{{ user.id }}">{{ user.username }}</option>{% endfor %}</select>
+<div class="form-text">Die Zuordnung erteilt keine zusätzlichen Rechte. Funktionszugriffe werden in der bestehenden Benutzerverwaltung gesetzt.</div>
+<div class="d-flex flex-wrap gap-2 mt-3"><button type="submit" class="btn btn-primary" name="decision" value="approve">Freigeben</button><button type="submit" class="btn btn-outline-danger" name="decision" value="reject">Ablehnen</button></div></form></section>{% else %}<p>Keine offenen Anträge.</p>{% endfor %}
+<h2 class="h4 mt-4">Offene Einladungen</h2>{% for invitation in invitations %}<div class="card p-3 mb-2"><strong>{{ invitation.username }}</strong><span>{{ 'Abgelaufen' if invitation.expires_at <= now else 'Noch nicht angenommen' }}</span>
+<form method="post" action="{{ url_for('account_requests.manage_invitation', user_id=invitation.id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="d-flex flex-wrap gap-2 mt-2"><button type="submit" class="btn btn-outline-primary" name="action" value="reissue">Neue Einladung</button><button type="submit" class="btn btn-outline-danger" name="action" value="revoke">Einladung widerrufen</button></div></form></div>{% else %}<p>Keine offenen Einladungen.</p>{% endfor %}
+</main>{% endblock %}

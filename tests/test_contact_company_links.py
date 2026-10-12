@@ -42,7 +42,7 @@ class ContactCompanyLinksTest(unittest.TestCase):
         self.assertEqual("Musterwerke GmbH", person["fields"]["company"])
 
     def test_company_search_obeys_contact_read_permissions(self):
-        other = app.test_client(); other.post("/auth/register", data={"username": "other", "password": "anderes-passwort"}); other.post("/auth/login", data={"username": "other", "password": "anderes-passwort"})
+        other = app.test_client(); self.client.post("/auth/register", data={"username": "other", "password": "anderes-passwort"}); other.post("/auth/login", data={"username": "other", "password": "anderes-passwort"})
         self.assertEqual([], other.get("/documents/contacts/company-search?q=Mu").get_json()["items"])
 
     def test_company_page_lists_assigned_people(self):

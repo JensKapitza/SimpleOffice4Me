@@ -213,7 +213,7 @@ class AuthTest(unittest.TestCase):
     # This security check temporarily uses production flags. A mail retry worker
     # must not outlive the disposable auth fixture or race its directory cleanup.
     @patch.dict(os.environ, {"SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER": "0"})
-    def test_public_registration_is_closed_after_bootstrap_by_default(self):
+    def test_public_registration_requires_approval_after_bootstrap(self):
         self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
         previous = {key: app.config.get(key) for key in ("TESTING", "TEST_CSRF_PROTECTION", "ALLOW_PUBLIC_REGISTRATION")}
         app.config.update(TESTING=False, TEST_CSRF_PROTECTION=False, ALLOW_PUBLIC_REGISTRATION=False)
@@ -224,7 +224,10 @@ class AuthTest(unittest.TestCase):
                 "/auth/register",
                 data={"username": "intruder", "password": "sicheres-passwort", "_csrf_token": "x" * 43},
             )
-            self.assertEqual(403, response.status_code)
+            self.assertEqual(302, response.status_code)
+            self.assertEqual("/auth/account-requests/new", response.headers["Location"])
+            response = self.client.get("/auth/profile")
+            self.assertEqual("/auth/login", response.headers["Location"])
         finally:
             app.config.update(previous)
 

@@ -107,13 +107,11 @@ class PersonnelTest(unittest.TestCase):
         self.assertNotIn(b"Diagnose geheim", team.data); self.assertNotIn(b"<td>Krank", team.data)
 
     def test_non_hr_user_cannot_open_hr_page(self):
-        self.client.post("/auth/logout")
         self.client.post("/auth/register", data={"username":"kollege","password":"sicheres-passwort"})
         self.client.post("/auth/login", data={"username":"kollege","password":"sicheres-passwort"})
         self.assertEqual(403, self.client.get("/personnel/hr").status_code)
 
     def test_unlinked_user_cannot_open_personnel_page(self):
-        self.client.post("/auth/logout")
         self.client.post("/auth/register", data={"username":"unlinked","password":"sicheres-passwort"})
         self.client.post("/auth/login", data={"username":"unlinked","password":"sicheres-passwort"})
         self.assertEqual(403, self.client.get("/personnel").status_code)

@@ -124,6 +124,7 @@ def users():
     orphaned = ownerless_contacts(current_app.config["DOCUMENT_ROOT"])
     return render_template(
         "admin/users.html", users=visible, account_users=rows, features=FEATURES,
+        parent_names={row["id"]: row["username"] for row in rows},
         feature_details=FEATURE_DETAILS,
         permissions={row["id"]: permissions_for(row["id"]) for row in visible},
         user_stats={

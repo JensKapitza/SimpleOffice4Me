@@ -165,3 +165,5 @@
   </div>
 </nav>
 {% if request.blueprint == 'rentals' %}{% include "rentals/_nav.html" %}{% endif %}
+
+{% if g.user and g.user.is_admin and pending_account_requests %}<div class="alert alert-info mx-2 my-2 py-2" role="status" aria-live="polite"><a href="{{ url_for('account_requests.admin') }}">{{ pending_account_requests }} Kontoantrag/Kontoanträge warten auf Freigabe.</a></div>{% endif %}
