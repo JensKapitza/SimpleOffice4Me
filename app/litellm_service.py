@@ -179,7 +179,8 @@ def save_settings(value):
             raise RuntimeError("LiteLLM-Aktion läuft bereits.")
         clean = prepare(value)
         previous = settings()
-        deactivating = previous["mode"] == "local" and not clean["enabled"]
+        deactivating = (previous["mode"] == "local" and previous["enabled"]
+                        and (not clean["enabled"] or clean["mode"] != "local"))
         if previous["mode"] == "local" and (previous["enabled"] or clean["mode"] == "local"):
             running = _running()  # Preflight only while local state can still own a managed container.
             if clean["enabled"] and running:
