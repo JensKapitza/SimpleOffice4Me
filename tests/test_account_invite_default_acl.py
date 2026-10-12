@@ -9,6 +9,6 @@ class InvitationDefaultAclTests(AccountApiFixture):
         member = self.login('candidate')
         self.assertEqual('/documents/settings', member.get('/auth/profile').headers['Location'])
         for path in ('/auth/account-requests/admin', '/admin/users', '/library', '/documents/', '/inventory',
-                     '/documents/mail/reader', '/documents/mail/index'):
+                     '/documents/mail', '/documents/mail/reader', '/documents/mail/index'):
             with self.subTest(path=path):
                 self.assertEqual(403, member.get(path).status_code)
