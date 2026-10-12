@@ -17,13 +17,24 @@ except ImportError:
     qrcode = None
 
 
-def _local_client() -> bool:
+_LAN_NETWORKS = tuple(map(ipaddress.ip_network, (
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7",
+)))
+
+
+def _lan_or_loopback(host: str | None) -> bool:
     try:
-        peer = ipaddress.ip_address(request.remote_addr or "")
-        return peer.is_private or peer.is_loopback
+        address = ipaddress.ip_address(host or "")
     except ValueError:
         return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    return address.is_loopback or any(address in subnet for subnet in _LAN_NETWORKS)
 
+
+def _local_client(hostname: str) -> bool:
+    # Loopback proxies can forward external traffic; require a local target too.
+    return _lan_or_loopback(request.remote_addr) and _lan_or_loopback(hostname)
 
 def _addresses() -> list[str]:
     hosts = set()
@@ -34,7 +45,7 @@ def _addresses() -> list[str]:
         pass
     return sorted(
         host for host in hosts
-        if ipaddress.ip_address(host).is_private
+        if _lan_or_loopback(host)
         and not ipaddress.ip_address(host).is_loopback
     )
 
@@ -50,7 +61,7 @@ def login_qr_targets() -> list[dict[str, str]]:
         return []
     current = urlunsplit((parsed.scheme, parsed.netloc, "/auth/login", "", ""))
     candidates = [("Aktuelle Adresse", current)]
-    if _local_client():
+    if _local_client(parsed.hostname):
         allowed_ports = [parsed.port or (443 if parsed.scheme == "https" else 80)]
         for entry in os.getenv("SIMPLEOFFICE_LOGIN_QR_PORTS", "").split(","):
             try:
