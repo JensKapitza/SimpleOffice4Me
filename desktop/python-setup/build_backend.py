@@ -78,6 +78,8 @@ def main() -> None:
         # libraries even though PyInstaller cannot discover the lazy import.
         "--collect-all", "rapidocr",
         "--collect-all", "onnxruntime",
+        # ReportLab imports barcode implementations dynamically.
+        "--collect-submodules", "reportlab.graphics.barcode",
         "--add-data", add_data(REPO / "templates", "templates"),
         "--add-data", add_data(REPO / "static", "static"),
         str(ENTRY),
