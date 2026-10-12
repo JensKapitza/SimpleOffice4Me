@@ -1,0 +1,36 @@
+name: Tauri 2 Windows and macOS
+on:
+  pull_request:
+    paths:
+      - 'desktop/tauri/**'
+      - '.github/workflows/tauri-desktop-crossplatform.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            name: windows
+          - os: macos-14
+            name: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop/tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install --no-audit --no-fund
+      - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-desktop-${{ matrix.name }}
+          path: desktop/tauri/src-tauri/target/release/bundle/
+          if-no-files-found: error
