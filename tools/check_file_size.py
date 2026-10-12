@@ -10,7 +10,7 @@ from pathlib import Path
 
 DEFAULT_LIMIT = 1000
 SOURCE_SUFFIXES = {".py", ".js", ".ts", ".css", ".html", ".jinja", ".jinja2"}
-IGNORED_PARTS = {".git", ".venv", "venv", "node_modules", "vendor", "dist", "build"}
+IGNORED_PARTS = {".git", ".venv", ".build-venv", "venv", "node_modules", "vendor", "dist", "build"}
 LEGACY_VENDOR_PREFIXES = ("static/bootstrap-5.0.1-dist/", "static/fontawesome-free-5.15.3-web/")
 def oversized_files(root: Path, limit: int = DEFAULT_LIMIT) -> list[tuple[Path, int]]:
     root = root.resolve()

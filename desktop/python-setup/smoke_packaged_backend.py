@@ -30,6 +30,9 @@ def main() -> None:
             "PATH": os.pathsep.join(filter(None, (str(binary.parent), os.environ.get("PATH", "")))),
             "PYTHONHOME": "",
             "PYTHONPATH": "",
+            # The frozen runtime must select UTF-8 itself, even with a conflicting parent.
+            "PYTHONUTF8": "0",
+            "PYTHONIOENCODING": "cp1252",
         })
         # Keep captured output outside the instance directory: Windows
         # PyInstaller child processes can retain inherited log handles after
@@ -50,16 +53,29 @@ def main() -> None:
                         with urllib.request.urlopen(
                             "http://127.0.0.1:18765/", timeout=2
                         ) as response:
-                            if 200 <= response.status < 400:
-                                print(f"Packaged backend HTTP smoke passed: {response.status}")
-                                break
+                            content = response.read(256000)
+                            if (response.status != 200 or response.headers.get_content_charset() != "utf-8"
+                                    or b"SimpleOffice4Me" not in content):
+                                failure = "Packaged backend did not serve the public UTF-8 application page"
+                            else:
+                                print("Packaged backend HTTP smoke passed: application page, HTTP 200, UTF-8")
+                            break
                     except (urllib.error.URLError, TimeoutError):
                         time.sleep(1)
                 else:
                     failure = "Packaged backend did not respond within 90 seconds"
             finally:
                 if proc.poll() is None:
-                    proc.terminate()
+                    if os.name == "nt":
+                        # Onefile has a bootloader parent and a Python child. TerminateProcess
+                        # on the parent alone leaves the child and its file handles alive.
+                        result = subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL, timeout=10, check=False)
+                        if result.returncode and proc.poll() is None:
+                            raise RuntimeError("Packaged backend process tree could not be stopped")
+                    else:
+                        proc.terminate()
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
