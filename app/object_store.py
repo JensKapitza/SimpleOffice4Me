@@ -63,6 +63,20 @@ class ObjectStore:
             ]
         return sorted(objects, key=lambda item: (int(item.get("sequence_id", 0)), item.get("name", "").casefold()))
 
+    def iter_objects(self):
+        """Iterate catalog entries without loading the entire inventory."""
+        self._ensure_sequences()
+        width = self.sequence_width()
+        for path in self.directory.glob("*.json"):
+            if path.name == "sequence.json":
+                continue
+            raw = self._read(path)
+            if not raw:
+                continue
+            item = self._normalized_item(raw)
+            item["display_id"] = self.format_sequence(item.get("sequence_id", 0), width)
+            yield item
+
     def object(self, object_id: str) -> dict[str, Any]:
         """Resolve a UUID or any zero-padded representation of the permanent sequence ID."""
         self._ensure_sequences()
@@ -229,7 +243,7 @@ class ObjectStore:
 
     def sequence_width(self, items: list[dict[str, Any]] | None = None) -> int:
         if items is None:
-            items = [item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path))]
+            items = (item for path in self.directory.glob("*.json") if path.name != "sequence.json" and (item := self._read(path)))
         highest = max((int(item.get("sequence_id", 0) or 0) for item in items), default=0)
         highest = max(highest, int(self._read_sequence_state().get("last", 0) or 0))
         return max(1, len(str(highest or 1)))
