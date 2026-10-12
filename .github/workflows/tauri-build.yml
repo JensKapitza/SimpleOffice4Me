@@ -23,7 +23,7 @@ jobs:
         working-directory: .
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf
       - run: npm install --no-audit --no-fund
-      - run: npx tauri icon icon.svg
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npm run build
       - uses: actions/upload-artifact@v4
         with:
@@ -53,7 +53,7 @@ jobs:
       - name: Export NDK path
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - run: npm install --no-audit --no-fund
-      - run: npx tauri icon icon.svg
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npx tauri android init --ci
       - run: npx tauri android build --apk --target aarch64
       - uses: actions/upload-artifact@v4
