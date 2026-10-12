@@ -7,7 +7,7 @@ fn chooser_url(url: &Url) -> bool {
     let local_origin = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
         || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"));
     local_origin
-        && matches!(url.path(), "/" | "/index.html")
+        && matches!(url.path(), "" | "/" | "/index.html")
         && url.query().is_none()
         && url.fragment().is_none()
 }
