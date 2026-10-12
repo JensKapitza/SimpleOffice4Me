@@ -67,3 +67,8 @@ lassen. Die Backend-Ausgabe wird bei einem Fehler zur Diagnose ausgegeben.
 Die ausschließlich generierte Build-Virtualenv `.build-venv` wird wie `.venv`
 von den Quellcodegrößen- und Repository-Secret-Prüfungen ausgenommen. Anwendung,
 Tests, Build-Skripte und versionierte Konfiguration bleiben vollständig geprüft.
+
+Unter Windows beendet die Testbereinigung den eigenen Onefile-Prozessbaum,
+bevor temporäre Dateien entfernt werden. Der Electron-Launcher verwendet auch
+beim erzwungenen Abschluss nach seinem regulären Wartefenster den Prozessbaum;
+das Beenden nur des Bootloader-Elternprozesses würde das Backend zurücklassen.

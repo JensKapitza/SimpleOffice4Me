@@ -64,7 +64,16 @@ def main() -> None:
                     failure = "Packaged backend did not respond within 90 seconds"
             finally:
                 if proc.poll() is None:
-                    proc.terminate()
+                    if os.name == "nt":
+                        # Onefile has a bootloader parent and a Python child. TerminateProcess
+                        # on the parent alone leaves the child and its file handles alive.
+                        result = subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                stderr=subprocess.DEVNULL, timeout=10, check=False)
+                        if result.returncode and proc.poll() is None:
+                            raise RuntimeError("Packaged backend process tree could not be stopped")
+                    else:
+                        proc.terminate()
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
