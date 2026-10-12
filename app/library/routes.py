@@ -379,7 +379,8 @@ def printer_cut():
 
 
 def _csv_cell(value):
-    text = "" if value is None else str(value)
+    # NUL is not useful spreadsheet text and breaks the supported Python 3.10 CSV writer.
+    text = "" if value is None else str(value).replace("\x00", "")
     index = 0
     while index < len(text) and (ord(text[index]) <= 32 or text[index].isspace() or text[index] == "\ufeff"):
         index += 1
