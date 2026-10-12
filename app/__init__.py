@@ -14,7 +14,6 @@ import os
 import json
 import sys
 import datetime
-import locale
 import re
 import secrets
 import time
@@ -165,9 +164,6 @@ class SchemeAwareSessionInterface(SecureCookieSessionInterface):
     def get_cookie_secure(self, app):
         return request.is_secure
 
-
-if str(locale.getpreferredencoding()).lower() not in ["utf-8", "utf8"]:
-    raise BaseException("Wrong encoding use utf8")
 
 if sys.version_info < (3,):
     raise BaseException("Wrong Python Version")
