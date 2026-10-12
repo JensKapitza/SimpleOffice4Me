@@ -112,6 +112,10 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | Name | Quelle | Vorhandene Fachreferenz |
 |---|---|---|
 | `SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION` (Legacy; keine direkte Aktivierung, Kontoanträge administrativ steuern) | [__init__.py](../app/__init__.py) | [Konten und Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md) |
+| `SIMPLEOFFICE_LOGIN_QR` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
+| `SIMPLEOFFICE_LOGIN_QR_LAN` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
+| `SIMPLEOFFICE_LOGIN_QR_PORTS` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
+| `SIMPLEOFFICE_LOGIN_QR_URLS` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
 | `SIMPLEOFFICE_AMAZON_ACCESS_KEY` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_AMAZON_PARTNER_TAG` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_AMAZON_SECRET_KEY` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |

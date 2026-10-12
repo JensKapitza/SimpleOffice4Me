@@ -18,6 +18,7 @@ nicht. Funktions-, Benutzer-/Rollen- und Objektfreigaben bleiben maßgeblich.
 ## Benutzer und Freigaben
 
 - [Kontoanträge, Freigaben und sichere Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md)
+- [Login-Adressen und private QR-Kandidaten](LOGIN_QR_CODES.md)
 
 ## Kontakte und Kalender
 
