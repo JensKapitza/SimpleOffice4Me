@@ -104,6 +104,19 @@ class InvitationSecurityTests(unittest.TestCase):
             "_csrf_token": self._csrf(admin),
         }).status_code)
 
+    def test_invite_rejects_case_variant_of_existing_user(self):
+        admin = self._admin()
+        admin.get("/auth/account-requests/admin/invite")
+        response = admin.post("/auth/account-requests/admin/invite", data={
+            "username": "ADMIN", "email": "other@example.test",
+            "_csrf_token": self._csrf(admin),
+        })
+        self.assertEqual(409, response.status_code)
+        with app.app_context():
+            self.assertEqual(1, get_db().execute(
+                "SELECT COUNT(*) FROM user WHERE username=? COLLATE NOCASE", ("admin",)
+            ).fetchone()[0])
+
     def test_invitation_is_single_use(self):
         admin = self._admin()
         admin.get("/auth/account-requests/admin/invite")
