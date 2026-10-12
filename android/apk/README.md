@@ -93,6 +93,7 @@ python tools/check_android_launcher_assets.py android/apk/app/build/outputs/apk/
 
 Der Befehl liefert JSON und Exitcode 0 bei gültigen Ressourcen; fehlende,
 beschädigte oder falsch dimensionierte Launcher-Bilder liefern Exitcode 1.
-ARM64 und ARM32 werden geprüft. Änderungen an Logo, Android-Projekt oder
-Prüfwerkzeug lösen diese Builds auch im Pull Request aus. Die Prüfung ersetzt
+ARM64 und ARM32 werden geprüft. Die bestehenden APK-Auslöser bleiben erhalten:
+Push auf `main` und manueller Workflow-Start. Für die PR-Abnahme wird der
+Workflow manuell gegen den geprüften PR-Branch gestartet. Die Prüfung ersetzt
 keinen visuellen Test des Launchers auf einem Android-Gerät.
