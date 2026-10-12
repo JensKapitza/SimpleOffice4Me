@@ -90,7 +90,7 @@ def new():
             enabled = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
             if enabled is None or not bool(enabled[0]):
                 abort(403)
-            if db.execute('SELECT 1 FROM user WHERE username = ?',(username,)).fetchone() is None:
+            if db.execute('SELECT 1 FROM user WHERE username = ? COLLATE NOCASE',(username,)).fetchone() is None:
                 db.execute('INSERT OR IGNORE INTO account_request(username,email,password_hash) VALUES (?,?,?)',
                            (username,email,password_digest))
             db.commit()
@@ -119,6 +119,8 @@ def decide(request_id):
         if item is None:
             abort(404)
         if request.form['decision']=='approve':
+            if db.execute('SELECT 1 FROM user WHERE username=? COLLATE NOCASE', (item['username'],)).fetchone():
+                abort(409)
             admin_role = request.form.get('is_admin') == '1'
             created = db.execute('INSERT INTO user(username,password,email,is_admin,created_at,updated_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',(item['username'],item['password_hash'],item['email'],int(admin_role)))
             if not admin_role:
@@ -159,6 +161,10 @@ def invite():
     db = _db()
     db.execute('BEGIN IMMEDIATE')
     try:
+        if db.execute('SELECT 1 FROM user WHERE username=? COLLATE NOCASE', (username,)).fetchone():
+            abort(409)
+        if db.execute("SELECT 1 FROM account_request WHERE username=? AND status='pending'", (username,)).fetchone():
+            abort(409)
         cursor = db.execute(
             """INSERT INTO user(username,password,email,is_admin,is_disabled,created_at,updated_at)
                VALUES (?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
