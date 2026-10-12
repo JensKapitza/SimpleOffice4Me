@@ -9,7 +9,7 @@ from flask import Blueprint, abort, current_app, flash, g, redirect, render_temp
 from .db import get_db
 from .auth import _registration_enabled
 from .password_security import hash_password
-from .access_control import audit
+from .access_control import FEATURES, audit
 
 bp = Blueprint("account_requests", __name__, url_prefix="/auth/account-requests")
 
@@ -119,8 +119,11 @@ def decide(request_id):
         if item is None:
             abort(404)
         if request.form['decision']=='approve':
-            db.execute('INSERT INTO user(username,password,email,is_admin,created_at,updated_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',(item['username'],item['password_hash'],item['email'],int(request.form.get('is_admin') == '1')))
-        db.execute("UPDATE account_request SET status=?,decided_at=CURRENT_TIMESTAMP WHERE id=?",(('approved' if request.form['decision']=='approve' else 'rejected'),request_id))
+            admin_role = request.form.get('is_admin') == '1'
+            created = db.execute('INSERT INTO user(username,password,email,is_admin,created_at,updated_at) VALUES (?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)',(item['username'],item['password_hash'],item['email'],int(admin_role)))
+            if not admin_role:
+                db.executemany('INSERT INTO user_permission(user_id,feature,enabled,updated_at) VALUES (?,?,0,CURRENT_TIMESTAMP)',[(created.lastrowid, feature) for feature in FEATURES])
+        db.execute("UPDATE account_request SET status=?,password_hash='',decided_at=CURRENT_TIMESTAMP WHERE id=?",(('approved' if request.form['decision']=='approve' else 'rejected'),request_id))
         db.commit()
     except sqlite3.IntegrityError:
         db.rollback()
@@ -161,6 +164,8 @@ def invite():
                VALUES (?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)""",
             (username, hash_password(secrets.token_urlsafe(40)), email, int(request.form.get("is_admin") == "1")),
         )
+        if request.form.get('is_admin') != '1':
+            db.executemany('INSERT INTO user_permission(user_id,feature,enabled,updated_at) VALUES (?,?,0,CURRENT_TIMESTAMP)',[(cursor.lastrowid, feature) for feature in FEATURES])
         db.execute(
             'INSERT INTO account_invitation(user_id, token_hash, expires_at) VALUES (?,?,?)',
             (cursor.lastrowid, digest, int(time.time()) + 86400),
