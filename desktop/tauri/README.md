@@ -57,7 +57,22 @@ outputs and `node_modules` are excluded from Git.
 
 CI: `.github/workflows/tauri-build.yml` (Linux and Android ARM64) and
 `.github/workflows/tauri-desktop-crossplatform.yml` (Windows and macOS).
+The Linux job exercises the built WebView through WebDriver: rejected inputs,
+a temporary trusted HTTPS portal with a deployment path, blocked file
+navigation and the native server-switch menu. It publishes the locked Rust
+CycloneDX SBOM and RustSec audit report. Node dependencies are also audited.
 Artifacts are test builds, not signed production releases.
+
+RustSec audit on 2026-10-12: no vulnerability-class advisories in the 407
+locked packages. Two informational advisories remain in the Linux GTK 3
+transitive dependencies: `proc-macro-error` 1.0.4 is unmaintained
+(RUSTSEC-2024-0370); `glib` 0.18.5 has unsound string-array iteration
+(RUSTSEC-2024-0429, fixed in the incompatible 0.20 series). The affected
+`VariantStrIter`/`array_iter_str` interface is not used by this client or its
+resolved consumers, according to source inspection. This limits the present
+exposure but is not a guarantee about future upstream usage. No advisories
+are suppressed. A compatible GTK/Tauri upstream fix remains necessary; a
+forced major-version substitution would break the current GTK bindings.
 
 ## Scope and operating limits
 

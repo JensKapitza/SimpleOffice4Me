@@ -30,6 +30,7 @@ jobs:
         working-directory: .
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf webkit2gtk-driver xvfb xdotool dbus-x11
       - run: npm ci --no-audit --no-fund
+      - run: npm audit --audit-level=high
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npm run build -- -- --locked
@@ -43,6 +44,16 @@ jobs:
           name: tauri-rust-sbom
           path: artifacts/tauri-rust-sbom.cdx.json
           if-no-files-found: error
+      - name: Audit locked Rust dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --file src-tauri/Cargo.lock --json > ../../artifacts/tauri-rust-audit.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tauri-rust-audit
+          path: artifacts/tauri-rust-audit.json
+          if-no-files-found: warn
       - name: Install native WebDriver test harness
         run: cargo install tauri-driver --version 2.1.0 --locked
       - name: Test actual native client navigation and server selection
@@ -84,6 +95,7 @@ jobs:
       - name: Export NDK path
         run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
       - run: npm ci --no-audit --no-fund
+      - run: npm audit --audit-level=high
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npx tauri android init --ci
