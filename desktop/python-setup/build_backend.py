@@ -71,6 +71,7 @@ def main() -> None:
         "--paths", str(REPO),
         "--collect-submodules", "app",
         "--collect-submodules", "tools",
+        "--collect-submodules", "reportlab.graphics.barcode",
         "--collect-data", "app",
         # ObjectVision imports RapidOCR lazily so Android can use the same
         # application package without desktop-only native dependencies. Make
