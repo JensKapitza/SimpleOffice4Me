@@ -62,7 +62,7 @@
       </div>
       <div class="d-flex flex-wrap gap-2 mt-2"><button type="button" class="btn btn-outline-primary" data-scan-target="bulk-book-code"><i class="fa-solid fa-camera me-1" aria-hidden="true"></i>Kamera starten</button><span class="small text-secondary align-self-center">USB-/Bluetooth-Barcodescanner können einfach in das Feld schreiben und Enter senden.</span></div>
       <div class="border rounded p-3 mt-3" id="ocr-page-tools">
-        <h3 class="h6">Buchseite für OCR vorbereiten</h3>
+        <h2 class="h6">Buchseite für OCR vorbereiten</h2>
         <form id="library-ocr-optimize-form" method="post" data-url="{{ url_for('library.optimize_ocr_image') }}" data-analyze-url="{{ url_for('library.analyze_ocr_upload') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <label for="library-ocr-page" class="form-label">Titelblatt, Impressum oder Foto{% if pdf_available %} / PDF{% endif %}</label>
@@ -74,8 +74,8 @@
           {% if not pdf_available %}<p class="small text-secondary">PDF-Vorschau ist hier nicht verfügbar. Bitte eine Bilddatei auswählen.</p>{% endif %}
         </form>
         <div id="library-ocr-result" class="mt-2" role="status" aria-live="polite"></div><label class="form-label mt-2" for="library-ocr-text">Erkannter Text (zum Kopieren oder als Notiz)</label><textarea id="library-ocr-text" class="form-control" rows="5" readonly></textarea><label class="form-label mt-2" for="library-ocr-tags">Tag-Vorschläge (prüfen und übernehmen)</label><textarea id="library-ocr-tags" class="form-control" rows="2"></textarea>
-        <img id="library-ocr-preview" class="img-fluid mt-2" alt="Optimierte Buchseite" loading="lazy" decoding="async" hidden>
-        <a id="library-ocr-download" class="btn btn-outline-secondary mt-2" download="buchseite-optimiert.png" hidden>Optimiertes Bild speichern</a>
+        <img id="library-ocr-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" class="img-fluid mt-2" alt="Optimierte Buchseite" loading="lazy" decoding="async" hidden>
+        <a id="library-ocr-download" href="#" class="btn btn-outline-secondary mt-2" download="buchseite-optimiert.png" hidden>Optimiertes Bild speichern</a>
       </div>
       <div id="bulk-status" class="mt-3" aria-live="polite"></div>
       <div id="bulk-history" class="list-group list-group-flush mt-2"></div>
