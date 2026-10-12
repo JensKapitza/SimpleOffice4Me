@@ -196,7 +196,6 @@ class PersonnelTimeInsightsTest(unittest.TestCase):
             self.assertEqual(0, count)
 
     def test_non_admin_cannot_open_statistics_workspace(self):
-        self.client.post("/auth/logout")
         self.client.post("/auth/register", data={"username": "kollege", "password": "sicheres-passwort"})
         self.client.post("/auth/login", data={"username": "kollege", "password": "sicheres-passwort"})
         self.assertEqual(403, self.client.get("/personnel/time-admin/insights").status_code)
