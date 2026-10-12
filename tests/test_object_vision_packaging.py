@@ -20,12 +20,12 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         setup = (self.root / "setup.py").read_text(encoding="utf-8")
         # A dependency update must not break an unrelated packaging test.
         # Compare both supported installation formats rather than one historical pin.
-        rapidocr_pins = re.findall(r'"(rapidocr==[0-9]+\\.[0-9]+\\.[0-9]+)"', ocr_extra)
+        rapidocr_pins = re.findall(r'"(rapidocr==[0-9]+[.][0-9]+[.][0-9]+)"', ocr_extra)
         self.assertEqual(1, len(rapidocr_pins), "OCR extra needs one explicit RapidOCR pin")
         self.assertIn(f'"{rapidocr_pins[0]}"', setup, "setup.py OCR extra must match pyproject.toml")
 
         web_extra = optional_dependencies.split("web-export = [", 1)[1].split("]", 1)[0]
-        playwright_pins = re.findall(r'"(playwright==[0-9]+\\.[0-9]+\\.[0-9]+)"', web_extra)
+        playwright_pins = re.findall(r'"(playwright==[0-9]+[.][0-9]+[.][0-9]+)"', web_extra)
         self.assertEqual(1, len(playwright_pins), "Web export needs one explicit Playwright pin")
         self.assertIn(f'"{playwright_pins[0]}"', setup, "setup.py web extra must match pyproject.toml")
         self.assertIn("onnxruntime", ocr_extra.casefold())
