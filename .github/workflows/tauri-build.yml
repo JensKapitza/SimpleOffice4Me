@@ -5,6 +5,7 @@ on:
       - 'desktop/tauri/**'
       - 'tools/prepare_tauri_client.py'
       - 'tools/smoke_tauri_client.py'
+      - 'tools/smoke_tauri_android.py'
       - 'tools/check_tauri_apk.py'
       - 'tools/generate_sbom.py'
       - 'static/css/app.css'
@@ -59,7 +60,7 @@ jobs:
         run: cargo install tauri-driver --version 2.1.0 --locked
       - name: Test actual native client navigation and server selection
         working-directory: .
-        run: dbus-run-session -- xvfb-run -a python tools/smoke_tauri_client.py desktop/tauri/src-tauri/target/release/simpleoffice4me_tauri
+        run: xvfb-run -a dbus-run-session -- env WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 python tools/smoke_tauri_client.py desktop/tauri/src-tauri/target/release/simpleoffice4me_tauri
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-linux
@@ -113,3 +114,49 @@ jobs:
           name: tauri-android-arm64
           path: desktop/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+  android-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop/tauri
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - name: Install Android build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;27.2.12479018' 'platforms;android-35' 'build-tools;35.0.0'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prepare:client
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
+      - run: npx tauri android init --ci
+      - name: Build signed debug APK for emulator runtime validation
+        run: npx tauri android build --debug --apk --target x86_64 -- --locked
+      - name: Enable runner user access to supplied KVM device
+        working-directory: .
+        run: sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+      - name: Exercise installed Android WebView client
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: python tools/smoke_tauri_android.py desktop/tauri/src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tauri-android-ui-evidence
+          path: artifacts/tauri-android-ui/
+          if-no-files-found: warn

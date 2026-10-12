@@ -64,6 +64,12 @@ The Linux job exercises the built WebView through WebDriver: rejected inputs,
 a temporary trusted HTTPS portal with a deployment path, blocked file
 navigation and the native server-switch menu. It publishes the locked Rust
 CycloneDX SBOM and RustSec audit report. Node dependencies are also audited.
+Android UI validation builds a signed debug x86_64 APK from the same client
+source and installs it in an Android 35 emulator. Public accessibility/input
+checks cover startup, HTTP rejection, opening the trusted IANA example site
+and reopening with the saved endpoint. This is emulator coverage; the ARM64
+release artifact is separately built and checked for 16 KiB alignment, not
+claimed to have been tested on physical ARM64 hardware.
 Artifacts are test builds, not signed production releases.
 
 RustSec audit on 2026-10-12: no vulnerability-class advisories in the 407
