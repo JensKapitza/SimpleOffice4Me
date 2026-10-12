@@ -80,6 +80,13 @@ class LoginQRCodeTests(AccountApiFixture):
             _, page = self.page(headers={header: '203.0.113.10'})
             self.assertEqual(['http://127.0.0.1:8080/auth/login'], page.links)
 
+    def test_configured_proxy_without_forwarded_headers_cannot_disclose_private_candidates(self):
+        from werkzeug.middleware.proxy_fix import ProxyFix
+        deployed = ProxyFix(app.wsgi_app, x_for=1, x_host=1)
+        with patch.object(app, 'wsgi_app', deployed):
+            _, page = self.page()
+        self.assertEqual(['http://127.0.0.1:8080/auth/login'], page.links)
+
     def test_disable_switches_keep_authentication_available(self):
         response, page = self.page(variables={'SIMPLEOFFICE_LOGIN_QR': '0'})
         self.assertEqual([], page.links)

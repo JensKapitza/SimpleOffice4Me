@@ -13,7 +13,8 @@ IPv4-Adresskandidaten. Sowohl Clientadresse als auch aufgerufener Host müssen
 lokal sein; als Host zählt auch `localhost`. Bei öffentlichen Hosts oder
 Forwarding-Headern (`Forwarded`, `X-Forwarded-For`, `X-Real-IP`) bleibt nur die
 aktuelle Adresse sichtbar. Das gilt auch bei einem Reverse-Proxy auf Loopback.
-Die bestehende Proxy-Konfiguration bleibt maßgeblich; unbestätigte Header
+Bei konfiguriertem ProxyFix wird die LAN-Auflistung auch ohne Forwarding-Header
+unterdrückt. Die bestehende Proxy-Konfiguration bleibt maßgeblich; unbestätigte Header
 schalten die LAN-Auflistung niemals frei. Loginseiten sind nicht cachebar.
 
 Mit **Vorherige Adresse**, **Nächste Adresse** oder einem horizontalen Wisch

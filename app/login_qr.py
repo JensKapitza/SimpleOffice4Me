@@ -30,6 +30,8 @@ def _lan_or_loopback(host: str | None) -> bool:
 def _local_client(hostname: str) -> bool:
     # Forwarded traffic may arrive from a loopback reverse proxy.
     # Never disclose local interface addresses to such requests.
+    if request.environ.get("werkzeug.proxy_fix.orig") is not None:
+        return False
     if any(request.headers.get(name) for name in ("Forwarded", "X-Forwarded-For", "X-Real-IP")):
         return False
     return _lan_or_loopback(request.remote_addr) and (
