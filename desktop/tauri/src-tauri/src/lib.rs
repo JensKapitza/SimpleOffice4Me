@@ -1,5 +1,8 @@
-use tauri::{Manager, Url};
+use tauri::Url;
+#[cfg(not(mobile))]
+use tauri::Manager;
 
+#[cfg(not(mobile))]
 struct ServerChooser(Url);
 
 fn chooser_url(url: &Url) -> bool {
@@ -14,15 +17,15 @@ fn chooser_url(url: &Url) -> bool {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default().setup(|app| {
-        let window = tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
+        let _window = tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?
             .on_navigation(|url| {
                 chooser_url(url)
                     || (url.scheme() == "https" && url.host_str() != Some("tauri.localhost"))
             })
             .build()?;
-        app.manage(ServerChooser(window.url()?));
         #[cfg(not(mobile))]
         {
+            app.manage(ServerChooser(_window.url()?));
             use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
             let configure = MenuItem::with_id(
                 app,

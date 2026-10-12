@@ -43,9 +43,10 @@ npm run build -- -- --locked
 ```
 
 Android additionally requires JDK 17, Android SDK platform/build-tools 35,
-NDK 27.2.12479018 and the Rust ARM64 target. The target-specific Cargo
-configuration requests 16 KiB ELF load alignment for Android 15+ devices;
-CI verifies both ELF segments and APK zip alignment:
+NDK 27.2.12479018 and the Rust ARM64 target. The `npm run android:build` wrapper supplies Android build flags and
+requests 16 KiB ELF load alignment for Android 15+ devices;
+CI verifies both ELF segments and APK zip alignment. Use this wrapper rather
+than direct `tauri android build`: Tauri overrides target-specific Cargo flags.
 
 
 ```sh

@@ -101,7 +101,7 @@ jobs:
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npx tauri android init --ci
-      - run: npx tauri android build --apk --target aarch64 -- --locked
+      - run: npm run android:build -- --target aarch64 -- --locked
       - name: Verify ARM64 APK and Android 16 KiB page compatibility
         working-directory: .
         run: |
@@ -142,7 +142,9 @@ jobs:
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npx tauri android init --ci
       - name: Build signed debug APK for emulator runtime validation
-        run: npx tauri android build --debug --apk --target x86_64 -- --locked
+        run: npm run android:build -- --debug --target x86_64 -- --locked
+      - name: Install existing safe XML parser for accessibility evidence
+        run: python -m pip install 'defusedxml==0.7.1'
       - name: Enable runner user access to supplied KVM device
         working-directory: .
         run: sudo setfacl -m "u:$(id -un):rw" /dev/kvm
@@ -153,7 +155,10 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: python tools/smoke_tauri_android.py desktop/tauri/src-tauri/gen/android/app/build/outputs/apk/x86_64/debug/app-x86_64-debug.apk
+          script: |
+            APK="$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -path '*/debug/*.apk' -print -quit)"
+            test -n "$APK"
+            python tools/smoke_tauri_android.py "$APK"
       - uses: actions/upload-artifact@v7
         if: always()
         with:

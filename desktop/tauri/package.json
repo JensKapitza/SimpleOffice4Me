@@ -6,7 +6,7 @@
     "dev": "tauri dev",
     "build": "tauri build",
     "android:init": "tauri android init",
-    "android:build": "tauri android build --apk",
+    "android:build": "node android-build.mjs",
     "tauri": "tauri",
     "prepare:client": "python ../../tools/prepare_tauri_client.py",
     "prebuild": "npm run prepare:client"
