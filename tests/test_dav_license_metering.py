@@ -61,7 +61,7 @@ class DavLicenseMeteringTests(unittest.TestCase):
         self.assertEqual([2], [row['request_count'] for row in self.usage_rows()])
 
     def test_app_account_takes_precedence_over_different_browser_cookie(self):
-        app.test_client().post('/auth/register', data={'username': 'dav-user', 'password': 'other-browser-password'}, base_url=self.base_url)
+        self.client.post('/auth/register', data={'username': 'dav-user', 'password': 'other-browser-password'}, base_url=self.base_url)
         self.request_all(self.client, self.provision('dav-user'), 'dav-user')
         with app.app_context():
             user_id = get_db().execute("SELECT id FROM user WHERE username='dav-user'").fetchone()['id']

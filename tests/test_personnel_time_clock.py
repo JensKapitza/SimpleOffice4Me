@@ -183,7 +183,6 @@ class PersonnelTimeClockTest(unittest.TestCase):
             self.assertIn("occurred_at", audit["after_json"])
 
     def test_non_admin_cannot_use_time_admin(self):
-        self.client.post("/auth/logout")
         self.client.post("/auth/register", data={"username": "kollege", "password": "sicheres-passwort"})
         self.client.post("/auth/login", data={"username": "kollege", "password": "sicheres-passwort"})
         self.assertEqual(403, self.client.get("/personnel/time-admin").status_code)

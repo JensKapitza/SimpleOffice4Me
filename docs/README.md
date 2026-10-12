@@ -15,6 +15,10 @@ Die Paketversion ist derzeit 2.0.0; die additive 3.0-Release ist noch nicht
 freigegeben. Einzelne geschlossene Funktions-Issues ersetzen das Release Gate
 nicht. Funktions-, Benutzer-/Rollen- und Objektfreigaben bleiben maßgeblich.
 
+## Benutzer und Freigaben
+
+- [Kontoanträge, Freigaben und sichere Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md)
+
 ## Kontakte und Kalender
 
 - [Kontaktverwaltung, vCard und CardDAV](KONTAKTE.md)
