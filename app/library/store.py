@@ -114,8 +114,8 @@ class LibraryStore:
                 return row
         return None
 
-    def location_path(self, location_id: str) -> str:
-        rows = {str(row.get("location_id", "")): row for row in self.locations()}
+    def location_path(self, location_id: str, *, locations: dict | None = None) -> str:
+        rows = {str(row.get("location_id", "")): row for row in self.locations()} if locations is None else locations
         current = str(location_id or "")
         names: list[str] = []
         seen: set[str] = set()
@@ -236,6 +236,20 @@ class LibraryStore:
         for location in self.locations():
             linked.append(self.ensure_location_object(str(location["location_id"]), actor))
         return linked
+
+    def export_placements(self) -> dict[str, dict[str, str]]:
+        """Read the canonical placement index once for a streaming catalog export."""
+        state = self._read()
+        locations = {str(row.get("location_id", "")): row for row in state["locations"] if isinstance(row, dict)}
+        paths = {identifier: self.location_path(identifier, locations=locations) for identifier in locations}
+        result = {}
+        for identifier, assignment in state["assignments"].items():
+            if not isinstance(assignment, dict):
+                continue
+            location = str(assignment.get("location_id", ""))
+            result[str(identifier)] = {"path": paths.get(location, ""),
+                                       "code": str(locations.get(location, {}).get("code", ""))}
+        return result
 
     def assignment(self, object_id: str) -> dict[str, Any] | None:
         value = self._read()["assignments"].get(str(object_id or ""))

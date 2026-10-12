@@ -86,6 +86,7 @@ android {
     sourceSets {
         main {
             assets.srcDir "$buildDir/generated/simpleofficeAssets"
+            res.srcDir "$buildDir/generated/simpleofficeLogoRes"
         }
     }
 }
@@ -147,3 +148,42 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
 }
 
 preBuild.dependsOn syncSimpleOfficeAssets
+
+// Derive all density-specific launcher bitmaps from the canonical project logo.
+tasks.register('generateSimpleOfficeLauncherIcons') {
+    def logo = file('../../../docs/assets/simpleoffice-documentation-logo.png')
+    inputs.file(logo)
+    outputs.dir(layout.buildDirectory.dir('generated/simpleofficeLogoRes'))
+    doLast {
+        if (!logo.isFile()) throw new GradleException("Missing launcher logo: ${logo}")
+        def original = javax.imageio.ImageIO.read(logo)
+        if (original == null || original.width < 192 || original.height < 192) {
+            throw new GradleException("Launcher logo must be a readable PNG of at least 192x192")
+        }
+        def resources = file("$buildDir/generated/simpleofficeLogoRes")
+        def densities = ['mdpi': 48, 'hdpi': 72, 'xhdpi': 96, 'xxhdpi': 144, 'xxxhdpi': 192]
+        densities.each { density, size ->
+            def directory = new File(resources, "mipmap-${density}")
+            directory.mkdirs()
+            def result = new java.awt.image.BufferedImage(size, size, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+            def graphics = result.createGraphics()
+            try {
+                graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+                graphics.drawImage(original, 0, 0, size, size, null)
+            } finally { graphics.dispose() }
+            javax.imageio.ImageIO.write(result, 'png', new File(directory, 'ic_launcher.png'))
+            javax.imageio.ImageIO.write(result, 'png', new File(directory, 'ic_launcher_round.png'))
+        }
+        // Adaptive icons use a padded foreground within a 108dp viewport.
+        def foregroundDir = new File(resources, 'drawable-nodpi')
+        foregroundDir.mkdirs()
+        def canvas = new java.awt.image.BufferedImage(432, 432, java.awt.image.BufferedImage.TYPE_INT_ARGB)
+        def graphics = canvas.createGraphics()
+        try {
+            graphics.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+            graphics.drawImage(original, 81, 81, 270, 270, null)
+        } finally { graphics.dispose() }
+        javax.imageio.ImageIO.write(canvas, 'png', new File(foregroundDir, 'simpleoffice_logo_foreground.png'))
+    }
+}
+preBuild.dependsOn generateSimpleOfficeLauncherIcons

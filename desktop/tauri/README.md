@@ -1,60 +1,79 @@
-# SimpleOffice4Me Tauri 2 (experimental)
+# SimpleOffice4Me Tauri 2 HTTPS client
 
-This is a separate Tauri 2 client for desktop and Android. Existing Electron and Chaquopy packages remain unchanged.
+![SimpleOffice4Me](../../docs/assets/simpleoffice-documentation-logo.png)
 
-## What is included
+This client opens an existing SimpleOffice4Me HTTPS server in the operating
+system WebView. Its version follows `pyproject.toml`; Bootstrap, application
+styles and the logo are copied from the existing project by
+`tools/prepare_tauri_client.py`. Existing Electron and Chaquopy packages
+remain supported.
 
-- Rust/Tauri system-WebView application.
-- HTTPS endpoint selection screen with URL validation.
-- No native shell or filesystem permissions to remote web content.
-- Linux desktop and ARM64 Android build jobs.
+## Connect and change servers
 
-## Critical runtime limitation
+Enter the server base URL, including its deployment path if applicable, and
+select **Verbinden**. HTTPS is required. URLs containing credentials, a query,
+a fragment or the reserved `tauri.localhost` host are rejected. The validated
+base URL is retained locally and prefilled next time; opening the application
+does not automatically connect. No passwords or tokens are stored by the
+chooser. Sign in through the existing server login; roles, CSRF, sessions and
+access checks remain the responsibility of that server.
 
-This client connects to an **existing HTTPS Flask server**. It does not
-currently package or launch Python, Flask, SQLite, OCR, ClamAV, LibreOffice,
-Ghostscript, or other SimpleOffice4Me back-end dependencies. It is **not**
-offline-capable or a drop-in replacement for the existing Android APK.
-An Android localhost URL refers to the phone, not the computer hosting Flask.
+On desktop, **SimpleOffice4Me → Serveradresse ändern** or **Ctrl+L**
+(**Cmd+L** on macOS) returns to the chooser. On Android, reopen the app to
+select a server. The endpoint must be reachable from that device: localhost
+on a phone refers to the phone itself. Certificate validation is provided by
+the system WebView and is never disabled. Private CAs must be trusted through
+the operating system configuration. HTTP, file and data top-level navigation
+are blocked by the native navigation handler; remote pages receive no native
+filesystem, shell or application-command permissions.
 
 ## Developer builds
 
-Prerequisites: Node.js 22, Rust stable, Tauri 2 platform dependencies.
-For Linux install WebKitGTK 4.1 development libraries. Windows needs MSVC
-build tools and WebView2; macOS needs Xcode command line tools.
+Prerequisites: Node.js 22, Python 3.11 or newer for metadata preparation, Rust
+stable and the Tauri 2 platform dependencies. Linux requires WebKitGTK 4.1
+development libraries; Windows requires MSVC and WebView2; macOS requires
+Xcode command line tools. Node and Cargo dependencies have committed
+lockfiles. From `desktop/tauri`:
 
-From desktop/tauri:
+```sh
+npm ci --no-audit --no-fund
+npm run prepare:client
+npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
+npm run build -- --locked
+```
 
-    npm install
-    npm run build
+Android additionally requires JDK 17, Android SDK platform/build-tools 35,
+NDK 27.2.12479018 and the Rust ARM64 target:
 
-Android additionally needs JDK 17, Android SDK, Android NDK, and Rust
-target aarch64-linux-android:
+```sh
+rustup target add aarch64-linux-android
+npm run android:init -- --ci
+npm run android:build -- --target aarch64 -- --locked
+```
 
-    rustup target add aarch64-linux-android
-    npm install
-    npm run android:init
-    npm run android:build
+`npm run tauri` is also available because the generated Android Gradle
+project uses this script. Generated icons, assets, Android project, build
+outputs and `node_modules` are excluded from Git.
 
-CI workflow: .github/workflows/tauri-build.yml.
-Build artifacts are for testing and are not signed production releases.
+CI: `.github/workflows/tauri-build.yml` (Linux and Android ARM64) and
+`.github/workflows/tauri-desktop-crossplatform.yml` (Windows and macOS).
+Artifacts are test builds, not signed production releases.
 
-## Necessary follow-up for parity
+## Scope and operating limits
 
-- Desktop offline mode: bundle the existing desktop/python-setup backend as
-  a platform-specific binary, start it, monitor health and shutdown, protect
-  per-user storage, coordinate migrations, and test packaged binaries.
-- Android offline mode: integrate an Android Python runtime such as Chaquopy
-  through a mobile plugin; desktop sidecars are not Android executables.
-- Security: review external navigation, cookie handling, auth, HTTPS TLS,
-  CSRF and access-control in the existing application.
-- Mobile integration: camera, QR, file picker, share intent, download,
-  Android permissions, touch, lifecycle, and deep-link regression testing.
-- Dependency quality: version lockfiles, compatible Python wheels, license
-  inventory, SBOM, CI security scans, reproducible signing and ARM32 testing.
-- Windows/macOS builds and signed release distribution.
+This HTTPS client does not bundle or start Python, Flask, SQLite, OCR,
+ClamAV, LibreOffice or Ghostscript. It requires a running server and network
+access; it is not an offline replacement for the existing embedded Android
+APK. Camera, sharing, deep links and device-specific file/download handling
+have no added native plugins in this client. Their availability depends on
+the platform WebView. ARM32 packaging and production signing are outside
+this client PR. Existing server workflows and the established desktop/mobile
+packages are the appropriate choices when those capabilities are required.
 
-References:
-https://v2.tauri.app/start/prerequisites/
-https://v2.tauri.app/develop/sidecar/
-https://v2.tauri.app/develop/plugins/develop-mobile/
+The local chooser uses a restrictive content security policy and only basic
+local window permissions. Native permissions have no remote URL allowlist.
+Remote server content keeps its own CSP and security policy; connecting to
+an untrusted HTTPS server does not establish that server's trustworthiness.
+
+References: [prerequisites](https://v2.tauri.app/start/prerequisites/),
+[capabilities](https://v2.tauri.app/security/capabilities/).

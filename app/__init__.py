@@ -14,7 +14,6 @@ import os
 import json
 import sys
 import datetime
-import locale
 import re
 import secrets
 import time
@@ -166,9 +165,6 @@ class SchemeAwareSessionInterface(SecureCookieSessionInterface):
         return request.is_secure
 
 
-if str(locale.getpreferredencoding()).lower() not in ["utf-8", "utf8"]:
-    raise BaseException("Wrong encoding use utf8")
-
 if sys.version_info < (3,):
     raise BaseException("Wrong Python Version")
 
@@ -252,6 +248,8 @@ if trusted_proxy_hops > 0:
 
 from . import auth
 app.register_blueprint(auth.bp)
+from . import account_requests
+app.register_blueprint(account_requests.bp)
 
 from . import db
 db.init_app(app)

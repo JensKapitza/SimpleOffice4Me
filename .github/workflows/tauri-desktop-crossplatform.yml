@@ -3,6 +3,11 @@ on:
   pull_request:
     paths:
       - 'desktop/tauri/**'
+      - 'tools/prepare_tauri_client.py'
+      - 'static/css/app.css'
+      - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
+      - 'docs/assets/simpleoffice-documentation-logo.png'
+      - 'pyproject.toml'
       - '.github/workflows/tauri-desktop-crossplatform.yml'
   workflow_dispatch:
 permissions:
@@ -22,15 +27,16 @@ jobs:
       run:
         working-directory: desktop/tauri
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
-      - run: npm install --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
-      - run: npm run build
-      - uses: actions/upload-artifact@v4
+      - run: npm run build -- --locked
+      - uses: actions/upload-artifact@v7
         with:
           name: tauri-desktop-${{ matrix.name }}
           path: desktop/tauri/src-tauri/target/release/bundle/

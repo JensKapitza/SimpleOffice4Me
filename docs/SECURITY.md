@@ -22,7 +22,11 @@ Der konkrete Supportzeitraum wird pro Release festgelegt. Sicherheitsupdates mü
 
 ## Sichere Standardkonfiguration
 
-- Nach dem ersten Konto ist die öffentliche Registrierung geschlossen. Eine bewusste Ausnahme ist nur mit `SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION=1` möglich.
+- Nach dem ersten Konto erzeugt die öffentliche Registrierung keine aktiven Konten.
+  Kontoanträge benötigen eine ausdrückliche Adminfreigabe. Die Administration
+  kann Anträge unter **Kontoanträge** deaktivieren und deren Quote konfigurieren.
+  `SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION` ist ein Legacy-Schalter und umgeht
+  diese Freigabe nicht. Siehe [Konten und Einladungen](KONTOANTRAEGE_UND_EINLADUNGEN.md).
 - Erstregistrierung und Google-Kontoanlage prüfen Zulassung und Vergabe der
   ersten Administratorrolle innerhalb einer SQLite-Schreibtransaktion.
   Gleichzeitig eintreffende Anfragen können dadurch weder zusätzliche

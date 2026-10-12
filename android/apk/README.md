@@ -78,3 +78,22 @@ CI verifies that each APK contains only the requested native ABI. It also verifi
 ## Current Android-specific limits
 
 Background indexer, OSM indexer, data logger and MCP are disabled in the embedded Android runtime. External desktop tools such as LibreOffice, Ghostscript and ClamAV are not bundled. The Android build has its own dependency pins because binary Python packages must have Android-compatible wheels.
+
+## Launcher-Logo im fertigen APK prüfen
+
+Das Launcher-Logo stammt aus `docs/assets/simpleoffice-documentation-logo.png`.
+Der Android-Build erzeugt daraus die fünf Standarddichten für das 48dp-Icon
+sowie den Vordergrund für Adaptive Icons. Nach dem Build prüft die CI das
+fertige APK einschließlich PNG-Dekodierung und sichtbar belegter Bildfläche:
+
+```sh
+python -m pip install 'Pillow==11.0.0'
+python tools/check_android_launcher_assets.py android/apk/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Der Befehl liefert JSON und Exitcode 0 bei gültigen Ressourcen; fehlende,
+beschädigte oder falsch dimensionierte Launcher-Bilder liefern Exitcode 1.
+ARM64 und ARM32 werden geprüft. Die bestehenden APK-Auslöser bleiben erhalten:
+Push auf `main` und manueller Workflow-Start. Für die PR-Abnahme wird der
+Workflow manuell gegen den geprüften PR-Branch gestartet. Die Prüfung ersetzt
+keinen visuellen Test des Launchers auf einem Android-Gerät.

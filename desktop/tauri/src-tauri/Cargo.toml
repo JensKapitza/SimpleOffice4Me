@@ -1,9 +1,10 @@
 [package]
 name = "simpleoffice4me_tauri"
-version = "0.1.0"
+version = "2.0.0"
 description = "SimpleOffice4Me Tauri companion"
 authors = ["SimpleOffice4Me contributors"]
 edition = "2021"
+license = "GPL-3.0-only"
 
 [lib]
 name = "simpleoffice4me_tauri_lib"
