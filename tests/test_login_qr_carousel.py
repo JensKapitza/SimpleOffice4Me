@@ -22,6 +22,20 @@ class LoginQRCodeTests(unittest.TestCase):
                 targets = login_qr_targets()
         self.assertEqual(["https://office.example/auth/login"], [item["url"] for item in targets])
 
+    def test_public_reverse_proxy_does_not_expose_lan_addresses(self):
+        with app.test_request_context("/auth/login", base_url="https://office.example",
+                                      environ_base={"REMOTE_ADDR": "127.0.0.1"}):
+            with patch("app.login_qr._addresses", return_value=["10.0.0.22"]):
+                targets = login_qr_targets()
+        self.assertEqual(["https://office.example/auth/login"], [item["url"] for item in targets])
+
+    def test_documentation_addresses_are_not_lan_clients(self):
+        with app.test_request_context("/auth/login", base_url="http://192.168.1.22:8080",
+                                      environ_base={"REMOTE_ADDR": "198.51.100.27"}):
+            with patch("app.login_qr._addresses", return_value=["10.0.0.22"]):
+                targets = login_qr_targets()
+        self.assertEqual(["http://192.168.1.22:8080/auth/login"], [item["url"] for item in targets])
+
     def test_login_page_contains_swipe_carousel(self):
         with app.test_client() as client:
             response = client.get("/auth/login")
