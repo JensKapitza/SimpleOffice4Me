@@ -9,7 +9,7 @@
     </div>
     <a class="btn btn-outline-secondary" href="{{ url_for('reader.shelf') }}"><i class="fas fa-book-open me-1" aria-hidden="true"></i>PDF-/EPUB-Reader</a>
     <a class="btn btn-primary" href="#bulk-scan"><i class="fas fa-camera me-1" aria-hidden="true"></i>Massen-Scan starten</a>
-    <a class="btn btn-outline-primary" href="{{ url_for('library.export_books_csv') }}"><i class="fas fa-file-export me-1" aria-hidden="true"></i>Bücher als CSV exportieren</a>
+    {% if g.user and g.user["is_admin"] and not g.user["is_disabled"] %}<a class="btn btn-outline-primary" href="{{ url_for('library.export_books_csv') }}"><i class="fas fa-file-export me-1" aria-hidden="true"></i>Bücher als CSV exportieren</a>{% endif %}
     <a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}"><i class="fas fa-barcode me-1" aria-hidden="true"></i>Inventar-Schnellerfassung</a>
   </div>
 
