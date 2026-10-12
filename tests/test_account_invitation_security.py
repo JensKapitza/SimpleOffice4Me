@@ -66,6 +66,44 @@ class InvitationSecurityTests(unittest.TestCase):
             ).fetchone()
             self.assertEqual((1, 1), tuple(row))
 
+    def test_expired_invitation_cannot_be_redeemed(self):
+        admin = self._admin()
+        admin.get("/auth/account-requests/admin/invite")
+        response = admin.post("/auth/account-requests/admin/invite", data={
+            "username": "expired", "email": "expired@example.test",
+            "_csrf_token": self._csrf(admin),
+        })
+        self.assertEqual(200, response.status_code)
+        match = re.search(rb'/auth/account-requests/invite/([A-Za-z0-9_-]{20,128})', response.data)
+        self.assertIsNotNone(match)
+        path = "/auth/account-requests/invite/" + match.group(1).decode()
+        with app.app_context():
+            db = get_db()
+            db.execute("UPDATE account_invitation SET expires_at=1 WHERE user_id="
+                       "(SELECT id FROM user WHERE username='expired')")
+            db.commit()
+        guest = app.test_client()
+        self.assertEqual(404, guest.get(path).status_code)
+        guest.get("/auth/login")
+        self.assertEqual(404, guest.post(path, data={
+            "password": "a-very-long-password", "_csrf_token": self._csrf(guest)
+        }).status_code)
+        with app.app_context():
+            row = get_db().execute("SELECT is_disabled FROM user WHERE username='expired'").fetchone()
+            self.assertEqual(1, row[0])
+
+    def test_disabled_administrator_cannot_invite(self):
+        admin = self._admin()
+        admin.get("/auth/account-requests/admin/invite")
+        with app.app_context():
+            db = get_db()
+            db.execute("UPDATE user SET is_disabled=1 WHERE id=?", (self.admin_id,))
+            db.commit()
+        self.assertEqual(403, admin.post("/auth/account-requests/admin/invite", data={
+            "username": "blocked", "email": "blocked@example.test",
+            "_csrf_token": self._csrf(admin),
+        }).status_code)
+
     def test_invitation_is_single_use(self):
         admin = self._admin()
         admin.get("/auth/account-requests/admin/invite")
