@@ -4,6 +4,8 @@ import json
 import os
 import stat
 import socket
+import subprocess
+import shutil
 import tempfile
 import time
 import unittest
@@ -308,18 +310,47 @@ class LiteLLMTest(unittest.TestCase):
 
     def test_unused_disabled_local_mode_can_return_to_external_without_docker(self):
         config.persist(config.prepare({'enabled': False, 'mode': 'local'}))
-        with patch.object(service, '_running') as running, patch.object(service, '_stop') as stop:
-            result = service.save_settings({'mode': 'external'})
-        self.assertEqual('external', result['mode'])
-        running.assert_not_called()
-        stop.assert_not_called()
+        self.login()
+        with patch('shutil.which', return_value=None):
+            response = self.client.post('/admin/mini-services/litellm', data={'mode': 'external'})
+            page = self.client.get('/admin/mini-services/litellm')
+        self.assertEqual(302, response.status_code)
+        self.assertEqual(200, page.status_code)
+        self.assertIn('value="external" selected', page.get_data(as_text=True))
 
-    def test_leaving_enabled_local_mode_stops_owned_resources(self):
+    def test_leaving_enabled_local_mode_removes_stopped_owned_container_via_http(self):
+        # Simulate the public Docker process boundary, not private service helpers.
         self.enable(mode='local', provider_model='openai/test')
-        with patch.object(service, '_running', return_value=False), patch.object(service, '_stop') as stop:
-            result = service.save_settings({'mode': 'external', 'base_url': 'https://gateway.example/v1'})
-        self.assertEqual('external', result['mode'])
-        stop.assert_called_once()
+        self.login()
+        owned = self.root / 'synthetic-owned-container'
+        owned.write_text('stopped')
+        real_run, real_which = subprocess.run, shutil.which
+
+        def docker_lookup(name, *args, **kwargs):
+            return 'docker' if name == 'docker' else real_which(name, *args, **kwargs)
+
+        def docker_transport(command, *args, **kwargs):
+            if command[0] != 'docker':
+                return real_run(command, *args, **kwargs)
+            output = b''
+            if 'ps' in command:
+                all_containers = any(a == '--all' or
+                    (a.startswith('-') and not a.startswith('--') and 'a' in a) for a in command)
+                if all_containers and owned.exists():
+                    output = b'aabbcc\n'
+            elif 'rm' in command or 'down' in command:
+                owned.unlink(missing_ok=True)
+            return subprocess.CompletedProcess(command, 0, stdout=output)
+
+        with patch('shutil.which', side_effect=docker_lookup), \
+             patch('subprocess.run', side_effect=docker_transport), \
+             patch.dict(os.environ, {'DOCKER_HOST': 'unix:///tmp/synthetic-docker.sock', 'DOCKER_CONTEXT': ''}):
+            response = self.client.post('/admin/mini-services/litellm', data={
+                'mode': 'external', 'base_url': 'https://gateway.example/v1'})
+            page = self.client.get('/admin/mini-services/litellm')
+        self.assertEqual(302, response.status_code)
+        self.assertFalse(owned.exists(), 'Leaving local mode must remove its stopped container')
+        self.assertIn('value="external" selected', page.get_data(as_text=True))
 
     def test_missing_docker_cannot_disable_or_restore_a_local_gateway(self):
         self.enable(mode='local', provider_model='openai/test')
