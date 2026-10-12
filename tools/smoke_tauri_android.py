@@ -27,6 +27,7 @@ def main():
     adb('shell', 'am', 'start', '-W', '-n', 'de.simpleoffice4me.tauri/.MainActivity')
 
     def nodes():
+        adb('shell', 'rm', '-f', '/sdcard/simpleoffice-ui.xml')
         adb('shell', 'uiautomator', 'dump', '/sdcard/simpleoffice-ui.xml')
         xml = adb('shell', 'cat', '/sdcard/simpleoffice-ui.xml')
         (args.output / 'last-screen.xml').write_text(xml, encoding='utf-8')
@@ -34,13 +35,18 @@ def main():
 
     def wait_for(predicate):
         deadline = time.monotonic() + 45
+        last_error = None
         while time.monotonic() < deadline:
-            items = nodes()
+            try:
+                items = nodes()
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError) as error:
+                last_error = error
+                items = []
             match = next((item for item in items if predicate(item)), None)
             if match is not None:
                 return match
             time.sleep(0.5)
-        raise AssertionError('Expected public Android UI state was not displayed')
+        raise AssertionError(f'Expected public Android UI state was not displayed; last accessibility error: {last_error}')
 
     def has_text(expected):
         return lambda item: expected in (item.get('text', '') + ' ' + item.get('content-desc', ''))
