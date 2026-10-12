@@ -30,9 +30,10 @@ def main() -> None:
             "PYTHONHOME": "",
             "PYTHONPATH": "",
         })
-        log_path = root / "backend.log"
-        # A file avoids filling an unread PIPE during slow backend initialization.
-        with log_path.open("w+b") as log:
+        # Keep captured output outside the instance directory: Windows
+        # PyInstaller child processes can retain inherited log handles after
+        # the parent exits, blocking deletion of the temporary data directory.
+        with tempfile.TemporaryFile(mode="w+b") as log:
             proc = subprocess.Popen(
                 [str(binary)], cwd=tmp, env=env, stdout=log,
                 stderr=subprocess.STDOUT,
@@ -48,7 +49,7 @@ def main() -> None:
                         with urllib.request.urlopen(
                             "http://127.0.0.1:18765/", timeout=2
                         ) as response:
-                            if response.status < 500:
+                            if 200 <= response.status < 400:
                                 print(f"Packaged backend HTTP smoke passed: {response.status}")
                                 break
                     except (urllib.error.URLError, TimeoutError):
