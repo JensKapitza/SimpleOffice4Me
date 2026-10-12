@@ -1,6 +1,4 @@
-use tauri::Url;
-#[cfg(not(mobile))]
-use tauri::Manager;
+use tauri::{Manager, Url};
 
 #[cfg(not(mobile))]
 struct ServerChooser(Url);
