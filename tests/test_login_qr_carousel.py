@@ -36,6 +36,21 @@ class LoginQRCodeTests(unittest.TestCase):
                 targets = login_qr_targets()
         self.assertEqual(["http://192.168.1.22:8080/auth/login"], [item["url"] for item in targets])
 
+    def test_forwarded_requests_hide_lan_addresses_even_for_private_hosts(self):
+        for header in ("Forwarded", "X-Forwarded-For", "X-Real-IP"):
+            with self.subTest(header=header):
+                with app.test_request_context(
+                    "/auth/login", base_url="http://192.168.1.22:8080",
+                    environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                    headers={header: "203.0.113.10"},
+                ):
+                    with patch("app.login_qr._addresses", return_value=["10.0.0.22"]):
+                        targets = login_qr_targets()
+                self.assertEqual(
+                    ["http://192.168.1.22:8080/auth/login"],
+                    [item["url"] for item in targets],
+                )
+
     def test_login_page_contains_swipe_carousel(self):
         with app.test_client() as client:
             response = client.get("/auth/login")
