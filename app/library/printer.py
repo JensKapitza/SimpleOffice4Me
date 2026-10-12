@@ -20,6 +20,8 @@ from urllib.parse import urlsplit
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
+from .image_preprocessing import MAX_PIXELS
+
 
 @dataclass(frozen=True)
 class Model:
@@ -176,6 +178,8 @@ def _code128_bits(value: str) -> str:
     clean = str(value or "").strip()
     if not clean or any(ord(char) < 32 or ord(char) > 126 for char in clean):
         raise PrinterError("Code128 unterstützt hier druckbare ASCII-Zeichen")
+    if len(clean) > 120:
+        raise PrinterError("Barcode enthält zu viele Zeichen")
     patterns = (
         "212222","222122","222221","121223","121322","131222","122213","122312","132212","221213",
         "221312","231212","112232","122132","122231","113222","123122","123221","223211","221132",
@@ -209,6 +213,8 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "", *, s
     bits = _code128_bits(value)
     quiet = 12
     usable = max(1, label.printable_width - quiet * 2)
+    if len(bits) > usable:
+        raise PrinterError("Barcode ist für die gewählte Etikettengröße zu lang")
     module = max(1, usable // len(bits))
     barcode_width = len(bits) * module
     font = load_font(str(settings.get("font_name", "DejaVuSans")), max(16, min(int(settings.get("font_size", 56)) // 2, 60)), bool(settings.get("bold")))
@@ -239,11 +245,17 @@ def render_image(upload: bytes, settings: dict[str, Any]) -> Image.Image:
     if not upload or len(upload) > 12 * 1024 * 1024:
         raise PrinterError("Bild fehlt oder ist größer als 12 MiB")
     try:
-        source = Image.open(io.BytesIO(upload))
-        source.load()
+        with Image.open(io.BytesIO(upload)) as original:
+            # Check dimensions before allocating decoded pixels: compact image
+            # bombs can be far larger than the 12-MiB upload threshold.
+            if original.width < 1 or original.height < 1 or original.width * original.height > MAX_PIXELS:
+                raise PrinterError("Bildauflösung überschreitet das Limit")
+            original.load()
+            source = ImageOps.exif_transpose(original).convert("RGB")
+    except PrinterError:
+        raise
     except Exception as exc:
         raise PrinterError("Bild konnte nicht gelesen werden") from exc
-    source = ImageOps.exif_transpose(source).convert("RGB")
     max_height = label.printable_length if not label.endless else max(160, min(1200, int(label.printable_width * source.height / max(1, source.width))))
     source.thumbnail((label.printable_width, max_height), Image.Resampling.LANCZOS)
     height = label.printable_length if not label.endless else max(80, source.height)
