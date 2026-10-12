@@ -160,7 +160,7 @@ class CustomerDocumentArchiveTest(unittest.TestCase):
     def test_unmanaged_customer_archive_does_not_disclose_contact(self):
         self._linked_document()
         other = app.test_client()
-        other.post("/auth/register", data={"username": "other", "password": "anderes-passwort"})
+        self.client.post("/auth/register", data={"username": "other", "password": "anderes-passwort"})
         other.post("/auth/login", data={"username": "other", "password": "anderes-passwort"})
 
         response = other.get(

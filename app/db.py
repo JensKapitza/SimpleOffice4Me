@@ -99,6 +99,7 @@ def ensure_auth_database() -> None:
         "auth_version": "INTEGER NOT NULL DEFAULT 1",
         "created_at": "TEXT",
         "updated_at": "TEXT",
+        "parent_user_id": "INTEGER REFERENCES user(id) ON DELETE SET NULL",
     }
     for name, definition in additions.items():
         if name not in columns:
@@ -162,6 +163,11 @@ def ensure_auth_database() -> None:
         enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1))
     )""")
     db.execute("INSERT OR IGNORE INTO registration_settings(id,enabled) VALUES(1,1)")
+    registration_columns = {row[1] for row in db.execute("PRAGMA table_info(registration_settings)")}
+    for name, definition in {"invitation_minutes": "INTEGER NOT NULL DEFAULT 1440",
+                             "requests_per_hour": "INTEGER NOT NULL DEFAULT 5"}.items():
+        if name not in registration_columns:
+            db.execute(f"ALTER TABLE registration_settings ADD COLUMN {name} {definition}")
     db.execute("""CREATE TABLE IF NOT EXISTS account_request (
         id INTEGER PRIMARY KEY,
         username TEXT NOT NULL COLLATE NOCASE,

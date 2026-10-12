@@ -41,7 +41,7 @@ class BootstrapSecurityTests(unittest.TestCase):
 
     def _register(self, username):
         client = app.test_client()
-        client.get("/auth/register")
+        client.get("/auth/login")
         with client.session_transaction() as session:
             token = session["_csrf_token"]
         return client.post(
@@ -70,13 +70,13 @@ class BootstrapSecurityTests(unittest.TestCase):
 
     def test_concurrent_first_registrations_close_admission_after_one_account(self):
         # Registration settings allow account requests, not direct active users.
-        self.assertEqual([302, 302], self._concurrent_registration(public=False))
+        self.assertEqual([302, 303], self._concurrent_registration(public=False))
         users = self._users()
         self.assertEqual(1, len(users))
         self.assertEqual(1, users[0]["is_admin"])
 
     def test_public_registration_still_grants_only_one_bootstrap_admin(self):
-        self.assertEqual([302, 302], self._concurrent_registration(public=True))
+        self.assertEqual([302, 303], self._concurrent_registration(public=True))
         users = self._users()
         self.assertEqual(1, len(users))
         self.assertEqual(1, sum(user["is_admin"] for user in users))

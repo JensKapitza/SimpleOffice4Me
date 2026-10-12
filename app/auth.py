@@ -195,6 +195,7 @@ def login():
             return render_template(
                 'auth/login.html', google_enabled=_google_config() is not None,
                 registration_enabled=_registration_enabled(),
+        bootstrap_registration=get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0,
             ), 429, {"Retry-After": str(retry_after)}
         user = db.execute(
             'SELECT * FROM user WHERE username = ?', (username,)
@@ -227,6 +228,7 @@ def login():
     return render_template(
         'auth/login.html', google_enabled=_google_config() is not None,
         registration_enabled=_registration_enabled(),
+        bootstrap_registration=get_db().execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0,
     )
 
 
@@ -353,6 +355,8 @@ FEATURE_BLUEPRINTS = {
     "documents": "documents", "calendar": "documents", "contacts": "documents",
     "mail_routes": "mail", "contact_audit": "contacts", "webdav": "webdav",
     "tasks": "projects", "datalogger": "datalogger",
+    "library": "documents", "inventory": "documents", "shopping": "documents",
+    "mail_reader": "mail", "mail_index": "mail",
 }
 
 

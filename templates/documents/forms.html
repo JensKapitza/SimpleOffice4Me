@@ -5,7 +5,7 @@
 <main id="main-content" class="container-xl py-3 py-md-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
     <div><h1 class="h2 mb-1">Formulare</h1><p class="text-secondary mb-0">Eigene Eingabemasken erstellen, Daten erfassen und anschließend auswerten, exportieren oder drucken.</p></div>
-    <a class="btn btn-primary" href="#form-wizard"><i class="fas fa-plus" aria-hidden="true"></i> Neues Formular</a>
+    <a class="btn btn-primary" href="#form-wizard"> Neues Formular</a>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -22,9 +22,9 @@
           <p class="text-secondary small mt-3 mb-2">{{ form.description or 'Keine Beschreibung hinterlegt.' }}</p>
           <div class="small mb-3">{{ form.fields|length }} Felder</div>
           <div class="d-flex flex-wrap gap-2 mt-auto">
-            <a class="btn btn-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#data-entry"><i class="fas fa-pen-to-square" aria-hidden="true"></i>Daten erfassen</a>
-            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#analysis"><i class="fas fa-chart-column" aria-hidden="true"></i>Auswerten</a>
-            <button class="btn btn-outline-secondary btn-sm" type="button" data-edit-form="{{ form.form_id }}"><i class="fas fa-sliders" aria-hidden="true"></i>Bearbeiten</button>
+            <a class="btn btn-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#data-entry">Daten erfassen</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#analysis">Auswerten</a>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-edit-form="{{ form.form_id }}">Bearbeiten</button>
           </div>
         </div>
       </div>
@@ -59,7 +59,7 @@
         </section>
 
         <section data-wizard-step="2" hidden>
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div><h2 class="h5 mb-1">Felder</h2><p class="text-secondary mb-0">Felder hinzufügen und direkt konfigurieren: Pflichtfeld, Vorbelegung, Auswahlwerte oder Autocomplete.</p></div><button class="btn btn-outline-primary" id="add-form-field" type="button"><i class="fas fa-plus" aria-hidden="true"></i>Feld hinzufügen</button></div>
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div><h2 class="h5 mb-1">Felder</h2><p class="text-secondary mb-0">Felder hinzufügen und direkt konfigurieren: Pflichtfeld, Vorbelegung, Auswahlwerte oder Autocomplete.</p></div><button class="btn btn-outline-primary" id="add-form-field" type="button">Feld hinzufügen</button></div>
           <div id="form-field-list" class="vstack gap-3 mt-3"></div>
           <div class="mt-3"><label class="form-label" for="form-title-field">Titel-Feld</label><select class="form-select" id="form-title-field"></select><div class="form-text">Dieses Feld wird in Listen als Bezeichnung des Datensatzes verwendet.</div></div>
         </section>
@@ -72,8 +72,8 @@
         </section>
 
         <div class="d-flex flex-wrap justify-content-between gap-2 mt-4 pt-3 border-top">
-          <button class="btn btn-outline-secondary" id="wizard-back" type="button" disabled><i class="fas fa-arrow-left" aria-hidden="true"></i>Zurück</button>
-          <div class="d-flex gap-2 ms-auto"><button class="btn btn-primary" id="wizard-next" type="button">Weiter <i class="fas fa-arrow-right" aria-hidden="true"></i></button><button class="btn btn-success" id="wizard-save" type="submit" hidden><i class="fas fa-check" aria-hidden="true"></i>Formular speichern</button></div>
+          <button class="btn btn-outline-secondary" id="wizard-back" type="button" disabled>Zurück</button>
+          <div class="d-flex gap-2 ms-auto"><button class="btn btn-primary" id="wizard-next" type="button">Weiter <i class="fas fa-arrow-right" aria-hidden="true"></i></button><button class="btn btn-success" id="wizard-save" type="submit" hidden>Formular speichern</button></div>
         </div>
       </form>
     </div>

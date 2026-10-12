@@ -14,10 +14,10 @@
     </div>
     <div class="d-flex gap-2">
       <a class="btn btn-outline-secondary" href="{{ url_for('chat.status_page') }}">
-        <i class="fas fa-circle-dot me-1" aria-hidden="true"></i>Status
+        Status
       </a>
       <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-chat-modal">
-        <i class="fas fa-plus me-1" aria-hidden="true"></i>Neuer Chat
+        Neuer Chat
       </button>
     </div>
   </div>
@@ -62,7 +62,7 @@
                 </div>
                 {% if room.remote_peer_id %}
                   <span class="badge text-bg-light border flex-shrink-0">
-                    <i class="fas fa-network-wired me-1" aria-hidden="true"></i>verbunden
+                    verbunden
                   </span>
                 {% endif %}
               </div>
@@ -77,7 +77,7 @@
             <p class="mb-1 fw-semibold">Noch keine Chats</p>
             <p class="text-secondary mb-3">Starte einen Chat mit einer Person aus SimpleOffice oder einer verbundenen Instanz.</p>
             <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#new-chat-modal">
-              <i class="fas fa-plus me-1" aria-hidden="true"></i>Ersten Chat anlegen
+              Ersten Chat anlegen
             </button>
           </div>
         </div>
@@ -100,7 +100,7 @@
               {% if contact.reachable %}
                 <form method="post" action="{{ url_for('chat.start_contact_chat', contact_id=contact.contact_id) }}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                  <button class="btn btn-sm btn-outline-primary" type="submit"><i class="fas fa-comment me-1" aria-hidden="true"></i>Chat starten</button>
+                  <button class="btn btn-sm btn-outline-primary" type="submit">Chat starten</button>
                 </form>
               {% else %}
                 <span class="badge text-bg-light border">kein Chat-Konto verknüpft</span>
@@ -186,7 +186,7 @@
 
         <div class="modal-footer">
           <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Abbrechen</button>
-          <button class="btn btn-primary" type="submit"><i class="fas fa-comment-medical me-1" aria-hidden="true"></i>Chat anlegen</button>
+          <button class="btn btn-primary" type="submit">Chat anlegen</button>
         </div>
       </form>
     </div>

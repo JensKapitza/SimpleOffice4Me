@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/desktop-build.yml'
 
 permissions:
   contents: read
@@ -35,7 +39,7 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
           package-manager-cache: false
@@ -66,9 +70,26 @@ jobs:
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
+      - name: Smoke-test frozen Python backend
+        shell: bash
+        run: |
+          python desktop/python-setup/smoke_packaged_backend.py "desktop/python-setup/dist/simpleoffice-python${{ runner.os == 'Windows' && '.exe' || '' }}"
       - name: Package Electron app
         working-directory: desktop/electron
         run: npm run package:desktop
+      - name: Verify packaged backend payload
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import sys
+          root = Path('desktop/electron/dist')
+          binary = 'simpleoffice-python.exe' if sys.platform == 'win32' else 'simpleoffice-python'
+          candidates = list(root.rglob(binary))
+          if not candidates:
+              raise SystemExit(f'Missing bundled backend {binary} in {root}')
+          print('Packaged backends:', *candidates, sep='\n')
+          PY
       - name: Prepare installable Linux AppImage
         if: matrix.artifact == 'linux'
         shell: bash
@@ -104,13 +125,13 @@ jobs:
           sha256sum "$OUTPUT" > "$OUTPUT.sha256"
       - name: Upload installable Linux AppImage
         if: matrix.artifact == 'linux'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: simpleoffice4me-linux-appimage-installable
           path: artifacts/linux/*
           if-no-files-found: error
           retention-days: 14
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: simpleoffice4me-desktop-${{ matrix.artifact }}
           path: desktop/electron/dist/**

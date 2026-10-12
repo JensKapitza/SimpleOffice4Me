@@ -10,28 +10,17 @@ from pathlib import Path
 
 DEFAULT_LIMIT = 1000
 SOURCE_SUFFIXES = {".py", ".js", ".ts", ".css", ".html", ".jinja", ".jinja2"}
-IGNORED_PARTS = {".git", ".venv", "venv", "node_modules", "vendor", "dist", "build"}
-VENDORED_PREFIXES = {
-    Path("static/bootstrap-5.0.1-dist"),
-    Path("static/fontawesome-free-5.15.3-web"),
-}
-
-
-def _is_vendored(path: Path, root: Path) -> bool:
-    try:
-        relative = path.relative_to(root)
-    except ValueError:
-        return False
-    return any(relative == prefix or prefix in relative.parents for prefix in VENDORED_PREFIXES)
-
-
+IGNORED_PARTS = {".git", ".venv", ".build-venv", "venv", "node_modules", "vendor", "dist", "build"}
+LEGACY_VENDOR_PREFIXES = ("static/bootstrap-5.0.1-dist/", "static/fontawesome-free-5.15.3-web/")
 def oversized_files(root: Path, limit: int = DEFAULT_LIMIT) -> list[tuple[Path, int]]:
     root = root.resolve()
     result: list[tuple[Path, int]] = []
     for path in root.rglob("*"):
         if not path.is_file() or path.suffix.lower() not in SOURCE_SUFFIXES:
             continue
-        if any(part in IGNORED_PARTS for part in path.parts) or _is_vendored(path, root):
+        if any(part in IGNORED_PARTS for part in path.parts):
+            continue
+        if path.relative_to(root).as_posix().startswith(LEGACY_VENDOR_PREFIXES):
             continue
         try:
             count = sum(1 for _ in path.open("r", encoding="utf-8"))
