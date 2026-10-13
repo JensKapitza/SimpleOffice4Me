@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app.telephony_profiles import TelephonyProfileStore, sip_digest_ha1
-from simpleoffice_sip_runtime import SipRegistrarService
+from simpleoffice_sip_runtime import SipRegistrarService, auto_sip_bind_host
 
 
 def md5_hex(value: str) -> str:
@@ -88,6 +88,12 @@ class SipRuntimeTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
         patcher.start()
         self.service = SipRegistrarService(self.config)
+
+    def test_bind_host_uses_loopback_when_socket_creation_is_denied(self) -> None:
+        with patch.dict("os.environ", {"SIMPLEOFFICE_SIP_BIND": ""}), patch(
+            "simpleoffice_sip_runtime.socket.getaddrinfo", side_effect=OSError
+        ), patch("simpleoffice_sip_runtime.socket.socket", side_effect=PermissionError):
+            self.assertEqual("127.0.0.1", auto_sip_bind_host())
 
     def tearDown(self) -> None:
         self.temp.cleanup()

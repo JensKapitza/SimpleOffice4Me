@@ -72,18 +72,23 @@ def local_lan_addresses() -> list[str]:
     try:
         for row in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_STREAM):
             add(row[4][0])
-    except socket.gaierror:
+    except OSError:
         pass
 
     # UDP connect selects the active route without sending application data.
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe = None
     try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("192.0.2.1", 9))
         add(probe.getsockname()[0])
     except OSError:
         pass
     finally:
-        probe.close()
+        if probe is not None:
+            try:
+                probe.close()
+            except OSError:
+                pass
 
     return found[:_MAX_NETWORKS]
 

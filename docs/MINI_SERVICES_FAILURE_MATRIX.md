@@ -34,6 +34,7 @@ Legend:
 | Gateway | Linux rules/forwarding missing | degraded/unknown, never healthy by process presence alone | CI: `test_gateway_lifecycle` |
 | Gateway | real packet path/link change | verify actual forwarding/NAT and recovery | External |
 | SIP | second start/stop/restart | one bound listener; bounded retry | CI: lifecycle/SIP tests |
+| SIP | route-probe socket creation denied | keep a discovered/configured private address; otherwise use loopback rather than failing the admin page or guessing a LAN bind | CI: `test_sip_runtime`, frontend route smoke |
 | SIP | nonce/replay pressure | bounded challenge store and replay counters | CI: `test_mini_security`, SIP tests |
 | SIP | real client registration/network loss | recover without false registered/healthy state | External |
 | HTTP/PXE | disabled/corrupt settings | assets/scripts unavailable; fail closed | CI: `test_mini_security` |
@@ -49,6 +50,7 @@ Legend:
 | Audio sender | microphone disappears during capture | visible recovery/failure on real device | External |
 | Audio receiver | missing playback backend | controlled unavailable state | CI: audio receiver/lifecycle tests |
 | Audio receiver | process exits/device disappears | status must follow process/PCM evidence, not object existence | CI where synthetic; External for real device |
+| Federation discovery | route-probe socket creation denied | keep configured/resolved private addresses and omit only the route-derived candidate; discovery UI remains available | CI: `test_federation_peer_discovery`, frontend route smoke |
 | Mini Service CLI/package | installed package omits `tools.service_control` | both modern and legacy package metadata must include the runtime module; CI must reject either omission | CI: `test_mini_packaging` (#537) |
 | SFTP (Paramiko) | optional dependency unavailable | service reports unavailable and does not claim a listener | CI: `test_sftp_mini_service` |
 | SFTP | invalid settings or failed startup | retain truthful stopped/error state and release owned resources | CI: `test_sftp_mini_service`, server tests |
