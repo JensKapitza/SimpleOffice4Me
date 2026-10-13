@@ -1,9 +1,15 @@
 .git
 .github
 .venv
+**/.build-venv
 instance
 build
 dist
+desktop/tauri/node_modules
+desktop/tauri/src-tauri/target
+desktop/tauri/web/assets
+desktop/python-setup/build
+desktop/python-setup/dist
 var
 __pycache__
 **/__pycache__

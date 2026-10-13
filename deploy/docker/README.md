@@ -28,3 +28,39 @@ docker run --rm -p 8080:8080 \
 Pushes to `main` and version tags publish a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub Container Registry.
 
 The default branch also receives the `latest` tag. Version tags such as `v1.2.3` retain their tag name.
+
+## Isolated federation test network
+
+`compose.federation-test.yaml` starts two independent SimpleOffice instances on
+an internal Compose network. The services have separate named data volumes and
+peer identities, no published host ports, and no route to external networks.
+The configured federation tokens are public test-only values; never reuse them
+outside this disposable network or put production credentials in this file.
+
+From the repository root, build and start both peers:
+
+```sh
+docker compose -f deploy/docker/compose.federation-test.yaml up --build -d
+docker compose -f deploy/docker/compose.federation-test.yaml ps
+```
+
+Wait until both containers report `healthy`, then verify that both public
+discovery endpoints return the expected independent identity and Compose URL:
+
+```sh
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -c "import json,urllib.request; a=json.load(urllib.request.urlopen('http://peer-a:8080/.well-known/simpleoffice-federation')); b=json.load(urllib.request.urlopen('http://peer-b:8080/.well-known/simpleoffice-federation')); assert (a['peer_id'],a['base_url'])==('federation-test-peer-a','http://peer-a:8080'); assert (b['peer_id'],b['base_url'])==('federation-test-peer-b','http://peer-b:8080'); print(a['peer_id'], b['peer_id'])"
+```
+
+Stop the peers without removing their test data with:
+
+```sh
+docker compose -f deploy/docker/compose.federation-test.yaml down
+```
+
+To discard only this Compose project's disposable peer data as well, use
+`docker compose -f deploy/docker/compose.federation-test.yaml down --volumes`.
+That reset permanently deletes the two test volumes. Do not use it if the data
+needs to be retained. This network validates isolated multi-instance startup
+and discovery; it does not by itself prove trusted pairing, data exchange, or
+LAN broadcast discovery.
