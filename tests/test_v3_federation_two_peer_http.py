@@ -84,7 +84,7 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
             "payload": {"operation": "offer"},
         }
 
-    def _post_from_a(self, path: str, value: dict[str, object]):
+    def _post_from_a(self, path: str, value: dict[str, object], client=None):
         os.environ["SIMPLEOFFICE_FEDERATION_PEER_ID"] = "peer-b"
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "global-token-peer-b"
         body = json.dumps(value, separators=(",", ":")).encode("utf-8")
@@ -92,7 +92,7 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
             "Content-Type": "application/json",
             **peer_headers("peer-a", self.token_a, "POST", path, body),
         }
-        return self.client_b.post(path, data=body, headers=headers)
+        return (client or self.client_b).post(path, data=body, headers=headers)
 
     def test_receive_requires_trust_negotiation_and_explicit_acceptance(self):
         receive_path = "/federation/v3/receive"
@@ -123,6 +123,17 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
         self.assertEqual(202, pending.status_code)
         self.assertEqual("pending", pending.json["status"])
         self.assertEqual("message-pending", pending.json["message_id"])
+
+        restarted_client = self._app(self.root_b).test_client()
+        duplicate = self._post_from_a(receive_path, self._envelope("message-pending"), restarted_client)
+        self.assertEqual(200, duplicate.status_code)
+        self.assertEqual("duplicate", duplicate.json["status"])
+
+        changed_envelope = self._envelope("message-pending")
+        changed_envelope["payload"] = {"operation": "withdraw"}
+        replay_mismatch = self._post_from_a(receive_path, changed_envelope, restarted_client)
+        self.assertEqual(409, replay_mismatch.status_code)
+        self.assertEqual("replay_mismatch", replay_mismatch.json["error"])
 
 
 if __name__ == "__main__":

@@ -65,8 +65,10 @@ acceptance is not enabled. This route-level fixture does not establish discovery
 QR/manual pairing, real network reachability, process restart recovery, or the
 separate Compose test-network acceptance tracked in #679.
 
-The isolated two-container smoke check exercises public discovery and V3
-capability endpoints over the Compose network and confirms that the compatibility
-bearer alone cannot authenticate a transfer. Run it using the commands in
-[`deploy/docker/README.md`](../deploy/docker/README.md). It does not grant peer
-trust or exercise a completed pairing workflow.
+The isolated two-container smoke sequence exercises public discovery, V3
+capability exchange, peer-bound HMAC in both directions, default rejection
+before trust, pending receipt after independent local approval at each test
+peer, and idempotency after restarting a peer. Run it using the commands in
+[`deploy/docker/README.md`](../deploy/docker/README.md). Test-only seeding is
+limited to disposable volumes; it does not exercise the browser QR/manual
+pairing workflow or real LAN discovery.
