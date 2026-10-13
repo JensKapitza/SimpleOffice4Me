@@ -58,6 +58,23 @@ class LibraryExportContracts(unittest.TestCase):
         self.assertEqual(403, result.status_code)
         self.assertNotIn(b'Fremder Instanzbestand', result.data)
 
+    def test_unprivileged_account_cannot_access_bibliography_formats(self):
+        self.login(self.reader)
+        for path in ('/library/export/books.ris', '/library/export/books.bib'):
+            with self.subTest(path=path):
+                result = self.client.get(path, query_string={'admin': '1', 'object_id': self.book['object_id']})
+                self.assertEqual(403, result.status_code)
+                self.assertNotIn(b'=2+2', result.data)
+
+    def test_library_page_exposes_formats_only_to_an_administrator(self):
+        admin_page = self.client.get('/library').get_data(as_text=True)
+        self.assertIn('/library/export/books.ris', admin_page)
+        self.assertIn('/library/export/books.bib', admin_page)
+        self.login(self.reader)
+        reader_page = self.client.get('/library').get_data(as_text=True)
+        self.assertNotIn('/library/export/books.ris', reader_page)
+        self.assertNotIn('/library/export/books.bib', reader_page)
+
     def test_instance_root_cannot_be_overridden_by_export_parameters(self):
         """The configured local catalog is exported; another configured root is never read."""
         result = self.client.get('/library/export/books.csv', query_string={'root': str(self.foreign_root)})
@@ -77,6 +94,87 @@ class LibraryExportContracts(unittest.TestCase):
         self.assertEqual('Müller; Ångström', rows[0]['Autoren'])
         self.assertEqual("'=1+1", rows[0]['Genre'])
         self.assertEqual('9780000000001', rows[0]['ISBN'])
+
+    def test_selected_ris_export_uses_book_tags_and_retains_inventory_id(self):
+        response = self.client.get('/library/export/books.ris', query_string=[
+            ('object_id', self.book['object_id']), ('object_id', self.book['object_id']),
+        ])
+        self.assertEqual(200, response.status_code)
+        self.assertEqual('no-store', response.headers['Cache-Control'])
+        self.assertEqual('nosniff', response.headers['X-Content-Type-Options'])
+        self.assertIn('application/x-research-info-systems', response.headers['Content-Type'])
+        expected = (
+            'TY  - BOOK\r\n'
+            f'ID  - {self.book["object_id"]}\r\n'
+            'T1  - =2+2\r\n'
+            'AU  - Müller\r\n'
+            'AU  - Ångström\r\n'
+            'SN  - 9780000000001\r\n'
+            'KW  - =1+1\r\n'
+            f'N1  - Inventory ID: {self.book["display_id"]}\r\n'
+            'ER  -\r\n\r\n'
+        )
+        self.assertEqual('\ufeff' + expected, response.get_data(as_text=True))
+        self.assertNotIn('fake-private-not-exported', response.get_data(as_text=True))
+
+    def test_selected_bibtex_export_escapes_metadata_and_omits_unmapped_fields(self):
+        response = self.client.get('/library/export/books.bib', query_string={
+            'object_id': self.book['object_id'],
+        })
+        self.assertEqual(200, response.status_code)
+        self.assertIn('application/x-bibtex', response.headers['Content-Type'])
+        self.assertIn('filename="library-books.bib"', response.headers['Content-Disposition'])
+        expected = (
+            '\ufeff'
+            f'@book{{simpleoffice_{self.book["object_id"]},\n'
+            '  title = {=2+2},\n'
+            '  author = {Müller and Ångström},\n'
+            f'  note = {{Inventory ID: {self.book["display_id"]}; ISBN: 9780000000001; Genre: =1+1}}\n'
+            '}\n\n'
+        )
+        self.assertEqual(expected, response.get_data(as_text=True))
+        self.assertNotIn('fake-private-not-exported', response.get_data(as_text=True))
+
+    def test_bibliography_export_rejects_foreign_missing_and_nonbook_selections(self):
+        for path in ('/library/export/books.ris', '/library/export/books.bib'):
+            for identifier in (self.foreign['object_id'], '../foreign/object', '999999999', self.nonbook['object_id']):
+                with self.subTest(path=path, identifier=identifier):
+                    result = self.client.get(path, query_string={'object_id': identifier})
+                    self.assertEqual(404, result.status_code)
+                    self.assertNotIn('Fremder Instanzbestand', result.get_data(as_text=True))
+                    self.assertNotIn('TY  - BOOK', result.get_data(as_text=True))
+                    self.assertNotIn('@book{', result.get_data(as_text=True))
+
+    def test_all_export_formats_reject_more_than_500_selection_references(self):
+        query = [('object_id', self.book['object_id'])] * 501
+        for path in ('/library/export/books.csv', '/library/export/books.ris', '/library/export/books.bib'):
+            with self.subTest(path=path):
+                result = self.client.get(path, query_string=query)
+                self.assertEqual(400, result.status_code)
+
+    def test_exported_text_cannot_inject_ris_records_or_bibtex_fields(self):
+        hostile = self.store.create({
+            'name': 'Title {one}\n@misc{injected}',
+            'type': 'book',
+            'fields': {
+                'authors': 'Alice; Bob',
+                'publisher': 'Press\nyear={2099}',
+                'pages': '224',
+                'hidden': 'never exported',
+            },
+        }, 'csv-admin')
+        ris = self.client.get('/library/export/books.ris', query_string={'object_id': hostile['object_id']})
+        self.assertIn('T1  - Title {one} @misc{injected}', ris.get_data(as_text=True))
+        self.assertIn('PB  - Press year={2099}', ris.get_data(as_text=True))
+        self.assertIn('AU  - Alice\r\nAU  - Bob', ris.get_data(as_text=True))
+        self.assertNotIn('\n@misc{injected}', ris.get_data(as_text=True))
+
+        bibtex = self.client.get('/library/export/books.bib', query_string={'object_id': hostile['object_id']})
+        self.assertIn('title = {Title \\{one\\} @misc\\{injected\\}}', bibtex.get_data(as_text=True))
+        self.assertIn('publisher = {Press year=\\{2099\\}}', bibtex.get_data(as_text=True))
+        self.assertIn(f'note = {{Inventory ID: {hostile["display_id"]}; Pages: 224}}', bibtex.get_data(as_text=True))
+        self.assertNotIn('\n@misc{injected}', bibtex.get_data(as_text=True))
+        self.assertNotIn('never exported', bibtex.get_data(as_text=True))
 
     def test_foreign_missing_traversal_and_nonbook_ids_fail_before_csv(self):
         """Invalid selections yield 404 rather than a partial or out-of-root export."""

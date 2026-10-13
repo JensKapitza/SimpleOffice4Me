@@ -38,6 +38,10 @@ STATE_CHANGING_GET_ENDPOINTS = {"auth.logout"}
 NON_PAGE_GET_ENDPOINTS = {
     # JavaScript JSON lookup. A parameterless request is a valid negative lookup (404).
     "library.resolve_location",
+    # File downloads are covered by their HTTP contracts, not the page-shell smoke test.
+    "library.export_books_csv",
+    "library.export_books_ris",
+    "library.export_books_bibtex",
 }
 
 
