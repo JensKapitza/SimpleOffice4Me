@@ -189,6 +189,10 @@ bleiben unverändert. Das ermöglicht den Export auch mit dem unterstützten
 Ubuntu-22.04-System-Python 3.10. Die Formelabsicherung greift danach weiterhin.
 
 
+## Metadatenquellen und Konflikte
+
+Die ISBN-Abfrage verwendet weiterhin zuerst Open Library und nur bei fehlendem Titel Google Books als Fallback. Die Antwort enthält neben den übernommenen Feldern bis zu drei gekürzte Kandidatenwerte der tatsächlich abgefragten Quelle. Stimmen Titelwerte nicht überein, zeigt die Erfassungsmaske einen Konflikthinweis mit den Quellen. Kandidaten werden nicht automatisch gespeichert; vorhandene manuelle Werte bleiben geschützt, solange „Vorhandene Buchdaten ersetzen“ nicht aktiviert ist. Nicht erreichbare oder unvollständige Anbieter werden als Hinweis gemeldet, ohne rohe Provider-Antworten zu speichern oder anzuzeigen.
+
 ## Bücheretiketten für eine Auswahl
 
 In **Bücher & Standorte** können angemeldete Benutzer eine oder mehrere Buchzeilen auswählen und **Etiketten für Auswahl drucken** auslösen. Es werden höchstens 100 verschiedene Buchobjekte je Auftrag angenommen; Mehrfachauswahl derselben Objekt-ID erzeugt kein doppeltes Etikett. Die druckbare Kennung wird in dieser Reihenfolge aus vorhandenem Barcode, ISBN, Objektkennung, Inventarnummer oder stabiler Objekt-ID gewählt. Ein Objekt ohne nutzbare Kennung wird vor dem ersten Druck abgelehnt.

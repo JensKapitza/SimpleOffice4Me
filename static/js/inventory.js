@@ -25,6 +25,7 @@
   const recentFilter = $('recent-filter');
   const saveButton = $('inventory-save');
   const replaceMetadata = $('replace-metadata');
+  const metadataProvenance = $('metadata-provenance');
 
   const urls = {
     find: root.dataset.findUrl,
@@ -156,6 +157,21 @@
     }
     if (openLibraryLink) { openLibraryLink.href = `https://openlibrary.org/isbn/${encodeURIComponent(canonicalIsbn)}`; openLibraryLink.hidden = false; }
   };
+  const renderMetadataProvenance = (data) => {
+    if (!metadataProvenance) return;
+    const candidates = Array.isArray(data.metadata_candidates) ? data.metadata_candidates : [];
+    metadataProvenance.replaceChildren();
+    if (!candidates.length) { metadataProvenance.hidden = true; return; }
+    const titles = [...new Set(candidates.map((candidate) => cleanText(candidate.title)).filter(Boolean))];
+    const sources = candidates.map((candidate) => cleanText(candidate.metadata_source)).filter(Boolean);
+    const conflict = titles.length > 1;
+    metadataProvenance.textContent = conflict
+      ? `Konflikt zwischen Quellen: ${sources.join(', ')}. Übernommene Werte bitte prüfen; nichts wird automatisch gespeichert.`
+      : `Metadatenquelle: ${sources.join(', ')}. Werte bitte prüfen; nichts wird automatisch gespeichert.`;
+    metadataProvenance.className = `col-12 small ${conflict ? 'text-warning-emphasis' : 'text-secondary'}`;
+    metadataProvenance.hidden = false;
+  };
+
   const applyMetadata = (data) => {
     const overwrite = Boolean(replaceMetadata?.checked);
     Object.entries(fieldMap).forEach(([key, id]) => {
@@ -165,6 +181,7 @@
       if (!overwrite && shouldProtect && cleanText(element.value)) return;
       element.value = String(value);
     });
+    renderMetadataProvenance(data);
   };
   const applyMarketplaceMetadata = (data) => {
     const selectedTitle = cleanText(data.title);
