@@ -1,0 +1,43 @@
+name: Tauri 2 Windows and macOS
+on:
+  pull_request:
+    paths:
+      - 'desktop/tauri/**'
+      - 'tools/prepare_tauri_client.py'
+      - 'static/css/app.css'
+      - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
+      - 'docs/assets/simpleoffice-documentation-logo.png'
+      - 'pyproject.toml'
+      - '.github/workflows/tauri-desktop-crossplatform.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            name: windows
+          - os: macos-14
+            name: macos
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: desktop/tauri
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prepare:client
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
+      - run: npm run build -- -- --locked
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-desktop-${{ matrix.name }}
+          path: desktop/tauri/src-tauri/target/release/bundle/
+          if-no-files-found: error

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a small CycloneDX 1.5 SBOM from the installed Python environment."""
+"""Create a CycloneDX 1.5 SBOM from Python packages or locked Cargo metadata."""
 from __future__ import annotations
 
 import argparse
@@ -31,10 +31,43 @@ def build_sbom() -> dict:
             "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": release_version}}, "components": components}
 
 
+def build_cargo_sbom(metadata: dict) -> dict:
+    packages = metadata['packages']
+    root_id = metadata['resolve']['root']
+    root = next(package for package in packages if package['id'] == root_id)
+    components = []
+    for package in sorted(packages, key=lambda item: (item['name'], item['version'])):
+        component = {'type': 'application' if package['id'] == root_id else 'library',
+                     'name': package['name'], 'version': package['version'],
+                     'purl': f"pkg:cargo/{package['name']}@{package['version']}"}
+        if package.get('license'):
+            component['licenses'] = [{'expression': package['license']}]
+        components.append(component)
+    inventory = "\n".join(item['purl'] for item in components)
+    serial = uuid.uuid5(uuid.NAMESPACE_URL, inventory)
+    return {'bomFormat': 'CycloneDX', 'specVersion': '1.5',
+            'serialNumber': f'urn:uuid:{serial}', 'version': 1,
+            'metadata': {'timestamp': datetime.now(timezone.utc).isoformat(),
+                         'component': {'type': 'application', 'name': root['name'],
+                                       'version': root['version']}},
+            'components': components}
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(); parser.add_argument("--output", default="artifacts/sbom.cdx.json"); args = parser.parse_args()
-    path = Path(args.output); path.parent.mkdir(parents=True, exist_ok=True); path.write_text(json.dumps(build_sbom(), indent=2) + "\n", encoding="utf-8")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--output', default='artifacts/sbom.cdx.json')
+    parser.add_argument('--cargo-metadata', type=Path,
+                        help='JSON from cargo metadata --locked --format-version 1')
+    args = parser.parse_args()
+    try:
+        document = build_cargo_sbom(json.loads(args.cargo_metadata.read_text(encoding='utf-8'))) if args.cargo_metadata else build_sbom()
+    except (OSError, ValueError, KeyError, TypeError, StopIteration):
+        parser.error('Cargo metadata must contain a resolved root package and valid package records')
+    path = Path(args.output)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
     print(path)
 
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

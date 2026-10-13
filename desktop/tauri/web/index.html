@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="de" data-bs-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>SimpleOffice4Me</title>
+<link rel="stylesheet" href="assets/bootstrap.min.css">
+<link rel="stylesheet" href="assets/app.css">
+<link rel="stylesheet" href="style.css">
+<script defer src="main.js"></script>
+</head>
+<body>
+<main id="main-content" class="auth-shell">
+<section class="auth-card">
+<div class="auth-brand"><img src="assets/logo.png" width="44" height="44" alt="" decoding="async"><span>SimpleOffice4Me</span></div>
+<h1 class="h3">Mit Server verbinden</h1>
+<p>Öffne deinen vorhandenen SimpleOffice4Me-Server.</p>
+<form id="connect">
+<label class="form-label" for="endpoint">Serveradresse (HTTPS)</label>
+<input class="form-control" id="endpoint" type="url" autocomplete="url" inputmode="url" required placeholder="https://office.example/office/">
+<p class="form-text mt-2">Die Basisadresse kann einen Pfad enthalten. Keine Passwörter oder Token eingeben.</p>
+<button class="btn btn-primary w-100 mt-3" type="submit">Verbinden</button>
+<p class="text-danger mt-3" id="error" role="alert" aria-live="polite"></p>
+</form>
+<p class="small text-secondary">Die Serveradresse wird auf diesem Gerät gespeichert. Im Desktop-Menü kannst du zur Serverauswahl zurückkehren.</p>
+</section>
+</main>
+</body>
+</html>

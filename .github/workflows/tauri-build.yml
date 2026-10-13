@@ -1,0 +1,164 @@
+name: Tauri 2 builds
+on:
+  pull_request:
+    paths:
+      - 'desktop/tauri/**'
+      - 'tools/prepare_tauri_client.py'
+      - 'tools/smoke_tauri_client.py'
+      - 'tools/smoke_tauri_android.py'
+      - 'tools/check_tauri_apk.py'
+      - 'tools/generate_sbom.py'
+      - 'static/css/app.css'
+      - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
+      - 'docs/assets/simpleoffice-documentation-logo.png'
+      - 'pyproject.toml'
+      - '.github/workflows/tauri-build.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  desktop-linux:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: desktop/tauri
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install WebKit and build tools
+        working-directory: .
+        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf webkit2gtk-driver xvfb xdotool dbus-x11
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --audit-level=high
+      - run: npm run prepare:client
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
+      - run: npm run build -- -- --locked
+      - name: Generate locked Rust dependency SBOM
+        working-directory: .
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path desktop/tauri/src-tauri/Cargo.toml > "$RUNNER_TEMP/tauri-cargo-metadata.json"
+          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" --output artifacts/tauri-rust-sbom.cdx.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-rust-sbom
+          path: artifacts/tauri-rust-sbom.cdx.json
+          if-no-files-found: error
+      - name: Audit locked Rust dependencies
+        run: |
+          cargo install cargo-audit --version 0.22.2 --locked
+          cargo audit --file src-tauri/Cargo.lock --json > ../../artifacts/tauri-rust-audit.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tauri-rust-audit
+          path: artifacts/tauri-rust-audit.json
+          if-no-files-found: warn
+      - name: Install native WebDriver test harness
+        run: cargo install tauri-driver --version 2.1.0 --locked
+      - name: Test actual native client navigation and server selection
+        working-directory: .
+        run: xvfb-run -a dbus-run-session -- env WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 python tools/smoke_tauri_client.py desktop/tauri/src-tauri/target/release/simpleoffice4me_tauri
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-linux
+          path: desktop/tauri/src-tauri/target/release/bundle/
+          if-no-files-found: error
+  android-arm64:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: desktop/tauri
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      # Ubuntu GitHub-hosted runners already provide Android SDK command-line tools.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Install SDK components
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$SDK_ROOT" || { echo 'Android SDK root is not configured'; exit 1; }
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER" || { echo 'Android SDK command-line tools are missing'; exit 1; }
+          "$SDKMANAGER" --sdk_root="$SDK_ROOT" 'ndk;27.2.12479018' 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Export NDK path
+        run: echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - run: npm audit --audit-level=high
+      - run: npm run prepare:client
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
+      - run: npx tauri android init --ci
+      - run: npm run android:build -- --target aarch64 -- --locked
+      - name: Verify ARM64 APK and Android 16 KiB page compatibility
+        working-directory: .
+        run: |
+          APK="$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -name '*.apk' -print -quit)"
+          test -n "$APK"
+          python tools/check_tauri_apk.py "$APK"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 "$APK"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-android-arm64
+          path: desktop/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+
+  android-ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: desktop/tauri
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-linux-android
+      - name: Install Android build tools
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;27.2.12479018' 'platforms;android-35' 'build-tools;35.0.0'
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - run: npm ci --no-audit --no-fund
+      - run: npm run prepare:client
+      - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
+      - run: npx tauri android init --ci
+      - name: Build signed debug APK for emulator runtime validation
+        run: npm run android:build -- --debug --target x86_64 -- --locked
+      - name: Install existing safe XML parser for accessibility evidence
+        run: python -m pip install 'defusedxml==0.7.1'
+      - name: Enable runner user access to supplied KVM device
+        working-directory: .
+        run: sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+      - name: Exercise installed Android WebView client
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: python tools/smoke_tauri_android.py "$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -path '*/debug/*.apk' -print -quit)"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: tauri-android-ui-evidence
+          path: artifacts/tauri-android-ui/
+          if-no-files-found: warn
