@@ -44,7 +44,7 @@ def protect_export_and_ocr_responses(response):
     if request.endpoint in {
         "library.export_books_csv", "library.export_books_ris", "library.export_books_bibtex",
         "library.export_books_calibre",
-        "library.optimize_ocr_image", "library.analyze_ocr_upload",
+        "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
