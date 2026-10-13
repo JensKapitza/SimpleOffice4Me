@@ -81,11 +81,11 @@ Der Verlauf enthält keine Bilddaten und wird auf die letzten 500 Bibliotheksere
 - Druckeinstellungen enthalten keine Kennwörter. Falls ein Druckweg künftig Zugangsdaten benötigt, gehören diese in den bestehenden Secret-/Credential-Mechanismus und nicht in `library/state.json`.
 
 
-## CSV-Gesamt- und Auswahl-Export
+## Gesamt- und Auswahl-Export
 
-Administratoren erreichen **Bücher als CSV exportieren** im Bibliothekskopf.
+Administratoren erreichen CSV, RIS (Zitavi) und BibTeX im Bibliothekskopf.
 Die Checkboxen bei **Bücher & Standorte** wählen einzelne Exemplare aus;
-ohne Auswahl exportiert **CSV exportieren** den gesamten gültigen Buchbestand.
+ohne Auswahl exportiert das jeweilige Format den gesamten gültigen Buchbestand.
 Der Gesamtexport besitzt kein 500-Zeilen-Limit der Übersichten. Mehrere Exemplare
 mit derselben ISBN bleiben eigene Datensätze mit ihrer Inventarnummer.
 
@@ -96,11 +96,14 @@ konfigurierten Dokumenten-Root gelesen. Benutzer-, Root- oder Tenant-Angaben in
 URL-Parametern ändern weder Rolle noch Datenquelle. `created_by` bleibt
 Erstellungsprovenienz, es wird keine parallele Objekt-Rechteverwaltung eingeführt.
 
-Die öffentliche API ist `GET /library/export/books.csv`. Wiederholte
+Die öffentlichen APIs sind `GET /library/export/books.csv`,
+`GET /library/export/books.ris` und `GET /library/export/books.bib`. Wiederholte
 `object_id`-Parameter wählen UUIDs oder bestehende Inventarnummern aus. Doppelte
 Referenzen werden zusammengeführt. Maximal 500 Referenzen pro Auswahl sind
 zulässig (darüber HTTP 400); unbekannte, ungültige, außerhalb der Datenquelle
-liegende oder Nicht-Buch-Referenzen ergeben HTTP 404 vor der CSV-Ausgabe.
+liegende oder Nicht-Buch-Referenzen ergeben HTTP 404 vor der Ausgabe. Alle drei
+Formate verwenden dieselbe zentrale Administratorprüfung und nur den
+konfigurierten Dokumenten-Root.
 Ohne Parameter werden alle Buchdatensätze zeilenweise gelesen. Bestehende
 Standortzuordnungen liefern Standortpfad und Regalcode auch ohne kopierte
 Standortfelder im Objekt. Der Standortindex wird einmal pro Export gelesen;
@@ -118,6 +121,20 @@ Der zentrale Audit erfasst Benutzer, Ergebnis und Zahl der erzeugten Zeilen,
 keine Titel, Bilder oder fachlichen Nutzdaten. Erfolg entsteht erst nach vollständiger
 Erzeugung; ein vorzeitig beendeter Stream wird als unvollständig protokolliert.
 Eine erzeugte Ausgabe ist keine Bestätigung, dass der Client sie gespeichert hat.
+
+RIS verwendet `TY=BOOK`, `T1` für Titel, wiederholte `AU`-Zeilen für Autoren,
+`SN` für ISBN, `PB` für Verlag, `PY` für Jahr, `LA` für Sprache, `ET` für
+Ausgabe, `T3`/`VL` für Reihe/Band, `KW` für Genre und `AB` für Beschreibung.
+Inventarnummer, Standort und Seitenzahl werden verlustarm als `N1`-Notiz
+mitgeführt. BibTeX verwendet einen stabilen, aus der Inventar-ID gebildeten
+`@book`-Schlüssel und die klassischen Felder `title`, `author`, `publisher`,
+`year`, `edition`, `series`, `volume` und `note`; Metazeichen werden im Feldwert
+escaped. ISBN, Sprache, Genre, Beschreibung, Seitenzahl und Inventar-/Standort
+bleiben zusätzlich in `note`, damit Importer ohne herstellerspezifische
+Erweiterungsfelder keine dieser Angaben verlieren. Seitenzahl wird nicht als
+erfundener Seitenbereich ausgegeben. Beide Textformate normalisieren
+Zeilenumbrüche, beginnen mit UTF-8-BOM und verwenden feste Downloadnamen.
+Unbekannte Zusatzfelder und administrative Secrets werden nicht exportiert.
 
 ## Lokale Buchseiten-Vorschau und OCR
 
@@ -147,10 +164,10 @@ geprüft und bewusst übernommen werden; OCR-Ausfälle veröffentlichen keine
 Parser-/Prozessdetails oder Bilder im Diagnoseprotokoll.
 
 Diese Erweiterung verwendet die vorhandenen Inventar-, Standort-, Druck-, Auth-
-und OCR-Dienste. Die weiteren Anforderungen aus #658, insbesondere vollständige
-Werk-/Ausgabenmodelle und weitere Austauschformate, werden weiterhin im
-übergeordneten Issue geführt; sie werden durch diesen Teilumfang nicht als
-abgenommen markiert.
+und OCR-Dienste. Die weiteren Anforderungen aus #658, insbesondere getrennte
+Werk-/Ausgabenmodelle, Metadatenanbieter, Calibre-CSV/OPF, reale Kamera-/Drucker-
+und Android-Abnahme sowie Zitavi-Roundtrip-Importtests, bleiben offen und werden
+durch diese Exportformate nicht als abgenommen markiert.
 
 NUL-Zeichen werden nur im CSV-Ausgabewert entfernt; gespeicherte Metadaten
 bleiben unverändert. Das ermöglicht den Export auch mit dem unterstützten
