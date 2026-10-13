@@ -72,16 +72,21 @@ def auto_sip_bind_host() -> str:
     try:
         for row in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET, socket.SOCK_DGRAM):
             add(row[4][0])
-    except socket.gaierror:
+    except OSError:
         pass
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    probe = None
     try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         probe.connect(("192.0.2.1", 9))
         add(probe.getsockname()[0])
     except OSError:
         pass
     finally:
-        probe.close()
+        if probe is not None:
+            try:
+                probe.close()
+            except OSError:
+                pass
     return found[0] if found else "127.0.0.1"
 
 
