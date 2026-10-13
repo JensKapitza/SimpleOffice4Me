@@ -244,6 +244,8 @@ class FederationAdminUiTests(unittest.TestCase):
             self.assertEqual("existing-peer-token", store.peer_token("office-b"))
             self.assertEqual({"documents": {"send": True}}, peer["policy"])
             self.assertTrue(peer["enabled"])
+        editor = self.client.get(response.headers["Location"])
+        self.assertIn("QR-Adresse (Vorschlag): https://attacker.example.test", editor.get_data(as_text=True))
 
     def test_direct_discovery_shows_untrusted_address_as_suggestion(self):
         store = FederationStore(self.root)

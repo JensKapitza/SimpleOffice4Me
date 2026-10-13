@@ -497,7 +497,10 @@ def import_qr():
             flash(f"Peer {profile['peer_id']} per QR persönlich geprüft; Vertrauen bleibt NONE.")
         else:
             if existing:
-                flash(f"Identität für Peer {profile['peer_id']} aktualisiert; Verbindungseinstellungen blieben unverändert.")
+                flash(
+                    f"Identität für Peer {profile['peer_id']} aktualisiert; Verbindungseinstellungen blieben unverändert. "
+                    f"QR-Adresse (Vorschlag): {profile['base_url'][:240]}"
+                )
             else:
                 flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
     except Exception as exc:
