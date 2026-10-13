@@ -6,7 +6,7 @@ import sqlite3
 import shutil
 import subprocess
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from flask import Flask, g
 from app.mini_services_api import bp
@@ -134,6 +134,47 @@ class MiniApiTests(unittest.TestCase):
         self.assertNotIn("secret-db-path", result.get_data(as_text=True))
         self.assertEqual("failed", store.scan("audio-output")["state"])
 
+    def test_audio_worker_scan_storage_failure_is_visible_through_admin_api(self):
+        from app.audio_output_worker import worker
+
+        worker.stop()
+        previous_root = worker.root
+        previous_scan = worker.scan_result
+        previous_next_scan = worker.next_scan
+        self.addCleanup(worker.stop)
+        self.addCleanup(setattr, worker, "root", previous_root)
+        self.addCleanup(setattr, worker, "scan_result", previous_scan)
+        self.addCleanup(setattr, worker, "next_scan", previous_next_scan)
+        worker.root = self.temp.name + "/audio"
+        worker.scan_result = {"state": "waiting", "count": 0, "updated_at": None}
+        worker.next_scan = 0
+        store = Mock()
+        store.root = Path(worker.root)
+        store.service_settings.return_value = {}
+        store.claim.return_value = None
+        store.sync_local_outputs.side_effect = sqlite3.OperationalError("secret-db-path")
+        with patch.object(worker, "store", return_value=store), patch("app.audio_output_admin.audit"), patch(
+            "app.audio_output_discovery.discover_speaker_outputs", return_value=[{"id": "speaker"}]
+        ):
+            started = self.client.post("/api/mini-services/audio-output/start", json={}, headers=self.headers)
+            self.assertIn(started.status_code, (200, 409))
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                status = self.client.get("/admin/mini-services/audio")
+                if status.json.get("service", {}).get("scan", {}).get("state") == "failed":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(200, status.status_code)
+            self.assertEqual("failed", status.json["service"]["scan"]["state"])
+            self.assertEqual(0, status.json["service"]["scan"]["count"])
+            self.assertNotIn("secret-db-path", status.get_data(as_text=True))
+            stopped = self.client.post("/api/mini-services/audio-output/stop", json={}, headers=self.headers)
+            self.assertEqual(200, stopped.status_code)
+        worker.stop()
+        worker.root = previous_root
+        worker.scan_result = previous_scan
+        worker.next_scan = previous_next_scan
+
     def test_windows_receiver_scan_reports_unverified_default_without_registering_sink(self):
         with patch("app.audio_output_discovery.platform.system", return_value="Windows"), patch("app.audio_output_discovery.shutil.which", return_value="ffplay"), patch("app.audio_output_admin._store") as output_store:
             result = self.client.post("/api/mini-services/audio-receiver/scan", json={}, headers=self.headers)
@@ -153,6 +194,8 @@ class MiniApiTests(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True, SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
+        from app.audio_output_admin import bp as audio_admin_bp
+        self.app.register_blueprint(audio_admin_bp)
         self.app.add_url_rule("/login", endpoint="auth.login", view_func=lambda: "Login")
         self.app.before_request(lambda: setattr(g, "user", self.user))
         self.app.before_request(protect_browser_mutation)
