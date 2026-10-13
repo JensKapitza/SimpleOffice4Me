@@ -2,9 +2,9 @@
 
 ## Current repository update — 2026-10-13
 
-Implementation basis: `main` at `5228b74611dfb46c659ca8264c0b7ae7a6975b1c`
-(PR #682). Package metadata still declares version 2.0.0; no 3.0 release or
-release approval is implied.
+Implementation basis: `main` at `b99116ff6d8e361ddeeac0b74de8b41b9a8ab2d7`
+(PR #683, including PR #682). Package metadata still declares version 2.0.0;
+no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
 BibTeX alongside CSV. It reuses the existing local-root, selection,
@@ -22,9 +22,15 @@ CodeQL language or check was removed or suppressed; the older Rust failure was
 not reproduced on the current tree. This is CI evidence at the PR head, not
 external 3.0 acceptance.
 
-PR #683 is a separate, still-open #330 change for LAN/SIP behavior when the
-host denies socket creation. Its CI is being rerun against this updated main;
-it is not yet counted as merged implementation evidence.
+PR #683 merged as `b99116ff6d8e361ddeeac0b74de8b41b9a8ab2d7` for issue #330.
+It handles DNS/socket permission failures in LAN and SIP route probes and
+documents the bounded fallback behavior. All required CI gates passed on PR
+head `38b1b42bdbe7fe9c3d88e45606da68879dafa576`, including the full Python
+application suite (7m42s), Desktop Linux, Android, Docker, dependency/security
+checks, and all six standard CodeQL language analyses. Rust CodeQL completed
+successfully in 5m09s. No CodeQL analysis was removed or suppressed. The issue
+remains open for external/hardware and broader acceptance not established by
+these repository tests.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
