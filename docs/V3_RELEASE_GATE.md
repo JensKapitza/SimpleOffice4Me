@@ -1,6 +1,36 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current implementation update — 2026-10-13
+## Current repository update — 2026-10-13
+
+Implementation basis: `main` at `5228b74611dfb46c659ca8264c0b7ae7a6975b1c`
+(PR #682). Package metadata still declares version 2.0.0; no 3.0 release or
+release approval is implied.
+
+PR #682 extends the existing administrator-only library export with RIS and
+BibTeX alongside CSV. It reuses the existing local-root, selection,
+authorization, and audit path. Its public HTTP contracts verify exact output,
+authorization, invalid/foreign selections, size limits, and metadata injection
+handling. It does not complete #658: work/edition models, provider metadata,
+Calibre CSV/OPF, camera/printer workflows, and real Android/device acceptance
+remain open.
+
+All PR #682 gates passed on head
+`c3bd6b830c3f027770d3e735b3966e5b4a7ef3e1`: Python application suite,
+Desktop Linux, Android, Docker, dependency/security checks, and all six standard
+CodeQL language analyses. Rust CodeQL completed successfully in 5m09s. No
+CodeQL language or check was removed or suppressed; the older Rust failure was
+not reproduced on the current tree. This is CI evidence at the PR head, not
+external 3.0 acceptance.
+
+PR #683 is a separate, still-open #330 change for LAN/SIP behavior when the
+host denies socket creation. Its CI is being rerun against this updated main;
+it is not yet counted as merged implementation evidence.
+
+Release approval remains **not approved**. Repository software progress does
+not replace the still-open production-data upgrade/rollback, external-client/
+peer/device, representative-load, hardware, and long-run acceptance in #505/#506.
+
+## Federation test network implementation — 2026-10-13
 
 Implementation basis: `main` at `aca00cb0bce25e2910433adf9bf6effcfdd92a10`
 (PR #680). The package still declares version 2.0.0; this merge does not
