@@ -234,7 +234,14 @@ class MailStore:
             if not row["smtp_plain_password"]:
                 # Explicitly configured reuse is convenient for common combined mail accounts.
                 if row.get("password"):
-                    row["smtp_plain_password"] = self.secrets.decrypt(str(row["password"]))
+                    imap_username = str(row.get("username", ""))
+                    row["smtp_plain_password"], legacy = self._secret(
+                        row, "password", imap_username
+                    )
+                    if legacy:
+                        self._migrate_secret(
+                            actor, account_id, "password", str(row["password"]), imap_username
+                        )
                 else:
                     imap_env = str(row.get("password_env", ""))
                     row["smtp_plain_password"] = environment_mail_password(actor, row, "smtp", imap_env)
