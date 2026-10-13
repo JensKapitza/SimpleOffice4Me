@@ -112,7 +112,7 @@ class SecretBox:
 
     @staticmethod
     def _aad(context: str) -> bytes:
-        return b"simpleoffice-mail-v2\\0" + context.encode("utf-8")
+        return b"simpleoffice-mail-v2\0" + context.encode("utf-8")
 
     def encrypt(self, value: str, *, username: str = "") -> str:
         nonce = os.urandom(12)
