@@ -2,16 +2,16 @@
 
 ## Current repository update — 2026-10-13
 
-Implementation basis: `main` at `3230f29fbfb347084a53b4162a401f1e9ede1246`
-(PR #685, including PRs #682 and #683). Package metadata still declares version 2.0.0;
-no 3.0 release or release approval is implied.
+Implementation basis: `main` at `0e5ad1d5f3227389902941d683d0ec728329fbe0`
+(including PRs #687, #689 and #690). Package metadata still declares
+version 2.0.0; no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
 BibTeX alongside CSV. It reuses the existing local-root, selection,
 authorization, and audit path. Its public HTTP contracts verify exact output,
 authorization, invalid/foreign selections, size limits, and metadata injection
-handling. It does not complete #658: work/edition models, provider metadata,
-camera/printer workflows, and real Android/device acceptance remain open.
+handling. At that merge, #658 still needed work/edition models, provider
+metadata, capture and label workflows, and real Android/device acceptance.
 
 All PR #682 gates passed on head
 `c3bd6b830c3f027770d3e735b3966e5b4a7ef3e1`: Python application suite,
@@ -30,7 +30,7 @@ does not contain original documents. Black-box HTTP contracts verify exact
 metadata mapping, XML escaping, formula neutralization, XML 1.0 control filtering,
 authorization, local-root confinement, selection bounds, archive contents, and
 audit result. These tests do not claim a manual import into a running Calibre
-installation. The remainder of #658 stays open for work/edition models, metadata
+installation. At this merge, #658 still needed work/edition models, metadata
 providers, additional capture workflows, Zitavi import round-trip, and real
 camera/printer/Android acceptance.
 
@@ -50,6 +50,32 @@ checks, and all six standard CodeQL language analyses. Rust CodeQL completed
 successfully in 5m09s. No CodeQL analysis was removed or suppressed. The issue
 remains open for external/hardware and broader acceptance not established by
 these repository tests.
+
+## Current main verification — 2026-10-13
+
+PR #687 merged as `0e5ad1d5f3227389902941d683d0ec728329fbe0`. It adds selected
+book-label printing to the existing library page using the shared Code-128 /
+Brother print path, existing inventory objects, login/CSRF protection, printer
+settings, and audit store. The request validates every selected object before
+printing, limits batches to 100, and reports irreversible partial progress.
+The two existing label variants are barcode with readable title/author and
+barcode only. All required PR checks passed; locally, 47 library, export,
+OCR, HTTP, and printer-security tests passed. This establishes the software
+slice only: there was no physical-printer or Android device acceptance, and
+PDF/QR templates, work/edition modeling, metadata providers, and other #658
+capture requirements remain open.
+
+PR #689 merged as `3c52d6b2d8dde1319fc18a3c53404054b906c4bb` and PR #690 as
+`4d4a95ef5abe2658e04656f6b707b27cb998dd2f`. The Federation UI now carries a
+scanned QR profile into the existing peer editor for explicit review; a new
+peer remains disabled until separately configured. Discovery updates identity
+and compatibility metadata without changing an existing peer's URL, token,
+enabled state, or policy, and discovered addresses remain suggestions for
+manual review. The changes passed their required CI; local Federation HTTP/UI
+and accessibility tests passed, and a Chromium smoke verified the direct
+discovery suggestion while preserving configured values. This does not prove
+bilateral short-lived pairing, real LAN/external-peer operation, production
+upgrade/rollback, or the remaining #679 acceptance.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
