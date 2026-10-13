@@ -97,17 +97,19 @@ URL-Parametern ändern weder Rolle noch Datenquelle. `created_by` bleibt
 Erstellungsprovenienz, es wird keine parallele Objekt-Rechteverwaltung eingeführt.
 
 Die öffentlichen APIs sind `GET /library/export/books.csv`,
-`GET /library/export/books.ris` und `GET /library/export/books.bib`. Wiederholte
+`GET /library/export/books.ris`, `GET /library/export/books.bib` und
+`GET /library/export/books.calibre.zip`. Wiederholte
 `object_id`-Parameter wählen UUIDs oder bestehende Inventarnummern aus. Doppelte
 Referenzen werden zusammengeführt. Maximal 500 Referenzen pro Auswahl sind
 zulässig (darüber HTTP 400); unbekannte, ungültige, außerhalb der Datenquelle
 liegende oder Nicht-Buch-Referenzen ergeben HTTP 404 vor der Ausgabe. Alle drei
-Formate verwenden dieselbe zentrale Administratorprüfung und nur den
-konfigurierten Dokumenten-Root.
-Ohne Parameter werden alle Buchdatensätze zeilenweise gelesen. Bestehende
-Standortzuordnungen liefern Standortpfad und Regalcode auch ohne kopierte
-Standortfelder im Objekt. Der Standortindex wird einmal pro Export gelesen;
-Legacy-Inventarnummern behalten ihre bisherige Vergabereihenfolge.
+Textformate und das Calibre-Archiv verwenden dieselbe zentrale
+Administratorprüfung und ausschließlich den konfigurierten Dokumenten-Root.
+Ohne Parameter umfassen die Exporte alle Buchdatensätze. Textformate werden
+zeilenweise ausgegeben. Bestehende Standortzuordnungen liefern Standortpfad und
+Regalcode auch ohne kopierte Standortfelder im Objekt. Der Standortindex wird
+einmal pro Export gelesen; Legacy-Inventarnummern behalten ihre bisherige
+Vergabereihenfolge.
 
 Spalten: `ID`, `Titel`, `ISBN`, `Autoren`, `Genre`, `Reihe`, `Band`, `Standort`,
 `Regalcode`. Ausgabe: UTF-8 mit BOM, CSV-Quoting, feste Dateibezeichnung,
@@ -121,6 +123,19 @@ Der zentrale Audit erfasst Benutzer, Ergebnis und Zahl der erzeugten Zeilen,
 keine Titel, Bilder oder fachlichen Nutzdaten. Erfolg entsteht erst nach vollständiger
 Erzeugung; ein vorzeitig beendeter Stream wird als unvollständig protokolliert.
 Eine erzeugte Ausgabe ist keine Bestätigung, dass der Client sie gespeichert hat.
+
+Das Calibre-ZIP enthält `metadata.csv` mit Calibres Standardspalten für Titel,
+Autoren, Reihe/Band, Verlag, Jahr, ISBN, Genre, Beschreibung und Sprache sowie
+eine OPF-Metadatendatei pro Buch unter `opf/`. Die OPF-Dateien übernehmen auch
+Inventarnummer, Standort, Seitenzahl und Ausgabe als Beschreibung; Reihe und
+Band stehen in Calibre-Metafeldern. Das Archiv enthält keine Originaldateien.
+Der Export wird
+mit einem begrenzten Speicherpuffer aus einem einzigen Bestandsdurchlauf
+aufgebaut, nutzt die gleiche Auswahlprüfung und protokolliert nur Format,
+Zeilenzahl und Ergebnis. Fehlende Sprachangaben werden in OPF als `und`
+gekennzeichnet; die gespeicherten Quelldaten bleiben unverändert.
+XML-1.0-unzulässige Steuerzeichen werden in Calibre-Feldern ausgelassen;
+CSV-Formelanfänge bleiben wie im vorhandenen Export mit Apostroph neutralisiert.
 
 RIS verwendet `TY=BOOK`, `T1` für Titel, wiederholte `AU`-Zeilen für Autoren,
 `SN` für ISBN, `PB` für Verlag, `PY` für Jahr, `LA` für Sprache, `ET` für
@@ -165,9 +180,9 @@ Parser-/Prozessdetails oder Bilder im Diagnoseprotokoll.
 
 Diese Erweiterung verwendet die vorhandenen Inventar-, Standort-, Druck-, Auth-
 und OCR-Dienste. Die weiteren Anforderungen aus #658, insbesondere getrennte
-Werk-/Ausgabenmodelle, Metadatenanbieter, Calibre-CSV/OPF, reale Kamera-/Drucker-
-und Android-Abnahme sowie Zitavi-Roundtrip-Importtests, bleiben offen und werden
-durch diese Exportformate nicht als abgenommen markiert.
+Werk-/Ausgabenmodelle, Metadatenanbieter, reale Kamera-/Drucker- und Android-
+Abnahme sowie Zitavi-Roundtrip-Importtests bleiben offen und werden durch diese
+Exportformate nicht als abgenommen markiert.
 
 NUL-Zeichen werden nur im CSV-Ausgabewert entfernt; gespeicherte Metadaten
 bleiben unverändert. Das ermöglicht den Export auch mit dem unterstützten

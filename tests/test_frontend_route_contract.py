@@ -275,6 +275,7 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
             response = self.client.get(rule.rule, follow_redirects=True)
             tested.append(f"{endpoint} -> {rule.rule} [{response.status_code}]")
             failure = self._page_failure(endpoint, rule.rule, response)
+            response.close()
             if failure:
                 failures.append(failure)
 
@@ -303,6 +304,7 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
                 body = response.get_data(as_text=True)
                 if 'id="main-navigation"' not in body:
                     failures.append(f"{endpoint} -> {rule.rule}: global navigation missing from rendered page")
+            response.close()
 
         self.assertGreater(len(tested), 10, f"Too few navigation pages tested: {tested}")
         self.assertEqual([], failures, "Navigation page smoke failures:\n" + "\n".join(failures))
