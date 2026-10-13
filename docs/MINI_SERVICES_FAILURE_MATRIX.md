@@ -40,6 +40,7 @@ Legend:
 | HTTP/PXE | missing boot files | explicit waiting/degraded status | CI: network-boot tests |
 | HTTP/PXE | client actually boots | only call successful after independent client reaches expected stage | External |
 | Audio output | discovery/backend unavailable | HTTP 503 with controlled message; error type only in audit | CI: audio-output tests |
+| Audio output | temporary SQLite failure while refreshing discovered devices | mark scan failed and retry on the bounded scan interval; keep the announcement worker alive | CI: audio-output tests |
 | Audio output | invalid registration/group/queue input | HTTP 400 without raw exception text | CI + diagnostic audit |
 | Audio output | player stop failure | retain unresolved state; do not lose cleanup ownership | CI: audio-output tests |
 | Audio output | audible playback | packet/process success alone is insufficient | External |
