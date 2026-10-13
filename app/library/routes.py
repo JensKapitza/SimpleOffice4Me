@@ -37,7 +37,10 @@ logger = logging.getLogger(__name__)
 
 @bp.after_request
 def protect_export_and_ocr_responses(response):
-    if request.endpoint in {"library.export_books_csv", "library.optimize_ocr_image", "library.analyze_ocr_upload"}:
+    if request.endpoint in {
+        "library.export_books_csv", "library.export_books_ris", "library.export_books_bibtex",
+        "library.optimize_ocr_image", "library.analyze_ocr_upload",
+    }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
     return response
@@ -387,21 +390,13 @@ def _csv_cell(value):
     return "'" + text if text[index:].startswith(("=", "+", "-", "@")) else text
 
 
-@bp.get("/export/books.csv")
-@login_required
-def export_books_csv():
-    """Stream CSV rows to avoid accumulating the entire export in memory."""
-    from flask import stream_with_context
-
-    # Whole-catalog exports require administrator access until record-level ACL exists.
+def _library_export_selection():
+    """Authorize once and keep every export tied to the configured local root."""
     if not is_admin():
         audit("library_books_export", "library", "books", outcome="failure", detail={"reason": "administrator_required"})
         abort(403)
-
-    # Capture request-scoped storage before the response starts streaming.
-    library = _store()
     objects = _objects()
-    placements = library.export_placements()
+    placements = _store().export_placements()
     identifiers = request.args.getlist("object_id")
     if len(identifiers) > 500:
         abort(400)
@@ -417,6 +412,59 @@ def export_books_csv():
         if str(item.get("type", "")).casefold() not in {"book", "buch"} and not tags.intersection({"buch", "isbn"}):
             abort(404)
         selected[item["object_id"]] = item
+    return objects, placements, identifiers, selected
+
+
+def _library_export_books(objects, identifiers, selected):
+    source = selected.values() if identifiers else objects.iter_objects()
+    for item in source:
+        tags = {str(tag).casefold() for tag in item.get("tags", [])}
+        if str(item.get("type", "")).casefold() in {"book", "buch"} or tags.intersection({"buch", "isbn"}):
+            yield item
+
+
+def _record_library_export(export_format: str, count: int, completed: bool):
+    audit("library_books_export", "library", "books",
+          outcome="success" if completed else "failure",
+          detail={"format": export_format, "rows": count, "complete": completed})
+
+
+def _export_bibliography(export_format: str):
+    from flask import stream_with_context
+
+    from .bibliography import bibtex_record, ris_record
+
+    objects, placements, identifiers, selected = _library_export_selection()
+    serializer = ris_record if export_format == "ris" else bibtex_record
+    filename = "library-books.ris" if export_format == "ris" else "library-books.bib"
+    mimetype = "application/x-research-info-systems" if export_format == "ris" else "application/x-bibtex"
+
+    def generate():
+        count = 0
+        completed = False
+        try:
+            yield "\ufeff"
+            for item in _library_export_books(objects, identifiers, selected):
+                yield serializer(item, placements.get(item["object_id"], {}))
+                count += 1
+            completed = True
+        finally:
+            _record_library_export(export_format, count, completed)
+
+    return Response(stream_with_context(generate()), mimetype=mimetype, headers={
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+    })
+
+
+@bp.get("/export/books.csv")
+@login_required
+def export_books_csv():
+    """Stream CSV rows to avoid accumulating the entire export in memory."""
+    from flask import stream_with_context
+
+    # Capture request-scoped storage before the response starts streaming.
+    objects, placements, identifiers, selected = _library_export_selection()
 
     def generate():
         output = io.StringIO(newline="")
@@ -429,11 +477,8 @@ def export_books_csv():
             yield output.getvalue()
             output.seek(0)
             output.truncate(0)
-            for item in (selected.values() if identifiers else objects.iter_objects()):
+            for item in _library_export_books(objects, identifiers, selected):
                 fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
-                tags = {str(tag).casefold() for tag in item.get("tags", [])}
-                if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
-                    continue
                 placement = placements.get(item["object_id"], {})
                 values = (
                     item.get("display_id", ""), item.get("name", ""),
@@ -452,13 +497,23 @@ def export_books_csv():
 
             completed = True
         finally:
-            audit("library_books_export", "library", "books",
-                  outcome="success" if completed else "failure",
-                  detail={"format": "csv", "rows": count, "complete": completed})
+            _record_library_export("csv", count, completed)
 
     return Response(stream_with_context(generate()), mimetype="text/csv", headers={
         "Content-Disposition": "attachment; filename=library-books.csv",
         "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@bp.get("/export/books.ris")
+@login_required
+def export_books_ris():
+    return _export_bibliography("ris")
+
+
+@bp.get("/export/books.bib")
+@login_required
+def export_books_bibtex():
+    return _export_bibliography("bibtex")
 
 
 def _ocr_action(function):
