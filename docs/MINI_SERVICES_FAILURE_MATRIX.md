@@ -7,6 +7,10 @@ operating systems, networks or hardware. Rechecked against main
 managed Mini Service after the previous review; its failure cases are listed
 separately below.
 
+The socket-permission fallbacks added in this follow-up were rechecked against
+`1e181629021902edd18d58403d8d2a87ff8155bd`; they cover only route-probe failure
+and do not claim LAN discovery or SIP reachability when the host denies sockets.
+
 Legend:
 
 - **CI**: deterministic regression coverage exists in the repository.
