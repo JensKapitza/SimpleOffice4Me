@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -8,6 +9,8 @@ from app import app
 from app import db as database
 from app.federation_store import FederationStore
 from app.federation_moderation import FederationModerationStore
+from app.federation_qr import encode_peer
+from app.federation_trust_store import FederationTrustStore
 
 
 class FederationAdminUiTests(unittest.TestCase):
@@ -167,6 +170,108 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn('name="remote_user_id"', body)
         self.assertIn('name="local_user_id"', body)
         self.assertIn("<code>mail_cases</code>-Policy", body)
+
+    def test_peer_discovery_links_known_peer_to_existing_connection_editor(self):
+        FederationStore(self.root).save_peer(
+            "office-b", "Office B", "https://office-b.example.test", "", enabled=False,
+        )
+        FederationTrustStore(self.root).remember(
+            "office-b", "DE", "fingerprint-b", "qr",
+        )
+
+        response = self.client.get("/admin/federation/peer-discovery")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Discovery und QR-Import speichern zunächst nur die Peer-Identität", body)
+        self.assertIn("Verbindung einrichten", body)
+        self.assertIn("view=peers&amp;edit_peer=office-b", body)
+        self.assertIn("Trust jeweils lokal", body)
+
+    def test_qr_import_opens_existing_connection_editor_without_enabling_peer(self):
+        payload = encode_peer({
+            "peer_id": "office-b",
+            "label": "Office B",
+            "country": "DE",
+            "base_url": "https://office-b.example.test",
+            "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
+        })
+
+        response = self.client.post(
+            "/admin/federation/peer-discovery/qr/import",
+            data={"payload": payload},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(302, response.status_code)
+        self.assertIn("view=peers&edit_peer=office-b", response.headers["Location"])
+        peer = FederationStore(self.root).get_peer("office-b")
+        self.assertFalse(peer["enabled"])
+        self.assertFalse(peer["has_token"])
+        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
+
+        editor = self.client.get(response.headers["Location"])
+        body = editor.get_data(as_text=True)
+        self.assertEqual(200, editor.status_code)
+        self.assertIn("Discovery hat nur Peer-Identität und Fähigkeiten gespeichert", body)
+        self.assertIn("Peer-Token", body)
+
+    def test_qr_import_does_not_replace_existing_connection_configuration(self):
+        store = FederationStore(self.root)
+        with app.app_context():
+            store.save_peer(
+                "office-b", "Trusted Office B", "https://configured.example.test", "existing-peer-token",
+                {"documents": {"send": True}}, True,
+            )
+        payload = encode_peer({
+            "peer_id": "office-b",
+            "label": "Unverified replacement",
+            "country": "DE",
+            "base_url": "https://attacker.example.test",
+            "federation": {"name": "SimpleOffice Federation", "min_version": 1, "max_version": 1},
+        })
+
+        response = self.client.post(
+            "/admin/federation/peer-discovery/qr/import",
+            data={"payload": payload},
+            follow_redirects=False,
+        )
+
+        self.assertEqual(302, response.status_code)
+        with app.app_context():
+            peer = store.get_peer("office-b")
+            self.assertEqual("https://configured.example.test", peer["base_url"])
+            self.assertEqual("existing-peer-token", store.peer_token("office-b"))
+            self.assertEqual({"documents": {"send": True}}, peer["policy"])
+            self.assertTrue(peer["enabled"])
+        editor = self.client.get(response.headers["Location"])
+        self.assertIn("QR-Adresse (Vorschlag): https://attacker.example.test", editor.get_data(as_text=True))
+
+    def test_direct_discovery_shows_untrusted_address_as_suggestion(self):
+        store = FederationStore(self.root)
+        store.save_peer(
+            "office-b", "Trusted Office B", "https://configured.example.test", "",
+            {"documents": {"send": True}}, True,
+        )
+        profile = {
+            "peer_id": "office-b",
+            "base_url": "https://unverified.example.test",
+            "compatibility": {"protocol": "unknown", "features": {}},
+        }
+
+        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=profile):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/discover/direct",
+                data={"endpoint": "https://unverified.example.test"},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Erkannte Adresse (Vorschlag): https://unverified.example.test", response.get_data(as_text=True))
+        self.assertIn("Bestehende Verbindungsziele werden nicht automatisch geändert", response.get_data(as_text=True))
+        peer = store.get_peer("office-b")
+        self.assertEqual("https://configured.example.test", peer["base_url"])
+        self.assertTrue(peer["enabled"])
 
     def test_edit_peer_prefills_form(self):
         FederationStore(self.root).save_peer(

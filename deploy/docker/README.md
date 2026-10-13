@@ -42,10 +42,37 @@ From the repository root, build and start both peers:
 ```sh
 docker compose -f deploy/docker/compose.federation-test.yaml up --build -d
 docker compose -f deploy/docker/compose.federation-test.yaml ps
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_seed
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
+  python -m tools.federation_testnet_seed
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_smoke --expect-receive direct_trust_required
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_seed --confirm-local-peer
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
+  python -m tools.federation_testnet_seed --confirm-local-peer
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_smoke --expect-receive pending
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
+  python -m tools.federation_testnet_smoke --expect-receive pending
+docker compose -f deploy/docker/compose.federation-test.yaml restart peer-b
+# Nach "healthy" erneut ausführen:
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_smoke --expect-receive duplicate
 ```
 
-Wait until both containers report `healthy`, then verify that both public
-discovery endpoints return the expected independent identity and Compose URL:
+Wait until both containers report `healthy` before running the smoke check. It
+calls both instances over the internal network and verifies independent
+discovery identities, the enabled V3 capability contract, rejection of a
+document transfer before trust, and a pending result after an operator
+independently confirms the remote peer on each instance. After restarting one
+peer, the repeated transfer is recognized as a duplicate from persistent test
+data. The compatibility bearer cannot authenticate a peer identity. The seed
+command writes only to disposable test volumes; its optional trust flag is a
+local approval on that instance, not a network pairing protocol.
+
+For manual discovery diagnosis, the equivalent minimal request is:
 
 ```sh
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \

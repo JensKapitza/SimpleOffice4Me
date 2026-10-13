@@ -29,6 +29,12 @@ Receiving requires: an enabled configured peer; a direct local trust edge other 
 
 A relation, recommendation or transitive claim does not grant transfer permission. The existing directed trust model remains authoritative.
 
+## Discover and configure a peer
+
+LAN/direct, country and email discovery and QR import identify a peer; they do not pair, enable it, or grant trust. New peers remain disabled. For an already configured peer, discovery updates identity and compatibility metadata only; it does not replace the configured endpoint, credentials, activation state or data policy. An address advertised by discovery is shown as a suggestion; inspect it and enter it in the existing peer editor if you intend to change the connection target. A QR import opens that editor with the identity prefilled. Configure the same peer-specific token on both instances using a trusted out-of-band channel. Do not reuse the global `SIMPLEOFFICE_FEDERATION_TOKEN`: it cannot establish a V3 peer identity. The saved peer token is encrypted at rest.
+
+After checking the peer identity on both instances, each administrator must set the direct trust edge locally. Configure only the required data-class permissions separately; trust alone does not grant data access, and automatic acceptance remains off unless explicitly enabled. The UI does not yet provide an expiring one-time code or a cryptographic bilateral pairing handshake, so operators must perform these steps independently.
+
 Peer policies may use:
 
 ```json
@@ -48,3 +54,27 @@ Documents, contacts, calendar, tasks and collaborative mail cases (`mail_cases`)
 ## Compatibility
 
 Legacy peers can continue using the previous federation protocol. No existing SOFP/V1 route, trust record or transfer table is removed or rewritten. The new persistence tables live alongside the existing federation state.
+
+## Public HTTP contract checks
+
+Run the V3 route contract tests with:
+
+```text
+.venv/bin/python -m unittest tests.test_v3_federation_two_peer_http tests.test_v3_federation_peer_auth_http tests.test_v3_federation -v
+```
+
+`test_v3_federation_two_peer_http` sends signed requests through two independent
+Flask test clients with separate data roots. It verifies that an untrusted peer
+is rejected, a directly trusted peer without negotiated document capability is
+quarantined, and a trusted, compatible transfer remains pending when automatic
+acceptance is not enabled. This route-level fixture does not establish discovery,
+QR/manual pairing, real network reachability, process restart recovery, or the
+separate Compose test-network acceptance tracked in #679.
+
+The isolated two-container smoke sequence exercises public discovery, V3
+capability exchange, peer-bound HMAC in both directions, default rejection
+before trust, pending receipt after independent local approval at each test
+peer, and idempotency after restarting a peer. Run it using the commands in
+[`deploy/docker/README.md`](../deploy/docker/README.md). Test-only seeding is
+limited to disposable volumes; it does not exercise the browser QR/manual
+pairing workflow or real LAN discovery.
