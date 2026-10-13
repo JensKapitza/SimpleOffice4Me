@@ -318,6 +318,8 @@ def print_book_labels():
     style = request.form.get("barcode_style", "with_text")
     if not identifiers or len(identifiers) > 100 or style not in {"with_text", "barcode_only"}:
         return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
+    if any(not identifier or len(identifier) > 80 for identifier in identifiers):
+        return jsonify({"ok": False, "error": "Ungültige Buchauswahl."}), 400
 
     objects = _objects()
     items = []
