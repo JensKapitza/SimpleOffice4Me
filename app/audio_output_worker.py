@@ -138,7 +138,7 @@ class AudioOutputWorker:
             devices = discover_speaker_outputs()
             self.store().sync_local_outputs(devices)
             self.scan_result = {"state": "completed", "updated_at": time.time(), "count": len(devices)}
-        except (RuntimeError, OSError) as exc:
+        except (RuntimeError, OSError, sqlite3.Error) as exc:
             self.scan_result = {"state": "failed", "updated_at": time.time(), "count": 0, "error": error_detail(exc)}
         self.next_scan = time.monotonic() + 30
         return self.scan_result
