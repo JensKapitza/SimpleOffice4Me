@@ -33,6 +33,7 @@ NON_PAGE_TOKENS = (
 )
 NON_PAGE_ENDPOINTS = {
     "library.print_book_labels",
+    "library.export_book_labels_pdf",
     "library.resolve_location",
     "service_worker",
     "admin.activity",
