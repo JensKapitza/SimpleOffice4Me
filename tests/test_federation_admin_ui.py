@@ -259,7 +259,7 @@ class FederationAdminUiTests(unittest.TestCase):
             "compatibility": {"protocol": "unknown", "features": {}},
         }
 
-        with patch("app.federation_peer_admin.discover_direct", return_value=profile):
+        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=profile):
             response = self.client.post(
                 "/admin/federation/peer-discovery/discover/direct",
                 data={"endpoint": "https://unverified.example.test"},
