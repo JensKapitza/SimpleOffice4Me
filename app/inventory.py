@@ -305,11 +305,8 @@ def merge_book_metadata(primary: dict[str, Any], fallback: dict[str, Any]) -> di
 
 def _metadata_candidate(metadata: dict[str, Any]) -> dict[str, str]:
     """Keep only reviewable provider fields; never expose raw provider payloads."""
-    return {
-        key: str(metadata.get(key) or "").strip()[:300]
-        for key in ("metadata_source", "title", "authors", "publisher", "published_date")
-        if str(metadata.get(key) or "").strip()
-    }
+    fields = ("metadata_source", "title", "authors", "publisher", "published_date")
+    return {key: value[:300] for key in fields if (value := str(metadata.get(key) or "").strip())}
 
 
 def lookup_book_metadata(isbn: str) -> dict[str, Any]:
