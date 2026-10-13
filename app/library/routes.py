@@ -33,6 +33,7 @@ from .printer import (
     render_image,
     render_text,
 )
+from .label_pdf import book_labels_pdf
 from .store import LibraryStore
 
 bp = Blueprint("library", __name__, url_prefix="/library")
@@ -45,6 +46,7 @@ def protect_export_and_ocr_responses(response):
         "library.export_books_csv", "library.export_books_ris", "library.export_books_bibtex",
         "library.export_books_calibre",
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
+        "library.export_book_labels_pdf",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -311,15 +313,13 @@ def _book_label_data(item: dict[str, Any]) -> tuple[str, str]:
     return str(value).strip()[:120], caption[:240]
 
 
-@bp.post("/labels/books/print")
-@login_required
-def print_book_labels():
-    identifiers = request.form.getlist("object_id")
-    style = request.form.get("barcode_style", "with_text")
-    if not identifiers or len(identifiers) > 100 or style not in {"with_text", "barcode_only"}:
-        return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
+def _selected_book_label_items(
+    identifiers: list[str],
+) -> tuple[list[tuple[dict[str, Any], str, str]] | None, tuple[Response, int] | None]:
+    if not identifiers or len(identifiers) > 100:
+        return None, (jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher auswählen."}), 400)
     if any(not identifier or len(identifier) > 80 for identifier in identifiers):
-        return jsonify({"ok": False, "error": "Ungültige Buchauswahl."}), 400
+        return None, (jsonify({"ok": False, "error": "Ungültige Buchauswahl."}), 400)
 
     objects = _objects()
     items = []
@@ -328,16 +328,30 @@ def print_book_labels():
         try:
             item = objects.object(identifier)
         except (ValueError, OSError):
-            return jsonify({"ok": False, "error": "Mindestens ein ausgewähltes Buch wurde nicht gefunden."}), 404
+            return None, (jsonify({"ok": False, "error": "Mindestens ein ausgewähltes Buch wurde nicht gefunden."}), 404)
         tags = {str(tag).casefold() for tag in item.get("tags", [])}
         if str(item.get("type", "")).casefold() not in {"book", "buch"} and not tags.intersection({"buch", "isbn"}):
-            return jsonify({"ok": False, "error": "Die Auswahl enthält einen Nicht-Buch-Datensatz."}), 400
-        if item["object_id"] not in seen:
-            seen.add(item["object_id"])
-            value, caption = _book_label_data(item)
-            if not value:
-                return jsonify({"ok": False, "error": "Für mindestens ein Buch fehlt eine druckbare Kennung."}), 400
-            items.append((item, value, caption))
+            return None, (jsonify({"ok": False, "error": "Die Auswahl enthält einen Nicht-Buch-Datensatz."}), 400)
+        if item["object_id"] in seen:
+            continue
+        seen.add(item["object_id"])
+        value, caption = _book_label_data(item)
+        if not value:
+            return None, (jsonify({"ok": False, "error": "Für mindestens ein Buch fehlt eine druckbare Kennung."}), 400)
+        items.append((item, value, caption))
+    return items, None
+
+
+@bp.post("/labels/books/print")
+@login_required
+def print_book_labels():
+    identifiers = request.form.getlist("object_id")
+    style = request.form.get("barcode_style", "with_text")
+    if style not in {"with_text", "barcode_only"}:
+        return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
+    items, error = _selected_book_label_items(identifiers)
+    if error:
+        return error
 
     library = _store()
     settings = library.printer_settings()
@@ -369,6 +383,31 @@ def print_book_labels():
         )
         printed += 1
     return jsonify({"ok": True, "printed": printed, "total": len(items)})
+
+
+@bp.post("/labels/books.pdf")
+@login_required
+def export_book_labels_pdf():
+    identifiers = request.form.getlist("object_id")
+    style = request.form.get("barcode_style", "with_text")
+    if style not in {"with_text", "barcode_only"}:
+        return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
+    items, error = _selected_book_label_items(identifiers)
+    if error:
+        return error
+    labels = [(value, caption) for _item, value, caption in items]
+
+    try:
+        payload = book_labels_pdf(labels, _store().printer_settings(), style=style)
+    except (OSError, PrinterError, ValueError):
+        return jsonify({"ok": False, "error": "PDF-Etiketten konnten mit der gewählten Größe nicht erstellt werden."}), 400
+    return send_file(
+        io.BytesIO(payload),
+        mimetype="application/pdf",
+        as_attachment=True,
+        download_name="buch-etiketten.pdf",
+        max_age=0,
+    )
 
 
 @bp.post("/printer/settings")
