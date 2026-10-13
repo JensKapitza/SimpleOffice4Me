@@ -70,20 +70,22 @@ class InventoryIsbnLookupRegressionTests(unittest.TestCase):
             {"docs": [{
                 "title": "Primary title",
                 "isbn": ["9780131103627"],
-                "author_name": ["Primary author"],
             }]},
-            {"items": [{
-                "volumeInfo": {
-                    "title": "Fallback title",
-                    "industryIdentifiers": [{"identifier": "9780131103627"}],
-                }
-            }]},
+            {"ISBN:9780131103627": {
+                "title": "Legacy title",
+                "authors": [{"name": "Legacy author"}],
+                "publishers": [{"name": "Legacy press"}],
+                "publish_date": "1988",
+            }},
         ]
         result = lookup_book_metadata("9780131103627")
         self.assertEqual("Primary title", result["title"])
-        self.assertEqual(1, http_json.call_count)
-        self.assertEqual(["Open Library Search"], [row["metadata_source"] for row in result["metadata_candidates"]])
-
+        self.assertEqual(2, http_json.call_count)
+        self.assertEqual(
+            ["Open Library Search", "Open Library"],
+            [row["metadata_source"] for row in result["metadata_candidates"]],
+        )
+        self.assertEqual(["Primary title", "Legacy title"], [row["title"] for row in result["metadata_candidates"]])
 
     @patch("app.inventory._http_json")
     def test_google_is_only_last_fallback_when_openlibrary_has_no_title(self, http_json):
