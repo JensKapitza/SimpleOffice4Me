@@ -114,15 +114,15 @@
       <div class="card-header"><strong>Bücher &amp; Standorte</strong></div>
       <form method="get" action="{{ url_for('library.export_books_csv') }}">
         <div class="table-responsive"><table class="table table-sm mb-0">
-          <thead><tr>{% if g.user.is_admin %}<th scope="col">Auswahl</th>{% endif %}<th scope="col">Nr.</th><th scope="col">Buch</th><th scope="col">Standort</th></tr></thead>
+          <thead><tr><th scope="col">Auswahl</th><th scope="col">Nr.</th><th scope="col">Buch</th><th scope="col">Standort</th></tr></thead>
           <tbody>{% for book in books %}<tr>
-            {% if g.user.is_admin %}<td><input class="form-check-input" type="checkbox" name="object_id" value="{{ book.object_id }}" aria-label="{{ book.name }} für Export auswählen"></td>{% endif %}
+            <td><input class="form-check-input" type="checkbox" name="object_id" value="{{ book.object_id }}" aria-label="{{ book.name }} für Etikett oder Export auswählen"></td>
             <td><a href="{{ url_for('inventory.item_detail', object_id=book.object_id) }}">#{{ book.display_id }}</a></td>
             <td>{{ book.name }}<div class="small text-secondary">{{ book.fields.get('authors','') }} · {{ book.identifier }}</div></td>
             <td>{{ book.library_location_path or 'nicht zugeordnet' }}{% if book.library_location.code %}<br><code>{{ book.library_location.code }}</code>{% endif %}</td>
           </tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Bücher gefunden.</td></tr>{% endfor %}</tbody>
         </table></div>
-        {% if g.user.is_admin %}<div class="p-2 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-outline-primary" type="submit">CSV</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_ris') }}">RIS (Zitavi)</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_bibtex') }}">BibTeX</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_calibre') }}">Calibre CSV/OPF</button><span class="small text-secondary">Ohne Auswahl wird der gesamte Bestand exportiert.</span></div>{% endif %}
+        <div class="p-2 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-outline-primary" id="print-book-labels" type="button" data-url="{{ url_for('library.print_book_labels') }}">Etiketten für Auswahl drucken</button><label class="visually-hidden" for="book-label-style">Etikettenart</label><select class="form-select form-select-sm" id="book-label-style" aria-label="Etikettenart"><option value="with_text">Barcode mit lesbarem Text</option><option value="barcode_only">Nur Barcode</option></select><span id="book-label-status" class="small text-secondary" role="status" aria-live="polite"></span>{% if g.user.is_admin %}<button class="btn btn-outline-secondary" type="submit">CSV</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_ris') }}">RIS (Zitavi)</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_bibtex') }}">BibTeX</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_calibre') }}">Calibre CSV/OPF</button><span class="small text-secondary">Ohne Auswahl wird der gesamte Bestand exportiert.</span>{% endif %}</div>
       </form>
     </div></div>
     <div class="col-lg-4"><div class="card shadow-sm h-100"><div class="card-header"><strong>Letzte Bibliotheksaktionen</strong></div><div class="list-group list-group-flush">{% for event in events %}<div class="list-group-item"><div class="small"><strong>{{ event.kind }}</strong> · {{ event.actor }}</div><div class="small text-secondary">{{ event.at }}</div><div class="small text-break">{{ event.detail }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Aktionen.</div>{% endfor %}</div></div></div>
@@ -140,6 +140,32 @@
   const stored = localStorage.getItem('simpleoffice-library-location');
   if (selected && !selected.value && stored && [...selected.options].some(option => option.value === stored)) selected.value = stored;
   if (selected) selected.addEventListener('change', () => { if (selected.value) localStorage.setItem('simpleoffice-library-location', selected.value); });
+
+  const printLabelsButton = document.getElementById('print-book-labels');
+  printLabelsButton?.addEventListener('click', async () => {
+    const selectedBooks = [...document.querySelectorAll('input[name="object_id"]:checked')];
+    const status = document.getElementById('book-label-status');
+    if (!selectedBooks.length) { status.textContent = 'Bitte mindestens ein Buch auswählen.'; return; }
+    const data = new FormData();
+    data.set('_csrf_token', csrf);
+    data.set('barcode_style', document.getElementById('book-label-style').value);
+    selectedBooks.forEach(input => data.append('object_id', input.value));
+    printLabelsButton.disabled = true;
+    status.textContent = 'Etiketten werden gedruckt…';
+    try {
+      const response = await fetch(printLabelsButton.dataset.url, {method: 'POST', body: data, headers: {'Accept': 'application/json'}});
+      const result = await response.json();
+      if (!response.ok) {
+        const progress = result.printed > 0 ? `${result.printed} von ${result.total} Etiketten wurden vor dem Fehler gedruckt. ` : '';
+        throw new Error(progress + (result.error || 'Etikettendruck fehlgeschlagen.'));
+      }
+      status.textContent = `${result.printed} von ${result.total} Etiketten gedruckt.`;
+    } catch (error) {
+      status.textContent = error.message || 'Etikettendruck fehlgeschlagen.';
+    } finally {
+      printLabelsButton.disabled = false;
+    }
+  });
 
   const findForm = document.getElementById('library-find-form');
   findForm?.addEventListener('submit', async event => {
