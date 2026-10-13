@@ -110,14 +110,29 @@ class SecretBox:
             raise ValueError("mail secret master key is too short")
         self.key = hashlib.sha256(b"simpleoffice-mail-v1\0" + master_key).digest()
 
-    def encrypt(self, value: str) -> str:
-        nonce = os.urandom(12)
-        ciphertext = AESGCM(self.key).encrypt(nonce, value.encode("utf-8"), b"simpleoffice-mail-v1")
-        return "enc:v1:" + base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
+    @staticmethod
+    def _aad(context: str) -> bytes:
+        return b"simpleoffice-mail-v2\\0" + context.encode("utf-8")
 
-    def decrypt(self, value: str) -> str:
-        raw = base64.urlsafe_b64decode(value.removeprefix("enc:v1:").encode("ascii"))
-        return AESGCM(self.key).decrypt(raw[:12], raw[12:], b"simpleoffice-mail-v1").decode("utf-8")
+    def encrypt(self, value: str, *, username: str = "") -> str:
+        nonce = os.urandom(12)
+        if username:
+            ciphertext = AESGCM(self.key).encrypt(nonce, value.encode("utf-8"), self._aad(username))
+            prefix = "enc:v2:"
+        else:
+            ciphertext = AESGCM(self.key).encrypt(nonce, value.encode("utf-8"), b"simpleoffice-mail-v1")
+            prefix = "enc:v1:"
+        return prefix + base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii")
+
+    def decrypt(self, value: str, *, username: str = "") -> str:
+        raw = base64.urlsafe_b64decode(value.removeprefix("enc:v1:").removeprefix("enc:v2:").encode("ascii"))
+        if value.startswith("enc:v2:"):
+            if not username:
+                raise ValueError("mail secret username context is required")
+            aad = self._aad(username)
+        else:
+            aad = b"simpleoffice-mail-v1"
+        return AESGCM(self.key).decrypt(raw[:12], raw[12:], aad).decode("utf-8")
 
 
 class MailStore:
@@ -157,6 +172,25 @@ class MailStore:
             raise KeyError("mail account does not exist")
         return dict(row)
 
+    def _secret(self, row: dict[str, Any], field: str, username: str) -> tuple[str, bool]:
+        """Resolve encrypted and legacy plaintext secrets without blocking service use."""
+        value = str(row.get(field, "") or "")
+        if not value:
+            return "", False
+        if value.startswith("enc:"):
+            return self.secrets.decrypt(value, username=username), False
+        return value, True
+
+    def _migrate_secret(self, actor: str, account_id: str, field: str, value: str, username: str) -> None:
+        if not value:
+            return
+        payload = self._read(self.accounts_path, {"version": 1, "accounts": []})
+        for row in payload.get("accounts", []):
+            if row.get("id") == account_id and row.get("owner") == actor and row.get(field) == value:
+                row[field] = self.secrets.encrypt(value, username=username)
+                atomic_json_write(self.accounts_path, payload)
+                return
+
     def ui_features(self, owner: str, account_id: str) -> dict[str, bool]:
         """Return non-secret UI visibility preferences for one owned mail account."""
         row = self._owned_row(owner, account_id)
@@ -168,7 +202,9 @@ class MailStore:
         if password:
             result["plain_password"] = password
         elif row.get("password"):
-            result["plain_password"] = self.secrets.decrypt(str(row["password"]))
+            result["plain_password"], legacy = self._secret(row, "password", str(row.get("username", "")))
+            if legacy:
+                self._migrate_secret(actor, account_id, "password", str(row["password"]), str(row.get("username", "")))
         else:
             env_name = str(row.get("password_env", ""))
             result["plain_password"] = environment_mail_password(actor, row, protocol, env_name)
@@ -188,7 +224,10 @@ class MailStore:
         if password:
             row["smtp_plain_password"] = password
         elif row.get("smtp_password"):
-            row["smtp_plain_password"] = self.secrets.decrypt(str(row["smtp_password"]))
+            smtp_username = str(row.get("smtp_username") or row["username"])
+            row["smtp_plain_password"], legacy = self._secret(row, "smtp_password", smtp_username)
+            if legacy:
+                self._migrate_secret(actor, account_id, "smtp_password", str(row["smtp_password"]), smtp_username)
         else:
             env_name = str(row.get("smtp_password_env", ""))
             row["smtp_plain_password"] = environment_mail_password(actor, row, "smtp", env_name)
@@ -236,10 +275,16 @@ class MailStore:
             raise ValueError("exactly one SMTP sender address is required")
         stored_password = (previous or {}).get("password", "")
         if password:
-            stored_password = self.secrets.encrypt(password) if remember else ""
+            stored_password = self.secrets.encrypt(password, username=username) if remember else ""
+        elif stored_password and not str(stored_password).startswith("enc:"):
+            stored_password = self.secrets.encrypt(str(stored_password), username=username)
         stored_smtp_password = (previous or {}).get("smtp_password", "")
         if data.get("smtp_password"):
-            stored_smtp_password = self.secrets.encrypt(str(data["smtp_password"])) if remember else ""
+            smtp_username = str(data.get("smtp_username", username)).strip() or username
+            stored_smtp_password = self.secrets.encrypt(str(data["smtp_password"]), username=smtp_username) if remember else ""
+        elif stored_smtp_password and not str(stored_smtp_password).startswith("enc:"):
+            smtp_username = str(data.get("smtp_username", username)).strip() or username
+            stored_smtp_password = self.secrets.encrypt(str(stored_smtp_password), username=smtp_username)
         row = {
             "id": account_id, "owner": actor, "label": str(data.get("label", host)).strip()[:120] or host,
             "host": host, "port": port, "security": mode, "username": username,
