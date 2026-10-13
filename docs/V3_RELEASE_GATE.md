@@ -2,8 +2,8 @@
 
 ## Current repository update — 2026-10-13
 
-Implementation basis: `main` at `0e5ad1d5f3227389902941d683d0ec728329fbe0`
-(including PRs #687, #689 and #690). Package metadata still declares
+Implementation basis: `main` at `d80ca6bc7663aa0a89e54d0fa46208d2a9d785a6`
+(including PRs #687, #689, #690 and #692). Package metadata still declares
 version 2.0.0; no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
@@ -76,6 +76,20 @@ and accessibility tests passed, and a Chromium smoke verified the direct
 discovery suggestion while preserving configured values. This does not prove
 bilateral short-lived pairing, real LAN/external-peer operation, production
 upgrade/rollback, or the remaining #679 acceptance.
+
+PR #692 merged as `d80ca6bc7663aa0a89e54d0fa46208d2a9d785a6`. Selected books
+can also be downloaded as a print-ready PDF with one page per unique book at
+the configured Brother media dimensions, using either existing barcode style.
+The API reuses the canonical book records and label validation, requires login
+and CSRF, and bounds each request to 100 references. Ten public HTTP contracts
+cover media dimensions, page count, response type/name, deduplication,
+authentication, CSRF, invalid selections, and the batch boundary. The complete
+Python application CI passed in 7m40s; all CodeQL, Security/OSSAR, Android,
+Desktop, and Docker gates passed. A 390px Chromium smoke confirmed the existing
+library selection downloads a valid one-page PDF and announces success. This
+does not establish physical-printer or Android acceptance; QR codes, preview,
+sheet templates, filtered author/genre/location labels, and remaining #658
+requirements stay open.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
