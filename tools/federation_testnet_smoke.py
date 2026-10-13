@@ -4,8 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from datetime import datetime, timezone
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from app.federation_peer_auth import headers as peer_headers
@@ -26,6 +26,16 @@ def _request(
     bearer: str = "",
     extra_headers: dict[str, str] | None = None,
 ) -> tuple[int, dict]:
+    target = urlsplit(url)
+    if (
+        target.scheme != "http"
+        or target.hostname not in {"peer-a", "peer-b"}
+        or target.port not in (None, 8080)
+        or target.username is not None
+        or target.password is not None
+        or target.fragment
+    ):
+        raise ValueError("federation smoke requests may only target peer-a or peer-b on port 8080")
     headers = {"Accept": "application/json"}
     if bearer:
         headers["Authorization"] = f"Bearer {bearer}"
@@ -34,7 +44,8 @@ def _request(
     headers.update(extra_headers or {})
     request = Request(url, data=body, headers=headers, method="POST" if body is not None else "GET")
     try:
-        with urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        # The test harness is intentionally confined to its isolated Compose peers.
+        with urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
             return response.status, json.load(response)
     except HTTPError as error:
         try:
