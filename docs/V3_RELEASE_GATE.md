@@ -2,8 +2,8 @@
 
 ## Current repository update — 2026-10-13
 
-Implementation basis: `main` at `d80ca6bc7663aa0a89e54d0fa46208d2a9d785a6`
-(including PRs #687, #689, #690 and #692). Package metadata still declares
+Implementation basis: `main` at `a92e71a6f5d99c9bfacce67e80447efbc0233f9a`
+(including PRs #687, #689, #690, #692 and #691). Package metadata still declares
 version 2.0.0; no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
@@ -90,6 +90,19 @@ library selection downloads a valid one-page PDF and announces success. This
 does not establish physical-printer or Android acceptance; QR codes, preview,
 sheet templates, filtered author/genre/location labels, and remaining #658
 requirements stay open.
+
+PR #691 merged as `a92e71a6f5d99c9bfacce67e80447efbc0233f9a`. The existing
+ISBN lookup now returns up to three bounded metadata candidates from the
+providers it actually queried. The library form shows the source and warns when
+candidate titles disagree; it never auto-saves a candidate or overwrites manual
+values unless the existing replace option is enabled. Public HTTP tests cover
+authenticated candidate delivery, invalid ISBN rejection before provider access,
+and the endpoint's `no-store` response. Local validation passed 37 targeted
+inventory/library contracts plus repository policy, file/function-size, Ruff,
+compile and diff checks. Full Python CI passed in 7m09s; all six CodeQL language
+analyses, security/OSSAR, dependency audit, Android, Desktop, Docker and other
+required checks passed. This adds provider conflict review, not the missing
+real-provider, import-roundtrip, camera, printer or Android acceptance in #658.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
