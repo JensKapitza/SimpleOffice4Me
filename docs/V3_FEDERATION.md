@@ -48,3 +48,27 @@ Documents, contacts, calendar, tasks and collaborative mail cases (`mail_cases`)
 ## Compatibility
 
 Legacy peers can continue using the previous federation protocol. No existing SOFP/V1 route, trust record or transfer table is removed or rewritten. The new persistence tables live alongside the existing federation state.
+
+## Public HTTP contract checks
+
+Run the V3 route contract tests with:
+
+```text
+.venv/bin/python -m unittest tests.test_v3_federation_two_peer_http tests.test_v3_federation_peer_auth_http tests.test_v3_federation -v
+```
+
+`test_v3_federation_two_peer_http` sends signed requests through two independent
+Flask test clients with separate data roots. It verifies that an untrusted peer
+is rejected, a directly trusted peer without negotiated document capability is
+quarantined, and a trusted, compatible transfer remains pending when automatic
+acceptance is not enabled. This route-level fixture does not establish discovery,
+QR/manual pairing, real network reachability, process restart recovery, or the
+separate Compose test-network acceptance tracked in #679.
+
+The isolated two-container smoke sequence exercises public discovery, V3
+capability exchange, peer-bound HMAC in both directions, default rejection
+before trust, pending receipt after independent local approval at each test
+peer, and idempotency after restarting a peer. Run it using the commands in
+[`deploy/docker/README.md`](../deploy/docker/README.md). Test-only seeding is
+limited to disposable volumes; it does not exercise the browser QR/manual
+pairing workflow or real LAN discovery.
