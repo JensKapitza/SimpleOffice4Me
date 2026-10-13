@@ -450,8 +450,10 @@ def publish_local():
 @bp.post("/qr/import")
 @admin_required
 def import_qr():
+    imported_peer_id = ""
     try:
         profile = decode_peer(request.form.get("payload", ""))
+        imported_peer_id = profile["peer_id"]
         trust = FederationTrustStore(_root())
         trust.remember(
             profile["peer_id"], profile["country"], profile["fingerprint"], "qr",
@@ -459,10 +461,11 @@ def import_qr():
         )
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
-        store.save_peer(
-            profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
-        )
+        if existing is None:
+            store.save_peer(
+                profile["peer_id"], profile["label"], profile["base_url"], "",
+                {}, False,
+            )
         personally_verified = request.form.get("verify_in_person") == "1"
         if personally_verified:
             trust.set_trust(
@@ -474,9 +477,18 @@ def import_qr():
             )
             flash(f"Peer {profile['peer_id']} per QR persönlich geprüft; Vertrauen bleibt NONE.")
         else:
-            flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
+            if existing:
+                flash(f"Identität für Peer {profile['peer_id']} aktualisiert; Verbindungseinstellungen blieben unverändert.")
+            else:
+                flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
     except Exception as exc:
         flash(f"QR-Peer konnte nicht übernommen werden: {exc}")
+    if imported_peer_id:
+        return redirect(url_for(
+            "federation_admin.dashboard",
+            view="peers",
+            edit_peer=imported_peer_id,
+        ))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
