@@ -27,8 +27,13 @@ RUN apt-get update \
 WORKDIR /opt/simpleoffice4me
 COPY . /opt/simpleoffice4me
 
-RUN python -m venv /opt/simpleoffice4me/.venv \
-    && /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir '.[ocr]' \
+RUN --mount=type=secret,id=proxy_ca,required=false \
+    python -m venv /opt/simpleoffice4me/.venv \
+    && if [ -s /run/secrets/proxy_ca ]; then \
+        PIP_CERT=/run/secrets/proxy_ca /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir '.[ocr]'; \
+    else \
+        /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir '.[ocr]'; \
+    fi \
     && /opt/simpleoffice4me/.venv/bin/python -c "import tools.service_control; import app.audio_output_worker" \
     && rm -rf /opt/simpleoffice4me/database /opt/simpleoffice4me/instance \
     && install -d -o simpleoffice -g simpleoffice -m 0750 \
@@ -38,8 +43,9 @@ RUN python -m venv /opt/simpleoffice4me/.venv \
         /var/lib/simpleoffice4me/instance \
     && ln -s /var/lib/simpleoffice4me/database /opt/simpleoffice4me/database \
     && ln -s /var/lib/simpleoffice4me/instance /opt/simpleoffice4me/instance \
-    && chmod 0755 /opt/simpleoffice4me/deploy/docker/entrypoint.sh \
     && chown -R root:root /opt/simpleoffice4me \
+    && chmod 0755 /opt/simpleoffice4me/deploy/docker/entrypoint.sh \
+    && chmod -R a+rX /opt/simpleoffice4me \
     && chown -R simpleoffice:simpleoffice /var/lib/simpleoffice4me
 
 VOLUME ["/var/lib/simpleoffice4me"]
