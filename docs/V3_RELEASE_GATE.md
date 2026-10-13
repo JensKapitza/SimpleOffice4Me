@@ -1,5 +1,35 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
+## Current implementation update — 2026-10-13
+
+Implementation basis: `main` at `aca00cb0bce25e2910433adf9bf6effcfdd92a10`
+(PR #680). The package still declares version 2.0.0; this merge does not
+represent a 3.0 release or change the release decision below.
+
+PR #680 adds a reproducible two-instance Compose federation test network with
+separate peer identities and persistent test volumes, an internal-only network,
+no published host ports, healthchecks, and a public discovery smoke test. The
+network was built and started locally; both containers became healthy and the
+public discovery API returned each peer's independent identity and Compose
+URL. This is isolated repository/runtime evidence, not a real LAN, external
+peer, trust/pairing, or production deployment acceptance.
+
+All PR #680 checks passed at head `8e25ee2c6dd69e0f6326be603ad024820a256db5`,
+including the full Python application suite, Docker/Android/Desktop builds,
+security scans, and all six standard CodeQL language jobs. In particular,
+`Analyze (rust)` completed successfully against the current Tauri/Rust tree;
+the former “CodeQL could not process any code written in Rust” result from a
+stale PR ref did not recur. No CodeQL check was removed or suppressed. Main's
+post-merge workflow runs were still completing at the time of this assessment;
+their results must be evaluated from the linked CI runs before treating the
+merge as post-merge verified.
+
+This evidence advances only the repository-side federation test setup. Pairing
+with explicit confirmation at both ends, capability-deny-by-default across
+instances, restart/error/recovery behavior, external clients/devices,
+production-data upgrade and rollback, and representative-load acceptance remain
+open. Release approval remains **not approved**; #505/#506 stay open.
+
 ## Current documentation assessment — 2026-10-05
 
 Documentation/code-read basis: `main` at
