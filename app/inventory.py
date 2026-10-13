@@ -303,10 +303,20 @@ def merge_book_metadata(primary: dict[str, Any], fallback: dict[str, Any]) -> di
     return result
 
 
+def _metadata_candidate(metadata: dict[str, Any]) -> dict[str, str]:
+    """Keep only reviewable provider fields; never expose raw provider payloads."""
+    return {
+        key: str(metadata.get(key) or "").strip()[:300]
+        for key in ("metadata_source", "title", "authors", "publisher", "published_date")
+        if str(metadata.get(key) or "").strip()
+    }
+
+
 def lookup_book_metadata(isbn: str) -> dict[str, Any]:
     google: dict[str, Any] = {}
     openlibrary_search: dict[str, Any] = {}
     openlibrary_legacy: dict[str, Any] = {}
+    candidates: list[dict[str, str]] = []
     errors: list[str] = []
     reachable_sources = 0
     required_fields = ("title", "authors", "publisher", "published_date")
@@ -322,6 +332,8 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
         )
         reachable_sources += 1
         openlibrary_search = parse_openlibrary_search(payload, isbn)
+        if openlibrary_search:
+            candidates.append(_metadata_candidate(openlibrary_search))
     except (TimeoutError, OSError, ValueError, json.JSONDecodeError, http.client.HTTPException) as exc:
         errors.append(f"openlibrary-search:{type(exc).__name__}")
 
@@ -335,13 +347,14 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
             )
             reachable_sources += 1
             openlibrary_legacy = parse_openlibrary(payload, isbn)
+            if openlibrary_legacy:
+                candidates.append(_metadata_candidate(openlibrary_legacy))
         except (TimeoutError, OSError, ValueError, json.JSONDecodeError, http.client.HTTPException) as exc:
             errors.append(f"openlibrary-legacy:{type(exc).__name__}")
     result = merge_book_metadata(result, openlibrary_legacy)
 
-    # Google Books is intentionally only the final fallback. Some installations
-    # block the Google API; a valid Open Library result must therefore never wait
-    # for or depend on Google merely to enrich optional metadata fields.
+    # Google Books remains a last fallback, preserving the existing network and
+    # dependency behavior while exposing consulted-provider provenance.
     if not result.get("title"):
         try:
             payload = _http_json(
@@ -351,6 +364,8 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
             )
             reachable_sources += 1
             google = parse_google_books(payload, isbn)
+            if google:
+                candidates.append(_metadata_candidate(google))
         except (TimeoutError, OSError, ValueError, json.JSONDecodeError, http.client.HTTPException) as exc:
             errors.append(f"google:{type(exc).__name__}")
         result = merge_book_metadata(result, google)
@@ -359,6 +374,7 @@ def lookup_book_metadata(isbn: str) -> dict[str, Any]:
         result["metadata_checked_at"] = utc_now()
     if errors:
         result["lookup_errors"] = errors
+    result["metadata_candidates"] = candidates[:3]
     result["lookup_reachable"] = reachable_sources > 0
     return result
 
