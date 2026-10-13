@@ -187,3 +187,10 @@ Exportformate nicht als abgenommen markiert.
 NUL-Zeichen werden nur im CSV-Ausgabewert entfernt; gespeicherte Metadaten
 bleiben unverändert. Das ermöglicht den Export auch mit dem unterstützten
 Ubuntu-22.04-System-Python 3.10. Die Formelabsicherung greift danach weiterhin.
+
+
+## Bücheretiketten für eine Auswahl
+
+In **Bücher & Standorte** können angemeldete Benutzer eine oder mehrere Buchzeilen auswählen und **Etiketten für Auswahl drucken** auslösen. Es werden höchstens 100 verschiedene Buchobjekte je Auftrag angenommen; Mehrfachauswahl derselben Objekt-ID erzeugt kein doppeltes Etikett. Die druckbare Kennung wird in dieser Reihenfolge aus vorhandenem Barcode, ISBN, Objektkennung, Inventarnummer oder stabiler Objekt-ID gewählt. Ein Objekt ohne nutzbare Kennung wird vor dem ersten Druck abgelehnt.
+
+Die Etikettenart ist auswählbar: **Barcode mit lesbarem Text** verwendet Titel und Autoren als Bildunterschrift; **Nur Barcode** lässt den Klartext weg. Der vorhandene Code-128-Renderer und die konfigurierten Brother-Medien-/Druckereinstellungen werden wiederverwendet. Alle ausgewählten Objekte werden vor dem Druck geprüft. Ein physischer Stapeldruck ist nicht rückrollbar: Falls ein Drucker während des Auftrags ausfällt, meldet die API die Zahl der bereits gesendeten Etiketten und protokolliert Erfolg/Fehler pro Objekt. „Gesendet“ bestätigt wie bei anderen Brother-Aufträgen nicht, dass jedes Etikett mechanisch vollständig ausgegeben wurde.
