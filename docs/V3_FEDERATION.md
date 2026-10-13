@@ -29,6 +29,12 @@ Receiving requires: an enabled configured peer; a direct local trust edge other 
 
 A relation, recommendation or transitive claim does not grant transfer permission. The existing directed trust model remains authoritative.
 
+## Discover and configure a peer
+
+LAN/direct discovery and QR import identify a peer; they do not pair, enable it, or grant trust. A QR import now opens the existing peer editor with that identity prefilled and still disabled. Importing a QR profile for an already configured peer updates its discovered identity only; it does not replace the configured endpoint, credentials, activation state or data policy. Configure the same peer-specific token on both instances using a trusted out-of-band channel. Do not reuse the global `SIMPLEOFFICE_FEDERATION_TOKEN`: it cannot establish a V3 peer identity. The saved peer token is encrypted at rest.
+
+After checking the peer identity on both instances, each administrator must set the direct trust edge locally. Configure only the required data-class permissions separately; trust alone does not grant data access, and automatic acceptance remains off unless explicitly enabled. The UI does not yet provide an expiring one-time code or a cryptographic bilateral pairing handshake, so operators must perform these steps independently.
+
 Peer policies may use:
 
 ```json
