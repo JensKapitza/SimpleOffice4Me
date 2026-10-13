@@ -24,7 +24,7 @@ class AudioOutputTests(unittest.TestCase):
             result = worker.scan()
         self.assertEqual("failed", result["state"])
         self.assertEqual(0, result["count"])
-        self.assertEqual("OperationalError", result["error"]["diagnostic"])
+        self.assertEqual("RuntimeError", result["error"]["diagnostic"])
         self.assertGreater(worker.next_scan, 0)
 
     def test_ffplay_never_silently_ignores_selected_output(self):
