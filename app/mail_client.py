@@ -280,18 +280,29 @@ class MailStore:
         smtp_from = str(data.get("smtp_from", username)).strip()[:320] or username
         if len(_mailboxes(smtp_from)) != 1:
             raise ValueError("exactly one SMTP sender address is required")
+        smtp_username = str(data.get("smtp_username", username)).strip()[:320] or username
         stored_password = (previous or {}).get("password", "")
         if password:
             stored_password = self.secrets.encrypt(password, username=username) if remember else ""
-        elif stored_password and not str(stored_password).startswith("enc:"):
-            stored_password = self.secrets.encrypt(str(stored_password), username=username)
+        elif stored_password:
+            if str(stored_password).startswith("enc:v2:"):
+                old_username = str((previous or {}).get("username", ""))
+                if old_username != username:
+                    old_password = self.secrets.decrypt(str(stored_password), username=old_username)
+                    stored_password = self.secrets.encrypt(old_password, username=username)
+            elif not str(stored_password).startswith("enc:"):
+                stored_password = self.secrets.encrypt(str(stored_password), username=username)
         stored_smtp_password = (previous or {}).get("smtp_password", "")
         if data.get("smtp_password"):
-            smtp_username = str(data.get("smtp_username", username)).strip() or username
             stored_smtp_password = self.secrets.encrypt(str(data["smtp_password"]), username=smtp_username) if remember else ""
-        elif stored_smtp_password and not str(stored_smtp_password).startswith("enc:"):
-            smtp_username = str(data.get("smtp_username", username)).strip() or username
-            stored_smtp_password = self.secrets.encrypt(str(stored_smtp_password), username=smtp_username)
+        elif stored_smtp_password:
+            if str(stored_smtp_password).startswith("enc:v2:"):
+                old_smtp_username = str((previous or {}).get("smtp_username") or (previous or {}).get("username", ""))
+                if old_smtp_username != smtp_username:
+                    old_password = self.secrets.decrypt(str(stored_smtp_password), username=old_smtp_username)
+                    stored_smtp_password = self.secrets.encrypt(old_password, username=smtp_username)
+            elif not str(stored_smtp_password).startswith("enc:"):
+                stored_smtp_password = self.secrets.encrypt(str(stored_smtp_password), username=smtp_username)
         row = {
             "id": account_id, "owner": actor, "label": str(data.get("label", host)).strip()[:120] or host,
             "host": host, "port": port, "security": mode, "username": username,
@@ -303,7 +314,7 @@ class MailStore:
             "password": stored_password,
             "smtp_host": smtp_host,
             "smtp_port": smtp_port, "smtp_security": smtp_mode,
-            "smtp_username": str(data.get("smtp_username", username)).strip()[:320] or username,
+            "smtp_username": smtp_username,
             "smtp_from": smtp_from,
             "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
             "smtp_password": stored_smtp_password,

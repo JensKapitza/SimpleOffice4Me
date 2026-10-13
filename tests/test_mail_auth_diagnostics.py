@@ -28,11 +28,10 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_saved_imap_password_is_reused_for_smtp_without_reencoding(self):
+    def test_saved_imap_password_is_reused_for_smtp_and_remains_encrypted(self):
         smtp = self.store.smtp_account("alice", self.account["id"])
         self.assertEqual("secret-password", smtp["smtp_plain_password"])
         stored = json.loads(self.store.accounts_path.read_text())["accounts"][0]["password"]
-        self.assertTrue(stored.startswith("enc:v1:"))
         self.assertNotEqual("secret-password", stored)
 
     def test_explicit_smtp_password_survives_encrypted_storage_roundtrip(self):
@@ -46,6 +45,49 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
         smtp = self.store.smtp_account("alice", saved["id"])
         self.assertEqual("smtp-special-password", smtp["smtp_plain_password"])
         self.assertNotIn("smtp-special-password", self.store.accounts_path.read_text(encoding="utf-8"))
+
+    def test_saved_credentials_remain_usable_after_username_changes_via_account_api(self):
+        self.store.save_account("alice", {
+            "id": self.account["id"], "host": "imap.example.test", "port": 993,
+            "security": "tls", "username": "alice@example.test", "smtp_host": "smtp.example.test",
+            "smtp_username": "alice@example.test", "smtp_from": "alice@example.test",
+            "smtp_password": "smtp-secret",
+        }, "secret-password", True)
+        client, previous = self._login_client()
+        fields = {
+            "id": self.account["id"], "host": "imap.example.test", "port": "993",
+            "security": "tls", "username": "new-alice@example.test", "smtp_host": "smtp.example.test",
+            "smtp_port": "587", "smtp_security": "starttls", "smtp_username": "new-alice@example.test",
+            "smtp_from": "new-alice@example.test",
+        }
+        try:
+            with patch("app.mail_routes._store", return_value=self.store):
+                saved = client.post("/documents/mail/accounts", data=fields)
+                self.assertEqual(302, saved.status_code)
+                observed = {}
+
+                class FakeImap:
+                    def __init__(self, store):
+                        pass
+
+                    def test(self, account):
+                        observed["imap"] = account["plain_password"]
+                        return {"folders": [], "capabilities": []}
+
+                class FakeSmtp:
+                    def __init__(self, store):
+                        pass
+
+                    def test(self, account):
+                        observed["smtp"] = account["smtp_plain_password"]
+                        return {"features": []}
+
+                with patch("app.mail_routes.ImapArchive", FakeImap), patch("app.mail_routes.SmtpSubmission", FakeSmtp):
+                    self.assertEqual(302, client.post(f"/documents/mail/accounts/{self.account['id']}/test").status_code)
+                    self.assertEqual(302, client.post(f"/documents/mail/accounts/{self.account['id']}/smtp/test").status_code)
+            self.assertEqual({"imap": "secret-password", "smtp": "smtp-secret"}, observed)
+        finally:
+            app.config.update(previous)
 
     def test_smtp_authentication_message_does_not_echo_server_response(self):
         error = smtplib.SMTPAuthenticationError(535, b"5.7.8 authentication failed: UGFzc3dvcmQ6 secret-marker")
