@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -212,7 +213,7 @@ class FederationAdminUiTests(unittest.TestCase):
         editor = self.client.get(response.headers["Location"])
         body = editor.get_data(as_text=True)
         self.assertEqual(200, editor.status_code)
-        self.assertIn("Discovery hat nur die Peer-Identität gespeichert", body)
+        self.assertIn("Discovery hat nur Peer-Identität und Fähigkeiten gespeichert", body)
         self.assertIn("Peer-Token", body)
 
     def test_qr_import_does_not_replace_existing_connection_configuration(self):
@@ -243,6 +244,34 @@ class FederationAdminUiTests(unittest.TestCase):
             self.assertEqual("existing-peer-token", store.peer_token("office-b"))
             self.assertEqual({"documents": {"send": True}}, peer["policy"])
             self.assertTrue(peer["enabled"])
+        editor = self.client.get(response.headers["Location"])
+        self.assertIn("QR-Adresse (Vorschlag): https://attacker.example.test", editor.get_data(as_text=True))
+
+    def test_direct_discovery_shows_untrusted_address_as_suggestion(self):
+        store = FederationStore(self.root)
+        store.save_peer(
+            "office-b", "Trusted Office B", "https://configured.example.test", "",
+            {"documents": {"send": True}}, True,
+        )
+        profile = {
+            "peer_id": "office-b",
+            "base_url": "https://unverified.example.test",
+            "compatibility": {"protocol": "unknown", "features": {}},
+        }
+
+        with patch("app.federation_discovery_service.fetch_discovery_profile_auto", return_value=profile):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/discover/direct",
+                data={"endpoint": "https://unverified.example.test"},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Erkannte Adresse (Vorschlag): https://unverified.example.test", response.get_data(as_text=True))
+        self.assertIn("Bestehende Verbindungsziele werden nicht automatisch geändert", response.get_data(as_text=True))
+        peer = store.get_peer("office-b")
+        self.assertEqual("https://configured.example.test", peer["base_url"])
+        self.assertTrue(peer["enabled"])
 
     def test_edit_peer_prefills_form(self):
         FederationStore(self.root).save_peer(
