@@ -32,6 +32,7 @@ NON_PAGE_TOKENS = (
     "/stream",
 )
 NON_PAGE_ENDPOINTS = {
+    "library.print_book_labels",
     "library.resolve_location",
     "service_worker",
     "admin.activity",
