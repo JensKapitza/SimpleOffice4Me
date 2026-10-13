@@ -1,8 +1,8 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from flask import Flask
-from unittest.mock import patch
 
 from PIL import Image
 
