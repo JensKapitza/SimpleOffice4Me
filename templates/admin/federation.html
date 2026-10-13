@@ -325,7 +325,7 @@
             {% if edit_peer %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers') }}">Abbrechen</a>{% endif %}
           </div>
           <div class="card-body">
-            {% if edit_peer %}<div class="alert alert-info small" role="status">Discovery hat nur die Peer-Identität gespeichert. Für die Verbindung muss das peer-spezifische Token mit dem Gegenüber sicher abgeglichen und dort ebenfalls gespeichert werden. Verwende nicht das globale Federation-Server-Token. Trust muss jede Seite lokal bestätigen; Datenrechte werden separat darunter konfiguriert.</div>{% endif %}
+            {% if edit_peer %}<div class="alert alert-info small" role="status" aria-live="polite">Discovery hat nur die Peer-Identität gespeichert. Für die Verbindung muss das peer-spezifische Token mit dem Gegenüber sicher abgeglichen und dort ebenfalls gespeichert werden. Verwende nicht das globale Federation-Server-Token. Trust muss jede Seite lokal bestätigen; Datenrechte werden separat darunter konfiguriert.</div>{% endif %}
             <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
