@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import tempfile
+import sqlite3
 import unittest
 import wave
 import threading
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -17,8 +18,8 @@ from app.audio_output_worker import AudioOutputWorker
 class AudioOutputTests(unittest.TestCase):
     def test_scan_storage_lock_reports_failure_without_raising(self):
         worker = AudioOutputWorker()
-        store = unittest.mock.Mock()
-        store.sync_local_outputs.side_effect = __import__("sqlite3").OperationalError("database is locked")
+        store = Mock()
+        store.sync_local_outputs.side_effect = sqlite3.OperationalError("database is locked")
         with patch.object(worker, "store", return_value=store):
             result = worker.scan()
         self.assertEqual("failed", result["state"])
