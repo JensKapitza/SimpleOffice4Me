@@ -42,10 +42,18 @@ From the repository root, build and start both peers:
 ```sh
 docker compose -f deploy/docker/compose.federation-test.yaml up --build -d
 docker compose -f deploy/docker/compose.federation-test.yaml ps
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_smoke
 ```
 
-Wait until both containers report `healthy`, then verify that both public
-discovery endpoints return the expected independent identity and Compose URL:
+Wait until both containers report `healthy` before running the smoke check. It
+calls both instances over the internal network and verifies independent
+discovery identities, the enabled V3 capability contract, and rejection of a
+document transfer authenticated only with the compatibility bearer. It never
+creates a peer trust edge or transfers document data. The bearer is a shared,
+public test-only value and cannot authenticate a peer identity.
+
+For manual discovery diagnosis, the equivalent minimal request is:
 
 ```sh
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \

@@ -13,9 +13,10 @@ services:
       SIMPLEOFFICE_CONTAINER_ROLE: web
       SIMPLEOFFICE_HOST: 0.0.0.0
       SIMPLEOFFICE_PORT: 8080
+      SIMPLEOFFICE_V3_FEDERATION_ENABLED: "true"
       SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-peer-a
       SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://peer-a:8080
-      SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-peer-a
+      SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token
       NO_PROXY: peer-a,peer-b,localhost,127.0.0.1
       no_proxy: peer-a,peer-b,localhost,127.0.0.1
     volumes:
@@ -41,9 +42,10 @@ services:
       SIMPLEOFFICE_CONTAINER_ROLE: web
       SIMPLEOFFICE_HOST: 0.0.0.0
       SIMPLEOFFICE_PORT: 8080
+      SIMPLEOFFICE_V3_FEDERATION_ENABLED: "true"
       SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-peer-b
       SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://peer-b:8080
-      SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-peer-b
+      SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token
       NO_PROXY: peer-a,peer-b,localhost,127.0.0.1
       no_proxy: peer-a,peer-b,localhost,127.0.0.1
     volumes:

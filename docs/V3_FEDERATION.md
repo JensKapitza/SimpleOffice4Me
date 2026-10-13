@@ -64,3 +64,9 @@ quarantined, and a trusted, compatible transfer remains pending when automatic
 acceptance is not enabled. This route-level fixture does not establish discovery,
 QR/manual pairing, real network reachability, process restart recovery, or the
 separate Compose test-network acceptance tracked in #679.
+
+The isolated two-container smoke check exercises public discovery and V3
+capability endpoints over the Compose network and confirms that the compatibility
+bearer alone cannot authenticate a transfer. Run it using the commands in
+[`deploy/docker/README.md`](../deploy/docker/README.md). It does not grant peer
+trust or exercise a completed pairing workflow.

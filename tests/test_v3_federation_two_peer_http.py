@@ -12,6 +12,7 @@ from flask import Flask
 from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
+from app.security_controls import protect_browser_mutation
 from app.v3_federation_routes import bp as v3_bp
 
 
@@ -49,8 +50,14 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
     @staticmethod
     def _app(root: Path) -> Flask:
         app = Flask(__name__)
-        app.config.update(TESTING=True, DOCUMENT_ROOT=str(root), SECRET_KEY="test")
+        app.config.update(
+            TESTING=True,
+            TEST_CSRF_PROTECTION=True,
+            DOCUMENT_ROOT=str(root),
+            SECRET_KEY="test",
+        )
         app.register_blueprint(v3_bp)
+        app.before_request(protect_browser_mutation)
         return app
 
     @staticmethod
