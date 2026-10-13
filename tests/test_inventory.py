@@ -249,6 +249,7 @@ class InventoryBookTests(unittest.TestCase):
             'id="inventory-find"',
             'id="isbn"',
             'id="lookup-book"',
+            'id="metadata-provenance"',
         ):
             self.assertIn(fragment, template)
         self.assertIn("static/js/inventory.js", template)
@@ -268,6 +269,8 @@ class InventoryBookTests(unittest.TestCase):
         self.assertIn("event.key === 'Enter'", script)
         self.assertIn("normalizeIsbn", script)
         self.assertIn("setLookupCooldown", script)
+        self.assertIn("metadata_candidates", script)
+        self.assertIn("Konflikt zwischen Quellen", script)
 
     def test_inventory_detail_contains_inspection_history(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "detail.html").read_text(encoding="utf-8")
