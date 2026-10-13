@@ -11,9 +11,21 @@ from pathlib import Path
 from app.audio_calendar import announcement_text, queue_due_calendar_events
 from app.audio_output_engine import render_preset, attenuated_audio, playback_command
 from app.audio_output_store import AudioOutputStore
+from app.audio_output_worker import AudioOutputWorker
 
 
 class AudioOutputTests(unittest.TestCase):
+    def test_scan_storage_lock_reports_failure_without_raising(self):
+        worker = AudioOutputWorker()
+        store = unittest.mock.Mock()
+        store.sync_local_outputs.side_effect = __import__("sqlite3").OperationalError("database is locked")
+        with patch.object(worker, "store", return_value=store):
+            result = worker.scan()
+        self.assertEqual("failed", result["state"])
+        self.assertEqual(0, result["count"])
+        self.assertEqual("OperationalError", result["error"])
+        self.assertGreater(worker.next_scan, 0)
+
     def test_ffplay_never_silently_ignores_selected_output(self):
         with patch("app.audio_output_engine.shutil.which", side_effect=lambda name: "/bin/ffplay" if name == "ffplay" else None):
             self.assertIn("ffplay", playback_command("audio.wav", "default"))
