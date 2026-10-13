@@ -182,7 +182,9 @@ def index():
         except (OSError, ValueError):
             archive_state_errors.append(row["id"])
     selected_id = request.args.get("account", "")
-    selected = next((row for row in accounts if row["id"] == selected_id), accounts[0] if accounts else None)
+    selected = None if request.args.get("new") == "1" else next(
+        (row for row in accounts if row["id"] == selected_id), accounts[0] if accounts else None
+    )
     scripts = store.scripts_for(_actor(), selected["id"]) if selected else []
     sieve_state = server_state(store, _actor(), selected["id"]) if selected else {"scripts": [], "active": "", "updated_at": ""}
     remote_names = {row["name"] for row in sieve_state.get("scripts", [])}
