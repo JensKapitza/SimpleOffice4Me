@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from flask import Flask
+
 from PIL import Image
 
 from app.library.printer import (
@@ -14,7 +16,40 @@ from app.library.printer import (
     send,
 )
 from app.library.store import LibraryStore
+from app.library.routes import _book_label_data, bp as library_blueprint
 from app.object_store import ObjectStore
+
+
+class BookLabelDataTest(unittest.TestCase):
+    def test_label_uses_existing_identifier_and_readable_metadata(self):
+        value, caption = _book_label_data({
+            "name": "Titel", "identifier": "fallback-id",
+            "fields": {"isbn": "9780306406157", "barcode": "internal-code", "authors": "Ada Autor"},
+        })
+        self.assertEqual("internal-code", value)
+        self.assertEqual("Titel · Ada Autor", caption)
+
+    def test_label_falls_back_to_stable_inventory_identifier(self):
+        value, caption = _book_label_data({
+            "object_id": "object-uuid", "display_id": "42", "name": "Ohne ISBN", "fields": {},
+        })
+        self.assertEqual("42", value)
+        self.assertEqual("Ohne ISBN", caption)
+
+    def test_label_uses_object_id_when_no_other_identifier_exists(self):
+        value, _ = _book_label_data({"object_id": "object-uuid", "fields": {}})
+        self.assertEqual("object-uuid", value)
+
+
+class BookLabelRouteContractTest(unittest.TestCase):
+    def test_selected_book_label_route_is_post_only(self):
+        app = Flask("library-label-route-test")
+        app.register_blueprint(library_blueprint)
+        rules = [rule for rule in app.url_map.iter_rules() if rule.endpoint == "library.print_book_labels"]
+        self.assertEqual(1, len(rules))
+        self.assertEqual("/library/labels/books/print", rules[0].rule)
+        self.assertIn("POST", rules[0].methods)
+        self.assertNotIn("GET", rules[0].methods)
 
 
 class LibraryStoreTest(unittest.TestCase):

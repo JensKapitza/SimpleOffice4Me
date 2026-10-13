@@ -237,6 +237,13 @@ def _compatibility_summary(peer):
     return "Federation-Protokollversion nicht angegeben; Kompatibilität ist noch unbekannt."
 
 
+def _discovery_address_suggestions(peers):
+    return "; ".join(
+        f"{str(peer.get('peer_id') or '')[:64]}: {str(peer.get('base_url') or '')[:180]}"
+        for peer in peers[:4]
+    ) or "keine"
+
+
 def _connect_addresses():
     """Return device IPv4 addresses for QR connect, without RFC1918 filtering."""
     values = []
@@ -393,7 +400,9 @@ def lan():
             f"inkompatibel: {protocol_states.count('incompatible')}, "
             f"unbekannt: {protocol_states.count('unknown')}. "
             f"Netz: {networks}; Ports: {', '.join(str(port) for port in result['ports'])}. "
-            "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert."
+            "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert. "
+            f"Erkannte Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}; "
+            "bestehende Verbindungsziele werden nicht automatisch geändert."
         )
     except Exception as exc:
         flash(f"Netzwerk-Scan fehlgeschlagen: {_safe_discovery_error(exc)}")
@@ -407,6 +416,8 @@ def direct():
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
         flash(
             f"Peer {peer['peer_id']} gefunden und als bekannt/nicht geprüft gespeichert. "
+            f"Erkannte Adresse (Vorschlag): {str(peer['base_url'])[:240]}. "
+            "Bestehende Verbindungsziele werden nicht automatisch geändert. "
             + _compatibility_summary(peer)
         )
     except Exception as exc:
@@ -419,7 +430,11 @@ def direct():
 def country():
     try:
         result = discover_country(_root(), request.form.get("country", ""))
-        flash(f"Land-Discovery: {len(result['peers'])} Peer(s) gefunden, {len(result['errors'])} Fehler.")
+        flash(
+            f"Land-Discovery: {len(result['peers'])} Peer(s) gefunden, {len(result['errors'])} Fehler. "
+            f"Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}. "
+            "Bestehende Verbindungsziele werden nicht automatisch geändert."
+        )
     except Exception as exc:
         flash(f"Land-Discovery fehlgeschlagen: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
@@ -430,7 +445,11 @@ def country():
 def email():
     try:
         result = discover_email(_root(), request.form.get("email", ""))
-        flash(f"E-Mail-Rendezvous: {len(result['peers'])} Peer(s) gefunden.")
+        flash(
+            f"E-Mail-Rendezvous: {len(result['peers'])} Peer(s) gefunden. "
+            f"Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}. "
+            "Bestehende Verbindungsziele werden nicht automatisch geändert."
+        )
     except Exception as exc:
         flash(f"E-Mail-Rendezvous fehlgeschlagen: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
@@ -450,8 +469,10 @@ def publish_local():
 @bp.post("/qr/import")
 @admin_required
 def import_qr():
+    imported_peer_id = ""
     try:
         profile = decode_peer(request.form.get("payload", ""))
+        imported_peer_id = profile["peer_id"]
         trust = FederationTrustStore(_root())
         trust.remember(
             profile["peer_id"], profile["country"], profile["fingerprint"], "qr",
@@ -459,10 +480,11 @@ def import_qr():
         )
         store = FederationStore(_root())
         existing = store.get_peer(profile["peer_id"])
-        store.save_peer(
-            profile["peer_id"], profile["label"], profile["base_url"], "",
-            (existing or {}).get("policy") or {}, bool((existing or {}).get("configured_enabled", (existing or {}).get("enabled", False))),
-        )
+        if existing is None:
+            store.save_peer(
+                profile["peer_id"], profile["label"], profile["base_url"], "",
+                {}, False,
+            )
         personally_verified = request.form.get("verify_in_person") == "1"
         if personally_verified:
             trust.set_trust(
@@ -474,9 +496,21 @@ def import_qr():
             )
             flash(f"Peer {profile['peer_id']} per QR persönlich geprüft; Vertrauen bleibt NONE.")
         else:
-            flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
+            if existing:
+                flash(
+                    f"Identität für Peer {profile['peer_id']} aktualisiert; Verbindungseinstellungen blieben unverändert. "
+                    f"QR-Adresse (Vorschlag): {profile['base_url'][:240]}"
+                )
+            else:
+                flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
     except Exception as exc:
         flash(f"QR-Peer konnte nicht übernommen werden: {exc}")
+    if imported_peer_id:
+        return redirect(url_for(
+            "federation_admin.dashboard",
+            view="peers",
+            edit_peer=imported_peer_id,
+        ))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 

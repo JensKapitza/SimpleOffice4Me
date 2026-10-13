@@ -2,17 +2,16 @@
 
 ## Current repository update — 2026-10-13
 
-Implementation basis: `main` at `b99116ff6d8e361ddeeac0b74de8b41b9a8ab2d7`
-(PR #683, including PR #682). Package metadata still declares version 2.0.0;
-no 3.0 release or release approval is implied.
+Implementation basis: `main` at `d80ca6bc7663aa0a89e54d0fa46208d2a9d785a6`
+(including PRs #687, #689, #690 and #692). Package metadata still declares
+version 2.0.0; no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
 BibTeX alongside CSV. It reuses the existing local-root, selection,
 authorization, and audit path. Its public HTTP contracts verify exact output,
 authorization, invalid/foreign selections, size limits, and metadata injection
-handling. It does not complete #658: work/edition models, provider metadata,
-Calibre CSV/OPF, camera/printer workflows, and real Android/device acceptance
-remain open.
+handling. At that merge, #658 still needed work/edition models, provider
+metadata, capture and label workflows, and real Android/device acceptance.
 
 All PR #682 gates passed on head
 `c3bd6b830c3f027770d3e735b3966e5b4a7ef3e1`: Python application suite,
@@ -21,6 +20,26 @@ CodeQL language analyses. Rust CodeQL completed successfully in 5m09s. No
 CodeQL language or check was removed or suppressed; the older Rust failure was
 not reproduced on the current tree. This is CI evidence at the PR head, not
 external 3.0 acceptance.
+
+PR #685 completes the Calibre CSV/OPF export slice of #658. The administrator
+export reuses the canonical ObjectStore, selection validation, configured data
+root, placement records, and audit path. `metadata.csv` contains Calibre's
+standard catalog columns; each selected book has one metadata-only OPF sidecar.
+The archive is produced in bounded temporary storage from one record pass and
+does not contain original documents. Black-box HTTP contracts verify exact
+metadata mapping, XML escaping, formula neutralization, XML 1.0 control filtering,
+authorization, local-root confinement, selection bounds, archive contents, and
+audit result. These tests do not claim a manual import into a running Calibre
+installation. At this merge, #658 still needed work/edition models, metadata
+providers, additional capture workflows, Zitavi import round-trip, and real
+camera/printer/Android acceptance.
+
+All required PR #685 CI gates passed on head
+`d65ed17c63c547e926d5d847f663d21245862aff`: full Python application suite
+(6m47s), Desktop Linux, Android ARM64, Docker, dependency/security/OSSAR, and all
+six CodeQL language analyses. Rust CodeQL completed in 5m15s; the separate
+Python CodeQL workflow also passed. Locally, 19 export/auth tests, 43 library
+storage/OCR/printer/security tests, and 11 frontend route contracts passed.
 
 PR #683 merged as `b99116ff6d8e361ddeeac0b74de8b41b9a8ab2d7` for issue #330.
 It handles DNS/socket permission failures in LAN and SIP route probes and
@@ -31,6 +50,46 @@ checks, and all six standard CodeQL language analyses. Rust CodeQL completed
 successfully in 5m09s. No CodeQL analysis was removed or suppressed. The issue
 remains open for external/hardware and broader acceptance not established by
 these repository tests.
+
+## Current main verification — 2026-10-13
+
+PR #687 merged as `0e5ad1d5f3227389902941d683d0ec728329fbe0`. It adds selected
+book-label printing to the existing library page using the shared Code-128 /
+Brother print path, existing inventory objects, login/CSRF protection, printer
+settings, and audit store. The request validates every selected object before
+printing, limits batches to 100, and reports irreversible partial progress.
+The two existing label variants are barcode with readable title/author and
+barcode only. All required PR checks passed; locally, 47 library, export,
+OCR, HTTP, and printer-security tests passed. This establishes the software
+slice only: there was no physical-printer or Android device acceptance, and
+PDF/QR templates, work/edition modeling, metadata providers, and other #658
+capture requirements remain open.
+
+PR #689 merged as `3c52d6b2d8dde1319fc18a3c53404054b906c4bb` and PR #690 as
+`4d4a95ef5abe2658e04656f6b707b27cb998dd2f`. The Federation UI now carries a
+scanned QR profile into the existing peer editor for explicit review; a new
+peer remains disabled until separately configured. Discovery updates identity
+and compatibility metadata without changing an existing peer's URL, token,
+enabled state, or policy, and discovered addresses remain suggestions for
+manual review. The changes passed their required CI; local Federation HTTP/UI
+and accessibility tests passed, and a Chromium smoke verified the direct
+discovery suggestion while preserving configured values. This does not prove
+bilateral short-lived pairing, real LAN/external-peer operation, production
+upgrade/rollback, or the remaining #679 acceptance.
+
+PR #692 merged as `d80ca6bc7663aa0a89e54d0fa46208d2a9d785a6`. Selected books
+can also be downloaded as a print-ready PDF with one page per unique book at
+the configured Brother media dimensions, using either existing barcode style.
+The API reuses the canonical book records and label validation, requires login
+and CSRF, and bounds each request to 100 references. Ten public HTTP contracts
+cover media dimensions, page count, response type/name, deduplication,
+authentication, CSRF, invalid selections, and the batch boundary. The complete
+Python application CI passed in 7m40s; all CodeQL, Security/OSSAR, Android,
+Desktop, and Docker gates passed. A 390px Chromium smoke confirmed the existing
+library selection downloads a valid one-page PDF and announces success. This
+does not establish physical-printer or Android acceptance; QR codes, preview,
+sheet templates, filtered author/genre/location labels, and remaining #658
+requirements stay open.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
