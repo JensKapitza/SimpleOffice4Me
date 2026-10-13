@@ -237,6 +237,13 @@ def _compatibility_summary(peer):
     return "Federation-Protokollversion nicht angegeben; Kompatibilität ist noch unbekannt."
 
 
+def _discovery_address_suggestions(peers):
+    return "; ".join(
+        f"{str(peer.get('peer_id') or '')[:64]}: {str(peer.get('base_url') or '')[:180]}"
+        for peer in peers[:4]
+    ) or "keine"
+
+
 def _connect_addresses():
     """Return device IPv4 addresses for QR connect, without RFC1918 filtering."""
     values = []
@@ -393,7 +400,9 @@ def lan():
             f"inkompatibel: {protocol_states.count('incompatible')}, "
             f"unbekannt: {protocol_states.count('unknown')}. "
             f"Netz: {networks}; Ports: {', '.join(str(port) for port in result['ports'])}. "
-            "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert."
+            "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert. "
+            f"Erkannte Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}; "
+            "bestehende Verbindungsziele werden nicht automatisch geändert."
         )
     except Exception as exc:
         flash(f"Netzwerk-Scan fehlgeschlagen: {_safe_discovery_error(exc)}")
@@ -407,6 +416,8 @@ def direct():
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
         flash(
             f"Peer {peer['peer_id']} gefunden und als bekannt/nicht geprüft gespeichert. "
+            f"Erkannte Adresse (Vorschlag): {str(peer['base_url'])[:240]}. "
+            "Bestehende Verbindungsziele werden nicht automatisch geändert. "
             + _compatibility_summary(peer)
         )
     except Exception as exc:
@@ -419,7 +430,11 @@ def direct():
 def country():
     try:
         result = discover_country(_root(), request.form.get("country", ""))
-        flash(f"Land-Discovery: {len(result['peers'])} Peer(s) gefunden, {len(result['errors'])} Fehler.")
+        flash(
+            f"Land-Discovery: {len(result['peers'])} Peer(s) gefunden, {len(result['errors'])} Fehler. "
+            f"Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}. "
+            "Bestehende Verbindungsziele werden nicht automatisch geändert."
+        )
     except Exception as exc:
         flash(f"Land-Discovery fehlgeschlagen: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
@@ -430,7 +445,11 @@ def country():
 def email():
     try:
         result = discover_email(_root(), request.form.get("email", ""))
-        flash(f"E-Mail-Rendezvous: {len(result['peers'])} Peer(s) gefunden.")
+        flash(
+            f"E-Mail-Rendezvous: {len(result['peers'])} Peer(s) gefunden. "
+            f"Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}. "
+            "Bestehende Verbindungsziele werden nicht automatisch geändert."
+        )
     except Exception as exc:
         flash(f"E-Mail-Rendezvous fehlgeschlagen: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))

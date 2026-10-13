@@ -41,15 +41,12 @@ def remember_discovered_peer(root, profile, source):
     )
     store = FederationStore(root)
     existing = store.get_peer(profile["peer_id"])
-    if existing:
-        store.save_peer(
-            profile["peer_id"], profile["label"], profile["base_url"], "",
-            existing.get("policy") or {}, bool(existing.get("configured_enabled", existing.get("enabled"))),
-        )
-    else:
+    if existing is None:
         # Discovery only makes a peer known. Explicit activation/policy remains
         # a separate administrator decision.
         store.save_peer(profile["peer_id"], profile["label"], profile["base_url"], "", {}, False)
+    # An existing peer's connection fields are administrator-managed. A
+    # discovery response is only a suggestion and must not retarget it.
     result = compatibility(profile)
     store.set_peer_compatibility(profile["peer_id"], result)
     return {**profile, "compatibility": result}

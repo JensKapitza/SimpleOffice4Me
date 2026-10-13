@@ -21,12 +21,13 @@ from app.federation_discovery_lan import (
     scan_networks,
     scan_ports,
 )
-from app.federation_discovery_service import discover_direct
+from app.federation_discovery_service import discover_direct, remember_discovered_peer
 from app.federation_qr import decode_peer, encode_peer
 from app.federation_peer_admin import _connect_addresses
 from app.federation_local_profile import local_profile
 from app.federation_rendezvous_store import FederationRendezvousStore
 from app.federation_store import FederationStore
+from app.federation_trust_store import FederationTrustStore
 
 
 PROFILE = {
@@ -324,6 +325,27 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertIsNotNone(stored)
         self.assertFalse(stored["enabled"])
         self.assertEqual(stored["base_url"], "http://192.168.50.44:8080")
+
+    def test_discovery_does_not_retarget_an_existing_peer(self):
+        store = FederationStore(self.root)
+        store.save_peer(
+            "peer-a", "Configured office", "https://configured.example", "",
+            {"documents": {"send": True}}, True,
+        )
+
+        discovered = remember_discovered_peer(
+            self.root,
+            {**PROFILE, "base_url": "https://unverified.example", "label": "Unverified label"},
+            "direct",
+        )
+
+        peer = store.get_peer("peer-a")
+        self.assertEqual("https://unverified.example", discovered["base_url"])
+        self.assertEqual("https://configured.example", peer["base_url"])
+        self.assertEqual("Configured office", peer["label"])
+        self.assertEqual({"documents": {"send": True}}, peer["policy"])
+        self.assertTrue(peer["enabled"])
+        self.assertIsNone(FederationTrustStore(self.root).get_trust("peer-a"))
 
     def test_qr_payload_roundtrip(self):
         decoded = decode_peer(encode_peer(PROFILE))
