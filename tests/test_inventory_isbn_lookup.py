@@ -60,8 +60,30 @@ class InventoryIsbnLookupRegressionTests(unittest.TestCase):
 
         self.assertEqual("The C Programming Language", result["title"])
         self.assertIn("Open Library Search", result["metadata_source"])
+        self.assertEqual("Open Library Search", result["metadata_candidates"][0]["metadata_source"])
         self.assertEqual(1, http_json.call_count)
         self.assertIn("openlibrary.org/search.json", http_json.call_args.args[0])
+
+    @patch("app.inventory._http_json")
+    def test_candidates_keep_provider_values_for_review(self, http_json):
+        http_json.side_effect = [
+            {"docs": [{
+                "title": "Primary title",
+                "isbn": ["9780131103627"],
+                "author_name": ["Primary author"],
+            }]},
+            {"items": [{
+                "volumeInfo": {
+                    "title": "Fallback title",
+                    "industryIdentifiers": [{"identifier": "9780131103627"}],
+                }
+            }]},
+        ]
+        result = lookup_book_metadata("9780131103627")
+        self.assertEqual("Primary title", result["title"])
+        self.assertEqual(1, http_json.call_count)
+        self.assertEqual(["Open Library Search"], [row["metadata_source"] for row in result["metadata_candidates"]])
+
 
     @patch("app.inventory._http_json")
     def test_google_is_only_last_fallback_when_openlibrary_has_no_title(self, http_json):
