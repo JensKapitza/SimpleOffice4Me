@@ -155,7 +155,10 @@
     try {
       const response = await fetch(printLabelsButton.dataset.url, {method: 'POST', body: data, headers: {'Accept': 'application/json'}});
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Etikettendruck fehlgeschlagen.');
+      if (!response.ok) {
+        const progress = result.printed > 0 ? `${result.printed} von ${result.total} Etiketten wurden vor dem Fehler gedruckt. ` : '';
+        throw new Error(progress + (result.error || 'Etikettendruck fehlgeschlagen.'));
+      }
       status.textContent = `${result.printed} von ${result.total} Etiketten gedruckt.`;
     } catch (error) {
       status.textContent = error.message || 'Etikettendruck fehlgeschlagen.';
