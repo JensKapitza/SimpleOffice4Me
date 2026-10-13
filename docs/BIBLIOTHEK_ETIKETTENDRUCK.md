@@ -127,8 +127,9 @@ Eine erzeugte Ausgabe ist keine Bestätigung, dass der Client sie gespeichert ha
 Das Calibre-ZIP enthält `metadata.csv` mit Calibres Standardspalten für Titel,
 Autoren, Reihe/Band, Verlag, Jahr, ISBN, Genre, Beschreibung und Sprache sowie
 eine OPF-Metadatendatei pro Buch unter `opf/`. Die OPF-Dateien übernehmen auch
-Inventarnummer, Standort und Seitenzahl als Beschreibung; Reihe und Band stehen
-in Calibre-Metafeldern. Das Archiv enthält keine Originaldateien. Der Export wird
+Inventarnummer, Standort, Seitenzahl und Ausgabe als Beschreibung; Reihe und
+Band stehen in Calibre-Metafeldern. Das Archiv enthält keine Originaldateien.
+Der Export wird
 mit einem begrenzten Speicherpuffer aus einem einzigen Bestandsdurchlauf
 aufgebaut, nutzt die gleiche Auswahlprüfung und protokolliert nur Format,
 Zeilenzahl und Ergebnis. Fehlende Sprachangaben werden in OPF als `und`

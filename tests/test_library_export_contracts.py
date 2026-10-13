@@ -89,7 +89,8 @@ class LibraryExportContracts(unittest.TestCase):
             'fields': {
                 'authors': 'Müller; Ångström', 'genre': 'History', 'series': 'Archive',
                 'series_number': '2', 'publisher': 'Local Press', 'year': '2023',
-                'language': 'de', 'pages': '321', 'hidden': 'private-field-must-not-export',
+                'language': 'de', 'edition': 'Second', 'pages': '321',
+                'hidden': 'private-field-must-not-export',
             },
         }, 'csv-admin')
         response = self.client.get('/library/export/books.calibre.zip', query_string={
@@ -112,7 +113,7 @@ class LibraryExportContracts(unittest.TestCase):
                 'title': "'=Calibre & {Book}", 'authors': 'Müller & Ångström',
                 'series': 'Archive', 'series_index': '2', 'publisher': 'Local Press',
                 'published': '2023', 'identifiers': 'isbn:9780000000023',
-                'tags': 'History', 'comments': 'Public description; Inventory ID: ' + book['display_id'] + '; Pages: 321',
+                'tags': 'History', 'comments': 'Public description; Inventory ID: ' + book['display_id'] + '; Pages: 321; Edition: Second',
                 'language': 'de',
             }], csv_rows)
             opf = ET.fromstring(archive.read(opf_names[0]))
@@ -120,6 +121,7 @@ class LibraryExportContracts(unittest.TestCase):
             opf_ns = '{http://www.idpf.org/2007/opf}'
             self.assertEqual('=Calibre & {Book}', opf.findtext(f'.//{dc}title'))
             self.assertEqual(['Müller', 'Ångström'], [node.text for node in opf.findall(f'.//{dc}creator')])
+            self.assertIn('Edition: Second', opf.findtext(f'.//{dc}description'))
             self.assertEqual('9780000000023', next(node.text for node in opf.findall(f'.//{dc}identifier')
                                                    if node.attrib.get('id') == 'isbn'))
             calibre_meta = {node.attrib['name']: node.attrib['content'] for node in opf.findall(f'.//{opf_ns}meta')}

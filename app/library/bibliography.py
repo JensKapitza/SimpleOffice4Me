@@ -74,11 +74,18 @@ def _calibre_text(value: object) -> str:
     )
 
 
+def _calibre_comments(values: Mapping[str, str]) -> str:
+    details = [values["description"], values["local_note"]]
+    if values["edition"]:
+        details.append(f"Edition: {values['edition']}")
+    return "; ".join(detail for detail in details if detail)
+
+
 def calibre_csv_values(item: Mapping, placement: Mapping) -> tuple[str, ...]:
     """Map one existing inventory record to Calibre's standard CSV columns."""
     values = _record_values(item, placement)
     identifiers = f"isbn:{values['isbn']}" if values["isbn"] else ""
-    comments = "; ".join(value for value in (values["description"], values["local_note"]) if value)
+    comments = _calibre_comments(values)
     return tuple(_calibre_text(value) for value in (
         values["title"], " & ".join(_authors(values["authors"])), values["series"],
         values["series_number"], values["publisher"], values["year"], identifiers,
@@ -111,9 +118,7 @@ def calibre_opf_record(item: Mapping, placement: Mapping) -> bytes:
     add_dc("publisher", values["publisher"])
     add_dc("date", values["year"])
     add_dc("subject", values["genre"])
-    add_dc("description", "; ".join(value for value in (
-        values["description"], values["local_note"],
-    ) if value))
+    add_dc("description", _calibre_comments(values))
     if values["series"]:
         ET.SubElement(metadata, f"{{{_OPF_NS}}}meta", {
             "name": "calibre:series", "content": values["series"],
