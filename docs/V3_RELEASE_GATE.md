@@ -2,8 +2,8 @@
 
 ## Current repository update — 2026-10-13
 
-Implementation basis: `main` at `b99116ff6d8e361ddeeac0b74de8b41b9a8ab2d7`
-(PR #683, including PR #682). Package metadata still declares version 2.0.0;
+Implementation basis: `main` at `3230f29fbfb347084a53b4162a401f1e9ede1246`
+(PR #685, including PRs #682 and #683). Package metadata still declares version 2.0.0;
 no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
@@ -11,8 +11,7 @@ BibTeX alongside CSV. It reuses the existing local-root, selection,
 authorization, and audit path. Its public HTTP contracts verify exact output,
 authorization, invalid/foreign selections, size limits, and metadata injection
 handling. It does not complete #658: work/edition models, provider metadata,
-Calibre CSV/OPF, camera/printer workflows, and real Android/device acceptance
-remain open.
+camera/printer workflows, and real Android/device acceptance remain open.
 
 All PR #682 gates passed on head
 `c3bd6b830c3f027770d3e735b3966e5b4a7ef3e1`: Python application suite,
@@ -21,6 +20,26 @@ CodeQL language analyses. Rust CodeQL completed successfully in 5m09s. No
 CodeQL language or check was removed or suppressed; the older Rust failure was
 not reproduced on the current tree. This is CI evidence at the PR head, not
 external 3.0 acceptance.
+
+PR #685 completes the Calibre CSV/OPF export slice of #658. The administrator
+export reuses the canonical ObjectStore, selection validation, configured data
+root, placement records, and audit path. `metadata.csv` contains Calibre's
+standard catalog columns; each selected book has one metadata-only OPF sidecar.
+The archive is produced in bounded temporary storage from one record pass and
+does not contain original documents. Black-box HTTP contracts verify exact
+metadata mapping, XML escaping, formula neutralization, XML 1.0 control filtering,
+authorization, local-root confinement, selection bounds, archive contents, and
+audit result. These tests do not claim a manual import into a running Calibre
+installation. The remainder of #658 stays open for work/edition models, metadata
+providers, additional capture workflows, Zitavi import round-trip, and real
+camera/printer/Android acceptance.
+
+All required PR #685 CI gates passed on head
+`d65ed17c63c547e926d5d847f663d21245862aff`: full Python application suite
+(6m47s), Desktop Linux, Android ARM64, Docker, dependency/security/OSSAR, and all
+six CodeQL language analyses. Rust CodeQL completed in 5m15s; the separate
+Python CodeQL workflow also passed. Locally, 19 export/auth tests, 43 library
+storage/OCR/printer/security tests, and 11 frontend route contracts passed.
 
 PR #683 merged as `b99116ff6d8e361ddeeac0b74de8b41b9a8ab2d7` for issue #330.
 It handles DNS/socket permission failures in LAN and SIP route probes and
