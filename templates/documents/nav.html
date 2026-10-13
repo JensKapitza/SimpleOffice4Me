@@ -34,23 +34,17 @@
           </ul>
         </div>
 
-        <div class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle" href="#" id="nav-communication" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            Kommunikation
-          </a>
-          <ul class="dropdown-menu" aria-labelledby="nav-communication">
-            <li><a class="dropdown-item" href="{{ url_for('chat.index') }}">Chat</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}">Mail</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.calendar') }}">{{ tr('calendar') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.contacts') }}">{{ tr('contacts') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('fritzbox_contacts.index') }}">FRITZ!Box</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}">Spam/Dubletten</a></li>
-            {% if g.user['is_admin'] %}
-              <li><hr class="dropdown-divider"></li>
-              <li><a class="dropdown-item" href="{{ url_for('telephony_admin.index') }}">Telefonie</a></li>
-            {% endif %}
-          </ul>
-        </div>
+        {% if feature_enabled('mail') or feature_enabled('calendar') or feature_enabled('contacts') %}
+          <div class="nav-item dropdown">
+            <a class="nav-link dropdown-toggle" href="#" id="nav-communication" role="button" data-bs-toggle="dropdown" aria-expanded="false">Kommunikation</a>
+            <ul class="dropdown-menu" aria-labelledby="nav-communication">
+              {% if feature_enabled('mail') %}<li><a class="dropdown-item" href="{{ url_for('chat.index') }}">Chat</a></li><li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}">Mail</a></li><li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}">Spam/Dubletten</a></li>{% endif %}
+              {% if feature_enabled('calendar') %}<li><a class="dropdown-item" href="{{ url_for('documents.calendar') }}">{{ tr('calendar') }}</a></li>{% endif %}
+              {% if feature_enabled('contacts') %}<li><a class="dropdown-item" href="{{ url_for('documents.contacts') }}">{{ tr('contacts') }}</a></li><li><a class="dropdown-item" href="{{ url_for('fritzbox_contacts.index') }}">FRITZ!Box</a></li>{% endif %}
+              {% if g.user['is_admin'] %}<li><hr class="dropdown-divider"></li><li><a class="dropdown-item" href="{{ url_for('telephony_admin.index') }}">Telefonie</a></li>{% endif %}
+            </ul>
+          </div>
+        {% endif %}
 
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-documents" role="button" data-bs-toggle="dropdown" aria-expanded="false">

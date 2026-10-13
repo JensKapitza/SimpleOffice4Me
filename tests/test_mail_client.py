@@ -87,6 +87,26 @@ class MailClientTests(unittest.TestCase):
         damaged = token[:-2] + ("AA" if token[-2:] != "AA" else "BB")
         with self.assertRaises(Exception): box.decrypt(damaged)
 
+    def test_legacy_plaintext_password_is_migrated_without_blocking_login(self):
+        payload = json.loads(self.store.accounts_path.read_text(encoding="utf-8"))
+        payload["accounts"][0]["password"] = "legacy-password"
+        self.store.accounts_path.write_text(json.dumps(payload), encoding="utf-8")
+
+        account = self.store.account("alice", self.account["id"])
+
+        self.assertEqual("legacy-password", account["plain_password"])
+        stored = self.store.accounts_path.read_text(encoding="utf-8")
+        self.assertNotIn("legacy-password", stored)
+        self.assertTrue(json.loads(stored)["accounts"][0]["password"].startswith("enc:v2:"))
+
+    def test_multiple_accounts_can_be_saved_and_selected(self):
+        second = self.store.save_account(
+            "alice", {"id": "private", "host": "private.example.test", "username": "alice@private.test"},
+            "private-password", True,
+        )
+        self.assertEqual({self.account["id"], "private"}, {row["id"] for row in self.store.accounts("alice")})
+        self.assertEqual("private.example.test", self.store.account("alice", second["id"])["host"])
+
     def test_mail_ui_features_default_visible_and_can_be_configured(self):
         visible = self.store.accounts("alice")[0]["ui_features"]
         self.assertTrue(all(visible.values()))

@@ -73,6 +73,21 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(403, self.worker.get("/documents/").status_code)
         self.assertEqual(200, self.admin.get("/documents/").status_code)
 
+    def test_communication_navigation_is_hidden_without_communication_features(self):
+        self.update_worker(feature_mail=None, feature_calendar=None, feature_contacts=None)
+        self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
+        body = self.worker.get("/documents/").get_data(as_text=True)
+        self.assertNotIn('id="nav-communication"', body)
+        self.assertNotIn('href="/documents/mail/reader"', body)
+        self.assertNotIn('href="/documents/calendar"', body)
+        self.assertNotIn('href="/documents/contacts"', body)
+
+        self.update_worker(feature_mail="1")
+        self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
+        body = self.worker.get("/documents/").get_data(as_text=True)
+        self.assertIn('id="nav-communication"', body)
+        self.assertIn('href="/documents/mail/reader"', body)
+
     def test_projects_feature_gates_task_blueprint_and_navigation(self):
         self.update_worker()
         self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
