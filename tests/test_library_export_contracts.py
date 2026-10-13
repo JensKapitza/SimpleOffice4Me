@@ -1,8 +1,11 @@
 """Public HTTP export contracts with independently fixed CSV expectations."""
 import csv
 import io
+import json
 import tempfile
 import unittest
+import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from app import app
@@ -60,7 +63,7 @@ class LibraryExportContracts(unittest.TestCase):
 
     def test_unprivileged_account_cannot_access_bibliography_formats(self):
         self.login(self.reader)
-        for path in ('/library/export/books.ris', '/library/export/books.bib'):
+        for path in ('/library/export/books.ris', '/library/export/books.bib', '/library/export/books.calibre.zip'):
             with self.subTest(path=path):
                 result = self.client.get(path, query_string={'admin': '1', 'object_id': self.book['object_id']})
                 self.assertEqual(403, result.status_code)
@@ -70,10 +73,95 @@ class LibraryExportContracts(unittest.TestCase):
         admin_page = self.client.get('/library').get_data(as_text=True)
         self.assertIn('/library/export/books.ris', admin_page)
         self.assertIn('/library/export/books.bib', admin_page)
+        self.assertIn('/library/export/books.calibre.zip', admin_page)
+        self.assertIn('formaction="/library/export/books.calibre.zip"', admin_page)
         self.login(self.reader)
         reader_page = self.client.get('/library').get_data(as_text=True)
         self.assertNotIn('/library/export/books.ris', reader_page)
         self.assertNotIn('/library/export/books.bib', reader_page)
+        self.assertNotIn('/library/export/books.calibre.zip', reader_page)
+
+    def test_calibre_archive_contains_metadata_csv_and_one_opf_per_selected_book(self):
+        """The public bundle exports selected local metadata in Calibre CSV and OPF forms."""
+        book = self.store.create({
+            'name': '=Calibre & {Book}', 'type': 'book', 'identifier': '9780000000023',
+            'description': 'Public\x01 description',
+            'fields': {
+                'authors': 'Müller; Ångström', 'genre': 'History', 'series': 'Archive',
+                'series_number': '2', 'publisher': 'Local Press', 'year': '2023',
+                'language': 'de', 'pages': '321', 'hidden': 'private-field-must-not-export',
+            },
+        }, 'csv-admin')
+        response = self.client.get('/library/export/books.calibre.zip', query_string={
+            'object_id': book['object_id'],
+        })
+        self.addCleanup(response.close)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual('application/zip', response.mimetype)
+        self.assertEqual('no-store', response.headers['Cache-Control'])
+        self.assertEqual('nosniff', response.headers['X-Content-Type-Options'])
+        self.assertIn('library-books-calibre.zip', response.headers['Content-Disposition'])
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            members = archive.namelist()
+            opf_names = [name for name in members if name.startswith('opf/') and name.endswith('.opf')]
+            self.assertEqual(2, len(members))
+            self.assertEqual(1, len(opf_names))
+            csv_rows = list(csv.DictReader(io.StringIO(archive.read('metadata.csv').decode('utf-8-sig'))))
+            self.assertEqual([{
+                'title': "'=Calibre & {Book}", 'authors': 'Müller & Ångström',
+                'series': 'Archive', 'series_index': '2', 'publisher': 'Local Press',
+                'published': '2023', 'identifiers': 'isbn:9780000000023',
+                'tags': 'History', 'comments': 'Public description; Inventory ID: ' + book['display_id'] + '; Pages: 321',
+                'language': 'de',
+            }], csv_rows)
+            opf = ET.fromstring(archive.read(opf_names[0]))
+            dc = '{http://purl.org/dc/elements/1.1/}'
+            opf_ns = '{http://www.idpf.org/2007/opf}'
+            self.assertEqual('=Calibre & {Book}', opf.findtext(f'.//{dc}title'))
+            self.assertEqual(['Müller', 'Ångström'], [node.text for node in opf.findall(f'.//{dc}creator')])
+            self.assertEqual('9780000000023', next(node.text for node in opf.findall(f'.//{dc}identifier')
+                                                   if node.attrib.get('id') == 'isbn'))
+            calibre_meta = {node.attrib['name']: node.attrib['content'] for node in opf.findall(f'.//{opf_ns}meta')}
+            self.assertEqual('Archive', calibre_meta['calibre:series'])
+            self.assertEqual('2', calibre_meta['calibre:series_index'])
+            serialized = archive.read(opf_names[0]).decode('utf-8')
+            self.assertIn('&amp;', serialized)
+            self.assertNotIn('\x01', serialized)
+            self.assertNotIn('private-field-must-not-export', serialized)
+        self.assertNotIn('private-field-must-not-export', response.data.decode('latin-1'))
+        response.close()
+        audit_response = self.client.get('/admin/logs/export?format=csv&action=library_books_export')
+        audit_rows = list(csv.DictReader(io.StringIO(audit_response.data.decode('utf-8-sig'))))
+        events = [row for row in audit_rows if row['record_type'] == 'event']
+        self.assertEqual(1, len(events))
+        detail = json.loads(events[0]['detail_json'])
+        self.assertEqual(('calibre_csv_opf', 1, True),
+                         (detail['format'], detail['rows'], detail['complete']))
+
+    def test_calibre_archive_rejects_foreign_and_over_limit_selections(self):
+        foreign = self.client.get('/library/export/books.calibre.zip', query_string={
+            'object_id': self.foreign['object_id'],
+        })
+        self.assertEqual(404, foreign.status_code)
+        too_many = self.client.get('/library/export/books.calibre.zip', query_string=[
+            ('object_id', self.book['object_id']) for _ in range(501)
+        ])
+        self.assertEqual(400, too_many.status_code)
+
+    def test_calibre_archive_without_selection_exports_all_books_only(self):
+        response = self.client.get('/library/export/books.calibre.zip')
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
+            csv_rows = list(csv.DictReader(io.StringIO(archive.read('metadata.csv').decode('utf-8-sig'))))
+            opf_names = [name for name in archive.namelist() if name.startswith('opf/') and name.endswith('.opf')]
+            self.assertEqual(2, len(csv_rows))
+            self.assertEqual(2, len(opf_names))
+            self.assertEqual({"'=2+2", 'Anderes Buch'}, {row['title'] for row in csv_rows})
+            for name in opf_names:
+                opf = ET.fromstring(archive.read(name))
+                self.assertEqual('und', opf.findtext('.//{http://purl.org/dc/elements/1.1/}language'))
 
     def test_instance_root_cannot_be_overridden_by_export_parameters(self):
         """The configured local catalog is exported; another configured root is never read."""
@@ -136,7 +224,7 @@ class LibraryExportContracts(unittest.TestCase):
         self.assertNotIn('fake-private-not-exported', response.get_data(as_text=True))
 
     def test_bibliography_export_rejects_foreign_missing_and_nonbook_selections(self):
-        for path in ('/library/export/books.ris', '/library/export/books.bib'):
+        for path in ('/library/export/books.ris', '/library/export/books.bib', '/library/export/books.calibre.zip'):
             for identifier in (self.foreign['object_id'], '../foreign/object', '999999999', self.nonbook['object_id']):
                 with self.subTest(path=path, identifier=identifier):
                     result = self.client.get(path, query_string={'object_id': identifier})
@@ -147,7 +235,8 @@ class LibraryExportContracts(unittest.TestCase):
 
     def test_all_export_formats_reject_more_than_500_selection_references(self):
         query = [('object_id', self.book['object_id'])] * 501
-        for path in ('/library/export/books.csv', '/library/export/books.ris', '/library/export/books.bib'):
+        for path in ('/library/export/books.csv', '/library/export/books.ris', '/library/export/books.bib',
+                     '/library/export/books.calibre.zip'):
             with self.subTest(path=path):
                 result = self.client.get(path, query_string=query)
                 self.assertEqual(400, result.status_code)

@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import logging
+import re
 import shutil
+import tempfile
+import zipfile
 from pathlib import Path
 from functools import wraps
 from tools.service_control import exclusive_lease
 from typing import Any
 from urllib.parse import urlencode
 
-from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from ..auth import login_required
 from ..access_control import audit, is_admin
@@ -39,6 +43,7 @@ logger = logging.getLogger(__name__)
 def protect_export_and_ocr_responses(response):
     if request.endpoint in {
         "library.export_books_csv", "library.export_books_ris", "library.export_books_bibtex",
+        "library.export_books_calibre",
         "library.optimize_ocr_image", "library.analyze_ocr_upload",
     }:
         response.headers["Cache-Control"] = "no-store"
@@ -514,6 +519,55 @@ def export_books_ris():
 @login_required
 def export_books_bibtex():
     return _export_bibliography("bibtex")
+
+
+@bp.get("/export/books.calibre.zip")
+@login_required
+def export_books_calibre():
+    """Create a bounded-memory Calibre bundle from the canonical local book records."""
+    from .bibliography import CALIBRE_CSV_HEADERS, calibre_csv_values, calibre_opf_record
+
+    objects, placements, identifiers, selected = _library_export_selection()
+    archive_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
+    csv_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
+    count = 0
+    try:
+        with zipfile.ZipFile(archive_file, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+            text_stream = io.TextIOWrapper(csv_file, encoding="utf-8-sig", newline="")
+            try:
+                writer = csv.writer(text_stream)
+                writer.writerow(CALIBRE_CSV_HEADERS)
+                for item in _library_export_books(objects, identifiers, selected):
+                    placement = placements.get(item["object_id"], {})
+                    writer.writerow([_csv_cell(value) for value in calibre_csv_values(item, placement)])
+                    count += 1
+                    object_id = str(item.get("object_id", ""))
+                    stem = re.sub(r"[^A-Za-z0-9._-]", "_", object_id)[:48] or "book"
+                    suffix = hashlib.sha256(object_id.encode("utf-8")).hexdigest()[:12]
+                    archive.writestr(
+                        f"opf/{stem}-{suffix}.opf",
+                        calibre_opf_record(item, placement),
+                    )
+                text_stream.flush()
+            finally:
+                text_stream.detach()
+            csv_file.seek(0)
+            with archive.open("metadata.csv", "w") as csv_member:
+                shutil.copyfileobj(csv_file, csv_member, length=64 * 1024)
+        archive_file.seek(0)
+        response = send_file(
+            archive_file, mimetype="application/zip", as_attachment=True,
+            download_name="library-books-calibre.zip",
+        )
+        response.call_on_close(archive_file.close)
+        _record_library_export("calibre_csv_opf", count, True)
+        return response
+    except Exception:
+        archive_file.close()
+        _record_library_export("calibre_csv_opf", count, False)
+        raise
+    finally:
+        csv_file.close()
 
 
 def _ocr_action(function):
