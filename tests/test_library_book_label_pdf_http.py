@@ -173,6 +173,28 @@ class BookLabelPdfHttpContractTest(unittest.TestCase):
         self.assertNotEqual("application/pdf", too_many.mimetype)
         self.assertNotEqual("application/pdf", no_csrf.mimetype)
 
+    def test_selected_book_preview_returns_png_for_qr_and_requires_csrf(self):
+        response = self.client.post(
+            "/library/labels/books.preview",
+            data={
+                "_csrf_token": "book-label-pdf-csrf-token",
+                "object_id": [self.book_a["object_id"], self.book_b["object_id"]],
+                "barcode_style": "qr_only",
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("image/png", response.mimetype)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        self.assertTrue(response.data.startswith(b"\x89PNG\r\n\x1a\n"))
+
+        missing_csrf = self.client.post(
+            "/library/labels/books.preview",
+            data={"object_id": self.book_a["object_id"]},
+        )
+        self.assertEqual(403, missing_csrf.status_code)
+
+
     def test_unauthenticated_user_cannot_download_book_labels(self):
         anonymous = self.app.test_client()
         with anonymous.session_transaction() as state:
