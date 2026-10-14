@@ -82,6 +82,13 @@
   const frame = root.querySelector('[data-reader-pdf-frame]');
   const nativeBox = root.querySelector('[data-reader-native-pdf]');
   const nativeImage = root.querySelector('[data-reader-pdf-image]');
+  const showPdfFramePage = () => {
+    if (!frame) return;
+    const url = new URL(root.dataset.pdfUrl, window.location.href);
+    url.hash = 'page=' + current;
+    frame.src = url.toString();
+    frame.classList.remove('d-none');
+  };
   const loadPdf = async (page) => {
     current = Math.max(1, pageCount ? Math.min(pageCount, Number(page) || 1) : Number(page) || 1);
     updateStatus(pageCount);
@@ -95,8 +102,10 @@
         }
       } catch (_) {
         nativeBox.classList.add('d-none');
-        frame?.classList.remove('d-none');
+        showPdfFramePage();
       }
+    } else {
+      showPdfFramePage();
     }
     scheduleSave();
   };

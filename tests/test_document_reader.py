@@ -203,6 +203,20 @@ class ReaderRoutesTests(unittest.TestCase):
         self.assertEqual(200, metadata.status_code)
         self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
 
+    def test_shelf_search_matches_indexed_pdf_or_ocr_text_without_rendering_content(self):
+        store = DocumentStore(self.documents)
+        document = store.get_document(self.document["document_id"])
+        document["extracted_text"] = "OCR-Marker Rechnungsnummer SO4M-7821"
+        store._save_document(document)
+
+        result = self.client.get("/documents/reader?q=SO4M-7821")
+        body = result.get_data(as_text=True)
+        self.assertEqual(200, result.status_code)
+        self.assertIn("Testbuch", body)
+        self.assertNotIn("OCR-Marker Rechnungsnummer", body)
+        no_match = self.client.get("/documents/reader?q=kein-treffer").get_data(as_text=True)
+        self.assertIn("Keine sichtbaren PDF- oder EPUB-Dokumente gefunden.", no_match)
+
     def test_invalid_epub_returns_reader_error_not_server_error(self):
         broken = DocumentStore(self.documents).import_upload(
             io.BytesIO(b"not a zip"), "broken.epub", "admin"
