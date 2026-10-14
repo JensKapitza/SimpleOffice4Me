@@ -260,7 +260,7 @@ def runtime_problem() -> str | None:
     if platform.python_implementation() != "CPython":
         return "Unterstützt wird CPython; siehe docs/PYTHON_RUNTIME_SUPPORT.md."
     if version.releaselevel != "final":
-        return "Python-Vorabversionen sind nur mit SIMPLEOFFICE_ALLOW_PRERELEASE=1 für Kompatibilitätstests zugelassen."
+        return "Python-Vorabversionen sind nicht unterstützt; eine freigegebene finale CPython-Version verwenden."
     if series in SUPPORTED_SERIES:
         return None
     if series == (3, 10):
