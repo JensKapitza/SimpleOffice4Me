@@ -422,6 +422,31 @@ def export_book_labels_pdf():
     )
 
 
+@bp.post("/labels/books.preview")
+@login_required
+def preview_book_labels():
+    identifiers = request.form.getlist("object_id")
+    style = request.form.get("barcode_style", "with_text")
+    if style not in {"with_text", "barcode_only", "qr_with_text", "qr_only"}:
+        return jsonify({"ok": False, "error": "Ungültige Etikettenart."}), 400
+    items, error = _selected_book_label_items(identifiers)
+    if error:
+        return error
+    item, value, caption = items[0]
+    qr_style = style.startswith("qr_")
+    try:
+        image = (render_qr_code if qr_style else render_barcode)(
+            str(item["object_id"]) if qr_style else value,
+            _store().printer_settings(),
+            caption=caption if style in {"with_text", "qr_with_text"} else "",
+            show_text=style in {"with_text", "qr_with_text"},
+        )
+        data = preview_png(image)
+    except (OSError, PrinterError, ValueError):
+        return jsonify({"ok": False, "error": "Etikettenvorschau konnte nicht erstellt werden."}), 400
+    return Response(data, mimetype="image/png", headers={"Cache-Control": "no-store"})
+
+
 @bp.post("/printer/settings")
 @login_required
 def printer_settings():
