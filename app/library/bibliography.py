@@ -36,6 +36,7 @@ def _record_values(item: Mapping, placement: Mapping) -> dict[str, str]:
         f"Inventory ID: {inventory_id}" if inventory_id else "",
         f"Library location: {location}" if location else "",
         f"Pages: {_text(fields.get('pages', ''))}" if _text(fields.get("pages", "")) else "",
+        _text(fields.get("bibliography_note", "")),
     ) if value)
     note = "; ".join(value for value in (
         local_note,
