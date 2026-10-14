@@ -36,7 +36,7 @@ setup(
     description="Self-hosted, file-based document management",
     # Syntax floor only; vendor security policy is checked above.
     python_requires=">=3.10",
-    classifiers=[f"Programming Language :: Python :: 3.{minor}" for minor in range(11, 15)],
+    classifiers=[f"Programming Language :: Python :: 3.{minor}" for minor in range(11, 16)],
     packages=["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"],
     py_modules=[
         "simpleoffice_runtime_support",

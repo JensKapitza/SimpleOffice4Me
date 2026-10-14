@@ -93,7 +93,7 @@ if [ -r /etc/os-release ] \
 fi
 
 if ! python3 "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
-  echo "CPython 3.11–3.14 oder Ubuntu-22.04-System-Python 3.10 wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
+  echo "CPython 3.11–3.15 oder Ubuntu-22.04-System-Python 3.10 wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
   exit 2
 fi
 

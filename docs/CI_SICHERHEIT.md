@@ -2,9 +2,9 @@
 
 SimpleOffice4Me prüft jeden Push und Pull Request automatisch. Die Prüfung
 kompiliert alle Python-Module, führt die vollständige Unittest-Suite mit
-Canonicals System-Python 3.10 auf Ubuntu 22.04 sowie Python 3.11 und 3.14 aus und kontrolliert installierte Python-Pakete mit
-`pip-audit` auf bekannte Schwachstellen. Python 3.15.0-rc.3 läuft separat mit
-`SIMPLEOFFICE_ALLOW_PRERELEASE=1`; das ist keine Produktionsfreigabe.
+Canonicals System-Python 3.10 auf Ubuntu 22.04 sowie Python 3.11, 3.14 und 3.15 final aus und kontrolliert installierte Python-Pakete mit
+`pip-audit` auf bekannte Schwachstellen. Pull Requests führen zusätzlich eine
+vollständige Python-3.15-Final-Abnahme aus; Vorabversionen bleiben gesperrt.
 Für 3.10 wird bewusst kein Upstream-Interpreter über setup-python installiert.
 Die [Runtime-Policy](PYTHON_RUNTIME_SUPPORT.md) begrenzt die Jammy-Ausnahme.
 

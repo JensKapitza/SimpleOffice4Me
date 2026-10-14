@@ -41,22 +41,22 @@ class RuntimeSupportTests(unittest.TestCase):
             return policy.runtime_problem()
 
     def test_supported_stable_series(self):
-        for minor in (11, 12, 13, 14):
+        for minor in (11, 12, 13, 14, 15):
             self.assertIsNone(self.problem(minor))
-        for minor in (9, 15, 16):
+        for minor in (9, 16):
             self.assertIsNotNone(self.problem(minor))
 
-    def test_prerelease_switch_is_narrow_and_never_approves_final(self):
-        self.assertIsNotNone(self.problem(15, "candidate"))
+    def test_prereleases_remain_rejected_after_final_approval(self):
+        for minor, level, serial in (
+            (15, "candidate", 3), (15, "candidate", 4),
+            (16, "alpha", 1), (14, "candidate", 1), (10, "candidate", 1),
+        ):
+            with self.subTest(minor=minor, level=level, serial=serial):
+                self.assertIsNotNone(self.problem(minor, level, micro=0, serial=serial))
         with patch.dict(os.environ, {"SIMPLEOFFICE_ALLOW_PRERELEASE": "1"}):
-            self.assertIsNone(self.problem(15, "candidate", micro=0, serial=3))
-            self.assertIsNotNone(self.problem(15, "candidate", micro=0, serial=2))
-            self.assertIsNotNone(self.problem(15, "candidate", micro=0, serial=4))
-            self.assertIsNotNone(self.problem(15, "candidate", micro=1, serial=3))
-            for minor, level in ((15, "final"), (14, "candidate"), (16, "alpha"), (10, "candidate")):
-                self.assertIsNotNone(self.problem(minor, level))
-            with patch.object(policy, "_jammy_python", return_value=False):
-                self.assertIn("upstream EOL", self.problem(10))
+            self.assertIsNotNone(self.problem(15, "candidate", micro=0, serial=3))
+        with patch.object(policy, "_jammy_python", return_value=False):
+            self.assertIn("upstream EOL", self.problem(10))
 
     def test_jammy_exception_expires_without_implicit_esm_extension(self):
         end = datetime.date(2027, 5, 31)

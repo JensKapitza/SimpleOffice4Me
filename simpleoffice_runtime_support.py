@@ -20,7 +20,7 @@ _RUNTIME_PROBLEM_CACHE = _RUNTIME_PROBLEM_UNSET
 
 
 JAMMY_SUPPORT_END = datetime.date(2027, 5, 31)
-SUPPORTED_SERIES = {(3, 11), (3, 12), (3, 13), (3, 14)}
+SUPPORTED_SERIES = {(3, 11), (3, 12), (3, 13), (3, 14), (3, 15)}
 JAMMY_PACKAGES = ("python3.10-minimal", "python3.10", "libpython3.10-minimal", "libpython3.10-stdlib")
 RUNTIME_PROOF_DIR = Path(os.environ.get("SIMPLEOFFICE_RUNTIME_PROOF_DIR", "/var/cache/simpleoffice4me/runtime-proof"))
 
@@ -259,11 +259,8 @@ def runtime_problem() -> str | None:
     series = tuple(version[:2])
     if platform.python_implementation() != "CPython":
         return "Unterstützt wird CPython; siehe docs/PYTHON_RUNTIME_SUPPORT.md."
-    if (tuple(version[:3]) == (3, 15, 0) and version.releaselevel == "candidate"
-            and version.serial == 3 and os.environ.get("SIMPLEOFFICE_ALLOW_PRERELEASE") == "1"):
-        return None
     if version.releaselevel != "final":
-        return "Python-Vorabversionen sind nur mit SIMPLEOFFICE_ALLOW_PRERELEASE=1 für Kompatibilitätstests zugelassen."
+        return "Python-Vorabversionen sind nicht unterstützt; eine freigegebene finale CPython-Version verwenden."
     if series in SUPPORTED_SERIES:
         return None
     if series == (3, 10):
@@ -272,9 +269,9 @@ def runtime_problem() -> str | None:
         return (
             "Python 3.10 ist upstream EOL. Ausnahme: unverändertes Ubuntu-22.04-Systempaket "
             "python3.10-minimal bis 31.05.2027 (auch dessen venv). Sicherheitsupdates müssen aktiviert "
-            "und installiert sein. Sonst CPython 3.11–3.14 verwenden."
+            "und installiert sein. Sonst CPython 3.11–3.15 verwenden."
         )
-    return "Freigegeben sind CPython 3.11–3.14; Python 3.15 benötigt nach dem Final-Release eine gesonderte Freigabe."
+    return "Freigegeben sind CPython 3.11–3.15 final; siehe docs/PYTHON_RUNTIME_SUPPORT.md."
 
 
 def require_supported_runtime() -> None:

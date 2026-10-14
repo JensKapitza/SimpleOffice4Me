@@ -389,4 +389,14 @@ Attach dated evidence for each external item above to the intended release commi
 
 Runtime support after upstream 3.10 EOL is defined in [PYTHON_RUNTIME_SUPPORT.md](PYTHON_RUNTIME_SUPPORT.md).
 Historical 3.10 runs below are compatibility evidence, not upstream security support.
-3.15 RC3 remains a prerelease probe; final release and a new acceptance review are required before production approval.
+Python 3.15 final is a supported production runtime; prereleases remain rejected.
+
+## Runtime tracking — 2026-10-14
+
+[Python 3.15.0 final](https://www.python.org/downloads/release/python-3150/) was
+published on 2026-10-09. The runtime policy, package classifiers, launchers and
+CI now distinguish the final release from the former RC3 probe. Pull requests
+run a complete Python 3.15 final install, policy, compile, size, dependency,
+security and unit-test gate; the main-branch runtime matrix retains 3.15.
+Approval does not relax the separate Canonical Ubuntu 22.04 Python 3.10
+exception and does not admit alpha, beta or release-candidate interpreters.
