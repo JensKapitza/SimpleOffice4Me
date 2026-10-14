@@ -107,6 +107,19 @@ Unter Windows kann derselbe Wert vor `start.bat` mit
 1 zurück; Werte über 8 werden begrenzt. Diese Einstellung betrifft Tesseract,
 nicht normale Dateizugriffe oder externe Office-/PDF-Werkzeuge.
 
+Die OCR von gerenderten PDF-Seiten berücksichtigt standardmäßig höchstens zehn
+Seiten, damit Scans begrenzt verarbeitet werden. Für umfangreichere Scans kann
+die Grenze bewusst auf bis zu 50 Seiten erhöht werden:
+
+```bash
+SIMPLEOFFICE_PDF_OCR_MAX_PAGES=20 ./start.sh
+```
+
+Unter Windows wird derselbe Wert vor `start.bat` mit
+`set SIMPLEOFFICE_PDF_OCR_MAX_PAGES=20` gesetzt. Ungültige Werte fallen auf
+zehn zurück; Werte außerhalb des Bereichs 1 bis 50 werden begrenzt. Zusätzlich
+gelten Render- und OCR-Zeitlimits.
+
 ### Uploadgröße und unvollständige Importe
 
 Web-Uploads sind standardmäßig auf insgesamt 512 MiB pro HTTP-Anfrage
