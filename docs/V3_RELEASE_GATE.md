@@ -1,10 +1,10 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-13
+## Current repository update — 2026-10-14
 
-Implementation basis: `main` at `a92e71a6f5d99c9bfacce67e80447efbc0233f9a`
-(including PRs #687, #689, #690, #692 and #691). Package metadata still declares
-version 2.0.0; no 3.0 release or release approval is implied.
+Implementation basis: `main` at `c9db30b171a5661f7abc20e7bd90ea6085102fb3`
+(including PRs #687, #689, #690, #692, #691 and #695). Package metadata still
+declares version 2.0.0; no 3.0 release or release approval is implied.
 
 PR #682 extends the existing administrator-only library export with RIS and
 BibTeX alongside CSV. It reuses the existing local-root, selection,
@@ -103,6 +103,19 @@ compile and diff checks. Full Python CI passed in 7m09s; all six CodeQL language
 analyses, security/OSSAR, dependency audit, Android, Desktop, Docker and other
 required checks passed. This adds provider conflict review, not the missing
 real-provider, import-roundtrip, camera, printer or Android acceptance in #658.
+
+PR #695 merged as `c9db30b171a5661f7abc20e7bd90ea6085102fb3`. The existing
+selected-book label workflow now supports QR labels with or without readable
+text in both direct printing and PDF. QR payloads contain the stable ObjectStore
+UUID and are resolved through the existing authenticated `/library/find` scan
+path. This reuses the canonical book records, Brother media settings, printer
+audit, and the current authentication/CSRF path. Sixty `test_library*.py`
+contracts and all required PR checks passed, including Python application,
+Security/OSSAR, Android, Desktop, Docker, dependency audit, and all six CodeQL
+language analyses. A CodeQL alert on an intermediate test stub was fixed before
+the final green run. This does not document physical-printer/Android device
+acceptance; QR preview, label-sheet templates, filtered author/genre/location
+labels, and other #658 requirements remain open.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
