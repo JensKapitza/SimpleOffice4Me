@@ -10,8 +10,8 @@ from pathlib import Path
 
 from flask import Flask, g, session
 
+from app import db as database
 from app.library.routes import bp as library_blueprint
-from app.object_store import ObjectStore
 from app.security_controls import protect_browser_mutation
 
 
@@ -23,13 +23,17 @@ class CalibreImportHttpContractTest(unittest.TestCase):
         self.app.config.update(
             TESTING=True,
             TEST_CSRF_PROTECTION=True,
+            DATABASE=str(root / "users.sqlite3"),
             DOCUMENT_ROOT=str(root),
             SECRET_KEY="calibre-import-test",
         )
+        with self.app.app_context():
+            database.ensure_auth_database()
 
         @self.app.before_request
         def authenticate_test_user():
             g.user = {
+                "id": 1,
                 "username": "admin",
                 "is_admin": True,
                 "is_disabled": False,
@@ -92,7 +96,11 @@ class CalibreImportHttpContractTest(unittest.TestCase):
 
     def test_unauthenticated_import_is_redirected(self):
         anonymous = self.app.test_client()
-        response = anonymous.post("/library/import/books.calibre")
+        with anonymous.session_transaction() as state:
+            state["_csrf_token"] = "calibre-import-csrf"
+        response = anonymous.post(
+            "/library/import/books.calibre", data={"_csrf_token": "calibre-import-csrf"},
+        )
         self.assertEqual(302, response.status_code)
 
 
