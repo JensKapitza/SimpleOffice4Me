@@ -1,16 +1,15 @@
 # Python-Runtime-Support
 
-Stand: 7. Oktober 2026. Ubuntu 22.04 bleibt ein offizielles, begrenztes Ziel:
+Stand: 14. Oktober 2026. Ubuntu 22.04 bleibt ein offizielles, begrenztes Ziel:
 `setup.py` erhält dessen Legacy-Editable-Pfad; die CI prüft jetzt ausdrücklich
 Canonicals Systeminterpreter auf `ubuntu-22.04` statt Upstream-3.10 auf 24.04.
 
 | Runtime | Vertrag |
 | --- | --- |
-| CPython 3.11–3.14 final | Produktionsbetrieb; aktuelle Sicherheits-Patchversion verwenden. CI: 3.11 und 3.14. |
+| CPython 3.11–3.15 final | Produktionsbetrieb; aktuelle Sicherheits-Patchversion verwenden. CI: 3.11, 3.14 und 3.15. |
 | CPython 3.10 auf Ubuntu 22.04 | Ausschließlich unverändertes Canonical-Paket `python3.10-minimal`, einschließlich daraus erzeugter venvs, bis einschließlich 31.05.2027. Sicherheitsquellen müssen aktiviert und Updates installiert sein. |
 | Upstream-/PPA-/selbst gebautes 3.10, andere Distributionen | Nicht unterstützt; Installation aus Source und Anwendung/Starter brechen mit Diagnose ab. |
-| 3.15.0rc3 | Separate Vorabkompatibilität, nur mit `SIMPLEOFFICE_ALLOW_PRERELEASE=1` für Tests. Keine Produktionsfreigabe. |
-| 3.15 final und spätere Versionen | Bis zur gesonderten Abnahme nicht freigegeben. Final-Releasedatum allein schaltet nichts automatisch frei. |
+| Python-Vorabversionen | Nicht unterstützt; auch ein gesetzter historischer Testschalter erteilt keine Freigabe. |
 
 Python 3.10.22 war am 1. Oktober 2026 die letzte Upstream-Version:
 [Python.org](https://www.python.org/downloads/release/python-31022/).
@@ -62,7 +61,7 @@ die Aktualität der APT-Indizes bleibt Betreiberpflicht.
 die Jammy-Ausnahme. Python-Paketmarker können weder Distribution,
 Paketprovenienz noch Wartungsdatum ausdrücken. Die Produktionsfreigabe steht
 daher in dieser Policy und der gemeinsamen Laufzeitprüfung. Die Classifier
-nennen nur 3.11–3.14. Eine fertige Wheel-Datei kann technisch unter anderen
+nennen nur 3.11–3.15. Eine fertige Wheel-Datei kann technisch unter anderen
 Interpretern installiert werden; die Anwendung verweigert trotzdem den Start.
 
 ```bash
@@ -78,12 +77,17 @@ keine Fremd-PPA und ersetzen keine System-Runtime durch ungewartetes 3.10.
 
 ## Python 3.15
 
-[RC3 ist veröffentlicht](https://www.python.org/downloads/release/python-3150rc3/);
-3.15.0 final ist derzeit für den 9. Oktober 2026 vorgesehen. Die vorhandene
-RC3-Matrix führt Installation, Policy, Compile und die vollständige Suite
-separat aus. Der Testschalter gibt ausschließlich 3.15-Vorabversionen frei;
-er umgeht weder 3.10-Provenienz noch die Sperre für ungeprüfte Final-Versionen.
-Nach tatsächlichem Final-Release folgt die Abnahme in
-[#474](https://github.com/JensKapitza/SimpleOffice4Me/issues/474): Dependency- und
-Security-Gates, Installer und vollständige Suite; erst danach Policy und
-Classifier ändern. Der laufende Tracker bleibt offen.
+[Python 3.15.0 final wurde am 9. Oktober 2026 veröffentlicht](https://www.python.org/downloads/release/python-3150/).
+Die Produktionsfreigabe ist nicht allein aus dem Kalender abgeleitet: Die
+Repository-Policy erkennt ausschließlich finale 3.15-Versionen an, Metadaten und
+Legacy-Installer führen den 3.15-Classifier, und die CI installiert das
+veröffentlichte Final-Release. Pull Requests führen auf 3.15 Policy-, Install-,
+Compile-, Größen-, Dependency-/Security- und vollständige Unittest-Gates aus;
+der Hauptbranch behält 3.15 zusätzlich in seiner vollständigen Runtime-Matrix.
+
+Die frühere RC3-Ausnahme und `SIMPLEOFFICE_ALLOW_PRERELEASE=1` erteilen keine
+Freigabe mehr. Alpha-, Beta- und RC-Versionen bleiben auch mit gesetzter
+Umgebungsvariable gesperrt. Die operative Ubuntu-22.04-Ausnahme für Canonicals
+3.10-Pakete bleibt davon unverändert. Der fortlaufende
+[#474](https://github.com/JensKapitza/SimpleOffice4Me/issues/474)-Tracker bleibt
+für spätere Runtime- und Standardänderungen offen.
