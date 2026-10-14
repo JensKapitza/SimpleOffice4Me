@@ -41,9 +41,9 @@ Daraus folgt:
 
 ### Python / SimpleOffice4Me
 
-- Produktion: CPython 3.11–3.14; 3.10 nur als unverändertes Canonical-System-Python auf Ubuntu 22.04 bis 31.05.2027 (siehe docs/PYTHON_RUNTIME_SUPPORT.md).
+- Produktion: CPython 3.11–3.15; 3.10 nur als unverändertes Canonical-System-Python auf Ubuntu 22.04 bis 31.05.2027 (siehe docs/PYTHON_RUNTIME_SUPPORT.md).
 - `requires-python >=3.10` ist die technische Syntaxgrenze, keine Upstream-Supportzusage.
-- CI: Ubuntu-22.04-System-Python 3.10, Python 3.11 und 3.14; Python 3.15 RC3 separat ohne Produktionsfreigabe.
+- CI: Ubuntu-22.04-System-Python 3.10 sowie Python 3.11, 3.14 und 3.15 final.
 - Flask 3.x bleibt die Web-Basis.
 - Neue Abhängigkeiten vermeiden. Notwendige Laufzeitabhängigkeiten sauber in `pyproject.toml` pflegen.
 - Optionale Funktionen sollen nach Möglichkeit optionale Abhängigkeiten bleiben.
