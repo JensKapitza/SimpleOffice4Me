@@ -217,3 +217,10 @@ Neben dem Druck und dem PDF-Download bietet die Bibliotheksauswahl eine authenti
 ## Gefilterte Etikettenauswahl
 
 Die Bibliotheksliste kann nach freier Suche, Autor, Genre und Standort gefiltert werden. Die Filter werden serverseitig angewendet und bleiben beim CSV-/RIS-/BibTeX-/Calibre-Export erhalten. Ohne manuelle Auswahl exportieren die Aktionen bis zu 500 passende Bücher; ausgewählte Zeilen haben Vorrang. Die sichtbaren Treffer können anschließend mit Barcode oder QR gedruckt, als PDF bzw. Etikettenbogen ausgegeben oder in der Vorschau geprüft werden. Ein Filter schaltet keine Rechte frei: Die bestehenden Anmelde-, CSRF-, Auswahl- und Objektprüfungen gelten unverändert.
+
+## RIS-Import
+
+Administratoren können UTF-8-kodierte RIS-Dateien mit bis zu 4 MiB und 500 `BOOK`-/`EBOOK`-Datensätzen über **RIS importieren** einlesen. Unterstützt werden Titel, mehrere Autoren, ISBN, Verlag, Jahr, Sprache, Auflage, Reihe/Band, Schlagwörter, Beschreibung und `N1`-Notizen. Vorhandene ISBNs werden übersprungen; Datensätze ohne Titel, nicht abgeschlossene oder fachfremde RIS-Datensätze werden abgelehnt. Importierte `N1`-Notizen bleiben bei einem späteren RIS-Export erhalten, erzeugen aber bewusst keinen Regalstandort und überschreiben keine vorhandene Standortstruktur.
+
+Der Endpunkt benötigt Anmeldung, Administratorrecht und CSRF-Schutz. Eingaben werden begrenzt und normalisiert; es werden weder Dateien ausgeführt noch externe Ressourcen abgerufen. Der Import erzeugt neue Bücher im vorhandenen ObjectStore und protokolliert ausschließlich Format und Zähler im Audit, keine Buchinhalte.
+

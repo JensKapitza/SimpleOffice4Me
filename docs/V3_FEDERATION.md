@@ -35,6 +35,12 @@ LAN/direct, country and email discovery and QR import identify a peer; they do n
 
 After checking the peer identity on both instances, each administrator must set the direct trust edge locally. Configure only the required data-class permissions separately; trust alone does not grant data access, and automatic acceptance remains off unless explicitly enabled. The UI does not yet provide an expiring one-time code or a cryptographic bilateral pairing handshake, so operators must perform these steps independently.
 
+### Pairing code lifecycle foundation
+
+The repository contains a bounded one-time-code store for the upcoming bilateral pairing flow. A code is generated with 60 bits of randomness, bound to exactly one expected peer, valid for 1 to 15 minutes (10 minutes by default), and persisted only as a keyed hash. Issuing a replacement revokes the earlier code for that peer; claiming is atomic and succeeds once even under concurrent requests. Status responses never expose the code.
+
+This storage primitive does not itself discover a peer, enable a connection, set a shared peer token, grant trust or grant any data capability. Until the separate authenticated claim and explicit confirmation endpoints are integrated and accepted, administrators must continue to use the manual procedure above.
+
 Peer policies may use:
 
 ```json
