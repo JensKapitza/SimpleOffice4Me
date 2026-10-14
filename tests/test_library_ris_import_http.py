@@ -108,6 +108,7 @@ class RisImportHttpContractTest(unittest.TestCase):
             b"TY  - BOOK\nT1  - Missing end\n",
             b"TY  - JOUR\nT1  - Article\nER  -\n",
             b"TY  - BOOK\nER  -\n",
+            ("TY  - BOOK\nT1  - Title\nN1  - " + ("x" * 4001) + "\nER  -\n").encode(),
             b"\xff\xfe",
         )
         for payload in cases:
