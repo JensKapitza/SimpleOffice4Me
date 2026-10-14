@@ -47,7 +47,7 @@ def protect_export_and_ocr_responses(response):
         "library.export_books_csv", "library.export_books_ris", "library.export_books_bibtex",
         "library.export_books_calibre",
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
-        "library.export_book_labels_pdf",
+        "library.export_book_labels_pdf", "library.import_books_calibre",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -691,6 +691,92 @@ def export_books_calibre():
         raise
     finally:
         csv_file.close()
+
+
+
+def _calibre_import_rows(upload: bytes) -> list[dict[str, str]]:
+    """Read a bounded Calibre metadata.csv without extracting archive members."""
+    if not upload or len(upload) > 12 * 1024 * 1024:
+        raise ValueError("Die Calibre-Datei fehlt oder ist zu groß.")
+    try:
+        with zipfile.ZipFile(io.BytesIO(upload)) as archive:
+            metadata = archive.getinfo("metadata.csv")
+            if metadata.file_size > 10 * 1024 * 1024:
+                raise ValueError("metadata.csv ist zu groß.")
+            if sum(info.file_size for info in archive.infolist()) > 20 * 1024 * 1024:
+                raise ValueError("Das Archiv ist nach dem Entpacken zu groß.")
+            raw = archive.read(metadata)
+    except (KeyError, zipfile.BadZipFile, RuntimeError, ValueError) as exc:
+        raise ValueError("Ungültiges Calibre-Archiv.") from exc
+    try:
+        text = raw.decode("utf-8-sig")
+        reader = csv.DictReader(io.StringIO(text, newline=""))
+        required = {"title", "authors", "series", "series_index", "publisher", "published", "identifiers", "tags", "comments", "language"}
+        if not reader.fieldnames or not required.issubset(set(reader.fieldnames)):
+            raise ValueError("metadata.csv hat nicht das unterstützte Calibre-Format.")
+        rows = []
+        for row in reader:
+            if len(rows) >= 500:
+                raise ValueError("Es dürfen höchstens 500 Bücher importiert werden.")
+            clean = {key: " ".join(str(row.get(key, "") or "").replace("\x00", "").split())[:4000] for key in required}
+            if not clean["title"]:
+                continue
+            rows.append(clean)
+        return rows
+    except (UnicodeDecodeError, csv.Error) as exc:
+        raise ValueError("metadata.csv konnte nicht gelesen werden.") from exc
+
+
+def _calibre_isbn(value: str) -> str:
+    for candidate in str(value or "").split(","):
+        key, _, isbn = candidate.partition(":")
+        if key.strip().casefold() == "isbn" and isbn.strip():
+            return isbn.strip()[:64]
+    return ""
+
+
+@bp.post("/import/books.calibre")
+@login_required
+def import_books_calibre():
+    if not is_admin():
+        audit("library_books_import", "library", "books", outcome="failure", detail={"reason": "administrator_required"})
+        abort(403)
+    upload = request.files.get("file")
+    try:
+        rows = _calibre_import_rows(upload.read(12 * 1024 * 1024 + 1) if upload else b"")
+    except (OSError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    objects = _objects()
+    existing_isbns = {
+        str(item.get("fields", {}).get("isbn", "")).strip().casefold()
+        for item in objects.objects()
+        if str(item.get("fields", {}).get("isbn", "")).strip()
+    }
+    created = 0
+    skipped = 0
+    for row in rows:
+        isbn = _calibre_isbn(row["identifiers"])
+        if isbn and isbn.casefold() in existing_isbns:
+            skipped += 1
+            continue
+        authors = row["authors"].replace(" & ", "; ")
+        fields = {
+            "authors": authors, "isbn": isbn, "genre": row["tags"],
+            "series": row["series"], "series_number": row["series_index"],
+            "publisher": row["publisher"], "year": row["published"],
+            "language": row["language"], "description": row["comments"],
+        }
+        objects.create({
+            "name": row["title"], "type": "book", "identifier": isbn,
+            "tags": ["buch", "isbn"] if isbn else ["buch"], "fields": fields,
+        }, _actor())
+        if isbn:
+            existing_isbns.add(isbn.casefold())
+        created += 1
+    audit("library_books_import", "library", "books", outcome="success",
+          detail={"format": "calibre_csv", "created": created, "skipped": skipped})
+    return jsonify({"ok": True, "created": created, "skipped": skipped, "total": len(rows)})
 
 
 def _ocr_action(function):
