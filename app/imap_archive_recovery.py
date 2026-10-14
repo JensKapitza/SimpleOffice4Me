@@ -57,7 +57,15 @@ class ArchiveRecovery:
         superseded = dict(previous.get("superseded", {}))
         if not same and previous.get("pending"):
             namespace = f"{previous.get('source_binding', 'legacy')}:{previous.get('uidvalidity', '')}"
-            superseded[namespace] = previous["pending"]
+            archived_pending = dict(superseded.get(namespace, {}))
+            for uid, row in previous["pending"].items():
+                prior_row = archived_pending.get(uid, {})
+                archived_pending[uid] = {
+                    **prior_row,
+                    **row,
+                    "parts": {**prior_row.get("parts", {}), **row.get("parts", {})},
+                }
+            superseded[namespace] = archived_pending
         self.state = {**previous, "recovery_version": 2, "uidvalidity": validity,
                       "source_binding": binding, "folder": self.account["folder"],
                       "last_uid": int(previous.get("last_uid", 0)) if same else 0,

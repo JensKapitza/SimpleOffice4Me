@@ -80,8 +80,16 @@ class StartScriptTests(unittest.TestCase):
 
         for requirement in (
             '"Flask": ">=3.0,<4"',
+            '"argon2-cffi": ">=23.1,<26"',
+            '"beautifulsoup4": ">=4.12,<5"',
+            '"defusedxml": ">=0.7,<1"',
             '"Pillow": ">=12.2,<13"',
+            '"reportlab": ">=4.0,<6"',
+            '"pypdf": ">=5.0,<7"',
+            '"waitress": ">=3.0,<4"',
             '"cryptography": ">=48.0.1,<51"',
+            '"watchdog": ">=6,<7"',
+            '"tzdata": ">=2024.1"',
         ):
             self.assertIn(requirement, script)
 
@@ -89,6 +97,20 @@ class StartScriptTests(unittest.TestCase):
         # into an ordinary Web start on Linux or Termux.
         self.assertNotIn("python3-paramiko", script)
         self.assertNotIn('"paramiko": ">=3.5,<6"', script)
+
+    def test_playwright_version_matches_project_optional_dependency(self):
+        import re
+        import tomllib
+
+        root = Path(__file__).resolve().parents[1]
+        script = (root / "start.sh").read_text(encoding="utf-8")
+        docs = (root / "docs" / "WEBSEITENEXPORT.md").read_text(encoding="utf-8")
+        configured = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+        requirement = configured["project"]["optional-dependencies"]["web-export"][0]
+        version = re.fullmatch(r"playwright==([0-9]+(?:\.[0-9]+)+)", requirement).group(1)
+
+        self.assertIn(f"'playwright=={version}'", script)
+        self.assertIn(f"playwright=={version}", docs)
 
     def test_windows_script_supports_the_same_google_oauth_options(self):
         root = Path(__file__).resolve().parents[1]

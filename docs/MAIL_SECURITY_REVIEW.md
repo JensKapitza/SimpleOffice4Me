@@ -36,25 +36,26 @@ bestehende Konto-IDs, Entwürfe oder Delegationsdatensätze.
 
 ## Prüfnachweise und Grenzen
 
-### Offene Befunde aus der Dokumentationsprüfung vom 2026-10-05
+### Historische Befunde aus der Dokumentationsprüfung vom 2026-10-05
 
-Die aktuelle Codebasis `2abc3ef6a02c173304d6c23352f48497730b7068` hat zusätzlich
-zwei reproduzierte Korrekturbedarfe. Sie sind durch die oben beschriebenen
-Sicherheitskorrekturen nicht erledigt:
+Die damalige Prüfung reproduzierte zwei Fehler. Beide haben inzwischen
+Implementierungen und Regressionstests im Repository; die folgenden Befunde
+sind daher kein aktueller Statusbericht:
 
 - [#587: IMAP-Checkpoint überspringt fehlgeschlagene UIDs](https://github.com/JensKapitza/SimpleOffice4Me/issues/587):
-  Ein synthetischer Speicherfehler für UID 7 und Erfolg für UID 8 führen zu
-  `last_uid=8`; die nächste Suche `UID 9:*` kann UID 8 erneut liefern, aber
-  nicht UID 7. Es kann eine lokale Archivlücke entstehen.
+  `ArchiveRecovery` speichert UIDs vor der Verarbeitung als offen, bindet sie
+  an UIDVALIDITY und Quellkonto und versucht unvollständige Speicher-, Metadaten-
+  und Anhangsstufen erneut. `tests/test_imap_archive_recovery.py` prüft unter
+  anderem den früheren Fehlerfall UID 7/UID 8, Neustarts und Prozessabbrüche.
 - [#588: MIME-Suchindex und Vorschau unterscheiden sich](https://github.com/JensKapitza/SimpleOffice4Me/issues/588):
-  Nach Text-Backfill bleiben RFC-2047-/Base64-Inhalte mit decodierten Begriffen
-  unauffindbar, obwohl die Vorschau korrekt ist. Nachprüfung des geschlossenen #74.
+  Die MIME-Suche und ihre Legacy-/Shadow-/V2-Nachprüfung wurden mit PRs #597 und
+  #599 umgesetzt.
 
-Die [Mail-Anleitung](IMAP_SIEVE_EMAIL_ARCHIV.md) und
-[Retrieval-Anleitung](DOKUMENTSUCHE_RETRIEVAL.md) nennen diese Grenzen.
-Die Dokumentationsprüfung verwendet ausschließlich temporäre synthetische
-Daten; sie verändert keinen Anwendungscode und erklärt die Befunde nicht
-als behoben.
+Diese Repository-Nachweise belegen keine externe Mailserver-, Geräte- oder
+Produktionsabnahme. Der Status der verknüpften GitHub-Issues wird hier nicht
+behauptet. Die [Mail-Anleitung](IMAP_SIEVE_EMAIL_ARCHIV.md) und
+[Retrieval-Anleitung](DOKUMENTSUCHE_RETRIEVAL.md) beschreiben die aktuelle
+Funktion und ihre verbleibenden Grenzen.
 
 Die Regressionen umfassen fremde Benutzer und Administratoren, Listen/Suche,
 allgemeine Lese- und Änderungsrouten, neue und bestehende Freigabelinks,

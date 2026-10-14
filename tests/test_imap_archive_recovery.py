@@ -215,6 +215,26 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
         self.assertEqual((0, 1, 1), (result["pending"], result["duplicates"], result["superseded_pending"]))
         self.assertEqual([SECOND], self.messages())
 
+    def test_returning_to_uidvalidity_preserves_superseded_retries(self):
+        self.mailbox = Mailbox({7: FIRST}, b"42")
+        self.mailbox.fetch_failures.add(7)
+        self.run_archive()
+
+        self.mailbox = Mailbox({9: FIRST}, b"43")
+        self.mailbox.fetch_failures.add(9)
+        self.run_archive()
+
+        self.mailbox = Mailbox({7: FIRST, 8: SECOND}, b"42")
+        self.mailbox.fetch_failures.add(8)
+        self.run_archive()
+
+        self.mailbox = Mailbox({9: FIRST, 10: SECOND}, b"43")
+        self.mailbox.fetch_failures.add(10)
+        result = self.run_archive()
+
+        self.assertEqual(1, result["pending"])
+        self.assertEqual(3, result["superseded_pending"])
+
     def test_missing_uidvalidity_does_not_commit_progress_or_create_documents(self):
         self.mailbox.untagged_responses = {}
         with self.assertRaisesRegex(ValueError, "UIDVALIDITY"):
