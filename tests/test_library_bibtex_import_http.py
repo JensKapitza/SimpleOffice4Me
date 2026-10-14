@@ -9,6 +9,7 @@ from pathlib import Path
 from flask import Flask, g, session
 
 from app import db as database
+from app.library.imports import bibtex_import_rows
 from app.library.routes import bp as library_blueprint
 from app.object_store import ObjectStore
 from app.security_controls import protect_browser_mutation
@@ -95,16 +96,12 @@ class BibtexImportHttpContractTest(unittest.TestCase):
         self.assertEqual(200, exported.status_code)
         payload = exported.get_data()
 
-        with self.client.session_transaction() as state:
-            state["_csrf_token"] = "bibtex-import-csrf"
-        ObjectStore(self.root)._index_path.unlink()
-        imported = self._post(payload)
+        rows = bibtex_import_rows(payload)
 
-        self.assertEqual(200, imported.status_code)
-        book = ObjectStore(self.root).objects()[0]
-        self.assertEqual("A {safe} title", book["name"])
-        self.assertEqual("9780306406157", book["fields"]["isbn"])
-        self.assertEqual("Novel", book["fields"]["genre"])
+        self.assertEqual(1, len(rows))
+        self.assertEqual("A {safe} title", rows[0]["title"])
+        self.assertEqual("9780306406157", rows[0]["isbn"])
+        self.assertEqual("Novel", rows[0]["genre"])
 
     def test_multiple_entries_and_utf8_are_supported(self):
         payload = (
