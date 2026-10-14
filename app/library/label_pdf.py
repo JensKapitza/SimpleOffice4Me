@@ -8,14 +8,14 @@ from reportlab.lib.units import mm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
-from .printer import LABELS, render_barcode
+from .printer import LABELS, render_barcode, render_qr_code
 
 
 def book_labels_pdf(
     labels: list[tuple[str, str]], settings: dict[str, Any], *, style: str,
 ) -> bytes:
     """Render one configured-media-sized PDF page for each selected book."""
-    if style not in {"with_text", "barcode_only"}:
+    if style not in {"with_text", "barcode_only", "qr_with_text", "qr_only"}:
         raise ValueError("Unbekannte Etikettenart")
     media = LABELS.get(str(settings.get("label", "62")).lower())
     if media is None:
@@ -25,11 +25,12 @@ def book_labels_pdf(
     document = canvas.Canvas(output, pageCompression=1, invariant=1)
     page_width = media.width_mm * mm
     for value, caption in labels:
-        image = render_barcode(
+        qr_style = style.startswith("qr_")
+        image = (render_qr_code if qr_style else render_barcode)(
             value,
             settings,
-            caption=caption if style == "with_text" else "",
-            show_text=style == "with_text",
+            caption=caption if style in {"with_text", "qr_with_text"} else "",
+            show_text=style in {"with_text", "qr_with_text"},
         )
         with image:
             grayscale = image.convert("L")

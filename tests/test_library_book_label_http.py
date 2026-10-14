@@ -30,6 +30,10 @@ class BookLabelHttpContractTest(unittest.TestCase):
             username = session.get("username")
             g.user = {"username": username} if username else None
 
+        self.app.add_url_rule(
+            "/inventory/item/<object_id>", endpoint="inventory.item_detail", view_func=lambda object_id: object_id,
+        )
+
         self.app.before_request(protect_browser_mutation)
         self.app.register_blueprint(library_blueprint)
         self.client = self.app.test_client()
@@ -68,6 +72,23 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"ok": True, "printed": 1, "total": 1}, response.json)
         print_label.assert_called_once()
+
+    def test_qr_label_print_uses_the_selected_book_reference(self):
+        with patch("app.library.routes.print_image", return_value=128):
+            response = self.client.post(
+                "/library/labels/books/print",
+                data={"_csrf_token": "book-label-csrf-token", "barcode_style": "qr_only", "object_id": self.book_a["object_id"]},
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"ok": True, "printed": 1, "total": 1}, response.json)
+
+    def test_qr_reference_can_be_resolved_by_the_existing_find_api(self):
+        response = self.client.get(f"/library/find?q={self.book_a['object_id']}")
+
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.json["found"])
+        self.assertEqual(self.book_a["object_id"], response.json["item"]["object_id"])
 
     def test_non_book_selection_is_rejected_without_printer_output(self):
         response = self._post([self.device["object_id"]])
