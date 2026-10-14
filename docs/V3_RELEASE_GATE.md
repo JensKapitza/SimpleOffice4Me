@@ -114,8 +114,20 @@ contracts and all required PR checks passed, including Python application,
 Security/OSSAR, Android, Desktop, Docker, dependency audit, and all six CodeQL
 language analyses. A CodeQL alert on an intermediate test stub was fixed before
 the final green run. This does not document physical-printer/Android device
-acceptance; QR preview, label-sheet templates, filtered author/genre/location
-labels, and other #658 requirements remain open.
+acceptance; QR preview, filtered author/genre/location labels, and other #658
+requirements remain open.
+
+PR #697 merged as `7ea6897a42bd0c887d9c2f0a01e65bcd9c3070a9`. The existing
+selected-book PDF export now also offers a centered A4 3×7 sheet with 21
+63.5 × 38.1 mm cells per page; further labels flow to additional pages. The
+existing printer-media PDF remains the default. Public HTTP contracts verified
+22 selected labels across two A4 pages (21+1 embedded label images), exact A4
+dimensions, and rejection of an unknown layout. All required PR CI checks
+passed, including the complete Python application suite, six CodeQL language
+analyses, Security/OSSAR, Android, Desktop and Docker. Physical alignment with
+specific label stock remains unverified; #658 also remains open for filtered
+author/genre/location labels, wider capture and data-model requirements, and
+real device acceptance.
 
 Release approval remains **not approved**. Repository software progress does
 not replace the still-open production-data upgrade/rollback, external-client/
