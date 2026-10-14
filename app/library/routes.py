@@ -585,6 +585,10 @@ def _library_export_selection():
     identifiers = request.args.getlist("object_id")
     if len(identifiers) > 500:
         abort(400)
+    filters_active = any(
+        request.args.get(name, "").strip()
+        for name in ("q", "author", "genre", "location")
+    )
     selected = {}
     for identifier in identifiers:
         if not identifier or len(identifier) > 80:
@@ -597,7 +601,7 @@ def _library_export_selection():
         if str(item.get("type", "")).casefold() not in {"book", "buch"} and not tags.intersection({"buch", "isbn"}):
             abort(404)
         selected[item["object_id"]] = item
-    if not identifiers and any(request.args.get(name, "").strip() for name in ("q", "author", "genre", "location")):
+    if not identifiers and filters_active:
         filtered = _books_with_assignments(
             request.args.get("q", ""),
             500,
@@ -607,11 +611,11 @@ def _library_export_selection():
         )
         selected = {item["object_id"]: item for item in filtered}
         identifiers = list(selected)
-    return objects, placements, identifiers, selected
+    return objects, placements, identifiers, selected, filters_active
 
 
-def _library_export_books(objects, identifiers, selected):
-    source = selected.values() if identifiers else objects.iter_objects()
+def _library_export_books(objects, identifiers, selected, *, filters_active=False):
+    source = selected.values() if identifiers or filters_active else objects.iter_objects()
     for item in source:
         tags = {str(tag).casefold() for tag in item.get("tags", [])}
         if str(item.get("type", "")).casefold() in {"book", "buch"} or tags.intersection({"buch", "isbn"}):
@@ -629,7 +633,7 @@ def _export_bibliography(export_format: str):
 
     from .bibliography import bibtex_record, ris_record
 
-    objects, placements, identifiers, selected = _library_export_selection()
+    objects, placements, identifiers, selected, filters_active = _library_export_selection()
     serializer = ris_record if export_format == "ris" else bibtex_record
     filename = "library-books.ris" if export_format == "ris" else "library-books.bib"
     mimetype = "application/x-research-info-systems" if export_format == "ris" else "application/x-bibtex"
@@ -639,7 +643,7 @@ def _export_bibliography(export_format: str):
         completed = False
         try:
             yield "\ufeff"
-            for item in _library_export_books(objects, identifiers, selected):
+            for item in _library_export_books(objects, identifiers, selected, filters_active=filters_active):
                 yield serializer(item, placements.get(item["object_id"], {}))
                 count += 1
             completed = True
@@ -659,7 +663,7 @@ def export_books_csv():
     from flask import stream_with_context
 
     # Capture request-scoped storage before the response starts streaming.
-    objects, placements, identifiers, selected = _library_export_selection()
+    objects, placements, identifiers, selected, filters_active = _library_export_selection()
 
     def generate():
         output = io.StringIO(newline="")
@@ -672,7 +676,7 @@ def export_books_csv():
             yield output.getvalue()
             output.seek(0)
             output.truncate(0)
-            for item in _library_export_books(objects, identifiers, selected):
+            for item in _library_export_books(objects, identifiers, selected, filters_active=filters_active):
                 fields = item.get("fields") if isinstance(item.get("fields"), dict) else {}
                 placement = placements.get(item["object_id"], {})
                 values = (
@@ -717,7 +721,7 @@ def export_books_calibre():
     """Create a bounded-memory Calibre bundle from the canonical local book records."""
     from .bibliography import CALIBRE_CSV_HEADERS, calibre_csv_values, calibre_opf_record
 
-    objects, placements, identifiers, selected = _library_export_selection()
+    objects, placements, identifiers, selected, filters_active = _library_export_selection()
     archive_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
     csv_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
     count = 0
@@ -727,7 +731,7 @@ def export_books_calibre():
             try:
                 writer = csv.writer(text_stream)
                 writer.writerow(CALIBRE_CSV_HEADERS)
-                for item in _library_export_books(objects, identifiers, selected):
+                for item in _library_export_books(objects, identifiers, selected, filters_active=filters_active):
                     placement = placements.get(item["object_id"], {})
                     writer.writerow([_csv_cell(value) for value in calibre_csv_values(item, placement)])
                     count += 1

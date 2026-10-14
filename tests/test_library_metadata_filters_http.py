@@ -129,6 +129,34 @@ class LibraryMetadataFiltersHttpTest(unittest.TestCase):
         self.assertNotIn("Night Letters", body)
         self.assertNotIn("Old Maps", body)
 
+    def test_csv_export_with_filters_that_match_no_books_does_not_export_the_entire_library(self):
+        response = self.client.get(
+            "/library/export/books.csv",
+            query_string={"author": "no such author"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("ID,Titel,ISBN", body)
+        self.assertNotIn("Harbor Atlas", body)
+        self.assertNotIn("Night Letters", body)
+        self.assertNotIn("Old Maps", body)
+
+    def test_csv_export_explicit_selection_takes_precedence_over_active_filters(self):
+        response = self.client.get(
+            "/library/export/books.csv",
+            query_string={
+                "object_id": self.target["object_id"],
+                "author": "no such author",
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Harbor Atlas", body)
+        self.assertNotIn("Night Letters", body)
+        self.assertNotIn("Old Maps", body)
+
 
 if __name__ == "__main__":
     unittest.main()
