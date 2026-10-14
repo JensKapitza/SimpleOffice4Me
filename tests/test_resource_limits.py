@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from app.document_store import ocr_subprocess_environment, pdf_ocr_page_limit
+from app.document_store import ocr_subprocess_environment
 from tools.launcher import should_report_scan_progress
 
 
@@ -21,17 +21,6 @@ class ResourceLimitTest(unittest.TestCase):
             self.assertEqual("8", ocr_subprocess_environment()["OMP_THREAD_LIMIT"])
         with patch.dict(os.environ, {"SIMPLEOFFICE_OCR_THREADS": "invalid"}, clear=True):
             self.assertEqual("1", ocr_subprocess_environment()["OMP_THREAD_LIMIT"])
-
-    def test_pdf_ocr_page_limit_is_configurable_and_bounded(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(10, pdf_ocr_page_limit())
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PDF_OCR_MAX_PAGES": "7"}, clear=True):
-            self.assertEqual(7, pdf_ocr_page_limit())
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PDF_OCR_MAX_PAGES": "500"}, clear=True):
-            self.assertEqual(50, pdf_ocr_page_limit())
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PDF_OCR_MAX_PAGES": "bad"}, clear=True):
-            self.assertEqual(10, pdf_ocr_page_limit())
-
 
 if __name__ == "__main__":
     unittest.main()

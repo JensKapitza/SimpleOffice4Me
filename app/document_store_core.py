@@ -108,15 +108,6 @@ def ocr_subprocess_environment() -> dict[str, str]:
     return environment
 
 
-def pdf_ocr_page_limit() -> int:
-    """Return the bounded number of pages considered by rendered PDF OCR."""
-    try:
-        requested = int(os.environ.get("SIMPLEOFFICE_PDF_OCR_MAX_PAGES", "10"))
-    except ValueError:
-        requested = 10
-    return max(1, min(requested, 50))
-
-
 @dataclass(frozen=True)
 class ScanReport:
     files: int = 0

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-import time
 
 from .sqlite_utils import connect as sqlite_connect
 
@@ -36,29 +35,7 @@ class _DocumentStorePart5:
             raise RuntimeError("PDF text extraction requires pypdf when pdftotext is unavailable") from exc
 
     def _pdf_image_ocr(self, path: Path) -> str:
-        executable = shutil.which("pdfimages")
-        texts: list[str] = []
-        if executable:
-            with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-images-") as temp:
-                output_prefix = Path(temp) / "image"
-                try:
-                    result = subprocess.run([executable, "-png", str(path), str(output_prefix)], capture_output=True, text=True, timeout=120, check=False)
-                except (OSError, subprocess.TimeoutExpired):
-                    result = None
-                if result is not None and result.returncode == 0:
-                    for image_path in sorted(Path(temp).glob("image-*.png"))[:100]:
-                        try:
-                            text = self._image_ocr(image_path)
-                            if text:
-                                texts.append(text)
-                        except RuntimeError:
-                            continue
-        # pdfimages cannot help with pages made from vector paths or when the
-        # utility is absent. Render only the first few pages at a fixed bound.
-        # This uses the same Poppler renderer already used by document previews.
-        if not any(text.strip() for text in texts):
-            texts.extend(self._pdf_rendered_ocr(path))
-        return "\n".join(texts)
+        return "\n".join(self._pdf_rendered_ocr(path))
 
     def _pdf_rendered_ocr(self, path: Path) -> list[str]:
         renderer = shutil.which("pdftoppm")
@@ -72,30 +49,53 @@ class _DocumentStorePart5:
             return []
         if page_count < 1:
             return []
-        page_limit = min(page_count, pdf_ocr_page_limit())
         with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-ocr-") as temp:
-            prefix = Path(temp) / "page"
-            try:
-                result = subprocess.run(
-                    [renderer, "-f", "1", "-l", str(page_limit), "-scale-to", "1800", "-png", "--", str(path), str(prefix)],
-                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90, check=False,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                return []
-            if result.returncode != 0:
-                return []
             texts: list[str] = []
-            ocr_deadline = time.monotonic() + 180
-            for image_path in sorted(Path(temp).glob("page-*.png"))[:page_limit]:
-                remaining = int(ocr_deadline - time.monotonic())
-                if remaining <= 0:
-                    break
-                try:
-                    text = self._image_ocr(image_path, timeout=min(30, remaining))
-                except RuntimeError:
-                    continue
-                if text:
-                    texts.append(text)
+            batch_size = 10
+            for first_page in range(1, page_count + 1, batch_size):
+                last_page = min(page_count, first_page + batch_size - 1)
+
+                def render(start: int, end: int) -> list[Path]:
+                    prefix = Path(temp) / f"page-{start}-{end}"
+                    pattern = f"{prefix.name}-*.png"
+                    try:
+                        result = subprocess.run(
+                            [renderer, "-f", str(start), "-l", str(end), "-scale-to", "1800", "-png", "--", str(path), str(prefix)],
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90, check=False,
+                        )
+                    except (OSError, subprocess.TimeoutExpired):
+                        for image_path in Path(temp).glob(pattern):
+                            image_path.unlink(missing_ok=True)
+                        return []
+                    images = sorted(Path(temp).glob(pattern))
+                    if result.returncode != 0:
+                        for image_path in images:
+                            image_path.unlink(missing_ok=True)
+                        return []
+                    return images
+
+                images = render(first_page, last_page)
+                # A bad page should not prevent later pages from being OCRed.
+                # Retry a failed batch one page at a time, retaining the same
+                # per-render time limit and continuing after individual errors.
+                if len(images) != last_page - first_page + 1:
+                    for image_path in images:
+                        image_path.unlink(missing_ok=True)
+                    images = []
+                    for page in range(first_page, last_page + 1):
+                        images.extend(render(page, page))
+
+                for image_path in images:
+                    try:
+                        text = self._image_ocr(image_path, timeout=30)
+                    except RuntimeError:
+                        text = ""
+                    if text:
+                        texts.append(text)
+                    try:
+                        image_path.unlink()
+                    except OSError:
+                        pass
             return texts
 
     @staticmethod
