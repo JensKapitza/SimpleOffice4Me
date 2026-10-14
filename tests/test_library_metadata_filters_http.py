@@ -111,6 +111,23 @@ class LibraryMetadataFiltersHttpTest(unittest.TestCase):
         self.assertIn('<form method="get" action="/library">', body)
         self.assertIn('id="apply-library-filters" type="submit">Filtern</button>', body)
         self.assertIn('href="/library">Filter zurücksetzen</a>', body)
+        self.assertIn('formaction="/library/export/books.csv">CSV</button>', body)
+
+    def test_csv_export_uses_active_filters_when_nothing_is_selected(self):
+        response = self.client.get(
+            "/library/export/books.csv",
+            query_string={
+                "author": "rivers",
+                "genre": "history",
+                "location": self.history["location_id"],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Harbor Atlas", body)
+        self.assertNotIn("Night Letters", body)
+        self.assertNotIn("Old Maps", body)
 
 
 if __name__ == "__main__":

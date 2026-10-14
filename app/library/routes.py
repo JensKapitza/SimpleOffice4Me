@@ -597,6 +597,16 @@ def _library_export_selection():
         if str(item.get("type", "")).casefold() not in {"book", "buch"} and not tags.intersection({"buch", "isbn"}):
             abort(404)
         selected[item["object_id"]] = item
+    if not identifiers and any(request.args.get(name, "").strip() for name in ("q", "author", "genre", "location")):
+        filtered = _books_with_assignments(
+            request.args.get("q", ""),
+            500,
+            author=request.args.get("author", ""),
+            genre=request.args.get("genre", ""),
+            location_id=request.args.get("location", ""),
+        )
+        selected = {item["object_id"]: item for item in filtered}
+        identifiers = list(selected)
     return objects, placements, identifiers, selected
 
 

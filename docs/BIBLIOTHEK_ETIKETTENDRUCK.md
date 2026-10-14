@@ -216,4 +216,4 @@ Neben dem Druck und dem PDF-Download bietet die Bibliotheksauswahl eine authenti
 
 ## Gefilterte Etikettenauswahl
 
-Die Bibliotheksliste kann nach freier Suche, Autor, Genre und Standort gefiltert werden. Die Filter werden serverseitig angewendet und bleiben beim CSV-/RIS-/BibTeX-/Calibre-Export erhalten. Die sichtbaren Treffer können anschließend mit Barcode oder QR gedruckt, als PDF bzw. Etikettenbogen ausgegeben oder in der Vorschau geprüft werden. Ein Filter schaltet keine Rechte frei: Die bestehenden Anmelde-, CSRF-, Auswahl- und Objektprüfungen gelten unverändert.
+Die Bibliotheksliste kann nach freier Suche, Autor, Genre und Standort gefiltert werden. Die Filter werden serverseitig angewendet und bleiben beim CSV-/RIS-/BibTeX-/Calibre-Export erhalten. Ohne manuelle Auswahl exportieren die Aktionen bis zu 500 passende Bücher; ausgewählte Zeilen haben Vorrang. Die sichtbaren Treffer können anschließend mit Barcode oder QR gedruckt, als PDF bzw. Etikettenbogen ausgegeben oder in der Vorschau geprüft werden. Ein Filter schaltet keine Rechte frei: Die bestehenden Anmelde-, CSRF-, Auswahl- und Objektprüfungen gelten unverändert.
