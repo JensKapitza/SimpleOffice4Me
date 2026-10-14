@@ -213,3 +213,7 @@ Administratoren können ein zuvor von SimpleOffice4Me erzeugtes Calibre-ZIP übe
 ## Vorschau ausgewählter Buchetiketten
 
 Neben dem Druck und dem PDF-Download bietet die Bibliotheksauswahl eine authentifizierte PNG-Vorschau. Sie rendert das erste ausgewählte Buch mit der aktuell gewählten Barcode-/QR-Variante und den gespeicherten Brother-Medieneinstellungen; die übrige Auswahl wird nicht gedruckt. Dadurch kann vor einem physischen Auftrag geprüft werden, ob Kennung, Klartext und QR-Fläche auf dem gewählten Medium passen. Die Vorschau unterliegt weiterhin Login-, CSRF-, Auswahl- und Kennungsprüfung und wird nicht dauerhaft gespeichert.
+
+## Gefilterte Etikettenauswahl
+
+Die Bibliotheksliste kann nach freier Suche, Autor, Genre und Standort gefiltert werden. Die Filter werden serverseitig angewendet und bleiben beim CSV-/RIS-/BibTeX-/Calibre-Export erhalten. Ohne manuelle Auswahl exportieren die Aktionen bis zu 500 passende Bücher; ausgewählte Zeilen haben Vorrang. Die sichtbaren Treffer können anschließend mit Barcode oder QR gedruckt, als PDF bzw. Etikettenbogen ausgegeben oder in der Vorschau geprüft werden. Ein Filter schaltet keine Rechte frei: Die bestehenden Anmelde-, CSRF-, Auswahl- und Objektprüfungen gelten unverändert.
