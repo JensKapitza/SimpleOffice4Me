@@ -40,9 +40,9 @@ Die Reader-Grenze liegt bei 200 MiB pro PDF. Passwortgeschützte Dateien werden 
 
 ### OCR und durchsuchbare Scans
 
-Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit `pypdf` als Python-Fallback. Für Bildinhalte wird verfügbare eingebettete Bildebene mit `pdfimages` und Tesseract ausgewertet. Liefert sie keinen erkannten Text, rendert `pdftoppm` standardmäßig höchstens zehn PDF-Seiten mit einer maximalen Kantenlänge von 1.800 Pixeln; `SIMPLEOFFICE_PDF_OCR_MAX_PAGES` kann den Umfang auf 1 bis 50 Seiten begrenzen oder erweitern. Tesseract verarbeitet eine gerenderte Seite höchstens 30 Sekunden und höchstens 180 Sekunden insgesamt. Der Renderlauf selbst ist auf 90 Sekunden begrenzt. Fehlende optionale Systemwerkzeuge lassen die übrige Dokumentindexierung weiterlaufen.
+Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit `pypdf` als Python-Fallback. Die Scan-OCR rendert **jede PDF-Seite** mit `pdftoppm` in Stapeln von höchstens zehn Seiten und einer maximalen Kantenlänge von 1.800 Pixeln. Schlägt ein Stapel fehl, werden seine Seiten einzeln erneut gerendert, damit ein Fehler nicht alle nachfolgenden Seiten überspringt. Tesseract erhält pro Seite bis zu 30 Sekunden; jeder Renderaufruf hat ein 90-Sekunden-Limit. Es gibt keine Seitenobergrenze und kein Gesamtzeitlimit für die OCR eines Dokuments. Dokumente mit vielen Seiten können deshalb längere Indexläufe benötigen. Sind `pdftoppm` oder Tesseract nicht installiert, kann keine Scan-OCR ausgeführt werden; die normale Textindexierung läuft weiter.
 
-Damit bleibt OCR auf großen Dokumenten begrenzt. Textbasierte PDF-Suche umfasst den extrahierten Indextext; Scan-OCR kann wegen Seiten- und Werkzeuglimits nur einen Teil eines langen bildbasierten PDFs abdecken. Ein erneuter Scan beziehungsweise `refresh_missing_text` aktualisiert fehlenden oder veralteten extrahierten Text.
+Textbasierte PDF-Suche umfasst den extrahierten Indextext. Ein erneuter Scan beziehungsweise `refresh_missing_text` aktualisiert fehlenden oder veralteten extrahierten Text.
 
 ## EPUB
 
@@ -74,7 +74,7 @@ Das Bücherregal behauptet keine generelle Offline-Verfügbarkeit. Der separat v
 
 ## Abhängigkeiten
 
-Es wurden keine neuen Python-Abhängigkeiten eingeführt. Verwendet werden die bereits vorhandenen Pakete `pypdf` und `defusedxml`, Androids Plattformklasse `PdfRenderer` sowie – falls installiert – die Systemwerkzeuge Poppler (`pdftotext`, `pdfimages`, `pdftoppm`) und Tesseract für PDF-Textindexierung und OCR.
+Es wurden keine neuen Python-Abhängigkeiten eingeführt. Verwendet werden die bereits vorhandenen Pakete `pypdf` und `defusedxml`, Androids Plattformklasse `PdfRenderer` sowie – falls installiert – die Systemwerkzeuge Poppler (`pdftotext`, `pdftoppm`) und Tesseract für PDF-Textindexierung und OCR.
 
 ## Abnahmegrenze
 
