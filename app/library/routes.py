@@ -48,6 +48,7 @@ def protect_export_and_ocr_responses(response):
         "library.export_books_calibre",
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
+        "library.import_books_ris",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -806,6 +807,99 @@ def _calibre_isbn(value: str) -> str:
     return ""
 
 
+def _ris_import_rows(upload: bytes) -> list[dict[str, str]]:
+    """Parse bounded BOOK/EBOOK records from UTF-8 RIS without silent truncation."""
+    if not upload or len(upload) > 4 * 1024 * 1024:
+        raise ValueError("Die RIS-Datei fehlt oder ist zu groß.")
+    try:
+        text = upload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Die RIS-Datei muss UTF-8-codiert sein.") from exc
+
+    rows: list[dict[str, str]] = []
+    record: dict[str, list[str]] | None = None
+    for line_number, raw_line in enumerate(text.splitlines(), 1):
+        if not raw_line.strip():
+            continue
+        match = re.fullmatch(r"([A-Z0-9]{2})  - ?(.*)", raw_line)
+        if match is None:
+            raise ValueError(f"Ungültige RIS-Zeile {line_number}.")
+        tag, raw_value = match.groups()
+        value = " ".join(raw_value.replace("\x00", "").split())[:4000]
+        if tag == "TY":
+            if record is not None:
+                raise ValueError("Ein RIS-Datensatz wurde nicht mit ER abgeschlossen.")
+            record = {"TY": [value.upper()]}
+            continue
+        if record is None:
+            raise ValueError(f"RIS-Zeile {line_number} steht außerhalb eines Datensatzes.")
+        if tag == "ER":
+            kind = (record.get("TY") or [""])[0]
+            if kind not in {"BOOK", "EBOOK"}:
+                raise ValueError("Der RIS-Import unterstützt nur BOOK- und EBOOK-Datensätze.")
+            title = next((record.get(tag) or [""])[0] for tag in ("T1", "TI", "CT") if record.get(tag))
+            if title:
+                rows.append({
+                    "title": title,
+                    "authors": "; ".join(record.get("AU", []) or record.get("A1", [])),
+                    "isbn": (record.get("SN") or [""])[0][:64],
+                    "genre": "; ".join(record.get("KW", [])),
+                    "series": (record.get("T3") or [""])[0],
+                    "series_number": (record.get("VL") or [""])[0],
+                    "publisher": (record.get("PB") or [""])[0],
+                    "year": (record.get("PY") or record.get("Y1") or [""])[0],
+                    "language": (record.get("LA") or [""])[0],
+                    "edition": (record.get("ET") or [""])[0],
+                    "description": (record.get("AB") or [""])[0],
+                    "bibliography_note": "; ".join(record.get("N1", [])),
+                })
+                if len(rows) > 500:
+                    raise ValueError("Es dürfen höchstens 500 Bücher importiert werden.")
+            record = None
+            continue
+        record.setdefault(tag, []).append(value)
+
+    if record is not None:
+        raise ValueError("Ein RIS-Datensatz wurde nicht mit ER abgeschlossen.")
+    if not rows:
+        raise ValueError("Die RIS-Datei enthält keine importierbaren Bücher.")
+    return rows
+
+
+def _create_imported_books(rows: list[dict[str, str]], import_format: str) -> dict[str, int]:
+    objects = _objects()
+    existing_isbns = {
+        str(item.get("fields", {}).get("isbn", "")).strip().casefold()
+        for item in objects.objects()
+        if str(item.get("fields", {}).get("isbn", "")).strip()
+    }
+    created = 0
+    skipped = 0
+    for row in rows:
+        isbn = str(row.get("isbn", "")).strip()[:64]
+        if isbn and isbn.casefold() in existing_isbns:
+            skipped += 1
+            continue
+        fields = {
+            key: str(row.get(key, ""))
+            for key in (
+                "authors", "isbn", "genre", "series", "series_number", "publisher",
+                "year", "language", "edition", "description", "bibliography_note",
+            )
+            if row.get(key)
+        }
+        objects.create({
+            "name": row["title"], "type": "book", "identifier": isbn,
+            "tags": ["buch", "isbn"] if isbn else ["buch"], "fields": fields,
+        }, _actor())
+        if isbn:
+            existing_isbns.add(isbn.casefold())
+        created += 1
+    audit("library_books_import", "library", "books", outcome="success",
+          detail={"format": import_format, "created": created, "skipped": skipped})
+    return {"created": created, "skipped": skipped, "total": len(rows)}
+
+
 @bp.post("/import/books.calibre")
 @login_required
 def import_books_calibre():
@@ -818,36 +912,31 @@ def import_books_calibre():
     except (OSError, ValueError) as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
 
-    objects = _objects()
-    existing_isbns = {
-        str(item.get("fields", {}).get("isbn", "")).strip().casefold()
-        for item in objects.objects()
-        if str(item.get("fields", {}).get("isbn", "")).strip()
-    }
-    created = 0
-    skipped = 0
-    for row in rows:
-        isbn = _calibre_isbn(row["identifiers"])
-        if isbn and isbn.casefold() in existing_isbns:
-            skipped += 1
-            continue
-        authors = row["authors"].replace(" & ", "; ")
-        fields = {
-            "authors": authors, "isbn": isbn, "genre": row["tags"],
-            "series": row["series"], "series_number": row["series_index"],
-            "publisher": row["publisher"], "year": row["published"],
-            "language": row["language"], "description": row["comments"],
-        }
-        objects.create({
-            "name": row["title"], "type": "book", "identifier": isbn,
-            "tags": ["buch", "isbn"] if isbn else ["buch"], "fields": fields,
-        }, _actor())
-        if isbn:
-            existing_isbns.add(isbn.casefold())
-        created += 1
-    audit("library_books_import", "library", "books", outcome="success",
-          detail={"format": "calibre_csv", "created": created, "skipped": skipped})
-    return jsonify({"ok": True, "created": created, "skipped": skipped, "total": len(rows)})
+    normalized = [{
+        "title": row["title"], "authors": row["authors"].replace(" & ", "; "),
+        "isbn": _calibre_isbn(row["identifiers"]), "genre": row["tags"],
+        "series": row["series"], "series_number": row["series_index"],
+        "publisher": row["publisher"], "year": row["published"],
+        "language": row["language"], "description": row["comments"],
+    } for row in rows]
+    result = _create_imported_books(normalized, "calibre_csv")
+    return jsonify({"ok": True, **result})
+
+
+@bp.post("/import/books.ris")
+@login_required
+def import_books_ris():
+    if not is_admin():
+        audit("library_books_import", "library", "books", outcome="failure",
+              detail={"reason": "administrator_required"})
+        abort(403)
+    upload = request.files.get("file")
+    try:
+        rows = _ris_import_rows(upload.read(4 * 1024 * 1024 + 1) if upload else b"")
+    except (OSError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    result = _create_imported_books(rows, "ris")
+    return jsonify({"ok": True, **result})
 
 
 def _ocr_action(function):
