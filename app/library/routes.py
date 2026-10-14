@@ -395,8 +395,11 @@ def print_book_labels():
 def export_book_labels_pdf():
     identifiers = request.form.getlist("object_id")
     style = request.form.get("barcode_style", "with_text")
+    layout = request.form.get("label_layout", "media")
     if style not in {"with_text", "barcode_only", "qr_with_text", "qr_only"}:
         return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
+    if layout not in {"media", "a4_3x7"}:
+        return jsonify({"ok": False, "error": "Bitte ein gültiges Etikettenlayout auswählen."}), 400
     items, error = _selected_book_label_items(identifiers)
     if error:
         return error
@@ -407,7 +410,7 @@ def export_book_labels_pdf():
     ]
 
     try:
-        payload = book_labels_pdf(labels, _store().printer_settings(), style=style)
+        payload = book_labels_pdf(labels, _store().printer_settings(), style=style, layout=layout)
     except (OSError, PrinterError, ValueError):
         return jsonify({"ok": False, "error": "PDF-Etiketten konnten mit der gewählten Größe nicht erstellt werden."}), 400
     return send_file(

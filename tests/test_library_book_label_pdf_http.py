@@ -105,6 +105,47 @@ class BookLabelPdfHttpContractTest(unittest.TestCase):
         self.assertAlmostEqual(29 * 72 / 25.4, float(reader.pages[0].mediabox.width), places=2)
         self.assertAlmostEqual(90 * 72 / 25.4, float(reader.pages[0].mediabox.height), places=2)
 
+    def test_a4_label_sheet_places_21_labels_per_page(self):
+        books = []
+        with self.app.app_context():
+            objects = ObjectStore(self.root)
+            for number in range(22):
+                books.append(objects.create({
+                    "name": f"Sheet Book {number}", "type": "book",
+                    "fields": {"isbn": f"9780306406{number:03d}"},
+                }, "reader"))
+
+        response = self.client.post(
+            "/library/labels/books.pdf",
+            data={
+                "_csrf_token": "book-label-pdf-csrf-token",
+                "barcode_style": "qr_only",
+                "label_layout": "a4_3x7",
+                "object_id": [book["object_id"] for book in books],
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        pdf = PdfReader(io.BytesIO(response.data))
+        self.assertEqual(2, len(pdf.pages))
+        self.assertEqual([21, 1], [len(page.images) for page in pdf.pages])
+        for page in pdf.pages:
+            self.assertAlmostEqual(210 * 72 / 25.4, float(page.mediabox.width), places=2)
+            self.assertAlmostEqual(297 * 72 / 25.4, float(page.mediabox.height), places=2)
+
+    def test_pdf_label_sheet_rejects_unknown_layout(self):
+        response = self.client.post(
+            "/library/labels/books.pdf",
+            data={
+                "_csrf_token": "book-label-pdf-csrf-token",
+                "barcode_style": "with_text",
+                "label_layout": "invented",
+                "object_id": [self.book_a["object_id"]],
+            },
+        )
+        self.assertEqual(400, response.status_code)
+        self.assertEqual("Bitte ein gültiges Etikettenlayout auswählen.", response.json["error"])
+
     def test_batch_limit_accepts_100_references_and_deduplicates_the_book(self):
         response = self._post([self.book_a["object_id"]] * 100)
 
