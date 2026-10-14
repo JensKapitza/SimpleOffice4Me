@@ -92,7 +92,7 @@ class RisImportHttpContractTest(unittest.TestCase):
 
         exported = self.client.get("/library/export/books.ris")
         self.assertEqual(200, exported.status_code)
-        self.assertIn("N1  - Library location: Imported shelf", exported.get_data(as_text=True))
+        self.assertIn("N1  - Inventory ID: 1; Library location: Imported shelf", exported.get_data(as_text=True))
 
     def test_utf8_ebook_and_alternative_title_are_supported(self):
         payload = "TY  - EBOOK\nTI  - Überprüfung\nA1  - Änne Autorin\nER  -\n".encode()
