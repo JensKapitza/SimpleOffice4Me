@@ -103,6 +103,15 @@ class LibraryMetadataFiltersHttpTest(unittest.TestCase):
         self.assertNotIn("Night Letters", body)
         self.assertNotIn("Old Maps", body)
 
+    def test_filter_controls_submit_to_the_library_page_not_an_export_endpoint(self):
+        response = self.client.get("/library")
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn('<form method="get" action="/library">', body)
+        self.assertIn('id="apply-library-filters" type="submit">Filtern</button>', body)
+        self.assertIn('href="/library">Filter zurücksetzen</a>', body)
+
 
 if __name__ == "__main__":
     unittest.main()
