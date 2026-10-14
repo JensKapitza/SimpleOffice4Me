@@ -69,7 +69,7 @@ def _verified_bytes(document: dict[str, Any], *, maximum: int) -> bytes:
     return payload
 
 
-def _catalog() -> list[dict[str, Any]]:
+def _catalog(query: str = "") -> list[dict[str, Any]]:
     store = _documents()
     rows: list[dict[str, Any]] = []
     # Query the existing repairable listing index, then revalidate each document
@@ -94,7 +94,8 @@ def _catalog() -> list[dict[str, Any]]:
         except (KeyError, OSError, ValueError):
             continue
         attributes = document.get("attributes", {}) if isinstance(document.get("attributes"), dict) else {}
-        rows.append({
+        annotation_text = reading.search_text(str(document["document_id"]), _actor())
+        row = {
             "document_id": str(document["document_id"]),
             "title": str(
                 attributes.get("reader_title")
@@ -114,8 +115,15 @@ def _catalog() -> list[dict[str, Any]]:
             "last_read_at": str(state.get("updated_at", "")),
             "progress": int(state.get("percent", 0) or 0),
             "stale": bool(state.get("stale")),
-            "annotation_text": reading.search_text(str(document["document_id"]), _actor()),
-        })
+            "annotation_text": annotation_text,
+        }
+        if query:
+            # Match indexed text without returning document content to the template.
+            content = str(document.get("extracted_text") or document.get("ocr_text") or "")[:2_000_000]
+            searchable = " ".join((row["title"], row["author"], row["path"], annotation_text, content))
+            if query not in searchable.casefold():
+                continue
+        rows.append(row)
         if len(rows) >= MAX_BOOKS:
             break
     return rows
@@ -125,18 +133,11 @@ def _catalog() -> list[dict[str, Any]]:
 @login_required
 def shelf():
     _require_documents()
-    query = request.args.get("q", "").strip().casefold()
+    query = request.args.get("q", "").strip()[:200].casefold()
     kind = request.args.get("format", "").strip().casefold()
     status = request.args.get("status", "").strip().casefold()
     sort = request.args.get("sort", "recent").strip().casefold()
-    rows = _catalog()
-    if query:
-        rows = [
-            row for row in rows
-            if query in (
-                row["title"] + " " + row["author"] + " " + row["path"] + " " + row["annotation_text"]
-            ).casefold()
-        ]
+    rows = _catalog(query)
     if kind in {"pdf", "epub"}:
         rows = [row for row in rows if row["format"] == kind]
     if status == "unread":

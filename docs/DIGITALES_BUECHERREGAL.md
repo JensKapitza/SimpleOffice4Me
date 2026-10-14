@@ -17,8 +17,10 @@ Der Einstieg **Bücherregal** befindet sich in der Dokumentnavigation. Berücksi
 Filter:
 - Format PDF/EPUB
 - ungelesen / in Arbeit / fertig
-- Suche über Titel, Autor, Pfad und eigene Reader-Anmerkungen
+- Suche über Titel, Autor, Pfad, eigene Reader-Anmerkungen und den bereits indexierten Dokumenttext einschließlich OCR
 - Sortierung nach zuletzt gelesen, Titel, Autor oder Fortschritt
+
+Die Suche verwendet ausschließlich den Text im vorhandenen Dokumentindex und liest oder rendert beim Aufruf keine Originaldateien erneut. Trefferinhalte werden nicht in der Regalansicht ausgegeben. Die vorhandene Sichtbarkeitsprüfung des Dokumentstores gilt weiterhin.
 
 EPUB-Titel und Autor werden beim sicheren Öffnen aus dem Package-Dokument gelesen und als abgeleitete Reader-Metadaten zwischengespeichert. PDF-Titel und Autor werden über die bereits vorhandene `pypdf`-Abhängigkeit gelesen. Manuelle Korrekturen werden nur als Dokumentattribute gespeichert; das Original bleibt unverändert.
 
@@ -35,6 +37,12 @@ Funktionen:
 - positionsgebundene Anmerkungen
 
 Die Reader-Grenze liegt bei 200 MiB pro PDF. Passwortgeschützte Dateien werden verständlich abgelehnt, sofern sie sich nicht ohne Passwort öffnen lassen.
+
+### OCR und durchsuchbare Scans
+
+Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit `pypdf` als Python-Fallback. Für Bildinhalte wird verfügbare eingebettete Bildebene mit `pdfimages` und Tesseract ausgewertet. Liefert sie keinen erkannten Text, rendert `pdftoppm` die ersten höchstens fünf PDF-Seiten mit einer maximalen Kantenlänge von 1.800 Pixeln; Tesseract verarbeitet jede gerenderte Seite mit einem 30-Sekunden-Zeitlimit. Der Renderlauf selbst ist auf 90 Sekunden begrenzt. Fehlende optionale Systemwerkzeuge lassen die übrige Dokumentindexierung weiterlaufen.
+
+Damit bleibt OCR auf großen Dokumenten begrenzt. Textbasierte PDF-Suche umfasst den extrahierten Indextext; Scan-OCR kann wegen Seiten- und Werkzeuglimits nur einen Teil eines langen bildbasierten PDFs abdecken. Ein erneuter Scan beziehungsweise `refresh_missing_text` aktualisiert fehlenden oder veralteten extrahierten Text.
 
 ## EPUB
 
@@ -66,7 +74,7 @@ Das Bücherregal behauptet keine generelle Offline-Verfügbarkeit. Der separat v
 
 ## Abhängigkeiten
 
-Es wurden keine neuen Drittanbieterabhängigkeiten eingeführt. Verwendet werden die bereits im Projekt vorhandenen Pakete `pypdf` und `defusedxml` sowie Androids Plattformklasse `PdfRenderer`.
+Es wurden keine neuen Python-Abhängigkeiten eingeführt. Verwendet werden die bereits vorhandenen Pakete `pypdf` und `defusedxml`, Androids Plattformklasse `PdfRenderer` sowie – falls installiert – die Systemwerkzeuge Poppler (`pdftotext`, `pdfimages`, `pdftoppm`) und Tesseract für PDF-Textindexierung und OCR.
 
 ## Abnahmegrenze
 

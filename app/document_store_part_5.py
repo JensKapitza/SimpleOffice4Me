@@ -34,25 +34,62 @@ class _DocumentStorePart5:
 
     def _pdf_image_ocr(self, path: Path) -> str:
         executable = shutil.which("pdfimages")
-        if not executable:
-            return ""
-        with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-images-") as temp:
-            output_prefix = Path(temp) / "image"
-            try:
-                result = subprocess.run([executable, "-png", str(path), str(output_prefix)], capture_output=True, text=True, timeout=120, check=False)
-            except subprocess.TimeoutExpired as exc:
-                raise RuntimeError("PDF image extraction timed out after 120 seconds") from exc
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip() or "PDF image extraction failed")
-            texts: list[str] = []
-            for image_path in sorted(Path(temp).glob("image-*.png"))[:100]:
+        texts: list[str] = []
+        if executable:
+            with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-images-") as temp:
+                output_prefix = Path(temp) / "image"
                 try:
-                    text = self._image_ocr(image_path)
-                    if text:
-                        texts.append(text)
+                    result = subprocess.run([executable, "-png", str(path), str(output_prefix)], capture_output=True, text=True, timeout=120, check=False)
+                except (OSError, subprocess.TimeoutExpired):
+                    result = None
+                if result is not None and result.returncode == 0:
+                    for image_path in sorted(Path(temp).glob("image-*.png"))[:100]:
+                        try:
+                            text = self._image_ocr(image_path)
+                            if text:
+                                texts.append(text)
+                        except RuntimeError:
+                            continue
+        # pdfimages cannot help with pages made from vector paths or when the
+        # utility is absent. Render only the first few pages at a fixed bound.
+        # This uses the same Poppler renderer already used by document previews.
+        if not any(text.strip() for text in texts):
+            texts.extend(self._pdf_rendered_ocr(path))
+        return "\n".join(texts)
+
+    def _pdf_rendered_ocr(self, path: Path) -> list[str]:
+        renderer = shutil.which("pdftoppm")
+        if not renderer or not shutil.which("tesseract"):
+            return []
+        try:
+            from pypdf import PdfReader
+
+            page_count = len(PdfReader(str(path)).pages)
+        except Exception:
+            return []
+        if page_count < 1:
+            return []
+        page_limit = min(page_count, 5)
+        with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-ocr-") as temp:
+            prefix = Path(temp) / "page"
+            try:
+                result = subprocess.run(
+                    [renderer, "-f", "1", "-l", str(page_limit), "-scale-to", "1800", "-png", "--", str(path), str(prefix)],
+                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90, check=False,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                return []
+            if result.returncode != 0:
+                return []
+            texts: list[str] = []
+            for image_path in sorted(Path(temp).glob("page-*.png"))[:page_limit]:
+                try:
+                    text = self._image_ocr(image_path, timeout=30)
                 except RuntimeError:
                     continue
-            return "\n".join(texts)
+                if text:
+                    texts.append(text)
+            return texts
 
     @staticmethod
     def _file_text(path: Path) -> tuple[str, str]:
@@ -172,17 +209,17 @@ class _DocumentStorePart5:
         return set(unique[:12])
 
     @staticmethod
-    def _image_ocr(path: Path) -> str:
+    def _image_ocr(path: Path, timeout: int = 90) -> str:
         executable = shutil.which("tesseract")
         if not executable:
             raise RuntimeError("Tesseract OCR is not installed")
         environment = ocr_subprocess_environment()
         try:
-            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=90, check=False, env=environment)
+            result = subprocess.run([executable, str(path), "stdout", "-l", "deu+eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
             if result.returncode != 0 and "deu" in result.stderr.lower():
-                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=90, check=False, env=environment)
+                result = subprocess.run([executable, str(path), "stdout", "-l", "eng"], capture_output=True, text=True, timeout=timeout, check=False, env=environment)
         except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("OCR timed out after 90 seconds") from exc
+            raise RuntimeError(f"OCR timed out after {timeout} seconds") from exc
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "Tesseract OCR failed")
         return " ".join(result.stdout.split())

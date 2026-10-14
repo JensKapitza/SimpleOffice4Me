@@ -1,6 +1,7 @@
 import io
 import json
 import shutil
+import subprocess
 import tempfile
 import unittest
 from email import policy
@@ -506,3 +507,49 @@ class DocumentStoreTest(unittest.TestCase):
                 DocumentStore(root).scan()
 
             self.assertIn("Python PDF Fallback", DocumentStore(root).get_document(pdf_path)["extracted_text"])
+
+    def test_scanned_pdf_ocr_renders_pages_when_pdfimages_is_unavailable(self):
+        try:
+            from reportlab.pdfgen.canvas import Canvas
+        except ImportError:
+            self.skipTest("reportlab is not installed")
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            pdf_path = root / "scan.pdf"
+            scan_image = root / "page.png"
+            from PIL import Image
+
+            Image.new("RGB", (1600, 2200), "white").save(scan_image)
+            canvas = Canvas(str(pdf_path))
+            canvas.drawImage(str(scan_image), 0, 0, width=612, height=792)
+            canvas.save()
+            scan_image.unlink()
+            original_which = shutil.which
+            original_run = subprocess.run
+
+            def fake_which(command):
+                if command == "pdfimages":
+                    return None
+                if command == "pdftoppm":
+                    return "/mock/pdftoppm"
+                if command == "tesseract":
+                    return "/mock/tesseract"
+                return original_which(command)
+
+            def fake_run(command, **kwargs):
+                if command[0] == "/mock/pdftoppm":
+                    Image.new("RGB", (32, 32), "white").save(Path(command[-1]).parent / "page-1.png")
+                    return subprocess.CompletedProcess(command, 0, "", "")
+                if command[0] == "/mock/tesseract":
+                    return subprocess.CompletedProcess(command, 0, "ScannedInvoice OCR-REF-90210\n", "")
+                return original_run(command, **kwargs)
+
+            with patch("app.document_store.shutil.which", side_effect=fake_which), patch(
+                "app.document_store.subprocess.run", side_effect=fake_run,
+            ):
+                store = DocumentStore(root)
+                store.scan()
+
+            document = store.get_document(pdf_path)
+            self.assertIn("OCR-REF-90210", document["extracted_text"])
+            self.assertEqual(document["document_id"], store.search("OCR-REF-90210")[0]["document_id"])
