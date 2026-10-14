@@ -11,6 +11,8 @@ fehlende Programme; sie installiert oder startet nichts automatisch.
 | Signaturen | `freshclam` | `clamav` |
 | Bilder/Collagen | `magick` oder kompatibles `convert` | `imagemagick` |
 | erste PDF-Seite | `pdftoppm` | `poppler-utils` |
+| PDF-S/W-Export | `gs` | `ghostscript` |
+| OCR-Textebene | `tesseract` | `tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng` |
 | Audio/Video | `ffmpeg` | `ffmpeg` |
 | Office-Dateien | `libreoffice` oder `soffice` | `libreoffice` |
 
@@ -18,14 +20,16 @@ Debian/Ubuntu:
 
 ```bash
 sudo apt update
-sudo apt install clamav clamav-daemon imagemagick poppler-utils ffmpeg libreoffice
+sudo apt install clamav clamav-daemon imagemagick poppler-utils ghostscript \
+  tesseract-ocr tesseract-ocr-deu tesseract-ocr-eng ffmpeg libreoffice
 sudo freshclam
 sudo systemctl enable --now clamav-daemon
 ```
 
 Fedora/RHEL nutzt `clamav clamav-update clamd ImageMagick poppler-utils
-ffmpeg-free libreoffice-headless`. macOS nutzt `brew install clamav imagemagick
-poppler ffmpeg` sowie `brew install --cask libreoffice`. Unter Windows stehen
+ghostscript tesseract tesseract-langpack-deu tesseract-langpack-eng ffmpeg-free
+libreoffice-headless`. macOS nutzt `brew install clamav imagemagick poppler
+ghostscript tesseract ffmpeg` sowie `brew install --cask libreoffice`. Unter Windows stehen
 der offizielle ClamAV-Installer sowie `winget install ImageMagick.Q16`,
 `winget install Gyan.FFmpeg` und `winget install
 TheDocumentFoundation.LibreOffice` zur Verfügung.

@@ -44,6 +44,8 @@ Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit 
 
 Textbasierte PDF-Suche umfasst den extrahierten Indextext. Ein erneuter Scan beziehungsweise `refresh_missing_text` aktualisiert fehlenden oder veralteten extrahierten Text.
 
+Im PDF-Reader kann über **S/W-PDF mit OCR** eine separate Schwarz-Weiß-Fassung heruntergeladen werden. Das Original wird nicht geändert. Ghostscript wandelt alle PDF-Seiten in Graustufen um; **jede Seite** wird einzeln gerendert und mit Tesseract verarbeitet. Die erkannte OCR-Ebene wird als PDF-Textebene mit unsichtbarem Zeichenmodus eingebettet: Sie bleibt durchsuchbar und kopierbar, wird aber nicht über den sichtbaren Seiteninhalt gemalt. Bereits vorhandene Textzeilen bleiben erhalten; identische OCR-Zeilen werden nicht doppelt ergänzt. Schlägt die Konvertierung oder OCR einer Seite fehl, wird keine teilweise erzeugte Datei ausgeliefert. Die Eingabegrenze beträgt 200 MiB, die Ausgabegrenze 400 MiB; Ghostscript hat ein 15-Minuten-Limit, pro OCR-Seite gelten 30 Sekunden und pro Seitenrender 90 Sekunden. Es gibt keine feste Seitenobergrenze. Für diese Funktion werden Ghostscript, Poppler (`pdftoppm`) und Tesseract benötigt. Der Export wird als Download geliefert und legt keine zweite Dokumentkopie im Bestand an.
+
 ## EPUB
 
 EPUB wird ohne Entpacken in das Dateisystem verarbeitet. XML wird mit `defusedxml` geparst. Publisher-HTML, CSS und Skripte werden nicht direkt ausgeführt; Kapitel werden als bereinigter, reflow-fähiger Text neu aufgebaut. Externe Ressourcen werden nicht geladen.
@@ -74,7 +76,7 @@ Das Bücherregal behauptet keine generelle Offline-Verfügbarkeit. Der separat v
 
 ## Abhängigkeiten
 
-Es wurden keine neuen Python-Abhängigkeiten eingeführt. Verwendet werden die bereits vorhandenen Pakete `pypdf` und `defusedxml`, Androids Plattformklasse `PdfRenderer` sowie – falls installiert – die Systemwerkzeuge Poppler (`pdftotext`, `pdftoppm`) und Tesseract für PDF-Textindexierung und OCR.
+Es wurden keine neuen Python-Abhängigkeiten eingeführt. Verwendet werden die bereits vorhandenen Pakete `pypdf`, `reportlab`, `Pillow` und `defusedxml`, Androids Plattformklasse `PdfRenderer` sowie – falls installiert – die Systemwerkzeuge Poppler (`pdftotext`, `pdftoppm`), Ghostscript und Tesseract für PDF-Textindexierung, OCR und den S/W-Export.
 
 ## Abnahmegrenze
 
