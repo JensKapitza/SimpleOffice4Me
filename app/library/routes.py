@@ -837,7 +837,10 @@ def _ris_import_rows(upload: bytes) -> list[dict[str, str]]:
             kind = (record.get("TY") or [""])[0]
             if kind not in {"BOOK", "EBOOK"}:
                 raise ValueError("Der RIS-Import unterstützt nur BOOK- und EBOOK-Datensätze.")
-            title = next((record.get(tag) or [""])[0] for tag in ("T1", "TI", "CT") if record.get(tag))
+            title = next(
+                ((record.get(candidate) or [""])[0] for candidate in ("T1", "TI", "CT") if record.get(candidate)),
+                "",
+            )
             if title:
                 rows.append({
                     "title": title,
