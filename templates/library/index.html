@@ -122,7 +122,7 @@
             <td>{{ book.library_location_path or 'nicht zugeordnet' }}{% if book.library_location.code %}<br><code>{{ book.library_location.code }}</code>{% endif %}</td>
           </tr>{% else %}<tr><td colspan="4" class="text-secondary">Noch keine Bücher gefunden.</td></tr>{% endfor %}</tbody>
         </table></div>
-        <div class="p-2 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-outline-primary" id="print-book-labels" type="button" data-url="{{ url_for('library.print_book_labels') }}">Etiketten für Auswahl drucken</button><button class="btn btn-outline-secondary" id="download-book-labels-pdf" type="button" data-url="{{ url_for('library.export_book_labels_pdf') }}">Etiketten-PDF herunterladen</button><label class="visually-hidden" for="book-label-style">Etikettenart</label><select class="form-select form-select-sm" id="book-label-style" aria-label="Etikettenart"><option value="with_text">Barcode mit lesbarem Text</option><option value="barcode_only">Nur Barcode</option><option value="qr_with_text">QR-Code mit lesbarem Text</option><option value="qr_only">Nur QR-Code</option></select><label class="visually-hidden" for="book-label-layout">PDF-Etikettenlayout</label><select class="form-select form-select-sm" id="book-label-layout" aria-label="PDF-Etikettenlayout"><option value="media">Einzelne Drucker-Etiketten</option><option value="a4_3x7">A4-Bogen · 3 × 7 (63,5 × 38,1 mm)</option></select><span id="book-label-status" class="small text-secondary" role="status" aria-live="polite"></span>{% if g.user.is_admin %}<button class="btn btn-outline-secondary" type="submit">CSV</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_ris') }}">RIS (Zitavi)</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_bibtex') }}">BibTeX</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_calibre') }}">Calibre CSV/OPF</button><label class="visually-hidden" for="calibre-import-file">Calibre-Archiv</label><input class="form-control form-control-sm" id="calibre-import-file" type="file" accept=".zip,application/zip" aria-label="Calibre-Archiv auswählen"><button class="btn btn-outline-secondary" id="import-calibre-books" type="button" data-url="{{ url_for('library.import_books_calibre') }}">Calibre importieren</button><span class="small text-secondary">Ohne Auswahl wird der gesamte Bestand exportiert.</span>{% endif %}</div>
+        <div class="p-2 d-flex flex-wrap gap-2 align-items-center"><button class="btn btn-outline-primary" id="print-book-labels" type="button" data-url="{{ url_for('library.print_book_labels') }}">Etiketten für Auswahl drucken</button><button class="btn btn-outline-secondary" id="preview-book-labels" type="button" data-url="{{ url_for('library.preview_book_labels') }}">Vorschau</button><button class="btn btn-outline-secondary" id="download-book-labels-pdf" type="button" data-url="{{ url_for('library.export_book_labels_pdf') }}">Etiketten-PDF herunterladen</button><label class="visually-hidden" for="book-label-style">Etikettenart</label><select class="form-select form-select-sm" id="book-label-style" aria-label="Etikettenart"><option value="with_text">Barcode mit lesbarem Text</option><option value="barcode_only">Nur Barcode</option><option value="qr_with_text">QR-Code mit lesbarem Text</option><option value="qr_only">Nur QR-Code</option></select><label class="visually-hidden" for="book-label-layout">PDF-Etikettenlayout</label><select class="form-select form-select-sm" id="book-label-layout" aria-label="PDF-Etikettenlayout"><option value="media">Einzelne Drucker-Etiketten</option><option value="a4_3x7">A4-Bogen · 3 × 7 (63,5 × 38,1 mm)</option></select><span id="book-label-status" class="small text-secondary" role="status" aria-live="polite"></span>{% if g.user.is_admin %}<button class="btn btn-outline-secondary" type="submit">CSV</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_ris') }}">RIS (Zitavi)</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_bibtex') }}">BibTeX</button><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('library.export_books_calibre') }}">Calibre CSV/OPF</button><label class="visually-hidden" for="calibre-import-file">Calibre-Archiv</label><input class="form-control form-control-sm" id="calibre-import-file" type="file" accept=".zip,application/zip" aria-label="Calibre-Archiv auswählen"><button class="btn btn-outline-secondary" id="import-calibre-books" type="button" data-url="{{ url_for('library.import_books_calibre') }}">Calibre importieren</button><span class="small text-secondary">Ohne Auswahl wird der gesamte Bestand exportiert.</span>{% endif %}</div>
       </form>
     </div></div>
     <div class="col-lg-4"><div class="card shadow-sm h-100"><div class="card-header"><strong>Letzte Bibliotheksaktionen</strong></div><div class="list-group list-group-flush">{% for event in events %}<div class="list-group-item"><div class="small"><strong>{{ event.kind }}</strong> · {{ event.actor }}</div><div class="small text-secondary">{{ event.at }}</div><div class="small text-break">{{ event.detail }}</div></div>{% else %}<div class="list-group-item text-secondary">Noch keine Aktionen.</div>{% endfor %}</div></div></div>
@@ -164,6 +164,42 @@
       status.textContent = error.message || 'Etikettendruck fehlgeschlagen.';
     } finally {
       printLabelsButton.disabled = false;
+    }
+  });
+
+  const previewLabelsButton = document.getElementById('preview-book-labels');
+  previewLabelsButton?.addEventListener('click', async () => {
+    const selectedBooks = [...document.querySelectorAll('input[name="object_id"]:checked')];
+    const status = document.getElementById('book-label-status');
+    if (!selectedBooks.length) { status.textContent = 'Bitte mindestens ein Buch auswählen.'; return; }
+    const data = new FormData();
+    data.set('_csrf_token', csrf);
+    data.set('barcode_style', document.getElementById('book-label-style').value);
+    data.append('object_id', selectedBooks[0].value);
+    previewLabelsButton.disabled = true;
+    status.textContent = 'Vorschau wird erstellt…';
+    try {
+      const response = await fetch(previewLabelsButton.dataset.url, {method: 'POST', body: data});
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || 'Etikettenvorschau fehlgeschlagen.');
+      }
+      const image = await response.blob();
+      if (!image.type.startsWith('image/png')) throw new Error('Der Server hat keine PNG-Vorschau zurückgegeben.');
+      const url = URL.createObjectURL(image);
+      const link = document.createElement('a');
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      status.textContent = selectedBooks.length > 1
+        ? 'Vorschau für das erste ausgewählte Buch geöffnet.'
+        : 'Vorschau geöffnet.';
+    } catch (error) {
+      status.textContent = error.message || 'Etikettenvorschau fehlgeschlagen.';
+    } finally {
+      previewLabelsButton.disabled = false;
     }
   });
 
