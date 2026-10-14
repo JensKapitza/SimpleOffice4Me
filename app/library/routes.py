@@ -8,6 +8,7 @@ import logging
 import re
 import shutil
 import tempfile
+import zipfile
 from pathlib import Path
 from functools import wraps
 from tools.service_control import exclusive_lease
@@ -881,6 +882,7 @@ def optimize_ocr_image():
 def analyze_ocr_upload():
     """Recognize text in a photo or selected PDF page using local Tesseract."""
     import tempfile
+import zipfile
     from .image_preprocessing import MAX_UPLOAD
     from .ocr_input import optimize_upload
     from ..object_vision import _run_tesseract
