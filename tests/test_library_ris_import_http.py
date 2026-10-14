@@ -102,6 +102,15 @@ class RisImportHttpContractTest(unittest.TestCase):
         self.assertEqual(1, response.get_json()["created"])
         self.assertEqual("Überprüfung", ObjectStore(self.root).objects()[0]["name"])
 
+    def test_untitled_record_rejects_the_whole_upload_without_partial_import(self):
+        payload = self._ris() + b"TY  - BOOK\nAU  - Untitled Author\nER  -\n"
+
+        response = self._post(payload)
+
+        self.assertEqual(400, response.status_code)
+        self.assertFalse(response.get_json()["ok"])
+        self.assertEqual([], ObjectStore(self.root).objects())
+
     def test_malformed_unfinished_and_non_book_records_are_rejected(self):
         cases = (
             b"not ris",
