@@ -91,18 +91,12 @@ class FederationPairingTokens:
         claimed_at = self._timestamp(now)
         with self.store._db() as db:
             row = db.execute(
-                """SELECT peer_id,expires_at FROM federation_pairing_token
-                WHERE token_hash=? AND claimed_at IS NULL AND expires_at>=?""",
-                (token_hash, claimed_at),
-            ).fetchone()
-            if row is None or str(row["peer_id"]) != peer_id:
-                raise ValueError("invalid or expired pairing code")
-            changed = db.execute(
                 """UPDATE federation_pairing_token SET claimed_at=?
-                WHERE token_hash=? AND peer_id=? AND claimed_at IS NULL AND expires_at>=?""",
+                WHERE token_hash=? AND peer_id=? AND claimed_at IS NULL AND expires_at>=?
+                RETURNING expires_at""",
                 (claimed_at, token_hash, peer_id, claimed_at),
-            ).rowcount
-            if changed != 1:
+            ).fetchone()
+            if row is None:
                 raise ValueError("invalid or expired pairing code")
         return {"peer_id": peer_id, "claimed_at": claimed_at, "expires_at": int(row["expires_at"])}
 
