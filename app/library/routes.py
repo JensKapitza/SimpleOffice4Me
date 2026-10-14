@@ -148,8 +148,18 @@ def assign_object_to_location(object_id: str, location_id: str, actor: str, *, s
     return {"item": updated, "location": location, "assignment": assignment, "location_path": path}
 
 
-def _books_with_assignments(query: str = "", limit: int = 120) -> list[dict[str, Any]]:
+def _books_with_assignments(
+    query: str = "",
+    limit: int = 120,
+    *,
+    author: str = "",
+    genre: str = "",
+    location_id: str = "",
+) -> list[dict[str, Any]]:
     needle = str(query or "").strip().casefold()
+    author_needle = str(author or "").strip().casefold()
+    genre_needle = str(genre or "").strip().casefold()
+    selected_location = str(location_id or "").strip()
     library = _store()
     locations = {row["location_id"]: row for row in library.locations()}
     rows: list[dict[str, Any]] = []
@@ -158,15 +168,30 @@ def _books_with_assignments(query: str = "", limit: int = 120) -> list[dict[str,
         if str(item.get("type", "")).casefold() not in {"book", "buch"} and "buch" not in tags and "isbn" not in tags:
             continue
         assignment = library.assignment(item["object_id"])
-        location = locations.get(str((assignment or {}).get("location_id", "")), {})
-        location_path = library.location_path(str(location.get("location_id", ""))) if location else str(item.get("location", ""))
+        assigned_location_id = str((assignment or {}).get("location_id", ""))
+        if selected_location and assigned_location_id != selected_location:
+            continue
+        location = locations.get(assigned_location_id, {})
+        location_path = library.location_path(assigned_location_id) if location else str(item.get("location", ""))
+        fields = item.get("fields", {})
+        authors = str(fields.get("authors", fields.get("author", "")))
+        genres = str(fields.get("genre", fields.get("genres", "")))
+        if author_needle and author_needle not in authors.casefold():
+            continue
+        if genre_needle and genre_needle not in genres.casefold():
+            continue
         haystack = " ".join((
             str(item.get("display_id", "")), str(item.get("name", "")), str(item.get("identifier", "")),
-            str(item.get("fields", {}).get("authors", "")), location_path, str(location.get("code", "")),
+            authors, genres, location_path, str(location.get("code", "")),
         )).casefold()
         if needle and needle not in haystack:
             continue
-        rows.append({**item, "library_assignment": assignment or {}, "library_location": location, "library_location_path": location_path})
+        rows.append({
+            **item,
+            "library_assignment": assignment or {},
+            "library_location": location,
+            "library_location_path": location_path,
+        })
         if len(rows) >= max(1, min(int(limit), 500)):
             break
     return rows
@@ -186,7 +211,12 @@ def index():
         printer=_store().printer_settings(),
         models=sorted(MODELS),
         labels=sorted(LABELS, key=lambda value: (len(value), value)),
-        books=_books_with_assignments(request.args.get("q", ""), 80),
+        books=_books_with_assignments(
+            request.args.get("q", ""), 80,
+            author=request.args.get("author", ""),
+            genre=request.args.get("genre", ""),
+            location_id=selected_location,
+        ),
         events=_store().recent_events(25),
         discovered=discover_printers(),
         ocr_available=bool(shutil.which("tesseract")),
