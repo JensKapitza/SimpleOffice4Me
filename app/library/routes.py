@@ -208,6 +208,8 @@ def index():
         "library/index.html",
         locations=locations,
         selected_location=selected_location,
+        author_filter=request.args.get("author", "").strip(),
+        genre_filter=request.args.get("genre", "").strip(),
         printer=_store().printer_settings(),
         models=sorted(MODELS),
         labels=sorted(LABELS, key=lambda value: (len(value), value)),
