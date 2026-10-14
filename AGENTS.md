@@ -325,7 +325,7 @@ Eine Aufgabe gilt für den betroffenen Umfang erst als abgeschlossen, wenn die a
 - Tests erfolgreich
 - Code kompiliert
 - Größenlimits eingehalten
-- CI für Ubuntu-22.04-System-Python 3.10 sowie 3.11 und 3.14 berücksichtigt
+- CI für Ubuntu-22.04-System-Python 3.10 sowie 3.11, 3.14 und 3.15 berücksichtigt
 - `pip-audit` erfolgreich oder Abweichung begründet dokumentiert
 - `tools/cra_check.py` erfolgreich oder Abweichung begründet dokumentiert
 - Release-SBOM berücksichtigt
