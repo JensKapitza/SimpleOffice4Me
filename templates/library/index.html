@@ -155,6 +155,9 @@
           <label class="visually-hidden" for="ris-import-file">RIS-Datei</label>
           <input class="form-control form-control-sm" id="ris-import-file" type="file" accept=".ris,application/x-research-info-systems,text/plain" aria-label="RIS-Datei auswählen">
           <button class="btn btn-outline-secondary" id="import-ris-books" type="button" data-url="{{ url_for('library.import_books_ris') }}">RIS importieren</button>
+          <label class="visually-hidden" for="bibtex-import-file">BibTeX-Datei</label>
+          <input class="form-control form-control-sm" id="bibtex-import-file" type="file" accept=".bib,application/x-bibtex,text/plain" aria-label="BibTeX-Datei auswählen">
+          <button class="btn btn-outline-secondary" id="import-bibtex-books" type="button" data-url="{{ url_for('library.import_books_bibtex') }}">BibTeX importieren</button>
           <span class="small text-secondary">Ohne Auswahl wird der gefilterte Bestand exportiert, ohne Filter der gesamte Bestand.</span>
           {% endif %}
         </div>
@@ -317,6 +320,29 @@
       status.textContent = error.message || 'RIS-Import fehlgeschlagen.';
     } finally {
       importRisButton.disabled = false;
+    }
+  });
+
+  const importBibtexButton = document.getElementById('import-bibtex-books');
+  importBibtexButton?.addEventListener('click', async () => {
+    const file = document.getElementById('bibtex-import-file')?.files?.[0];
+    const status = document.getElementById('book-label-status');
+    if (!file) { status.textContent = 'Bitte eine BibTeX-Datei auswählen.'; return; }
+    const data = new FormData();
+    data.set('_csrf_token', csrf);
+    data.set('file', file);
+    importBibtexButton.disabled = true;
+    status.textContent = 'BibTeX-Daten werden importiert…';
+    try {
+      const response = await fetch(importBibtexButton.dataset.url, {method: 'POST', body: data, headers: {'Accept': 'application/json'}});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'BibTeX-Import fehlgeschlagen.');
+      status.textContent = `${result.created} Bücher importiert, ${result.skipped} vorhandene ISBN übersprungen.`;
+      window.setTimeout(() => window.location.reload(), 800);
+    } catch (error) {
+      status.textContent = error.message || 'BibTeX-Import fehlgeschlagen.';
+    } finally {
+      importBibtexButton.disabled = false;
     }
   });
 
