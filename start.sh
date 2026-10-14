@@ -354,7 +354,7 @@ ensure_python_runtime() {
 
   if command -v "$PYTHON" >/dev/null 2>&1; then
     current_version="$($PYTHON -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || printf 'unbekannt')"
-    echo "Vorhandenes $PYTHON ($current_version) ist nicht freigegeben; benötigt wird CPython 3.11–3.14 oder die begrenzte Ubuntu-22.04-Ausnahme." >&2
+    echo "Vorhandenes $PYTHON ($current_version) ist nicht freigegeben; benötigt wird CPython 3.11–3.15 oder die begrenzte Ubuntu-22.04-Ausnahme." >&2
   else
     echo "Python 3 wurde nicht gefunden; prüfe native Pakete für $DISTRO_NAME ..."
   fi
@@ -580,11 +580,11 @@ if [ -x "$VENV/bin/python" ]; then
   RUNTIME_PYTHON="$VENV/bin/python"
 elif [ "$CHECK_SYSTEM" -eq 1 ]; then
   if ! python_is_compatible; then
-    echo "--check-system verändert das System nicht. Für die Prüfung wird CPython 3.11–3.14 oder die begrenzte Ubuntu-22.04-Ausnahme benötigt." >&2
+    echo "--check-system verändert das System nicht. Für die Prüfung wird CPython 3.11–3.15 oder die begrenzte Ubuntu-22.04-Ausnahme benötigt." >&2
     exit 1
   fi
 elif ! ensure_python_runtime; then
-  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird CPython 3.11–3.14 oder die begrenzte Ubuntu-22.04-Ausnahme." >&2
+  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird CPython 3.11–3.15 oder die begrenzte Ubuntu-22.04-Ausnahme." >&2
   if [ -n "$NATIVE_PM" ]; then
     echo "Erkannter Paketmanager: $NATIVE_PM ($DISTRO_NAME)." >&2
   fi
