@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from app import app
 from app import db as database
@@ -202,6 +203,38 @@ class ReaderRoutesTests(unittest.TestCase):
         )
         self.assertEqual(200, metadata.status_code)
         self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
+
+    def test_pdf_reader_offers_protected_grayscale_download_without_changing_source(self):
+        from reportlab.pdfgen.canvas import Canvas
+
+        output = io.BytesIO()
+        pdf = Canvas(output)
+        pdf.drawString(72, 720, "Original PDF")
+        pdf.save()
+        store = DocumentStore(self.documents)
+        document = store.import_upload(io.BytesIO(output.getvalue()), "Source.pdf", "admin")
+        original_digest = store.get_document(document["document_id"])["sha256"]
+        converted = output.getvalue() + b"-converted"
+        with patch(
+            "app.pdf_conversion.make_grayscale_searchable_pdf", return_value=converted,
+        ):
+            response = self.client.post(
+                f"/documents/reader/{document['document_id']}/pdf/grayscale",
+                headers=self.headers,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/pdf", response.mimetype)
+        self.assertIn("Source-sw-ocr.pdf", response.headers["Content-Disposition"])
+        self.assertEqual("private, no-store", response.headers["Cache-Control"])
+        self.assertEqual(converted, response.data)
+        self.assertEqual(original_digest, store.get_document(document["document_id"])["sha256"])
+
+    def test_grayscale_export_rejects_epub(self):
+        response = self.client.post(
+            f"/documents/reader/{self.document['document_id']}/pdf/grayscale",
+            headers=self.headers,
+        )
+        self.assertEqual(404, response.status_code)
 
     def test_shelf_search_matches_indexed_pdf_or_ocr_text_without_rendering_content(self):
         store = DocumentStore(self.documents)

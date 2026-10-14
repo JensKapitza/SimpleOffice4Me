@@ -266,6 +266,43 @@ def epub_cover(document_id: str):
     return response
 
 
+@bp.post("/<document_id>/pdf/grayscale")
+@login_required
+def grayscale_pdf(document_id: str):
+    """Download a grayscale copy, retaining the protected source unchanged."""
+    _require_documents()
+    document, kind = _book(document_id)
+    if kind != "pdf":
+        abort(404)
+    source = _verified_bytes(document, maximum=200 * 1024 * 1024)
+    try:
+        from .pdf_conversion import make_grayscale_searchable_pdf
+
+        payload = make_grayscale_searchable_pdf(source)
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("reader.open_book", document_id=document_id))
+    except (OSError, RuntimeError) as exc:
+        current_app.logger.warning(
+            "Reader PDF conversion failed for %s: %s", document_id, str(exc)
+        )
+        flash(str(exc))
+        return redirect(url_for("reader.open_book", document_id=document_id))
+
+    stem = Path(str(document.get("last_path") or "document.pdf")).stem[:100]
+    audit(
+        "document_reader_pdf_grayscale_export", "document", document_id,
+        detail={"ocr_layer": "invisible", "source_changed": False},
+    )
+    response = send_file(
+        io.BytesIO(payload), mimetype="application/pdf", as_attachment=True,
+        download_name=f"{stem}-sw-ocr.pdf", max_age=0,
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 @bp.post("/<document_id>/metadata")
 @login_required
 def update_reader_metadata(document_id: str):
