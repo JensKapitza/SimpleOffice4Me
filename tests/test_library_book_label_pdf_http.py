@@ -94,6 +94,17 @@ class BookLabelPdfHttpContractTest(unittest.TestCase):
         self.assertEqual("application/pdf", response.mimetype)
         self.assertEqual(1, len(PdfReader(io.BytesIO(response.data)).pages))
 
+    def test_qr_only_selection_returns_a_media_sized_pdf(self):
+        response = self._post([self.book_a["object_id"]], style="qr_only")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/pdf", response.mimetype)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        reader = PdfReader(io.BytesIO(response.data))
+        self.assertEqual(1, len(reader.pages))
+        self.assertAlmostEqual(29 * 72 / 25.4, float(reader.pages[0].mediabox.width), places=2)
+        self.assertAlmostEqual(90 * 72 / 25.4, float(reader.pages[0].mediabox.height), places=2)
+
     def test_batch_limit_accepts_100_references_and_deduplicates_the_book(self):
         response = self._post([self.book_a["object_id"]] * 100)
 

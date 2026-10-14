@@ -238,6 +238,48 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "", *, s
     return image
 
 
+def render_qr_code(value: str, settings: dict[str, Any], caption: str = "", *, show_text: bool = True) -> Image.Image:
+    """Render a stable object reference as a high-contrast QR label."""
+    from reportlab.graphics.barcode import qr
+
+    label = LABELS.get(str(settings.get("label", "62")).lower())
+    if label is None:
+        raise PrinterError("Unbekannte Etikettengröße")
+    payload = str(value or "").strip()
+    if not payload or len(payload) > 120:
+        raise PrinterError("QR-Inhalt fehlt oder ist zu lang")
+    widget = qr.QrCodeWidget(payload, barLevel="M")
+    widget.qr.make()
+    matrix = widget.qr.modules
+    count = len(matrix)
+    quiet = 4
+    caption_text = " ".join(str(caption or payload).split())[:120] if show_text else ""
+    font = load_font(str(settings.get("font_name", "DejaVuSans")), max(16, min(int(settings.get("font_size", 56)) // 2, 60)), bool(settings.get("bold")))
+    probe = Image.new("RGB", (label.printable_width, 100), "white")
+    box = _text_bbox(ImageDraw.Draw(probe), caption_text, font)
+    caption_height = max(1, box[3] - box[1])
+    height = label.printable_length if not label.endless else max(180, label.printable_width + caption_height + 32)
+    image = Image.new("RGB", (label.printable_width, height), "white")
+    available_h = height - (caption_height + 24 if show_text else 12)
+    side = min(label.printable_width - 16, available_h)
+    modules_per_side = count + quiet * 2
+    pixels_per_module = max(1, side // modules_per_side)
+    qr_side = modules_per_side * pixels_per_module
+    left = max(0, (label.printable_width - qr_side) // 2)
+    top = max(0, (available_h - qr_side) // 2)
+    draw = ImageDraw.Draw(image)
+    for row, bits in enumerate(matrix):
+        for column, dark in enumerate(bits):
+            if dark:
+                x = left + (column + quiet) * pixels_per_module
+                y = top + (row + quiet) * pixels_per_module
+                draw.rectangle((x, y, x + pixels_per_module - 1, y + pixels_per_module - 1), fill="black")
+    if show_text:
+        text_width = box[2] - box[0]
+        draw.text((max(0, (label.printable_width - text_width) // 2), height - caption_height - 8 - box[1]), caption_text, font=font, fill="black")
+    return image
+
+
 def render_image(upload: bytes, settings: dict[str, Any]) -> Image.Image:
     label = LABELS.get(str(settings.get("label", "62")).lower())
     if label is None:

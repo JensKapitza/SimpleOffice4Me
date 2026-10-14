@@ -30,6 +30,7 @@ from .printer import (
     preview_png,
     print_image,
     render_barcode,
+    render_qr_code,
     render_image,
     render_text,
 )
@@ -75,6 +76,8 @@ def _book_item(value: str) -> dict[str, Any] | None:
         return None
     store = _objects()
     try:
+        if re.fullmatch(r"[0-9a-f-]{36}", code, re.IGNORECASE):
+            return store.object(code)
         if code.startswith("#") or code.isdigit():
             return store.object(code)
     except ValueError:
@@ -347,7 +350,7 @@ def _selected_book_label_items(
 def print_book_labels():
     identifiers = request.form.getlist("object_id")
     style = request.form.get("barcode_style", "with_text")
-    if style not in {"with_text", "barcode_only"}:
+    if style not in {"with_text", "barcode_only", "qr_with_text", "qr_only"}:
         return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
     items, error = _selected_book_label_items(identifiers)
     if error:
@@ -358,10 +361,12 @@ def print_book_labels():
     printed = 0
     for item, value, caption in items:
         try:
-            image = render_barcode(
-                value, settings,
-                caption=caption if style == "with_text" else "",
-                show_text=style == "with_text",
+            qr_style = style.startswith("qr_")
+            image = (render_qr_code if qr_style else render_barcode)(
+                str(item["object_id"]) if qr_style else value,
+                settings,
+                caption=caption if style in {"with_text", "qr_with_text"} else "",
+                show_text=style in {"with_text", "qr_with_text"},
             )
             byte_count = print_image(image, settings)
         except (OSError, PrinterError, ValueError) as exc:
@@ -390,12 +395,16 @@ def print_book_labels():
 def export_book_labels_pdf():
     identifiers = request.form.getlist("object_id")
     style = request.form.get("barcode_style", "with_text")
-    if style not in {"with_text", "barcode_only"}:
+    if style not in {"with_text", "barcode_only", "qr_with_text", "qr_only"}:
         return jsonify({"ok": False, "error": "Bitte 1 bis 100 Bücher und eine gültige Etikettenart auswählen."}), 400
     items, error = _selected_book_label_items(identifiers)
     if error:
         return error
-    labels = [(value, caption) for _item, value, caption in items]
+    qr_style = style.startswith("qr_")
+    labels = [
+        (str(item["object_id"]) if qr_style else value, caption)
+        for item, value, caption in items
+    ]
 
     try:
         payload = book_labels_pdf(labels, _store().printer_settings(), style=style)
