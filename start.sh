@@ -435,6 +435,7 @@ except ImportError:
 
 requirements = {
     "Flask": ">=3.0,<4",
+    "argon2-cffi": ">=23.1,<26",
     "beautifulsoup4": ">=4.12,<5",
     "defusedxml": ">=0.7,<1",
     "Pillow": ">=12.2,<13",
@@ -443,6 +444,7 @@ requirements = {
     "waitress": ">=3.0,<4",
     "cryptography": ">=48.0.1,<51",
     "watchdog": ">=6,<7",
+    "tzdata": ">=2024.1",
 }
 
 problems = []
@@ -675,7 +677,7 @@ fi
 if [ "$IS_TERMUX" -eq 0 ] && [ "${SIMPLEOFFICE_WEB_EXPORT_INSTALL:-1}" != "0" ]; then
   echo "Webseitenexport: prüfe Playwright/Chromium in $VENV ..."
   if ! "$VENV/bin/python" -c 'import playwright.sync_api' >/dev/null 2>&1; then
-    if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.55.0'; then
+    if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.63.0'; then
       echo "WARNUNG: Playwright konnte nicht installiert werden; PDF/PNG-Webexport bleibt deaktiviert." >&2
     fi
   fi
