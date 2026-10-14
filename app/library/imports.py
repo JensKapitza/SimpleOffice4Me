@@ -103,7 +103,7 @@ def _append_ris_record(rows: list[dict[str, str]], record: dict[str, list[str]])
         "",
     )
     if not title:
-        return
+        raise ValueError("Ein RIS-Buchdatensatz benötigt einen Titel.")
     isbn = (record.get("SN") or [""])[0]
     if len(isbn) > 64:
         raise ValueError("Die ISBN im RIS-Datensatz ist zu lang.")
