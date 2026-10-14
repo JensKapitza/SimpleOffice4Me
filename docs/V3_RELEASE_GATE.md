@@ -1,8 +1,8 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-14 (main `23aee932`)
+## Current repository update — 2026-10-14 (main `bbc228a2`)
 
-Implementation basis: `main` at `23aee932b8c1b5d42a1ab387c2c88e72689da030`.
+Implementation basis: `main` at `bbc228a2c6ec34e73b30df3356c01597c1674921`.
 Package metadata still declares version 2.0.0. This update records repository
 work only; it does not approve or declare the 3.0 release.
 
@@ -34,12 +34,18 @@ Federation tests, Ruff, compilation, and diff checks passed. This does not add
 claim/status HTTP endpoints or explicit bilateral administrator confirmation,
 and does not grant trust, activation, or capabilities.
 
-PR #709, bounded RIS import, is still open and is not part of this main snapshot.
-Its latest head also fixes the verified cases where a title-less RIS book must
-reject the complete upload without a partial import, and preserves the existing
-Calibre ZIP export dependency after parser extraction. Six targeted RIS HTTP
-contracts and all 78 library tests pass locally; its refreshed CI is still
-running. No claim of merge or release acceptance is made here.
+PR #709 (`bbc228a2`) integrates bounded RIS book import for issue #658. It
+reuses the existing ObjectStore, administrator/authentication/CSRF checks,
+ISBN duplicate policy, and audit path. UTF-8 `BOOK`/`EBOOK` records are limited
+to 4 MiB and 500 records; imported `N1` notes survive a later RIS export without
+creating a shelf location. A title-less record rejects the complete upload
+before any objects are created. The six targeted RIS HTTP contracts and all 78
+library tests passed locally, along with Ruff and `git diff --check`. At merge,
+the full Python application, separate Python CodeQL, static quality, security,
+dependency audit, OSSAR, Scorecard, Android, Desktop, Docker, and XRechnung
+checks had passed. The six standard CodeQL language-matrix jobs were still
+queued at that time and are recorded as pending, not passed. This does not
+establish interoperability with every RIS vendor or external 3.0 acceptance.
 
 Issue #658 remains open for broader library model/provider/capture requirements
 and real printer/Android acceptance. Issue #679 remains open for authenticated
