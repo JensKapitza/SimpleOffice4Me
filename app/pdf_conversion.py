@@ -13,9 +13,9 @@ from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen import canvas
 
 from .document_store_core import ocr_subprocess_environment
+from .pdf_limits import MAX_PDF_BYTES
 
-MAX_PDF_BYTES = 200 * 1024 * 1024
-MAX_OUTPUT_BYTES = 400 * 1024 * 1024
+MAX_OUTPUT_BYTES = MAX_PDF_BYTES
 MAX_RENDER_EDGE = 1800
 
 
@@ -109,7 +109,7 @@ def make_grayscale_searchable_pdf(payload: bytes) -> bytes:
     whole conversion, so callers never download a silently partial result.
     """
     if not isinstance(payload, bytes) or not payload or len(payload) > MAX_PDF_BYTES:
-        raise ValueError("Das PDF muss zwischen 1 Byte und 200 MiB groß sein.")
+        raise ValueError("Das PDF muss zwischen 1 Byte und 1 GiB groß sein.")
     source_reader = _checked_pdf(payload)
     gs = shutil.which("gs") or shutil.which("gswin64c") or shutil.which("gswin32c")
     renderer = shutil.which("pdftoppm")
@@ -134,7 +134,7 @@ def make_grayscale_searchable_pdf(payload: bytes) -> bytes:
             timeout=900,
         )
         if not grayscale.is_file() or grayscale.stat().st_size > MAX_OUTPUT_BYTES:
-            raise RuntimeError("Das erzeugte PDF ist leer oder überschreitet 400 MiB.")
+            raise RuntimeError("Das erzeugte PDF ist leer oder überschreitet 1 GiB.")
         try:
             converted_reader = PdfReader(str(grayscale), strict=False)
             if len(converted_reader.pages) != len(source_reader.pages):
@@ -207,7 +207,7 @@ def make_grayscale_searchable_pdf(payload: bytes) -> bytes:
         writer.write(output)
         result = output.getvalue()
         if len(result) > MAX_OUTPUT_BYTES:
-            raise RuntimeError("Das erzeugte PDF überschreitet 400 MiB.")
+            raise RuntimeError("Das erzeugte PDF überschreitet 1 GiB.")
         verified = _checked_pdf(result)
         if len(verified.pages) != len(source_reader.pages):
             raise RuntimeError("Das fertige PDF konnte nicht vollständig validiert werden.")

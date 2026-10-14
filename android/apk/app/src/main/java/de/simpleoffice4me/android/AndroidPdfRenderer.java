@@ -17,7 +17,7 @@ import java.net.URL;
 
 /** Bounded native PDF rendering for authenticated loopback reader URLs. */
 final class AndroidPdfRenderer {
-    private static final long MAX_PDF_BYTES = 200L * 1024L * 1024L;
+    private static final long MAX_PDF_BYTES = 1024L * 1024L * 1024L;
     private static final int MAX_WIDTH = 2048;
     private static final int MIN_WIDTH = 320;
 

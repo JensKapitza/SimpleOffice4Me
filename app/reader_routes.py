@@ -12,6 +12,7 @@ from .access_control import audit, has_feature
 from .auth import login_required
 from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
+from .pdf_limits import MAX_PDF_BYTES
 from .reading_store import ReadingStateStore, reader_version
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
@@ -190,7 +191,7 @@ def open_book(document_id: str):
             payload.update(detected)
             payload["toc"] = book.toc()
         else:
-            raw = _verified_bytes(document, maximum=200 * 1024 * 1024)
+            raw = _verified_bytes(document, maximum=MAX_PDF_BYTES)
             from pypdf import PdfReader
             pdf = PdfReader(io.BytesIO(raw))
             if pdf.is_encrypted:
@@ -274,7 +275,7 @@ def grayscale_pdf(document_id: str):
     document, kind = _book(document_id)
     if kind != "pdf":
         abort(404)
-    source = _verified_bytes(document, maximum=200 * 1024 * 1024)
+    source = _verified_bytes(document, maximum=MAX_PDF_BYTES)
     try:
         from .pdf_conversion import make_grayscale_searchable_pdf
 

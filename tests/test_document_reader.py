@@ -12,6 +12,7 @@ from app import db as database
 from app.document_store import DocumentStore
 from app.epub_reader import EpubBook
 from app.reading_store import ReadingStateStore, reader_version
+from app.pdf_limits import MAX_PDF_BYTES
 
 
 def epub_bytes(*, unsafe: bool = False, encrypted: bool = False, cover: bool = False) -> bytes:
@@ -229,6 +230,20 @@ class ReaderRoutesTests(unittest.TestCase):
         self.assertEqual(converted, response.data)
         self.assertEqual(original_digest, store.get_document(document["document_id"])["sha256"])
 
+    def test_pdf_reader_opens_a_pdf_document(self):
+        from reportlab.pdfgen.canvas import Canvas
+
+        output = io.BytesIO()
+        pdf = Canvas(output)
+        pdf.drawString(72, 720, "Reader boundary contract")
+        pdf.save()
+        document = DocumentStore(self.documents).import_upload(
+            io.BytesIO(output.getvalue()), "Boundary.pdf", "admin"
+        )
+        response = self.client.get(f"/documents/reader/{document['document_id']}")
+        self.assertEqual(200, response.status_code)
+        self.assertIn(b'data-page-count="1"', response.data)
+
     def test_grayscale_export_rejects_epub(self):
         response = self.client.post(
             f"/documents/reader/{self.document['document_id']}/pdf/grayscale",
@@ -274,6 +289,8 @@ class AndroidPdfReaderContractTests(unittest.TestCase):
         activity = (root / "android/apk/app/src/main/java/de/simpleoffice4me/android/MainActivity.java").read_text(encoding="utf-8")
         self.assertIn("PdfRenderer", renderer)
         self.assertIn("MAX_PDF_BYTES", renderer)
+        self.assertEqual(1024 * 1024 * 1024, MAX_PDF_BYTES)
+        self.assertIn("1024L * 1024L * 1024L", renderer)
         self.assertIn('"127.0.0.1".equals(host)', renderer)
         self.assertIn('url.getPort() != 8765', renderer)
         self.assertIn("CookieManager.getInstance().getCookie", renderer)
