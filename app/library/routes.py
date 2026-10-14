@@ -825,7 +825,9 @@ def _ris_import_rows(upload: bytes) -> list[dict[str, str]]:
         if match is None:
             raise ValueError(f"Ungültige RIS-Zeile {line_number}.")
         tag, raw_value = match.groups()
-        value = " ".join(raw_value.replace("\x00", "").split())[:4000]
+        value = " ".join(raw_value.replace("\x00", "").split())
+        if len(value) > 4000:
+            raise ValueError(f"RIS-Wert in Zeile {line_number} ist zu lang.")
         if tag == "TY":
             if record is not None:
                 raise ValueError("Ein RIS-Datensatz wurde nicht mit ER abgeschlossen.")
@@ -842,10 +844,13 @@ def _ris_import_rows(upload: bytes) -> list[dict[str, str]]:
                 "",
             )
             if title:
+                isbn = (record.get("SN") or [""])[0]
+                if len(isbn) > 64:
+                    raise ValueError("Die ISBN im RIS-Datensatz ist zu lang.")
                 rows.append({
                     "title": title,
                     "authors": "; ".join(record.get("AU", []) or record.get("A1", [])),
-                    "isbn": (record.get("SN") or [""])[0][:64],
+                    "isbn": isbn,
                     "genre": "; ".join(record.get("KW", [])),
                     "series": (record.get("T3") or [""])[0],
                     "series_number": (record.get("VL") or [""])[0],
