@@ -521,7 +521,10 @@ class DocumentStoreTest(unittest.TestCase):
 
             Image.new("RGB", (1600, 2200), "white").save(scan_image)
             canvas = Canvas(str(pdf_path))
-            canvas.drawImage(str(scan_image), 0, 0, width=612, height=792)
+            for index in range(8):
+                if index == 0:
+                    canvas.drawImage(str(scan_image), 0, 0, width=612, height=792)
+                canvas.showPage()
             canvas.save()
             scan_image.unlink()
             original_which = shutil.which
@@ -538,18 +541,24 @@ class DocumentStoreTest(unittest.TestCase):
 
             def fake_run(command, **kwargs):
                 if command[0] == "/mock/pdftoppm":
-                    Image.new("RGB", (32, 32), "white").save(Path(command[-1]).parent / "page-1.png")
+                    limit = int(command[command.index("-l") + 1])
+                    for page in range(1, limit + 1):
+                        Image.new("RGB", (32, 32), "white").save(
+                            Path(command[-1]).parent / f"page-{page}.png"
+                        )
                     return subprocess.CompletedProcess(command, 0, "", "")
                 if command[0] == "/mock/tesseract":
-                    return subprocess.CompletedProcess(command, 0, "ScannedInvoice OCR-REF-90210\n", "")
+                    page = Path(command[1]).stem.removeprefix("page-")
+                    return subprocess.CompletedProcess(command, 0, f"ScannedInvoice OCR-REF-{int(page):02d}\n", "")
                 return original_run(command, **kwargs)
 
-            with patch("app.document_store.shutil.which", side_effect=fake_which), patch(
-                "app.document_store.subprocess.run", side_effect=fake_run,
-            ):
+            with patch.dict("os.environ", {"SIMPLEOFFICE_PDF_OCR_MAX_PAGES": "7"}), patch(
+                "app.document_store.shutil.which", side_effect=fake_which,
+            ), patch("app.document_store.subprocess.run", side_effect=fake_run):
                 store = DocumentStore(root)
                 store.scan()
 
             document = store.get_document(pdf_path)
-            self.assertIn("OCR-REF-90210", document["extracted_text"])
-            self.assertEqual(document["document_id"], store.search("OCR-REF-90210")[0]["document_id"])
+            self.assertIn("OCR-REF-07", document["extracted_text"])
+            self.assertNotIn("OCR-REF-08", document["extracted_text"])
+            self.assertEqual(document["document_id"], store.search("OCR-REF-07")[0]["document_id"])

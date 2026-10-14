@@ -1,6 +1,9 @@
 """DocumentStore implementation part 5 of 5."""
 from __future__ import annotations
 
+import os
+import time
+
 from .sqlite_utils import connect as sqlite_connect
 
 from .document_store_core import *  # noqa: F401,F403
@@ -69,7 +72,7 @@ class _DocumentStorePart5:
             return []
         if page_count < 1:
             return []
-        page_limit = min(page_count, 5)
+        page_limit = min(page_count, pdf_ocr_page_limit())
         with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-ocr-") as temp:
             prefix = Path(temp) / "page"
             try:
@@ -82,9 +85,13 @@ class _DocumentStorePart5:
             if result.returncode != 0:
                 return []
             texts: list[str] = []
+            ocr_deadline = time.monotonic() + 180
             for image_path in sorted(Path(temp).glob("page-*.png"))[:page_limit]:
+                remaining = int(ocr_deadline - time.monotonic())
+                if remaining <= 0:
+                    break
                 try:
-                    text = self._image_ocr(image_path, timeout=30)
+                    text = self._image_ocr(image_path, timeout=min(30, remaining))
                 except RuntimeError:
                     continue
                 if text:

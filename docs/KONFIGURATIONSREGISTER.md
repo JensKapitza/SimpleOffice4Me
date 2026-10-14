@@ -212,6 +212,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_MUSTANG_JAR` | [business_document_generation.py](../app/business_document_generation.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_NATIVE_PACKAGES` | [start.sh](../start.sh) | [MINI_SERVICES_REVIEW](MINI_SERVICES_REVIEW.md) |
 | `SIMPLEOFFICE_OCR_THREADS` | [document_store_core.py](../app/document_store_core.py) | [ERSTER_START](ERSTER_START.md) |
+| `SIMPLEOFFICE_PDF_OCR_MAX_PAGES` | [document_store_core.py](../app/document_store_core.py) | [DIGITALES_BUECHERREGAL](DIGITALES_BUECHERREGAL.md) |
 | `SIMPLEOFFICE_OSM_CITY` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | [osm_address_storage.py](../app/osm_address_storage.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | [osm_address_build.py](../app/osm_address_build.py) | [OSM_INDEX_UND_RECHNUNGSFINALISIERUNG](OSM_INDEX_UND_RECHNUNGSFINALISIERUNG.md) |

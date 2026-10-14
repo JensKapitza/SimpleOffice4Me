@@ -40,7 +40,7 @@ Die Reader-Grenze liegt bei 200 MiB pro PDF. Passwortgeschützte Dateien werden 
 
 ### OCR und durchsuchbare Scans
 
-Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit `pypdf` als Python-Fallback. Für Bildinhalte wird verfügbare eingebettete Bildebene mit `pdfimages` und Tesseract ausgewertet. Liefert sie keinen erkannten Text, rendert `pdftoppm` die ersten höchstens fünf PDF-Seiten mit einer maximalen Kantenlänge von 1.800 Pixeln; Tesseract verarbeitet jede gerenderte Seite mit einem 30-Sekunden-Zeitlimit. Der Renderlauf selbst ist auf 90 Sekunden begrenzt. Fehlende optionale Systemwerkzeuge lassen die übrige Dokumentindexierung weiterlaufen.
+Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit `pypdf` als Python-Fallback. Für Bildinhalte wird verfügbare eingebettete Bildebene mit `pdfimages` und Tesseract ausgewertet. Liefert sie keinen erkannten Text, rendert `pdftoppm` standardmäßig höchstens zehn PDF-Seiten mit einer maximalen Kantenlänge von 1.800 Pixeln; `SIMPLEOFFICE_PDF_OCR_MAX_PAGES` kann den Umfang auf 1 bis 50 Seiten begrenzen oder erweitern. Tesseract verarbeitet eine gerenderte Seite höchstens 30 Sekunden und höchstens 180 Sekunden insgesamt. Der Renderlauf selbst ist auf 90 Sekunden begrenzt. Fehlende optionale Systemwerkzeuge lassen die übrige Dokumentindexierung weiterlaufen.
 
 Damit bleibt OCR auf großen Dokumenten begrenzt. Textbasierte PDF-Suche umfasst den extrahierten Indextext; Scan-OCR kann wegen Seiten- und Werkzeuglimits nur einen Teil eines langen bildbasierten PDFs abdecken. Ein erneuter Scan beziehungsweise `refresh_missing_text` aktualisiert fehlenden oder veralteten extrahierten Text.
 
