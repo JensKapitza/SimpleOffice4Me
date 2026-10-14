@@ -36,7 +36,7 @@ Funktionen:
 - persistenter Lesestand
 - positionsgebundene Anmerkungen
 
-Die Reader-Grenze liegt bei 200 MiB pro PDF. Passwortgeschützte Dateien werden verständlich abgelehnt, sofern sie sich nicht ohne Passwort öffnen lassen.
+Die Reader-Grenze liegt bei 1 GiB (1024 MiB) pro PDF. Die separate Web-Uploadgrenze beträgt standardmäßig 512 MiB; für Uploads bis zur Reader-Grenze muss `SIMPLEOFFICE_MAX_UPLOAD_MIB` entsprechend erhöht und der vorgeschaltete Proxy angepasst werden. Passwortgeschützte Dateien werden verständlich abgelehnt, sofern sie sich nicht ohne Passwort öffnen lassen.
 
 ### OCR und durchsuchbare Scans
 
@@ -44,7 +44,7 @@ Die normale Dokumentindexierung extrahiert PDF-Text zuerst mit `pdftotext`, mit 
 
 Textbasierte PDF-Suche umfasst den extrahierten Indextext. Ein erneuter Scan beziehungsweise `refresh_missing_text` aktualisiert fehlenden oder veralteten extrahierten Text.
 
-Im PDF-Reader kann über **S/W-PDF mit OCR** eine separate Schwarz-Weiß-Fassung heruntergeladen werden. Das Original wird nicht geändert. Ghostscript wandelt alle PDF-Seiten in Graustufen um; **jede Seite** wird einzeln gerendert und mit Tesseract verarbeitet. Die erkannte OCR-Ebene wird als PDF-Textebene mit unsichtbarem Zeichenmodus eingebettet: Sie bleibt durchsuchbar und kopierbar, wird aber nicht über den sichtbaren Seiteninhalt gemalt. Bereits vorhandene Textzeilen bleiben erhalten; identische OCR-Zeilen werden nicht doppelt ergänzt. Schlägt die Konvertierung oder OCR einer Seite fehl, wird keine teilweise erzeugte Datei ausgeliefert. Die Eingabegrenze beträgt 200 MiB, die Ausgabegrenze 400 MiB; Ghostscript hat ein 15-Minuten-Limit, pro OCR-Seite gelten 30 Sekunden und pro Seitenrender 90 Sekunden. Es gibt keine feste Seitenobergrenze. Für diese Funktion werden Ghostscript, Poppler (`pdftoppm`) und Tesseract benötigt. Der Export wird als Download geliefert und legt keine zweite Dokumentkopie im Bestand an.
+Im PDF-Reader kann über **S/W-PDF mit OCR** eine separate Schwarz-Weiß-Fassung heruntergeladen werden. Das Original wird nicht geändert. Ghostscript wandelt alle PDF-Seiten in Graustufen um; **jede Seite** wird einzeln gerendert und mit Tesseract verarbeitet. Die erkannte OCR-Ebene wird als PDF-Textebene mit unsichtbarem Zeichenmodus eingebettet: Sie bleibt durchsuchbar und kopierbar, wird aber nicht über den sichtbaren Seiteninhalt gemalt. Bereits vorhandene Textzeilen bleiben erhalten; identische OCR-Zeilen werden nicht doppelt ergänzt. Schlägt die Konvertierung oder OCR einer Seite fehl, wird keine teilweise erzeugte Datei ausgeliefert. Eingabe und Ausgabe sind jeweils auf 1 GiB (1024 MiB) begrenzt; Ghostscript hat ein 15-Minuten-Limit, pro OCR-Seite gelten 30 Sekunden und pro Seitenrender 90 Sekunden. Es gibt keine feste Seitenobergrenze. Für diese Funktion werden Ghostscript, Poppler (`pdftoppm`) und Tesseract benötigt. Der Export wird als Download geliefert und legt keine zweite Dokumentkopie im Bestand an.
 
 ## EPUB
 
