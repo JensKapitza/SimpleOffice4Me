@@ -1,8 +1,58 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-14
+## Current repository update — 2026-10-14 (main `23aee932`)
 
-Implementation basis: `main` at `c9db30b171a5661f7abc20e7bd90ea6085102fb3`
+Implementation basis: `main` at `23aee932b8c1b5d42a1ab387c2c88e72689da030`.
+Package metadata still declares version 2.0.0. This update records repository
+work only; it does not approve or declare the 3.0 release.
+
+PR #701 (`d0f952b0`) adds an administrator-only Calibre metadata archive import
+beside the existing library workflow. It reuses the ObjectStore, skips duplicate
+ISBNs, bounds archive and row sizes, and does not execute OPF files. PR #699
+(`58156ea8`) adds a CSRF-protected PNG preview using the existing label renderer
+without printing. PR #700 (`badbbddc`) adds server-side author, genre, location,
+and free-text filters; visible filtered books drive existing label, preview,
+PDF, and A4 flows. When no rows are selected, the same active filters scope CSV,
+RIS, BibTeX, and Calibre exports. Explicit selections take precedence, the
+500-row limit remains, and a filter with zero matches never falls back to the
+whole catalog. A manual Chromium smoke check confirmed the filter form reaches
+the library page and the visible selection reflects the match.
+
+PRs #699, #700, and #701 each passed 27 CI checks; three optional jobs were
+skipped for each run. Local verification after integrating these slices passed
+72 library tests, Ruff, compile checks, and the repository's relevant size and
+diff gates. The browser check was a UI smoke test, not physical printer or
+Android-device acceptance.
+
+PR #708 (`23aee932`) adds only the secure storage/lifecycle foundation for
+federation pairing: one-time 60-bit codes are stored as HMAC digests, bound to
+the expected peer, limited to 1–15 minutes, and protected against replay,
+replacement, revocation, oversized input, and caller-controlled time. Concurrent
+claims allow one winner. The full CI suite, CodeQL, dependency/security scans,
+OSSAR, Android, Desktop, Docker, and other required checks passed; 294 local
+Federation tests, Ruff, compilation, and diff checks passed. This does not add
+claim/status HTTP endpoints or explicit bilateral administrator confirmation,
+and does not grant trust, activation, or capabilities.
+
+PR #709, bounded RIS import, is still open and is not part of this main snapshot.
+Its latest head also fixes the verified cases where a title-less RIS book must
+reject the complete upload without a partial import, and preserves the existing
+Calibre ZIP export dependency after parser extraction. Six targeted RIS HTTP
+contracts and all 78 library tests pass locally; its refreshed CI is still
+running. No claim of merge or release acceptance is made here.
+
+Issue #658 remains open for broader library model/provider/capture requirements
+and real printer/Android acceptance. Issue #679 remains open for authenticated
+pairing, conscious confirmation at both peers, capability deny-by-default
+verification, failure/restart recovery, and any explicitly authorized relay.
+The external production upgrade/rollback, client/device, representative-load,
+and hardware evidence in #505/#506 also remains outstanding. Release approval
+remains **not approved**.
+
+
+## Earlier repository update — 2026-10-14
+
+Implementation basis at that snapshot: `main` at `c9db30b171a5661f7abc20e7bd90ea6085102fb3`
 (including PRs #687, #689, #690, #692, #691 and #695). Package metadata still
 declares version 2.0.0; no 3.0 release or release approval is implied.
 
