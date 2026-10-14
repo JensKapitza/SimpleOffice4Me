@@ -224,3 +224,10 @@ Administratoren können UTF-8-kodierte RIS-Dateien mit bis zu 4 MiB und 500 `BOO
 
 Der Endpunkt benötigt Anmeldung, Administratorrecht und CSRF-Schutz. Eingaben werden begrenzt und normalisiert; es werden weder Dateien ausgeführt noch externe Ressourcen abgerufen. Der Import erzeugt neue Bücher im vorhandenen ObjectStore und protokolliert ausschließlich Format und Zähler im Audit, keine Buchinhalte.
 
+
+
+## BibTeX-Import
+
+Administratoren können in der Bibliothek UTF-8-codierte `.bib`-Dateien mit höchstens 4 MiB und 500 Büchern importieren. Unterstützt werden ausschließlich `@book`-Datensätze mit geklammerten oder zitierten Feldwerten. SimpleOffice übernimmt Titel, Autoren, ISBN, Schlagwörter, Reihe/Band, Verlag, Jahr, Sprache, Auflage, Kurzbeschreibung und Notiz. Bereits vorhandene ISBNs werden übersprungen; ein fehlerhafter oder titelloser Datensatz verwirft den gesamten Upload, damit kein unbemerkter Teilimport entsteht.
+
+Der Parser wertet keine BibTeX-Makros, String-Verkettungen, Befehle oder Dateiverweise aus. Dadurch ist der Import bewusst enger als eine vollständige TeX-Implementierung. Der vorhandene BibTeX-Export verwendet denselben sicheren Teilumfang und kann wieder importiert werden. Die Inventar-ID und der aktuelle Regalpfad werden beim Export nur als Notiz mitgegeben; ein Import stellt daraus keine frühere Objekt-ID oder Ablageposition wieder her.
