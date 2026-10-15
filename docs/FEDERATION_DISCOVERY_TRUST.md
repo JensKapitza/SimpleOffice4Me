@@ -67,7 +67,14 @@ Ein Directory veröffentlicht nur Peers, die sich **explizit registriert** haben
 
 ## NAT und Vermittlung
 
-Für NAT-Situationen gibt es einen kurzlebigen Rendezvous-Signalkanal. Er kann Verbindungsangebote bzw. erreichbare Endpunkte zwischen zwei Peers vermitteln. Er ist kein dauerhafter Datei-Relay.
+Für NAT-Situationen gibt es einen kurzlebigen Rendezvous-Signalkanal. Er kann
+Verbindungsangebote bzw. erreichbare Endpunkte zwischen zwei Peers vermitteln.
+Der Vermittlungsknoten akzeptiert nur peer-spezifisch authentifizierte Absender
+und nur Empfänger, die dort ausdrücklich konfiguriert und aktiviert sind. Pro
+Absender dürfen höchstens 100 nicht abgeholte Nachrichten mit jeweils maximal
+16 KiB JSON-Payload warten. Nachrichten laufen nach spätestens einer Stunde ab
+und werden nur einmal ausgeliefert. Der Kanal erteilt weder Trust noch
+Capabilities und ist kein dauerhafter Datei-Relay.
 
 TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-/UDP-Verbindung echte NAT-Traversal-Unterstützung benötigt. Für normale SOFP-Verbindungen bleiben HTTPS/WebSocket-Rendezvous oder ein gezielter Relay-Dienst einfacher.
 
@@ -147,7 +154,9 @@ Damit bleibt Discovery/Trust von konkreten Datei-Rechten getrennt, während der 
 - Private RFC1918-/ULA-Ziele sind für manuelle direkte Discovery nur nach explizitem serverseitigem Opt-in zugelassen.
 - `DIRECT_ONLY` wird nie als Trust-Claim exportiert.
 - E-Mail-Lookups übertragen keine Klartext-E-Mail.
-- Rendezvous-Nachrichten sind kurzlebig und werden nur einmal ausgeliefert.
+- Rendezvous-Nachrichten sind kurzlebig, auf 16 KiB begrenzt und werden nur
+  einmal ausgeliefert. Der Relay-Knoten nimmt nur aktiv konfigurierte Empfänger
+  an und begrenzt die wartende Queue auf 100 Nachrichten pro Absender.
 - Trust-Hinweise anderer Peers führen niemals automatisch zu lokalem Trust.
 - Pairing-Claim und -Status akzeptieren nur frische, einmalige und Ed25519-signierte Requests einer bereits bekannten, nicht gesperrten Peer-Identität. Ein erfolgreicher Claim vergibt weder Trust noch Aktivierung oder Datenrechte.
 - Pairing-Codes werden im Admin-UI nur für bekannte Identitäten mit öffentlichem Schlüssel/Fingerprint erzeugt, ausschließlich einmal im `no-store`-Antwortdokument offengelegt und weder in Flash-Nachrichten noch Auditdetails übernommen.
