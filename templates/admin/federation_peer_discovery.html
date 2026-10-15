@@ -177,6 +177,32 @@
           <td>{{ (peer.trust or {}).trust_level or 'NONE' }}</td>
           <td>{{ (peer.trust or {}).propagation or 'DIRECT_ONLY' }}</td>
           <td>
+            <div class="small mb-1">
+              Pairing-Code:
+              {% if peer.pairing.status == 'pending' %}
+                <span class="badge text-bg-warning">wartet</span>
+              {% elif peer.pairing.status == 'claimed' %}
+                <span class="badge text-bg-info">beansprucht</span>
+              {% elif peer.pairing.status == 'expired' %}
+                <span class="badge text-bg-secondary">abgelaufen</span>
+              {% else %}
+                <span class="badge text-bg-secondary">nicht vorhanden</span>
+              {% endif %}
+            </div>
+            {% if peer.pairing_ready %}
+              <form class="d-inline" method="post" action="{{ url_for('federation_peer_admin.issue_pairing_code', peer_id=peer.peer_id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-primary mb-1" type="submit">{{ 'Neuen Code erzeugen' if peer.pairing.status != 'missing' else 'Pairing-Code erzeugen' }}</button>
+              </form>
+            {% else %}
+              <div class="small text-secondary mb-1">Zuerst öffentlichen Schlüssel per Discovery/QR übernehmen.</div>
+            {% endif %}
+            {% if peer.pairing.status != 'missing' %}
+              <form class="d-inline" method="post" action="{{ url_for('federation_peer_admin.revoke_pairing_code', peer_id=peer.peer_id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-danger mb-1" type="submit">Code widerrufen</button>
+              </form>
+            {% endif %}
             <a class="btn btn-sm btn-outline-primary mb-1" href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id) }}">Verbindung einrichten</a>
             <form class="d-flex gap-1 flex-wrap mb-1" method="post" action="{{ url_for('federation_peer_admin.set_trust', peer_id=peer.peer_id) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
