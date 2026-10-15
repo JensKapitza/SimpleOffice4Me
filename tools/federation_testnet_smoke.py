@@ -8,6 +8,9 @@ from urllib.error import HTTPError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
+
+os.environ.setdefault("SIMPLEOFFICE_LOG_STDERR_ONLY", "1")
+
 from app.federation_peer_auth import headers as peer_headers
 
 
