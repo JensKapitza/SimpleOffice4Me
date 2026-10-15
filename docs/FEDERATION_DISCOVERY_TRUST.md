@@ -76,6 +76,15 @@ Absender dürfen höchstens 100 nicht abgeholte Nachrichten mit jeweils maximal
 und werden nur einmal ausgeliefert. Der Kanal erteilt weder Trust noch
 Capabilities und ist kein dauerhafter Datei-Relay.
 
+Die Nutzung eines konfigurierten Peers als Rendezvous-Relay ist auf der
+aufrufenden Instanz zusätzlich standardmäßig deaktiviert. Ein Administrator
+muss im vorhandenen Peer-Editor **„Diesen Peer ausdrücklich als
+Rendezvous-Relay verwenden“** einschalten. Ein allgemein aktiver Peer oder ein
+früher erfolgreicher Datentransfer reicht nicht aus. Der Status wird in der
+Peer-Liste als `Relay freigegeben` oder `Relay aus` angezeigt. Das Abschalten
+stoppt weitere Sende- und Abrufversuche sofort; wartende Nachrichten auf der
+Gegenstelle laufen weiter nach ihrer begrenzten TTL ab.
+
 TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-/UDP-Verbindung echte NAT-Traversal-Unterstützung benötigt. Für normale SOFP-Verbindungen bleiben HTTPS/WebSocket-Rendezvous oder ein gezielter Relay-Dienst einfacher.
 
 ## Wichtige Umgebungsvariablen
@@ -113,6 +122,12 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 `/admin/federation/peer-discovery`
 
 Dort gibt es als ersten Schnellweg **„Netzwerk scannen“**. Außerdem können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
+
+Unter **Federation → Peers → Bearbeiten** wird ein geeigneter aktiver Peer
+separat als Rendezvous-Relay freigegeben. Für bestehende Installationen bleibt
+der Schalter nach dem Update aus; es ist keine Datenmigration erforderlich.
+Rollback bzw. Widerruf erfolgt durch Abschalten desselben Schalters. Peer-Token,
+Trust und alle Daten-Policies bleiben dabei unverändert.
 
 Für eine bereits per Discovery oder QR bekannte Identität mit öffentlichem Schlüssel kann ein Administrator einen peer-gebundenen Pairing-Code erzeugen. Der Code wird nur in der unmittelbaren, mit `Cache-Control: no-store` ausgelieferten Antwort angezeigt und kann dort widerrufen oder durch einen neuen Code ersetzt werden. Auf der Gegenstelle wählt ein Administrator denselben bekannten Peer, gleicht Fingerprint und Zieladresse bewusst ab und gibt den Code ein. Vor der Übertragung prüft SimpleOffice das öffentliche Profil erneut über eine DNS-Rebinding-geschützte, an die geprüfte IP gebundene Verbindung; Peer-ID, öffentlicher Schlüssel und Fingerprint müssen exakt der bekannten Identität entsprechen. Die Übersicht zeigt `wartet`, `beansprucht` oder `abgelaufen`, aber niemals den Code oder seinen Digest. Ein Remote-Statusabruf ermöglicht die Wiederaufnahme nach einem Neustart. Erzeugung, Beanspruchung, Statusabruf und Widerruf aktivieren keinen Peer und ändern weder Trust noch Datenrechte.
 
@@ -156,7 +171,9 @@ Damit bleibt Discovery/Trust von konkreten Datei-Rechten getrennt, während der 
 - E-Mail-Lookups übertragen keine Klartext-E-Mail.
 - Rendezvous-Nachrichten sind kurzlebig, auf 16 KiB begrenzt und werden nur
   einmal ausgeliefert. Der Relay-Knoten nimmt nur aktiv konfigurierte Empfänger
-  an und begrenzt die wartende Queue auf 100 Nachrichten pro Absender.
+  an und begrenzt die wartende Queue auf 100 Nachrichten pro Absender. Die
+  aufrufende Instanz sendet und empfängt über einen Peer nur nach separatem,
+  lokalem `rendezvous_relay.enabled`-Opt-in; ein aktiver Peer allein genügt nie.
 - Trust-Hinweise anderer Peers führen niemals automatisch zu lokalem Trust.
 - Pairing-Claim und -Status akzeptieren nur frische, einmalige und Ed25519-signierte Requests einer bereits bekannten, nicht gesperrten Peer-Identität. Ein erfolgreicher Claim vergibt weder Trust noch Aktivierung oder Datenrechte.
 - Pairing-Codes werden im Admin-UI nur für bekannte Identitäten mit öffentlichem Schlüssel/Fingerprint erzeugt, ausschließlich einmal im `no-store`-Antwortdokument offengelegt und weder in Flash-Nachrichten noch Auditdetails übernommen.

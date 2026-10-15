@@ -168,6 +168,62 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertNotIn('name="mail_cases_receive" value="1" checked', body)
         self.assertNotIn('name="mail_cases_auto_accept" value="1" checked', body)
 
+    def test_rendezvous_relay_requires_explicit_peer_policy(self):
+        response = self.client.post(
+            "/admin/federation/peers",
+            data={
+                "peer_id": "relay-peer",
+                "label": "Relay Peer",
+                "base_url": "https://relay.example.test",
+                "enabled": "1",
+                "_rendezvous_relay_policy_form": "1",
+                "rendezvous_relay_enabled": "1",
+                "policy_json": '{"rendezvous_relay":{"future_option":"keep"}}',
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(302, response.status_code)
+        peer = FederationStore(self.root).get_peer("relay-peer")
+        self.assertEqual(
+            {"enabled": True, "future_option": "keep"},
+            peer["policy"]["rendezvous_relay"],
+        )
+
+        editor = self.client.get(
+            "/admin/federation?view=peers&edit_peer=relay-peer"
+        )
+        body = editor.get_data(as_text=True)
+        self.assertIn("Diesen Peer ausdrücklich als Rendezvous-Relay verwenden", body)
+        self.assertIn('name="rendezvous_relay_enabled" value="1" checked', body)
+        self.assertIn("Relay freigegeben", body)
+
+    def test_rendezvous_relay_can_be_revoked_without_losing_policy(self):
+        response = self.client.post(
+            "/admin/federation/peers",
+            data={
+                "peer_id": "relay-peer",
+                "label": "Relay Peer",
+                "base_url": "https://relay.example.test",
+                "enabled": "1",
+                "_rendezvous_relay_policy_form": "1",
+                "policy_json": '{"chat":{"send":true},"rendezvous_relay":{"enabled":true,"future_option":"keep"}}',
+            },
+            follow_redirects=False,
+        )
+
+        self.assertEqual(302, response.status_code)
+        peer = FederationStore(self.root).get_peer("relay-peer")
+        self.assertEqual({"send": True}, peer["policy"]["chat"])
+        self.assertEqual(
+            {"enabled": False, "future_option": "keep"},
+            peer["policy"]["rendezvous_relay"],
+        )
+
+        body = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
+        self.assertIn("Relay aus", body)
+        self.assertNotIn('name="rendezvous_relay_enabled" value="1" checked', body)
+
     def test_peer_discovery_exposes_mail_case_mapping_controls(self):
         response = self.client.get("/admin/federation/peer-discovery")
         body = response.get_data(as_text=True)

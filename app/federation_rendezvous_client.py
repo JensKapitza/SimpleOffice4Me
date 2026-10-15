@@ -12,6 +12,10 @@ def _relay(root, relay_peer_id):
     relay = store.get_peer(relay_peer_id)
     if not relay or not relay.get("enabled"):
         raise ValueError("rendezvous peer is not enabled")
+    policy = relay.get("policy")
+    relay_policy = policy.get("rendezvous_relay") if isinstance(policy, dict) else None
+    if not isinstance(relay_policy, dict) or relay_policy.get("enabled") is not True:
+        raise ValueError("rendezvous relay is not explicitly enabled")
     return store, relay, store.peer_token(relay_peer_id), local_peer_id()
 
 

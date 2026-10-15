@@ -289,6 +289,14 @@ def save_peer():
             })
             data_classes["mail_cases"] = mail_cases
             policy["data_classes"] = data_classes
+        if request.form.get("_rendezvous_relay_policy_form") == "1":
+            rendezvous_relay = policy.get("rendezvous_relay")
+            if not isinstance(rendezvous_relay, dict):
+                rendezvous_relay = {}
+            rendezvous_relay["enabled"] = (
+                request.form.get("rendezvous_relay_enabled") == "1"
+            )
+            policy["rendezvous_relay"] = rendezvous_relay
         _store().save_peer(peer_id, label, base_url, token, policy, request.form.get("enabled") == "1")
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:
