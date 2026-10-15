@@ -33,6 +33,19 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("gosu", dockerfile)
         self.assertIn("HEALTHCHECK", dockerfile)
 
+    def test_federation_compose_restart_smoke_is_wired_to_docker_ci(self):
+        compose = self.text("deploy/docker/compose.federation-test.yaml")
+        workflow = self.text(".github/workflows/ubuntu-26-compat.yml")
+        self.assertIn("internal: true", compose)
+        self.assertIn("peer-a-data:/var/lib/simpleoffice4me", compose)
+        self.assertIn("peer-b-data:/var/lib/simpleoffice4me", compose)
+        self.assertIn("load: true", workflow)
+        self.assertIn("Run isolated federation restart smoke", workflow)
+        self.assertIn('restart peer-b', workflow)
+        for result in ("direct_trust_required", "pending", "duplicate"):
+            self.assertIn(f"--expect-receive {result}", workflow)
+        self.assertIn("down --volumes --remove-orphans", workflow)
+
     def test_deployment_documentation_covers_all_supported_modes(self):
         docs = self.text("docs/DEPLOYMENT.md")
         for marker in (
