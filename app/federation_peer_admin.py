@@ -15,11 +15,7 @@ from .federation_discovery_service import discover_country, discover_direct, dis
 from .federation_lan_receive_state import LanReceiveState
 from .federation_local_profile import local_profile
 from .federation_pairing import FederationPairingTokens
-from .federation_pairing_client import (
-    PairingClientError,
-    claim_pairing_code,
-    remote_pairing_status,
-)
+from .federation_pairing_client import PairingClientError, claim_pairing_code, remote_pairing_status
 from .federation_qr import decode_peer, encode_peer
 from .federation_qr_image import render_qr_svg
 from .federation_store import FederationStore
@@ -432,18 +428,23 @@ def claim_remote_pairing_code(peer_id):
         peer = _remote_pairing_peer(peer_id)
         if request.form.get("confirm_identity") != "1":
             raise ValueError("Fingerprint und Zieladresse müssen ausdrücklich bestätigt werden")
-        result = claim_pairing_code(
-            _root(), peer, request.form.get("code", "")
-        )
-        FederationStore(_root()).record_event(
-            "remote_pairing_code_claimed",
-            peer_id=peer_id,
-            detail={"actor": _actor(), "status": result["status"]},
-        )
-        flash(
-            "Pairing-Code auf der Gegenstelle beansprucht. "
-            "Trust, Aktivierung und Datenrechte bleiben unverändert."
-        )
+        result = claim_pairing_code(_root(), peer, request.form.get("code", ""))
+        try:
+            FederationStore(_root()).record_event(
+                "remote_pairing_code_claimed", peer_id=peer_id,
+                detail={"actor": _actor(), "status": result["status"]},
+            )
+        except Exception as exc:
+            current_app.logger.error("Remote pairing audit failed (%s)", type(exc).__name__)
+            flash(
+                "Pairing-Code wurde beansprucht, aber das lokale Audit konnte nicht "
+                "gespeichert werden. Remote-Status prüfen."
+            )
+        else:
+            flash(
+                "Pairing-Code auf der Gegenstelle beansprucht. "
+                "Trust, Aktivierung und Datenrechte bleiben unverändert."
+            )
     except (PairingClientError, TypeError, ValueError) as exc:
         flash(f"Pairing-Code konnte nicht beansprucht werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))

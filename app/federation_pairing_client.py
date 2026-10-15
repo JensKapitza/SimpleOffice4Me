@@ -67,7 +67,10 @@ def _verify_remote_identity(connection, parsed, port: int, expected: dict[str, A
     )
     if response.status != 200:
         raise PairingClientError("Identität der Gegenstelle konnte nicht geprüft werden.")
-    profile = peer_profile(_read_json(response, _MAX_DISCOVERY_BYTES))
+    try:
+        profile = peer_profile(_read_json(response, _MAX_DISCOVERY_BYTES))
+    except ValueError as exc:
+        raise PairingClientError("Identität der Gegenstelle ist ungültig.") from exc
     expected_peer_id = str(expected.get("peer_id") or "")
     expected_key = str(expected.get("public_key") or "")
     expected_fingerprint = str(expected.get("fingerprint") or "")
