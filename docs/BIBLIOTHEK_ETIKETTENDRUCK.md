@@ -224,3 +224,22 @@ Administratoren können UTF-8-kodierte RIS-Dateien mit bis zu 4 MiB und 500 `BOO
 
 Der Endpunkt benötigt Anmeldung, Administratorrecht und CSRF-Schutz. Eingaben werden begrenzt und normalisiert; es werden weder Dateien ausgeführt noch externe Ressourcen abgerufen. Der Import erzeugt neue Bücher im vorhandenen ObjectStore und protokolliert ausschließlich Format und Zähler im Audit, keine Buchinhalte.
 
+
+
+## BibTeX-Import
+
+Administratoren können UTF-8-kodierte BibTeX-Dateien mit bis zu 4 MiB und 500
+`@book`-Datensätzen über **BibTeX importieren** einlesen. Der Parser übernimmt
+Titel, mehrere mit `and` getrennte Autoren, ISBN, Verlag, Jahr, Sprache,
+Auflage, Reihe/Band, Schlagwörter und Beschreibung. Zusätzlich erkennt er die
+vom SimpleOffice4Me-Export in `note` geschriebenen ISBN-, Sprach-, Genre- und
+Beschreibungsfelder. Inventarnummer, Seitenangabe und Standorttext bleiben als
+Bibliografienotiz erhalten, erzeugen aber bewusst keine Standortstruktur.
+
+Der Import akzeptiert geklammerte, zitierte und einfache numerische Feldwerte.
+Er führt keine BibTeX-/TeX-Befehle, Makros, Verkettungen oder externen
+Ressourcen aus. Andere Eintragstypen, doppelte Felder, nicht abgeschlossene oder
+titellose Datensätze sowie ungültiges UTF-8 werden abgelehnt, bevor ein Buch
+angelegt wird. Vorhandene ISBNs werden übersprungen. Anmeldung,
+Administratorrecht, CSRF-Schutz, ObjectStore und Auditpfad entsprechen dem RIS-
+und Calibre-Import; protokolliert werden nur Format und Zähler.
