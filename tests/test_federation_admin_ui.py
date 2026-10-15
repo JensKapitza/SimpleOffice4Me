@@ -9,11 +9,11 @@ from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
-from app.federation_store import FederationStore
 from app.federation_identity import FederationIdentity
 from app.federation_moderation import FederationModerationStore
 from app.federation_pairing import FederationPairingTokens
 from app.federation_qr import encode_peer
+from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 
 
