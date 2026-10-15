@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from flask import Blueprint, Response, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from .federation_admin import admin_required
 from .federation_attestations import FederationAttestationStore
@@ -14,6 +14,7 @@ from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_lan_receive_state import LanReceiveState
 from .federation_local_profile import local_profile
+from .federation_pairing import FederationPairingTokens
 from .federation_qr import decode_peer, encode_peer
 from .federation_qr_image import render_qr_svg
 from .federation_store import FederationStore
@@ -124,13 +125,23 @@ def _receive_state():
     return LanReceiveState(_root())
 
 
+def _pairing_tokens():
+    return FederationPairingTokens(_root(), current_app.config["SECRET_KEY"])
+
+
 def _policy_store():
     return FederationPolicyStore(_root())
 
 
 def _actor():
-    user = getattr(g, "user", None) or {}
-    return str(user.get("username") or "system")[:160]
+    user = getattr(g, "user", None)
+    if user is None:
+        return "system"
+    try:
+        username = user["username"]
+    except (KeyError, TypeError):
+        username = getattr(user, "username", "")
+    return str(username or "system")[:160]
 
 
 def _audit_policy(operation, peer_id, changes):
@@ -295,6 +306,8 @@ def _unavailable_qr_svg() -> str:
 @admin_required
 def dashboard():
     trust = FederationTrustStore(_root())
+    pairing_tokens = _pairing_tokens()
+    banned_peer_ids = trust.store.banned_peer_ids()
     peers = []
     for identity in trust.list_identities():
         peer = trust.store.get_peer(identity["peer_id"]) or {}
@@ -313,6 +326,12 @@ def dashboard():
             "trust": trust.get_trust(identity["peer_id"]),
             "compatibility": peer_compatibility,
             "recommendations": recommendations(_root(), identity["peer_id"]),
+            "pairing": pairing_tokens.status(identity["peer_id"]),
+            "pairing_ready": bool(
+                identity.get("public_key")
+                and identity.get("fingerprint")
+                and identity["peer_id"] not in banned_peer_ids
+            ),
         })
     try:
         own = local_profile(_root())
@@ -335,6 +354,55 @@ def dashboard():
             ).fetchall()
         ],
     )
+
+
+@bp.post("/pairing/<peer_id>/issue")
+@admin_required
+def issue_pairing_code(peer_id):
+    try:
+        _trust, peer = _known_peer(peer_id)
+        if peer_id in FederationStore(_root()).banned_peer_ids():
+            raise ValueError("Peer ist gesperrt")
+        if not peer.get("public_key") or not peer.get("fingerprint"):
+            raise ValueError("Peer-Identität benötigt öffentlichen Schlüssel und Fingerprint")
+        issued = _pairing_tokens().issue(peer_id)
+        FederationStore(_root()).record_event(
+            "pairing_code_issued",
+            peer_id=peer_id,
+            detail={"actor": _actor(), "expires_at": issued["expires_at"]},
+        )
+        response = make_response(render_template(
+            "admin/federation_pairing_code.html",
+            peer=peer,
+            pairing=issued,
+            expires_at_label=datetime.fromtimestamp(
+                issued["expires_at"], tz=timezone.utc
+            ).strftime("%Y-%m-%d %H:%M UTC"),
+        ))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
+    except (TypeError, ValueError) as exc:
+        flash(f"Pairing-Code konnte nicht erzeugt werden: {exc}")
+        return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/pairing/<peer_id>/revoke")
+@admin_required
+def revoke_pairing_code(peer_id):
+    try:
+        _known_peer(peer_id)
+        revoked = _pairing_tokens().revoke(peer_id)
+        if revoked:
+            FederationStore(_root()).record_event(
+                "pairing_code_revoked",
+                peer_id=peer_id,
+                detail={"actor": _actor()},
+            )
+        flash("Pairing-Code widerrufen." if revoked else "Kein Pairing-Code vorhanden.")
+    except (TypeError, ValueError) as exc:
+        flash(f"Pairing-Code konnte nicht widerrufen werden: {exc}")
+    return redirect(url_for("federation_peer_admin.dashboard"))
 
 
 @bp.post("/receive/start")

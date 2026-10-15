@@ -1,3 +1,5 @@
+import re
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,9 +9,11 @@ from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
-from app.federation_store import FederationStore
+from app.federation_identity import FederationIdentity
 from app.federation_moderation import FederationModerationStore
+from app.federation_pairing import FederationPairingTokens
 from app.federation_qr import encode_peer
+from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 
 
@@ -187,6 +191,78 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn("Verbindung einrichten", body)
         self.assertIn("view=peers&amp;edit_peer=office-b", body)
         self.assertIn("Trust jeweils lokal", body)
+
+    def test_pairing_code_issue_is_no_store_and_does_not_grant_access(self):
+        with app.app_context():
+            identity = FederationIdentity(self.root / "remote-identity").public_identity()
+        FederationStore(self.root).save_peer(
+            "office-b", "Office B", "https://office-b.example.test", "", enabled=False,
+        )
+        FederationTrustStore(self.root).remember(
+            "office-b", "DE", identity["fingerprint"], "qr", identity["public_key"],
+        )
+
+        response = self.client.post(
+            "/admin/federation/peer-discovery/pairing/office-b/issue"
+        )
+        body = response.get_data(as_text=True)
+        match = re.search(r"[2-9A-HJ-NP-Z]{4}(?:-[2-9A-HJ-NP-Z]{4}){2}", body)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        self.assertEqual("no-referrer", response.headers["Referrer-Policy"])
+        self.assertIsNotNone(match)
+        self.assertNotIn("token_hash", body)
+        self.assertEqual("pending", FederationPairingTokens(
+            self.root, app.config["SECRET_KEY"]
+        ).status("office-b")["status"])
+        peer = FederationStore(self.root).get_peer("office-b")
+        self.assertFalse(peer["enabled"])
+        self.assertFalse(peer["has_token"])
+        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
+        with sqlite3.connect(FederationStore(self.root).path) as db:
+            token_hash = db.execute(
+                "SELECT token_hash FROM federation_pairing_token WHERE peer_id=?",
+                ("office-b",),
+            ).fetchone()[0]
+        self.assertNotIn(match.group(0).replace("-", ""), token_hash)
+
+    def test_pairing_code_requires_discovered_public_key(self):
+        FederationTrustStore(self.root).remember(
+            "office-b", "DE", "fingerprint-only", "legacy-discovery",
+        )
+
+        response = self.client.post(
+            "/admin/federation/peer-discovery/pairing/office-b/issue",
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            "Peer-Identität benötigt öffentlichen Schlüssel und Fingerprint",
+            response.get_data(as_text=True),
+        )
+        self.assertEqual("missing", FederationPairingTokens(
+            self.root, app.config["SECRET_KEY"]
+        ).status("office-b")["status"])
+
+    def test_pairing_code_can_be_revoked_without_changing_trust(self):
+        with app.app_context():
+            identity = FederationIdentity(self.root / "remote-identity").public_identity()
+        FederationTrustStore(self.root).remember(
+            "office-b", "DE", identity["fingerprint"], "qr", identity["public_key"],
+        )
+        tokens = FederationPairingTokens(self.root, app.config["SECRET_KEY"])
+        tokens.issue("office-b")
+
+        response = self.client.post(
+            "/admin/federation/peer-discovery/pairing/office-b/revoke",
+            follow_redirects=False,
+        )
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual("missing", tokens.status("office-b")["status"])
+        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
 
     def test_qr_import_opens_existing_connection_editor_without_enabling_peer(self):
         payload = encode_peer({

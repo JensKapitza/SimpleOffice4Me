@@ -41,7 +41,9 @@ The repository contains a bounded one-time-code store for the upcoming bilateral
 
 The HTTP bootstrap exposes signed `POST /federation/v1/pairing/claim` and `POST /federation/v1/pairing/status` requests. The claimant signs the operation, persistent peer ID, public key and fingerprint, timestamp, replay nonce and (for a claim) the code with its persistent Ed25519 identity. The receiving instance accepts only an already discovered key for the peer to which the code was issued. Requests outside the five-minute clock window, modified requests and repeated nonces fail closed. Neither response contains the code or its stored digest.
 
-This storage and HTTP primitive does not itself discover a peer, enable a connection, set a shared peer token, grant trust or grant any data capability. Code issuance and the complete explicit confirmation flow remain separate administrator actions; until that UI is integrated and accepted, administrators must continue to use the manual trust and permission procedure above.
+Administrators can issue and revoke a code for an already discovered identity from the peer-discovery dashboard. Issuance requires the peer's stored public key and fingerprint. The plaintext code appears only in the immediate `Cache-Control: no-store` response; dashboard status exposes only `pending`, `claimed`, `expired`, or `missing`. Audit events contain the actor and expiry, never the code or digest.
+
+This storage, HTTP and administrator workflow does not itself discover a peer, enable a connection, set a shared peer token, grant trust or grant any data capability. The claimant-side flow and complete explicit confirmation at both peers remain separate work; until that flow is integrated and accepted, administrators must continue to use the manual trust and permission procedure above.
 
 Peer policies may use:
 
