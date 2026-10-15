@@ -1,8 +1,12 @@
+import gc
+import io
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from app.vault_packages import (
+    _EncryptingWriter,
     create_vault_package,
     extract_vault_package,
     federation_chunk_plan,
@@ -11,6 +15,47 @@ from app.vault_packages import (
 
 
 class VaultPackageTests(unittest.TestCase):
+    def test_encrypted_export_cleanup_emits_no_unraisable_errors(self):
+        unraisable = []
+        previous_hook = sys.unraisablehook
+        sys.unraisablehook = unraisable.append
+        try:
+            with tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                source = root / "cleanup.txt"
+                source.write_text("cleanup regression", encoding="utf-8")
+                package = root / "cleanup.sovp"
+                created = create_vault_package([source], package)
+                gc.collect()
+                extract_vault_package(
+                    package,
+                    root / "restore",
+                    recovery_key=created["recovery_key"],
+                )
+        finally:
+            sys.unraisablehook = previous_hook
+        self.assertEqual([], unraisable)
+
+    def test_encrypting_writer_close_and_flush_are_idempotent(self):
+        target = io.BytesIO()
+        writer = _EncryptingWriter(target, b"k" * 32, b"n" * 8, "package", 64 * 1024)
+        writer.close()
+        writer.close()
+        writer.flush()
+        self.assertTrue(writer.closed)
+
+    def test_encrypting_writer_does_not_hide_flush_failures(self):
+        class FailingTarget(io.BytesIO):
+            def flush(self):
+                raise OSError("flush failed")
+
+        writer = _EncryptingWriter(
+            FailingTarget(), b"k" * 32, b"n" * 8, "package", 64 * 1024
+        )
+        with self.assertRaisesRegex(OSError, "flush failed"):
+            writer.close()
+        self.assertTrue(writer.closed)
+
     def test_password_package_hides_content_and_filename_and_extracts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
