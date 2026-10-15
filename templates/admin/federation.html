@@ -317,6 +317,7 @@
     {% set document_policy = peer_policy.get('documents', {}) if peer_policy else {} %}
     {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
     {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
+    {% set rendezvous_relay_policy = peer_policy.get('rendezvous_relay', {}) if peer_policy else {} %}
     <div class="row g-4">
       <section class="col-xl-5" id="peer-form">
         <div class="card shadow-sm">
@@ -331,6 +332,7 @@
               <input type="hidden" name="_return_view" value="peers">
               <input type="hidden" name="_documents_policy_form" value="1">
               <input type="hidden" name="_mail_cases_policy_form" value="1">
+              <input type="hidden" name="_rendezvous_relay_policy_form" value="1">
               <div class="col-md-6">
                 <label class="form-label" for="peer-id">Peer-ID</label>
                 <input class="form-control" id="peer-id" name="peer_id" value="{{ edit_peer.peer_id if edit_peer else '' }}" {% if edit_peer %}readonly{% endif %} required>
@@ -390,6 +392,20 @@
                 </div>
               </fieldset>
 
+              <fieldset class="col-12">
+                <legend class="h6 mb-2">Rendezvous-Vermittlung</legend>
+                <div class="vstack gap-2 border rounded p-3">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="rendezvous_relay_enabled" value="1" {% if rendezvous_relay_policy.get('enabled', false) is sameas true %}checked{% endif %}>
+                    <span class="form-check-label">Diesen Peer ausdrücklich als Rendezvous-Relay verwenden</span>
+                  </label>
+                  <div class="form-text">
+                    Standard ist aus. Der Relay übermittelt nur kurzlebige Verbindungsnachrichten an dort aktiv konfigurierte Peers.
+                    Er erteilt weder Trust noch Aktivierung oder Datenrechte und ist kein Datei- oder TLS-Relay.
+                  </div>
+                </div>
+              </fieldset>
+
               <div class="col-12 form-check ms-2">
                 <input class="form-check-input" type="checkbox" name="enabled" value="1" id="fed-enabled" {% if not edit_peer or edit_peer.configured_enabled %}checked{% endif %}>
                 <label class="form-check-label" for="fed-enabled">Peer aktiv</label>
@@ -426,6 +442,7 @@
               <tbody>
                 {% for peer in peers %}
                   {% set state = catalog_peer_states.get(peer.peer_id, {}) %}
+                  {% set peer_relay_policy = peer.get('policy', {}).get('rendezvous_relay', {}) %}
                   <tr>
                     <td>
                       <strong>{{ peer.label }}</strong>
@@ -434,6 +451,7 @@
                     </td>
                     <td>
                       <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'gesperrt' if peer.banned else ('aktiv' if peer.enabled else 'deaktiviert') }}</span>
+                      <span class="badge {{ 'text-bg-info' if peer_relay_policy.get('enabled', false) is sameas true else 'text-bg-secondary' }}">Relay {{ 'freigegeben' if peer_relay_policy.get('enabled', false) is sameas true else 'aus' }}</span>
                       <br><small>Index: {{ state.last_index_at or 'noch nie' }}</small>
                       {% if state.last_index_error %}<div class="text-danger small text-break">{{ state.last_index_error }}</div>{% endif %}
                     </td>
