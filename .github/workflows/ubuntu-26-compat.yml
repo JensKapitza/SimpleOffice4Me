@@ -159,8 +159,42 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64
-          push: false
-          tags: simpleoffice4me:ubuntu-26-compat
+          load: true
+          tags: simpleoffice4me:local
+      - name: Run isolated federation restart smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          compose=(docker compose -f deploy/docker/compose.federation-test.yaml)
+          cleanup() {
+            result=$?
+            trap - EXIT
+            if [ "$result" -ne 0 ]; then
+              "${compose[@]}" ps
+              "${compose[@]}" logs --no-color
+            fi
+            "${compose[@]}" down --volumes --remove-orphans
+            exit "$result"
+          }
+          trap cleanup EXIT
+
+          "${compose[@]}" up --detach --no-build --wait --wait-timeout 180
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_seed
+          "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_seed
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
+            --expect-receive direct_trust_required
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_seed \
+            --confirm-local-peer
+          "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_seed \
+            --confirm-local-peer
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
+            --expect-receive pending
+          "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_smoke \
+            --expect-receive pending
+          "${compose[@]}" restart peer-b
+          "${compose[@]}" up --detach --no-build --wait --wait-timeout 180
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
+            --expect-receive duplicate
 
   server-deb-host:
     name: Server DEB host tooling
