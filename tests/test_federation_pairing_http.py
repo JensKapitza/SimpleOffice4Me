@@ -87,6 +87,24 @@ class FederationPairingHttpTest(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json, {"error": "pairing_authentication_failed"})
 
+    def test_stale_and_noncanonical_identity_requests_are_rejected(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
+            stale = build_pairing_request(self.peer_root, "status", timestamp=1)
+        response = self.post("/federation/v1/pairing/status", stale)
+        self.assertEqual(response.status_code, 401)
+
+        noncanonical = self.request("status")
+        noncanonical["peer_id"] = "peer-a!"
+        response = self.post("/federation/v1/pairing/status", noncanonical)
+        self.assertEqual(response.status_code, 401)
+
+    def test_request_signed_by_a_replacement_key_is_rejected(self):
+        other_root = Path(self.temp.name) / "other-peer"
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
+            request_body = build_pairing_request(other_root, "status")
+        response = self.post("/federation/v1/pairing/status", request_body)
+        self.assertEqual(response.status_code, 401)
+
     def test_status_request_cannot_smuggle_a_code(self):
         request_body = self.request("status")
         request_body["code"] = "2345-6789-ABCD"
