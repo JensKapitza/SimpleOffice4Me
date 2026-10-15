@@ -301,6 +301,7 @@ def _unavailable_qr_svg() -> str:
 def dashboard():
     trust = FederationTrustStore(_root())
     pairing_tokens = _pairing_tokens()
+    banned_peer_ids = trust.store.banned_peer_ids()
     peers = []
     for identity in trust.list_identities():
         peer = trust.store.get_peer(identity["peer_id"]) or {}
@@ -320,7 +321,11 @@ def dashboard():
             "compatibility": peer_compatibility,
             "recommendations": recommendations(_root(), identity["peer_id"]),
             "pairing": pairing_tokens.status(identity["peer_id"]),
-            "pairing_ready": bool(identity.get("public_key") and identity.get("fingerprint")),
+            "pairing_ready": bool(
+                identity.get("public_key")
+                and identity.get("fingerprint")
+                and identity["peer_id"] not in banned_peer_ids
+            ),
         })
     try:
         own = local_profile(_root())
@@ -350,6 +355,8 @@ def dashboard():
 def issue_pairing_code(peer_id):
     try:
         _trust, peer = _known_peer(peer_id)
+        if peer_id in FederationStore(_root()).banned_peer_ids():
+            raise ValueError("Peer ist gesperrt")
         if not peer.get("public_key") or not peer.get("fingerprint"):
             raise ValueError("Peer-Identität benötigt öffentlichen Schlüssel und Fingerprint")
         issued = _pairing_tokens().issue(peer_id)
