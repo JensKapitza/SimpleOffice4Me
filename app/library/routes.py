@@ -851,7 +851,8 @@ def import_books_bibtex():
     try:
         rows = bibtex_import_rows(upload.read(4 * 1024 * 1024 + 1) if upload else b"")
     except (OSError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        logger.info("BibTeX import rejected: %s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "BibTeX-Datei konnte nicht gelesen werden."}), 400
     result = _create_imported_books(rows, "bibtex")
     return jsonify({"ok": True, **result})
 
