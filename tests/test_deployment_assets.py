@@ -51,6 +51,10 @@ class DeploymentAssetsTest(unittest.TestCase):
             smoke.index(logging_config),
             smoke.index("from app.federation_peer_auth import headers as peer_headers"),
         )
+        self.assertIn(
+            '"direct_trust_required": (409, "rejected", "direct_trust_required")',
+            smoke,
+        )
 
     def test_deployment_documentation_covers_all_supported_modes(self):
         docs = self.text("docs/DEPLOYMENT.md")
