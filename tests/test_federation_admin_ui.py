@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 import tempfile
@@ -12,6 +13,7 @@ from app import db as database
 from app.federation_identity import FederationIdentity
 from app.federation_moderation import FederationModerationStore
 from app.federation_pairing import FederationPairingTokens
+from app.federation_pairing_client import PairingClientError
 from app.federation_qr import encode_peer
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
@@ -262,6 +264,92 @@ class FederationAdminUiTests(unittest.TestCase):
 
         self.assertEqual(302, response.status_code)
         self.assertEqual("missing", tokens.status("office-b")["status"])
+        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
+
+    def _remember_pairing_peer(self):
+        with app.app_context():
+            identity = FederationIdentity(self.root / "remote-identity").public_identity()
+        FederationStore(self.root).save_peer(
+            "office-b", "Office B", "https://office-b.example.test", "", enabled=False,
+        )
+        FederationTrustStore(self.root).remember(
+            "office-b", "DE", identity["fingerprint"], "qr", identity["public_key"],
+        )
+
+    def test_claimant_ui_requires_explicit_identity_confirmation(self):
+        self._remember_pairing_peer()
+
+        with patch("app.federation_peer_admin.claim_pairing_code") as claim:
+            response = self.client.post(
+                "/admin/federation/peer-discovery/pairing/office-b/claim",
+                data={"code": "2345-6789-ABCD"},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        claim.assert_not_called()
+        self.assertIn(
+            "Fingerprint und Zieladresse müssen ausdrücklich bestätigt werden",
+            response.get_data(as_text=True),
+        )
+
+    def test_claimant_ui_does_not_grant_access_or_persist_code(self):
+        self._remember_pairing_peer()
+
+        with patch(
+            "app.federation_peer_admin.claim_pairing_code",
+            return_value={"peer_id": "local-peer", "status": "claimed"},
+        ) as claim:
+            response = self.client.post(
+                "/admin/federation/peer-discovery/pairing/office-b/claim",
+                data={"code": "2345-6789-ABCD", "confirm_identity": "1"},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        claim.assert_called_once_with(str(self.root), claim.call_args.args[1], "2345-6789-ABCD")
+        body = response.get_data(as_text=True)
+        self.assertIn("Trust, Aktivierung und Datenrechte bleiben unverändert", body)
+        self.assertNotIn("2345-6789-ABCD", body)
+        peer = FederationStore(self.root).get_peer("office-b")
+        self.assertFalse(peer["enabled"])
+        self.assertFalse(peer["has_token"])
+        self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
+        self.assertNotIn("2345-6789-ABCD", json.dumps(FederationStore(self.root).events(20)))
+
+    def test_claimant_error_does_not_echo_code(self):
+        self._remember_pairing_peer()
+        with patch(
+            "app.federation_peer_admin.claim_pairing_code",
+            side_effect=PairingClientError("Pairing-Code ist ungültig, abgelaufen oder bereits verwendet."),
+        ):
+            response = self.client.post(
+                "/admin/federation/peer-discovery/pairing/office-b/claim",
+                data={"code": "2345-6789-ABCD", "confirm_identity": "1"},
+                follow_redirects=True,
+            )
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("ungültig, abgelaufen oder bereits verwendet", body)
+        self.assertNotIn("2345-6789-ABCD", body)
+
+    def test_claimant_remote_status_is_read_only(self):
+        self._remember_pairing_peer()
+        with patch(
+            "app.federation_peer_admin.remote_pairing_status",
+            return_value={"peer_id": "local-peer", "status": "claimed"},
+        ) as status:
+            response = self.client.post(
+                "/admin/federation/peer-discovery/pairing/office-b/remote-status",
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Pairing-Status auf der Gegenstelle: beansprucht", response.get_data(as_text=True))
+        status.assert_called_once()
+        peer = FederationStore(self.root).get_peer("office-b")
+        self.assertFalse(peer["enabled"])
+        self.assertFalse(peer["has_token"])
         self.assertIsNone(FederationTrustStore(self.root).get_trust("office-b"))
 
     def test_qr_import_opens_existing_connection_editor_without_enabling_peer(self):

@@ -15,6 +15,7 @@ from .federation_discovery_service import discover_country, discover_direct, dis
 from .federation_lan_receive_state import LanReceiveState
 from .federation_local_profile import local_profile
 from .federation_pairing import FederationPairingTokens
+from .federation_pairing_client import PairingClientError, claim_pairing_code, remote_pairing_status
 from .federation_qr import decode_peer, encode_peer
 from .federation_qr_image import render_qr_svg
 from .federation_store import FederationStore
@@ -186,6 +187,15 @@ def _known_peer(peer_id):
     }
 
 
+def _remote_pairing_peer(peer_id):
+    _trust, peer = _known_peer(peer_id)
+    if peer_id in FederationStore(_root()).banned_peer_ids():
+        raise ValueError("Peer ist gesperrt")
+    if not peer.get("public_key") or not peer.get("fingerprint") or not peer.get("base_url"):
+        raise ValueError("Peer-Identität und Zieladresse sind unvollständig")
+    return peer
+
+
 def _csv_values(value):
     return tuple(
         item
@@ -332,6 +342,12 @@ def dashboard():
                 and identity.get("fingerprint")
                 and identity["peer_id"] not in banned_peer_ids
             ),
+            "pairing_claim_ready": bool(
+                identity.get("public_key")
+                and identity.get("fingerprint")
+                and peer.get("base_url")
+                and identity["peer_id"] not in banned_peer_ids
+            ),
         })
     try:
         own = local_profile(_root())
@@ -402,6 +418,53 @@ def revoke_pairing_code(peer_id):
         flash("Pairing-Code widerrufen." if revoked else "Kein Pairing-Code vorhanden.")
     except (TypeError, ValueError) as exc:
         flash(f"Pairing-Code konnte nicht widerrufen werden: {exc}")
+    return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/pairing/<peer_id>/claim")
+@admin_required
+def claim_remote_pairing_code(peer_id):
+    try:
+        peer = _remote_pairing_peer(peer_id)
+        if request.form.get("confirm_identity") != "1":
+            raise ValueError("Fingerprint und Zieladresse müssen ausdrücklich bestätigt werden")
+        result = claim_pairing_code(_root(), peer, request.form.get("code", ""))
+        try:
+            FederationStore(_root()).record_event(
+                "remote_pairing_code_claimed", peer_id=peer_id,
+                detail={"actor": _actor(), "status": result["status"]},
+            )
+        except Exception as exc:
+            current_app.logger.error("Remote pairing audit failed (%s)", type(exc).__name__)
+            flash(
+                "Pairing-Code wurde beansprucht, aber das lokale Audit konnte nicht "
+                "gespeichert werden. Remote-Status prüfen."
+            )
+        else:
+            flash(
+                "Pairing-Code auf der Gegenstelle beansprucht. "
+                "Trust, Aktivierung und Datenrechte bleiben unverändert."
+            )
+    except (PairingClientError, TypeError, ValueError) as exc:
+        flash(f"Pairing-Code konnte nicht beansprucht werden: {exc}")
+    return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/pairing/<peer_id>/remote-status")
+@admin_required
+def check_remote_pairing_status(peer_id):
+    try:
+        peer = _remote_pairing_peer(peer_id)
+        result = remote_pairing_status(_root(), peer)
+        labels = {
+            "missing": "nicht vorhanden",
+            "pending": "wartet",
+            "claimed": "beansprucht",
+            "expired": "abgelaufen",
+        }
+        flash(f"Pairing-Status auf der Gegenstelle: {labels[result['status']]}.")
+    except (PairingClientError, TypeError, ValueError) as exc:
+        flash(f"Remote-Pairing-Status konnte nicht geprüft werden: {exc}")
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
