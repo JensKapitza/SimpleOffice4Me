@@ -98,6 +98,8 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `POST /federation/v1/discovery/signal`
 - `GET /federation/v1/discovery/signal?peer_id=<peer>`
 - `GET /federation/v1/discovery/trust-claims`
+- `POST /federation/v1/pairing/claim`
+- `POST /federation/v1/pairing/status`
 
 ## Admin
 
@@ -145,4 +147,5 @@ Damit bleibt Discovery/Trust von konkreten Datei-Rechten getrennt, während der 
 - E-Mail-Lookups übertragen keine Klartext-E-Mail.
 - Rendezvous-Nachrichten sind kurzlebig und werden nur einmal ausgeliefert.
 - Trust-Hinweise anderer Peers führen niemals automatisch zu lokalem Trust.
+- Pairing-Claim und -Status akzeptieren nur frische, einmalige und Ed25519-signierte Requests einer bereits bekannten, nicht gesperrten Peer-Identität. Ein erfolgreicher Claim vergibt weder Trust noch Aktivierung oder Datenrechte.
 - Fingerprints müssen bei persönlicher Prüfung außerhalb des automatischen Discovery-Pfads verglichen werden.
