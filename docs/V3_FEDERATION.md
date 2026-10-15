@@ -43,7 +43,9 @@ The HTTP bootstrap exposes signed `POST /federation/v1/pairing/claim` and `POST 
 
 Administrators can issue and revoke a code for an already discovered identity from the peer-discovery dashboard. Issuance requires the peer's stored public key and fingerprint. The plaintext code appears only in the immediate `Cache-Control: no-store` response; dashboard status exposes only `pending`, `claimed`, `expired`, or `missing`. Audit events contain the actor and expiry, never the code or digest.
 
-This storage, HTTP and administrator workflow does not itself discover a peer, enable a connection, set a shared peer token, grant trust or grant any data capability. The claimant-side flow and complete explicit confirmation at both peers remain separate work; until that flow is integrated and accepted, administrators must continue to use the manual trust and permission procedure above.
+On the claimant instance, an administrator selects the same known peer, confirms its fingerprint and target address, and submits the code. SimpleOffice re-fetches the public discovery profile over an IP-pinned connection and requires the peer ID, Ed25519 key, and fingerprint to match before it sends the signed claim. A read-only remote status check supports recovery after a process restart. The code is not persisted on the claimant and is never written to flash messages or audit details.
+
+Issuing, claiming, checking, or revoking a code does not enable a connection, set a shared peer token, grant trust, or grant any data capability. Administrators must still configure connectivity, direct trust, and the minimum data permissions independently on both peers.
 
 Peer policies may use:
 
@@ -87,4 +89,6 @@ before trust, pending receipt after independent local approval at each test
 peer, and idempotency after restarting a peer. Run it using the commands in
 [`deploy/docker/README.md`](../deploy/docker/README.md). Test-only seeding is
 limited to disposable volumes; it does not exercise the browser QR/manual
-pairing workflow or real LAN discovery.
+pairing workflow or real LAN discovery. The Ubuntu Docker-host CI job executes
+this sequence with fresh volumes, restarts one peer, waits for it to become
+healthy again, and verifies persisted duplicate detection before cleaning up.
