@@ -134,8 +134,14 @@ def _policy_store():
 
 
 def _actor():
-    user = getattr(g, "user", None) or {}
-    return str(user.get("username") or "system")[:160]
+    user = getattr(g, "user", None)
+    if user is None:
+        return "system"
+    try:
+        username = user["username"]
+    except (KeyError, TypeError):
+        username = getattr(user, "username", "")
+    return str(username or "system")[:160]
 
 
 def _audit_policy(operation, peer_id, changes):
