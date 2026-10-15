@@ -193,7 +193,8 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertIn("Trust jeweils lokal", body)
 
     def test_pairing_code_issue_is_no_store_and_does_not_grant_access(self):
-        identity = FederationIdentity(self.root / "remote-identity").public_identity()
+        with app.app_context():
+            identity = FederationIdentity(self.root / "remote-identity").public_identity()
         FederationStore(self.root).save_peer(
             "office-b", "Office B", "https://office-b.example.test", "", enabled=False,
         )
@@ -246,7 +247,8 @@ class FederationAdminUiTests(unittest.TestCase):
         ).status("office-b")["status"])
 
     def test_pairing_code_can_be_revoked_without_changing_trust(self):
-        identity = FederationIdentity(self.root / "remote-identity").public_identity()
+        with app.app_context():
+            identity = FederationIdentity(self.root / "remote-identity").public_identity()
         FederationTrustStore(self.root).remember(
             "office-b", "DE", identity["fingerprint"], "qr", identity["public_key"],
         )
