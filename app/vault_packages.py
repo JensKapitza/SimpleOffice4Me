@@ -141,6 +141,8 @@ class _EncryptingWriter(io.RawIOBase):
         return len(raw)
 
     def flush(self) -> None:
+        if self.closed:
+            return
         if hasattr(self.target, "flush"):
             self.target.flush()
 
@@ -353,16 +355,19 @@ def create_vault_package(
     try:
         with tmp.open("wb") as target:
             _write_header(target, header)
-            writer = _EncryptingWriter(target, content_key, nonce_prefix, package_id, int(chunk_size))
-            with tarfile.open(fileobj=writer, mode="w|") as archive:
-                for path, name in sources:
-                    info = archive.gettarinfo(str(path), arcname=name)
-                    info.uid = info.gid = 0
-                    info.uname = info.gname = ""
-                    info.mode = 0o600
-                    with path.open("rb") as source:
-                        archive.addfile(info, source)
-            footer = writer.finish()
+            # tarfile leaves caller-owned streams open; close the writer before target.
+            with _EncryptingWriter(
+                target, content_key, nonce_prefix, package_id, int(chunk_size)
+            ) as writer:
+                with tarfile.open(fileobj=writer, mode="w|") as archive:
+                    for path, name in sources:
+                        info = archive.gettarinfo(str(path), arcname=name)
+                        info.uid = info.gid = 0
+                        info.uname = info.gname = ""
+                        info.mode = 0o600
+                        with path.open("rb") as source:
+                            archive.addfile(info, source)
+                footer = writer.finish()
         os.replace(tmp, target_path)
         if os.name == "posix":
             os.chmod(target_path, 0o600)
