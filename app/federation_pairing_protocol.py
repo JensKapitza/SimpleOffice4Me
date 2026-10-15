@@ -26,7 +26,10 @@ def _canonical_request(value: dict[str, Any], expected_operation: str, *, now: i
         raise ValueError("invalid pairing request")
     if value.get("protocol") != PAIRING_PROTOCOL or value.get("operation") != expected_operation:
         raise ValueError("invalid pairing request")
-    peer_id = sanitize_peer_id(value.get("peer_id", ""))
+    raw_peer_id = str(value.get("peer_id") or "")
+    peer_id = sanitize_peer_id(raw_peer_id)
+    if raw_peer_id != peer_id:
+        raise ValueError("invalid pairing identity")
     public_key = str(value.get("public_key") or "").strip()[:512]
     fingerprint = str(value.get("fingerprint") or "").strip()[:256]
     if not public_key or not fingerprint or not hmac.compare_digest(
@@ -102,6 +105,9 @@ def authenticate_pairing_request(
     peer_id = sanitize_peer_id(value.get("peer_id", ""))
     public_key = str(value.get("public_key") or "").strip()[:512]
     signature = str(value.get("signature") or "")[:1024]
+    store = FederationStore(root)
+    if peer_id in store.banned_peer_ids(now=checked_at):
+        raise ValueError("invalid pairing signature")
     known = FederationTrustStore(root).identity(peer_id) or {}
     known_key = str(known.get("public_key") or "")
     known_fingerprint = str(known.get("fingerprint") or "")
@@ -113,7 +119,7 @@ def authenticate_pairing_request(
     ):
         raise ValueError("invalid pairing signature")
     nonce = str(value.get("nonce") or "")
-    if not FederationStore(root).claim_nonce(
+    if not store.claim_nonce(
         f"pairing:{peer_id}:{nonce}", checked_at + PAIRING_NONCE_TTL_SECONDS
     ):
         raise ValueError("replayed pairing request")
