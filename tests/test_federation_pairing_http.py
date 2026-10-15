@@ -108,6 +108,13 @@ class FederationPairingHttpTest(unittest.TestCase):
         response = self.post("/federation/v1/pairing/status", request_body)
         self.assertEqual(response.status_code, 401)
 
+    def test_overflowing_timestamp_is_rejected_without_server_error(self):
+        request_body = self.request("status")
+        request_body["timestamp"] = float("inf")
+        response = self.post("/federation/v1/pairing/status", request_body)
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json, {"error": "pairing_authentication_failed"})
+
     def test_status_request_cannot_smuggle_a_code(self):
         request_body = self.request("status")
         request_body["code"] = "2345-6789-ABCD"
