@@ -1,6 +1,76 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-14 (main `bbc228a2`)
+## Current repository update — 2026-10-15 (main `8a71b7d0`)
+
+Implementation basis: `main` at
+`8a71b7d0144979c2b70e2de75b6c095c0a9f3108`. Package metadata still
+declares version 2.0.0. This update records repository work only; it does not
+approve or declare the 3.0 release.
+
+PR #711 (`d0f2eef3`) admits CPython 3.15 final through runtime policy,
+packaging, launchers, CI and operator documentation while continuing to reject
+prereleases. The final-runtime gate does not change the separate Canonical
+Ubuntu 22.04 Python 3.10 exception or establish production deployment
+compatibility.
+
+PRs #712 (`775efc69`), #713 (`1f8383e8`) and #714 (`84c7829f`) complete
+the repository-side one-time-code pairing bootstrap from #679. A claimant signs
+the canonical peer identity, persistent Ed25519 key/fingerprint, timestamp,
+nonce and code. The issuing administrator can create, inspect and revoke only
+the non-secret lifecycle state; the claimant administrator must confirm the
+pinned identity and destination before sending the signed claim. Codes and
+digests are excluded from responses, audit details and persistent claimant
+state. Unknown or changed keys, stale/replayed requests, blocked peers, invalid
+codes and identity drift fail closed.
+
+This bootstrap deliberately does not grant trust, enable a peer, install a
+shared connection token or add data capabilities. Existing local approval and
+deny-by-default capability policy remain authoritative. The successful complete
+PR gates covered the Python 3.14 and 3.15 application suites, dependency and
+security scans, CodeQL, OSSAR, Scorecard, Android, Desktop, Docker and packaging.
+These hosted contracts do not prove operation with an external peer or a
+production network.
+
+PR #715 (`4fbfb68d`) adds a real two-container restart/recovery smoke to the
+Ubuntu 26.04 Docker job. It starts two instances with independent identities and
+volumes on the isolated test network, verifies that a global bearer and an
+unpaired transfer are rejected, establishes separate local approvals, exercises
+the bidirectional pending path, restarts one peer and verifies persistent
+duplicate detection. Failure diagnostics include container state and logs, and
+the disposable containers, network and volumes are always removed. All seven
+workflow groups passed on the final head, including both Python application
+runs, Docker restart smoke, Android, Desktop, server packaging, dependency and
+security gates, CodeQL, OSSAR and Scorecard.
+
+That smoke is reproducible hosted-Docker process and persistence evidence. It is
+not evidence for a real LAN, an external peer, hardware, representative load,
+long-running operation or the optional explicitly authorized relay. Issue #679
+therefore remains open for those remaining scope and acceptance points.
+
+PR #716 (`8a71b7d0`) adds a bounded administrator-only BibTeX book import to
+the existing ObjectStore, authentication, CSRF and audit paths. The data-only
+parser accepts UTF-8 `@book` records and the fields emitted by the existing
+export, but rejects macros, concatenation, duplicate fields, unsupported entry
+types, malformed records, oversized values and partial imports. Existing ISBNs
+are skipped; bibliographic notes round-trip without inventing shelf locations.
+A CodeQL review finding on exception-text disclosure was fixed before merge by
+returning a stable error and logging only the exception type.
+
+The final #716 head passed all seven workflow groups, including the complete
+Python 3.14/3.15 application suites, Extended Quality, dependency/security
+checks, CodeQL, OSSAR, Scorecard, Android, Desktop, Docker, Debian/Windows
+packaging and XRechnung. Local parser black-box and syntax checks passed; Ruff
+was not installed locally and is therefore evidenced only by CI. No external
+BibTeX application, physical camera/printer or Android device was used.
+
+Issue #658 remains open for the work/edition/copy model, wider capture workflows
+and real camera/printer/Android acceptance. The broader external
+production-data upgrade/rollback, client/device/peer, representative-load and
+long-run evidence in #505/#506 also remains outstanding. Release approval
+remains **not approved**.
+
+
+## Earlier repository update — 2026-10-14 (main `bbc228a2`)
 
 Implementation basis: `main` at `bbc228a2c6ec34e73b30df3356c01597c1674921`.
 Package metadata still declares version 2.0.0. This update records repository
