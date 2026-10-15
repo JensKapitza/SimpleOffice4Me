@@ -150,16 +150,22 @@ def main() -> None:
             LOCAL_PEER_ID, LOCAL_PEER_TOKEN, "POST", anonymous_path, body,
         ),
     )
-    expected_status, expected_error = {
-        "direct_trust_required": (409, "direct_trust_required"),
-        "pending": (202, ""),
-        "duplicate": (200, ""),
+    expected_status, expected_result, expected_error = {
+        "direct_trust_required": (409, "rejected", "direct_trust_required"),
+        "pending": (202, "pending", ""),
+        "duplicate": (200, "duplicate", ""),
     }[expected_receive]
+    actual_result = str(received.get("status", ""))
+    actual_error = str(received.get("error", ""))
     _expect(
         status == expected_status
-        and received.get("status") == expected_receive
-        and received.get("error", "") == expected_error,
-        f"authenticated receive returned an unexpected result for {expected_receive}",
+        and actual_result == expected_result
+        and actual_error == expected_error,
+        (
+            f"authenticated receive returned HTTP {status}, "
+            f"status={actual_result!r}, error={actual_error!r}; "
+            f"expected {expected_receive}"
+        ),
     )
     print("PASS: independent discovery identities and V3 capabilities")
     print("PASS: the compatibility bearer cannot impersonate a peer")
