@@ -29,6 +29,9 @@ class FederationPairingHttpTest(unittest.TestCase):
             SECRET_KEY="pairing-http-test-secret",
         )
         self.app.register_blueprint(bp)
+        self.context = self.app.app_context()
+        self.context.push()
+        self.addCleanup(self.context.pop)
         self.client = self.app.test_client()
         with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
             identity = FederationIdentity(self.peer_root).public_identity()
