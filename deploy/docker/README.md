@@ -72,6 +72,14 @@ data. The compatibility bearer cannot authenticate a peer identity. The seed
 command writes only to disposable test volumes; its optional trust flag is a
 local approval on that instance, not a network pairing protocol.
 
+The Ubuntu Docker-host CI job runs this same two-container sequence from a
+fresh pair of volumes. It waits for health before each phase, restarts `peer-b`,
+verifies that the persisted message is still reported as `duplicate`, prints
+container status and logs on failure, and always removes its disposable
+containers, network, and volumes. This is a repeatable process-restart and
+persistence check on a hosted Docker Engine; it is not evidence for a production
+LAN, external peer, long-running deployment, or hardware acceptance.
+
 For manual discovery diagnosis, the equivalent minimal request is:
 
 ```sh
