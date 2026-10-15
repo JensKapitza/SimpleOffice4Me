@@ -3,6 +3,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import Flask
+
 from app.federation_rendezvous_messages import FederationRendezvousMessages
 from app.federation_store import FederationStore
 
@@ -12,6 +14,11 @@ class FederationRendezvousMessagesTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+        self.app = Flask(__name__)
+        self.app.config.update(SECRET_KEY="federation-rendezvous-test")
+        self.context = self.app.app_context()
+        self.context.push()
+        self.addCleanup(self.context.pop)
         self.store = FederationStore(self.root)
         self.store.save_peer("peer-a", "A", "https://a.example", "token-a", {}, True)
         self.store.save_peer("peer-b", "B", "https://b.example", "token-b", {}, True)
