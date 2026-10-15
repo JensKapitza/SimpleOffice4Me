@@ -9,6 +9,8 @@ from .federation_directory import directory_profiles
 from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
 from .federation_local_profile import local_peer_id, local_profile
+from .federation_pairing import FederationPairingTokens
+from .federation_pairing_protocol import authenticate_pairing_request
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_peer_auth import authenticated_peer
 from .federation_peer_profile import peer_profile
@@ -67,6 +69,48 @@ def well_known():
     except ValueError as exc:
         _log_rejected("profile", exc)
         return jsonify({"error": "federation_profile_unavailable"}), 503
+
+
+def _pairing_tokens():
+    return FederationPairingTokens(_root(), current_app.config["SECRET_KEY"])
+
+
+def _pairing_response(pairing):
+    response = jsonify({"pairing": pairing})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@bp.post("/federation/v1/pairing/claim")
+def claim_pairing_code():
+    body = request.get_json(silent=True)
+    try:
+        peer_id = authenticate_pairing_request(_root(), body, "claim")
+    except (TypeError, ValueError) as exc:
+        _log_rejected("pairing claim authentication", exc)
+        return jsonify({"error": "pairing_authentication_failed"}), 401
+    try:
+        claimed = _pairing_tokens().claim(body.get("code"), peer_id)
+        FederationStore(_root()).record_event(
+            "pairing_code_claimed",
+            peer_id=peer_id,
+            detail={"claimed_at": claimed["claimed_at"], "expires_at": claimed["expires_at"]},
+        )
+        return _pairing_response(_pairing_tokens().status(peer_id))
+    except (TypeError, ValueError) as exc:
+        _log_rejected("pairing code claim", exc)
+        return jsonify({"error": "invalid_or_expired_pairing_code"}), 400
+
+
+@bp.post("/federation/v1/pairing/status")
+def pairing_code_status():
+    body = request.get_json(silent=True)
+    try:
+        peer_id = authenticate_pairing_request(_root(), body, "status")
+        return _pairing_response(_pairing_tokens().status(peer_id))
+    except (TypeError, ValueError) as exc:
+        _log_rejected("pairing status authentication", exc)
+        return jsonify({"error": "pairing_authentication_failed"}), 401
 
 
 @bp.get("/federation/v1/discovery/peers")

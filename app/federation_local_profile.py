@@ -55,5 +55,6 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
             "lan_discovery": True,
             "lan_receive_ready": bool(receive["active"]),
             "lan_receive_expires_at": int(receive["expires_at"]),
+            "pairing_code_claim": True,
         },
     }

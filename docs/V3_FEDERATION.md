@@ -39,7 +39,9 @@ After checking the peer identity on both instances, each administrator must set 
 
 The repository contains a bounded one-time-code store for the upcoming bilateral pairing flow. A code is generated with 60 bits of randomness, bound to exactly one expected peer, valid for 1 to 15 minutes (10 minutes by default), and persisted only as a keyed hash. Issuing a replacement revokes the earlier code for that peer; claiming is atomic and succeeds once even under concurrent requests. Status responses never expose the code.
 
-This storage primitive does not itself discover a peer, enable a connection, set a shared peer token, grant trust or grant any data capability. Until the separate authenticated claim and explicit confirmation endpoints are integrated and accepted, administrators must continue to use the manual procedure above.
+The HTTP bootstrap exposes signed `POST /federation/v1/pairing/claim` and `POST /federation/v1/pairing/status` requests. The claimant signs the operation, persistent peer ID, public key and fingerprint, timestamp, replay nonce and (for a claim) the code with its persistent Ed25519 identity. The receiving instance accepts only an already discovered key for the peer to which the code was issued. Requests outside the five-minute clock window, modified requests and repeated nonces fail closed. Neither response contains the code or its stored digest.
+
+This storage and HTTP primitive does not itself discover a peer, enable a connection, set a shared peer token, grant trust or grant any data capability. Code issuance and the complete explicit confirmation flow remain separate administrator actions; until that UI is integrated and accepted, administrators must continue to use the manual trust and permission procedure above.
 
 Peer policies may use:
 
