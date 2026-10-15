@@ -123,3 +123,242 @@ def _append_ris_record(rows: list[dict[str, str]], record: dict[str, list[str]])
     })
     if len(rows) > 500:
         raise ValueError("Es dürfen höchstens 500 Bücher importiert werden.")
+
+
+_BIBTEX_MAX_UPLOAD = 4 * 1024 * 1024
+_BIBTEX_MAX_RECORDS = 500
+_BIBTEX_MAX_VALUE = 4000
+
+
+def bibtex_import_rows(upload: bytes) -> list[dict[str, str]]:
+    """Parse bounded UTF-8 @book records without executing BibTeX commands."""
+    if not upload or len(upload) > _BIBTEX_MAX_UPLOAD:
+        raise ValueError("Die BibTeX-Datei fehlt oder ist zu groß.")
+    try:
+        text = upload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("Die BibTeX-Datei muss UTF-8-codiert sein.") from exc
+
+    rows: list[dict[str, str]] = []
+    offset = 0
+    while True:
+        offset = _skip_bibtex_space_and_comments(text, offset)
+        if offset == len(text):
+            break
+        entry, offset = _read_bibtex_entry(text, offset)
+        rows.append(_bibtex_row(entry))
+        if len(rows) > _BIBTEX_MAX_RECORDS:
+            raise ValueError("Es dürfen höchstens 500 Bücher importiert werden.")
+    if not rows:
+        raise ValueError("Die BibTeX-Datei enthält keine importierbaren Bücher.")
+    return rows
+
+
+def _skip_bibtex_space_and_comments(text: str, offset: int) -> int:
+    while offset < len(text):
+        if text[offset].isspace():
+            offset += 1
+        elif text[offset] == "%":
+            newline = text.find("\n", offset)
+            offset = len(text) if newline < 0 else newline + 1
+        else:
+            break
+    return offset
+
+
+def _read_bibtex_entry(text: str, offset: int) -> tuple[dict[str, str], int]:
+    match = re.match(r"@([A-Za-z]+)\s*([({])", text[offset:])
+    if match is None:
+        raise ValueError("Ungültiger BibTeX-Datensatz.")
+    kind = match.group(1).casefold()
+    opening = match.group(2)
+    closing = "}" if opening == "{" else ")"
+    cursor = offset + match.end()
+    body_start = cursor
+    outer_depth = 1
+    brace_depth = 0
+    quoted = False
+    escaped = False
+    while cursor < len(text):
+        character = text[cursor]
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == '"' and brace_depth == 0:
+            quoted = not quoted
+        elif not quoted:
+            if opening == "{" and character == "{":
+                outer_depth += 1
+            elif opening == "{" and character == "}":
+                outer_depth -= 1
+                if outer_depth == 0:
+                    return _parse_bibtex_entry_body(kind, text[body_start:cursor]), cursor + 1
+            elif opening == "(" and character == "{":
+                brace_depth += 1
+            elif opening == "(" and character == "}" and brace_depth:
+                brace_depth -= 1
+            elif opening == "(" and character == closing and brace_depth == 0:
+                return _parse_bibtex_entry_body(kind, text[body_start:cursor]), cursor + 1
+        cursor += 1
+    raise ValueError("Ein BibTeX-Datensatz wurde nicht abgeschlossen.")
+
+
+def _parse_bibtex_entry_body(kind: str, body: str) -> dict[str, str]:
+    if kind != "book":
+        raise ValueError("Der BibTeX-Import unterstützt nur @book-Datensätze.")
+    comma = _bibtex_top_level_delimiter(body, ",")
+    citation_key = body[:comma].strip() if comma >= 0 else ""
+    if not citation_key or len(citation_key) > 256:
+        raise ValueError("Ein BibTeX-Buchdatensatz benötigt einen kurzen Schlüssel.")
+    fields: dict[str, str] = {}
+    cursor = comma + 1
+    while True:
+        cursor = _skip_bibtex_separators(body, cursor)
+        if cursor == len(body):
+            break
+        name_match = re.match(r"([A-Za-z][A-Za-z0-9_-]*)\s*=\s*", body[cursor:])
+        if name_match is None:
+            raise ValueError("Ungültiges BibTeX-Feld.")
+        name = name_match.group(1).casefold()
+        if name in fields:
+            raise ValueError(f"Doppeltes BibTeX-Feld: {name}.")
+        cursor += name_match.end()
+        value, cursor = _read_bibtex_value(body, cursor)
+        fields[name] = value
+        cursor = _skip_bibtex_space(body, cursor)
+        if cursor < len(body) and body[cursor] != ",":
+            raise ValueError("BibTeX-Felder müssen durch Kommas getrennt sein.")
+    return fields
+
+
+def _skip_bibtex_space(text: str, offset: int) -> int:
+    while offset < len(text) and text[offset].isspace():
+        offset += 1
+    return offset
+
+
+def _skip_bibtex_separators(text: str, offset: int) -> int:
+    while offset < len(text) and (text[offset].isspace() or text[offset] == ","):
+        offset += 1
+    return offset
+
+
+def _read_bibtex_value(body: str, offset: int) -> tuple[str, int]:
+    if offset >= len(body):
+        raise ValueError("BibTeX-Feldwert fehlt.")
+    if body[offset] == "{":
+        raw, cursor = _read_bibtex_delimited(body, offset, "{", "}", nested=True)
+    elif body[offset] == '"':
+        raw, cursor = _read_bibtex_delimited(body, offset, '"', '"', nested=False)
+    else:
+        cursor = offset
+        while cursor < len(body) and body[cursor] not in ", \t\r\n":
+            cursor += 1
+        raw = body[offset:cursor]
+        if not re.fullmatch(r"[A-Za-z0-9.:_+/-]+", raw):
+            raise ValueError("Ungültiger ungeklammerter BibTeX-Wert.")
+    value = _bibtex_unescape(raw)
+    if len(value) > _BIBTEX_MAX_VALUE:
+        raise ValueError("Ein BibTeX-Feldwert ist zu lang.")
+    return value, cursor
+
+
+def _read_bibtex_delimited(
+    text: str,
+    offset: int,
+    opening: str,
+    closing: str,
+    *,
+    nested: bool,
+) -> tuple[str, int]:
+    cursor = offset + 1
+    start = cursor
+    depth = 1
+    escaped = False
+    while cursor < len(text):
+        character = text[cursor]
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif nested and character == opening:
+            depth += 1
+        elif character == closing:
+            depth -= 1
+            if depth == 0:
+                return text[start:cursor], cursor + 1
+        cursor += 1
+    raise ValueError("Ein BibTeX-Feldwert wurde nicht abgeschlossen.")
+
+
+def _bibtex_top_level_delimiter(text: str, delimiter: str) -> int:
+    depth = 0
+    quoted = False
+    escaped = False
+    for cursor, character in enumerate(text):
+        if escaped:
+            escaped = False
+        elif character == "\\":
+            escaped = True
+        elif character == '"' and depth == 0:
+            quoted = not quoted
+        elif not quoted:
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+            elif character == delimiter and depth == 0:
+                return cursor
+    return -1
+
+
+def _bibtex_unescape(value: str) -> str:
+    value = value.replace(r"\textbackslash{}", "\\")
+    value = re.sub(r"\\([{}$%&#_])", r"\1", value)
+    return " ".join(value.replace("\x00", "").split())
+
+
+def _bibtex_row(fields: dict[str, str]) -> dict[str, str]:
+    title = fields.get("title", "")
+    if not title:
+        raise ValueError("Ein BibTeX-Buchdatensatz benötigt einen Titel.")
+    note_values = _parse_bibtex_note(fields.get("note", ""))
+    isbn = fields.get("isbn", "") or note_values.get("isbn", "")
+    if len(isbn) > 64:
+        raise ValueError("Die ISBN im BibTeX-Datensatz ist zu lang.")
+    return {
+        "title": title,
+        "authors": re.sub(r"\s+and\s+", "; ", fields.get("author", ""), flags=re.IGNORECASE),
+        "isbn": isbn,
+        "genre": fields.get("keywords", "") or note_values.get("genre", ""),
+        "series": fields.get("series", ""),
+        "series_number": fields.get("volume", ""),
+        "publisher": fields.get("publisher", ""),
+        "year": fields.get("year", ""),
+        "language": fields.get("language", "") or note_values.get("language", ""),
+        "edition": fields.get("edition", ""),
+        "description": fields.get("abstract", "") or note_values.get("description", ""),
+        "bibliography_note": note_values.get("note", ""),
+    }
+
+
+def _parse_bibtex_note(note: str) -> dict[str, str]:
+    if not note:
+        return {}
+    labels = "Inventory ID|Library location|Pages|ISBN|Language|Genre|Description"
+    parts = re.split(rf";\s+(?=(?:{labels}):)", note)
+    values: dict[str, str] = {}
+    local_parts: list[str] = []
+    for part in parts:
+        match = re.fullmatch(rf"({labels}):\s*(.*)", part)
+        if not match:
+            local_parts.append(part)
+            continue
+        key = match.group(1).casefold().replace(" ", "_")
+        values[key] = match.group(2)
+        if key in {"inventory_id", "library_location", "pages"}:
+            local_parts.append(part)
+    if local_parts:
+        values["note"] = "; ".join(local_parts)
+    return values

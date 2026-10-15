@@ -34,7 +34,7 @@ from .printer import (
     render_image,
     render_text,
 )
-from .imports import calibre_import_rows, calibre_isbn, ris_import_rows
+from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
 
@@ -49,7 +49,7 @@ def protect_export_and_ocr_responses(response):
         "library.export_books_calibre",
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
-        "library.import_books_ris",
+        "library.import_books_ris", "library.import_books_bibtex",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -837,6 +837,23 @@ def import_books_ris():
     except (OSError, ValueError) as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     result = _create_imported_books(rows, "ris")
+    return jsonify({"ok": True, **result})
+
+
+@bp.post("/import/books.bib")
+@login_required
+def import_books_bibtex():
+    if not is_admin():
+        audit("library_books_import", "library", "books", outcome="failure",
+              detail={"reason": "administrator_required"})
+        abort(403)
+    upload = request.files.get("file")
+    try:
+        rows = bibtex_import_rows(upload.read(4 * 1024 * 1024 + 1) if upload else b"")
+    except (OSError, ValueError) as exc:
+        logger.info("BibTeX import rejected: %s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "BibTeX-Datei konnte nicht gelesen werden."}), 400
+    result = _create_imported_books(rows, "bibtex")
     return jsonify({"ok": True, **result})
 
 
