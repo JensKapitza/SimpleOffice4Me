@@ -45,6 +45,12 @@ class DeploymentAssetsTest(unittest.TestCase):
         for result in ("direct_trust_required", "pending", "duplicate"):
             self.assertIn(f"--expect-receive {result}", workflow)
         self.assertIn("down --volumes --remove-orphans", workflow)
+        smoke = self.text("tools/federation_testnet_smoke.py")
+        logging_config = 'os.environ.setdefault("SIMPLEOFFICE_LOG_STDERR_ONLY", "1")'
+        self.assertLess(
+            smoke.index(logging_config),
+            smoke.index("from app.federation_peer_auth import headers as peer_headers"),
+        )
 
     def test_deployment_documentation_covers_all_supported_modes(self):
         docs = self.text("docs/DEPLOYMENT.md")
