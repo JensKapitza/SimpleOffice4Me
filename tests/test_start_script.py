@@ -100,7 +100,10 @@ class StartScriptTests(unittest.TestCase):
 
     def test_playwright_version_matches_project_optional_dependency(self):
         import re
-        import tomllib
+        try:
+            import tomllib
+        except ModuleNotFoundError:
+            import tomli as tomllib
 
         root = Path(__file__).resolve().parents[1]
         script = (root / "start.sh").read_text(encoding="utf-8")

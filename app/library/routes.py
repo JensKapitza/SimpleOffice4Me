@@ -725,7 +725,10 @@ def export_books_calibre():
 
     objects, placements, identifiers, selected, filters_active = _library_export_selection()
     archive_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
-    csv_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
+    # Python 3.10 SpooledTemporaryFile does not provide the complete buffered-I/O
+    # interface required by TextIOWrapper. A disk-backed TemporaryFile keeps the
+    # export bounded-memory while working consistently across supported runtimes.
+    csv_file = tempfile.TemporaryFile(mode="w+b")
     count = 0
     try:
         with zipfile.ZipFile(archive_file, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
