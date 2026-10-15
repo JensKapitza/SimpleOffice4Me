@@ -38,7 +38,7 @@ def _canonical_request(value: dict[str, Any], expected_operation: str, *, now: i
         raise ValueError("invalid pairing identity")
     try:
         timestamp = int(value.get("timestamp"))
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("invalid pairing timestamp") from exc
     if abs(now - timestamp) > PAIRING_MAX_CLOCK_SKEW_SECONDS:
         raise ValueError("invalid pairing timestamp")
