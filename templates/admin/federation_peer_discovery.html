@@ -203,6 +203,23 @@
                 <button class="btn btn-sm btn-outline-danger mb-1" type="submit">Code widerrufen</button>
               </form>
             {% endif %}
+            {% if peer.pairing_claim_ready %}
+              <form class="border rounded p-2 mb-1" method="post" action="{{ url_for('federation_peer_admin.claim_remote_pairing_code', peer_id=peer.peer_id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <label class="form-label small fw-semibold" for="pairing-code-{{ loop.index }}">Code von {{ peer.label }}</label>
+                <input class="form-control form-control-sm mb-1 font-monospace" id="pairing-code-{{ loop.index }}" name="code" maxlength="64" autocomplete="one-time-code" aria-describedby="pairing-help-{{ loop.index }}" required>
+                <div class="form-check small mb-1">
+                  <input class="form-check-input" id="pairing-confirm-{{ loop.index }}" type="checkbox" name="confirm_identity" value="1" required>
+                  <label class="form-check-label" for="pairing-confirm-{{ loop.index }}">Fingerprint und Zieladresse wurden mit der Gegenstelle abgeglichen.</label>
+                </div>
+                <div class="form-text mb-1" id="pairing-help-{{ loop.index }}">Der Code bestätigt nur den Pairing-Schritt. Trust, Aktivierung und Datenrechte bleiben aus.</div>
+                <button class="btn btn-sm btn-outline-primary" type="submit">Code sicher beanspruchen</button>
+              </form>
+              <form class="d-inline" method="post" action="{{ url_for('federation_peer_admin.check_remote_pairing_status', peer_id=peer.peer_id) }}">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-sm btn-outline-secondary mb-1" type="submit">Remote-Status prüfen</button>
+              </form>
+            {% endif %}
             <a class="btn btn-sm btn-outline-primary mb-1" href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id) }}">Verbindung einrichten</a>
             <form class="d-flex gap-1 flex-wrap mb-1" method="post" action="{{ url_for('federation_peer_admin.set_trust', peer_id=peer.peer_id) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

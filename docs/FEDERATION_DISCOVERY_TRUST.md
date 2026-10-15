@@ -107,7 +107,7 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 
 Dort gibt es als ersten Schnellweg **„Netzwerk scannen“**. Außerdem können Peers nach Land, URL/IP oder E-Mail gesucht, QR-Codes ausgetauscht, persönliche Prüfungen bestätigt, Trust-Level gesetzt und die Weitergabe jeder Trust-Beziehung einzeln festgelegt werden.
 
-Für eine bereits per Discovery oder QR bekannte Identität mit öffentlichem Schlüssel kann ein Administrator einen peer-gebundenen Pairing-Code erzeugen. Der Code wird nur in der unmittelbaren, mit `Cache-Control: no-store` ausgelieferten Antwort angezeigt und kann dort widerrufen oder durch einen neuen Code ersetzt werden. Die Übersicht zeigt `wartet`, `beansprucht` oder `abgelaufen`, aber niemals den Code oder seinen Digest. Erzeugung, Beanspruchung und Widerruf aktivieren keinen Peer und ändern weder Trust noch Datenrechte.
+Für eine bereits per Discovery oder QR bekannte Identität mit öffentlichem Schlüssel kann ein Administrator einen peer-gebundenen Pairing-Code erzeugen. Der Code wird nur in der unmittelbaren, mit `Cache-Control: no-store` ausgelieferten Antwort angezeigt und kann dort widerrufen oder durch einen neuen Code ersetzt werden. Auf der Gegenstelle wählt ein Administrator denselben bekannten Peer, gleicht Fingerprint und Zieladresse bewusst ab und gibt den Code ein. Vor der Übertragung prüft SimpleOffice das öffentliche Profil erneut über eine DNS-Rebinding-geschützte, an die geprüfte IP gebundene Verbindung; Peer-ID, öffentlicher Schlüssel und Fingerprint müssen exakt der bekannten Identität entsprechen. Die Übersicht zeigt `wartet`, `beansprucht` oder `abgelaufen`, aber niemals den Code oder seinen Digest. Ein Remote-Statusabruf ermöglicht die Wiederaufnahme nach einem Neustart. Erzeugung, Beanspruchung, Statusabruf und Widerruf aktivieren keinen Peer und ändern weder Trust noch Datenrechte.
 
 ## Netzwerk-Scan im Detail
 
@@ -151,4 +151,5 @@ Damit bleibt Discovery/Trust von konkreten Datei-Rechten getrennt, während der 
 - Trust-Hinweise anderer Peers führen niemals automatisch zu lokalem Trust.
 - Pairing-Claim und -Status akzeptieren nur frische, einmalige und Ed25519-signierte Requests einer bereits bekannten, nicht gesperrten Peer-Identität. Ein erfolgreicher Claim vergibt weder Trust noch Aktivierung oder Datenrechte.
 - Pairing-Codes werden im Admin-UI nur für bekannte Identitäten mit öffentlichem Schlüssel/Fingerprint erzeugt, ausschließlich einmal im `no-store`-Antwortdokument offengelegt und weder in Flash-Nachrichten noch Auditdetails übernommen.
+- Der claimant-seitige Admin-Ablauf übermittelt den Code nur im JSON-Body an den erneut identitätsgeprüften, IP-gepinnten Peer. Code und Digest werden weder lokal persistiert noch in Auditdetails oder Statusmeldungen übernommen.
 - Fingerprints müssen bei persönlicher Prüfung außerhalb des automatischen Discovery-Pfads verglichen werden.
