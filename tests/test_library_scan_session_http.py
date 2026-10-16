@@ -54,7 +54,7 @@ class LibraryScanSessionHttpTest(unittest.TestCase):
         self.app.add_url_rule("/inventory", endpoint="inventory.index", view_func=lambda: "inventory")
         self.app.add_url_rule(
             "/inventory/item/<object_id>", endpoint="inventory.item_detail",
-            view_func=lambda object_id: object_id,
+            view_func=lambda object_id: "item",
         )
         self.app.before_request(protect_browser_mutation)
         self.app.register_blueprint(library_blueprint)
