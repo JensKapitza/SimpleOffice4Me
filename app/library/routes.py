@@ -38,6 +38,7 @@ from .catalog import create_physical_copy, edition_copy_inventory
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
+from .scan_sessions import ScanSessionStore
 
 bp = Blueprint("library", __name__, url_prefix="/library")
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
-        "library.create_book_copy", "library.book_copies",
+        "library.create_book_copy", "library.book_copies", "library.scan_session",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -68,6 +69,10 @@ def _store() -> LibraryStore:
 
 def _objects() -> ObjectStore:
     return ObjectStore(_root())
+
+
+def _scan_sessions() -> ScanSessionStore:
+    return ScanSessionStore(_root())
 
 
 def _actor() -> str:
@@ -258,11 +263,53 @@ def resolve_location():
     })
 
 
+@bp.route("/scan-session", methods=["GET", "POST"])
+@login_required
+def scan_session():
+    """Return or explicitly transition the current user's bulk-scan session."""
+    sessions = _scan_sessions()
+    if request.method == "GET":
+        return jsonify({"ok": True, "session": sessions.get(_actor())})
+    action = request.form.get("action", "").strip().casefold()
+    try:
+        if action == "start":
+            location = _store().location(request.form.get("location_id", ""))
+            current = sessions.start(
+                _actor(), location["location_id"], _store().location_path(location["location_id"]),
+            )
+        else:
+            current = sessions.transition(_actor(), action)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    return jsonify({"ok": True, "session": current})
+
+
 @bp.post("/assign")
 @login_required
 def assign_book():
     code = request.form.get("book_code", "").strip()
     location_id = request.form.get("location_id", "").strip()
+    session_id = request.form.get("scan_session_id", "").strip()
+    scan_id = request.form.get("scan_id", "").strip()
+    current_session = None
+    if session_id:
+        current_session = _scan_sessions().get(_actor())
+        valid = (
+            isinstance(current_session, dict)
+            and current_session.get("session_id") == session_id
+            and current_session.get("status") == "active"
+            and current_session.get("location_id") == location_id
+            and scan_id
+            and len(scan_id) <= 64
+        )
+        if not valid:
+            return jsonify({"ok": False, "error": "Scan-Sitzung ist nicht aktiv oder gehört zu einem anderen Standort."}), 409
+        if any(
+            isinstance(row, dict) and row.get("scan_id") == scan_id
+            for row in current_session.get("recent", [])
+        ):
+            return jsonify({"ok": True, "replayed": True, "scan_session": current_session})
+
     item = _book_item(code)
     if item is None:
         query = urlencode({
@@ -271,27 +318,51 @@ def assign_book():
             "library_location": location_id,
             "library_return": "1",
         })
-        return jsonify({
+        payload = {
             "ok": False,
             "not_found": True,
             "error": "Buch ist noch nicht im Inventar.",
             "capture_url": url_for("inventory.index") + "?" + query,
-        }), 404
+        }
+        if current_session is not None:
+            payload["scan_session"] = _scan_sessions().record(
+                _actor(), session_id=session_id, scan_id=scan_id,
+                location_id=location_id, outcome="missing",
+            )
+        return jsonify(payload), 404
+
+    previous = _store().assignment(item["object_id"])
     try:
         result = assign_object_to_location(item["object_id"], location_id, _actor(), scanned=code)
     except (OSError, ValueError):
-        return jsonify({"ok": False, "error": "library_request_rejected"}), 400
+        payload = {"ok": False, "error": "library_request_rejected"}
+        if current_session is not None:
+            payload["scan_session"] = _scan_sessions().record(
+                _actor(), session_id=session_id, scan_id=scan_id,
+                location_id=location_id, outcome="error",
+                display_id=item.get("display_id", ""), name=item.get("name", ""),
+            )
+        return jsonify(payload), 400
     updated = result["item"]
+    duplicate = bool(previous and previous.get("location_id") == location_id)
+    session = None
+    if current_session is not None:
+        session = _scan_sessions().record(
+            _actor(), session_id=session_id, scan_id=scan_id,
+            location_id=location_id, outcome="duplicate" if duplicate else "assigned",
+            display_id=updated.get("display_id", ""), name=updated.get("name", ""),
+        )
     return jsonify({
         "ok": True,
         "object_id": updated["object_id"],
         "display_id": updated.get("display_id", ""),
         "name": updated.get("name", ""),
+        "duplicate": duplicate,
+        "scan_session": session,
         "location": result["location"],
         "location_path": result["location_path"],
         "detail_url": url_for("inventory.item_detail", object_id=updated["object_id"]),
     })
-
 
 @bp.get("/find")
 @login_required
