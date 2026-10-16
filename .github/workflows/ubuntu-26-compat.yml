@@ -181,20 +181,32 @@ jobs:
           "${compose[@]}" up --detach --no-build --wait --wait-timeout 180
           "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_seed
           "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_seed
+          "${compose[@]}" exec -T relay python -m tools.federation_testnet_seed \
+            --configure-relay-node
           "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
-            --expect-receive direct_trust_required
+            --expect-receive direct_trust_required --relay-action denied
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_seed \
+            --confirm-local-peer --enable-test-relay
+          "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_seed \
+            --confirm-local-peer --enable-test-relay
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
+            --expect-receive pending --relay-action send
+          "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_smoke \
+            --expect-receive pending
+          "${compose[@]}" restart peer-b relay
+          "${compose[@]}" up --detach --no-build --wait --wait-timeout 180
+          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
+            --expect-receive duplicate
+          "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_smoke \
+            --expect-receive duplicate --relay-action receive
           "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_seed \
             --confirm-local-peer
           "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_seed \
             --confirm-local-peer
           "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
-            --expect-receive pending
+            --expect-receive duplicate --relay-action denied
           "${compose[@]}" exec -T peer-b python -m tools.federation_testnet_smoke \
-            --expect-receive pending
-          "${compose[@]}" restart peer-b
-          "${compose[@]}" up --detach --no-build --wait --wait-timeout 180
-          "${compose[@]}" exec -T peer-a python -m tools.federation_testnet_smoke \
-            --expect-receive duplicate
+            --expect-receive duplicate --relay-action denied
 
   server-deb-host:
     name: Server DEB host tooling

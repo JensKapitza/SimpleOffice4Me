@@ -20,6 +20,8 @@ LOCAL_PEER_ID = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "")
 LOCAL_PEER_TOKEN = os.environ.get("SIMPLEOFFICE_FEDERATION_TEST_LOCAL_PEER_TOKEN", "")
 REMOTE_PEER_ID = os.environ.get("SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_ID", "")
 REMOTE_PEER_URL = os.environ.get("SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_URL", "").rstrip("/")
+RELAY_PEER_ID = os.environ.get("SIMPLEOFFICE_FEDERATION_TEST_RELAY_PEER_ID", "")
+RELAY_PROBE = {"probe": "compose-relay-recovery-v1"}
 
 
 def _request(
@@ -32,7 +34,7 @@ def _request(
     target = urlsplit(url)
     if (
         target.scheme != "http"
-        or target.hostname not in {"peer-a", "peer-b"}
+        or target.hostname not in {"peer-a", "peer-b", "relay"}
         or target.port not in (None, 8080)
         or target.username is not None
         or target.password is not None
@@ -62,6 +64,56 @@ def _expect(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _exercise_relay(action: str) -> None:
+    if action == "none":
+        return
+    from app import app
+    from app.federation_rendezvous_client import receive_signals, send_signal
+
+    with app.app_context():
+        root = app.config["DOCUMENT_ROOT"]
+        if action == "denied":
+            try:
+                receive_signals(root, RELAY_PEER_ID)
+            except ValueError as exc:
+                _expect(
+                    str(exc) == "rendezvous relay is not explicitly enabled",
+                    f"relay opt-out failed closed with an unexpected error: {exc}",
+                )
+            else:
+                raise RuntimeError("relay traffic was allowed without explicit local opt-in")
+            print("PASS: relay traffic is denied without explicit local opt-in")
+            return
+        if action == "send":
+            result = send_signal(
+                root,
+                RELAY_PEER_ID,
+                REMOTE_PEER_ID,
+                RELAY_PROBE,
+                kind="compose-recovery-probe",
+            )
+            _expect(
+                bool(result.get("message_id")) and isinstance(result.get("expires_at"), int),
+                "the relay did not accept the recovery probe",
+            )
+            print("PASS: relay accepted the short-lived recovery probe")
+            return
+        messages = receive_signals(root, RELAY_PEER_ID)
+        matching = [
+            item for item in messages
+            if item.get("sender_peer") == REMOTE_PEER_ID
+            and item.get("recipient_peer") == LOCAL_PEER_ID
+            and item.get("kind") == "compose-recovery-probe"
+            and item.get("payload") == RELAY_PROBE
+        ]
+        _expect(len(matching) == 1, "the relay recovery probe was not delivered exactly once")
+        _expect(
+            receive_signals(root, RELAY_PEER_ID) == [],
+            "the relay recovery probe was delivered more than once",
+        )
+        print("PASS: relay probe survived restart and was delivered exactly once")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -69,14 +121,30 @@ def main() -> None:
         choices=("direct_trust_required", "pending", "duplicate"),
         default="direct_trust_required",
     )
-    expected_receive = parser.parse_args().expect_receive
+    parser.add_argument(
+        "--relay-action",
+        choices=("none", "denied", "send", "receive"),
+        default="none",
+    )
+    args = parser.parse_args()
+    expected_receive = args.expect_receive
     _expect(
-        all((GLOBAL_TOKEN, LOCAL_PEER_ID, LOCAL_PEER_TOKEN, REMOTE_PEER_ID, REMOTE_PEER_URL)),
+        all(
+            (
+                GLOBAL_TOKEN,
+                LOCAL_PEER_ID,
+                LOCAL_PEER_TOKEN,
+                REMOTE_PEER_ID,
+                REMOTE_PEER_URL,
+                RELAY_PEER_ID,
+            )
+        ),
         "test peer configuration is incomplete",
     )
     expected_peers = {
         "peer-a": ("federation-test-peer-a", "http://peer-a:8080"),
         "peer-b": ("federation-test-peer-b", "http://peer-b:8080"),
+        "relay": ("federation-test-relay", "http://relay:8080"),
     }
     for hostname, (peer_id, base_url) in expected_peers.items():
         status, profile = _request(f"{base_url}/.well-known/simpleoffice-federation")
@@ -116,7 +184,9 @@ def main() -> None:
     )
 
     anonymous_path = "/federation/v3/receive"
-    anonymous_body = json.dumps({"message_id": "compose-global-token-check-0001"}, separators=(",", ":")).encode("utf-8")
+    anonymous_body = json.dumps(
+        {"message_id": "compose-global-token-check-0001"}, separators=(",", ":")
+    ).encode("utf-8")
     status, denied = _request(
         REMOTE_PEER_URL + anonymous_path,
         body=anonymous_body,
@@ -167,6 +237,7 @@ def main() -> None:
             f"expected {expected_receive}"
         ),
     )
+    _exercise_relay(args.relay_action)
     print("PASS: independent discovery identities and V3 capabilities")
     print("PASS: the compatibility bearer cannot impersonate a peer")
     print(f"PASS: peer-HMAC receive result is {expected_receive}")

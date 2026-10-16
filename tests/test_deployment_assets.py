@@ -39,11 +39,18 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("internal: true", compose)
         self.assertIn("peer-a-data:/var/lib/simpleoffice4me", compose)
         self.assertIn("peer-b-data:/var/lib/simpleoffice4me", compose)
+        self.assertIn("relay-data:/var/lib/simpleoffice4me", compose)
+        self.assertIn("SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-relay", compose)
         self.assertIn("load: true", workflow)
         self.assertIn("Run isolated federation restart smoke", workflow)
         self.assertIn('restart peer-b', workflow)
         for result in ("direct_trust_required", "pending", "duplicate"):
             self.assertIn(f"--expect-receive {result}", workflow)
+        for action in ("denied", "send", "receive"):
+            self.assertIn(f"--relay-action {action}", workflow)
+        self.assertIn("--configure-relay-node", workflow)
+        self.assertIn("--enable-test-relay", workflow)
+        self.assertIn('restart peer-b relay', workflow)
         self.assertIn("down --volumes --remove-orphans", workflow)
         smoke = self.text("tools/federation_testnet_smoke.py")
         logging_config = 'os.environ.setdefault("SIMPLEOFFICE_LOG_STDERR_ONLY", "1")'
@@ -55,6 +62,8 @@ class DeploymentAssetsTest(unittest.TestCase):
             '"direct_trust_required": (409, "rejected", "direct_trust_required")',
             smoke,
         )
+        self.assertIn("relay recovery probe was not delivered exactly once", smoke)
+        self.assertIn("rendezvous relay is not explicitly enabled", smoke)
 
     def test_deployment_documentation_covers_all_supported_modes(self):
         docs = self.text("docs/DEPLOYMENT.md")

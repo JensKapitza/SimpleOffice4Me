@@ -21,8 +21,11 @@ services:
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_ID: federation-test-peer-b
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_URL: http://peer-b:8080
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_TOKEN: federation-test-only-peer-b-token
-      NO_PROXY: peer-a,peer-b,localhost,127.0.0.1
-      no_proxy: peer-a,peer-b,localhost,127.0.0.1
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_PEER_ID: federation-test-relay
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_URL: http://relay:8080
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_TOKEN: federation-test-only-relay-peer-a-token
+      NO_PROXY: peer-a,peer-b,relay,localhost,127.0.0.1
+      no_proxy: peer-a,peer-b,relay,localhost,127.0.0.1
     volumes:
       - peer-a-data:/var/lib/simpleoffice4me
     networks:
@@ -54,10 +57,43 @@ services:
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_ID: federation-test-peer-a
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_URL: http://peer-a:8080
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_TOKEN: federation-test-only-peer-a-token
-      NO_PROXY: peer-a,peer-b,localhost,127.0.0.1
-      no_proxy: peer-a,peer-b,localhost,127.0.0.1
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_PEER_ID: federation-test-relay
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_URL: http://relay:8080
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_TOKEN: federation-test-only-relay-peer-b-token
+      NO_PROXY: peer-a,peer-b,relay,localhost,127.0.0.1
+      no_proxy: peer-a,peer-b,relay,localhost,127.0.0.1
     volumes:
       - peer-b-data:/var/lib/simpleoffice4me
+    networks:
+      - federation-test
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=256m
+
+  relay:
+    image: simpleoffice4me:local
+    restart: "no"
+    init: true
+    user: "10001:10001"
+    environment:
+      SIMPLEOFFICE_CONTAINER_ROLE: web
+      SIMPLEOFFICE_HOST: 0.0.0.0
+      SIMPLEOFFICE_PORT: 8080
+      SIMPLEOFFICE_V3_FEDERATION_ENABLED: "true"
+      SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-relay
+      SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://relay:8080
+      SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token
+      SIMPLEOFFICE_FEDERATION_TEST_PEER_A_ID: federation-test-peer-a
+      SIMPLEOFFICE_FEDERATION_TEST_PEER_A_RELAY_TOKEN: federation-test-only-relay-peer-a-token
+      SIMPLEOFFICE_FEDERATION_TEST_PEER_B_ID: federation-test-peer-b
+      SIMPLEOFFICE_FEDERATION_TEST_PEER_B_RELAY_TOKEN: federation-test-only-relay-peer-b-token
+      NO_PROXY: peer-a,peer-b,relay,localhost,127.0.0.1
+      no_proxy: peer-a,peer-b,relay,localhost,127.0.0.1
+    volumes:
+      - relay-data:/var/lib/simpleoffice4me
     networks:
       - federation-test
     security_opt:
@@ -74,3 +110,4 @@ networks:
 volumes:
   peer-a-data:
   peer-b-data:
+  relay-data:

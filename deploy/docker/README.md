@@ -31,9 +31,10 @@ The default branch also receives the `latest` tag. Version tags such as `v1.2.3`
 
 ## Isolated federation test network
 
-`compose.federation-test.yaml` starts two independent SimpleOffice instances on
-an internal Compose network. The services have separate named data volumes and
-peer identities, no published host ports, and no route to external networks.
+`compose.federation-test.yaml` starts two independent SimpleOffice peers and
+one dedicated rendezvous relay on an internal Compose network. The three
+services have separate named data volumes and identities, no published host
+ports, and no route to external networks.
 The configured federation tokens are public test-only values; never reuse them
 outside this disposable network or put production credentials in this file.
 
@@ -46,20 +47,39 @@ docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
   python -m tools.federation_testnet_seed
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
   python -m tools.federation_testnet_seed
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T relay \
+  python -m tools.federation_testnet_seed --configure-relay-node
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
-  python -m tools.federation_testnet_smoke --expect-receive direct_trust_required
+  python -m tools.federation_testnet_smoke \
+  --expect-receive direct_trust_required --relay-action denied
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
-  python -m tools.federation_testnet_seed --confirm-local-peer
+  python -m tools.federation_testnet_seed \
+  --confirm-local-peer --enable-test-relay
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
-  python -m tools.federation_testnet_seed --confirm-local-peer
+  python -m tools.federation_testnet_seed \
+  --confirm-local-peer --enable-test-relay
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
-  python -m tools.federation_testnet_smoke --expect-receive pending
+  python -m tools.federation_testnet_smoke \
+  --expect-receive pending --relay-action send
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
   python -m tools.federation_testnet_smoke --expect-receive pending
-docker compose -f deploy/docker/compose.federation-test.yaml restart peer-b
+docker compose -f deploy/docker/compose.federation-test.yaml restart peer-b relay
 # Nach "healthy" erneut ausführen:
 docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
   python -m tools.federation_testnet_smoke --expect-receive duplicate
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
+  python -m tools.federation_testnet_smoke \
+  --expect-receive duplicate --relay-action receive
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_seed --confirm-local-peer
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
+  python -m tools.federation_testnet_seed --confirm-local-peer
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-a \
+  python -m tools.federation_testnet_smoke \
+  --expect-receive duplicate --relay-action denied
+docker compose -f deploy/docker/compose.federation-test.yaml exec -T peer-b \
+  python -m tools.federation_testnet_smoke \
+  --expect-receive duplicate --relay-action denied
 ```
 
 Wait until both containers report `healthy` before running the smoke check. It
@@ -68,15 +88,21 @@ discovery identities, the enabled V3 capability contract, rejection of a
 document transfer before trust, and a pending result after an operator
 independently confirms the remote peer on each instance. After restarting one
 peer, the repeated transfer is recognized as a duplicate from persistent test
-data. The compatibility bearer cannot authenticate a peer identity. The seed
-command writes only to disposable test volumes; its optional trust flag is a
-local approval on that instance, not a network pairing protocol.
+data. Peer A also sends a short-lived rendezvous probe through the dedicated
+relay to peer B. The relay and peer B restart before peer B receives that probe
+exactly once. The sequence first proves that relay traffic is denied without
+the separate local opt-in and finally revokes the opt-in on both peers and
+proves the denial again. The compatibility bearer cannot authenticate a peer
+identity. The seed command writes only to disposable test volumes; its optional
+trust flag is a local approval on that instance, not a network pairing
+protocol.
 
 The Ubuntu Docker-host CI job runs this same two-container sequence from a
-fresh pair of volumes. It waits for health before each phase, restarts `peer-b`,
-verifies that the persisted message is still reported as `duplicate`, prints
-container status and logs on failure, and always removes its disposable
-containers, network, and volumes. This is a repeatable process-restart and
+fresh set of volumes. It waits for health before each phase, restarts `peer-b`
+and `relay`, verifies that the persisted message is still reported as
+`duplicate`, checks relay opt-in, restart persistence, single delivery and
+revocation, prints container status and logs on failure, and always removes its
+disposable containers, network, and volumes. This is a repeatable process-restart and
 persistence check on a hosted Docker Engine; it is not evidence for a production
 LAN, external peer, long-running deployment, or hardware acceptance.
 
@@ -93,7 +119,7 @@ Stop the peers without removing their test data with:
 docker compose -f deploy/docker/compose.federation-test.yaml down
 ```
 
-To discard only this Compose project's disposable peer data as well, use
+To discard only this Compose project's disposable peer and relay data as well, use
 `docker compose -f deploy/docker/compose.federation-test.yaml down --volumes`.
 That reset permanently deletes the two test volumes. Do not use it if the data
 needs to be retained. This network validates isolated multi-instance startup
