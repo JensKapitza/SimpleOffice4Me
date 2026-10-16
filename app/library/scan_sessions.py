@@ -12,6 +12,8 @@ from ..file_lock import exclusive_file_lock
 
 
 MAX_RECENT_SCANS = 25
+MAX_PROCESSED_SCANS = 200
+MAX_SESSIONS = 500
 _VALID_OUTCOMES = frozenset({"assigned", "duplicate", "missing", "error"})
 
 
@@ -78,8 +80,16 @@ class ScanSessionStore:
                 "missing": 0,
                 "errors": 0,
                 "recent": [],
+                "processed_scan_ids": [],
             }
             state["sessions"][owner] = session
+            if len(state["sessions"]) > MAX_SESSIONS:
+                oldest = sorted(
+                    (key for key in state["sessions"] if key != owner),
+                    key=lambda key: str(state["sessions"][key].get("updated_at", "")),
+                )
+                for key in oldest[:len(state["sessions"]) - MAX_SESSIONS]:
+                    del state["sessions"][key]
             self._write(state)
             return dict(session)
 
@@ -136,10 +146,13 @@ class ScanSessionStore:
             if str(session.get("location_id", "")) != str(location_id or ""):
                 raise ValueError("Scan-Sitzung gehört zu einem anderen Standort")
             recent = session.setdefault("recent", [])
-            previous = next((row for row in recent if isinstance(row, dict) and row.get("scan_id") == clean_scan_id), None)
-            if previous is not None:
+            processed = session.setdefault("processed_scan_ids", [])
+            if clean_scan_id in processed:
                 return dict(session)
             now = utc_now()
+            processed.append(clean_scan_id)
+            if len(processed) > MAX_PROCESSED_SCANS:
+                del processed[:-MAX_PROCESSED_SCANS]
             recent.append({
                 "scan_id": clean_scan_id,
                 "outcome": clean_outcome,
