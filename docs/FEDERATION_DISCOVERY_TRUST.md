@@ -85,6 +85,15 @@ Peer-Liste als `Relay freigegeben` oder `Relay aus` angezeigt. Das Abschalten
 stoppt weitere Sende- und Abrufversuche sofort; wartende Nachrichten auf der
 Gegenstelle laufen weiter nach ihrer begrenzten TTL ab.
 
+Der isolierte Docker-Smoke-Test prüft den Betriebs- und Recovery-Pfad mit zwei
+frischen Peers und einem eigenen Vermittlungsknoten: Ohne Opt-in wird der
+Relay-Aufruf lokal abgewiesen. Nach beidseitigem Opt-in sendet Peer A eine
+kurzlebige Nachricht über den Relay an Peer B. Der Relay und Peer B werden neu
+gestartet; anschließend holt Peer B die Nachricht genau einmal ab. Danach wird
+das Opt-in auf beiden Peers widerrufen und die lokale Sperre erneut geprüft.
+Das ist ein reproduzierbarer Container-Nachweis, aber keine externe LAN-,
+Last-, Langzeit- oder Hardware-Abnahme.
+
 TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-/UDP-Verbindung echte NAT-Traversal-Unterstützung benötigt. Für normale SOFP-Verbindungen bleiben HTTPS/WebSocket-Rendezvous oder ein gezielter Relay-Dienst einfacher.
 
 ## Wichtige Umgebungsvariablen
