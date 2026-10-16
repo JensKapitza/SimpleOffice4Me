@@ -182,6 +182,7 @@
 
   document.querySelectorAll('.create-book-copy').forEach(button => button.addEventListener('click', async () => {
     const status = document.getElementById('book-label-status');
+    if (!window.confirm(`Ein weiteres physisches Exemplar von ${button.dataset.title || 'diesem Buch'} ohne Standort anlegen?`)) return;
     button.disabled = true;
     status.textContent = `Weiteres Exemplar von ${button.dataset.title || 'Buch'} wird angelegt…`;
     const data = new FormData(); data.set('_csrf_token', csrf);

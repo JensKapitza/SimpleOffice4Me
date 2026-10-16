@@ -331,7 +331,7 @@ def create_book_copy(object_id: str):
         source, created = create_physical_copy(_objects(), object_id, _actor())
     except ValueError as exc:
         audit(
-            "library_book_copy_created", "library", object_id, outcome="failure",
+            "library_book_copy_created", "library", "books", outcome="failure",
             detail={"reason": "invalid_source"},
         )
         if request.accept_mimetypes.best == "application/json":
