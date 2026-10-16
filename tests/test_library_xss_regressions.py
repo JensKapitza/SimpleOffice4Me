@@ -5,6 +5,7 @@ from pathlib import Path
 
 TEMPLATE = Path("templates/library/index.html")
 HELPER = Path("static/js/library_safe_dom.js")
+SCAN_HELPER = Path("static/js/library_scan_session.js")
 PROJECT_QUICK_WINS = Path("static/js/app.js")
 CALENDAR_QUICK_WINS = Path("static/js/calendar_quick_wins.js")
 
@@ -29,6 +30,15 @@ def test_library_safe_dom_restricts_dynamic_links_to_same_origin_http():
     assert ".textContent" in source
     assert "insertAdjacentHTML" not in source
     assert ".innerHTML" not in source
+
+
+def test_library_scan_session_renders_server_values_as_text_only():
+    source = SCAN_HELPER.read_text(encoding="utf-8")
+    assert ".textContent" in source
+    assert "insertAdjacentHTML" not in source
+    assert ".innerHTML" not in source
+    assert "document.write" not in source
+    assert "crypto.getRandomValues" in source
 
 
 def test_project_quick_wins_do_not_use_html_parsing_sinks():
