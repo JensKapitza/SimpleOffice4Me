@@ -28,8 +28,8 @@ def scan_session():
             )
         else:
             current = sessions.transition(_actor(), action)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
+    except ValueError:
+        return jsonify({"ok": False, "error": "Scan-Sitzung konnte nicht geändert werden. Bitte Zustand und Standort prüfen."}), 409
     return jsonify({"ok": True, "session": current})
 
 
@@ -59,8 +59,8 @@ def assign_book():
     location_id = request.form.get("location_id", "").strip()
     try:
         current, session_id, scan_id = _requested_session(location_id)
-    except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
+    except ValueError:
+        return jsonify({"ok": False, "error": "Scan-Sitzung ist nicht aktiv oder gehört zu einem anderen Standort."}), 409
     if current and scan_id in current.get("processed_scan_ids", []):
         return jsonify({"ok": True, "replayed": True, "scan_session": current})
 
