@@ -105,6 +105,33 @@ def edition_copies(objects: Any, source_id: str, *, limit: int = 500) -> list[di
     return copies
 
 
+def edition_copy_inventory(objects: Any, source_id: str) -> dict[str, Any]:
+    """Build the bounded public projection for one edition's copies."""
+    rows = edition_copies(objects, source_id)
+    source = next(row for row in rows if row["object_id"] == source_id)
+    fields = source.get("fields", {}) if isinstance(source.get("fields"), dict) else {}
+    return {
+        "ok": True,
+        "work_id": str(fields.get("library_work_id", "")),
+        "edition_id": str(fields.get("library_edition_id", "")),
+        "count": len(rows),
+        "copies": [
+            {
+                "object_id": row["object_id"],
+                "display_id": row.get("display_id", ""),
+                "copy_id": str(
+                    row.get("fields", {}).get("library_copy_id", "")
+                    if isinstance(row.get("fields"), dict) else ""
+                ),
+                "name": row.get("name", ""),
+                "identifier": row.get("identifier", ""),
+                "location": row.get("location", ""),
+            }
+            for row in rows
+        ],
+    }
+
+
 def create_physical_copy(objects: Any, source_id: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Create one inventory copy that shares work and edition metadata."""
     try:
