@@ -1,6 +1,7 @@
 """Public HTTP contract tests for book-label print jobs."""
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from flask import Flask, g, session
 
 from app.library.routes import bp as library_blueprint
+from app.db import close_db
 from app.object_store import ObjectStore
 from app.security_controls import protect_browser_mutation
 
@@ -21,14 +23,32 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.app.config.update(
             TESTING=True,
             TEST_CSRF_PROTECTION=True,
+            DATABASE=str(self.root / "test.sqlite"),
             DOCUMENT_ROOT=str(self.root),
             SECRET_KEY="book-label-http-test",
         )
+        with sqlite3.connect(self.app.config["DATABASE"]) as database:
+            database.execute(
+                """CREATE TABLE security_event (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    occurred_at TEXT NOT NULL,
+                    actor_id INTEGER,
+                    actor_name TEXT,
+                    action TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_id TEXT,
+                    outcome TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '{}'
+                )"""
+            )
+        self.app.teardown_appcontext(close_db)
 
         @self.app.before_request
         def authenticate_test_user():
             username = session.get("username")
-            g.user = {"username": username} if username else None
+            g.user = {
+                "id": 1, "username": username, "is_admin": False, "is_disabled": False,
+            } if username else None
 
         self.app.add_url_rule(
             "/inventory/item/<object_id>", endpoint="inventory.item_detail", view_func=lambda object_id: "item",
