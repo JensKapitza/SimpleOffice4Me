@@ -52,7 +52,7 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
-        "library.create_book_copy", "library.book_copies", "library.scan_session",
+        "library.create_book_copy", "library.book_copies", "library.scan_session", "library.assign_book",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
