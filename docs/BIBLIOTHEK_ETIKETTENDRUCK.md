@@ -31,8 +31,24 @@ verändert. Dadurch ist ein Rollback weiterhin ohne Datenbereinigung möglich.
 2. Der Standort erhält einen dauerhaften Code wie `LIB-L0001`; alternativ kann ein eigener Code vergeben werden.
 3. **Barcode drucken** erzeugt ein Code-128-Etikett für diesen Standort.
 4. Unter **Ein Regal voller Bücher erfassen** das Regal einmal auswählen oder dessen Barcode scannen.
-5. Danach ISBN-/Barcodes der Bücher nacheinander scannen. Der aktive Standort bleibt im Browser erhalten, bis er gewechselt wird.
-6. Bereits bekannte Bücher werden sofort dem Standort zugeordnet. Noch unbekannte Bücher werden zur Inventar-Schnellerfassung weitergeleitet.
+5. **Sitzung starten** wählen. Danach ISBN-/Barcodes der Bücher nacheinander scannen.
+6. Bereits bekannte Bücher werden sofort dem Standort zugeordnet. Noch unbekannte Bücher werden zur Inventar-Schnellerfassung weitergeleitet und als offen gezählt.
+7. Mit **Pause** wird die Erfassung gesperrt. **Fortsetzen** stellt dieselbe Sitzung nach einem Seitenneuladen oder einer erneuten Anmeldung wieder her; **Abschließen** verwirft nur den Sitzungsfortschritt, nicht die bereits erfolgten Standortzuordnungen.
+
+Der Sitzungsstatus ist an den angemeldeten Benutzer und einen festen Standort
+gebunden. Er enthält Zähler sowie höchstens 25 gekürzte Ergebniszeilen und liegt
+serverseitig unter
+`.simpleoffice-meta/library/scan-sessions.json`. Ein Eintrag speichert keine
+Kameraaufnahmen, OCR-Inhalte oder Klartext-Barcodes. Zufällige Scan-IDs machen
+wiederholte Browseranfragen idempotent; eine pausierte, fremde, veraltete oder
+auf einen anderen Standort gerichtete Sitzung wird vor der Buchänderung
+abgewiesen. Gleichzeitige Benutzer erhalten getrennte Sitzungen.
+
+Für einen sofortigen Rollback kann die Anwendung gestoppt und ausschließlich
+`scan-sessions.json` gelöscht werden. Dadurch gehen nur noch offene
+Sitzungszähler verloren. Bücher, ObjectStore-Revisionen und
+Standortzuordnungen bleiben unverändert. Die neue Datei benötigt keine
+Datenmigration; Installationen ohne sie beginnen mit keiner aktiven Sitzung.
 
 Die lesbare Standortbezeichnung wird zusätzlich in das normale `location`-Feld des Inventarobjekts geschrieben. Dadurch bleibt die vorhandene Objekt- und Schnellsuche nutzbar. Die dauerhafte Standort-ID und der Standortcode werden zusätzlich als strukturierte Felder gespeichert.
 
