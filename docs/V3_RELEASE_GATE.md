@@ -1,11 +1,58 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-15 (main `8a71b7d0`)
+## Current repository update — 2026-10-16 (main `7381f06b`)
 
 Implementation basis: `main` at
-`8a71b7d0144979c2b70e2de75b6c095c0a9f3108`. Package metadata still
+`7381f06bad6cb314eb5dd913bb01bc1809a276bd`. Package metadata still
 declares version 2.0.0. This update records repository work only; it does not
 approve or declare the 3.0 release.
+
+PR #718 (`b0dd42a5`) restores the supported Python 3.10 main-CI path for the
+Calibre export and its TOML contract test. The export remains bounded-memory;
+the compatibility fix does not raise or suppress a quality gate.
+
+PR #719 (`758ece01`) hardens the existing authenticated federation rendezvous
+mailbox. Only configured active recipients are accepted, sender queues and
+payloads are bounded, and TTL/single-delivery behavior remains in place. PR
+#721 (`cdee14de`) adds an explicit local deny-by-default relay opt-in and status
+to the existing peer editor. Neither change grants peer trust or data
+capabilities. PR #728 (`7381f06b`) adds a hosted three-instance Compose
+acceptance with a dedicated relay, distinct peer credentials, fail-closed
+checks, restart persistence, single delivery and opt-out verification. Its
+final CI included the full Python 3.14/3.15 suites, Docker restart smoke,
+Android, Desktop, server packaging, CodeQL, security and dependency checks.
+This is reproducible hosted-container evidence, not a real external LAN/peer,
+load, long-running or hardware acceptance; #679 remains open for those gaps.
+
+PR #722 (`a42519ba`) fixes encrypted Vault export writer finalization without
+changing its package format or restore API. Regression coverage includes
+exceptional close/flush paths and encrypted package round trips.
+
+PR #723 (`b7c09ee4`) adds a bounded 24-hour ISBN metadata cache with up to 500
+normalized entries. It stores display-safe fields and limited source
+candidates, uses stale data only when every provider is unavailable, and does
+not mutate book records or replace manual values.
+
+PRs #724 (`e3540e6c`) and #725 (`69eb2b66`) add explicit additive
+work/edition/copy UUIDs to existing ObjectStore book records, creation of a
+separate physical copy, and a bounded view of copies linked by the explicit
+edition ID. Equal ISBN alone never groups legacy records, and reads do not
+migrate them. PRs #726 (`0d4cc95e`) and #727 (`1cf49812`) add user/location-bound
+resumable bulk-scan sessions and a direct responsive navigation entry. Session
+retries are idempotent; camera images, OCR text and plain barcode values are
+not retained in session state. PR #728 also documents the limits of its
+federation recovery evidence. The final heads of #723–#728 passed their
+repository CI gates; the detailed issue comments record platform jobs and
+specific local checks.
+
+There are no open pull requests in the repository snapshot for this update.
+Open issues #658, #679 and #483 still include real camera/printer/Android or
+external-peer acceptance points that hosted CI cannot close. Issues #505 and
+#506 retain the broader production upgrade/rollback, client compatibility,
+capability-fallback, load and long-running release matrix. The Android PDF
+reader's 1 GiB limit, all-page OCR and grayscale export with an invisible,
+searchable OCR text layer are implemented and documented; this does not
+replace the remaining EPUB and real Android-device acceptance in #483.
 
 PR #711 (`d0f2eef3`) admits CPython 3.15 final through runtime policy,
 packaging, launchers, CI and operator documentation while continuing to reject
