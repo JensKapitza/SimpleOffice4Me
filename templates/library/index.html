@@ -133,7 +133,7 @@
             <td><a href="{{ url_for('inventory.item_detail', object_id=book.object_id) }}">#{{ book.display_id }}</a></td>
             <td>{{ book.name }}<div class="small text-secondary">{{ book.fields.get('authors','') }} · {{ book.identifier }}</div></td>
             <td>{{ book.library_location_path or 'nicht zugeordnet' }}{% if book.library_location.code %}<br><code>{{ book.library_location.code }}</code>{% endif %}</td>
-            <td><button class="btn btn-sm btn-outline-secondary create-book-copy" type="button" data-url="{{ url_for('library.create_book_copy', object_id=book.object_id) }}" data-title="{{ book.name }}"><i class="fa-solid fa-copy" aria-hidden="true"></i><span class="visually-hidden">Weiteres Exemplar von {{ book.name }} anlegen</span></button></td>
+            <td><div class="d-flex gap-1"><button class="btn btn-sm btn-outline-secondary list-book-copies" type="button" data-url="{{ url_for('library.book_copies', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Exemplare anzeigen"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span class="visually-hidden">Exemplare von {{ book.name }} anzeigen</span></button><button class="btn btn-sm btn-outline-secondary create-book-copy" type="button" data-url="{{ url_for('library.create_book_copy', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Weiteres Exemplar anlegen"><i class="fa-solid fa-copy" aria-hidden="true"></i><span class="visually-hidden">Weiteres Exemplar von {{ book.name }} anlegen</span></button></div></td>
           </tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Bücher gefunden.</td></tr>{% endfor %}</tbody>
         </table></div>
         <div class="p-2 d-flex flex-wrap gap-2 align-items-center">
@@ -179,6 +179,26 @@
   const stored = localStorage.getItem('simpleoffice-library-location');
   if (selected && !selected.value && stored && [...selected.options].some(option => option.value === stored)) selected.value = stored;
   if (selected) selected.addEventListener('change', () => { if (selected.value) localStorage.setItem('simpleoffice-library-location', selected.value); });
+
+  document.querySelectorAll('.list-book-copies').forEach(button => button.addEventListener('click', async () => {
+    const status = document.getElementById('book-label-status');
+    button.disabled = true;
+    status.textContent = `Exemplare von ${button.dataset.title || 'Buch'} werden geladen…`;
+    try {
+      const response = await fetch(button.dataset.url, {headers: {'Accept': 'application/json'}});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Exemplare konnten nicht geladen werden.');
+      const visible = result.copies.slice(0, 10).map(copy =>
+        `#${copy.display_id || '?'}${copy.location ? ' · ' + copy.location : ' · nicht zugeordnet'}`
+      );
+      const remainder = result.count > visible.length ? ` · und ${result.count - visible.length} weitere` : '';
+      status.textContent = `${result.count} Exemplar${result.count === 1 ? '' : 'e'}: ${visible.join(' | ')}${remainder}`;
+    } catch (error) {
+      status.textContent = error.message || 'Exemplare konnten nicht geladen werden.';
+    } finally {
+      button.disabled = false;
+    }
+  }));
 
   document.querySelectorAll('.create-book-copy').forEach(button => button.addEventListener('click', async () => {
     const status = document.getElementById('book-label-status');
