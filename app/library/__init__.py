@@ -5,6 +5,7 @@ import re
 from . import printer as _printer
 from .routes import bp
 from . import object_care as _object_care  # noqa: F401  # register shared object-care routes
+from . import scan_routes as _scan_routes  # noqa: F401  # register bulk-scan session routes
 
 
 _original_send = _printer.send

@@ -89,6 +89,7 @@ PERSISTENCE_COVERAGE = {
     "host_automation": "excluded:host command and automation configuration",
     "itip": "excluded:calendar invitation processing state",
     "library.object_care": "pending-provider:physical library records lack principal-aware access",
+    "library.scan_sessions": "excluded:user-bound transient scan progress is not a generic S3 read model",
     "library.store": "pending-provider:library patron data is private",
     "mail_case_store": "excluded:collaboration metadata requires mail-case participant ACLs and is not a generic S3 projection",
     "reading_store": "excluded:reader progress and annotations are user-scoped private state, not a generic S3 projection",

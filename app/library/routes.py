@@ -13,7 +13,6 @@ from pathlib import Path
 from functools import wraps
 from tools.service_control import exclusive_lease
 from typing import Any
-from urllib.parse import urlencode
 
 from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
@@ -51,7 +50,7 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
-        "library.create_book_copy", "library.book_copies",
+        "library.create_book_copy", "library.book_copies", "library.scan_session", "library.assign_book",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -255,41 +254,6 @@ def resolve_location():
         "found": True,
         "location": row,
         "path": _store().location_path(row["location_id"]),
-    })
-
-
-@bp.post("/assign")
-@login_required
-def assign_book():
-    code = request.form.get("book_code", "").strip()
-    location_id = request.form.get("location_id", "").strip()
-    item = _book_item(code)
-    if item is None:
-        query = urlencode({
-            "barcode": code,
-            "book": "1",
-            "library_location": location_id,
-            "library_return": "1",
-        })
-        return jsonify({
-            "ok": False,
-            "not_found": True,
-            "error": "Buch ist noch nicht im Inventar.",
-            "capture_url": url_for("inventory.index") + "?" + query,
-        }), 404
-    try:
-        result = assign_object_to_location(item["object_id"], location_id, _actor(), scanned=code)
-    except (OSError, ValueError):
-        return jsonify({"ok": False, "error": "library_request_rejected"}), 400
-    updated = result["item"]
-    return jsonify({
-        "ok": True,
-        "object_id": updated["object_id"],
-        "display_id": updated.get("display_id", ""),
-        "name": updated.get("name", ""),
-        "location": result["location"],
-        "location_path": result["location_path"],
-        "detail_url": url_for("inventory.item_detail", object_id=updated["object_id"]),
     })
 
 
