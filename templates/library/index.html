@@ -52,7 +52,14 @@
   <section class="card shadow-sm mb-3" id="bulk-scan">
     <div class="card-header"><strong>3 · Ein Regal voller Bücher erfassen</strong></div>
     <div class="card-body">
-      <div class="alert alert-secondary py-2">Einmal das Regal wählen oder dessen Etikett scannen. Danach nur noch Buch für Buch den ISBN-/Barcode scannen. Der Standort bleibt aktiv, bis du ihn wechselst.</div>
+      <div class="alert alert-secondary py-2">Einmal das Regal wählen oder dessen Etikett scannen. Danach eine Sitzung starten und Buch für Buch den ISBN-/Barcode scannen. Die Sitzung kann pausiert und nach einer Neuanmeldung sicher fortgesetzt werden.</div>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+        <button type="button" class="btn btn-success" id="bulk-session-start">Sitzung starten</button>
+        <button type="button" class="btn btn-outline-secondary" id="bulk-session-pause" hidden>Pause</button>
+        <button type="button" class="btn btn-success" id="bulk-session-resume" hidden>Fortsetzen</button>
+        <button type="button" class="btn btn-outline-danger" id="bulk-session-finish" hidden>Abschließen</button>
+        <span id="bulk-session-status" class="small text-secondary" role="status" aria-live="polite">Sitzung wird geladen…</span>
+      </div>
       <div class="row g-2 align-items-end">
         <div class="col-md-6"><label class="form-label" for="bulk-location">Aktives Regal</label><select class="form-select form-select-lg" id="bulk-location"><option value="">– Regal auswählen –</option>{% for location in locations %}<option value="{{ location.location_id }}" data-code="{{ location.code }}" {% if selected_location == location.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select></div>
         <div class="col-md-4"><label class="form-label" for="location-scan-code">Regalcode scannen</label><input class="form-control form-control-lg" id="location-scan-code" autocomplete="off" placeholder="LIB-L…"></div>
@@ -170,6 +177,7 @@
   <div class="modal fade" id="scanner-modal" tabindex="-1" role="dialog" aria-labelledby="scanner-title" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title fs-5" id="scanner-title">Barcode scannen</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Schließen"></button></div><div class="modal-body"><div class="ratio ratio-4x3 bg-dark rounded overflow-hidden"><video id="library-camera" autoplay playsinline muted></video></div><div id="scanner-status" class="small text-secondary mt-2" aria-live="polite">Kamera wird gestartet…</div></div></div></div></div>
 </main>
 <script src="{{ url_for('static', filename='js/library_safe_dom.js') }}"></script>
+<script src="{{ url_for('static', filename='js/library_scan_session.js') }}"></script>
 <script>
 (() => {
   const csrf = {{ csrf_token()|tojson }};
@@ -179,6 +187,25 @@
   const stored = localStorage.getItem('simpleoffice-library-location');
   if (selected && !selected.value && stored && [...selected.options].some(option => option.value === stored)) selected.value = stored;
   if (selected) selected.addEventListener('change', () => { if (selected.value) localStorage.setItem('simpleoffice-library-location', selected.value); });
+  const bookInput = document.getElementById('bulk-book-code');
+  const bulkScanButton = document.getElementById('bulk-scan-book');
+  const scanController = window.SimpleOfficeLibraryScanSession?.create({
+    url: {{ url_for('library.scan_session')|tojson }},
+    csrf,
+    location: selected,
+    input: bookInput,
+    scanButton: bulkScanButton,
+    status: document.getElementById('bulk-session-status'),
+    history: document.getElementById('bulk-history'),
+    buttons: {
+      start: document.getElementById('bulk-session-start'),
+      pause: document.getElementById('bulk-session-pause'),
+      resume: document.getElementById('bulk-session-resume'),
+      finish: document.getElementById('bulk-session-finish'),
+    },
+  });
+  scanController?.load();
+
 
   document.querySelectorAll('.list-book-copies').forEach(button => button.addEventListener('click', async () => {
     const status = document.getElementById('book-label-status');
@@ -415,21 +442,36 @@
   locationCode?.addEventListener('change', resolveLocation);
   locationCode?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); resolveLocation(); } });
 
-  const bookInput = document.getElementById('bulk-book-code');
   const assignBook = async () => {
     const code = bookInput.value.trim(); const locationId = selected.value;
     const status = document.getElementById('bulk-status');
+    if (!scanController?.requireActive()) return;
     if (!locationId) { status.replaceChildren(safeDom.alertNode('Bitte zuerst ein Regal auswählen oder scannen.')); return; }
     if (!code) return;
     const form = new FormData(); form.append('_csrf_token', csrf); form.append('book_code', code); form.append('location_id', locationId);
-    const response = await fetch({{ url_for('library.assign_book')|tojson }}, {method:'POST', body:form, headers:{'Accept':'application/json'}});
-    const data = await response.json();
-    if (data.ok) {
-      safeDom.renderAssignedBook(status, document.getElementById('bulk-history'), data);
-      bookInput.value = ''; bookInput.focus();
-    } else if (data.not_found) {
-      safeDom.renderCaptureLink(status, data);
-    } else status.replaceChildren(safeDom.alertNode(data.error || 'Zuordnung fehlgeschlagen', 'alert alert-danger py-2'));
+    scanController.addRequestFields(form);
+    bulkScanButton.disabled = true;
+    try {
+      const response = await fetch({{ url_for('library.assign_book')|tojson }}, {method:'POST', body:form, headers:{'Accept':'application/json'}});
+      const data = await response.json().catch(() => ({}));
+      if (data.scan_session) scanController.accept(data.scan_session);
+      if (data.replayed) {
+        status.replaceChildren(safeDom.alertNode('Dieser Scan wurde bereits verarbeitet.', 'alert alert-info py-2'));
+        bookInput.value = ''; bookInput.focus();
+      } else if (data.ok) {
+        safeDom.renderAssignedBook(status, document.getElementById('bulk-history'), data);
+        if (data.duplicate) status.append(safeDom.alertNode('Dublettenhinweis: Dieses Exemplar war bereits diesem Standort zugeordnet.', 'alert alert-warning py-2'));
+        bookInput.value = ''; bookInput.focus();
+      } else if (data.not_found) {
+        safeDom.renderCaptureLink(status, data);
+      } else {
+        status.replaceChildren(safeDom.alertNode(data.error || 'Zuordnung fehlgeschlagen', 'alert alert-danger py-2'));
+      }
+    } catch (_) {
+      status.replaceChildren(safeDom.alertNode('Netzwerkfehler. Der Sitzungsstand kann nach dem Neuladen geprüft werden.', 'alert alert-danger py-2'));
+    } finally {
+      if (scanController.requireActive()) bulkScanButton.disabled = false;
+    }
   };
   document.getElementById('bulk-scan-book')?.addEventListener('click', assignBook);
   bookInput?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); assignBook(); } });
