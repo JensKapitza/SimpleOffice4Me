@@ -116,6 +116,60 @@ class BookLabelHttpContractTest(unittest.TestCase):
         )
         self.assertEqual(2, print_label.call_count)
 
+    def test_additional_copy_shares_work_and_edition_but_has_own_copy_identity(self):
+        response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(201, response.status_code)
+        store = ObjectStore(self.root)
+        source = store.object(self.book_a["object_id"])
+        created = store.object(response.json["object_id"])
+        self.assertNotEqual(source["object_id"], created["object_id"])
+        self.assertEqual(source["fields"]["isbn"], created["fields"]["isbn"])
+        self.assertEqual(source["fields"]["library_work_id"], created["fields"]["library_work_id"])
+        self.assertEqual(source["fields"]["library_edition_id"], created["fields"]["library_edition_id"])
+        self.assertNotEqual(source["fields"]["library_copy_id"], created["fields"]["library_copy_id"])
+        self.assertEqual("", created["location"])
+
+    def test_copy_does_not_reuse_physical_barcode_or_shelf(self):
+        store = ObjectStore(self.root)
+        source = store.create({
+            "name": "Shelf copy", "type": "book", "identifier": "9780306406157",
+            "location": "Room / Shelf", "fields": {
+                "isbn": "9780306406157", "barcode": "COPY-1",
+                "library_location_id": "shelf-id", "library_location_code": "SHELF-1",
+            },
+        }, "reader")
+
+        response = self.client.post(
+            f"/library/books/{source['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(201, response.status_code)
+        created = store.object(response.json["object_id"])
+        self.assertEqual("", created["location"])
+        for key in ("barcode", "library_location_id", "library_location_code"):
+            self.assertNotIn(key, created["fields"])
+
+    def test_additional_copy_rejects_non_book(self):
+        response = self.client.post(
+            f"/library/books/{self.device['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertIn("Nur Bücher", response.json["error"])
+
+    def test_additional_copy_requires_csrf(self):
+        response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/copies", headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(403, response.status_code)
+
 
 if __name__ == "__main__":
     unittest.main()
