@@ -27,6 +27,11 @@ verändert. Dadurch ist ein Rollback weiterhin ohne Datenbereinigung möglich.
 
 ## Ein Regal erfassen
 
+Der Massen-Scan ist aus der responsiven Hauptnavigation direkt über
+**Dokumente → Massen-Scan** erreichbar. Der Link springt auf Desktop und Mobilgeräten
+unmittelbar zum Sitzungsbereich der Bibliothek; die normale Bibliotheksübersicht
+bleibt als eigener Menüpunkt erhalten.
+
 1. Unter **Bibliothek** einen Raum, ein Regal oder ein Fach anlegen.
 2. Der Standort erhält einen dauerhaften Code wie `LIB-L0001`; alternativ kann ein eigener Code vergeben werden.
 3. **Barcode drucken** erzeugt ein Code-128-Etikett für diesen Standort.
