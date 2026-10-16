@@ -1,9 +1,9 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-16 (main `7381f06b`)
+## Current repository update — 2026-10-16 (main `b99cb90c`)
 
 Implementation basis: `main` at
-`7381f06bad6cb314eb5dd913bb01bc1809a276bd`. Package metadata still
+`b99cb90c5857d9e4c361ce77e28c4ea67097c360`. Package metadata still
 declares version 2.0.0. This update records repository work only; it does not
 approve or declare the 3.0 release.
 
@@ -37,22 +37,34 @@ PRs #724 (`e3540e6c`) and #725 (`69eb2b66`) add explicit additive
 work/edition/copy UUIDs to existing ObjectStore book records, creation of a
 separate physical copy, and a bounded view of copies linked by the explicit
 edition ID. Equal ISBN alone never groups legacy records, and reads do not
-migrate them. PRs #726 (`0d4cc95e`) and #727 (`1cf49812`) add user/location-bound
-resumable bulk-scan sessions and a direct responsive navigation entry. Session
-retries are idempotent; camera images, OCR text and plain barcode values are
-not retained in session state. PR #728 also documents the limits of its
-federation recovery evidence. The final heads of #723–#728 passed their
-repository CI gates; the detailed issue comments record platform jobs and
-specific local checks.
+migrate them. PR #730 (`b99cb90c`) adds an explicit action to create another
+edition of the same work. The new record gets its own edition and copy IDs,
+retains the work relationship, and starts without physical inventory fields or
+a shelf assignment. Its public HTTP contract is covered for edition grouping,
+CSRF and non-book rejection; a mobile Chromium smoke exercised the visible
+workflow.
 
-There are no open pull requests in the repository snapshot for this update.
+PRs #726 (`0d4cc95e`) and #727 (`1cf49812`) add user/location-bound resumable
+bulk-scan sessions and a direct responsive navigation entry. Session retries
+are idempotent; camera images, OCR text and plain barcode values are not
+retained in session state. PR #728 also documents the limits of its federation
+recovery evidence. The final heads of #723–#730 passed their repository CI
+gates; #730 additionally passed the full Python 3.15 and Python application
+suites, all CodeQL languages, security, dependency, quality, OSSAR, Scorecard,
+Android, Desktop, Docker and packaging checks. The detailed issue comments
+record platform jobs and specific local checks.
+
+At this main snapshot, there were no open pull requests.
 Open issues #658, #679 and #483 still include real camera/printer/Android or
 external-peer acceptance points that hosted CI cannot close. Issues #505 and
 #506 retain the broader production upgrade/rollback, client compatibility,
 capability-fallback, load and long-running release matrix. The Android PDF
 reader's 1 GiB limit, all-page OCR and grayscale export with an invisible,
-searchable OCR text layer are implemented and documented; this does not
-replace the remaining EPUB and real Android-device acceptance in #483.
+searchable OCR text layer are implemented and documented. PR #706 sets the
+shared Reader/conversion limit to 1 GiB; browser uploads remain at the separate
+512 MiB default unless the application and reverse-proxy limits are raised.
+This does not replace the remaining EPUB and real Android-device acceptance in
+#483.
 
 PR #711 (`d0f2eef3`) admits CPython 3.15 final through runtime policy,
 packaging, launchers, CI and operator documentation while continuing to reject
