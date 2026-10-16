@@ -33,7 +33,7 @@ from .printer import (
     render_image,
     render_text,
 )
-from .catalog import create_physical_copy, edition_copy_inventory
+from .catalog import create_new_edition, create_physical_copy, edition_copy_inventory
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
@@ -50,7 +50,8 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
-        "library.create_book_copy", "library.book_copies", "library.scan_session", "library.assign_book",
+        "library.create_book_copy", "library.create_book_edition", "library.book_copies",
+        "library.scan_session", "library.assign_book",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -325,6 +326,41 @@ def create_book_copy(object_id: str):
             "display_id": created["display_id"],
         }), 201
     flash(f"Weiteres Exemplar #{created['display_id']} wurde ohne Standort angelegt.")
+    return redirect(url_for("library.index"))
+
+
+@bp.post("/books/<object_id>/editions")
+@login_required
+def create_book_edition(object_id: str):
+    """Create a separate edition record while retaining its work relationship."""
+    try:
+        source, created = create_new_edition(_objects(), object_id, _actor())
+    except ValueError:
+        audit(
+            "library_book_edition_created", "library", "books", outcome="failure",
+            detail={"reason": "invalid_source"},
+        )
+        message = "Neue Ausgabe konnte nicht angelegt werden. Bitte Ausgangsbuch prüfen."
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": message}), 400
+        flash(message)
+        return redirect(url_for("library.index"))
+    fields = created.get("fields", {}) if isinstance(created.get("fields"), dict) else {}
+    audit(
+        "library_book_edition_created", "library", created["object_id"], outcome="success",
+        detail={"source_object_id": source["object_id"]},
+    )
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify({
+            "ok": True,
+            "source_object_id": source["object_id"],
+            "object_id": created["object_id"],
+            "display_id": created["display_id"],
+            "work_id": str(fields.get("library_work_id", "")),
+            "edition_id": str(fields.get("library_edition_id", "")),
+            "copy_id": str(fields.get("library_copy_id", "")),
+        }), 201
+    flash(f"Neue Ausgabe #{created['display_id']} wurde ohne Standort angelegt.")
     return redirect(url_for("library.index"))
 
 

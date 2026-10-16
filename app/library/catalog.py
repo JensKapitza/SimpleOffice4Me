@@ -14,6 +14,7 @@ _PHYSICAL_FIELDS = {
     "library_copy_source_id",
     "library_location_code",
     "library_location_id",
+    "library_edition_source_id",
     "serial_number",
 }
 
@@ -156,5 +157,33 @@ def create_physical_copy(objects: Any, source_id: str, actor: str) -> tuple[dict
         "location": "",
         "tags": source.get("tags", []),
         "fields": copy_fields,
+    }, actor)
+    return source, created
+
+
+def create_new_edition(objects: Any, source_id: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Create an unassigned physical book record in a distinct edition of the same work."""
+    try:
+        source = objects.object(source_id)
+    except ValueError as exc:
+        raise ValueError("Das Ausgangsbuch wurde nicht gefunden.") from exc
+    source = ensure_book_identity(objects, source, actor)
+    source_fields = dict(source.get("fields", {}))
+    edition_fields = {key: value for key, value in source_fields.items() if key not in _PHYSICAL_FIELDS}
+    edition_fields.update({
+        "library_work_id": source_fields["library_work_id"],
+        "library_edition_id": str(uuid.uuid4()),
+        "library_copy_id": str(uuid.uuid4()),
+        "library_edition_source_id": source["object_id"],
+    })
+    created = objects.create({
+        "name": source["name"],
+        "type": source["type"],
+        "status": "active",
+        "description": source.get("description", ""),
+        "identifier": source.get("identifier", ""),
+        "location": "",
+        "tags": source.get("tags", []),
+        "fields": edition_fields,
     }, actor)
     return source, created
