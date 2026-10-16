@@ -61,10 +61,7 @@ def assign_book():
         current, session_id, scan_id = _requested_session(location_id)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 409
-    if current and any(
-        isinstance(row, dict) and row.get("scan_id") == scan_id
-        for row in current.get("recent", [])
-    ):
+    if current and scan_id in current.get("processed_scan_ids", []):
         return jsonify({"ok": True, "replayed": True, "scan_session": current})
 
     item = _book_item(code)
