@@ -67,6 +67,44 @@ def ensure_book_identity(objects: Any, item: dict[str, Any], actor: str) -> dict
     return objects.update(object_id, _update_values(item, fields), actor)
 
 
+def edition_copies(objects: Any, source_id: str, *, limit: int = 500) -> list[dict[str, Any]]:
+    """Return physical books explicitly linked to the source edition."""
+    try:
+        source = objects.object(source_id)
+    except ValueError as exc:
+        raise ValueError("Das Ausgangsbuch wurde nicht gefunden.") from exc
+    if not _is_book(source):
+        raise ValueError("Nur Bücher besitzen physische Exemplare.")
+
+    fields = source.get("fields", {}) if isinstance(source.get("fields"), dict) else {}
+    edition_value = str(fields.get("library_edition_id", "")).strip()
+    if not edition_value:
+        return [source]
+    try:
+        edition_id = str(uuid.UUID(edition_value))
+    except ValueError as exc:
+        raise ValueError("Ungültige Bibliotheksidentität: library_edition_id") from exc
+
+    maximum = max(1, min(int(limit), 500))
+    copies: list[dict[str, Any]] = []
+    for item in objects.objects():
+        if not _is_book(item):
+            continue
+        item_fields = item.get("fields", {}) if isinstance(item.get("fields"), dict) else {}
+        candidate = str(item_fields.get("library_edition_id", "")).strip()
+        try:
+            matches = bool(candidate) and str(uuid.UUID(candidate)) == edition_id
+        except ValueError:
+            matches = False
+        if matches:
+            copies.append(item)
+            if len(copies) > maximum:
+                raise ValueError("Zu viele Exemplare für eine einzelne Ausgabe.")
+
+    copies.sort(key=lambda item: (str(item.get("display_id", "")), str(item.get("object_id", ""))))
+    return copies
+
+
 def create_physical_copy(objects: Any, source_id: str, actor: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """Create one inventory copy that shares work and edition metadata."""
     try:
