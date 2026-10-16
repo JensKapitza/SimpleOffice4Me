@@ -34,7 +34,7 @@ from .printer import (
     render_image,
     render_text,
 )
-from .catalog import create_physical_copy, edition_copies
+from .catalog import create_physical_copy, edition_copy_inventory
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
@@ -328,32 +328,9 @@ def find_book():
 def book_copies(object_id: str):
     """List separately trackable physical copies of the same edition."""
     try:
-        rows = edition_copies(_objects(), object_id)
+        return jsonify(edition_copy_inventory(_objects(), object_id))
     except ValueError:
         return jsonify({"ok": False, "error": "Buch oder Ausgabe wurde nicht gefunden."}), 404
-    source = next(row for row in rows if row["object_id"] == object_id)
-    fields = source.get("fields", {}) if isinstance(source.get("fields"), dict) else {}
-    return jsonify({
-        "ok": True,
-        "work_id": str(fields.get("library_work_id", "")),
-        "edition_id": str(fields.get("library_edition_id", "")),
-        "count": len(rows),
-        "copies": [
-            {
-                "object_id": row["object_id"],
-                "display_id": row.get("display_id", ""),
-                "copy_id": str(
-                    row.get("fields", {}).get("library_copy_id", "")
-                    if isinstance(row.get("fields"), dict) else ""
-                ),
-                "name": row.get("name", ""),
-                "identifier": row.get("identifier", ""),
-                "location": row.get("location", ""),
-                "detail_url": url_for("inventory.item_detail", object_id=row["object_id"]),
-            }
-            for row in rows
-        ],
-    })
 
 
 @bp.post("/books/<object_id>/copies")
