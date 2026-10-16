@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from app.library.scan_sessions import MAX_RECENT_SCANS, ScanSessionStore
 
@@ -64,6 +65,20 @@ class ScanSessionStoreTest(unittest.TestCase):
         self.assertEqual(MAX_RECENT_SCANS, len(restored["recent"]))
         self.assertEqual("request-4", restored["recent"][0]["scan_id"])
         self.assertEqual(200, len(restored["recent"][-1]["name"]))
+        repeated = self.store.record(
+            "alice", session_id=session["session_id"], scan_id="request-0",
+            location_id="shelf-a", outcome="missing",
+        )
+        self.assertEqual(MAX_RECENT_SCANS + 4, repeated["total"])
+
+    def test_number_of_abandoned_sessions_is_bounded(self):
+        with patch("app.library.scan_sessions.MAX_SESSIONS", 2):
+            self.store.start("alice", "shelf-a", "Shelf A")
+            self.store.start("bob", "shelf-b", "Shelf B")
+            self.store.start("carol", "shelf-c", "Shelf C")
+        self.assertIsNone(self.store.get("alice"))
+        self.assertIsNotNone(self.store.get("bob"))
+        self.assertIsNotNone(self.store.get("carol"))
 
 
 if __name__ == "__main__":
