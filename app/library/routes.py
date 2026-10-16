@@ -34,7 +34,7 @@ from .printer import (
     render_image,
     render_text,
 )
-from .catalog import create_physical_copy
+from .catalog import create_physical_copy, edition_copies
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
@@ -51,7 +51,7 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
-        "library.create_book_copy",
+        "library.create_book_copy", "library.book_copies",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -316,6 +316,39 @@ def find_book():
                 "object_id": row["object_id"], "display_id": row.get("display_id", ""), "name": row.get("name", ""),
                 "identifier": row.get("identifier", ""), "location_path": row.get("library_location_path", ""),
                 "location_code": row.get("library_location", {}).get("code", ""),
+                "detail_url": url_for("inventory.item_detail", object_id=row["object_id"]),
+            }
+            for row in rows
+        ],
+    })
+
+
+@bp.get("/books/<object_id>/copies")
+@login_required
+def book_copies(object_id: str):
+    """List separately trackable physical copies of the same edition."""
+    try:
+        rows = edition_copies(_objects(), object_id)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Buch oder Ausgabe wurde nicht gefunden."}), 404
+    source = next(row for row in rows if row["object_id"] == object_id)
+    fields = source.get("fields", {}) if isinstance(source.get("fields"), dict) else {}
+    return jsonify({
+        "ok": True,
+        "work_id": str(fields.get("library_work_id", "")),
+        "edition_id": str(fields.get("library_edition_id", "")),
+        "count": len(rows),
+        "copies": [
+            {
+                "object_id": row["object_id"],
+                "display_id": row.get("display_id", ""),
+                "copy_id": str(
+                    row.get("fields", {}).get("library_copy_id", "")
+                    if isinstance(row.get("fields"), dict) else ""
+                ),
+                "name": row.get("name", ""),
+                "identifier": row.get("identifier", ""),
+                "location": row.get("location", ""),
                 "detail_url": url_for("inventory.item_detail", object_id=row["object_id"]),
             }
             for row in rows
