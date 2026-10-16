@@ -50,6 +50,8 @@ Im PDF-Reader kann über **S/W-PDF mit OCR** eine separate Schwarz-Weiß-Fassung
 
 EPUB wird ohne Entpacken in das Dateisystem verarbeitet. XML wird mit `defusedxml` geparst. Publisher-HTML, CSS und Skripte werden nicht direkt ausgeführt; Kapitel werden als bereinigter, reflow-fähiger Text neu aufgebaut. Externe Ressourcen werden nicht geladen.
 
+Das Inhaltsverzeichnis wird aus dem EPUB-3-Navigationsdokument (`nav`) oder – bei EPUB-2-Dateien – aus der referenzierten NCX-Datei gelesen. Einträge führen zum zugehörigen Kapitel der Lesereihenfolge. Externe, ungültige oder nicht zur Lesereihenfolge gehörende Ziele werden ignoriert; wenn kein brauchbares Inhaltsverzeichnis vorhanden ist, zeigt der Reader die Kapitel der Lesereihenfolge mit generischen Namen.
+
 Sicherheitsgrenzen:
 - maximal 100 MiB Archivgröße
 - maximal 5.000 ZIP-Einträge

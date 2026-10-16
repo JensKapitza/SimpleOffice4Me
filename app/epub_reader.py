@@ -80,6 +80,9 @@ class EpubBook:
         self.title = ""
         self.author = ""
         self.cover_item = ""
+        self.nav_item = ""
+        self.ncx_item = ""
+        self._navigation: list[dict[str, Any]] = []
         self._load()
 
     def _read(self, archive: zipfile.ZipFile, name: str) -> bytes:
@@ -162,13 +165,111 @@ class EpubBook:
                         }
                         if "cover-image" in properties.split() and not self.cover_item:
                             self.cover_item = item_id
+                        if "nav" in properties.split() and not self.nav_item:
+                            self.nav_item = item_id
+                        if (
+                            str(node.attrib.get("media-type", "")).casefold()
+                            == "application/x-dtbncx+xml"
+                            and not self.ncx_item
+                        ):
+                            self.ncx_item = item_id
                 elif tag == "itemref":
                     ref = str(node.attrib.get("idref", "")).strip()
                     if ref:
                         self.spine.append(ref)
+                elif tag == "spine":
+                    self.ncx_item = self.ncx_item or str(node.attrib.get("toc", "")).strip()
             self.spine = self.spine[:MAX_CHAPTERS]
             if not self.spine:
                 raise ValueError("EPUB reading order is empty")
+            self._navigation = self._load_navigation(archive)
+
+    def _load_navigation(self, archive: zipfile.ZipFile) -> list[dict[str, Any]]:
+        """Read an EPUB 3 nav document or EPUB 2 NCX into spine positions."""
+        spine_indexes = {}
+        for index, item_id in enumerate(self.spine):
+            item = self.manifest.get(item_id)
+            if item:
+                spine_indexes[item["path"]] = index
+
+        def add_link(rows: list[dict[str, Any]], source_path: str, href: str, title: str) -> None:
+            if len(rows) >= MAX_CHAPTERS or not href or not title:
+                return
+            try:
+                target_path = _join(source_path, href)
+            except ValueError:
+                return
+            index = spine_indexes.get(target_path)
+            if index is None:
+                return
+            item_id = self.spine[index]
+            if rows and rows[-1]["index"] == index:
+                return
+            rows.append({"index": index, "chapter": item_id, "title": title[:500]})
+
+        if self.nav_item:
+            item = self.manifest.get(self.nav_item)
+            if item:
+                try:
+                    root = self._xml(self._read(archive, item["path"]))
+                    navs = [node for node in root.iter() if _local(node.tag) == "nav"]
+                    toc_nav = next(
+                        (
+                            node for node in navs
+                            if any(
+                                _local(str(key)) == "type" and "toc" in str(value).split()
+                                for key, value in node.attrib.items()
+                            )
+                        ),
+                        navs[0] if navs else None,
+                    )
+                    if toc_nav is not None:
+                        rows: list[dict[str, Any]] = []
+                        for node in toc_nav.iter():
+                            if _local(node.tag) != "a":
+                                continue
+                            add_link(
+                                rows,
+                                item["path"],
+                                str(node.attrib.get("href", "")),
+                                _text(node),
+                            )
+                        if rows:
+                            return rows
+                except (ValueError, KeyError, OSError, RuntimeError, zipfile.BadZipFile):
+                    pass
+
+        ncx = self.manifest.get(self.ncx_item)
+        if ncx:
+            try:
+                root = self._xml(self._read(archive, ncx["path"]))
+                rows = []
+                for node in root.iter():
+                    if _local(node.tag) != "navpoint":
+                        continue
+                    content = next(
+                        (child for child in node if _local(child.tag) == "content"), None
+                    )
+                    label = next(
+                        (child for child in node if _local(child.tag) == "navlabel"), None
+                    )
+                    if content is None or label is None:
+                        continue
+                    text_node = next(
+                        (child for child in label.iter() if _local(child.tag) == "text"), None
+                    )
+                    title = _text(text_node) if text_node is not None else ""
+                    add_link(
+                        rows,
+                        ncx["path"],
+                        str(content.attrib.get("src", "")),
+                        title,
+                    )
+                if rows:
+                    return rows
+            except (ValueError, KeyError, OSError, RuntimeError, zipfile.BadZipFile):
+                pass
+        return []
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -224,6 +325,8 @@ class EpubBook:
         }
 
     def toc(self) -> list[dict[str, Any]]:
+        if self._navigation:
+            return [dict(row) for row in self._navigation]
         result = []
         for index, item_id in enumerate(self.spine):
             item = self.manifest.get(item_id)

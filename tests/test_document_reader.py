@@ -15,8 +15,22 @@ from app.reading_store import ReadingStateStore, reader_version
 from app.pdf_limits import MAX_PDF_BYTES
 
 
-def epub_bytes(*, unsafe: bool = False, encrypted: bool = False, cover: bool = False) -> bytes:
+def epub_bytes(
+    *, unsafe: bool = False, encrypted: bool = False, cover: bool = False,
+    toc_format: str = "",
+) -> bytes:
     output = io.BytesIO()
+    chapter_count = 2 if toc_format else 1
+    manifest = ['<item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>']
+    if chapter_count == 2:
+        manifest.append('<item id="c2" href="chapter2.xhtml" media-type="application/xhtml+xml"/>')
+    spine = '<itemref idref="c1"/>'
+    if chapter_count == 2:
+        spine += '<itemref idref="c2"/>'
+    if toc_format == "epub3":
+        manifest.append('<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>')
+    elif toc_format in {"ncx", "broken-ncx"}:
+        manifest.append('<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>')
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(
             "META-INF/container.xml",
@@ -28,15 +42,43 @@ def epub_bytes(*, unsafe: bool = False, encrypted: bool = False, cover: bool = F
             "OEBPS/content.opf",
             '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">'
             "<metadata><title>Testbuch</title><creator>Autor</creator></metadata>"
-            '<manifest><item id="c1" href="chapter.xhtml" media-type="application/xhtml+xml"/>'
+            '<manifest>' + "".join(manifest)
             + ('<item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>' if cover else '')
-            + '</manifest><spine><itemref idref="c1"/></spine></package>',
+            + '</manifest><spine' + (' toc="ncx"' if toc_format in {"ncx", "broken-ncx"} else '') + '>'
+            + spine + '</spine></package>',
         )
         archive.writestr(
             "OEBPS/chapter.xhtml",
             '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Kapitel Eins</title></head>'
             "<body><h1>Kapitel Eins</h1><p>Hallo &amp; sicher.</p><script>alert(1)</script></body></html>",
         )
+        if chapter_count == 2:
+            archive.writestr(
+                "OEBPS/chapter2.xhtml",
+                '<html xmlns="http://www.w3.org/1999/xhtml"><body><h1>Zweites Kapitel</h1>'
+                '<p>Weiterlesen.</p></body></html>',
+            )
+        if toc_format == "epub3":
+            archive.writestr(
+                "OEBPS/nav.xhtml",
+                '<html xmlns="http://www.w3.org/1999/xhtml" '
+                'xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc">'
+                '<ol><li><a href="chapter.xhtml">Vorspann</a></li>'
+                '<li><a href="chapter2.xhtml#section">Hauptteil</a></li></ol>'
+                '</nav><a href="https://example.invalid/tracker">Extern</a></body></html>',
+            )
+        elif toc_format == "ncx":
+            archive.writestr(
+                "OEBPS/toc.ncx",
+                '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/"><navMap>'
+                '<navPoint id="one"><navLabel><text>Vorspann NCX</text></navLabel>'
+                '<content src="chapter.xhtml"/></navPoint>'
+                '<navPoint id="two"><navLabel><text>Hauptteil NCX</text></navLabel>'
+                '<content src="chapter2.xhtml#section"/></navPoint>'
+                '</navMap></ncx>',
+            )
+        elif toc_format == "broken-ncx":
+            archive.writestr("OEBPS/toc.ncx", "<not-valid-xml")
         if cover:
             archive.writestr("OEBPS/cover.png", b"\x89PNG\r\n\x1a\nreader-cover")
         if encrypted:
@@ -204,6 +246,52 @@ class ReaderRoutesTests(unittest.TestCase):
         )
         self.assertEqual(200, metadata.status_code)
         self.assertIn("Manueller Titel", metadata.get_data(as_text=True))
+
+    def test_reader_uses_epub3_nav_and_epub2_ncx_labels_for_real_chapters(self):
+        store = DocumentStore(self.documents)
+        for toc_format, labels in (
+            ("epub3", ("Vorspann", "Hauptteil")),
+            ("ncx", ("Vorspann NCX", "Hauptteil NCX")),
+        ):
+            document = store.import_upload(
+                io.BytesIO(epub_bytes(toc_format=toc_format)),
+                f"{toc_format}.epub", "admin",
+            )
+            response = self.client.get(f"/documents/reader/{document['document_id']}")
+            self.assertEqual(200, response.status_code)
+            rendered = response.get_data(as_text=True)
+            self.assertIn(labels[0], rendered)
+            self.assertIn(labels[1], rendered)
+            self.assertNotIn("Kapitel 1</button>", rendered)
+            self.assertNotIn("Extern", rendered)
+
+            chapter = self.client.get(
+                f"/documents/reader/{document['document_id']}/epub/1"
+            )
+            self.assertEqual(200, chapter.status_code)
+            self.assertIn("Zweites Kapitel", chapter.get_json()["html"])
+            self.assertEqual(
+                404,
+                self.client.get(
+                    f"/documents/reader/{document['document_id']}/epub/2"
+                ).status_code,
+            )
+
+    def test_broken_optional_epub_navigation_does_not_block_reading(self):
+        document = DocumentStore(self.documents).import_upload(
+            io.BytesIO(epub_bytes(toc_format="broken-ncx")),
+            "broken-navigation.epub", "admin",
+        )
+
+        response = self.client.get(f"/documents/reader/{document['document_id']}")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Kapitel 1</button>", response.get_data(as_text=True))
+        chapter = self.client.get(
+            f"/documents/reader/{document['document_id']}/epub/1"
+        )
+        self.assertEqual(200, chapter.status_code)
+        self.assertIn("Zweites Kapitel", chapter.get_json()["html"])
 
     def test_pdf_reader_offers_protected_grayscale_download_without_changing_source(self):
         from reportlab.pdfgen.canvas import Canvas
