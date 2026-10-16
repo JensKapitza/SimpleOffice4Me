@@ -34,7 +34,7 @@ from .printer import (
     render_image,
     render_text,
 )
-from .catalog import create_physical_copy
+from .catalog import create_physical_copy, edition_copy_inventory
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
@@ -51,7 +51,7 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
-        "library.create_book_copy",
+        "library.create_book_copy", "library.book_copies",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -321,6 +321,16 @@ def find_book():
             for row in rows
         ],
     })
+
+
+@bp.get("/books/<object_id>/copies")
+@login_required
+def book_copies(object_id: str):
+    """List separately trackable physical copies of the same edition."""
+    try:
+        return jsonify(edition_copy_inventory(_objects(), object_id))
+    except ValueError:
+        return jsonify({"ok": False, "error": "Buch oder Ausgabe wurde nicht gefunden."}), 404
 
 
 @bp.post("/books/<object_id>/copies")

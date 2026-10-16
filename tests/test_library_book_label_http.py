@@ -153,6 +153,48 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.assertNotEqual(source["fields"]["library_copy_id"], created["fields"]["library_copy_id"])
         self.assertEqual("", created["location"])
 
+    def test_copy_listing_groups_explicit_edition_and_not_equal_isbn(self):
+        created_response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+        store = ObjectStore(self.root)
+        unrelated = store.create(
+            {"name": "Unrelated record", "type": "book", "fields": {"isbn": "9780306406157"}},
+            "reader",
+        )
+
+        response = self.client.get(f"/library/books/{self.book_a['object_id']}/copies")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        self.assertEqual(2, response.json["count"])
+        self.assertEqual(
+            {self.book_a["object_id"], created_response.json["object_id"]},
+            {row["object_id"] for row in response.json["copies"]},
+        )
+        self.assertNotIn(unrelated["object_id"], {row["object_id"] for row in response.json["copies"]})
+        self.assertTrue(response.json["work_id"])
+        self.assertTrue(response.json["edition_id"])
+        self.assertEqual(2, len({row["copy_id"] for row in response.json["copies"]}))
+
+    def test_copy_listing_keeps_legacy_book_read_only(self):
+        response = self.client.get(f"/library/books/{self.book_b['object_id']}/copies")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, response.json["count"])
+        self.assertEqual("", response.json["edition_id"])
+        self.assertEqual(
+            {"barcode": "SO-BOOK-2"},
+            ObjectStore(self.root).object(self.book_b["object_id"])["fields"],
+        )
+
+    def test_copy_listing_rejects_non_book(self):
+        response = self.client.get(f"/library/books/{self.device['object_id']}/copies")
+
+        self.assertEqual(404, response.status_code)
+        self.assertEqual("Buch oder Ausgabe wurde nicht gefunden.", response.json["error"])
+
     def test_copy_does_not_reuse_physical_barcode_or_shelf(self):
         store = ObjectStore(self.root)
         source = store.create({

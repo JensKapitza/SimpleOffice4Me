@@ -10,6 +10,21 @@ Die Felder `library_work_id`, `library_edition_id` und `library_copy_id` liegen 
 
 Rollback benötigt keine Datenmigration: Die neuen Felder können von älteren Versionen ignoriert werden. Ein bereits bewusst angelegtes physisches Exemplar wird nicht automatisch gelöscht; es bleibt ein reguläres Inventarobjekt und kann dort verwaltet werden.
 
+
+Über die Aktion **Exemplare anzeigen** in der Bücherliste werden ausschließlich
+Objekte mit derselben expliziten `library_edition_id` zusammengeführt. Eine
+gleiche ISBN allein verknüpft keine Datensätze, damit unabhängige Altbestände
+nicht versehentlich zu einer Ausgabe verschmolzen werden. Angezeigt werden
+Inventarnummer und aktueller Standort; nicht zugeordnete Exemplare bleiben
+sichtbar. Der angemeldete JSON-Vertrag
+`GET /library/books/<object_id>/copies` liefert Werk-/Ausgabe-ID und höchstens
+500 Exemplare mit ihren stabilen Objekt-/Exemplar-IDs. Antworten sind
+`no-store`; unbekannte oder Nicht-Buch-Objekte ergeben HTTP 404.
+
+Die Abfrage ist rein lesend. Ein Altbestand ohne Identitätsfelder erscheint als
+ein einzelnes Exemplar und wird durch das Anzeigen weder migriert noch
+verändert. Dadurch ist ein Rollback weiterhin ohne Datenbereinigung möglich.
+
 ## Ein Regal erfassen
 
 1. Unter **Bibliothek** einen Raum, ein Regal oder ein Fach anlegen.
