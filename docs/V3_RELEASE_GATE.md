@@ -1,9 +1,9 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
-## Current repository update — 2026-10-16 (main `b99cb90c`)
+## Current repository update — 2026-10-16 (main `31e46b4f`)
 
 Implementation basis: `main` at
-`b99cb90c5857d9e4c361ce77e28c4ea67097c360`. Package metadata still
+`31e46b4f2ecb604175bda2c910c2389362c5bcd4`. Package metadata still
 declares version 2.0.0. This update records repository work only; it does not
 approve or declare the 3.0 release.
 
@@ -42,13 +42,18 @@ edition of the same work. The new record gets its own edition and copy IDs,
 retains the work relationship, and starts without physical inventory fields or
 a shelf assignment. Its public HTTP contract is covered for edition grouping,
 CSRF and non-book rejection; a mobile Chromium smoke exercised the visible
-workflow.
+workflow. PR #732 (`31e46b4f`) reads actual EPUB 3 `nav` and EPUB 2 NCX
+navigation labels and chapter targets through the existing safe reader. It
+ignores external, invalid and non-spine destinations; malformed optional
+navigation falls back to generic spine entries rather than making the document
+unreadable. Public reader-route contracts cover both formats, a broken NCX,
+chapter loading and invalid indexes.
 
 PRs #726 (`0d4cc95e`) and #727 (`1cf49812`) add user/location-bound resumable
 bulk-scan sessions and a direct responsive navigation entry. Session retries
 are idempotent; camera images, OCR text and plain barcode values are not
 retained in session state. PR #728 also documents the limits of its federation
-recovery evidence. The final heads of #723–#730 passed their repository CI
+recovery evidence. The final heads of #723–#732 passed their repository CI
 gates; #730 additionally passed the full Python 3.15 and Python application
 suites, all CodeQL languages, security, dependency, quality, OSSAR, Scorecard,
 Android, Desktop, Docker and packaging checks. The detailed issue comments
@@ -63,8 +68,9 @@ reader's 1 GiB limit, all-page OCR and grayscale export with an invisible,
 searchable OCR text layer are implemented and documented. PR #706 sets the
 shared Reader/conversion limit to 1 GiB; browser uploads remain at the separate
 512 MiB default unless the application and reverse-proxy limits are raised.
-This does not replace the remaining EPUB and real Android-device acceptance in
-#483.
+EPUB 3 and EPUB 2 table-of-contents support is implemented in #732, but neither
+that code nor hosted Android APK build checks replace the remaining real-device
+or emulator acceptance in #483.
 
 PR #711 (`d0f2eef3`) admits CPython 3.15 final through runtime policy,
 packaging, launchers, CI and operator documentation while continuing to reject
