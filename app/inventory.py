@@ -16,7 +16,6 @@ import time
 import uuid
 from calendar import monthrange
 from datetime import date, timedelta
-from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlsplit
@@ -36,8 +35,16 @@ from flask import (
 )
 
 from .auth import login_required
+from .book_metadata_cache import (
+    BOOK_METADATA_CACHE_STALE_SECONDS,
+    BookMetadataCache,
+)
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
+from .inventory_values import date_only as _date_only
+from .inventory_values import fields_text as _fields_text
+from .inventory_values import money as _money
+from .inventory_values import single_line as _single_line
 from .object_store import ObjectStore
 from .todo_store import TodoStore
 
@@ -67,10 +74,6 @@ def _inventory() -> "InventoryEnrichmentStore":
 
 def _todos() -> TodoStore:
     return TodoStore(current_app.config["DOCUMENT_ROOT"])
-
-
-def _single_line(value: Any, limit: int = 500) -> str:
-    return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())[:limit]
 
 
 def _isbn13_checksum(prefix: str) -> str:
@@ -386,29 +389,6 @@ def _image_extension(data: bytes) -> str:
     raise ValueError("Nur JPEG, PNG und WebP werden als Inventarfoto akzeptiert")
 
 
-def _money(value: Any) -> str:
-    raw = str(value or "").strip().replace(" ", "").replace(",", ".")
-    if not raw:
-        return ""
-    try:
-        amount = Decimal(raw).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except InvalidOperation as exc:
-        raise ValueError("Preis ist ungültig") from exc
-    if not amount.is_finite() or amount < 0 or amount > Decimal("100000000"):
-        raise ValueError("Preis liegt außerhalb des zulässigen Bereichs")
-    return f"{amount:.2f}"
-
-
-def _date_only(value: Any, label: str = "Datum") -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    try:
-        return date.fromisoformat(raw).isoformat()
-    except ValueError as exc:
-        raise ValueError(f"{label} ist ungültig") from exc
-
-
 def _inspection_rrule(interval: Any, unit: str) -> str:
     try:
         count = int(interval or 0)
@@ -467,10 +447,6 @@ def _object_fields(form: Any, isbn: str) -> dict[str, str]:
         "metadata_checked_at": _single_line(form.get("metadata_checked_at"), 80),
     }
     return {key: value for key, value in values.items() if value}
-
-
-def _fields_text(fields: dict[str, str]) -> str:
-    return "\n".join(f"{key}={_single_line(value, 1000)}" for key, value in fields.items() if value)
 
 
 def _find_exact(identifier: str = "", nfc_id: str = "") -> dict[str, Any] | None:
@@ -779,6 +755,14 @@ def item_detail(object_id: str):
     return render_template("inventory/detail.html", item=item, inventory=meta, today=date.today().isoformat())
 
 
+def _book_lookup_response(isbn: str, metadata: dict[str, Any]):
+    payload = dict(metadata)
+    payload["ok"] = True
+    payload["amazon_search"] = url_for("inventory.amazon_search", q=isbn)
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
 @bp.get("/lookup")
 @login_required
 def book_lookup():
@@ -786,29 +770,46 @@ def book_lookup():
         isbn = normalize_isbn(request.args.get("isbn", ""))
     except ValueError:
         return jsonify({"ok": False, "error": "Ungültige ISBN."}), 400
-    allowed, retry_after = _inventory().consume_rate_limit(str(g.user["username"]), "book-metadata")
+
+    store = _inventory()
+    cache = BookMetadataCache(current_app.config["DOCUMENT_ROOT"])
+    cached = cache.get(isbn)
+    if cached:
+        cached["metadata_cache"] = "fresh"
+        return _book_lookup_response(isbn, cached)
+
+    allowed, retry_after = store.consume_rate_limit(str(g.user["username"]), "book-metadata")
     if not allowed:
         response = jsonify({"ok": False, "error": "Metadatenabruf ist auf einen Klick je 5 Sekunden begrenzt.", "retry_after": retry_after})
         response.status_code = 429
         response.headers["Retry-After"] = str(retry_after)
         response.headers["Cache-Control"] = "no-store"
         return response
+
     metadata = lookup_book_metadata(isbn)
-    if not metadata.get("title"):
-        if metadata.get("lookup_errors") and not metadata.get("lookup_reachable"):
-            response = jsonify({"ok": False, "error": "Buchdatenquellen sind derzeit nicht erreichbar. Internetverbindung bzw. DNS/HTTPS prüfen und erneut versuchen."})
-            response.status_code = 503
-        else:
-            response = jsonify({"ok": False, "error": "Keine Buchmetadaten für diese ISBN gefunden."})
-            response.status_code = 404
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    metadata["ok"] = True
-    metadata["amazon_search"] = url_for("inventory.amazon_search", q=isbn)
-    response = jsonify(metadata)
+    if metadata.get("title"):
+        try:
+            cache.put(isbn, metadata)
+        except OSError:
+            pass
+        metadata["metadata_cache"] = "miss"
+        return _book_lookup_response(isbn, metadata)
+
+    if metadata.get("lookup_errors") and not metadata.get("lookup_reachable"):
+        stale = cache.get(isbn, max_age_seconds=BOOK_METADATA_CACHE_STALE_SECONDS)
+        if stale:
+            stale["metadata_cache"] = "stale"
+            stale["lookup_warning"] = (
+                "Buchdatenquellen sind derzeit nicht erreichbar; angezeigt werden ältere lokal gespeicherte Metadaten."
+            )
+            return _book_lookup_response(isbn, stale)
+        response = jsonify({"ok": False, "error": "Buchdatenquellen sind derzeit nicht erreichbar. Internetverbindung bzw. DNS/HTTPS prüfen und erneut versuchen."})
+        response.status_code = 503
+    else:
+        response = jsonify({"ok": False, "error": "Keine Buchmetadaten für diese ISBN gefunden."})
+        response.status_code = 404
     response.headers["Cache-Control"] = "no-store"
     return response
-
 
 @bp.get("/find")
 @login_required
