@@ -1,6 +1,7 @@
 """Public HTTP contract tests for book-label print jobs."""
 from __future__ import annotations
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import patch
 from flask import Flask, g, session
 
 from app.library.routes import bp as library_blueprint
+from app.db import close_db
 from app.object_store import ObjectStore
 from app.security_controls import protect_browser_mutation
 
@@ -21,14 +23,32 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.app.config.update(
             TESTING=True,
             TEST_CSRF_PROTECTION=True,
+            DATABASE=str(self.root / "test.sqlite"),
             DOCUMENT_ROOT=str(self.root),
             SECRET_KEY="book-label-http-test",
         )
+        with sqlite3.connect(self.app.config["DATABASE"]) as database:
+            database.execute(
+                """CREATE TABLE security_event (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    occurred_at TEXT NOT NULL,
+                    actor_id INTEGER,
+                    actor_name TEXT,
+                    action TEXT NOT NULL,
+                    target_type TEXT NOT NULL,
+                    target_id TEXT,
+                    outcome TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '{}'
+                )"""
+            )
+        self.app.teardown_appcontext(close_db)
 
         @self.app.before_request
         def authenticate_test_user():
             username = session.get("username")
-            g.user = {"username": username} if username else None
+            g.user = {
+                "id": 1, "username": username, "is_admin": False, "is_disabled": False,
+            } if username else None
 
         self.app.add_url_rule(
             "/inventory/item/<object_id>", endpoint="inventory.item_detail", view_func=lambda object_id: "item",
@@ -115,6 +135,63 @@ class BookLabelHttpContractTest(unittest.TestCase):
             response.json,
         )
         self.assertEqual(2, print_label.call_count)
+
+    def test_additional_copy_shares_work_and_edition_but_has_own_copy_identity(self):
+        response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(201, response.status_code)
+        store = ObjectStore(self.root)
+        source = store.object(self.book_a["object_id"])
+        created = store.object(response.json["object_id"])
+        self.assertNotEqual(source["object_id"], created["object_id"])
+        self.assertEqual(source["fields"]["isbn"], created["fields"]["isbn"])
+        self.assertEqual(source["fields"]["library_work_id"], created["fields"]["library_work_id"])
+        self.assertEqual(source["fields"]["library_edition_id"], created["fields"]["library_edition_id"])
+        self.assertNotEqual(source["fields"]["library_copy_id"], created["fields"]["library_copy_id"])
+        self.assertEqual("", created["location"])
+
+    def test_copy_does_not_reuse_physical_barcode_or_shelf(self):
+        store = ObjectStore(self.root)
+        source = store.create({
+            "name": "Shelf copy", "type": "book", "identifier": "9780306406157",
+            "location": "Room / Shelf", "fields": {
+                "isbn": "9780306406157", "barcode": "COPY-1",
+                "library_location_id": "shelf-id", "library_location_code": "SHELF-1",
+            },
+        }, "reader")
+
+        response = self.client.post(
+            f"/library/books/{source['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(201, response.status_code)
+        created = store.object(response.json["object_id"])
+        self.assertEqual("", created["location"])
+        for key in ("barcode", "library_location_id", "library_location_code"):
+            self.assertNotIn(key, created["fields"])
+
+    def test_additional_copy_rejects_non_book(self):
+        response = self.client.post(
+            f"/library/books/{self.device['object_id']}/copies",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            "Exemplar konnte nicht angelegt werden. Bitte Ausgangsbuch prüfen.",
+            response.json["error"],
+        )
+
+    def test_additional_copy_requires_csrf(self):
+        response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/copies", headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(403, response.status_code)
 
 
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ from .printer import (
     render_image,
     render_text,
 )
+from .catalog import create_physical_copy
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
 from .label_pdf import book_labels_pdf
 from .store import LibraryStore
@@ -50,6 +51,7 @@ def protect_export_and_ocr_responses(response):
         "library.optimize_ocr_image", "library.analyze_ocr_upload", "library.print_book_labels",
         "library.export_book_labels_pdf", "library.import_books_calibre",
         "library.import_books_ris", "library.import_books_bibtex",
+        "library.create_book_copy",
     }:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -319,6 +321,37 @@ def find_book():
             for row in rows
         ],
     })
+
+
+@bp.post("/books/<object_id>/copies")
+@login_required
+def create_book_copy(object_id: str):
+    """Create one separately trackable physical copy of an existing book."""
+    try:
+        source, created = create_physical_copy(_objects(), object_id, _actor())
+    except ValueError:
+        audit(
+            "library_book_copy_created", "library", "books", outcome="failure",
+            detail={"reason": "invalid_source"},
+        )
+        message = "Exemplar konnte nicht angelegt werden. Bitte Ausgangsbuch prüfen."
+        if request.accept_mimetypes.best == "application/json":
+            return jsonify({"ok": False, "error": message}), 400
+        flash(message)
+        return redirect(url_for("library.index"))
+    audit(
+        "library_book_copy_created", "library", created["object_id"], outcome="success",
+        detail={"source_object_id": source["object_id"]},
+    )
+    if request.accept_mimetypes.best == "application/json":
+        return jsonify({
+            "ok": True,
+            "source_object_id": source["object_id"],
+            "object_id": created["object_id"],
+            "display_id": created["display_id"],
+        }), 201
+    flash(f"Weiteres Exemplar #{created['display_id']} wurde ohne Standort angelegt.")
+    return redirect(url_for("library.index"))
 
 
 @bp.post("/locations/<location_id>/print")

@@ -2,6 +2,14 @@
 
 SimpleOffice4Me nutzt für Bücher weiterhin den normalen `ObjectStore`. Die Bibliothek legt deshalb kein zweites Inventar an, sondern ergänzt Inventarobjekte um einen strukturierten Bibliotheksstandort und stellt dafür kurze Arbeitsabläufe bereit.
 
+## Werk, Ausgabe und physisches Exemplar
+
+In der Bücherliste legt die Kopieren-Aktion ein weiteres physisches Exemplar an. Beim ersten Aufruf erhält das Ausgangsbuch stabile UUIDs für Werk, Ausgabe und Exemplar. Das neue Inventarobjekt übernimmt Werk- und Ausgabe-ID sowie ISBN und bibliografische Felder, erhält aber eine eigene Exemplar-ID und Inventarnummer. Standort, individueller Barcode, Serien-/Inventarnummer, Dokumentanhänge und Notizen werden nicht kopiert. Das neue Exemplar bleibt daher zunächst **nicht zugeordnet** und kann anschließend bewusst einem Regal zugewiesen werden.
+
+Die Felder `library_work_id`, `library_edition_id` und `library_copy_id` liegen additiv im bestehenden ObjectStore-Datensatz; `library_copy_source_id` dokumentiert nur den Ursprung der Kopieraktion. Der ObjectStore bleibt die Autorität für physische Bücher. Bestehende Datensätze werden nicht im Hintergrund migriert, sondern erst bei einer ausdrücklichen Kopieraktion ergänzt. Alte Clients ignorieren die Zusatzfelder und bleiben kompatibel. Mehrere Exemplare derselben ISBN sind ausdrücklich zulässig und bleiben durch Objekt- und Exemplar-ID unterscheidbar.
+
+Rollback benötigt keine Datenmigration: Die neuen Felder können von älteren Versionen ignoriert werden. Ein bereits bewusst angelegtes physisches Exemplar wird nicht automatisch gelöscht; es bleibt ein reguläres Inventarobjekt und kann dort verwaltet werden.
+
 ## Ein Regal erfassen
 
 1. Unter **Bibliothek** einen Raum, ein Regal oder ein Fach anlegen.
