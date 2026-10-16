@@ -329,14 +329,15 @@ def create_book_copy(object_id: str):
     """Create one separately trackable physical copy of an existing book."""
     try:
         source, created = create_physical_copy(_objects(), object_id, _actor())
-    except ValueError as exc:
+    except ValueError:
         audit(
             "library_book_copy_created", "library", "books", outcome="failure",
             detail={"reason": "invalid_source"},
         )
+        message = "Exemplar konnte nicht angelegt werden. Bitte Ausgangsbuch prüfen."
         if request.accept_mimetypes.best == "application/json":
-            return jsonify({"ok": False, "error": str(exc)}), 400
-        flash(str(exc))
+            return jsonify({"ok": False, "error": message}), 400
+        flash(message)
         return redirect(url_for("library.index"))
     audit(
         "library_book_copy_created", "library", created["object_id"], outcome="success",

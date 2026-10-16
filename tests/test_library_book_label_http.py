@@ -181,7 +181,10 @@ class BookLabelHttpContractTest(unittest.TestCase):
         )
 
         self.assertEqual(400, response.status_code)
-        self.assertIn("Nur Bücher", response.json["error"])
+        self.assertEqual(
+            "Exemplar konnte nicht angelegt werden. Bitte Ausgangsbuch prüfen.",
+            response.json["error"],
+        )
 
     def test_additional_copy_requires_csrf(self):
         response = self.client.post(
