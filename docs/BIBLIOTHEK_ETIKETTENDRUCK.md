@@ -42,7 +42,9 @@ serverseitig unter
 Kameraaufnahmen, OCR-Inhalte oder Klartext-Barcodes. Zufällige Scan-IDs machen
 wiederholte Browseranfragen idempotent; eine pausierte, fremde, veraltete oder
 auf einen anderen Standort gerichtete Sitzung wird vor der Buchänderung
-abgewiesen. Gleichzeitige Benutzer erhalten getrennte Sitzungen.
+abgewiesen. Gleichzeitige Benutzer erhalten getrennte Sitzungen. Der temporäre,
+benutzergebundene Sitzungsfortschritt wird nicht über das generische S3-Overlay
+bereitgestellt.
 
 Für einen sofortigen Rollback kann die Anwendung gestoppt und ausschließlich
 `scan-sessions.json` gelöscht werden. Dadurch gehen nur noch offene
