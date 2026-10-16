@@ -23,7 +23,7 @@ services:
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_TOKEN: federation-test-only-peer-b-token
       SIMPLEOFFICE_FEDERATION_TEST_RELAY_PEER_ID: federation-test-relay
       SIMPLEOFFICE_FEDERATION_TEST_RELAY_URL: http://relay:8080
-      SIMPLEOFFICE_FEDERATION_TEST_RELAY_TOKEN: federation-test-only-relay-peer-a-token
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_TOKEN: relay-a
       NO_PROXY: peer-a,peer-b,relay,localhost,127.0.0.1
       no_proxy: peer-a,peer-b,relay,localhost,127.0.0.1
     volumes:
@@ -59,7 +59,7 @@ services:
       SIMPLEOFFICE_FEDERATION_TEST_REMOTE_PEER_TOKEN: federation-test-only-peer-a-token
       SIMPLEOFFICE_FEDERATION_TEST_RELAY_PEER_ID: federation-test-relay
       SIMPLEOFFICE_FEDERATION_TEST_RELAY_URL: http://relay:8080
-      SIMPLEOFFICE_FEDERATION_TEST_RELAY_TOKEN: federation-test-only-relay-peer-b-token
+      SIMPLEOFFICE_FEDERATION_TEST_RELAY_TOKEN: relay-b
       NO_PROXY: peer-a,peer-b,relay,localhost,127.0.0.1
       no_proxy: peer-a,peer-b,relay,localhost,127.0.0.1
     volumes:
@@ -87,9 +87,9 @@ services:
       SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://relay:8080
       SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token
       SIMPLEOFFICE_FEDERATION_TEST_PEER_A_ID: federation-test-peer-a
-      SIMPLEOFFICE_FEDERATION_TEST_PEER_A_RELAY_TOKEN: federation-test-only-relay-peer-a-token
+      SIMPLEOFFICE_FEDERATION_TEST_PEER_A_RELAY_TOKEN: relay-a
       SIMPLEOFFICE_FEDERATION_TEST_PEER_B_ID: federation-test-peer-b
-      SIMPLEOFFICE_FEDERATION_TEST_PEER_B_RELAY_TOKEN: federation-test-only-relay-peer-b-token
+      SIMPLEOFFICE_FEDERATION_TEST_PEER_B_RELAY_TOKEN: relay-b
       NO_PROXY: peer-a,peer-b,relay,localhost,127.0.0.1
       no_proxy: peer-a,peer-b,relay,localhost,127.0.0.1
     volumes:
