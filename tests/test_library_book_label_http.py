@@ -60,7 +60,10 @@ class BookLabelHttpContractTest(unittest.TestCase):
         with self.app.app_context():
             store = ObjectStore(self.root)
             self.book_a = store.create(
-                {"name": "The First Book", "type": "book", "fields": {"isbn": "9780306406157"}},
+                {"name": "The First Book", "type": "book", "location": "Old Shelf",
+                 "fields": {"isbn": "9780306406157", "barcode": "COPY-1", "nfc_id": "NFC-1",
+                            "purchase_date": "2026-10-01", "serial_number": "SERIAL-1",
+                            "library_location_id": "old-shelf", "library_location_code": "SHELF-1"}},
                 "reader",
             )
             self.book_b = store.create(
@@ -152,6 +155,53 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.assertEqual(source["fields"]["library_edition_id"], created["fields"]["library_edition_id"])
         self.assertNotEqual(source["fields"]["library_copy_id"], created["fields"]["library_copy_id"])
         self.assertEqual("", created["location"])
+
+    def test_new_edition_shares_work_but_is_not_grouped_as_same_edition(self):
+        response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/editions",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(201, response.status_code)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        source_copies = self.client.get(f"/library/books/{self.book_a['object_id']}/copies")
+        new_edition_copies = self.client.get(f"/library/books/{response.json['object_id']}/copies")
+        self.assertEqual(1, source_copies.json["count"])
+        self.assertEqual(1, new_edition_copies.json["count"])
+        self.assertEqual(source_copies.json["work_id"], new_edition_copies.json["work_id"])
+        self.assertNotEqual(source_copies.json["edition_id"], new_edition_copies.json["edition_id"])
+        self.assertEqual(response.json["work_id"], new_edition_copies.json["work_id"])
+        self.assertEqual(response.json["edition_id"], new_edition_copies.json["edition_id"])
+        self.assertNotEqual(self.book_a["object_id"], response.json["object_id"])
+        self.assertNotEqual(response.json["copy_id"], source_copies.json["copies"][0]["copy_id"])
+        created = ObjectStore(self.root).object(response.json["object_id"])
+        self.assertEqual("9780306406157", created["fields"]["isbn"])
+        self.assertEqual("", created["location"])
+        for key in ("barcode", "nfc_id", "purchase_date", "serial_number",
+                    "library_location_id", "library_location_code"):
+            self.assertNotIn(key, created["fields"])
+
+    def test_new_edition_rejects_non_book_without_creating_an_inventory_record(self):
+        before = len(ObjectStore(self.root).objects())
+
+        response = self.client.post(
+            f"/library/books/{self.device['object_id']}/editions",
+            data={"_csrf_token": "book-label-csrf-token"}, headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual(
+            "Neue Ausgabe konnte nicht angelegt werden. Bitte Ausgangsbuch prüfen.",
+            response.json["error"],
+        )
+        self.assertEqual(before, len(ObjectStore(self.root).objects()))
+
+    def test_new_edition_requires_csrf(self):
+        response = self.client.post(
+            f"/library/books/{self.book_a['object_id']}/editions", headers={"Accept": "application/json"},
+        )
+
+        self.assertEqual(403, response.status_code)
 
     def test_copy_listing_groups_explicit_edition_and_not_equal_isbn(self):
         created_response = self.client.post(

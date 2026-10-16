@@ -140,7 +140,7 @@
             <td><a href="{{ url_for('inventory.item_detail', object_id=book.object_id) }}">#{{ book.display_id }}</a></td>
             <td>{{ book.name }}<div class="small text-secondary">{{ book.fields.get('authors','') }} · {{ book.identifier }}</div></td>
             <td>{{ book.library_location_path or 'nicht zugeordnet' }}{% if book.library_location.code %}<br><code>{{ book.library_location.code }}</code>{% endif %}</td>
-            <td><div class="d-flex gap-1"><button class="btn btn-sm btn-outline-secondary list-book-copies" type="button" data-url="{{ url_for('library.book_copies', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Exemplare anzeigen"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span class="visually-hidden">Exemplare von {{ book.name }} anzeigen</span></button><button class="btn btn-sm btn-outline-secondary create-book-copy" type="button" data-url="{{ url_for('library.create_book_copy', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Weiteres Exemplar anlegen"><i class="fa-solid fa-copy" aria-hidden="true"></i><span class="visually-hidden">Weiteres Exemplar von {{ book.name }} anlegen</span></button></div></td>
+            <td><div class="d-flex gap-1"><button class="btn btn-sm btn-outline-secondary list-book-copies" type="button" data-url="{{ url_for('library.book_copies', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Exemplare anzeigen"><i class="fa-solid fa-layer-group" aria-hidden="true"></i><span class="visually-hidden">Exemplare von {{ book.name }} anzeigen</span></button><button class="btn btn-sm btn-outline-secondary create-book-copy" type="button" data-url="{{ url_for('library.create_book_copy', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Weiteres Exemplar derselben Ausgabe anlegen"><i class="fa-solid fa-copy" aria-hidden="true"></i><span class="visually-hidden">Weiteres Exemplar derselben Ausgabe von {{ book.name }} anlegen</span></button><button class="btn btn-sm btn-outline-secondary create-book-edition" type="button" data-url="{{ url_for('library.create_book_edition', object_id=book.object_id) }}" data-title="{{ book.name }}" title="Neue Ausgabe anlegen"><i class="fa-solid fa-book-open" aria-hidden="true"></i><span class="visually-hidden">Neue Ausgabe von {{ book.name }} anlegen</span></button></div></td>
           </tr>{% else %}<tr><td colspan="5" class="text-secondary">Noch keine Bücher gefunden.</td></tr>{% endfor %}</tbody>
         </table></div>
         <div class="p-2 d-flex flex-wrap gap-2 align-items-center">
@@ -241,6 +241,25 @@
       window.setTimeout(() => window.location.reload(), 700);
     } catch (error) {
       status.textContent = error.message || 'Exemplar konnte nicht angelegt werden.';
+      button.disabled = false;
+    }
+  }));
+
+  document.querySelectorAll('.create-book-edition').forEach(button => button.addEventListener('click', async () => {
+    const status = document.getElementById('book-label-status');
+    const title = button.dataset.title || 'diesem Buch';
+    if (!window.confirm(`Eine neue Ausgabe von ${title} ohne Standort anlegen? Sie bleibt mit demselben Werk verknüpft.`)) return;
+    button.disabled = true;
+    status.textContent = `Neue Ausgabe von ${title} wird angelegt…`;
+    const data = new FormData(); data.set('_csrf_token', csrf);
+    try {
+      const response = await fetch(button.dataset.url, {method: 'POST', body: data, headers: {'Accept': 'application/json'}});
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || 'Ausgabe konnte nicht angelegt werden.');
+      status.textContent = `Neue Ausgabe #${result.display_id} wurde ohne Standort angelegt.`;
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      status.textContent = error.message || 'Ausgabe konnte nicht angelegt werden.';
       button.disabled = false;
     }
   }));
