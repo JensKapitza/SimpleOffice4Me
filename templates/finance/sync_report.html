@@ -18,7 +18,7 @@
       <p>Von der Bank geliefert: {{ account.fetched }} Buchungen. <strong>Vollständigkeit: nicht verifiziert.</strong></p>
       <div class="table-responsive">
         <table class="table table-striped align-middle">
-          <thead><tr><th>Datum</th><th>Gegenpartei / Zweck</th><th class="text-end">Betrag</th><th>Abgleich</th></tr></thead>
+          <thead><tr><th scope="col">Datum</th><th scope="col">Gegenpartei / Zweck</th><th scope="col" class="text-end">Betrag</th><th scope="col">Abgleich</th></tr></thead>
           <tbody>
           {% for tx in account.transactions %}
             <tr>
