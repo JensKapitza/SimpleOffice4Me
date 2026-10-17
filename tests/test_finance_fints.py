@@ -60,6 +60,7 @@ class FinanceFinTSTests(unittest.TestCase):
         second = service.sync_connection(self.connection["connection_id"], "temporary-pin", "jens", today=date(2026, 9, 18))
         self.assertEqual(0, second["created"])
         self.assertEqual(2, second["existing"])
+        self.assertTrue(all(tx["state"] == "already_imported" for tx in second["accounts"][0]["transactions"]))
         self.assertEqual(2, len(self.store.bank_transactions(self.account["account_id"], "jens")))
 
 

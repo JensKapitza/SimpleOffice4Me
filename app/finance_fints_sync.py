@@ -9,6 +9,14 @@ from .finance_fints import default_fetch_window, fetch_transactions, fingerprint
 from .finance_store import FinanceStore
 
 
+def _summary(tx: dict[str, Any]) -> dict[str, Any]:
+    """Only display normalized non-secret transaction fields in the sync report."""
+    return {key: tx.get(key, "") for key in (
+        "booking_date", "value_date", "amount_cents", "currency",
+        "counterparty_name", "purpose", "bank_transaction_id"
+    )}
+
+
 class FinTSSyncService:
     def __init__(self, store: FinanceStore):
         self.store = store
@@ -42,15 +50,18 @@ class FinTSSyncService:
         )
         seen = Counter()
         created = existing = possible = 0
+        fetched_rows = []
         for tx in fetched:
             fingerprint = fingerprint_for_account(account_id, tx)
             seen[fingerprint] += 1
             if not tx.get("bank_transaction_id") and seen[fingerprint] <= existing_counts.get(fingerprint, 0):
                 existing += 1
+                fetched_rows.append({**_summary(tx), "state": "already_imported"})
                 continue
             values = dict(tx)
             values["account_id"] = account_id
             row, state = self.store.import_bank_transaction(values, actor)
+            fetched_rows.append({**_summary(tx), "state": state})
             if state == "created":
                 created += 1
             elif state == "existing":
@@ -69,6 +80,8 @@ class FinTSSyncService:
             "created": created,
             "existing": existing,
             "possible_duplicates": possible,
+            "transactions": fetched_rows,
+            "coverage": "not_verified",
         }
 
     def sync_connection(self, connection_id: str, pin: str, actor: str, *, today: date | None = None) -> dict[str, Any]:
@@ -92,4 +105,5 @@ class FinTSSyncService:
             "created": sum(item["created"] for item in results),
             "existing": sum(item["existing"] for item in results),
             "possible_duplicates": sum(item["possible_duplicates"] for item in results),
+            "coverage": "not_verified",
         }
