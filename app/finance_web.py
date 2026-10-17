@@ -234,11 +234,7 @@ def sync_bank_connection(connection_id: str):
     pin = request.form.get("pin", "")
     try:
         result = FinTSSyncService(_store()).sync_connection(connection_id, pin, actor)
-        flash(
-            f"Bankabruf abgeschlossen: {result['created']} neu, "
-            f"{result['existing']} bereits vorhanden, "
-            f"{result['possible_duplicates']} mögliche Dubletten."
-        )
+        return render_template("finance/sync_report.html", result=result)
     except FinTSAuthenticationRequired as exc:
         _store().update_bank_connection_status(connection_id, actor, "authentication_required", error=str(exc))
         flash(str(exc))
