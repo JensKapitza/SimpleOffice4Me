@@ -20,7 +20,10 @@ def _decimal_amount(value: Any) -> str:
         raise ValueError("FinTS lieferte einen ungültigen Kontostand") from exc
     if not amount.is_finite():
         raise ValueError("FinTS lieferte einen ungültigen Kontostand")
-    return str(amount.quantize(Decimal("0.01")))
+    try:
+        return str(amount.quantize(Decimal("0.01")))
+    except InvalidOperation as exc:
+        raise ValueError("FinTS lieferte einen ungültigen Kontostand") from exc
 
 
 def fetch_balance(connection: dict[str, Any], remote_account_id: str, pin: str) -> dict[str, str]:
@@ -29,11 +32,13 @@ def fetch_balance(connection: dict[str, Any], remote_account_id: str, pin: str) 
     try:
         account = _find_remote_account(client, remote_account_id)
         result = client.get_balance(account)
-        if hasattr(result, "challenge") or result.__class__.__name__.casefold().startswith("needtan"):
+        if result.__class__.__name__.casefold().startswith("needtan"):
             raise FinTSAuthenticationRequired("Die Bank verlangt eine TAN/App-Freigabe für die Saldoabfrage.")
         if result is None:
             raise ValueError("FinTS lieferte keinen Kontostand")
         booked = getattr(result, "amount", None)
+        if booked is None and isinstance(result, (Decimal, int, str)):
+            booked = result
         if booked is None:
             raise ValueError("FinTS lieferte keinen gebuchten Kontostand")
         currency = getattr(result, "currency", None)
