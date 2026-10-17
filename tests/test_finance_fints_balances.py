@@ -41,3 +41,17 @@ def test_fetch_balance_requires_interactive_authentication():
     ):
         with pytest.raises(FinTSAuthenticationRequired):
             fetch_balance({"provider": "fints"}, "iban:DE123", "temporary-pin")
+
+
+def test_fetch_balance_direct_decimal():
+    client = SimpleNamespace(get_balance=lambda account: Decimal("-17.32"))
+    with patch("app.finance_fints_balances._client", return_value=client), patch(
+        "app.finance_fints_balances._find_remote_account", return_value=object()
+    ):
+        result = fetch_balance({"provider": "fints"}, "iban:DE123", "temporary-pin")
+    assert result["booked_balance"] == "-17.32"
+
+
+def test_decimal_amount_rejects_overflow():
+    with pytest.raises(ValueError):
+        _decimal_amount("1e999999")
