@@ -97,6 +97,7 @@ def index():
     return render_template(
         "finance/index.html",
         accounts=accounts,
+        bank_connections=store.bank_connections(actor),
         selected_account_id=selected,
         transactions=transactions,
     )
