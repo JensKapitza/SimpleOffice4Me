@@ -43,6 +43,13 @@
     <div class="card-header"><strong>Bankverbindungen / FinTS</strong></div>
     <div class="card-body">
       <p class="text-secondary">Benutzerkennung darf gespeichert werden. Die PIN wird nur für den jeweiligen Abruf benötigt und nicht gespeichert. Eine TAN/App-Freigabe wird erst nach einer tatsächlichen Bankanforderung unterstützt; bitte keine TAN vorab eingeben.</p>
+      <div class="alert alert-secondary" role="note">
+        <strong>Santander Deutschland:</strong> Neben FinTS ist die offizielle PSD2-Kontoinformationsschnittstelle relevant.
+        Der Zugang erfordert eine autorisierte Anbindung und deine Freigabe bei der Bank.
+        <a href="https://unternehmen.openbank.de/unternehmen/kooperationen/partner/api-market/" target="_blank" rel="noopener noreferrer">Offizielle API-Informationen</a>.
+        Bis zur Anbindung kannst du Umsätze oben über CSV, CAMT oder MT940 importieren.
+        Ein automatisiertes Auslesen der Login-Webseite mit PIN/TAN wird nicht verwendet.
+      </div>
       <form method="post" action="{{ url_for('.create_bank_connection') }}" class="row g-2 mb-4">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="provider" value="fints">
