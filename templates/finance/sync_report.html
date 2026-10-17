@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h1 class="h3 mb-0">Ergebnis des Bankabrufs</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('.index') }}">Zurück zu Finanzen</a>
+  </div>
+  <div class="alert alert-warning" role="status">
+    <strong>Vollständigkeit nicht verifiziert.</strong> Die Bank kann den abrufbaren Zeitraum begrenzen oder Buchungen verzögert bereitstellen.
+    Der Bericht enthält nur die tatsächlich in diesem Abruf zurückgegebenen Umsätze.
+  </div>
+  <p>Abgerufen: <strong>{{ result.fetched }}</strong> · Neu: <strong>{{ result.created }}</strong> · Bereits vorhanden: <strong>{{ result.existing }}</strong> · Mögliche Dubletten: <strong>{{ result.possible_duplicates }}</strong></p>
+  {% for account in result.accounts %}
+  <section class="card mb-4">
+    <div class="card-header"><strong>Konto {{ account.account_id }}</strong> · Zeitraum {{ account.start_date }} bis {{ account.end_date }}</div>
+    <div class="card-body">
+      <p>Von der Bank geliefert: {{ account.fetched }} Buchungen. <strong>Vollständigkeit: nicht verifiziert.</strong></p>
+      <div class="table-responsive">
+        <table class="table table-striped align-middle">
+          <thead><tr><th>Datum</th><th>Gegenpartei / Zweck</th><th class="text-end">Betrag</th><th>Abgleich</th></tr></thead>
+          <tbody>
+          {% for tx in account.transactions %}
+            <tr>
+              <td>{{ tx.booking_date }}</td>
+              <td>{{ tx.counterparty_name or '—' }}<div class="small text-secondary">{{ tx.purpose or '' }}</div></td>
+              <td class="text-end">{{ '%.2f'|format(tx.amount_cents / 100) }} {{ tx.currency }}</td>
+              <td>{% if tx.state == 'created' %}Neu{% elif tx.state in ('existing', 'already_imported') %}Bereits vorhanden{% else %}Mögliche Dublette{% endif %}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="4">Keine Umsätze von der Bank geliefert.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  {% endfor %}
+</main>
+{% endblock %}
