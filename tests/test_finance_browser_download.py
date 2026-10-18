@@ -26,8 +26,12 @@ class BrowserBankDownloadTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             _checked_download("umsatz.csv", b"x" * (MAX_DOWNLOAD_BYTES + 1))
 
+    def test_rejects_html_disguised_as_csv(self):
+        with self.assertRaises(ValueError):
+            _checked_download("konto.csv", b"<html>Session expired</html>")
+
     def test_filename_drops_directory_components(self):
-        result = _checked_download("../../konto.csv", b"data")
+        result = _checked_download("../../konto.csv", b"Buchungstag;Betrag\n01.01.2026;1,00\n")
         self.assertEqual(result.filename, "konto.csv")
 
 
