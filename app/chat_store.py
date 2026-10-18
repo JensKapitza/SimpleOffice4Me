@@ -58,6 +58,9 @@ class ChatStore:
         try:
             yield db
             db.commit()
+        except BaseException:
+            db.rollback()
+            raise
         finally: db.close()
 
     def initialize(self) -> None:
