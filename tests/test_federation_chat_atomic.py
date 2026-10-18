@@ -45,3 +45,31 @@ def test_federated_event_retry_is_idempotent(tmp_path):
     _receive(store, room, message, [attachment])
     assert len(store.messages(room)) == 1
     assert store.attachment(attachment[0])["message_id"] == message
+
+
+def test_federated_event_rejects_changed_retry_without_mutation(tmp_path):
+    store = ChatStore(tmp_path)
+    room, message = _id(), _id()
+    _receive(store, room, message, [])
+    with pytest.raises(ValueError):
+        store.receive_remote_event_atomic(
+            room, "Changed title", "peer-one", ["local-user"], ["remote-user"],
+            "remote-user", message, "different body", "text", {}, None, [],
+        )
+    assert store.message(message)["body"] == "hello"
+    assert store.room(room)["title"] == "Federated room"
+
+
+def test_federated_event_rejects_room_bound_to_another_peer(tmp_path):
+    store = ChatStore(tmp_path)
+    room, first_message = _id(), _id()
+    _receive(store, room, first_message, [])
+    second_message = _id()
+    with pytest.raises(ValueError):
+        store.receive_remote_event_atomic(
+            room, "Changed", "peer-two", ["local-user"], ["remote-user"],
+            "remote-user", second_message, "hello", "text", {}, None, [],
+        )
+    with pytest.raises(ValueError):
+        store.message(second_message)
+    assert store.room(room)["remote_peer_id"] == "peer-one"
