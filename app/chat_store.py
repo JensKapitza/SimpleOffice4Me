@@ -86,6 +86,48 @@ class ChatStore:
             for username in remotes: db.execute("INSERT INTO chat_participant VALUES(?,?,?,?,?,?)", (room_id,"remote",username,peer_id,username,ts))
         return self.room(room_id)
 
+    def receive_remote_event_atomic(self, room_id: str, title: str, source_peer: str, local_users: list[str], remote_users: list[str], sender: str, message_id: str, body: str, message_type: str, payload: dict[str, Any], created_at: int | None, attachments: list[tuple]) -> None:
+        """Persist a federated message and its pending attachments as one transaction."""
+        room_id, message_id, source_peer = _uuid(room_id, "Chat-ID"), _uuid(message_id, "Nachrichten-ID"), _peer(source_peer)
+        locals_ = sorted({_user(x) for x in local_users})
+        remotes = sorted({_user(x) for x in remote_users})
+        sender = _user(sender)
+        if not source_peer or not locals_ or not remotes or sender not in remotes:
+            raise ValueError("Ungültige Federation-Teilnehmer")
+        message_type = str(message_type or "text").casefold()
+        if message_type not in MESSAGE_TYPES - {"system"}:
+            raise ValueError("Unbekannter Nachrichtentyp")
+        body = str(body or "")[:20000]
+        payload = payload if isinstance(payload, dict) else {}
+        ts = _now()
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            old_room = db.execute("SELECT remote_peer_id FROM chat_room WHERE room_id=?", (room_id,)).fetchone()
+            if old_room and str(old_room[0] or "") not in {"", source_peer}:
+                raise ValueError("Chat-ID ist an einen anderen Peer gebunden")
+            old_message = db.execute("SELECT * FROM chat_message WHERE message_id=?", (message_id,)).fetchone()
+            if old_message:
+                current = self._message(old_message)
+                if (current["room_id"], current["sender_peer_id"], current["sender_username"], current["message_type"], current["body"], current["payload"]) != (room_id, source_peer, sender, message_type, body, payload):
+                    raise ValueError("Nachrichten-ID mit abweichendem Inhalt")
+            db.execute("INSERT INTO chat_room(room_id,title,created_by,remote_peer_id,origin_peer,created_at,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(room_id) DO UPDATE SET title=excluded.title,remote_peer_id=excluded.remote_peer_id,updated_at=excluded.updated_at", (room_id, str(title or "Chat")[:200], f"federation:{source_peer}", source_peer, source_peer, ts, ts))
+            for username in locals_:
+                db.execute("INSERT OR IGNORE INTO chat_participant VALUES(?,?,?,?,?,?)", (room_id,"local",username,"",username,ts))
+            for username in remotes:
+                db.execute("INSERT OR IGNORE INTO chat_participant VALUES(?,?,?,?,?,?)", (room_id,"remote",username,source_peer,username,ts))
+            if not old_message:
+                db.execute("INSERT INTO chat_message(message_id,room_id,sender_kind,sender_username,sender_peer_id,sender_label,message_type,body,payload_json,origin_peer,created_at,received_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", (message_id,room_id,"remote",sender,source_peer,sender,message_type,body,_json(payload),source_peer,int(created_at or ts),ts))
+            for aid,filename,mime,size,digest,visibility in attachments:
+                filename = Path(str(filename or "datei")).name[:240] or "datei"
+                digest = str(digest).casefold()
+                existing = db.execute("SELECT * FROM chat_attachment WHERE attachment_id=?", (aid,)).fetchone()
+                if existing:
+                    current = self._attachment(existing)
+                    if (current["room_id"],current["message_id"],current["filename"],current["size"],current["sha256"],current["visibility"]) != (room_id,message_id,filename,size,digest,visibility):
+                        raise ValueError("Anhang-ID mit abweichenden Metadaten")
+                else:
+                    db.execute("INSERT INTO chat_attachment VALUES(?,?,?,?,?,?,?,?,?,?,?)", (aid,message_id,room_id,"",filename,str(mime).split(";",1)[0][:200],size,digest,visibility,"pending",ts))
+
     def upsert_remote_room(self, room_id: str, title: str, source_peer: str, local_users: list[str], remote_users: list[str]) -> dict[str, Any]:
         room_id, source_peer = _uuid(room_id,"Chat-ID"), _peer(source_peer)
         locals_, remotes = sorted({_user(x) for x in local_users}), sorted({_user(x) for x in remote_users})
