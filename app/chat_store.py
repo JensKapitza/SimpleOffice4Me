@@ -123,13 +123,14 @@ class ChatStore:
             for aid,filename,mime,size,digest,visibility in attachments:
                 filename = Path(str(filename or "datei")).name[:240] or "datei"
                 digest = str(digest).casefold()
+                mime = str(mime).split(";",1)[0][:200]
                 existing = db.execute("SELECT * FROM chat_attachment WHERE attachment_id=?", (aid,)).fetchone()
                 if existing:
                     current = self._attachment(existing)
-                    if (current["room_id"],current["message_id"],current["filename"],current["size"],current["sha256"],current["visibility"]) != (room_id,message_id,filename,size,digest,visibility):
+                    if (current["room_id"],current["message_id"],current["filename"],current["mime_type"],current["size"],current["sha256"],current["visibility"]) != (room_id,message_id,filename,mime,size,digest,visibility):
                         raise ValueError("Anhang-ID mit abweichenden Metadaten")
                 else:
-                    db.execute("INSERT INTO chat_attachment VALUES(?,?,?,?,?,?,?,?,?,?,?)", (aid,message_id,room_id,"",filename,str(mime).split(";",1)[0][:200],size,digest,visibility,"pending",ts))
+                    db.execute("INSERT INTO chat_attachment VALUES(?,?,?,?,?,?,?,?,?,?,?)", (aid,message_id,room_id,"",filename,mime,size,digest,visibility,"pending",ts))
 
     def upsert_remote_room(self, room_id: str, title: str, source_peer: str, local_users: list[str], remote_users: list[str]) -> dict[str, Any]:
         room_id, source_peer = _uuid(room_id,"Chat-ID"), _peer(source_peer)
