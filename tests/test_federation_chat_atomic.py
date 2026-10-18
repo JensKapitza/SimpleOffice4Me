@@ -54,6 +54,18 @@ class FederationChatAtomicTests(unittest.TestCase):
             self.assertEqual(store.attachment(attachment[0])["message_id"], message)
 
 
+    def test_federated_attachment_retry_rejects_changed_mime_type(self):
+        with TemporaryDirectory() as directory:
+            store = ChatStore(Path(directory))
+            room, message, aid = _id(), _id(), _id()
+            original = (aid, "file.txt", "text/plain", 4, "d" * 64, "chat")
+            _receive(store, room, message, [original])
+            changed = (aid, "file.txt", "application/octet-stream", 4, "d" * 64, "chat")
+            with self.assertRaises(ValueError):
+                _receive(store, room, message, [changed])
+            self.assertEqual(store.attachment(aid)["mime_type"], "text/plain")
+
+
     def test_federated_event_rejects_changed_retry_without_mutation(self):
         with TemporaryDirectory() as directory:
             tmp_path = Path(directory)
