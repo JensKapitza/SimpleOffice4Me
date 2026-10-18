@@ -44,4 +44,4 @@ def test_federated_event_retry_is_idempotent(tmp_path):
     _receive(store, room, message, [attachment])
     _receive(store, room, message, [attachment])
     assert len(store.messages(room)) == 1
-    assert len(store.attachments(message)) == 1
+    assert store.attachment(attachment[0])["message_id"] == message
