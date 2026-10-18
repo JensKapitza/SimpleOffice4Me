@@ -112,10 +112,7 @@ def receive_event():
                 raise ValueError("Ungültige Anhang-Metadaten")
             validated.append((aid,item.get("filename") or "datei",item.get("mime_type") or "application/octet-stream",size,digest,visibility))
         chat=_chat()
-        chat.upsert_remote_room(room_id,str(room_data.get("title") or "Chat"),peer["peer_id"],targets,sources)
-        chat.upsert_remote_message(room_id,peer["peer_id"],sender,message_id,str(msg.get("body") or ""),message_type=message_type,payload=msg.get("payload") if isinstance(msg.get("payload"),dict) else {},created_at=int(msg.get("created_at") or 0) or None)
-        for aid,filename,mime,size,digest,visibility in validated:
-            chat.register_attachment(message_id,aid,filename,mime,size,digest,visibility,state="pending")
+        chat.receive_remote_event_atomic(room_id,str(room_data.get("title") or "Chat"),peer["peer_id"],targets,sources,sender,message_id,str(msg.get("body") or ""),message_type,msg.get("payload") if isinstance(msg.get("payload"),dict) else {},int(msg.get("created_at") or 0) or None,validated)
         _federation().record_event("chat_message_received",peer_id=peer["peer_id"],detail={"message_id":message_id,"attachments":len(attachments)})
         return jsonify({"ok":True,"room_id":room_id,"message_id":message_id}),201
     except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError): return jsonify({"error":"invalid_chat_event"}),400
