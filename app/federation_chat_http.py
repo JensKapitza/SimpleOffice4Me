@@ -84,7 +84,8 @@ def receive_event():
         room_data=data.get("room") if isinstance(data.get("room"),dict) else {}; msg=data.get("message") if isinstance(data.get("message"),dict) else {}
         room_id=_uuid(room_data.get("room_id","") ,"Chat-ID"); message_id=_uuid(msg.get("message_id","") ,"Nachrichten-ID")
         if proof.resource_id != message_id: raise ValueError("Signierte Ressourcen-ID passt nicht zur Nachricht")
-        targets=_active_users(data.get("target_users") if isinstance(data.get("target_users"),list) else []); sources=[str(x or "").strip() for x in (data.get("source_users") or []) if str(x or "").strip()]; sender=str(msg.get("sender_username") or "").strip()
+        if not isinstance(data.get("source_users"),list) or not isinstance(data.get("target_users"),list): raise ValueError("Ungültige Teilnehmerlisten")
+        targets=_active_users(data["target_users"]); sources=[str(x or "").strip() for x in data["source_users"] if str(x or "").strip()]; sender=str(msg.get("sender_username") or "").strip()
         if not targets or not sources or sender not in sources: raise ValueError("Federierter Chat enthält ungültige Teilnehmer")
         message_type=str(msg.get("message_type") or "text").casefold()
         action=action_for_message_type(message_type)
