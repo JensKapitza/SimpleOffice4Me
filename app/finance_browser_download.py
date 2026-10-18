@@ -85,7 +85,7 @@ def capture_santander_statement(*, timeout_seconds: int = 300) -> CapturedStatem
                         return _checked_download(filename, Path(path).read_bytes())
                     if not any(not tab.is_closed() for tab in context.pages):
                         raise ValueError("Bankbrowser wurde geschlossen")
-                    time.sleep(0.25)
+                    next(tab for tab in context.pages if not tab.is_closed()).wait_for_timeout(250)
                 raise TimeoutError("Keine Kontoauszugsdatei innerhalb des Zeitlimits heruntergeladen")
             finally:
                 browser.close()
