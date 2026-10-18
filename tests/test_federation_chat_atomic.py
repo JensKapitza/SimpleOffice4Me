@@ -30,13 +30,13 @@ class FederationChatAtomicTests(unittest.TestCase):
             first = (_id(), "first.txt", "text/plain", 1, "b" * 64, "chat")
             conflicting = (attachment_id, "changed.txt", "text/plain", 2, "c" * 64, "chat")
             with self.assertRaises(ValueError):
-            _receive(store, room, message, [first, conflicting])
+                _receive(store, room, message, [first, conflicting])
             with self.assertRaises(ValueError):
-            store.room(room)
+                store.room(room)
             with self.assertRaises(ValueError):
-            store.message(message)
+                store.message(message)
             with self.assertRaises(ValueError):
-            store.attachment(first[0])
+                store.attachment(first[0])
             assert store.attachment(attachment_id)["message_id"] == existing_message
             _receive(store, room, message, [first])
             assert store.message(message)["room_id"] == room
@@ -61,7 +61,7 @@ class FederationChatAtomicTests(unittest.TestCase):
             room, message = _id(), _id()
             _receive(store, room, message, [])
             with self.assertRaises(ValueError):
-            store.receive_remote_event_atomic(
+                store.receive_remote_event_atomic(
                 room, "Changed title", "peer-one", ["local-user"], ["remote-user"],
                 "remote-user", message, "different body", "text", {}, None, [],
             )
@@ -77,10 +77,10 @@ class FederationChatAtomicTests(unittest.TestCase):
             _receive(store, room, first_message, [])
             second_message = _id()
             with self.assertRaises(ValueError):
-            store.receive_remote_event_atomic(
+                store.receive_remote_event_atomic(
                 room, "Changed", "peer-two", ["local-user"], ["remote-user"],
                 "remote-user", second_message, "hello", "text", {}, None, [],
             )
             with self.assertRaises(ValueError):
-            store.message(second_message)
+                store.message(second_message)
             assert store.room(room)["remote_peer_id"] == "peer-one"
