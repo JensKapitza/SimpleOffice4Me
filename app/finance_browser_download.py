@@ -34,6 +34,10 @@ def _checked_download(filename: str, data: bytes) -> CapturedStatement:
         raise ValueError("Nicht unterstütztes Kontoauszugsformat")
     if not data or len(data) > MAX_DOWNLOAD_BYTES:
         raise ValueError("Kontoauszug ist leer oder größer als 25 MiB")
+    # A .csv extension is not sufficient: login pages and error documents must
+    # never be treated as bank statements.
+    from .finance_statements import parse_statement_bytes
+    parse_statement_bytes(data, name)
     return CapturedStatement(name, data)
 
 
@@ -59,6 +63,7 @@ def capture_santander_statement(*, timeout_seconds: int = 300) -> CapturedStatem
                 context = browser.new_context(accept_downloads=True)
                 page = context.new_page()
                 downloads = []
+                context.on("page", lambda popup: popup.on("download", lambda item: downloads.append(item)))
                 page.on("download", lambda item: downloads.append(item))
                 page.goto(SANTANDER_START_URL, wait_until="domcontentloaded", timeout=30000)
                 deadline = time.monotonic() + timeout_seconds
@@ -78,9 +83,9 @@ def capture_santander_statement(*, timeout_seconds: int = 300) -> CapturedStatem
                         if Path(path).stat().st_size > MAX_DOWNLOAD_BYTES:
                             raise ValueError("Kontoauszug ist größer als 25 MiB")
                         return _checked_download(filename, Path(path).read_bytes())
-                    if not context.pages:
+                    if not any(not tab.is_closed() for tab in context.pages):
                         raise ValueError("Bankbrowser wurde geschlossen")
-                    page.wait_for_timeout(250)
+                    time.sleep(0.25)
                 raise TimeoutError("Keine Kontoauszugsdatei innerhalb des Zeitlimits heruntergeladen")
             finally:
                 browser.close()
