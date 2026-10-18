@@ -37,9 +37,9 @@ class FederationChatAtomicTests(unittest.TestCase):
                 store.message(message)
             with self.assertRaises(ValueError):
                 store.attachment(first[0])
-            assert store.attachment(attachment_id)["message_id"] == existing_message
+            self.assertEqual(store.attachment(attachment_id)["message_id"], existing_message)
             _receive(store, room, message, [first])
-            assert store.message(message)["room_id"] == room
+            self.assertEqual(store.message(message)["room_id"], room)
 
 
     def test_federated_event_retry_is_idempotent(self):
@@ -50,8 +50,8 @@ class FederationChatAtomicTests(unittest.TestCase):
             attachment = (_id(), "a.txt", "text/plain", 4, "d" * 64, "chat")
             _receive(store, room, message, [attachment])
             _receive(store, room, message, [attachment])
-            assert len(store.messages(room)) == 1
-            assert store.attachment(attachment[0])["message_id"] == message
+            self.assertEqual(len(store.messages(room)), 1)
+            self.assertEqual(store.attachment(attachment[0])["message_id"], message)
 
 
     def test_federated_event_rejects_changed_retry_without_mutation(self):
@@ -65,8 +65,8 @@ class FederationChatAtomicTests(unittest.TestCase):
                 room, "Changed title", "peer-one", ["local-user"], ["remote-user"],
                 "remote-user", message, "different body", "text", {}, None, [],
             )
-            assert store.message(message)["body"] == "hello"
-            assert store.room(room)["title"] == "Federated room"
+            self.assertEqual(store.message(message)["body"], "hello")
+            self.assertEqual(store.room(room)["title"], "Federated room")
 
 
     def test_federated_event_rejects_room_bound_to_another_peer(self):
@@ -83,4 +83,4 @@ class FederationChatAtomicTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 store.message(second_message)
-            assert store.room(room)["remote_peer_id"] == "peer-one"
+            self.assertEqual(store.room(room)["remote_peer_id"], "peer-one")
