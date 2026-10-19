@@ -38,6 +38,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
+    "finance": {"bank_browser_enabled": True},
 }
 
 TRANSLATIONS = {
@@ -358,8 +359,14 @@ class SettingsStore:
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
         s3 = settings.get("s3", {})
+        finance = settings.get("finance", {})
+        if not isinstance(finance, dict):
+            raise ValueError("finance settings must be an object")
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
+        bank_browser_enabled = finance.get("bank_browser_enabled", True)
+        if not isinstance(bank_browser_enabled, bool):
+            raise ValueError("bank browser setting must be boolean")
         language = str(interface.get("default_language", "de"))
         if language not in TRANSLATIONS:
             raise ValueError("unsupported default language")
@@ -374,4 +381,4 @@ class SettingsStore:
         if not 15 <= duration <= 480 or not 1 <= expiry <= 365:
             raise ValueError("calendar duration or share expiry outside allowed range")
         tags = [str(tag).strip() for tag in documents.get("default_tags", []) if str(tag).strip()]
-        return {"interface": {"default_language": language, "timezone": timezone}, "documents": {"default_state": str(documents.get("default_state", "new")).strip() or "new", "default_tags": sorted(set(tags), key=str.casefold), "upload_to_archive": documents.get("upload_to_archive") is True}, "calendar": {"default_visibility": visibility, "default_public_notice": str(calendar.get("default_public_notice", "Belegt")).strip(), "default_duration_minutes": duration}, "sharing": {"default_expiry_days": expiry}, "s3": {"enabled": s3.get("enabled", False)}}
+        return {"interface": {"default_language": language, "timezone": timezone}, "documents": {"default_state": str(documents.get("default_state", "new")).strip() or "new", "default_tags": sorted(set(tags), key=str.casefold), "upload_to_archive": documents.get("upload_to_archive") is True}, "calendar": {"default_visibility": visibility, "default_public_notice": str(calendar.get("default_public_notice", "Belegt")).strip(), "default_duration_minutes": duration}, "sharing": {"default_expiry_days": expiry}, "s3": {"enabled": s3.get("enabled", False)}, "finance": {"bank_browser_enabled": bank_browser_enabled}}

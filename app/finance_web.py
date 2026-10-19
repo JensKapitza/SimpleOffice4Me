@@ -2,17 +2,21 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
+import json
 import os
 import time
 from pathlib import Path
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from urllib.parse import urlsplit
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
-from .access_control import is_admin
+from .access_control import audit, is_admin
 from .db import get_db
 from .document_store import CONTROL_DIR
+from .settings_store import SettingsStore
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
 from .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts
@@ -102,6 +106,7 @@ def index():
         accounts=accounts,
         selected_account_id=selected,
         transactions=transactions,
+        bank_browser_enabled=_bank_browser_setting(),
         local_bank_browser_enabled=_local_bank_browser_enabled(),
         bank_browser_admin=is_admin(g.user),
     )
@@ -120,15 +125,59 @@ def create_account():
 
 
 def _bank_browser_setting() -> bool:
-    """Persisted admin setting; missing row means enabled by default."""
+    """Read the persistent setting and migrate the earlier draft table once."""
+    settings = SettingsStore(_root())
+    values = settings.settings()
+    enabled = values["finance"].get("bank_browser_enabled", True)
+    if _has_persisted_bank_browser_setting(settings):
+        return enabled is True
+
     db = get_db()
-    db.execute("CREATE TABLE IF NOT EXISTS finance_ui_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
-    row = db.execute("SELECT value FROM finance_ui_settings WHERE name='bank_browser_enabled'").fetchone()
-    return row is None or row["value"] == "1"
+    legacy_table = db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        ("finance_ui_settings",),
+    ).fetchone()
+    if legacy_table:
+        row = db.execute(
+            "SELECT value FROM finance_ui_settings WHERE name=?",
+            ("bank_browser_enabled",),
+        ).fetchone()
+        if row and row["value"] in {"0", "1"}:
+            enabled = row["value"] == "1"
+            settings.save({"finance": {"bank_browser_enabled": enabled}}, "system-migration")
+            audit(
+                "finance_bank_browser_setting_migrated",
+                "settings",
+                "finance.bank_browser_enabled",
+                detail={"enabled": enabled, "source": "legacy_finance_ui_settings"},
+            )
+            return enabled
+    return enabled is True
+
+
+def _has_persisted_bank_browser_setting(settings: SettingsStore) -> bool:
+    try:
+        stored = json.loads(settings.path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    finance = stored.get("finance") if isinstance(stored, dict) else None
+    return isinstance(finance, dict) and "bank_browser_enabled" in finance
 
 
 def _local_bank_browser_enabled() -> bool:
-    return _bank_browser_setting()
+    address = request.remote_addr
+    try:
+        remote_is_loopback = bool(address and ipaddress.ip_address(address).is_loopback)
+        hostname = urlsplit(f"//{request.host}").hostname or ""
+        try:
+            host_is_loopback = ipaddress.ip_address(hostname).is_loopback
+        except ValueError:
+            host_is_loopback = hostname.rstrip(".").casefold() == "localhost"
+    except (TypeError, ValueError):
+        return False
+    # A local reverse proxy may make a remote request appear to come from
+    # loopback while preserving its public host.
+    return _bank_browser_setting() and remote_is_loopback and host_is_loopback
 
 
 @bp.post("/settings/bank-browser")
@@ -139,14 +188,19 @@ def update_bank_browser_setting():
     value = request.form.get("enabled", "")
     if value not in {"0", "1"}:
         abort(400)
-    db = get_db()
-    db.execute("CREATE TABLE IF NOT EXISTS finance_ui_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
-    db.execute(
-        "INSERT INTO finance_ui_settings(name,value) VALUES('bank_browser_enabled',?) "
-        "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
-        (value,),
-    )
-    db.commit()
+    enabled = value == "1"
+    settings = SettingsStore(_root())
+    current = settings.settings()
+    if current["finance"]["bank_browser_enabled"] != enabled:
+        finance_settings = dict(current["finance"])
+        finance_settings["bank_browser_enabled"] = enabled
+        settings.save({"finance": finance_settings}, _actor())
+        audit(
+            "finance_bank_browser_setting_updated",
+            "settings",
+            "finance.bank_browser_enabled",
+            detail={"enabled": enabled},
+        )
     flash("Bankbrowser-Einstellung gespeichert.")
     return redirect(url_for(".index"))
 

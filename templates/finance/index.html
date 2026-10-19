@@ -48,8 +48,8 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <label class="form-label mb-0" for="bank-browser-enabled">Browsergestützten Bankabruf</label>
         <select class="form-select w-auto" name="enabled" id="bank-browser-enabled">
-          <option value="1" {% if local_bank_browser_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
-          <option value="0" {% if not local_bank_browser_enabled %}selected{% endif %}>Deaktiviert</option>
+          <option value="1" {% if bank_browser_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
+          <option value="0" {% if not bank_browser_enabled %}selected{% endif %}>Deaktiviert</option>
         </select>
         <button class="btn btn-primary" type="submit">Einstellung speichern</button>
       </form>
@@ -77,6 +77,8 @@
       </form>
     </div>
   </section>
+  {% elif bank_browser_enabled %}
+  <div class="alert alert-info" role="status">Der Bankbrowser kann nur von einem lokalen Browser auf dem ausführenden Rechner gestartet werden.</div>
   {% endif %}
 
   <section class="card mb-4">
