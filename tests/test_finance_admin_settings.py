@@ -63,7 +63,7 @@ class FinanceAdminSettingsTests(unittest.TestCase):
 
     def post_setting(self, client, value, *, token="a" * 40, remote_addr="127.0.0.1"):
         return client.post(
-            "/finances/settings/bank-browser",
+            "/documents/business/bookkeeping/finances/settings/bank-browser",
             data={"enabled": value},
             headers={"X-CSRF-Token": token},
             environ_overrides={"REMOTE_ADDR": remote_addr},
@@ -92,7 +92,8 @@ class FinanceAdminSettingsTests(unittest.TestCase):
     def test_non_admin_missing_csrf_and_invalid_values_are_rejected(self):
         self.assertEqual(403, self.post_setting(self.user, "0", token="u" * 40).status_code)
         self.assertEqual(403, self.admin.post(
-            "/finances/settings/bank-browser", data={"enabled": "0"},
+            "/documents/business/bookkeeping/finances/settings/bank-browser",
+            data={"enabled": "0"},
         ).status_code)
         self.assertEqual(400, self.post_setting(self.admin, "true").status_code)
         self.assertIs(
@@ -120,7 +121,7 @@ class FinanceAdminSettingsTests(unittest.TestCase):
 
         with patch("app.finance_web.capture_santander_statement") as capture:
             response = self.admin.post(
-                "/finances/bank-browser/santander",
+                "/documents/business/bookkeeping/finances/bank-browser/santander",
                 headers={"X-CSRF-Token": "a" * 40},
                 environ_overrides={"REMOTE_ADDR": "192.0.2.10"},
             )
