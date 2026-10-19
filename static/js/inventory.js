@@ -441,7 +441,10 @@
       if (!detector && typeof window.jsQR !== 'function') throw new Error('No available decoder');
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
       if (generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
-      const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false; scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
+      const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false;
+      try { await video.play(); } catch (_error) { throw new Error('Camera preview could not start'); }
+      if (generation !== cameraGeneration) return;
+      scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
       const scan = async () => {
         if (!scanning || generation !== cameraGeneration) return;
         try {
