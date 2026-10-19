@@ -46,8 +46,8 @@
       <p>Öffnet auf diesem Computer einen sichtbaren Chromium-Browser. Melde dich direkt bei Santander an,
       bestätige die Freigabe auf deinem Handy und starte den Kontoauszugs-Export auf der Bankseite.
       Nach dem Download erscheint die Importvorschau. Zugangsdaten werden hier nicht abgefragt.</p>
-      <p class="text-secondary small">Nur für lokale Installationen mit SIMPLEOFFICE_LOCAL_BANK_BROWSER=1 und Playwright/Chromium.
-      Die Anfrage wartet bis zu fünf Minuten. Bei Serverinstallationen nicht verfügbar.</p>
+      <p class="text-secondary small">Standardmäßig aktiviert. Playwright und Chromium müssen auf dem ausführenden Rechner installiert sein.
+      Bei einer Serverinstallation öffnet sich der Browser auf dem Server, nicht auf deinem Endgerät. Die Anfrage wartet bis zu fünf Minuten.</p>
       <form method="post" action="{{ url_for('.santander_browser_download') }}" class="row g-2 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-8"><label class="form-label" for="santander-account">Zielkonto</label>
