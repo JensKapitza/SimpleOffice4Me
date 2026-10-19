@@ -429,16 +429,16 @@
   amazonButton?.addEventListener('click', () => searchMarketplace('amazon'));
 
   $('start-barcode')?.addEventListener('click', async () => {
-    if (!('BarcodeDetector' in window)) { setStatus('BarcodeDetector fehlt. Kennung kann manuell eingetragen werden.', 'warning'); barcode?.focus(); return; }
+    if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { setStatus('Kein Scanner verfügbar. Kennung bitte manuell eingeben.', 'warning'); barcode?.focus(); return; }
     if (!navigator.mediaDevices?.getUserMedia) { setStatus('Kamera-Zugriff nicht verfügbar; HTTPS kann erforderlich sein.', 'warning'); return; }
     try {
-      detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] });
+      detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] }) : null;
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
       const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false; scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
       const scan = async () => {
         if (!scanning) return;
         try {
-          const codes = await detector.detect(video);
+          const codes = detector ? await detector.detect(video) : (() => { const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; if (!canvas.width || !canvas.height) return []; const ctx = canvas.getContext('2d', {willReadFrequently: true}); if (!ctx) return []; ctx.drawImage(video, 0, 0); const frame = ctx.getImageData(0, 0, canvas.width, canvas.height); const decoded = window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'}); return decoded ? [{rawValue: decoded.data}] : []; })();
           if (codes.length) {
             const value = cleanText(codes[0].rawValue); barcode.value = value; const canonical = normalizeIsbn(value);
             if (canonical) { isbn.value = canonical; type.value = 'book'; objectTypeWasAutoBook = true; updateMode(); updateBookLinks(canonical); setStatus(`ISBN erkannt: ${canonical}. Lade Buchdaten …`, 'success'); stopCamera(); lookup(); return; }
