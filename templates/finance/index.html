@@ -39,6 +39,29 @@
     </div>
   </div>
 
+  {% if local_bank_browser_enabled %}
+  <section class="card mb-4">
+    <div class="card-header"><strong>Santander – Browser-Kontoauszug</strong></div>
+    <div class="card-body">
+      <p>Öffnet auf diesem Computer einen sichtbaren Chromium-Browser. Melde dich direkt bei Santander an,
+      bestätige die Freigabe auf deinem Handy und starte den Kontoauszugs-Export auf der Bankseite.
+      Nach dem Download erscheint die Importvorschau. Zugangsdaten werden hier nicht abgefragt.</p>
+      <p class="text-secondary small">Nur für lokale Installationen mit SIMPLEOFFICE_LOCAL_BANK_BROWSER=1 und Playwright/Chromium.
+      Die Anfrage wartet bis zu fünf Minuten. Bei Serverinstallationen nicht verfügbar.</p>
+      <form method="post" action="{{ url_for('.santander_browser_download') }}" class="row g-2 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-8"><label class="form-label" for="santander-account">Zielkonto</label>
+          <select class="form-select" name="account_id" id="santander-account">
+            <option value="">Über IBAN erkennen</option>
+            {% for account in accounts %}<option value="{{ account.account_id }}">{{ account.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-4"><button type="submit" class="btn btn-outline-primary w-100">Santander-Browser öffnen</button></div>
+      </form>
+    </div>
+  </section>
+  {% endif %}
+
   <section class="card mb-4">
     <div class="card-header"><strong>Bankverbindungen / FinTS</strong></div>
     <div class="card-body">
