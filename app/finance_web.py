@@ -15,6 +15,7 @@ from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
 from .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts
 from .finance_fints_sync import FinTSSyncService
+from .finance_browser_download import capture_santander_statement
 from .finance_match_adapters import proposals_for_transaction
 from .safe_paths import safe_filename
 
@@ -112,6 +113,44 @@ def create_account():
         return redirect(url_for(".index"))
     flash(f"Konto „{account['name']}“ wurde angelegt.")
     return redirect(url_for(".index", account_id=account["account_id"]))
+
+
+def _local_bank_browser_enabled() -> bool:
+    """Never launch an interactive bank browser on a remote web server."""
+    return (
+        os.environ.get("SIMPLEOFFICE_LOCAL_BANK_BROWSER", "") == "1"
+        and request.remote_addr in {"127.0.0.1", "::1"}
+    )
+
+
+@bp.post("/bank-browser/santander")
+@login_required
+def santander_browser_download():
+    if not _local_bank_browser_enabled():
+        abort(403)
+    actor = _actor()
+    try:
+        timeout = int(request.form.get("timeout_seconds", "300"))
+        result = capture_santander_statement(timeout_seconds=timeout)
+        token = _stage_upload(result.content, actor)
+        preview = FinanceStatementImporter(_store()).preview(
+            result.content,
+            result.filename,
+            actor,
+            account_id=request.form.get("account_id", "").strip(),
+        )
+        return render_template(
+            "finance/statement_preview.html",
+            preview=preview,
+            stage_token=token,
+            filename=result.filename,
+            accounts=_store().accounts(actor),
+        )
+    except (ValueError, RuntimeError, TimeoutError, OSError) as exc:
+        # Do not show provider exception bodies that might contain sensitive data.
+        current_app.logger.warning("Local bank browser export failed: %s", type(exc).__name__)
+        flash("Santander-Export fehlgeschlagen oder abgebrochen. Bitte Browser, Freigabe und Export prüfen.")
+        return redirect(url_for(".index"))
 
 
 @bp.post("/statements/preview")
