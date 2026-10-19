@@ -609,7 +609,7 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library"} else "camera=()"
+    camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library", "federation_discovery"} else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
     response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=(), {display_policy}")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
