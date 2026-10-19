@@ -39,7 +39,7 @@ class SessionCookieSecurityTests(unittest.TestCase):
         cookie, _ = self.cookie()
         self.assertEqual("", cookie["secure"])
         self.assertIs(cookie["httponly"], True)
-        self.assertEqual("Lax", cookie["samesite"].value)
+        self.assertEqual("Lax", cookie["samesite"])
 
     def test_https_request_sets_secure_cookie(self):
         cookie, _ = self.cookie(base_url="https://office.example.test")
