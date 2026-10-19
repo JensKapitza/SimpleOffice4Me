@@ -437,9 +437,10 @@
     if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { setStatus('Kein Scanner verfügbar. Kennung bitte manuell eingeben.', 'warning'); barcode?.focus(); return; }
     if (!navigator.mediaDevices?.getUserMedia) { setStatus('Kamera-Zugriff nicht verfügbar; HTTPS kann erforderlich sein.', 'warning'); return; }
     try {
-      detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] }) : null;
+      try { detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] }) : null; } catch (_error) { detector = null; }
+      if (!detector && typeof window.jsQR !== 'function') throw new Error('No available decoder');
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
-      if (generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); stream = null; return; }
+      if (generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
       const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false; scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
       const scan = async () => {
         if (!scanning || generation !== cameraGeneration) return;
@@ -455,7 +456,7 @@
         requestAnimationFrame(scan);
       };
       requestAnimationFrame(scan);
-    } catch (_error) { stopCamera(); setStatus('Kamera konnte nicht geöffnet werden.', 'danger'); }
+    } catch (error) { if (generation !== cameraGeneration) return; stopCamera(); setStatus(error?.name === 'NotAllowedError' ? 'Kamerazugriff verweigert. Bitte Berechtigung im Browser prüfen.' : 'Kamera konnte nicht geöffnet werden. Bitte Berechtigungen oder Kamera prüfen.', 'danger'); }
   });
 
   $('scan-nfc')?.addEventListener('click', async () => {
