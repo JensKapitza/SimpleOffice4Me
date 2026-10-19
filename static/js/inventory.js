@@ -445,7 +445,18 @@
       const scan = async () => {
         if (!scanning || generation !== cameraGeneration) return;
         try {
-          const codes = detector ? await detector.detect(video) : (() => { const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; if (!canvas.width || !canvas.height) return []; const ctx = canvas.getContext('2d', {willReadFrequently: true}); if (!ctx) return []; ctx.drawImage(video, 0, 0); const frame = ctx.getImageData(0, 0, canvas.width, canvas.height); const decoded = window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'}); return decoded ? [{rawValue: decoded.data}] : []; })();
+          let codes = [];
+          if (detector) { try { codes = await detector.detect(video); } catch (_error) { /* Try local QR decoding below. */ } }
+          if (!codes.length && typeof window.jsQR === 'function') {
+            const canvas = document.createElement('canvas');
+            const width = video.videoWidth, height = video.videoHeight;
+            if (width && height) {
+              const scale = Math.min(1, 1200 / Math.max(width, height));
+              canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));
+              const ctx = canvas.getContext('2d', {willReadFrequently: true});
+              if (ctx) { ctx.drawImage(video, 0, 0, canvas.width, canvas.height); const frame = ctx.getImageData(0, 0, canvas.width, canvas.height); const decoded = window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'}); if (decoded) codes = [{rawValue: decoded.data}]; }
+            }
+          }
           if (generation !== cameraGeneration) return;
           if (codes.length) {
             const value = cleanText(codes[0].rawValue); barcode.value = value; const canonical = normalizeIsbn(value);
