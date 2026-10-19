@@ -100,6 +100,7 @@ def index():
         accounts=accounts,
         selected_account_id=selected,
         transactions=transactions,
+        local_bank_browser_enabled=_local_bank_browser_enabled(),
     )
 
 
