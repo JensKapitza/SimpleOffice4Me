@@ -1,6 +1,26 @@
 """Regression coverage for camera permission scope (issue #736)."""
 from pathlib import Path
 
+from flask import Blueprint, Flask
+
+from app import add_header
+
+
+def test_camera_permissions_policy_is_scoped_to_federation_dashboard():
+    app = Flask(__name__)
+    federation = Blueprint("federation_peer_admin", __name__)
+    federation.add_url_rule("/dashboard", "dashboard", lambda: "dashboard")
+    federation.add_url_rule("/other", "other", lambda: "other")
+    app.register_blueprint(federation)
+    app.after_request(add_header)
+    client = app.test_client()
+
+    dashboard = client.get("/dashboard")
+    other_admin = client.get("/other")
+
+    assert dashboard.headers["Permissions-Policy"].startswith("camera=(self),")
+    assert other_admin.headers["Permissions-Policy"].startswith("camera=(),")
+
 
 def test_camera_policy_limits_federation_to_scanner_endpoint():
     source = (Path(__file__).resolve().parents[1] / "app" / "__init__.py").read_text()
