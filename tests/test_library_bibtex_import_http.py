@@ -5,10 +5,12 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask, g, session
 
 from app import db as database
+from app.library import routes as library_routes
 from app.library.routes import bp as library_blueprint
 from app.object_store import ObjectStore
 from app.security_controls import protect_browser_mutation
@@ -140,6 +142,25 @@ class BibtexImportHttpContractTest(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertFalse(response.get_json()["ok"])
         self.assertEqual([], ObjectStore(self.root).objects())
+
+    def test_archive_and_ris_io_errors_do_not_leak_local_paths(self):
+        cases = (
+            ("/library/import/books.calibre", "calibre_import_rows", "books.zip"),
+            ("/library/import/books.ris", "ris_import_rows", "books.ris"),
+        )
+        for route, parser_name, filename in cases:
+            with self.subTest(route=route):
+                with patch.object(library_routes, parser_name, side_effect=OSError("/srv/private/import.tmp")):
+                    response = self.client.post(
+                        route,
+                        data={
+                            "_csrf_token": "bibtex-import-csrf",
+                            "file": (io.BytesIO(b"uploaded bytes"), filename),
+                        },
+                    )
+                self.assertEqual(400, response.status_code)
+                self.assertNotIn("/srv/private", response.get_data(as_text=True))
+                self.assertIn("konnte nicht gelesen werden", response.get_json()["error"])
 
     def test_csrf_permissions_and_upload_limit_are_enforced(self):
         self.assertEqual(403, self._post(self._bibtex(), csrf=False).status_code)
