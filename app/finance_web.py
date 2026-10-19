@@ -10,6 +10,8 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .access_control import is_admin
+from .db import get_db
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
@@ -101,6 +103,7 @@ def index():
         selected_account_id=selected,
         transactions=transactions,
         local_bank_browser_enabled=_local_bank_browser_enabled(),
+        bank_browser_admin=is_admin(g.user),
     )
 
 
@@ -116,9 +119,36 @@ def create_account():
     return redirect(url_for(".index", account_id=account["account_id"]))
 
 
+def _bank_browser_setting() -> bool:
+    """Persisted admin setting; missing row means enabled by default."""
+    db = get_db()
+    db.execute("CREATE TABLE IF NOT EXISTS finance_ui_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    row = db.execute("SELECT value FROM finance_ui_settings WHERE name='bank_browser_enabled'").fetchone()
+    return row is None or row["value"] == "1"
+
+
 def _local_bank_browser_enabled() -> bool:
-    """Enabled by default; administrators may disable the feature in app config."""
-    return bool(current_app.config.get("BANK_BROWSER_ENABLED", True))
+    return _bank_browser_setting()
+
+
+@bp.post("/settings/bank-browser")
+@login_required
+def update_bank_browser_setting():
+    if not is_admin(g.user):
+        abort(403)
+    value = request.form.get("enabled", "")
+    if value not in {"0", "1"}:
+        abort(400)
+    db = get_db()
+    db.execute("CREATE TABLE IF NOT EXISTS finance_ui_settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
+    db.execute(
+        "INSERT INTO finance_ui_settings(name,value) VALUES('bank_browser_enabled',?) "
+        "ON CONFLICT(name) DO UPDATE SET value=excluded.value",
+        (value,),
+    )
+    db.commit()
+    flash("Bankbrowser-Einstellung gespeichert.")
+    return redirect(url_for(".index"))
 
 
 @bp.post("/bank-browser/santander")
