@@ -37,13 +37,13 @@ class SessionCookieSecurityTests(unittest.TestCase):
 
     def test_plain_http_does_not_require_secure_for_local_development(self):
         cookie, _ = self.cookie()
-        self.assertFalse(cookie["secure"].value)
-        self.assertTrue(cookie["httponly"].value)
+        self.assertEqual("", cookie["secure"])
+        self.assertIs(cookie["httponly"], True)
         self.assertEqual("Lax", cookie["samesite"].value)
 
     def test_https_request_sets_secure_cookie(self):
         cookie, _ = self.cookie(base_url="https://office.example.test")
-        self.assertTrue(cookie["secure"].value)
+        self.assertIs(cookie["secure"], True)
 
     def test_trusted_forwarded_https_sets_secure_cookie(self):
         cookie, _ = self.cookie(headers={"X-Forwarded-Proto": "https"}, proxy=True)
