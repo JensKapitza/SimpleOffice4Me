@@ -39,6 +39,23 @@
     </div>
   </div>
 
+  {% if bank_browser_admin %}
+  <section class="card mb-4" id="banking-einstellungen">
+    <div class="card-header"><strong>Einstellungen · Finanzen &amp; Banking</strong></div>
+    <div class="card-body">
+      <p class="text-secondary">Bankbrowser: standardmäßig eingeschaltet. Ermöglicht einen sichtbaren Browser für den manuellen Login und Kontoauszug-Export. Playwright/Chromium muss auf dem ausführenden Rechner installiert sein. Bei Serverbetrieb startet der Browser auf dem Server.</p>
+      <form method="post" action="{{ url_for('.update_bank_browser_setting') }}" class="d-flex flex-wrap gap-3 align-items-center">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <label class="form-label mb-0" for="bank-browser-enabled">Browsergestützten Bankabruf</label>
+        <select class="form-select w-auto" name="enabled" id="bank-browser-enabled">
+          <option value="1" {% if local_bank_browser_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
+          <option value="0" {% if not local_bank_browser_enabled %}selected{% endif %}>Deaktiviert</option>
+        </select>
+        <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+      </form>
+    </div>
+  </section>
+  {% endif %}
   {% if local_bank_browser_enabled %}
   <section class="card mb-4">
     <div class="card-header"><strong>Santander – Browser-Kontoauszug</strong></div>
