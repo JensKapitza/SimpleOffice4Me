@@ -46,6 +46,7 @@
   let stream = null;
   let scanning = false;
   let detector = null;
+  let cameraGeneration = 0;
   let lookupCooldown = null;
   let lookupAbort = null;
   let finderAbort = null;
@@ -129,8 +130,10 @@
     updateMode();
   };
   const stopCamera = () => {
+    cameraGeneration += 1;
     scanning = false;
     if (stream) { stream.getTracks().forEach((track) => track.stop()); stream = null; }
+    const video = $('camera-preview'); if (video) video.srcObject = null;
     const box = $('camera-box'); if (box) box.hidden = true;
   };
   const safeJson = async (response) => { try { return await response.json(); } catch (_error) { return {}; } };
@@ -429,16 +432,20 @@
   amazonButton?.addEventListener('click', () => searchMarketplace('amazon'));
 
   $('start-barcode')?.addEventListener('click', async () => {
+    stopCamera();
+    const generation = cameraGeneration;
     if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { setStatus('Kein Scanner verfügbar. Kennung bitte manuell eingeben.', 'warning'); barcode?.focus(); return; }
     if (!navigator.mediaDevices?.getUserMedia) { setStatus('Kamera-Zugriff nicht verfügbar; HTTPS kann erforderlich sein.', 'warning'); return; }
     try {
       detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] }) : null;
       stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+      if (generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); stream = null; return; }
       const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false; scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
       const scan = async () => {
-        if (!scanning) return;
+        if (!scanning || generation !== cameraGeneration) return;
         try {
           const codes = detector ? await detector.detect(video) : (() => { const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; if (!canvas.width || !canvas.height) return []; const ctx = canvas.getContext('2d', {willReadFrequently: true}); if (!ctx) return []; ctx.drawImage(video, 0, 0); const frame = ctx.getImageData(0, 0, canvas.width, canvas.height); const decoded = window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'}); return decoded ? [{rawValue: decoded.data}] : []; })();
+          if (generation !== cameraGeneration) return;
           if (codes.length) {
             const value = cleanText(codes[0].rawValue); barcode.value = value; const canonical = normalizeIsbn(value);
             if (canonical) { isbn.value = canonical; type.value = 'book'; objectTypeWasAutoBook = true; updateMode(); updateBookLinks(canonical); setStatus(`ISBN erkannt: ${canonical}. Lade Buchdaten …`, 'success'); stopCamera(); lookup(); return; }
