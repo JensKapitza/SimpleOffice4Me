@@ -503,18 +503,21 @@
     if (!modal && modalElement && window.bootstrap?.Modal) modal = new window.bootstrap.Modal(modalElement);
     return modal;
   };
-  const stopCamera = () => { if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; };
+  const stopCamera = () => { if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; const video = document.getElementById('library-camera'); if (video) video.srcObject = null; };
   modalElement?.addEventListener('hidden.bs.modal', stopCamera);
   document.querySelectorAll('[data-scan-target]').forEach(button => button.addEventListener('click', async () => {
     scanTarget = document.getElementById(button.dataset.scanTarget); if (!scanTarget) return;
+    stopCamera();
     getModal()?.show(); const status = document.getElementById('scanner-status');
     if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { status.textContent = 'Kein Scanner verfügbar. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
+    if (!navigator.mediaDevices?.getUserMedia) { status.textContent = 'Kamera nicht verfügbar. HTTPS oder Browserberechtigung prüfen; alternativ manuell eingeben.'; return; }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false}); document.getElementById('library-camera').srcObject = stream;
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false}).catch(() => navigator.mediaDevices.getUserMedia({video:true, audio:false})); document.getElementById('library-camera').srcObject = stream;
       const detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']}) : null; status.textContent = detector ? 'Barcode vor die Kamera halten.' : 'QR-Code vor die Kamera halten (andere Codes manuell eingeben).';
       scanTimer = setInterval(async () => { try { const video = document.getElementById('library-camera'); const found = detector ? await detector.detect(video) : (() => { const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight; if (!canvas.width || !canvas.height) return []; const context = canvas.getContext('2d', {willReadFrequently: true}); if (!context) return []; context.drawImage(video, 0, 0); const image = context.getImageData(0, 0, canvas.width, canvas.height); const result = window.jsQR(image.data, image.width, image.height, {inversionAttempts:'attemptBoth'}); return result ? [{rawValue:result.data}] : []; })(); if (!found.length) return; scanTarget.value = found[0].rawValue || ''; stopCamera(); getModal()?.hide(); scanTarget.dispatchEvent(new Event('change')); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
-    } catch (error) { status.textContent = 'Kamera konnte nicht geöffnet werden: ' + error; }
+    } catch (error) { stopCamera(); status.textContent = 'Kamera konnte nicht geöffnet werden. Berechtigung oder Kamerabelegung prüfen; alternativ manuell eingeben.'; }
   }));
+  window.addEventListener('pagehide', stopCamera);
 
   let ocrRevision = 0;
   const clearOcrResult = () => {
