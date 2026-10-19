@@ -132,6 +132,15 @@ class BibtexImportHttpContractTest(unittest.TestCase):
                 self.assertEqual(400, response.status_code)
                 self.assertFalse(response.get_json()["ok"])
 
+    def test_long_malformed_field_name_is_rejected_without_importing_data(self):
+        payload = b"@book{x," + b"A" * (512 * 1024) + b"}"
+
+        response = self._post(payload)
+
+        self.assertEqual(400, response.status_code)
+        self.assertFalse(response.get_json()["ok"])
+        self.assertEqual([], ObjectStore(self.root).objects())
+
     def test_csrf_permissions_and_upload_limit_are_enforced(self):
         self.assertEqual(403, self._post(self._bibtex(), csrf=False).status_code)
         with self.client.session_transaction() as state:
