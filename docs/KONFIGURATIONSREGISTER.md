@@ -267,6 +267,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SMTP_PORT` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
 | `SIMPLEOFFICE_SMTP_STARTTLS` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
 | `SIMPLEOFFICE_SMTP_USER` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
+| `SIMPLEOFFICE_HTTPS` | [__init__.py](../app/__init__.py) | [PROXY_HTTPS](PROXY_HTTPS.md) |
 | `SIMPLEOFFICE_TRUSTED_PROXY_HOPS` | [__init__.py](../app/__init__.py) | [CHATGPT_MCP](CHATGPT_MCP.md) |
 | `SIMPLEOFFICE_UPDATE_REF` | [release_updater.py](../tools/release_updater.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_V2_STORAGE_PASSWORD_FILE` | [runtime_keys.py](../app/v2/runtime_keys.py) | [V2_ENCRYPTED_RUNTIME_CUTOVER](V2_ENCRYPTED_RUNTIME_CUTOVER.md) |
