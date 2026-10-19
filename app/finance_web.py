@@ -117,11 +117,8 @@ def create_account():
 
 
 def _local_bank_browser_enabled() -> bool:
-    """Never launch an interactive bank browser on a remote web server."""
-    return (
-        os.environ.get("SIMPLEOFFICE_LOCAL_BANK_BROWSER", "") == "1"
-        and request.remote_addr in {"127.0.0.1", "::1"}
-    )
+    """Enabled by default; administrators may disable the feature in app config."""
+    return bool(current_app.config.get("BANK_BROWSER_ENABLED", True))
 
 
 @bp.post("/bank-browser/santander")
