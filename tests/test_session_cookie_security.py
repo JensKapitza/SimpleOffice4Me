@@ -47,16 +47,16 @@ class SessionCookieSecurityTests(unittest.TestCase):
 
     def test_trusted_forwarded_https_sets_secure_cookie(self):
         cookie, _ = self.cookie(headers={"X-Forwarded-Proto": "https"}, proxy=True)
-        self.assertTrue(cookie["secure"].value)
+        self.assertIs(cookie["secure"], True)
 
     def test_untrusted_forwarded_proto_is_ignored(self):
         cookie, _ = self.cookie(headers={"X-Forwarded-Proto": "https"})
-        self.assertFalse(cookie["secure"].value)
+        self.assertEqual("", cookie["secure"])
 
     def test_explicit_https_policy_protects_http_fallback(self):
         self.app.config["SESSION_COOKIE_SECURE"] = True
         cookie, _ = self.cookie()
-        self.assertTrue(cookie["secure"].value)
+        self.assertIs(cookie["secure"], True)
 
     def test_https_environment_setting_is_explicit_and_case_insensitive(self):
         with patch.dict(os.environ, {"SIMPLEOFFICE_HTTPS": " TrUe "}):
