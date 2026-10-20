@@ -50,6 +50,13 @@
                 {% if task.priority %}<span class="badge text-bg-warning">P{{ task.priority }}</span>{% endif %}
               </div>
               {% if task.description %}<p class="small text-secondary my-2 text-break">{{ task.description }}</p>{% endif %}
+              {% for source in task_source_documents.get(task.id, []) %}
+                {% if source.available %}
+                  <a class="btn btn-sm btn-outline-primary mb-2" href="{{ url_for('documents.detail', document_id=source.document_id) }}"><i class="fas fa-file-lines me-1" aria-hidden="true"></i>{{ 'Open source file' if g.language == 'en' else 'Quelldatei öffnen' }}: {{ source.name }}</a>
+                {% else %}
+                  <div class="small text-secondary mb-2">{{ 'Source file unavailable or not accessible' if g.language == 'en' else 'Quelldatei nicht verfügbar oder nicht zugänglich' }}</div>
+                {% endif %}
+              {% endfor %}
               <div class="small d-flex flex-wrap gap-1 mb-2">
                 {% if task.due %}<span class="badge text-bg-light border">{{ 'Due' if g.language == 'en' else 'Fällig' }}: {{ task.due }}</span>{% endif %}
                 {% if task.rrule %}<span class="badge text-bg-info">↻ {{ task.rrule }}</span>{% endif %}

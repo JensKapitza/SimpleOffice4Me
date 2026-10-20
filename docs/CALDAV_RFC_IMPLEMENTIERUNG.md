@@ -28,6 +28,12 @@ Quelle: [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html).
   `DESCRIPTION`, Status, Fortschritt, Priorität, Start, Fälligkeit, Abschluss,
   Kategorien und eingebetteten `VALARM`-Komponenten. Unbekannte
   Erweiterungszeilen bleiben beim Roundtrip erhalten.
+- Aufgabenquellen werden als stabile `X-SIMPLEOFFICE-DOCUMENT-ID`-Referenzen
+  mitgeführt. Wenn ein CalDAV-Client diese nicht-standardisierte Property beim
+  Ändern eines VTODO auslässt, bleiben gespeicherte Dokumentverknüpfungen
+  erhalten. Die Web-Taskansichten lösen IDs über die sichtbarkeitsgeprüfte
+  Dokumentverwaltung auf; das Öffnen des Quelldokuments prüft Berechtigungen
+  erneut. Alte Freitextpfade werden nicht automatisch in IDs umgewandelt.
 
 ### CalDAV – RFC 4791
 

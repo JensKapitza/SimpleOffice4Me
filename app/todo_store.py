@@ -344,7 +344,15 @@ class TodoStore:
             if any(row is not existing and not row.get("deleted") and (row.get("list_id") or self.default_list_id(str(row.get("owner") or actor))) == list_id and row.get("uid") == uid for row in data["items"]): raise ValueError("UID already exists in this task collection")
             item_id = existing.get("id", "") if existing else str(uuid.uuid4())
             owner = str(existing.get("owner") if existing else self._list(data, list_id, actor, "edit").get("owner") or actor)
-            item = self._task(item_id, str(values.get("title", "")), owner, {**values, "list_id": list_id}, created_at=existing.get("created_at", "") if existing else utc_now())
+            task_values = dict(values)
+            if existing is not None:
+                # Calendar clients may drop non-standard X-properties when
+                # editing a VTODO. Preserve document links rather than silently
+                # clearing them when the client omits or strips extension fields.
+                for key, default in (("document_ids", []), ("email_document_id", "")):
+                    if not task_values.get(key):
+                        task_values[key] = existing.get(key, default)
+            item = self._task(item_id, str(values.get("title", "")), owner, {**task_values, "list_id": list_id}, created_at=existing.get("created_at", "") if existing else utc_now())
             item.update({"created_by": existing.get("created_by", actor) if existing else actor, "caldav_resource": resource, "uid": uid, "updated_at": utc_now(), "updated_by": actor})
             data["items"] = [row for row in data["items"] if row.get("id") != item_id] + [item]
             self._bump(data, actor, resource, False, list_id); self._write(data)

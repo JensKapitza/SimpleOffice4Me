@@ -118,12 +118,15 @@ def detail(document_id: str):
 @bp.post("/<document_id>/tasks")
 @login_required
 def create_document_task(document_id: str):
-    document = _document_or_404(document_id)
+    _document_or_404(document_id)
     try:
-        title = request.form.get("title", "") or ("Prüfen: " + document.get("last_path", "Dokument"))
+        title = request.form.get("title", "").strip() or (
+            "Review document" if g.language == "en" else "Dokument prüfen"
+        )
         description = request.form.get("description", "").strip() or (
-            "Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: "
-            + str(document.get("last_path", "Dokument"))
+            "Open the linked source document, perform the required work, and record the result here."
+            if g.language == "en"
+            else "Quelldokument öffnen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren."
         )
         _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id]})
         flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")

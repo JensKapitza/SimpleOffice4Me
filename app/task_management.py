@@ -8,6 +8,7 @@ from typing import Any
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .auth import login_required
+from .document_store import DocumentStore
 from .todo_store import TodoStore
 
 
@@ -189,6 +190,39 @@ def _visible_rows(actor: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _task_source_documents(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    """Resolve source IDs through request-scoped document visibility checks."""
+    store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
+    sources: dict[str, list[dict[str, Any]]] = {}
+    for task in rows:
+        raw_ids = task.get("document_ids", [])
+        ids = list(raw_ids) if isinstance(raw_ids, (list, tuple)) else []
+        email_document_id = str(task.get("email_document_id", "")).strip()
+        if email_document_id:
+            ids.append(email_document_id)
+        task_sources: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for raw_id in ids:
+            document_id = str(raw_id or "").strip()
+            if not document_id or document_id in seen:
+                continue
+            seen.add(document_id)
+            try:
+                document = store.get_document(document_id)
+            except (OSError, ValueError):
+                task_sources.append({"available": False})
+                continue
+            path = str(document.get("last_path") or "")
+            task_sources.append({
+                "available": True,
+                "document_id": document_id,
+                "name": path.rsplit("/", 1)[-1] or "Dokument",
+            })
+        if task_sources:
+            sources[str(task.get("id", ""))] = task_sources
+    return sources
+
+
 @bp.get("/")
 @login_required
 def board():
@@ -203,6 +237,7 @@ def board():
     grouped = {status: [row for row in top_level if row.get("status", "needs-action") == status] for status, _de, _en in BOARD_COLUMNS}
     known_statuses = set(grouped)
     grouped["needs-action"].extend(row for row in top_level if row.get("status", "needs-action") not in known_statuses)
+    task_source_documents = _task_source_documents(rows)
     return render_template(
         "tasks/board.html",
         columns=BOARD_COLUMNS,
@@ -212,6 +247,7 @@ def board():
         query=request.args.get("q", "").strip(),
         selected_list=request.args.get("list_id", "").strip(),
         assigned=request.args.get("assigned", "").strip(),
+        task_source_documents=task_source_documents,
     )
 
 
