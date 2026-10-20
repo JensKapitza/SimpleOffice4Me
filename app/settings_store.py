@@ -454,8 +454,12 @@ class SettingsStore:
                 if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
                     latest["s3"] = {"enabled": True}
             # Ordinary preferences and admin S3 changes share one atomic merge.
-            # Only sections supplied by the caller are replaced.
+            # Media supports partial writes so older video-setting callers preserve
+            # the newer preview controls in the same section.
             merged = {**latest, **settings}
+            media_update = settings.get("media")
+            if isinstance(media_update, dict):
+                merged["media"] = {**latest["media"], **media_update}
             normalized = self._validate(merged)
             atomic_json_write(self.path, normalized)
             self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
