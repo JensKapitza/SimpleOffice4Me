@@ -102,7 +102,9 @@ class CompanySearchBrowserTests(unittest.TestCase):
             page.locator("[data-company-query-name]").fill(f"Browser Works {label} GmbH")
             page.locator("[data-company-query-city]").fill("Berlin")
 
-            with page.expect_popup() as popup_info:
+            # `rel=noopener` intentionally detaches the external page from its opener;
+            # listen at the browser context so WebKit reports it as a new page too.
+            with context.expect_page() as popup_info:
                 page.locator('[data-company-provider="googleSearch"]').click()
             popup = popup_info.value
             popup.wait_for_load_state("domcontentloaded")
