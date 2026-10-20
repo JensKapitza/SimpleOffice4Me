@@ -151,6 +151,10 @@ class CompanySearchBrowserTests(unittest.TestCase):
                 "https://www.google.com/search",
                 source_value.split("?", 1)[0],
             )
+            validity = page.locator("#contact-create-form").evaluate(
+                "form => ({valid: form.checkValidity(), invalid: [...form.querySelectorAll(':invalid')].map(input => ({name: input.name, value: input.value, message: input.validationMessage}))})"
+            )
+            self.assertTrue(validity["valid"], validity["invalid"])
             page.locator('#contact-create-form button[type="submit"]').click()
             saved = next(
                 contact for contact in self.store.contacts("browser-user")
