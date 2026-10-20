@@ -158,11 +158,19 @@ class CompanySearchBrowserTests(unittest.TestCase):
                 "form => ({valid: form.checkValidity(), invalid: [...form.querySelectorAll(':invalid')].map(input => ({name: input.name, value: input.value, message: input.validationMessage}))})"
             )
             self.assertTrue(validity["valid"], validity["invalid"])
-            page.locator('#contact-create-form button[type="submit"]').click()
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                page.locator('#contact-create-form button[type="submit"]').click()
+            self.assertEqual(f"{self.base_url}/documents/contacts", page.url)
             saved = next(
-                contact for contact in self.store.contacts("browser-user")
-                if contact["fields"].get("company") == f"Browser Works {label} GmbH"
+                (
+                    contact for contact in self.store.contacts("browser-user")
+                    if contact["fields"].get("company") == f"Browser Works {label} GmbH"
+                ),
+                None,
             )
+            if saved is None:
+                messages = page.locator('[role="status"][aria-live="polite"]').all_inner_texts()
+                self.fail(f"Contact did not persist after form redirect; messages={messages}")
             self.assertEqual(f"Browser Works {label} GmbH", saved["fields"]["display_name"])
             self.assertEqual("Teststraße 8", saved["addresses"][0]["components"]["street"])
             self.assertEqual("10115", saved["addresses"][0]["components"]["postal"])
