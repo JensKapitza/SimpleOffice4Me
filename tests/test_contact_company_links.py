@@ -151,19 +151,21 @@ class ContactCompanyLinksTest(unittest.TestCase):
         self.assertNotIn("private", provenance["url"])
 
     def test_company_data_source_rejects_insecure_urls_without_contact_changes(self):
-        response = self.client.post("/documents/contacts", data={
-            "contact_id": self.company["contact_id"],
-            "display_name": "Musterwerke GmbH",
-            "email": "rechnung@muster.test",
-            "company": "Musterwerke AG",
-            "company_data_source": "http://example.test/",
-            "company_data_fields": "company",
-        })
+        for source_url in ("http://example.test/", "https://127.0.0.1/", "https://musterwerke.local/"):
+            with self.subTest(source_url=source_url):
+                response = self.client.post("/documents/contacts", data={
+                    "contact_id": self.company["contact_id"],
+                    "display_name": "Musterwerke GmbH",
+                    "email": "rechnung@muster.test",
+                    "company": "Musterwerke AG",
+                    "company_data_source": source_url,
+                    "company_data_fields": "company",
+                })
 
-        saved = self.store.get(self.company["contact_id"], "jens")
-        self.assertEqual(302, response.status_code)
-        self.assertEqual("", saved["fields"].get("company", ""))
-        self.assertFalse(saved.get("external_data_sources"))
+                saved = self.store.get(self.company["contact_id"], "jens")
+                self.assertEqual(302, response.status_code)
+                self.assertEqual("", saved["fields"].get("company", ""))
+                self.assertFalse(saved.get("external_data_sources"))
 
     def test_company_data_import_rejects_out_of_range_mapped_values(self):
         response = self.client.post("/documents/contacts", data={

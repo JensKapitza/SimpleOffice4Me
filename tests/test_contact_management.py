@@ -112,7 +112,7 @@ class ContactManagementTest(unittest.TestCase):
                 {"display_name": "Musterwerke Berlin"},
                 "admin",
                 metadata={"company_data_source": {
-                    "url": "https://www.musterwerke.example/impressum",
+                    "url": "https://www.musterwerke.de/impressum",
                     "fields": ["website", "phone"],
                 }},
             )
@@ -122,7 +122,7 @@ class ContactManagementTest(unittest.TestCase):
             )
 
             self.assertEqual(
-                {"https://www.google.com/maps/search/", "https://www.musterwerke.example/impressum"},
+                {"https://www.google.com/maps/search/", "https://www.musterwerke.de/impressum"},
                 {row["url"] for row in merged["external_data_sources"]},
             )
 

@@ -1,6 +1,7 @@
 """API-free company lookup helpers and safe contact-source provenance."""
 from __future__ import annotations
 
+import ipaddress
 import re
 import uuid
 from typing import Any, Callable
@@ -35,6 +36,10 @@ def company_data_source(url: str, fields: set[str]) -> dict[str, Any] | None:
         path = parsed.path or "/"
     except (UnicodeError, ValueError) as exc:
         raise ValueError("Die HTTPS-Quelle ist ungültig.") from exc
+    try:
+        ip_address = ipaddress.ip_address(host)
+    except ValueError:
+        ip_address = None
     if (
         parsed.scheme.casefold() != "https"
         or not host
@@ -50,6 +55,8 @@ def company_data_source(url: str, fields: set[str]) -> dict[str, Any] | None:
         or host.endswith(".")
         or ".." in host
         or any(label.startswith("-") or label.endswith("-") for label in host.split("."))
+        or (ip_address is not None and not ip_address.is_global)
+        or host.rsplit(".", 1)[-1] in {"example", "home", "internal", "invalid", "lan", "local", "localhost", "test"}
     ):
         raise ValueError("Die Quelle muss eine öffentliche HTTPS-Webseite sein.")
     return {"url": f"https://{host}{path}", "host": host, "fields": sorted(fields)}
