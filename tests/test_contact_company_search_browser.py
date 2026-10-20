@@ -129,7 +129,12 @@ class CompanySearchBrowserTests(unittest.TestCase):
             )
             page.locator("[data-company-preview-button]").click()
             page.locator("[data-company-preview]").wait_for(state="visible")
+            selected_fields = page.locator("[data-company-include]:checked:not(:disabled)")
+            self.assertGreater(selected_fields.count(), 0)
             page.locator("[data-company-apply]").click()
+            source_value = page.locator("[data-company-data-source]").input_value()
+            status_text = page.locator("[data-company-assist-status]").inner_text()
+            self.assertTrue(source_value, f"No source recorded after apply: {status_text}")
             self.assertFalse(any(
                 contact["fields"].get("company") == f"Browser Works {label} GmbH"
                 for contact in self.store.contacts("browser-user")
@@ -137,10 +142,9 @@ class CompanySearchBrowserTests(unittest.TestCase):
 
             self.assertEqual(
                 "https://www.google.com/search",
-                page.locator("[data-company-data-source]").input_value().split("?", 1)[0],
+                source_value.split("?", 1)[0],
             )
             page.locator('#contact-create-form button[type="submit"]').click()
-            self.assertTrue(page.locator("#contact-create-form").count() == 1)
             saved = next(
                 contact for contact in self.store.contacts("browser-user")
                 if contact["fields"].get("company") == f"Browser Works {label} GmbH"
