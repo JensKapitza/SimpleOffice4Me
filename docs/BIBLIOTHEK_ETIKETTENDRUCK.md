@@ -80,6 +80,18 @@ Unterstützte Modellprofile umfassen aktuell:
 
 Die Oberfläche kann Text, Code-128-Barcodes und Bilder rendern. Schrift, Schriftgröße, Farbe, Ausrichtung, Fettdruck, Etikettenformat und automatischer Schnitt werden gespeichert und gelten für folgende Druckaufträge weiter.
 
+Die Druckoberfläche **PrinterShare** verlinkt direkt zu **Barcode scannen** und
+**Barcode-Etiketten drucken** in dieser bestehenden Bibliotheksfunktion; es gibt
+keinen zweiten Barcode-Renderer. Im freien Barcodeformular wird druckbares
+ASCII als Code 128-B ausgegeben, optional mit Klartext und einer Menge von 1 bis
+100 Etiketten. Die Kamerafunktion übernimmt EAN-8, EAN-13, Code 128 oder Code 39
+in das manuell änderbare Formular. Fehlen HTTPS, Kameraberechtigung oder
+Browser-Unterstützung, bleiben manuelle Eingabe und Vorschau verfügbar. Ein
+Mehrfachdruck protokolliert jedes gesendete Etikett separat; bei einem
+Zwischenfehler zeigt die Oberfläche an, wie viele Kopien bereits gesendet
+wurden. Die Etiketten für ausgewählte Bücher bieten zusätzlich die separat
+implementierten QR-Varianten.
+
 ### Verbindungen
 
 **WLAN/LAN**

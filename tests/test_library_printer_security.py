@@ -24,6 +24,19 @@ class LabelRenderingSecurityTests(unittest.TestCase):
         with self.assertRaises(PrinterError):
             render_barcode("A" * 90, self.settings)
 
+    def test_code128_render_keeps_a_blank_scan_quiet_zone(self):
+        image = render_barcode("4006381333931", self.settings, show_text=False)
+        dark_columns = [
+            x
+            for y in range(12, image.height - 12)
+            for x in range(image.width)
+            if image.getpixel((x, y)) == (0, 0, 0)
+        ]
+
+        self.assertTrue(dark_columns)
+        self.assertGreaterEqual(min(dark_columns), 30)
+        self.assertLessEqual(max(dark_columns), image.width - 31)
+
     def test_normal_picture_still_renders(self):
         image = Image.new("RGB", (48, 32), "white")
         buffer = io.BytesIO()

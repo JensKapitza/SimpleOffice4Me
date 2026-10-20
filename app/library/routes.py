@@ -24,14 +24,11 @@ from .printer import (
     LABELS,
     MODELS,
     PrinterError,
-    cut_feed,
     discover_printers,
     preview_png,
     print_image,
     render_barcode,
     render_qr_code,
-    render_image,
-    render_text,
 )
 from .catalog import create_new_edition, create_physical_copy, edition_copy_inventory
 from .imports import bibtex_import_rows, calibre_import_rows, calibre_isbn, ris_import_rows
@@ -549,65 +546,6 @@ def printer_settings():
         flash("Druckeinstellungen gespeichert und werden für die nächsten Drucke weiterverwendet.")
     except ValueError as exc:
         flash(str(exc))
-    return redirect(url_for("library.index") + "#printer")
-
-
-@bp.get("/printer/discover")
-@login_required
-def printer_discover():
-    return jsonify({"printers": discover_printers()})
-
-
-def _render_requested(kind: str):
-    settings = _store().printer_settings()
-    if kind == "text":
-        return render_text(request.form.get("text", ""), settings)
-    if kind == "barcode":
-        return render_barcode(request.form.get("value", ""), settings, caption=request.form.get("caption", ""),
-                              show_text=request.form.get("barcode_style", "with_text") == "with_text")
-    if kind == "image":
-        upload = request.files.get("image")
-        return render_image(upload.read(12 * 1024 * 1024 + 1) if upload else b"", settings)
-    raise PrinterError("Unbekannter Drucktyp")
-
-
-@bp.post("/printer/preview/<kind>")
-@login_required
-def printer_preview(kind: str):
-    try:
-        data = preview_png(_render_requested(kind))
-    except (OSError, PrinterError, ValueError):
-        return jsonify({"ok": False, "error": "library_request_rejected"}), 400
-    return Response(data, mimetype="image/png", headers={"Cache-Control": "no-store"})
-
-
-@bp.post("/printer/print/<kind>")
-@login_required
-def printer_print(kind: str):
-    library = _store()
-    try:
-        image = _render_requested(kind)
-        byte_count = print_image(image, library.printer_settings())
-        summary = request.form.get("text", "") if kind == "text" else request.form.get("value", "") if kind == "barcode" else str(getattr(request.files.get("image"), "filename", "Bild"))
-        library.record_print(_actor(), kind=kind, status="printed", summary=summary, byte_count=byte_count)
-        flash("Etikett wurde an den Brother-Drucker gesendet.")
-    except (OSError, PrinterError, ValueError) as exc:
-        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error=str(exc))
-        flash("Drucken fehlgeschlagen. Bitte Drucker und Eingaben prüfen.")
-    return redirect(url_for("library.index") + "#printer")
-
-
-@bp.post("/printer/cut")
-@login_required
-def printer_cut():
-    library = _store()
-    try:
-        byte_count = cut_feed(library.printer_settings())
-        library.record_print(_actor(), kind="cut", status="printed", summary="Vorschub und Schnitt", byte_count=byte_count)
-        flash("Vorschub/Schnitt wurde an den Drucker gesendet.")
-    except (OSError, PrinterError, ValueError) as exc:
-        library.record_print(_actor(), kind="cut", status="failed", summary="Vorschub und Schnitt", error=str(exc))
-        flash("Vorschub/Schnitt fehlgeschlagen. Bitte Drucker prüfen.")
     return redirect(url_for("library.index") + "#printer")
 
 

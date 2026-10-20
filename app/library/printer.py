@@ -211,11 +211,12 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "", *, s
     if label is None:
         raise PrinterError("Unbekannte Etikettengröße")
     bits = _code128_bits(value)
-    quiet = 12
-    usable = max(1, label.printable_width - quiet * 2)
-    if len(bits) > usable:
-        raise PrinterError("Barcode ist für die gewählte Etikettengröße zu lang")
-    module = max(1, usable // len(bits))
+    # Code 128 needs a clear quiet zone on both sides. Keep ten modules clear
+    # and at least three printer dots per bar module for ordinary scanners.
+    module = label.printable_width // (len(bits) + 20)
+    if module < 3:
+        raise PrinterError("Barcode ist für die gewählte Etikettengröße zu dicht; kürzeren Wert oder größeres Etikett wählen")
+    quiet = 10 * module
     barcode_width = len(bits) * module
     font = load_font(str(settings.get("font_name", "DejaVuSans")), max(16, min(int(settings.get("font_size", 56)) // 2, 60)), bool(settings.get("bold")))
     caption_text = " ".join(str(caption or value).split())[:120] if show_text else ""
@@ -225,7 +226,7 @@ def render_barcode(value: str, settings: dict[str, Any], caption: str = "", *, s
     height = label.printable_length if not label.endless else max(170, caption_height + 135)
     image = Image.new("RGB", (label.printable_width, height), "white")
     draw = ImageDraw.Draw(image)
-    left = max(0, (label.printable_width - barcode_width) // 2)
+    left = max(0, (label.printable_width - barcode_width - quiet * 2) // 2 + quiet)
     bar_top = 12
     bar_bottom = max(bar_top + 40, height - caption_height - 24)
     for index, bit in enumerate(bits):
