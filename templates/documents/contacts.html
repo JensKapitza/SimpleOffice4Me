@@ -47,9 +47,6 @@
 <div class="row g-4">
   <section class="col-lg-6"><div class="card h-100"><div class="card-header">Kontakt anlegen</div><div class="card-body">
     <form id="contact-create-form" method="post" class="row g-2" data-company-link-form data-company-edit-form>
-      <input type="hidden" name="company_data_source" data-company-data-source>
-      <input type="hidden" name="company_data_fields" data-company-data-fields>
-      {% for field in ('street','postal','city','state','country') %}<input type="hidden" name="company_data_{{ field }}" data-company-hidden-address="{{ field }}">{% endfor %}
       <div class="col-md-6"><input class="form-control" name="first_name" placeholder="Vorname"></div>
       <div class="col-md-6"><input class="form-control" name="last_name" placeholder="Nachname"></div>
       <div class="col-12"><input required class="form-control" name="display_name" placeholder="Anzeigename"></div>
