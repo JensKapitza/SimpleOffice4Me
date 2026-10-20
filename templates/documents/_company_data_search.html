@@ -11,11 +11,11 @@
     <summary class="fw-semibold">Firmendaten suchen und manuell übernehmen</summary>
     <p class="small text-secondary mt-2 mb-3">Funktioniert ohne API-Schlüssel oder Registrierung. Suchseiten öffnen sich nur nach deinem Klick in einem neuen Tab. Ergebnisse werden nicht automatisch ausgelesen; Daten bleiben bis zur Vorschau und ausdrücklichen Speicherung im Formular.</p>
     <div class="row g-2 align-items-end mb-3">
-      <div class="col-md-6"><label class="form-label" for="company-search-name">Firmenname</label><input id="company-search-name" class="form-control" data-company-query-name value="{{ company_search_name }}" maxlength="200" autocomplete="organization"></div>
+      <div class="col-md-6"><label class="form-label" for="company-search-name">Firmenname</label><input id="company-search-name" class="form-control" data-company-query-name value="{{ company_search_name }}" maxlength="200" autocomplete="off"></div>
       <div class="col-md-4"><label class="form-label" for="company-search-city">Ort (optional)</label><input id="company-search-city" class="form-control" data-company-query-city value="{{ company_search_city }}" maxlength="100" autocomplete="address-level2"></div>
       <div class="col-md-2"><button class="btn btn-outline-secondary w-100" type="button" data-company-check-duplicates>Lokale Dubletten</button></div>
     </div>
-    <div class="d-flex flex-wrap gap-2 mb-2" aria-label="Externe Firmen-Suchseiten">
+    <div class="d-flex flex-wrap gap-2 mb-2" role="group" aria-label="Externe Firmen-Suchseiten">
       <a class="btn btn-sm btn-outline-primary" data-company-provider="googleMaps" href="https://www.google.com/maps/search/?api=1&amp;query={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Google Maps</a>
       <a class="btn btn-sm btn-outline-primary" data-company-provider="googleSearch" href="https://www.google.com/search?q={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Google Suche</a>
       <a class="btn btn-sm btn-outline-primary" data-company-provider="bingMaps" href="https://www.bing.com/maps?q={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Bing Maps</a>
