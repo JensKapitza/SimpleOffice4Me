@@ -752,8 +752,8 @@ def company_contact_search():
     if len(query) < 2 or len(query) > 200:
         return jsonify({"items": [], "provider": "local_contacts"})
     actor = str(g.user["username"]); store = _contacts(); excluded = request.args.get("exclude", "").strip()
-    # Company names never leave this server. External providers such as Google
-    # Places are deliberately not part of the contact search contract.
+    # This lookup stays local; external provider links are a separate explicit
+    # user action and are never contacted by this endpoint.
     return jsonify({
         "items": company_search_items(store, query, actor, excluded),
         "provider": "local_contacts",
