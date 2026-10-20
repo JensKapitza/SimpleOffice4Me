@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
+import json
 import os
 import threading
 from pathlib import Path
@@ -23,6 +24,10 @@ MAX_FINANCE_IMPORT_LIMIT_BYTES = 25 * 1024 * 1024
 DEFAULT_FINANCE_STAGING_TTL_SECONDS = 24 * 60 * 60
 MIN_FINANCE_STAGING_TTL_SECONDS = 60 * 60
 MAX_FINANCE_STAGING_TTL_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_VIDEO_PREVIEW_FRAMES = 10
+MIN_VIDEO_PREVIEW_FRAMES = 1
+MAX_VIDEO_PREVIEW_FRAMES = 30
+LEGACY_VIDEO_PREVIEW_SETTINGS_FILE = "video-preview-settings.json"
 
 
 @contextmanager
@@ -53,6 +58,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "statement_import_limit_bytes": DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
         "statement_staging_ttl_seconds": DEFAULT_FINANCE_STAGING_TTL_SECONDS,
     },
+    "media": {"video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES},
 }
 
 TRANSLATIONS = {
@@ -336,14 +342,35 @@ class SettingsStore:
     def settings(self) -> dict[str, Any]:
         result = copy.deepcopy(DEFAULT_SETTINGS)
         try:
-            import json
             stored = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             stored = {}
         for section, values in stored.items() if isinstance(stored, dict) else []:
             if section in result and isinstance(values, dict):
                 result[section].update(values)
+        stored_media = stored.get("media") if isinstance(stored, dict) else None
+        if not isinstance(stored_media, dict) or "video_preview_frames" not in stored_media:
+            result["media"]["video_preview_frames"] = self._legacy_video_preview_frames()
         return result
+
+    def _legacy_video_preview_frames(self) -> int:
+        legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
+        try:
+            legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            legacy = {}
+        value = (
+            legacy.get("frame_count")
+            if isinstance(legacy, dict) and "frame_count" in legacy
+            else os.environ.get("SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES", DEFAULT_VIDEO_PREVIEW_FRAMES)
+        )
+        if isinstance(value, bool):
+            return DEFAULT_VIDEO_PREVIEW_FRAMES
+        try:
+            count = int(value)
+        except (TypeError, ValueError, OverflowError):
+            return DEFAULT_VIDEO_PREVIEW_FRAMES
+        return max(MIN_VIDEO_PREVIEW_FRAMES, min(MAX_VIDEO_PREVIEW_FRAMES, count))
 
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
@@ -376,6 +403,16 @@ class SettingsStore:
         finance = settings.get("finance", {})
         if not isinstance(finance, dict):
             raise ValueError("finance settings must be an object")
+        media = settings.get("media", {})
+        if not isinstance(media, dict):
+            raise ValueError("media settings must be an object")
+        video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
+        if (
+            isinstance(video_preview_frames, bool)
+            or not isinstance(video_preview_frames, int)
+            or not MIN_VIDEO_PREVIEW_FRAMES <= video_preview_frames <= MAX_VIDEO_PREVIEW_FRAMES
+        ):
+            raise ValueError("video preview frame count must be between 1 and 30")
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         bank_browser_enabled = finance.get("bank_browser_enabled", True)
@@ -442,4 +479,5 @@ class SettingsStore:
                 "statement_import_limit_bytes": import_limit,
                 "statement_staging_ttl_seconds": staging_ttl,
             },
+            "media": {"video_preview_frames": video_preview_frames},
         }

@@ -58,11 +58,13 @@
     <div class="card-body">
       {% if can_manage_video %}
       <form method="post" action="{{ url_for('documents.save_video_settings', document_id=document.document_id) }}" class="row g-2 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-sm-5 col-lg-3">
           <label class="form-label" for="video-preview-frame-count">Bilder je Video</label>
           <input id="video-preview-frame-count" class="form-control" type="number" min="1" max="30" step="1" inputmode="numeric" name="frame_count" value="{{ video_preview_frame_count }}" required>
         </div>
         <div class="col-sm-auto"><button type="submit" class="btn btn-outline-primary">Standard speichern</button></div>
+        <div class="col-sm-auto"><button type="submit" class="btn btn-outline-secondary" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button></div>
       </form>
       <div class="form-text mt-2">Globaler Wert für neue und neu erzeugte Video-Vorschauen. Standard ist 10. Nach einer Änderung werden bestehende Bildserien beim nächsten Indexlauf neu erzeugt.</div>
       {% else %}
@@ -87,6 +89,7 @@
       {% else %}<p class="small text-secondary">Noch keine abgeleitete Wiedergabevariante vorhanden.</p>{% endif %}
       {% if can_manage_video and ffmpeg_available %}
       <form method="post" action="{{ url_for('documents.transcode_video', document_id=document.document_id) }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="profile" value="h264-720p">
         <button type="submit" class="btn btn-outline-primary"><i class="fas fa-film me-1" aria-hidden="true"></i>MP4 H.264/AAC bis 720p erzeugen</button>
       </form>

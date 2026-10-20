@@ -5,13 +5,14 @@ import mimetypes
 import subprocess
 from pathlib import Path
 
-from flask import abort, flash, redirect, render_template, request, send_file, url_for
+from flask import abort, current_app, flash, redirect, render_template, request, send_file, url_for
 
-from .access_control import is_admin
+from .access_control import audit, is_admin
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import PreviewService, VIDEO_SUFFIXES, detect_preview_tools
 from .v2.materialize import materialize_verified_object
 from .video_settings import save_video_preview_frame_count, video_preview_frame_count
+from .settings_store import DEFAULT_VIDEO_PREVIEW_FRAMES
 
 
 def _video_document(document_id: str) -> dict:
@@ -88,18 +89,29 @@ def video_player(document_id: str):
 def save_video_settings(document_id: str):
     _video_document(document_id)
     _require_video_admin()
+    reset_defaults = request.form.get("reset") == "1"
     try:
         count = save_video_preview_frame_count(
             _store().root,
-            request.form.get("frame_count", "10"),
+            DEFAULT_VIDEO_PREVIEW_FRAMES if reset_defaults else request.form.get("frame_count", ""),
             str(g.user["username"]),
         )
+        audit(
+            "video_preview_settings_updated",
+            "settings",
+            "media.video_preview_frames",
+            detail={"frame_count": count, "reset_to_defaults": reset_defaults},
+        )
         flash(
-            f"Video-Vorschau auf {count} Bilder eingestellt. "
+            f"Video-Vorschau auf {count} Bilder "
+            f"{'zurückgesetzt' if reset_defaults else 'eingestellt'}. "
             "Vorhandene Videos werden beim nächsten Indexlauf mit dieser Anzahl neu aufgebaut."
         )
-    except (OSError, ValueError) as exc:
+    except ValueError as exc:
         flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Video preview settings save failed: %s", type(exc).__name__)
+        flash("Video-Vorschau-Einstellung konnte nicht gespeichert werden.")
     return redirect(url_for("documents.video_player", document_id=document_id))
 
 

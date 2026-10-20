@@ -10,15 +10,22 @@ Das ist wichtig, weil eine neu kodierte MP4-Datei zwar binär anders ist, fachli
 
 Standard sind **10 Bilder pro Video**. Erlaubt sind 1 bis 30 Bilder.
 
-Die Anzahl ist direkt im Video-Player als globale Anwendungseinstellung änderbar. Gespeichert wird sie in der privaten SimpleOffice-Metadatenablage in `video-preview-settings.json`. Die Änderung wird über die bestehende RevisionHistory protokolliert.
+Administratoren können die Anzahl im Video-Player global einstellen und auf den Standardwert zurücksetzen. Der Wert wird zentral in `settings.json` unter `media.video_preview_frames` gespeichert. Die Änderung erscheint in der Settings-RevisionHistory und im Security-Audit.
 
-Für Installationen, bei denen noch keine Einstellung gespeichert wurde, kann der Startwert weiterhin mit
+Als Upgrade-Kompatibilität werden ältere Werte aus `video-preview-settings.json` oder
+`SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES` verwendet, solange noch kein zentraler Video-Wert
+vorliegt. Der nächste erfolgreiche Settings-Schreibvorgang übernimmt diesen effektiven
+Wert in `settings.json`; die alte Datei wird dabei nicht gelöscht. Nach zentraler
+Speicherung haben spätere Änderungen der Umgebungsvariable keine Wirkung.
+
+Bei Neuinstallationen gilt der Standardwert 10. Der Legacy-Startwert kann weiterhin
+über
 
 ```text
 SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES=10
 ```
 
-vorgegeben werden. Sobald ein Wert über die Anwendung gespeichert wurde, hat die persistierte Anwendungseinstellung Vorrang.
+vorgegeben werden, bis ein zentraler Settings-Wert angelegt ist.
 
 Die Laufzeit wird mit `ffprobe` bestimmt. Die gesamte Laufzeit wird in gleich große Abschnitte geteilt. Pro Abschnitt wird ein Bild in der Mitte erzeugt:
 
