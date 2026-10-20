@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,9 +8,82 @@ from PIL import Image
 
 from app.document_store import DocumentStore, PREVIEW_CACHE_DIR
 from app.preview_service import PreviewService, detect_preview_tools
+from app.settings_store import SettingsStore
 
 
 class PreviewServiceTest(unittest.TestCase):
+    def test_central_media_settings_bound_preview_runtime(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            SettingsStore(root).save(
+                {
+                    "media": {
+                        "preview_enabled": False,
+                        "preview_timeout_seconds": 30,
+                        "preview_max_bytes": 2 * 1024 * 1024,
+                        "preview_max_pixels": 2_000_000,
+                        "video_preview_frames": 12,
+                    },
+                },
+                "media-admin",
+            )
+            service = PreviewService(root, {"paths": {"ffmpeg": None}})
+
+            self.assertFalse(service.preview_enabled)
+            self.assertEqual(30, service.timeout)
+            self.assertEqual(2 * 1024 * 1024, service.max_bytes)
+            self.assertEqual(2_000_000, service.max_pixels)
+            self.assertEqual(12, service.video_frame_count)
+            self.assertFalse(service.supports(root / "image.jpg"))
+
+    def test_live_index_service_refreshes_media_setting_after_settings_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch("app.preview_service.time.monotonic", side_effect=(0.0, 0.0, 2.0)):
+                service = PreviewService(root, {"paths": {"ffmpeg": None}})
+                image = root / "image.jpg"
+                self.assertTrue(service.supports(image))
+
+                SettingsStore(root).save(
+                    {"media": {
+                        "preview_enabled": False,
+                        "preview_timeout_seconds": 30,
+                        "preview_max_bytes": 2 * 1024 * 1024,
+                        "preview_max_pixels": 2_000_000,
+                        "video_preview_frames": 8,
+                    }},
+                    "media-admin",
+                )
+
+                self.assertFalse(service.supports(image))
+                self.assertEqual(30, service.timeout)
+                self.assertEqual(8, service.video_frame_count)
+
+    def test_legacy_preview_environment_is_preserved_until_settings_migration(self):
+        environment = {
+            "SIMPLEOFFICE_PREVIEWS": "off",
+            "SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS": "75",
+            "SIMPLEOFFICE_PREVIEW_MAX_BYTES": "2048",
+            "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": "2000000",
+            "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "6",
+        }
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, environment):
+            root = Path(temp)
+            legacy = PreviewService(root, {"paths": {"ffmpeg": None}})
+            self.assertFalse(legacy.preview_enabled)
+            self.assertEqual(75, legacy.timeout)
+            self.assertEqual(2048, legacy.max_bytes)
+            self.assertEqual(2_000_000, legacy.max_pixels)
+            self.assertEqual(6, legacy.video_frame_count)
+
+            SettingsStore(root).save({"interface": {"timezone": "UTC"}}, "media-admin")
+            migrated = PreviewService(root, {"paths": {"ffmpeg": None}})
+            self.assertFalse(migrated.preview_enabled)
+            self.assertEqual(75, migrated.timeout)
+            self.assertEqual(2048, migrated.max_bytes)
+            self.assertEqual(2_000_000, migrated.max_pixels)
+            self.assertEqual(6, migrated.video_frame_count)
+
     def test_detects_optional_commands_without_executing_them(self):
         found = {"magick": "/usr/bin/magick", "pdftoppm": "/usr/bin/pdftoppm"}
         with patch("app.preview_service.shutil.which", side_effect=lambda name: found.get(name)):

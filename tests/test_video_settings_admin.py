@@ -51,7 +51,7 @@ class VideoSettingsAdminTests(unittest.TestCase):
         app.config.update(self.config)
         self.temp.cleanup()
 
-    def test_video_settings_form_has_csrf_token_and_default_reset(self):
+    def test_video_player_links_to_shared_settings_and_protects_transcode_form(self):
         document = {"document_id": "video-one", "last_path": "clip.mp4", "preview": {}}
         with patch("app.documents_routes_video._video_document", return_value=document), patch(
             "app.documents_routes_video.detect_preview_tools",
@@ -62,7 +62,7 @@ class VideoSettingsAdminTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         html = response.get_data(as_text=True)
         self.assertIn('name="_csrf_token"', html)
-        self.assertIn('name="reset" value="1"', html)
+        self.assertIn('href="/admin/settings/documents-media"', html)
 
     def test_save_requires_admin_and_csrf_then_persists_and_audits(self):
         path = "/documents/video-one/video/settings"

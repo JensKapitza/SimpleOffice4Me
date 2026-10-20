@@ -49,6 +49,34 @@ class VideoPreviewServiceTest(unittest.TestCase):
                 self.assertEqual(7, video_preview_frame_count(root))
                 self.assertEqual(7, PreviewService(root, self._tools()).video_frame_count)
 
+    def test_saving_video_frame_count_preserves_other_central_media_settings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            store.save(
+                {"media": {
+                    "preview_enabled": False,
+                    "preview_timeout_seconds": 90,
+                    "preview_max_bytes": 2 * 1024 * 1024,
+                    "preview_max_pixels": 2_000_000,
+                    "video_preview_frames": 12,
+                }},
+                "tester",
+            )
+
+            self.assertEqual(7, save_video_preview_frame_count(root, 7, "tester"))
+
+            self.assertEqual(
+                {
+                    "preview_enabled": False,
+                    "preview_timeout_seconds": 90,
+                    "preview_max_bytes": 2 * 1024 * 1024,
+                    "preview_max_pixels": 2_000_000,
+                    "video_preview_frames": 7,
+                },
+                store.settings()["media"],
+            )
+
     def test_legacy_environment_value_is_preserved_when_other_settings_are_saved(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
