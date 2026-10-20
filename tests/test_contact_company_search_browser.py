@@ -95,6 +95,8 @@ class CompanySearchBrowserTests(unittest.TestCase):
         context.route("https://www.google.com/**", mock_search)
         try:
             page = context.new_page()
+            page_errors = []
+            page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.goto(f"{self.base_url}/documents/contacts")
             page.locator("[data-company-data-search] summary").click()
             page.locator("[data-company-query-name]").fill(f"Browser Works {label} GmbH")
@@ -131,10 +133,17 @@ class CompanySearchBrowserTests(unittest.TestCase):
             page.locator("[data-company-preview]").wait_for(state="visible")
             selected_fields = page.locator("[data-company-include]:checked:not(:disabled)")
             self.assertGreater(selected_fields.count(), 0)
-            page.locator("[data-company-apply]").click()
+            apply_button = page.locator("[data-company-apply]")
+            apply_button.evaluate("button => button.addEventListener('click', () => { button.dataset.testClick = 'yes'; })")
+            apply_button.click()
             source_value = page.locator("[data-company-data-source]").input_value()
             status_text = page.locator("[data-company-assist-status]").inner_text()
-            self.assertTrue(source_value, f"No source recorded after apply: {status_text}")
+            self.assertEqual("yes", apply_button.get_attribute("data-test-click"))
+            self.assertTrue(
+                source_value,
+                f"No source recorded after apply: status={status_text!r}; "
+                f"selected={selected_fields.count()}; page_errors={page_errors}",
+            )
             self.assertFalse(any(
                 contact["fields"].get("company") == f"Browser Works {label} GmbH"
                 for contact in self.store.contacts("browser-user")
