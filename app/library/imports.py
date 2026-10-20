@@ -217,19 +217,37 @@ def _parse_bibtex_entry_body(kind: str, body: str) -> dict[str, str]:
         cursor = _skip_bibtex_separators(body, cursor)
         if cursor == len(body):
             break
-        name_match = re.match(r"([A-Za-z][A-Za-z0-9_-]*)\s*=\s*", body[cursor:])
-        if name_match is None:
+        name_start = cursor
+        if not _is_ascii_letter(body[cursor]):
             raise ValueError("Ungültiges BibTeX-Feld.")
-        name = name_match.group(1).casefold()
+        cursor += 1
+        while cursor < len(body) and _is_bibtex_field_name_character(body[cursor]):
+            cursor += 1
+        name = body[name_start:cursor].casefold()
         if name in fields:
             raise ValueError(f"Doppeltes BibTeX-Feld: {name}.")
-        cursor += name_match.end()
+        cursor = _skip_bibtex_space(body, cursor)
+        if cursor == len(body) or body[cursor] != "=":
+            raise ValueError("Ungültiges BibTeX-Feld.")
+        cursor = _skip_bibtex_space(body, cursor + 1)
         value, cursor = _read_bibtex_value(body, cursor)
         fields[name] = value
         cursor = _skip_bibtex_space(body, cursor)
         if cursor < len(body) and body[cursor] != ",":
             raise ValueError("BibTeX-Felder müssen durch Kommas getrennt sein.")
     return fields
+
+
+def _is_ascii_letter(character: str) -> bool:
+    return "A" <= character <= "Z" or "a" <= character <= "z"
+
+
+def _is_bibtex_field_name_character(character: str) -> bool:
+    return (
+        _is_ascii_letter(character)
+        or "0" <= character <= "9"
+        or character in "_-"
+    )
 
 
 def _skip_bibtex_space(text: str, offset: int) -> int:

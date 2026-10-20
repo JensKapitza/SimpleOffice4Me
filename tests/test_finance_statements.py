@@ -44,6 +44,18 @@ class FinanceStatementTests(unittest.TestCase):
         statement = parse_statement_bytes(raw, "long-preamble.csv")[0]
         self.assertEqual("DE89370400440532013000", statement.account_iban)
 
+    def test_csv_preamble_preserves_spaces_in_long_iban(self):
+        iban = "MT84 MALT 0110 0001 2345 MTLC AST0 01S"
+        raw = (
+            f"IBAN: {iban}\n"
+            "Buchungstag;Betrag;Verwendungszweck\n"
+            "01.09.2026;-10,00;Test\n"
+        ).encode()
+
+        statement = parse_statement_bytes(raw, "long-iban.csv")[0]
+
+        self.assertEqual("".join(iban.split()), statement.account_iban)
+
     def test_csv_requires_explicit_account_when_statement_has_no_iban(self):
         raw = b"Buchungsdatum;Betrag;Verwendungszweck\n2026-09-01;-10,00;Test\n"
         preview = self.importer.preview(raw, "export.csv", "jens")
@@ -52,6 +64,18 @@ class FinanceStatementTests(unittest.TestCase):
             self.importer.commit(raw, "export.csv", "jens")
         result = self.importer.commit(raw, "export.csv", "jens", account_id=self.account["account_id"])
         self.assertEqual(1, result["created"])
+
+    def test_csv_preamble_with_long_whitespace_does_not_trigger_slow_iban_match(self):
+        raw = (
+            "IBAN" + " " * 16_384 + "\n"
+            "Buchungstag;Betrag;Verwendungszweck\n"
+            "2026-09-01;-10,00;Test\n"
+        ).encode()
+
+        statement = parse_statement_bytes(raw, "export.csv")[0]
+
+        self.assertEqual("", statement.account_iban)
+        self.assertEqual(1, len(statement.transactions))
 
     def test_camt053_extracts_account_refs_and_transaction(self):
         raw = b'''<?xml version="1.0" encoding="UTF-8"?>

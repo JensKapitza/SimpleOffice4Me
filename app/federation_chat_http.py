@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from flask import Blueprint, Response, current_app, jsonify, request
 
@@ -83,7 +84,8 @@ def receive_event():
         room_data=data.get("room") if isinstance(data.get("room"),dict) else {}; msg=data.get("message") if isinstance(data.get("message"),dict) else {}
         room_id=_uuid(room_data.get("room_id","") ,"Chat-ID"); message_id=_uuid(msg.get("message_id","") ,"Nachrichten-ID")
         if proof.resource_id != message_id: raise ValueError("Signierte Ressourcen-ID passt nicht zur Nachricht")
-        targets=_active_users(data.get("target_users") if isinstance(data.get("target_users"),list) else []); sources=[str(x or "").strip() for x in (data.get("source_users") or []) if str(x or "").strip()]; sender=str(msg.get("sender_username") or "").strip()
+        if not isinstance(data.get("source_users"),list) or not isinstance(data.get("target_users"),list): raise ValueError("Ungültige Teilnehmerlisten")
+        targets=_active_users(data["target_users"]); sources=[str(x or "").strip() for x in data["source_users"] if str(x or "").strip()]; sender=str(msg.get("sender_username") or "").strip()
         if not targets or not sources or sender not in sources: raise ValueError("Federierter Chat enthält ungültige Teilnehmer")
         message_type=str(msg.get("message_type") or "text").casefold()
         action=action_for_message_type(message_type)
@@ -91,12 +93,27 @@ def receive_event():
             chat=_chat(); chat.upsert_remote_room(room_id,str(room_data.get("title") or "Chat"),peer["peer_id"],targets,sources)
             record_policy_notice(chat,room_id,message_id,action,"receiver",peer_id=peer["peer_id"],source_username=sender)
             return jsonify({"error":"chat_action_denied","allowed":False,"reason_code":"admin_policy","action":action}),403
-        chat=_chat(); chat.upsert_remote_room(room_id,str(room_data.get("title") or "Chat"),peer["peer_id"],targets,sources); chat.upsert_remote_message(room_id,peer["peer_id"],sender,message_id,str(msg.get("body") or ""),message_type=message_type,payload=msg.get("payload") if isinstance(msg.get("payload"),dict) else {},created_at=int(msg.get("created_at") or 0) or None)
-        attachments=data.get("attachments") if isinstance(data.get("attachments"),list) else []
-        if len(attachments)>50: raise ValueError("Zu viele Anhänge in einer Chat-Nachricht")
+        attachments=data.get("attachments", [])
+        if not isinstance(attachments,list) or len(attachments)>50:
+            raise ValueError("Ungültige Anhangliste")
+        validated=[]
+        seen=set()
         for item in attachments:
             if not isinstance(item,dict): raise ValueError("Ungültige Anhang-Metadaten")
-            chat.register_attachment(message_id,_uuid(item.get("attachment_id","") ,"Anhang-ID"),str(item.get("filename") or "datei"),str(item.get("mime_type") or "application/octet-stream"),int(item.get("size") or 0),str(item.get("sha256") or ""),str(item.get("visibility") or "chat"),state="pending")
+            aid=_uuid(item.get("attachment_id",""),"Anhang-ID")
+            if aid in seen: raise ValueError("Doppelte Anhang-ID")
+            seen.add(aid)
+            size=item.get("size",0)
+            digest=item.get("sha256","")
+            visibility=item.get("visibility","chat")
+            if type(size) is not int or size<0 or not isinstance(digest,str) or not re.fullmatch(r"[0-9a-fA-F]{64}",digest):
+                raise ValueError("Ungültige Anhang-Metadaten")
+            if visibility not in {"chat","documents"}: raise ValueError("Ungültige Anhang-Sichtbarkeit")
+            if not isinstance(item.get("filename","datei"),str) or not isinstance(item.get("mime_type","application/octet-stream"),str):
+                raise ValueError("Ungültige Anhang-Metadaten")
+            validated.append((aid,item.get("filename") or "datei",item.get("mime_type") or "application/octet-stream",size,digest,visibility))
+        chat=_chat()
+        chat.receive_remote_event_atomic(room_id,str(room_data.get("title") or "Chat"),peer["peer_id"],targets,sources,sender,message_id,str(msg.get("body") or ""),message_type,msg.get("payload") if isinstance(msg.get("payload"),dict) else {},int(msg.get("created_at") or 0) or None,validated)
         _federation().record_event("chat_message_received",peer_id=peer["peer_id"],detail={"message_id":message_id,"attachments":len(attachments)})
         return jsonify({"ok":True,"room_id":room_id,"message_id":message_id}),201
     except (ValueError,PermissionError,UnicodeDecodeError,json.JSONDecodeError): return jsonify({"error":"invalid_chat_event"}),400

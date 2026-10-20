@@ -18,11 +18,16 @@ Mit dem Starter entspricht das beispielsweise:
 ./start.sh --host 127.0.0.1 --trusted-proxy-hops 1
 ```
 
-Dann werden Session-Cookies nur über HTTPS gesetzt und die Anwendung erzeugt
-korrekte externe HTTPS-URLs für CardDAV und Freigaben. Bei mehreren hintereinander
+`SIMPLEOFFICE_HTTPS=true` erzwingt das `Secure`-Attribut für Session-Cookies
+auch dann, wenn eine Anfrage die Anwendung intern noch per HTTP erreicht. Der
+Schalter schützt so vor versehentlich ungeschützten Cookies bei HTTP-Fallback
+oder fehlenden Proxy-Headern. Für lokale HTTP-Entwicklung den Schalter weglassen;
+HTTPS-Anfragen erhalten das Attribut unabhängig davon.
+
+`SIMPLEOFFICE_TRUSTED_PROXY_HOPS` steuert separat, ob Proxy-Header zur Erkennung
+der externen HTTPS-URL verwendet werden. Bei mehreren hintereinander
 geschalteten Proxies ist die tatsächliche Zahl einzutragen. Ohne diese explizite
-Angabe werden `X-Forwarded-*`-Header absichtlich ignoriert, da Clients sie
-fälschen können.
+Angabe werden `X-Forwarded-*`-Header ignoriert, da Clients sie fälschen können.
 
 Bei aktivierter Proxy-Vertrauensstellung muss der interne Waitress-Port für
 Clients gesperrt sein; nur der angegebene Proxy darf ihn erreichen. Ohne diese

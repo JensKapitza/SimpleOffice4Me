@@ -62,9 +62,9 @@ setup(
     ],
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={
-        "web-export": ["playwright==1.63.0"],
+        "web-export": ["playwright==1.64.0"],
         "security": ["pip-audit>=2.7,<3"],
-        "quality": ["ruff==0.16.10"],
+        "quality": ["ruff==0.17.1"],
         "ocr": [
             "rapidocr==3.10.0",
             "onnxruntime==1.24.3; python_version == '3.10'",

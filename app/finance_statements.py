@@ -165,19 +165,33 @@ def _preamble_iban(line: str) -> str:
     marker = re.search(r"\bIBAN\b", line, re.IGNORECASE)
     if marker is None:
         return ""
-    value = line[marker.end():].lstrip()
-    if value[:1] in {":", ";", "="}:
-        value = value[1:].lstrip()
-    candidate: list[str] = []
-    alphanumeric_count = 0
-    for char in value:
-        if char != " " and not (char.isascii() and char.isalnum()):
+    cursor = marker.end()
+    while cursor < len(line) and line[cursor].isspace():
+        cursor += 1
+    if cursor < len(line) and line[cursor] in {":", ";", "="}:
+        cursor += 1
+    while cursor < len(line) and line[cursor].isspace():
+        cursor += 1
+
+    start = cursor
+    if cursor + 2 > len(line) or not all(
+        character.isascii() and character.isalpha()
+        for character in line[cursor:cursor + 2]
+    ):
+        return ""
+    candidate = [line[cursor], line[cursor + 1]]
+    cursor += 2
+    alphanumeric_count = 2
+    while cursor < len(line) and alphanumeric_count < 34:
+        character = line[cursor]
+        if not (character.isspace() or character.isascii() and character.isalnum()):
             break
-        if char != " ":
-            if alphanumeric_count == 34:
-                break
+        if not character.isspace():
             alphanumeric_count += 1
-        candidate.append(char)
+        candidate.append(character)
+        cursor += 1
+    if alphanumeric_count < 15:
+        return ""
     return "".join(candidate)
 
 
