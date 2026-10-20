@@ -94,6 +94,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertIn('name="preview_max_bytes"', html)
         self.assertIn('name="preview_max_pixels"', html)
         self.assertIn('name="video_preview_frames"', html)
+        self.assertIn('<option value="" disabled>Bitte auswählen</option>', html)
         self.assertIn('name="reset" value="1"', html)
 
         general_settings = self.admin.get("/documents/settings")
