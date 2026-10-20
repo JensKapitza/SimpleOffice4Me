@@ -90,12 +90,22 @@ Ansichten und blockiert keine Buchungszeit mehr. Zeitpunkt und Benutzer der
 Statusänderung bleiben in der Status- und Git-Historie nachvollziehbar. Ein
 vollständiger Folgeimport mit `STATUS:CONFIRMED` aktiviert den Termin wieder.
 
-Gelöschte Termine verschwinden aus der aktiven Termin- und Monatsansicht, bleiben
-aber unter **Kalender → Gelöschte Termine** für weiterhin leseberechtigte
-Benutzer sichtbar. Die Übersicht zeigt den letzten Termininhalt, Eigentümer,
-Löschzeitpunkt und Akteur sowie die gespeicherte Feld- und Statushistorie. Sie
-ist eine reine Auditansicht: Gelöschte Termine werden nicht wieder in ICS oder
-CalDAV veröffentlicht und die Ansicht verändert oder revidiert keine Historie.
+Gelöschte Termine verschwinden aus der aktiven Termin- und Monatsansicht und
+werden direkt im Kalenderbereich **Gelöschte Termine** aufgeführt. Die Übersicht
+zeigt den letzten Termininhalt, Kalender, Eigentümer, Löschzeitpunkt und Akteur
+sowie die gespeicherte Feld- und Statushistorie. Nutzer mit Kalender-Bearbeitungs-
+und Schreibrechten können einen vollständigen gespeicherten Terminstand
+wiederherstellen. UID, Zeitzone, Teilnehmer, Serienregeln und Ausnahmen werden
+dabei aus dem vorhandenen Event-Datensatz übernommen; die Wiederherstellung wird
+protokolliert und als neue CalDAV-Sync-Änderung veröffentlicht.
+
+Einträge ohne vollständige Event-Daten oder nachvollziehbaren vorherigen Status
+bleiben sichtbar, werden aber ausdrücklich als nicht wiederherstellbar markiert.
+Das betrifft insbesondere ältere CalDAV-Löschungen, für die vor der
+Statushistorien-Ergänzung kein vorheriger Status gespeichert wurde. Ein
+Audit-Eintrag allein wird nicht zur Rekonstruktion verwendet. Gelöschte Termine
+werden weiterhin nicht exportiert; erst eine berechtigte Wiederherstellung
+nimmt sie erneut in die aktive Kalender-/CalDAV-Sicht auf.
 
 Die Zuordnung einer externen `UID` gilt nur innerhalb desselben Benutzers und
 der Importquelle `ical_import`. Dadurch kann ein anderer Benutzer mit derselben

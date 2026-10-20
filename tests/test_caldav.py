@@ -104,8 +104,17 @@ class CalDavTest(unittest.TestCase):
         changed = self.client.open(self.collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>urn:simpleoffice:caldav:default:0</d:sync-token></d:sync-collection>', headers=self.auth)
         self.assertIn("meeting.ics", changed.text); self.assertIn("default:1", changed.text)
         self.client.delete(self.event, headers={**self.auth, "If-Match": created.headers["ETag"]})
+        deleted = self.store.resource_events("default", "admin", include_deleted=True)[0]
+        self.assertEqual("deleted", deleted["status"])
+        self.assertEqual("deleted", deleted["status_history"][-1]["to"])
+        self.assertTrue(self.store.events.can_restore(deleted))
         removed = self.client.open(self.collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>urn:simpleoffice:caldav:default:1</d:sync-token></d:sync-collection>', headers=self.auth)
         self.assertIn("404 Not Found", removed.text); self.assertIn("default:2", removed.text)
+        restored = self.store.events.restore_deleted(deleted["event_id"], "admin")
+        self.store.record_event_move(restored, "default", "admin")
+        restored_resource = self.client.get(self.event, headers=self.auth)
+        self.assertEqual(200, restored_resource.status_code)
+        self.assertIn(f'SEQUENCE:{restored["sequence"]}', restored_resource.text)
         invalid = self.client.open(self.collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>invalid</d:sync-token></d:sync-collection>', headers=self.auth)
         self.assertEqual(403, invalid.status_code); self.assertIn("valid-sync-token", invalid.text)
 

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import date, datetime, timezone
@@ -65,6 +66,51 @@ class CalendarStoreTest(unittest.TestCase):
             self.assertEqual("Neuer Inhalt", deleted["reason"])
             self.assertTrue(any(change["field"] == "title" for change in deleted["changes"]))
             self.assertEqual({"from": "active", "to": "deleted", "by": "admin"}, {key: deleted["status_history"][-1][key] for key in ("from", "to", "by")})
+
+    def test_deleted_event_can_be_restored_without_losing_ical_data(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Serie", "Beschreibung", "2026-07-25T10:00", "2026-07-25T11:00", "", "admin")
+            event = store.set_recurrence(event["event_id"], {"rrule": "FREQ=WEEKLY;COUNT=3", "timezone": "Europe/Berlin"}, "admin", event["updated_at"])
+            event = store.set_occurrence_exception(
+                event["event_id"], "2026-08-01T10:00", "admin", title="Verschobene Instanz",
+                start="2026-08-01T12:00", end="2026-08-01T13:00", expected_updated_at=event["updated_at"],
+            )
+            store.delete(event["event_id"], "admin", date(2026, 7, 1))
+
+            restored = store.restore_deleted(event["event_id"], "admin")
+
+            self.assertEqual("active", restored["status"])
+            self.assertEqual(event["event_id"], restored["event_id"])
+            self.assertEqual("Europe/Berlin", restored["recurrence"]["timezone"])
+            self.assertEqual("FREQ=WEEKLY;COUNT=3", restored["recurrence"]["rrule"])
+            self.assertEqual("Verschobene Instanz", restored["recurrence_overrides"][0]["title"])
+            self.assertEqual("2026-08-01T12:00", restored["recurrence_overrides"][0]["start"])
+            self.assertEqual("active", restored["status_history"][-1]["to"])
+            self.assertIn("calendar_event_restored", [row["action"] for row in store.history.events(category="calendar", key=event["event_id"])])
+
+    def test_deleted_event_without_retained_status_history_is_not_restorable(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Altbestand", "Beschreibung", "2026-07-25T10:00", "", "", "admin")
+            store.delete(event["event_id"], "admin")
+            data = json.loads(store.path.read_text(encoding="utf-8"))
+            data["events"][0].pop("status_history")
+            store.path.write_text(json.dumps(data), encoding="utf-8")
+
+            self.assertFalse(store.can_restore(store.get(event["event_id"], "admin")))
+            with self.assertRaisesRegex(ValueError, "complete, verifiable"):
+                store.restore_deleted(event["event_id"], "admin")
+
+    def test_read_only_shared_user_cannot_restore_deleted_event(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = CalendarStore(Path(temp))
+            event = store.add("Privat", "Beschreibung", "2026-07-25T10:00", "", "", "admin")
+            store.share(event["event_id"], {"reader": "read"}, "admin")
+            store.delete(event["event_id"], "admin")
+
+            with self.assertRaisesRegex(ValueError, "read-only"):
+                store.restore_deleted(event["event_id"], "reader")
 
     def test_deleting_series_only_removes_current_and_future_occurrences(self):
         with tempfile.TemporaryDirectory() as temp:

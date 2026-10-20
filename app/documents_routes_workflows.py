@@ -912,6 +912,16 @@ def calendar():
         key=lambda event: event.get("status_changed_at") or event.get("updated_at") or "",
         reverse=True,
     )
+    for event in deleted_events:
+        calendar_id = event.get("calendar_id") or "default"
+        collection = calendar_map.get(calendar_id)
+        event["calendar_name"] = collection.get("name", calendar_id) if collection else calendar_id
+        event["can_restore"] = bool(
+            _calendar().can_restore(event)
+            and _calendar()._can_edit(event, actor)
+            and collection
+            and _calendars().can_write(collection, actor)
+        )
     events = [event for event in visible_events if event.get("status", "active") not in {"cancelled", "deleted", "moved"}]
     month_lower = datetime(shown_month.year, shown_month.month, 1, tzinfo=timezone.utc)
     next_month = (shown_month.replace(day=28) + timedelta(days=4)).replace(day=1)
