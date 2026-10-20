@@ -160,6 +160,27 @@ def _csv_preamble_and_body(text_value: str) -> tuple[list[str], str]:
     return [], text_value
 
 
+def _preamble_iban(line: str) -> str:
+    """Extract an IBAN from a CSV preamble without a backtracking capture."""
+    marker = re.search(r"\bIBAN\b", line, re.IGNORECASE)
+    if marker is None:
+        return ""
+    value = line[marker.end():].lstrip()
+    if value[:1] in {":", ";", "="}:
+        value = value[1:].lstrip()
+    candidate: list[str] = []
+    alphanumeric_count = 0
+    for char in value:
+        if char != " " and not (char.isascii() and char.isalnum()):
+            break
+        if char != " ":
+            if alphanumeric_count == 34:
+                break
+            alphanumeric_count += 1
+        candidate.append(char)
+    return "".join(candidate)
+
+
 def parse_csv(raw: bytes) -> list[ParsedStatement]:
     text_value = _decode_text(raw)
     preamble, body = _csv_preamble_and_body(text_value)
@@ -177,10 +198,10 @@ def parse_csv(raw: bytes) -> list[ParsedStatement]:
     account_iban = ""
     account_reference = ""
     for line in preamble:
-        match = re.search(r"\bIBAN\b\s*[:;=]?\s*([A-Z]{2}[0-9A-Z ]{13,34})", line, re.IGNORECASE)
-        if match:
+        candidate_iban = _preamble_iban(line)
+        if candidate_iban:
             try:
-                account_iban = normalize_iban(match.group(1))
+                account_iban = normalize_iban(candidate_iban)
             except ValueError:
                 pass
         if not account_reference and re.search(r"konto|account", line, re.IGNORECASE):
