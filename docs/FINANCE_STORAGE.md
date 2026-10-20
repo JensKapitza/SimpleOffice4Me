@@ -37,11 +37,17 @@ Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940 importiert we
 ## Browsergestützter Santander-Export
 
 Der Browser-Export ist als sichtbarer, nutzerinitiierter Ablauf konfiguriert. Die
-Bankbrowser-Einstellung und ihr Timeout werden im Finance-Settings-Store gespeichert
-und revisionssicher auditiert. Der Standardwert beträgt 300 Sekunden; Administratoren
-können 30 bis 1800 Sekunden wählen. Der Zeitwert gilt ab dem nächsten Export und
-erfordert keinen Neustart. Ein Browser kann nur lokal auf dem ausführenden Rechner
-gestartet werden; bei Serverbetrieb öffnet er sich nicht auf einem entfernten Client.
+Bankbrowser-Einstellung, Export-Timeout, Importlimit und Vorschau-Aufbewahrung werden
+im Finance-Settings-Store gespeichert und revisionssicher auditiert. Das Timeout beträgt
+standardmäßig 300 Sekunden und kann zwischen 30 und 1800 Sekunden eingestellt werden.
+Das Importlimit beträgt standardmäßig 25 MiB; Administratoren können es auf 1 bis 25 MiB
+begrenzen. 25 MiB bleibt zusätzlich die feste Parser-Obergrenze. Vorschauen werden nach
+24 Stunden gelöscht; die Aufbewahrung ist zwischen 1 Stunde und 7 Tagen einstellbar und
+wird auch beim Import-Commit geprüft. Änderungen gelten ohne Neustart. Ein Browser kann
+nur lokal auf dem ausführenden Rechner gestartet werden; bei Serverbetrieb öffnet er sich
+nicht auf einem entfernten Client. Die Einstellungen lassen sich revisionssicher auf ihre
+Standardwerte zurücksetzen. Importformate bleiben auf CSV, CAMT.052/CAMT.053 und MT940
+beschränkt.
 Login und Bankfreigabe bleiben bei Santander, Cookies und Bankzugangsdaten werden nicht
 dauerhaft gespeichert. Der Download wird vor Vorschau und bestätigtem Import geprüft.
 

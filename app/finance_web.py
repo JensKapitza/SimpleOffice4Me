@@ -18,7 +18,13 @@ from .db import get_db
 from .document_store import CONTROL_DIR
 from .settings_store import (
     DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+    DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+    MAX_FINANCE_IMPORT_LIMIT_BYTES,
+    MAX_FINANCE_STAGING_TTL_SECONDS,
     MAX_BANK_BROWSER_TIMEOUT_SECONDS,
+    MIN_FINANCE_IMPORT_LIMIT_BYTES,
+    MIN_FINANCE_STAGING_TTL_SECONDS,
     MIN_BANK_BROWSER_TIMEOUT_SECONDS,
     SettingsStore,
 )
@@ -32,8 +38,6 @@ from .finance_match_adapters import proposals_for_transaction
 from .safe_paths import safe_filename
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
-_STAGE_TTL_SECONDS = 24 * 60 * 60
-_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 def _root() -> Path:
@@ -55,8 +59,9 @@ def _stage_dir(actor: str) -> Path:
     return path
 
 
-def _cleanup_staging(actor: str) -> None:
-    cutoff = time.time() - _STAGE_TTL_SECONDS
+def _cleanup_staging(actor: str, ttl_seconds: int | None = None) -> None:
+    ttl = ttl_seconds if ttl_seconds is not None else _finance_controls()[1]
+    cutoff = time.time() - ttl
     for path in _stage_dir(actor).glob("*.bin"):
         try:
             if path.stat().st_mtime < cutoff:
@@ -68,8 +73,9 @@ def _cleanup_staging(actor: str) -> None:
 def _stage_upload(data: bytes, actor: str) -> str:
     if not data:
         raise ValueError("Kontoauszug ist leer")
-    if len(data) > _MAX_UPLOAD_BYTES:
-        raise ValueError("Kontoauszug ist größer als 25 MiB")
+    max_bytes = _finance_controls()[0]
+    if len(data) > max_bytes:
+        raise ValueError(f"Kontoauszug ist größer als {max_bytes // (1024 * 1024)} MiB")
     digest = hashlib.sha256(data).hexdigest()
     directory = _stage_dir(actor)
     target = directory / f"{digest}.bin"
@@ -88,7 +94,19 @@ def _read_stage(token: str, actor: str) -> bytes:
         raise ValueError("Import-Token ist ungültig")
     path = _stage_dir(actor) / f"{token}.bin"
     try:
-        data = path.read_bytes()
+        info = path.stat()
+        max_bytes, ttl_seconds = _finance_controls()
+        if info.st_mtime < time.time() - ttl_seconds:
+            path.unlink(missing_ok=True)
+            raise ValueError("Importvorschau ist abgelaufen; Datei bitte erneut auswählen")
+        if info.st_size > max_bytes:
+            raise ValueError("Zwischengespeicherter Kontoauszug überschreitet das Importlimit")
+        with path.open("rb") as handle:
+            data = handle.read(max_bytes + 1)
+        if len(data) > max_bytes:
+            raise ValueError("Zwischengespeicherter Kontoauszug überschreitet das Importlimit")
+    except ValueError:
+        raise
     except OSError as exc:
         raise ValueError("Importvorschau ist abgelaufen; Datei bitte erneut auswählen") from exc
     if hashlib.sha256(data).hexdigest() != token:
@@ -100,7 +118,8 @@ def _read_stage(token: str, actor: str) -> bytes:
 @login_required
 def index():
     actor = _actor()
-    _cleanup_staging(actor)
+    import_limit, staging_ttl = _finance_controls()
+    _cleanup_staging(actor, staging_ttl)
     store = _store()
     accounts = store.accounts(actor)
     connections = store.bank_connections(actor)
@@ -121,6 +140,8 @@ def index():
         transactions=transactions,
         bank_browser_enabled=_bank_browser_setting(),
         bank_browser_timeout_seconds=_bank_browser_timeout_seconds(),
+        statement_import_limit_mib=import_limit // (1024 * 1024),
+        statement_staging_ttl_hours=staging_ttl // (60 * 60),
         local_bank_browser_enabled=_local_bank_browser_enabled(),
         bank_browser_admin=is_admin(g.user),
     )
@@ -183,6 +204,27 @@ def _bank_browser_timeout_seconds() -> int:
     return DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS
 
 
+def _finance_controls() -> tuple[int, int]:
+    finance = SettingsStore(_root()).settings()["finance"]
+    import_limit = finance.get("statement_import_limit_bytes", DEFAULT_FINANCE_IMPORT_LIMIT_BYTES)
+    staging_ttl = finance.get("statement_staging_ttl_seconds", DEFAULT_FINANCE_STAGING_TTL_SECONDS)
+    if (
+        isinstance(import_limit, bool)
+        or not isinstance(import_limit, int)
+        or not MIN_FINANCE_IMPORT_LIMIT_BYTES <= import_limit <= MAX_FINANCE_IMPORT_LIMIT_BYTES
+    ):
+        current_app.logger.warning("Invalid persisted finance import limit; using default")
+        import_limit = DEFAULT_FINANCE_IMPORT_LIMIT_BYTES
+    if (
+        isinstance(staging_ttl, bool)
+        or not isinstance(staging_ttl, int)
+        or not MIN_FINANCE_STAGING_TTL_SECONDS <= staging_ttl <= MAX_FINANCE_STAGING_TTL_SECONDS
+    ):
+        current_app.logger.warning("Invalid persisted finance staging TTL; using default")
+        staging_ttl = DEFAULT_FINANCE_STAGING_TTL_SECONDS
+    return import_limit, staging_ttl
+
+
 def _has_persisted_bank_browser_setting(settings: SettingsStore) -> bool:
     try:
         stored = json.loads(settings.path.read_text(encoding="utf-8"))
@@ -213,13 +255,17 @@ def _local_bank_browser_enabled() -> bool:
 def update_bank_browser_setting():
     if not is_admin(g.user):
         abort(403)
-    value = request.form.get("enabled", "")
+    reset_defaults = request.form.get("reset") == "1"
+    value = "1" if reset_defaults else request.form.get("enabled", "")
     if value not in {"0", "1"}:
         abort(400)
     enabled = value == "1"
     settings = SettingsStore(_root())
     current = settings.settings()
-    timeout_raw = request.form.get("timeout_seconds")
+    timeout_raw = (
+        str(DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS)
+        if reset_defaults else request.form.get("timeout_seconds")
+    )
     if timeout_raw is None:
         timeout_seconds = _bank_browser_timeout_seconds()
     else:
@@ -228,22 +274,60 @@ def update_bank_browser_setting():
         timeout_seconds = int(timeout_raw)
         if not MIN_BANK_BROWSER_TIMEOUT_SECONDS <= timeout_seconds <= MAX_BANK_BROWSER_TIMEOUT_SECONDS:
             abort(400)
+    current_import_limit, current_staging_ttl = _finance_controls()
+    import_limit_raw = (
+        str(DEFAULT_FINANCE_IMPORT_LIMIT_BYTES // (1024 * 1024))
+        if reset_defaults else request.form.get("import_limit_mib")
+    )
+    if import_limit_raw is None:
+        import_limit = current_import_limit
+    else:
+        if len(import_limit_raw) > 2 or not import_limit_raw.isascii() or not import_limit_raw.isdigit():
+            abort(400)
+        import_limit = int(import_limit_raw) * 1024 * 1024
+        if not MIN_FINANCE_IMPORT_LIMIT_BYTES <= import_limit <= MAX_FINANCE_IMPORT_LIMIT_BYTES:
+            abort(400)
+    staging_ttl_raw = (
+        str(DEFAULT_FINANCE_STAGING_TTL_SECONDS // 3600)
+        if reset_defaults else request.form.get("staging_ttl_hours")
+    )
+    if staging_ttl_raw is None:
+        staging_ttl = current_staging_ttl
+    else:
+        if len(staging_ttl_raw) > 3 or not staging_ttl_raw.isascii() or not staging_ttl_raw.isdigit():
+            abort(400)
+        staging_ttl = int(staging_ttl_raw) * 60 * 60
+        if not MIN_FINANCE_STAGING_TTL_SECONDS <= staging_ttl <= MAX_FINANCE_STAGING_TTL_SECONDS:
+            abort(400)
     finance_settings = dict(current["finance"])
     changed = (
         finance_settings.get("bank_browser_enabled") is not enabled
         or finance_settings.get("bank_browser_timeout_seconds") != timeout_seconds
+        or finance_settings.get("statement_import_limit_bytes") != import_limit
+        or finance_settings.get("statement_staging_ttl_seconds") != staging_ttl
     )
     if changed:
         finance_settings["bank_browser_enabled"] = enabled
         finance_settings["bank_browser_timeout_seconds"] = timeout_seconds
+        finance_settings["statement_import_limit_bytes"] = import_limit
+        finance_settings["statement_staging_ttl_seconds"] = staging_ttl
         settings.save({"finance": finance_settings}, _actor())
         audit(
             "finance_bank_browser_setting_updated",
             "settings",
-            "finance.bank_browser_enabled",
-            detail={"enabled": enabled, "timeout_seconds": timeout_seconds},
+            "finance",
+            detail={
+                "enabled": enabled,
+                "timeout_seconds": timeout_seconds,
+                "import_limit_bytes": import_limit,
+                "staging_ttl_seconds": staging_ttl,
+                "reset_to_defaults": reset_defaults,
+            },
         )
-    flash("Bankbrowser-Einstellung gespeichert.")
+    flash(
+        "Finanz- und Banking-Einstellungen auf Standardwerte zurückgesetzt."
+        if reset_defaults else "Finanz- und Banking-Einstellungen gespeichert."
+    )
     return redirect(url_for(".index"))
 
 
@@ -284,9 +368,10 @@ def statement_preview():
     if upload is None or not upload.filename:
         flash("Bitte einen Kontoauszug auswählen.")
         return redirect(url_for(".index"))
-    data = upload.stream.read(_MAX_UPLOAD_BYTES + 1)
-    if len(data) > _MAX_UPLOAD_BYTES:
-        flash("Kontoauszug ist größer als 25 MiB.")
+    max_upload_bytes = _finance_controls()[0]
+    data = upload.stream.read(max_upload_bytes + 1)
+    if len(data) > max_upload_bytes:
+        flash(f"Kontoauszug ist größer als {max_upload_bytes // (1024 * 1024)} MiB.")
         return redirect(url_for(".index"))
     actor = _actor()
     filename = safe_filename(upload.filename, fallback="kontoauszug", max_length=240)

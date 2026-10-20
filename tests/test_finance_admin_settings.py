@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -63,11 +65,15 @@ class FinanceAdminSettingsTests(unittest.TestCase):
 
     def post_setting(
         self, client, value, *, token="a" * 40, remote_addr="127.0.0.1",
-        timeout_seconds=None,
+        timeout_seconds=None, import_limit_mib=None, staging_ttl_hours=None,
     ):
         data = {"enabled": value}
         if timeout_seconds is not None:
             data["timeout_seconds"] = timeout_seconds
+        if import_limit_mib is not None:
+            data["import_limit_mib"] = import_limit_mib
+        if staging_ttl_hours is not None:
+            data["staging_ttl_hours"] = staging_ttl_hours
         return client.post(
             "/documents/business/bookkeeping/finances/settings/bank-browser",
             data=data,
@@ -79,6 +85,8 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         store = SettingsStore(self.root)
         self.assertIs(store.settings()["finance"]["bank_browser_enabled"], True)
         self.assertEqual(300, store.settings()["finance"]["bank_browser_timeout_seconds"])
+        self.assertEqual(25 * 1024 * 1024, store.settings()["finance"]["statement_import_limit_bytes"])
+        self.assertEqual(24 * 60 * 60, store.settings()["finance"]["statement_staging_ttl_seconds"])
 
         response = self.post_setting(self.admin, "0")
 
@@ -93,7 +101,7 @@ class FinanceAdminSettingsTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual("finance-admin", row["actor_name"])
         self.assertEqual("settings", row["target_type"])
-        self.assertEqual("finance.bank_browser_enabled", row["target_id"])
+        self.assertEqual("finance", row["target_id"])
         self.assertIs(json.loads(row["detail"])["enabled"], False)
 
     def test_browser_timeout_setting_is_persistent_bounded_and_used_for_export(self):
@@ -135,6 +143,78 @@ class FinanceAdminSettingsTests(unittest.TestCase):
             )
         self.assertEqual(302, response.status_code)
         capture.assert_called_once_with(timeout_seconds=900)
+
+    def test_import_limit_and_staging_ttl_are_persisted_enforced_and_bounded(self):
+        response = self.post_setting(
+            self.admin,
+            "1",
+            timeout_seconds="900",
+            import_limit_mib="3",
+            staging_ttl_hours="48",
+        )
+        self.assertEqual(302, response.status_code)
+        persisted = SettingsStore(self.root).settings()["finance"]
+        self.assertEqual(3 * 1024 * 1024, persisted["statement_import_limit_bytes"])
+        self.assertEqual(48 * 60 * 60, persisted["statement_staging_ttl_seconds"])
+        with app.app_context():
+            audit_row = database.get_db().execute(
+                "SELECT detail FROM security_event WHERE action=?",
+                ("finance_bank_browser_setting_updated",),
+            ).fetchone()
+        audit_detail = json.loads(audit_row["detail"])
+        self.assertEqual(3 * 1024 * 1024, audit_detail["import_limit_bytes"])
+        self.assertEqual(48 * 60 * 60, audit_detail["staging_ttl_seconds"])
+
+        page = self.admin.get("/documents/business/bookkeeping/finances")
+        body = page.get_data(as_text=True)
+        self.assertIn('value="3" min="1" max="25"', body)
+        self.assertIn('value="48" min="1" max="168"', body)
+        self.assertIn('name="reset" value="1"', body)
+        self.assertIn('name="reset" value="1"', body)
+
+        invalid_updates = (
+            {"import_limit_mib": "0"},
+            {"import_limit_mib": "26"},
+            {"import_limit_mib": "9" * 5000},
+            {"staging_ttl_hours": "0"},
+            {"staging_ttl_hours": "169"},
+            {"staging_ttl_hours": "1.5"},
+        )
+        for values in invalid_updates:
+            with self.subTest(values=values):
+                self.assertEqual(
+                    400,
+                    self.post_setting(self.admin, "1", timeout_seconds="900", **values).status_code,
+                )
+
+        from app.finance_web import _read_stage, _stage_dir, _stage_upload
+
+        with app.app_context():
+            with self.assertRaisesRegex(ValueError, "3 MiB"):
+                _stage_upload(b"x" * (3 * 1024 * 1024 + 1), "finance-admin")
+            token = _stage_upload(b"statement", "finance-admin")
+            stage_path = _stage_dir("finance-admin") / f"{token}.bin"
+            expired_at = time.time() - persisted["statement_staging_ttl_seconds"] - 1
+            os.utime(stage_path, (expired_at, expired_at))
+            with self.assertRaisesRegex(ValueError, "abgelaufen"):
+                _read_stage(token, "finance-admin")
+            self.assertFalse(stage_path.exists())
+
+        reset = self.admin.post(
+            "/documents/business/bookkeeping/finances/settings/bank-browser",
+            data={"reset": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        defaults = SettingsStore(self.root).settings()["finance"]
+        self.assertEqual(300, defaults["bank_browser_timeout_seconds"])
+        self.assertEqual(25 * 1024 * 1024, defaults["statement_import_limit_bytes"])
+        self.assertEqual(24 * 60 * 60, defaults["statement_staging_ttl_seconds"])
+        reset_page = self.admin.get("/documents/business/bookkeeping/finances")
+        reset_body = reset_page.get_data(as_text=True)
+        self.assertIn('value="300" min="30" max="1800"', reset_body)
+        self.assertIn('value="25" min="1" max="25"', reset_body)
+        self.assertIn('value="24" min="1" max="168"', reset_body)
 
     def test_non_admin_missing_csrf_and_invalid_values_are_rejected(self):
         self.assertEqual(403, self.post_setting(self.user, "0", token="u" * 40).status_code)
@@ -183,6 +263,14 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bank browser timeout"):
             SettingsStore(self.root).save(
                 {"finance": {"bank_browser_timeout_seconds": True}}, "finance-admin",
+            )
+        with self.assertRaisesRegex(ValueError, "finance import limit"):
+            SettingsStore(self.root).save(
+                {"finance": {"statement_import_limit_bytes": 26 * 1024 * 1024}}, "finance-admin",
+            )
+        with self.assertRaisesRegex(ValueError, "finance staging TTL"):
+            SettingsStore(self.root).save(
+                {"finance": {"statement_staging_ttl_seconds": 59}}, "finance-admin",
             )
 
     def test_legacy_database_setting_is_migrated_without_losing_its_value(self):
