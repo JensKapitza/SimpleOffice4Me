@@ -160,6 +160,37 @@ def _csv_preamble_and_body(text_value: str) -> tuple[list[str], str]:
     return [], text_value
 
 
+def _preamble_iban(line: str) -> str:
+    label = re.search(r"\bIBAN\b", line, re.IGNORECASE)
+    if label is None:
+        return ""
+    cursor = label.end()
+    while cursor < len(line) and line[cursor].isspace():
+        cursor += 1
+    if cursor < len(line) and line[cursor] in ":;=":
+        cursor += 1
+    while cursor < len(line) and line[cursor].isspace():
+        cursor += 1
+
+    start = cursor
+    if cursor + 2 > len(line) or not all(
+        character.isascii() and character.isalpha()
+        for character in line[cursor:cursor + 2]
+    ):
+        return ""
+    cursor += 2
+    remaining = 0
+    while cursor < len(line) and remaining < 34:
+        character = line[cursor]
+        if not (character == " " or character.isascii() and character.isalnum()):
+            break
+        cursor += 1
+        remaining += 1
+    if remaining < 13:
+        return ""
+    return line[start:cursor]
+
+
 def parse_csv(raw: bytes) -> list[ParsedStatement]:
     text_value = _decode_text(raw)
     preamble, body = _csv_preamble_and_body(text_value)
@@ -177,10 +208,10 @@ def parse_csv(raw: bytes) -> list[ParsedStatement]:
     account_iban = ""
     account_reference = ""
     for line in preamble:
-        match = re.search(r"\bIBAN\b\s*[:;=]?\s*([A-Z]{2}[0-9A-Z ]{13,34})", line, re.IGNORECASE)
-        if match:
+        candidate_iban = _preamble_iban(line)
+        if candidate_iban:
             try:
-                account_iban = normalize_iban(match.group(1))
+                account_iban = normalize_iban(candidate_iban)
             except ValueError:
                 pass
         if not account_reference and re.search(r"konto|account", line, re.IGNORECASE):
