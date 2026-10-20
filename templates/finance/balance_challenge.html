@@ -7,7 +7,7 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('.index', account_id=account.account_id) }}">Abbrechen</a>
   </div>
   <p>Die Bank verlangt eine zusätzliche Freigabe für den ausschließlich lesenden Saldoabruf von <strong>{{ account.name }}</strong>.</p>
-  {% if challenge_text %}<div class="alert alert-info" role="status">{{ challenge_text }}</div>{% endif %}
+  {% if challenge_text %}<div class="alert alert-info" role="status" aria-live="polite">{{ challenge_text }}</div>{% endif %}
   {% if decoupled %}
   <p>Bestätige die Anfrage in der offiziellen App oder auf dem Gerät deiner Bank. Danach kannst du hier fortfahren; eine TAN wird nicht benötigt.</p>
   {% else %}
