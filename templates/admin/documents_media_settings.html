@@ -25,7 +25,7 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
-          <select class="form-select" id="preview-enabled" name="preview_enabled" required>
+          <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
             <option value="0" {% if not media.preview_enabled %}selected{% endif %}>Deaktiviert</option>
           </select>

@@ -85,6 +85,12 @@ class TemplateAccessibilityTests(unittest.TestCase):
         for path, tag in fields:
             self.assertEqual("off", _attributes(tag).get("autocomplete"), path)
 
+    def test_media_preview_enabled_select_has_no_required_placeholder_constraint(self):
+        content = self.templates[TEMPLATES / "admin" / "documents_media_settings.html"]
+        match = re.search(r"<select\b[^>]*\bid=[\"']preview-enabled[\"'][^>]*>", content, re.I)
+        self.assertIsNotNone(match)
+        self.assertNotRegex(match.group(), r"\brequired\b")
+
     def test_search_landmarks_are_real_search_forms(self):
         search_forms = []
         for path, content in self.templates.items():
