@@ -274,6 +274,16 @@ class FinanceAdminSettingsTests(unittest.TestCase):
             )
 
     def test_legacy_database_setting_is_migrated_without_losing_its_value(self):
+        store = SettingsStore(self.root)
+        store.path.parent.mkdir(parents=True, exist_ok=True)
+        store.path.write_text(
+            json.dumps({"finance": {
+                "bank_browser_timeout_seconds": 900,
+                "statement_import_limit_bytes": 3 * 1024 * 1024,
+                "statement_staging_ttl_seconds": 48 * 60 * 60,
+            }}),
+            encoding="utf-8",
+        )
         with app.app_context():
             db = database.get_db()
             db.execute(
@@ -293,6 +303,10 @@ class FinanceAdminSettingsTests(unittest.TestCase):
             SettingsStore(self.root).settings()["finance"]["bank_browser_enabled"],
             False,
         )
+        migrated = SettingsStore(self.root).settings()["finance"]
+        self.assertEqual(900, migrated["bank_browser_timeout_seconds"])
+        self.assertEqual(3 * 1024 * 1024, migrated["statement_import_limit_bytes"])
+        self.assertEqual(48 * 60 * 60, migrated["statement_staging_ttl_seconds"])
 
 
 if __name__ == "__main__":

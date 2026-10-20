@@ -10,7 +10,7 @@ Das ist wichtig, weil eine neu kodierte MP4-Datei zwar binär anders ist, fachli
 
 Standard sind **10 Bilder pro Video**. Erlaubt sind 1 bis 30 Bilder.
 
-Administratoren können die Anzahl im Video-Player global einstellen und auf den Standardwert zurücksetzen. Der Wert wird zentral in `settings.json` unter `media.video_preview_frames` gespeichert. Die Änderung erscheint in der Settings-RevisionHistory und im Security-Audit.
+Administratoren können die globale Anzahl unter **Einstellungen → Dokumente & Medien** einstellen und auf den Standardwert zurücksetzen. Der Video-Player zeigt den wirksamen Wert und verlinkt auf diese zentrale Einstellungsseite. Gespeichert wird in `settings.json` unter `media.video_preview_frames`; Änderungen erscheinen in der Settings-RevisionHistory und im Security-Audit.
 
 Als Upgrade-Kompatibilität werden ältere Werte aus `video-preview-settings.json` oder
 `SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES` verwendet, solange noch kein zentraler Video-Wert

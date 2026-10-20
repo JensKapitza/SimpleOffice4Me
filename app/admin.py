@@ -17,6 +17,18 @@ from .db import get_db
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex
 from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
+from .settings_store import (
+    DEFAULT_SETTINGS,
+    MAX_PREVIEW_MAX_BYTES,
+    MAX_PREVIEW_MAX_PIXELS,
+    MAX_PREVIEW_TIMEOUT_SECONDS,
+    MAX_VIDEO_PREVIEW_FRAMES,
+    MIN_PREVIEW_MAX_BYTES,
+    MIN_PREVIEW_MAX_PIXELS,
+    MIN_PREVIEW_TIMEOUT_SECONDS,
+    MIN_VIDEO_PREVIEW_FRAMES,
+    SettingsStore,
+)
 from .system_identity import system_info
 from tools.launcher import start_osm_download_worker, start_osm_index_worker
 
@@ -400,3 +412,71 @@ def resolve_error(error_id: int):
     get_db().commit()
     if result.rowcount: audit("application_error_resolved", "application_error", str(error_id))
     return redirect(url_for("admin.logs"))
+
+
+def _bounded_media_integer(name: str, minimum: int, maximum: int) -> int:
+    raw = request.form.get(name, "")
+    if len(raw) > len(str(maximum)) or not raw.isascii() or not raw.isdigit():
+        raise ValueError("Bitte einen gültigen ganzzahligen Medienwert eingeben.")
+    value = int(raw)
+    if not minimum <= value <= maximum:
+        raise ValueError("Ein Medienwert liegt außerhalb des zulässigen Bereichs.")
+    return value
+
+
+@bp.get("/settings/documents-media")
+@admin_required
+def documents_media_settings():
+    media = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["media"]
+    return render_template(
+        "admin/documents_media_settings.html",
+        media=media,
+    )
+
+
+@bp.post("/settings/documents-media")
+@admin_required
+def save_documents_media_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        if reset_defaults:
+            media = dict(DEFAULT_SETTINGS["media"])
+        else:
+            enabled = request.form.get("preview_enabled", "")
+            if enabled not in {"0", "1"}:
+                raise ValueError("Bitte wählen, ob Dokumentvorschauen aktiviert sind.")
+            media = {
+                "preview_enabled": enabled == "1",
+                "preview_timeout_seconds": _bounded_media_integer(
+                    "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS, MAX_PREVIEW_TIMEOUT_SECONDS,
+                ),
+                "preview_max_bytes": _bounded_media_integer(
+                    "preview_max_bytes", MIN_PREVIEW_MAX_BYTES, MAX_PREVIEW_MAX_BYTES,
+                ),
+                "preview_max_pixels": _bounded_media_integer(
+                    "preview_max_pixels", MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
+                ),
+                "video_preview_frames": _bounded_media_integer(
+                    "video_preview_frames", MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
+                ),
+            }
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"media": media}, str(g.user["username"]),
+        )
+        audit(
+            "documents_media_settings_updated",
+            "settings",
+            "media.preview_settings",
+            detail={**media, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "Dokument- und Medienwerte auf Standard zurückgesetzt."
+            if reset_defaults else "Dokument- und Medien-Einstellungen gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Document/media setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Document and media settings save failed: %s", type(exc).__name__)
+        flash("Dokument- und Medien-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.documents_media_settings"))

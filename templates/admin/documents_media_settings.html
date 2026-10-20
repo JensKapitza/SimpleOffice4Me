@@ -1,0 +1,68 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">Dokumente &amp; Medien</h1>
+      <p class="text-secondary mb-0">Globale, ressourcenbegrenzte Vorschau-Einstellungen. Änderungen gelten ohne Neustart für neue Vorschauaufträge.</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('documents.settings') }}">Allgemeine Einstellungen</a>
+  </div>
+  <nav aria-label="Einstellungsbereiche" class="mb-4">
+    <div class="nav nav-tabs">
+      <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
+      <a class="nav-link active" href="{{ url_for('admin.documents_media_settings') }}" aria-current="page">Dokumente &amp; Medien</a>
+    </div>
+  </nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <section class="card mb-4">
+    <div class="card-header"><strong>Vorschau-Ressourcengrenzen</strong></div>
+    <div class="card-body">
+      <p>Vorschauen laufen lokal und verwenden die vorhandenen Preview-Werkzeuge. Grenzwerte schützen Arbeitsspeicher, Laufzeit und Cache-Speicher. Deaktivieren verhindert neue Vorschaugenerierung; bereits erzeugte Dateien werden nicht gelöscht.</p>
+      <form method="post" action="{{ url_for('admin.save_documents_media_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6">
+          <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
+          <select class="form-select" id="preview-enabled" name="preview_enabled">
+            <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
+            <option value="0" {% if not media.preview_enabled %}selected{% endif %}>Deaktiviert</option>
+          </select>
+          <div class="form-text">Gilt für neu gestartete Vorschauaufträge.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="preview-timeout">Zeitlimit pro Konvertierung (Sekunden)</label>
+          <input class="form-control" id="preview-timeout" type="number" name="preview_timeout_seconds"
+                 value="{{ media.preview_timeout_seconds }}" min="5" max="300" step="1" required>
+          <div class="form-text">Standard 45 Sekunden; zulässig 5–300 Sekunden.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="preview-max-bytes">Maximale Quelldateigröße (Bytes)</label>
+          <input class="form-control" id="preview-max-bytes" type="number" name="preview_max_bytes"
+                 value="{{ media.preview_max_bytes }}" min="1024" max="2147483648" step="1" required>
+          <div class="form-text">Aktuell {{ media.preview_max_bytes }} Bytes. Standard 268435456 Bytes (256 MiB); zulässig 1024 Bytes–2 GiB.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="preview-max-pixels">Maximale Bildpunkte (Pixel)</label>
+          <input class="form-control" id="preview-max-pixels" type="number" name="preview_max_pixels"
+                 value="{{ media.preview_max_pixels }}" min="1000000" max="250000000" step="1" required>
+          <div class="form-text">Standard 80 Millionen Pixel; zulässig 1–250 Millionen.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="video-preview-frames">Video-Vorschaubilder je Video</label>
+          <input class="form-control" id="video-preview-frames" type="number" name="video_preview_frames"
+                 value="{{ media.video_preview_frames }}" min="1" max="30" step="1" required>
+          <div class="form-text">Standard 10 Bilder; zulässig 1–30. Bestehende Bildserien werden beim nächsten Indexlauf erneuert.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellungen speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>
+            Auf Standardwerte zurücksetzen
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

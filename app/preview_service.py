@@ -8,18 +8,14 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageOps
 
-from .video_settings import (
-    DEFAULT_VIDEO_PREVIEW_FRAMES as VIDEO_PREVIEW_DEFAULT_FRAMES,
-    MAX_VIDEO_PREVIEW_FRAMES as VIDEO_PREVIEW_MAX_FRAMES,
-    MIN_VIDEO_PREVIEW_FRAMES as VIDEO_PREVIEW_MIN_FRAMES,
-    video_preview_frame_count,
-)
+from .settings_store import SettingsStore
 
 
 CACHE_DIR = ".webcache"
@@ -65,18 +61,29 @@ class PreviewService:
         self.root = Path(root).expanduser().resolve()
         self.cache = self.root / CACHE_DIR
         self.tools = tools or detect_preview_tools()
-        self.timeout = self._bounded_env("SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS", 45, 5, 300)
-        self.max_bytes = self._bounded_env("SIMPLEOFFICE_PREVIEW_MAX_BYTES", 256 * 1024 * 1024, 1024, 2 * 1024 * 1024 * 1024)
-        self.max_pixels = self._bounded_env("SIMPLEOFFICE_PREVIEW_MAX_PIXELS", 80_000_000, 1_000_000, 250_000_000)
-        self.video_frame_count = video_preview_frame_count(self.root)
+        self.settings_store = SettingsStore(self.root)
+        self._settings_mtime_ns = -1
+        self._settings_refresh_after = 0.0
+        self._refresh_media_settings()
 
-    @staticmethod
-    def _bounded_env(name: str, default: int, minimum: int, maximum: int) -> int:
+    def _refresh_media_settings(self) -> None:
+        now = time.monotonic()
+        if now < self._settings_refresh_after:
+            return
+        self._settings_refresh_after = now + 1.0
         try:
-            value = int(os.environ.get(name, str(default)))
-        except ValueError:
-            value = default
-        return max(minimum, min(maximum, value))
+            settings_mtime_ns = self.settings_store.path.stat().st_mtime_ns
+        except FileNotFoundError:
+            settings_mtime_ns = None
+        if settings_mtime_ns == self._settings_mtime_ns:
+            return
+        media_settings = self.settings_store.settings()["media"]
+        self._settings_mtime_ns = settings_mtime_ns
+        self.preview_enabled = media_settings["preview_enabled"]
+        self.timeout = media_settings["preview_timeout_seconds"]
+        self.max_bytes = media_settings["preview_max_bytes"]
+        self.max_pixels = media_settings["preview_max_pixels"]
+        self.video_frame_count = media_settings["video_preview_frames"]
 
     @staticmethod
     def video_frame_positions(duration_seconds: float, frame_count: int) -> list[float]:
@@ -89,9 +96,11 @@ class PreviewService:
         return [round(segment * (index + 0.5), 3) for index in range(count)]
 
     def supports(self, path: Path) -> bool:
-        return os.environ.get("SIMPLEOFFICE_PREVIEWS", "1").strip().lower() not in {"0", "false", "off"} and path.suffix.lower() in SUPPORTED_SUFFIXES
+        self._refresh_media_settings()
+        return self.preview_enabled and path.suffix.lower() in SUPPORTED_SUFFIXES
 
     def is_current(self, metadata: dict[str, Any]) -> bool:
+        self._refresh_media_settings()
         preview = metadata.get("preview", {})
         if preview.get("status") != "ready" or preview.get("source_sha256") != metadata.get("sha256"):
             return False
@@ -109,6 +118,7 @@ class PreviewService:
         )
 
     def generate(self, path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
+        self._refresh_media_settings()
         path = path.resolve(strict=True)
         path.relative_to(self.root)
         suffix = path.suffix.lower()
@@ -366,6 +376,7 @@ class PreviewService:
                 image.close()
 
     def transcode_video(self, source: Path, metadata: dict[str, Any], actor: str, profile: str = "h264-720p") -> dict[str, Any]:
+        self._refresh_media_settings()
         profile = str(profile or "").strip().lower()
         if profile not in VIDEO_TRANSCODE_PROFILES:
             raise ValueError("Unbekanntes Video-Profil")
