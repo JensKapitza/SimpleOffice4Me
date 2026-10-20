@@ -1,4 +1,7 @@
 """Regression coverage for camera permission scope (issue #736)."""
+import shutil
+import subprocess
+import unittest
 from pathlib import Path
 
 from flask import Blueprint, Flask
@@ -34,9 +37,14 @@ def test_camera_policy_limits_federation_to_scanner_endpoint():
 
 def test_qr_fallback_is_loaded_on_inventory_and_library():
     root = Path(__file__).resolve().parents[1]
-    for template in ("templates/inventory/index.html", "templates/library/index.html"):
+    for template in (
+        "templates/inventory/index.html",
+        "templates/library/index.html",
+        "templates/admin/federation_peer_discovery.html",
+    ):
         source = (root / template).read_text()
         assert "vendor/jsqr/jsQR.js" in source
+        assert "js/camera_capture.js" in source
     assert "window.jsQR" in (root / "static/js/inventory.js").read_text()
     assert "window.jsQR" in (root / "templates/library/index.html").read_text()
 
@@ -48,3 +56,38 @@ def test_local_qr_fallback_runs_even_when_native_detector_exists():
     assert "if (!found.length && typeof window.jsQR === 'function')" in library
     assert "1200 / Math.max(width, height)" in inventory
     assert "1200 / Math.max(width, height)" in library
+
+
+def test_camera_flows_use_the_shared_user_selected_stream_helper():
+    root = Path(__file__).resolve().parents[1]
+    inventory = (root / "static/js/inventory.js").read_text()
+    library = (root / "templates/library/index.html").read_text()
+    federation = (root / "static/js/federation_qr_scan.js").read_text()
+    for source in (inventory, library, federation):
+        assert "SimpleOfficeCamera.openCameraStream" in source
+    assert "() => generation === cameraGeneration" in federation
+    assert "cameraVideo.srcObject = stream" in library
+    assert "video.srcObject = stream" in inventory
+
+
+class CameraCaptureHelperTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is unavailable")
+    def test_camera_capture_permission_and_facing_mode_fallbacks(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(root / "tests" / "camera_capture.test.cjs")],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_federation_scanner_stops_pending_camera_requests(self):
+        source = (
+            Path(__file__).resolve().parents[1] / "static" / "js" / "federation_qr_scan.js"
+        ).read_text()
+        self.assertIn("let cameraGeneration = 0", source)
+        self.assertIn("if (generation !== cameraGeneration)", source)
+        self.assertIn("requestedStream.getTracks().forEach(track => track.stop())", source)

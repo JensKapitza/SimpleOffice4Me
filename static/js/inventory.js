@@ -439,12 +439,23 @@
     try {
       try { detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] }) : null; } catch (_error) { detector = null; }
       if (!detector && typeof window.jsQR !== 'function') throw new Error('No available decoder');
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
-      if (generation !== cameraGeneration) { stream.getTracks().forEach(track => track.stop()); return; }
+      const requestedStream = await window.SimpleOfficeCamera.openCameraStream(
+        navigator.mediaDevices,
+        () => generation === cameraGeneration,
+      );
+      if (!requestedStream) return;
+      if (generation !== cameraGeneration) { requestedStream.getTracks().forEach(track => track.stop()); return; }
+      stream = requestedStream;
       const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false;
       try { await video.play(); } catch (_error) { throw new Error('Camera preview could not start'); }
       if (generation !== cameraGeneration) return;
-      scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
+      scanning = true;
+      setStatus(
+        detector
+          ? 'Barcode vor die Kamera halten …'
+          : 'QR-Code vor die Kamera halten; EAN/Barcodes bitte manuell eingeben.',
+        'primary',
+      );
       const scan = async () => {
         if (!scanning || generation !== cameraGeneration) return;
         try {
