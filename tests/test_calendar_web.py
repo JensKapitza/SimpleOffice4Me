@@ -65,6 +65,25 @@ class CalendarWebTest(unittest.TestCase):
         self.assertIn("Buchungsseite öffnen", body)
         self.assertIn("Vor dem Teilen die Buchung aktivieren", body)
 
+    def test_web_deleted_event_is_visible_and_restorable_with_caldav_sync(self):
+        store = CalendarStore(app.config["DOCUMENT_ROOT"])
+        event = store.add("Wiederfinden", "Testinhalt", "2026-08-10T10:00", "2026-08-10T11:00", "", "jens")
+        self.client.post(f'/documents/calendar/{event["event_id"]}/delete')
+
+        page = self.client.get("/documents/calendar")
+        body = page.get_data(as_text=True)
+        self.assertIn("Gelöschte Termine (1)", body)
+        self.assertIn("Wiederfinden", body)
+        self.assertIn('action="/documents/calendar/' + event["event_id"] + '/restore"', body)
+        self.assertIn("Kalender: Persönlich", body)
+
+        restored = self.client.post(f'/documents/calendar/{event["event_id"]}/restore', follow_redirects=True)
+
+        self.assertIn("Kalendertermin wiederhergestellt", restored.get_data(as_text=True))
+        self.assertEqual("active", store.get(event["event_id"], "jens")["status"])
+        changes, _ = CalendarCollections(app.config["DOCUMENT_ROOT"]).sync_changes("default", "jens")
+        self.assertTrue(any(change["resource"] == f'{event["event_id"]}.ics' and not change["deleted"] for change in changes))
+
     def test_public_booking_company_field_uses_valid_autocomplete(self):
         CalendarStore(app.config["DOCUMENT_ROOT"]).save_booking_settings(
             True, 60, "09:00", "10:00", "jens", "Europe/Berlin"

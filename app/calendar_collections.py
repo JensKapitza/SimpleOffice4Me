@@ -165,7 +165,10 @@ class CalendarCollections:
                 raise ValueError("calendar resource not found")
             if expected_etag is not None and self.etag(event) != expected_etag:
                 raise CalendarConflict(event)
-            event.update({"status": "deleted", "status_changed_at": utc_now(), "status_changed_by": actor, "updated_at": utc_now(), "updated_by": actor})
+            changed_at = utc_now()
+            previous_status = event.get("status", "active")
+            event.update({"status": "deleted", "status_changed_at": changed_at, "status_changed_by": actor, "updated_at": changed_at, "updated_by": actor, "sequence": int(event.get("sequence", 0)) + 1})
+            event.setdefault("status_history", []).append({"from": previous_status, "to": "deleted", "by": actor, "at": changed_at, "moved_to": ""})
             calendar = self.get(calendar_id, actor, write=True)
             atomic_json_write(self.events.path, data); self._bump(calendar_id, calendar["owner"], resource, True)
         self.history.record("calendar_event_caldav_deleted", actor, "calendar", event["event_id"], event)
@@ -182,6 +185,15 @@ class CalendarCollections:
             self._bump(target_id, target["owner"], resource, False)
         action = "calendar_event_collection_moved" if source_calendar_id != target_id else "calendar_event_web_update_synced"
         self.history.record(action, actor, "calendar", event["event_id"], {"event_id": event["event_id"], "from": source_calendar_id, "to": target_id, "resource": resource})
+
+    def record_event_delete(self, event: dict[str, Any], actor: str) -> None:
+        """Publish a web-originated deletion to the CalDAV sync journal."""
+        calendar_id = event.get("calendar_id") or "default"
+        calendar = self.get(calendar_id, actor, write=True)
+        resource = event.get("caldav_resource") or f'{event["event_id"]}.ics'
+        with exclusive_file_lock(self.lock):
+            self._bump(calendar_id, calendar["owner"], resource, True)
+        self.history.record("calendar_event_web_deleted", actor, "calendar", event["event_id"], {"event_id": event["event_id"], "calendar_id": calendar_id, "resource": resource})
 
     def sync_changes(self, calendar_id: str, actor: str, token: str = "") -> tuple[list[dict[str, Any]], str]:
         calendar = self.get(calendar_id, actor); current = int(calendar.get("sync_revision", 0))

@@ -620,6 +620,114 @@ class CalendarStore:
             self.history.record("calendar_event_status_changed", actor, "calendar", event_id, event)
         return event
 
+    @staticmethod
+    def restorable_status(event: dict[str, Any]) -> str:
+        """Return the retained pre-delete status when the saved event is complete."""
+        if not isinstance(event, dict) or event.get("status") != "deleted":
+            return ""
+        if not all(
+            isinstance(event.get(key), str) and event[key].strip()
+            for key in ("event_id", "title", "start")
+        ):
+            return ""
+        recurrence = event.get("recurrence", {})
+        overrides = event.get("recurrence_overrides", [])
+        if not isinstance(recurrence, dict) or not isinstance(overrides, list):
+            return ""
+        try:
+            datetime.fromisoformat(str(event["start"]).replace("Z", "+00:00"))
+            if event.get("end"):
+                datetime.fromisoformat(str(event["end"]).replace("Z", "+00:00"))
+            if recurrence:
+                validate_recurrence(recurrence, str(event["start"]))
+        except ValueError:
+            return ""
+        if any(not isinstance(item, dict) or not item.get("recurrence_id") for item in overrides):
+            return ""
+        history = event.get("status_history")
+        if not isinstance(history, list) or not history:
+            return ""
+        latest = history[-1]
+        if (
+            not isinstance(latest, dict)
+            or latest.get("to") != "deleted"
+            or not latest.get("by")
+            or not latest.get("at")
+            or latest.get("at") != event.get("status_changed_at")
+            or latest.get("by") != event.get("status_changed_by")
+        ):
+            return ""
+        previous = str(latest.get("from", ""))
+        return previous if previous in {"active", "cancelled", "confirmed", "pending", "moved"} else ""
+
+    @classmethod
+    def can_restore(cls, event: dict[str, Any]) -> bool:
+        return bool(cls.restorable_status(event))
+
+    def restore_deleted(self, event_id: str, actor: str) -> dict[str, Any]:
+        """Restore a complete soft-deleted event without rebuilding its payload."""
+        if not actor.strip():
+            raise ValueError("user is required")
+        with exclusive_file_lock(self.path.parent / ".calendar-write.lock"):
+            data = self._read()
+            event = next((item for item in data.get("events", []) if item.get("event_id") == event_id), None)
+            if event is None:
+                raise ValueError("unknown calendar event")
+            if not self._can_view(event, actor):
+                raise ValueError("calendar event is not shared with this user")
+            if not self._can_edit(event, actor):
+                raise ValueError("calendar event is read-only for this user")
+            previous_status = self.restorable_status(event)
+            if not previous_status:
+                raise ValueError("calendar event has no complete, verifiable pre-delete snapshot")
+            collection_id = event.get("calendar_id") or "default"
+            source_uid = str(event.get("source_uid", ""))
+            resource = str(event.get("caldav_resource", ""))
+            for candidate in data.get("events", []):
+                if candidate.get("event_id") == event_id or candidate.get("status") == "deleted":
+                    continue
+                if (candidate.get("calendar_id") or "default") != collection_id:
+                    continue
+                if source_uid and candidate.get("source_uid") == source_uid:
+                    raise ValueError("another active event already uses this calendar UID")
+                if resource and candidate.get("caldav_resource") == resource:
+                    raise ValueError("another active event already uses this CalDAV resource")
+            changed_at = utc_now()
+            event["status"] = previous_status
+            event["status_changed_at"] = changed_at
+            event["status_changed_by"] = actor
+            event["updated_at"] = changed_at
+            event["updated_by"] = actor
+            event["sequence"] = int(event.get("sequence", 0)) + 1
+            if event.get("raw_ics"):
+                event["raw_ics"] = self._update_raw_ics_sequence(event["raw_ics"], event["sequence"])
+            event.setdefault("status_history", []).append({"from": "deleted", "to": previous_status, "by": actor, "at": changed_at, "moved_to": ""})
+            atomic_json_write(self.path, data)
+            self.history.record("calendar_event_restored", actor, "calendar", event_id, event)
+        return event
+
+    @staticmethod
+    def _update_raw_ics_sequence(content: str, sequence: int) -> str:
+        """Keep retained CalDAV payloads and all recurrence components in step."""
+        lines = content.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        result: list[str] = []
+        in_event = False
+        has_sequence = False
+        for line in lines:
+            upper = line.upper()
+            if upper == "BEGIN:VEVENT":
+                in_event = True
+                has_sequence = False
+            elif in_event and upper.startswith("SEQUENCE:"):
+                line = f"SEQUENCE:{sequence}"
+                has_sequence = True
+            elif in_event and upper == "END:VEVENT":
+                if not has_sequence:
+                    result.append(f"SEQUENCE:{sequence}")
+                in_event = False
+            result.append(line)
+        return "\r\n".join(result).rstrip("\r\n") + "\r\n"
+
     def visible_events(self, audience: str) -> list[dict[str, Any]]:
         if audience not in ("family", "external"):
             raise ValueError("unknown calendar audience")

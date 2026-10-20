@@ -479,11 +479,36 @@ def calendar_reminders_json():
 @login_required
 def delete_calendar_event(event_id: str):
     try:
-        result = _calendar().delete(event_id, str(g.user["username"]))
+        actor = str(g.user["username"])
+        previous = _calendar().get(event_id, actor)
+        calendar_id = previous.get("calendar_id") or "default"
+        _calendars().get(calendar_id, actor, write=True)
+        result = _calendar().delete(event_id, actor)
+        event = _calendar().get(event_id, actor)
+        if result == "deleted":
+            _calendars().record_event_delete(event, actor)
+        else:
+            _calendars().record_event_move(event, calendar_id, actor)
         flash("Terminserie ab heute gelöscht; vergangene Termine bleiben erhalten." if result == "series_truncated" else "Kalendertermin gelöscht.")
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
+
+
+@bp.post("/calendar/<event_id>/restore")
+@login_required
+def restore_calendar_event(event_id: str):
+    actor = str(g.user["username"])
+    try:
+        previous = _calendar().get(event_id, actor)
+        calendar_id = previous.get("calendar_id") or "default"
+        _calendars().get(calendar_id, actor, write=True)
+        event = _calendar().restore_deleted(event_id, actor)
+        _calendars().record_event_move(event, calendar_id, actor)
+        flash("Kalendertermin wiederhergestellt; Änderung für CalDAV vorgemerkt.")
+    except ValueError as exc:
+        flash(f"Kalendertermin nicht wiederhergestellt: {exc}")
+    return redirect(url_for("documents.calendar") + "#deleted-calendar-events")
 
 
 @bp.post("/calendar/<event_id>/sharing")
