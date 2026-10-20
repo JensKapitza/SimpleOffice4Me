@@ -16,7 +16,12 @@ from .auth import login_required
 from .access_control import audit, is_admin
 from .db import get_db
 from .document_store import CONTROL_DIR
-from .settings_store import SettingsStore
+from .settings_store import (
+    DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    MAX_BANK_BROWSER_TIMEOUT_SECONDS,
+    MIN_BANK_BROWSER_TIMEOUT_SECONDS,
+    SettingsStore,
+)
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
 from .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts
@@ -115,6 +120,7 @@ def index():
         selected_account_id=selected,
         transactions=transactions,
         bank_browser_enabled=_bank_browser_setting(),
+        bank_browser_timeout_seconds=_bank_browser_timeout_seconds(),
         local_bank_browser_enabled=_local_bank_browser_enabled(),
         bank_browser_admin=is_admin(g.user),
     )
@@ -163,6 +169,20 @@ def _bank_browser_setting() -> bool:
     return enabled is True
 
 
+def _bank_browser_timeout_seconds() -> int:
+    value = SettingsStore(_root()).settings()["finance"].get(
+        "bank_browser_timeout_seconds", DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    )
+    if (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and MIN_BANK_BROWSER_TIMEOUT_SECONDS <= value <= MAX_BANK_BROWSER_TIMEOUT_SECONDS
+    ):
+        return value
+    current_app.logger.warning("Invalid persisted bank browser timeout; using default")
+    return DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS
+
+
 def _has_persisted_bank_browser_setting(settings: SettingsStore) -> bool:
     try:
         stored = json.loads(settings.path.read_text(encoding="utf-8"))
@@ -199,15 +219,29 @@ def update_bank_browser_setting():
     enabled = value == "1"
     settings = SettingsStore(_root())
     current = settings.settings()
-    if current["finance"]["bank_browser_enabled"] != enabled:
-        finance_settings = dict(current["finance"])
+    timeout_raw = request.form.get("timeout_seconds")
+    if timeout_raw is None:
+        timeout_seconds = _bank_browser_timeout_seconds()
+    else:
+        if len(timeout_raw) > 4 or not timeout_raw.isascii() or not timeout_raw.isdigit():
+            abort(400)
+        timeout_seconds = int(timeout_raw)
+        if not MIN_BANK_BROWSER_TIMEOUT_SECONDS <= timeout_seconds <= MAX_BANK_BROWSER_TIMEOUT_SECONDS:
+            abort(400)
+    finance_settings = dict(current["finance"])
+    changed = (
+        finance_settings.get("bank_browser_enabled") is not enabled
+        or finance_settings.get("bank_browser_timeout_seconds") != timeout_seconds
+    )
+    if changed:
         finance_settings["bank_browser_enabled"] = enabled
+        finance_settings["bank_browser_timeout_seconds"] = timeout_seconds
         settings.save({"finance": finance_settings}, _actor())
         audit(
             "finance_bank_browser_setting_updated",
             "settings",
             "finance.bank_browser_enabled",
-            detail={"enabled": enabled},
+            detail={"enabled": enabled, "timeout_seconds": timeout_seconds},
         )
     flash("Bankbrowser-Einstellung gespeichert.")
     return redirect(url_for(".index"))
@@ -220,7 +254,7 @@ def santander_browser_download():
         abort(403)
     actor = _actor()
     try:
-        timeout = int(request.form.get("timeout_seconds", "300"))
+        timeout = _bank_browser_timeout_seconds()
         result = capture_santander_statement(timeout_seconds=timeout)
         token = _stage_upload(result.content, actor)
         preview = FinanceStatementImporter(_store()).preview(

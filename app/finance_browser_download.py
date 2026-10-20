@@ -11,6 +11,12 @@ from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
 import time
 
+from .settings_store import (
+    DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    MAX_BANK_BROWSER_TIMEOUT_SECONDS,
+    MIN_BANK_BROWSER_TIMEOUT_SECONDS,
+)
+
 MAX_DOWNLOAD_BYTES = 25 * 1024 * 1024
 SUPPORTED_EXTENSIONS = {".csv", ".xml", ".sta", ".mt940", ".txt"}
 SANTANDER_START_URL = "https://www.santander.de/"
@@ -41,7 +47,9 @@ def _checked_download(filename: str, data: bytes) -> CapturedStatement:
     return CapturedStatement(name, data)
 
 
-def capture_santander_statement(*, timeout_seconds: int = 300) -> CapturedStatement:
+def capture_santander_statement(
+    *, timeout_seconds: int = DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+) -> CapturedStatement:
     """Wait for a user-initiated statement export in a visible Santander browser.
 
     Requires the optional Playwright package and installed Chromium browser.
@@ -49,8 +57,15 @@ def capture_santander_statement(*, timeout_seconds: int = 300) -> CapturedStatem
     The returned bytes must be passed to FinanceStatementImporter.preview and
     only committed after explicit user confirmation.
     """
-    if not 30 <= timeout_seconds <= 1800:
-        raise ValueError("Zeitlimit muss zwischen 30 und 1800 Sekunden liegen")
+    if (
+        isinstance(timeout_seconds, bool)
+        or not isinstance(timeout_seconds, int)
+        or not MIN_BANK_BROWSER_TIMEOUT_SECONDS <= timeout_seconds <= MAX_BANK_BROWSER_TIMEOUT_SECONDS
+    ):
+        raise ValueError(
+            "Zeitlimit muss zwischen "
+            f"{MIN_BANK_BROWSER_TIMEOUT_SECONDS} und {MAX_BANK_BROWSER_TIMEOUT_SECONDS} Sekunden liegen"
+        )
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:

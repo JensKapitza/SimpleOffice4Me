@@ -14,6 +14,9 @@ from .revision_history import RevisionHistory
 
 
 _SETTINGS_LOCK = threading.RLock()
+DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS = 300
+MIN_BANK_BROWSER_TIMEOUT_SECONDS = 30
+MAX_BANK_BROWSER_TIMEOUT_SECONDS = 1800
 
 
 @contextmanager
@@ -38,7 +41,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
-    "finance": {"bank_browser_enabled": True},
+    "finance": {
+        "bank_browser_enabled": True,
+        "bank_browser_timeout_seconds": DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    },
 }
 
 TRANSLATIONS = {
@@ -367,6 +373,15 @@ class SettingsStore:
         bank_browser_enabled = finance.get("bank_browser_enabled", True)
         if not isinstance(bank_browser_enabled, bool):
             raise ValueError("bank browser setting must be boolean")
+        bank_browser_timeout = finance.get(
+            "bank_browser_timeout_seconds", DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(bank_browser_timeout, bool)
+            or not isinstance(bank_browser_timeout, int)
+            or not MIN_BANK_BROWSER_TIMEOUT_SECONDS <= bank_browser_timeout <= MAX_BANK_BROWSER_TIMEOUT_SECONDS
+        ):
+            raise ValueError("bank browser timeout must be between 30 and 1800 seconds")
         language = str(interface.get("default_language", "de"))
         if language not in TRANSLATIONS:
             raise ValueError("unsupported default language")
@@ -381,4 +396,4 @@ class SettingsStore:
         if not 15 <= duration <= 480 or not 1 <= expiry <= 365:
             raise ValueError("calendar duration or share expiry outside allowed range")
         tags = [str(tag).strip() for tag in documents.get("default_tags", []) if str(tag).strip()]
-        return {"interface": {"default_language": language, "timezone": timezone}, "documents": {"default_state": str(documents.get("default_state", "new")).strip() or "new", "default_tags": sorted(set(tags), key=str.casefold), "upload_to_archive": documents.get("upload_to_archive") is True}, "calendar": {"default_visibility": visibility, "default_public_notice": str(calendar.get("default_public_notice", "Belegt")).strip(), "default_duration_minutes": duration}, "sharing": {"default_expiry_days": expiry}, "s3": {"enabled": s3.get("enabled", False)}, "finance": {"bank_browser_enabled": bank_browser_enabled}}
+        return {"interface": {"default_language": language, "timezone": timezone}, "documents": {"default_state": str(documents.get("default_state", "new")).strip() or "new", "default_tags": sorted(set(tags), key=str.casefold), "upload_to_archive": documents.get("upload_to_archive") is True}, "calendar": {"default_visibility": visibility, "default_public_notice": str(calendar.get("default_public_notice", "Belegt")).strip(), "default_duration_minutes": duration}, "sharing": {"default_expiry_days": expiry}, "s3": {"enabled": s3.get("enabled", False)}, "finance": {"bank_browser_enabled": bank_browser_enabled, "bank_browser_timeout_seconds": bank_browser_timeout}}

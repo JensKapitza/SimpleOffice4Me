@@ -61,10 +61,16 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         app.config.update(self.config)
         self.temp.cleanup()
 
-    def post_setting(self, client, value, *, token="a" * 40, remote_addr="127.0.0.1"):
+    def post_setting(
+        self, client, value, *, token="a" * 40, remote_addr="127.0.0.1",
+        timeout_seconds=None,
+    ):
+        data = {"enabled": value}
+        if timeout_seconds is not None:
+            data["timeout_seconds"] = timeout_seconds
         return client.post(
             "/documents/business/bookkeeping/finances/settings/bank-browser",
-            data={"enabled": value},
+            data=data,
             headers={"X-CSRF-Token": token},
             environ_overrides={"REMOTE_ADDR": remote_addr},
         )
@@ -72,6 +78,7 @@ class FinanceAdminSettingsTests(unittest.TestCase):
     def test_default_admin_setting_is_audited_and_persists(self):
         store = SettingsStore(self.root)
         self.assertIs(store.settings()["finance"]["bank_browser_enabled"], True)
+        self.assertEqual(300, store.settings()["finance"]["bank_browser_timeout_seconds"])
 
         response = self.post_setting(self.admin, "0")
 
@@ -88,6 +95,46 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         self.assertEqual("settings", row["target_type"])
         self.assertEqual("finance.bank_browser_enabled", row["target_id"])
         self.assertIs(json.loads(row["detail"])["enabled"], False)
+
+    def test_browser_timeout_setting_is_persistent_bounded_and_used_for_export(self):
+        updated = self.post_setting(self.admin, "1", timeout_seconds="900")
+        self.assertEqual(302, updated.status_code)
+        self.assertEqual(
+            900,
+            SettingsStore(self.root).settings()["finance"]["bank_browser_timeout_seconds"],
+        )
+
+        page = self.admin.get("/documents/business/bookkeeping/finances")
+        self.assertEqual(200, page.status_code)
+        self.assertIn('id="bank-browser-timeout"', page.get_data(as_text=True))
+        self.assertIn('value="900"', page.get_data(as_text=True))
+
+        for invalid in ("29", "1801", "1.5", "1e2", "9" * 5000):
+            with self.subTest(timeout=invalid):
+                self.assertEqual(
+                    400,
+                    self.post_setting(self.admin, "1", timeout_seconds=invalid).status_code,
+                )
+        self.assertEqual(
+            900,
+            SettingsStore(self.root).settings()["finance"]["bank_browser_timeout_seconds"],
+        )
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT detail FROM security_event WHERE action=?",
+                ("finance_bank_browser_setting_updated",),
+            ).fetchone()
+        self.assertEqual(900, json.loads(row["detail"])["timeout_seconds"])
+
+        with patch("app.finance_web.capture_santander_statement", side_effect=TimeoutError) as capture:
+            response = self.admin.post(
+                "/documents/business/bookkeeping/finances/bank-browser/santander",
+                data={"timeout_seconds": "30"},
+                headers={"X-CSRF-Token": "a" * 40},
+                environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            )
+        self.assertEqual(302, response.status_code)
+        capture.assert_called_once_with(timeout_seconds=900)
 
     def test_non_admin_missing_csrf_and_invalid_values_are_rejected(self):
         self.assertEqual(403, self.post_setting(self.user, "0", token="u" * 40).status_code)
@@ -132,6 +179,10 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bank browser setting"):
             SettingsStore(self.root).save(
                 {"finance": {"bank_browser_enabled": "0"}}, "finance-admin",
+            )
+        with self.assertRaisesRegex(ValueError, "bank browser timeout"):
+            SettingsStore(self.root).save(
+                {"finance": {"bank_browser_timeout_seconds": True}}, "finance-admin",
             )
 
     def test_legacy_database_setting_is_migrated_without_losing_its_value(self):

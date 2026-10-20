@@ -34,6 +34,17 @@ Wiederaufnahme eines Challenge-Dialogs sind derzeit nicht implementiert. Deaktiv
 Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder Umsatzabrufe starten.
 Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940 importiert werden.
 
+## Browsergestützter Santander-Export
+
+Der Browser-Export ist als sichtbarer, nutzerinitiierter Ablauf konfiguriert. Die
+Bankbrowser-Einstellung und ihr Timeout werden im Finance-Settings-Store gespeichert
+und revisionssicher auditiert. Der Standardwert beträgt 300 Sekunden; Administratoren
+können 30 bis 1800 Sekunden wählen. Der Zeitwert gilt ab dem nächsten Export und
+erfordert keinen Neustart. Ein Browser kann nur lokal auf dem ausführenden Rechner
+gestartet werden; bei Serverbetrieb öffnet er sich nicht auf einem entfernten Client.
+Login und Bankfreigabe bleiben bei Santander, Cookies und Bankzugangsdaten werden nicht
+dauerhaft gespeichert. Der Download wird vor Vorschau und bestätigtem Import geprüft.
+
 Regressionstests für Neuinstallation, additive Aktualisierung, erneutes Öffnen,
 Mandantentrennung und Wiederholbarkeit:
 

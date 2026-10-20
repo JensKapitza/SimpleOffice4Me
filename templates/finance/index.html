@@ -44,14 +44,22 @@
     <div class="card-header"><strong>Einstellungen · Finanzen &amp; Banking</strong></div>
     <div class="card-body">
       <p class="text-secondary">Bankbrowser: standardmäßig eingeschaltet. Ermöglicht einen sichtbaren Browser für den manuellen Login und Kontoauszug-Export. Playwright/Chromium muss auf dem ausführenden Rechner installiert sein. Bei Serverbetrieb startet der Browser auf dem Server.</p>
-      <form method="post" action="{{ url_for('.update_bank_browser_setting') }}" class="d-flex flex-wrap gap-3 align-items-center">
+      <form method="post" action="{{ url_for('.update_bank_browser_setting') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <label class="form-label mb-0" for="bank-browser-enabled">Browsergestützten Bankabruf</label>
-        <select class="form-select w-auto" name="enabled" id="bank-browser-enabled">
-          <option value="1" {% if bank_browser_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
-          <option value="0" {% if not bank_browser_enabled %}selected{% endif %}>Deaktiviert</option>
-        </select>
-        <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+        <div class="col-md-4">
+          <label class="form-label" for="bank-browser-enabled">Browsergestützten Bankabruf</label>
+          <select class="form-select" name="enabled" id="bank-browser-enabled">
+            <option value="1" {% if bank_browser_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
+            <option value="0" {% if not bank_browser_enabled %}selected{% endif %}>Deaktiviert</option>
+          </select>
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="bank-browser-timeout">Zeitlimit pro Export (Sekunden)</label>
+          <input class="form-control" type="number" name="timeout_seconds" id="bank-browser-timeout"
+                 value="{{ bank_browser_timeout_seconds }}" min="30" max="1800" step="30" required>
+          <div class="form-text">Zulässig: 30 bis 1800 Sekunden. Änderungen gelten für den nächsten Abruf.</div>
+        </div>
+        <div class="col-md-4"><button class="btn btn-primary" type="submit">Einstellung speichern</button></div>
       </form>
     </div>
   </section>
@@ -64,7 +72,8 @@
       bestätige die Freigabe auf deinem Handy und starte den Kontoauszugs-Export auf der Bankseite.
       Nach dem Download erscheint die Importvorschau. Zugangsdaten werden hier nicht abgefragt.</p>
       <p class="text-secondary small">Standardmäßig aktiviert. Playwright und Chromium müssen auf dem ausführenden Rechner installiert sein.
-      Bei einer Serverinstallation öffnet sich der Browser auf dem Server, nicht auf deinem Endgerät. Die Anfrage wartet bis zu fünf Minuten.</p>
+      Bei einer Serverinstallation öffnet sich der Browser auf dem Server, nicht auf deinem Endgerät.
+      Die Anfrage wartet bis zu {{ bank_browser_timeout_seconds }} Sekunden.</p>
       <form method="post" action="{{ url_for('.santander_browser_download') }}" class="row g-2 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-8"><label class="form-label" for="santander-account">Zielkonto</label>
