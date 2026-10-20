@@ -37,6 +37,7 @@ class _FakePage:
         self.listeners[event] = callback
 
     def goto(self, _url, **_kwargs):
+        self.context.harness.start_url = _url
         if self.context.harness.mode == "popup":
             self.context.emit_popup_download()
         elif self.context.harness.mode == "direct":
@@ -102,6 +103,7 @@ class _FakePlaywright:
         self.context_options = None
         self.download = None
         self.download_directory = ""
+        self.start_url = ""
 
     def sync_playwright(self):
         return self
@@ -174,6 +176,7 @@ class BrowserBankDownloadTests(unittest.TestCase):
 
         self.assertEqual("konto.csv", result.filename)
         self.assertTrue(result.content.startswith(b"Buchungstag;Betrag"))
+        self.assertEqual("https://www.santander.de/", harness.start_url)
         self.assertEqual({"headless": False, "downloads_path": harness.download_directory}, harness.launch_options)
         self.assertEqual({"accept_downloads": True}, harness.context_options)
         self.assertTrue(harness.browser.closed)
