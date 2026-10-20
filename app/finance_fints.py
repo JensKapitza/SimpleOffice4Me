@@ -19,7 +19,20 @@ class FinTSUnavailable(RuntimeError):
 
 
 class FinTSAuthenticationRequired(RuntimeError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        challenge_state: dict[str, Any] | None = None,
+        challenge_response: Any = None,
+        challenge_text: str = "",
+        decoupled: bool = False,
+    ):
+        super().__init__(message)
+        self.challenge_state = challenge_state
+        self.challenge_response = challenge_response
+        self.challenge_text = text(challenge_text, 2000)
+        self.decoupled = decoupled is True
 
 
 @dataclass(frozen=True)
@@ -87,7 +100,12 @@ def normalize_account(account: Any) -> DiscoveredBankAccount:
     )
 
 
-def _client(connection: dict[str, Any], pin: str):
+def _client(
+    connection: dict[str, Any],
+    pin: str,
+    *,
+    from_data: bytes | None = None,
+):
     if text(connection.get("provider"), 30).casefold() != "fints":
         raise ValueError("Bankverbindung ist keine FinTS-Verbindung")
     if text(connection.get("status", "configured"), 40).casefold() == "disabled":
@@ -116,13 +134,30 @@ def _client(connection: dict[str, Any], pin: str):
             "FinTS-Produkt-ID fehlt oder ist ungültig. Hinterlege eine gültige, bei der "
             "Deutschen Kreditwirtschaft registrierte Produkt-ID in SIMPLEOFFICE_FINTS_PRODUCT_ID."
         )
-    return client_class(bank_code, login_id, pin, endpoint, product_id=product_id)
+    options = {"product_id": product_id}
+    if from_data is not None:
+        if not isinstance(from_data, bytes) or not from_data or len(from_data) > 512 * 1024:
+            raise ValueError("FinTS-Clientzustand ist ungültig")
+        options["from_data"] = from_data
+    return client_class(bank_code, login_id, pin, endpoint, **options)
+
+
+def is_tan_response(value: Any) -> bool:
+    """Recognize python-fints interactive challenge objects without requiring the extra."""
+    if value is None:
+        return False
+    return value.__class__.__name__.casefold().startswith("needtan") and callable(
+        getattr(value, "get_data", None)
+    )
 
 
 def _sepa_accounts(client: Any) -> Iterable[Any]:
     accounts = client.get_sepa_accounts()
-    if hasattr(accounts, "challenge") or accounts.__class__.__name__.casefold().startswith("needtan"):
-        raise FinTSAuthenticationRequired("Die Bank verlangt eine TAN/App-Freigabe für den Kontenabruf.")
+    if is_tan_response(accounts):
+        raise FinTSAuthenticationRequired(
+            "Die Bank verlangt eine TAN/App-Freigabe für den Kontenabruf.",
+            challenge_response=accounts,
+        )
     if not isinstance(accounts, Iterable) or isinstance(accounts, (str, bytes, dict)):
         raise ValueError("FinTS lieferte ein unbekanntes Kontenformat")
     return accounts

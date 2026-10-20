@@ -35,10 +35,23 @@ Laufzeitkonfiguration des Dienstes hinterlegt werden. Sie ist eine Produktkennun
 keine Benutzer-PIN oder TAN. Ohne gültige Produkt-ID starten FinTS-Abrufe nicht und
 zeigen eine entsprechende Konfigurationsmeldung.
 
-Fordert die Bank eine TAN oder App-Freigabe, wird der Abruf sicher beendet; TAN-Eingabe
-und Wiederaufnahme eines Challenge-Dialogs sind derzeit nicht implementiert. Deaktivierte
-Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder Umsatzabrufe starten.
-Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940 importiert werden.
+Fordert die Bank für einen ausdrücklich gestarteten Saldoabruf eine TAN oder App-Freigabe,
+kann dieser einzelne lesende Vorgang fortgesetzt werden. Der kurzlebige python-fints-Client-,
+Dialog- und Retry-Zustand wird mit `SECRET_KEY` serverseitig verschlüsselt gespeichert,
+an den angemeldeten Benutzer, die Bankverbindung und das zugeordnete Konto gebunden und
+nach fünf Minuten gelöscht. Der zufällige Fortsetzungstoken wird nur gehasht gespeichert
+und kann einmalig verwendet werden. Je Benutzer sind höchstens drei und insgesamt höchstens
+100 Freigaben offen. Der Token wird nur als CSRF-geschütztes Formularfeld übertragen. Für
+die Fortsetzung müssen PIN und gegebenenfalls TAN erneut eingegeben werden; beide bleiben
+request-lokal und werden weder im Zustand noch in der Datenbank gespeichert. App-Freigaben
+übermitteln keine TAN. Der gelesene Saldo bleibt flüchtig und erzeugt keine Buchung.
+
+Dieser SCA-Resume gilt ausschließlich für den manuellen Kontostandsabruf, einschließlich
+einer eventuell dafür benötigten Kontodiscovery. SCA-Anforderungen bei Dialoginitialisierung,
+Umsatzimport oder anderen FinTS-Vorgängen werden nicht umgangen und bleiben fail-closed.
+Deaktivierte Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder
+Umsatzabrufe starten. Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940
+importiert werden.
 
 Regressionstests für Neuinstallation, additive Aktualisierung, erneutes Öffnen,
 Mandantentrennung und Wiederholbarkeit:
