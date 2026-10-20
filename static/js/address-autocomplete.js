@@ -69,6 +69,16 @@
     input.setAttribute('aria-haspopup', 'listbox');
   }
 
+  function clearAutocompleteAttributesFromHiddenInputs() {
+    document.querySelectorAll('input[type="hidden"]').forEach(input => {
+      Array.from(input.attributes).forEach(attribute => {
+        if (attribute.name === 'autocomplete' || attribute.name.startsWith('aria-')) {
+          input.removeAttribute(attribute.name);
+        }
+      });
+    });
+  }
+
   function prepareLegacyCrm() {
     const helper = document.getElementById('osm-address-helper');
     if (!helper) return;
@@ -255,6 +265,8 @@
   prepareGenericForms();
   document.querySelectorAll('[data-address-autocomplete]').forEach(initGroup);
   document.querySelectorAll('input[name="address"]').forEach(initFreeform);
+  clearAutocompleteAttributesFromHiddenInputs();
+  document.addEventListener('DOMContentLoaded', clearAutocompleteAttributesFromHiddenInputs, {once: true});
   document.querySelectorAll('form[data-address-compose]').forEach(form => {
     form.addEventListener('submit', () => {
       const fieldValue = name => value(form.querySelector(`[data-address-field="${name}"]`));
