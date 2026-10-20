@@ -85,10 +85,10 @@ class CompanySearchBrowserTests(unittest.TestCase):
                 content_type="text/html",
                 body=(
                     "<!doctype html><meta charset=utf-8><title>Mock search</title>"
-                    f'<main id="company-result">Name: Browser Works {label} GmbH\n'
+                    f'<pre id="company-result">Name: Browser Works {label} GmbH\n'
                     f'Firma: Browser Works {label} GmbH\nStraße: Teststraße\n'
                     "Hausnummer: 8\nPLZ: 10115\nOrt: Berlin\n"
-                    "E-Mail: office@example.test</main>"
+                    "E-Mail: office@example.test</pre>"
                 ),
             )
 
