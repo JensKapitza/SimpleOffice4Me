@@ -171,7 +171,7 @@ class SiteVisitFindingAssignmentRouteTests(unittest.TestCase):
             g.user = {"username": "alice", "is_admin": False}
             with patch("app.site_visits._visit", return_value=self.record):
                 with patch("app.site_visits.render_template", side_effect=lambda name, **context: (name, context)):
-                    return site_visits.finding_assignments(self.visit_id)
+                    return site_visits.finding_assignments(visit_id=self.visit_id)
 
     def test_unassigned_filter_only_lists_findings_without_room_or_asset(self):
         template, context = self._render(
