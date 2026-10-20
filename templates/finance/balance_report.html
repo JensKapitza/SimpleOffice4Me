@@ -1,0 +1,24 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h1 class="h3 mb-0">Lesender FinTS-Kontostand</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('.index', account_id=account.account_id) }}">Zurück zu Finanzen</a>
+  </div>
+  <p class="text-secondary">Dieser Abruf ist nur lesend. Der angezeigte Saldo wird nicht gespeichert; PIN und TAN werden nicht protokolliert.</p>
+  <section class="card" aria-labelledby="balance-account-title">
+    <div class="card-header"><strong id="balance-account-title">{{ account.name }}</strong>{% if account.institution %} · {{ account.institution }}{% endif %}</div>
+    <div class="card-body">
+      {% if account.remote_iban %}<p class="small text-secondary">Zugeordnetes Bankkonto endet auf {{ account.remote_iban[-4:] }}</p>{% endif %}
+      <dl class="row mb-0">
+        <dt class="col-sm-5">Gebuchter Kontostand</dt>
+        <dd class="col-sm-7 fw-semibold">{{ balance.booked_balance }} {{ balance.currency }}</dd>
+        <dt class="col-sm-5">Verfügbarer Saldo</dt>
+        <dd class="col-sm-7">{% if balance.available_balance %}{{ balance.available_balance }} {{ balance.available_currency or balance.currency }}{% else %}<span class="text-secondary">Von der Bank / FinTS-Bibliothek nicht separat geliefert</span>{% endif %}</dd>
+      </dl>
+      <p class="small text-secondary mt-3 mb-0">Es wird nur der vom FinTS-Adapter gelieferten gebuchte Saldo angezeigt. Eine erforderliche TAN/App-Freigabe wird nicht umgangen oder gespeichert.</p>
+    </div>
+  </section>
+</main>
+{% endblock %}

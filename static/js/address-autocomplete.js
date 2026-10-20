@@ -61,12 +61,22 @@
   }
 
   function markField(input, kind) {
-    if (!input) return;
+    if (!input || input.type === 'hidden') return;
     input.setAttribute(`data-address-${kind}`, '');
     input.dataset.addressField = kind;
     input.setAttribute('autocomplete', 'off');
     input.setAttribute('aria-autocomplete', 'list');
     input.setAttribute('aria-haspopup', 'listbox');
+  }
+
+  function clearAutocompleteAttributesFromHiddenInputs() {
+    document.querySelectorAll('input[type="hidden"]').forEach(input => {
+      Array.from(input.attributes).forEach(attribute => {
+        if (attribute.name === 'autocomplete' || attribute.name.startsWith('aria-')) {
+          input.removeAttribute(attribute.name);
+        }
+      });
+    });
   }
 
   function prepareLegacyCrm() {
@@ -94,14 +104,16 @@
   function prepareGenericForms() {
     document.querySelectorAll('form').forEach(form => {
       if (form.closest('[data-address-autocomplete]')) return;
-      const city = form.querySelector('[name="city"], [name$="_city"], [name="ort"], [name$="_ort"]');
-      const postal = form.querySelector('[name="postal"], [name$="_postal"], [name="postal_code"], [name$="_postal_code"], [name="plz"], [name$="_plz"]');
-      const street = form.querySelector('[name="street"], [name$="_street"], [name="strasse"], [name$="_strasse"]');
+      const findVisibleField = selector => [...form.querySelectorAll(selector)]
+        .find(field => field.type !== 'hidden');
+      const city = findVisibleField('[name="city"], [name$="_city"], [name="ort"], [name$="_ort"]');
+      const postal = findVisibleField('[name="postal"], [name$="_postal"], [name="postal_code"], [name$="_postal_code"], [name="plz"], [name$="_plz"]');
+      const street = findVisibleField('[name="street"], [name$="_street"], [name="strasse"], [name$="_strasse"]');
       if (!(city && postal && street)) return;
       form.dataset.addressAutocomplete = '';
       form.dataset.addressEndpoint = DEFAULT_ENDPOINT;
       markField(city, 'city'); markField(postal, 'postal'); markField(street, 'street');
-      const country = form.querySelector('[name="country"], [name$="_country"], [name="land"], [name$="_land"]');
+      const country = findVisibleField('[name="country"], [name$="_country"], [name="land"], [name$="_land"]');
       markField(country, 'country');
     });
   }
@@ -253,6 +265,8 @@
   prepareGenericForms();
   document.querySelectorAll('[data-address-autocomplete]').forEach(initGroup);
   document.querySelectorAll('input[name="address"]').forEach(initFreeform);
+  clearAutocompleteAttributesFromHiddenInputs();
+  document.addEventListener('DOMContentLoaded', clearAutocompleteAttributesFromHiddenInputs, {once: true});
   document.querySelectorAll('form[data-address-compose]').forEach(form => {
     form.addEventListener('submit', () => {
       const fieldValue = name => value(form.querySelector(`[data-address-field="${name}"]`));

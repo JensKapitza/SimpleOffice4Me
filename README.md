@@ -32,6 +32,9 @@ Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
   LibreOffice, Thunderbird und Dateimanager
 - CRM-Kontaktübersicht mit Suche, Filtern, Kommunikationshistorie,
   Änderungshistorie, Benutzerzuordnung und CardDAV-Synchronisation
+- API- und schlüsselfreie Firmensuche über ausdrücklich angeklickte externe
+  Suchlinks mit lokaler Dublettenprüfung und Vorschau der manuell eingefügten
+  Felder; bestehende Kontaktdaten werden dabei nicht automatisch überschrieben
 - lokale Adresssuche mit Vorschlägen ab drei Zeichen und automatischer
   Übernahme eindeutiger Angaben in Ort, Postleitzahl und Straße
 - Kalender mit Serien, Erinnerungen, Einladungen, Status, Ressourcen,
