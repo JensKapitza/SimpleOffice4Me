@@ -18,6 +18,22 @@ Vor Updates die bestehenden Sicherungsverfahren für das Dokumentenverzeichnis v
 Bei Schreib- oder Dateiberechtigungsfehlern müssen die Zugriffsrechte des ausführenden
 SimpleOffice-Benutzers geprüft werden.
 
+## FinTS-Kontostände
+
+Nach Konfiguration einer FinTS-Bankverbindung, dem Kontenabruf und der manuellen
+Zuordnung eines Bankkontos zu einem lokalen Konto kann die Finance-Oberfläche einen
+Kontostand ausdrücklich und nur lesend abrufen. Die PIN wird für den einzelnen
+POST-Aufruf benötigt, nicht gespeichert und nicht in die Antwort aufgenommen. Die
+Saldoantwort wird mit `no-store` ausgeliefert und nicht als Buchung persistiert. Der
+gebuchte Saldo wird angezeigt; ein verfügbarer Saldo erscheint nur, wenn die Bank bzw.
+die FinTS-Bibliothek ihn separat liefert.
+
+Die optionale FinTS-Bibliothek wird über das Extra `banking` installiert. Fordert die
+Bank eine TAN oder App-Freigabe, wird der Abruf sicher beendet; TAN-Eingabe und
+Wiederaufnahme eines Challenge-Dialogs sind derzeit nicht implementiert. Deaktivierte
+Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder Umsatzabrufe starten.
+Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940 importiert werden.
+
 Regressionstests für Neuinstallation, additive Aktualisierung, erneutes Öffnen,
 Mandantentrennung und Wiederholbarkeit:
 

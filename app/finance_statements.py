@@ -161,34 +161,37 @@ def _csv_preamble_and_body(text_value: str) -> tuple[list[str], str]:
 
 
 def _preamble_iban(line: str) -> str:
-    label = re.search(r"\bIBAN\b", line, re.IGNORECASE)
-    if label is None:
+    """Extract an IBAN from a CSV preamble without a backtracking capture."""
+    marker = re.search(r"\bIBAN\b", line, re.IGNORECASE)
+    if marker is None:
         return ""
-    cursor = label.end()
+    cursor = marker.end()
     while cursor < len(line) and line[cursor].isspace():
         cursor += 1
-    if cursor < len(line) and line[cursor] in ":;=":
+    if cursor < len(line) and line[cursor] in {":", ";", "="}:
         cursor += 1
     while cursor < len(line) and line[cursor].isspace():
         cursor += 1
 
-    start = cursor
     if cursor + 2 > len(line) or not all(
         character.isascii() and character.isalpha()
         for character in line[cursor:cursor + 2]
     ):
         return ""
+    candidate = [line[cursor], line[cursor + 1]]
     cursor += 2
-    remaining = 0
-    while cursor < len(line) and remaining < 34:
+    alphanumeric_count = 2
+    while cursor < len(line) and alphanumeric_count < 34:
         character = line[cursor]
-        if not (character == " " or character.isascii() and character.isalnum()):
+        if not (character.isspace() or character.isascii() and character.isalnum()):
             break
+        if not character.isspace():
+            alphanumeric_count += 1
+        candidate.append(character)
         cursor += 1
-        remaining += 1
-    if remaining < 13:
+    if alphanumeric_count < 15:
         return ""
-    return line[start:cursor]
+    return "".join(candidate)
 
 
 def parse_csv(raw: bytes) -> list[ParsedStatement]:

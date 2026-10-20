@@ -35,6 +35,27 @@ class FinanceStatementTests(unittest.TestCase):
         self.assertEqual("already_imported", again["status"])
         self.assertEqual(2, len(self.store.bank_transactions(self.account["account_id"], "jens")))
 
+    def test_csv_preamble_iban_accepts_long_separator_whitespace(self):
+        raw = (
+            "IBAN" + (" " * 100_000) + "DE89370400440532013000\n"
+            "Buchungstag;Betrag;Verwendungszweck\n"
+            "01.09.2026;-10,00;Test\n"
+        ).encode()
+        statement = parse_statement_bytes(raw, "long-preamble.csv")[0]
+        self.assertEqual("DE89370400440532013000", statement.account_iban)
+
+    def test_csv_preamble_preserves_spaces_in_long_iban(self):
+        iban = "MT84 MALT 0110 0001 2345 MTLC AST0 01S"
+        raw = (
+            f"IBAN: {iban}\n"
+            "Buchungstag;Betrag;Verwendungszweck\n"
+            "01.09.2026;-10,00;Test\n"
+        ).encode()
+
+        statement = parse_statement_bytes(raw, "long-iban.csv")[0]
+
+        self.assertEqual("".join(iban.split()), statement.account_iban)
+
     def test_csv_requires_explicit_account_when_statement_has_no_iban(self):
         raw = b"Buchungsdatum;Betrag;Verwendungszweck\n2026-09-01;-10,00;Test\n"
         preview = self.importer.preview(raw, "export.csv", "jens")

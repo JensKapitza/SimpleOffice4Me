@@ -89,6 +89,8 @@ def normalize_account(account: Any) -> DiscoveredBankAccount:
 def _client(connection: dict[str, Any], pin: str):
     if text(connection.get("provider"), 30).casefold() != "fints":
         raise ValueError("Bankverbindung ist keine FinTS-Verbindung")
+    if text(connection.get("status", "configured"), 40).casefold() == "disabled":
+        raise ValueError("FinTS-Bankverbindung ist deaktiviert")
     bank_code = text(connection.get("bank_code"), 20)
     login_id = text(connection.get("login_id"), 200)
     endpoint = text(connection.get("endpoint"), 500)
@@ -97,15 +99,26 @@ def _client(connection: dict[str, Any], pin: str):
         raise ValueError("BLZ, Benutzerkennung und FinTS-URL werden benötigt")
     if not pin:
         raise ValueError("PIN wird nur für diesen Abruf benötigt")
+    if len(pin) > 256 or "\x00" in pin:
+        raise ValueError("PIN-Eingabe ist ungültig")
     if not endpoint.lower().startswith("https://"):
         raise ValueError("FinTS-URL muss HTTPS verwenden")
     return _library()(bank_code, login_id, pin, endpoint)
 
 
+def _sepa_accounts(client: Any) -> Iterable[Any]:
+    accounts = client.get_sepa_accounts()
+    if hasattr(accounts, "challenge") or accounts.__class__.__name__.casefold().startswith("needtan"):
+        raise FinTSAuthenticationRequired("Die Bank verlangt eine TAN/App-Freigabe für den Kontenabruf.")
+    if not isinstance(accounts, Iterable) or isinstance(accounts, (str, bytes, dict)):
+        raise ValueError("FinTS lieferte ein unbekanntes Kontenformat")
+    return accounts
+
+
 def discover_accounts(connection: dict[str, Any], pin: str) -> list[dict[str, str]]:
     client = _client(connection, pin)
     try:
-        accounts = client.get_sepa_accounts()
+        accounts = _sepa_accounts(client)
         return [normalize_account(account).as_dict() for account in accounts]
     finally:
         del client
@@ -198,7 +211,7 @@ def normalize_transaction(transaction: Any) -> dict[str, Any]:
 
 
 def _find_remote_account(client: Any, remote_account_id: str) -> Any:
-    accounts = client.get_sepa_accounts()
+    accounts = _sepa_accounts(client)
     for account in accounts:
         if _remote_id(account) == remote_account_id:
             return account
