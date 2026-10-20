@@ -84,6 +84,7 @@
     const fields = [...root.querySelectorAll("[data-company-value]")];
     const values = new Map(fields.map((field) => [field.dataset.companyValue, field]));
     let duplicateController;
+    let previewGeneration = 0;
 
     function updateLinks() {
       const urls = companySearchUrls(queryName.value, queryCity.value);
@@ -173,7 +174,15 @@
       });
     }
 
-    for (const field of [queryName, queryCity, websiteValue]) field.addEventListener("input", updateLinks);
+    for (const field of [queryName, queryCity, websiteValue]) {
+      field.addEventListener("input", () => {
+        if (field === queryName || field === queryCity) {
+          previewGeneration += 1;
+          duplicateController?.abort();
+        }
+        updateLinks();
+      });
+    }
     const editForm = root.closest("form[data-company-edit-form]")
       || document.querySelector(root.dataset.companyEditForm || "[data-company-edit-form]");
     for (const field of editForm?.querySelectorAll('[name="company"], [name="display_name"]') || []) {
@@ -183,6 +192,7 @@
       });
     }
     root.querySelector("[data-company-check-duplicates]").addEventListener("click", () => {
+      previewGeneration += 1;
       checkLocalDuplicates(queryName.value);
     });
 
@@ -199,11 +209,13 @@
     });
 
     root.querySelector("[data-company-preview-button]").addEventListener("click", async () => {
+      const generation = ++previewGeneration;
       previewRows.replaceChildren();
       const existingAddresses = Number(root.dataset.existingAddressCount || 0);
       const suggested = Object.fromEntries(fields.map((field) => [field.dataset.companyValue, field.value.trim()]));
       const companyQuery = suggested.company || suggested.display_name || queryName.value;
       await checkLocalDuplicates(companyQuery);
+      if (generation !== previewGeneration) return;
       const targetSelectors = {
         display_name: '[name="display_name"]', company: '[name="company"]',
         email: '[name="email"]', phone: '[name="phone"]', website: '[name="website"]',
