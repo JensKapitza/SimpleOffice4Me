@@ -5,6 +5,7 @@ those values. The adapter is deliberately read-only: no transfer methods exist.
 """
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
@@ -103,7 +104,19 @@ def _client(connection: dict[str, Any], pin: str):
         raise ValueError("PIN-Eingabe ist ungültig")
     if not endpoint.lower().startswith("https://"):
         raise ValueError("FinTS-URL muss HTTPS verwenden")
-    return _library()(bank_code, login_id, pin, endpoint)
+    client_class = _library()
+    product_id = os.environ.get("SIMPLEOFFICE_FINTS_PRODUCT_ID", "").strip()
+    if (
+        not product_id
+        or len(product_id) > 64
+        or not product_id.isascii()
+        or any(ord(character) < 32 or ord(character) == 127 for character in product_id)
+    ):
+        raise FinTSUnavailable(
+            "FinTS-Produkt-ID fehlt oder ist ungültig. Hinterlege eine gültige, bei der "
+            "Deutschen Kreditwirtschaft registrierte Produkt-ID in SIMPLEOFFICE_FINTS_PRODUCT_ID."
+        )
+    return client_class(bank_code, login_id, pin, endpoint, product_id=product_id)
 
 
 def _sepa_accounts(client: Any) -> Iterable[Any]:

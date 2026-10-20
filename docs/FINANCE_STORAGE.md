@@ -28,9 +28,15 @@ Saldoantwort wird mit `no-store` ausgeliefert und nicht als Buchung persistiert.
 gebuchte Saldo wird angezeigt; ein verfügbarer Saldo erscheint nur, wenn die Bank bzw.
 die FinTS-Bibliothek ihn separat liefert.
 
-Die optionale FinTS-Bibliothek wird über das Extra `banking` installiert. Fordert die
-Bank eine TAN oder App-Freigabe, wird der Abruf sicher beendet; TAN-Eingabe und
-Wiederaufnahme eines Challenge-Dialogs sind derzeit nicht implementiert. Deaktivierte
+Die optionale FinTS-Bibliothek wird über das Extra `banking` installiert. python-fints
+ab Version 4 verlangt eine bei der Deutschen Kreditwirtschaft registrierte Produkt-ID;
+diese muss als `SIMPLEOFFICE_FINTS_PRODUCT_ID` in der vertrauenswürdigen
+Laufzeitkonfiguration des Dienstes hinterlegt werden. Sie ist eine Produktkennung,
+keine Benutzer-PIN oder TAN. Ohne gültige Produkt-ID starten FinTS-Abrufe nicht und
+zeigen eine entsprechende Konfigurationsmeldung.
+
+Fordert die Bank eine TAN oder App-Freigabe, wird der Abruf sicher beendet; TAN-Eingabe
+und Wiederaufnahme eines Challenge-Dialogs sind derzeit nicht implementiert. Deaktivierte
 Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder Umsatzabrufe starten.
 Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940 importiert werden.
 
