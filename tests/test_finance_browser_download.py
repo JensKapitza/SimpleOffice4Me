@@ -13,6 +13,10 @@ from app.finance_browser_download import (
 )
 
 
+class _FakePlaywrightTimeoutError(Exception):
+    pass
+
+
 class _FakeDownload:
     def __init__(self, directory, url, filename, content):
         self.url = url
@@ -38,6 +42,9 @@ class _FakePage:
 
     def goto(self, _url, **_kwargs):
         self.context.harness.start_url = _url
+        self.context.harness.navigation_timeout_ms = _kwargs.get("timeout")
+        if self.context.harness.mode == "navigation_timeout":
+            raise _FakePlaywrightTimeoutError("navigation timeout")
         if self.context.harness.mode == "popup":
             self.context.emit_popup_download()
         elif self.context.harness.mode == "direct":
@@ -104,6 +111,7 @@ class _FakePlaywright:
         self.download = None
         self.download_directory = ""
         self.start_url = ""
+        self.navigation_timeout_ms = None
 
     def sync_playwright(self):
         return self
@@ -116,6 +124,8 @@ class _FakePlaywright:
 
     def launch(self, **kwargs):
         self.launch_options = kwargs
+        if self.mode == "launch_timeout":
+            raise _FakePlaywrightTimeoutError("launch timeout")
         self.download_directory = kwargs["downloads_path"]
         self.browser = _FakeBrowser(self, self.download_directory)
         return self.browser
@@ -134,6 +144,7 @@ class _FakePlaywright:
         package.__path__ = []
         api = ModuleType("playwright.sync_api")
         api.sync_playwright = self.sync_playwright
+        api.TimeoutError = _FakePlaywrightTimeoutError
         return {"playwright": package, "playwright.sync_api": api}
 
 
@@ -177,7 +188,14 @@ class BrowserBankDownloadTests(unittest.TestCase):
         self.assertEqual("konto.csv", result.filename)
         self.assertTrue(result.content.startswith(b"Buchungstag;Betrag"))
         self.assertEqual("https://www.santander.de/", harness.start_url)
-        self.assertEqual({"headless": False, "downloads_path": harness.download_directory}, harness.launch_options)
+        self.assertGreaterEqual(harness.navigation_timeout_ms, 29_000)
+        self.assertLessEqual(harness.navigation_timeout_ms, 30_000)
+        launch_options = dict(harness.launch_options)
+        self.assertGreaterEqual(launch_options.pop("timeout"), 29_000)
+        self.assertEqual(
+            {"headless": False, "downloads_path": harness.download_directory},
+            launch_options,
+        )
         self.assertEqual({"accept_downloads": True}, harness.context_options)
         self.assertTrue(harness.browser.closed)
         self.assertFalse(Path(harness.download_directory).exists())
@@ -194,11 +212,31 @@ class BrowserBankDownloadTests(unittest.TestCase):
     def test_capture_timeout_closes_visible_browser(self):
         harness = _FakePlaywright(mode="wait")
         with patch.dict(sys.modules, harness.module_mocks()):
-            with patch("app.finance_browser_download.time.monotonic", side_effect=(0, 0, 31)):
+            with patch("app.finance_browser_download.time.monotonic", side_effect=(0, 0, 0, 31)):
                 with self.assertRaisesRegex(TimeoutError, "Zeitlimit"):
                     capture_santander_statement(timeout_seconds=30)
 
         self.assertTrue(harness.browser.closed)
+
+    def test_navigation_uses_configured_deadline_and_converts_playwright_timeout(self):
+        harness = _FakePlaywright(mode="navigation_timeout")
+        with patch.dict(sys.modules, harness.module_mocks()):
+            with self.assertRaisesRegex(TimeoutError, "Santander-Seite.*Zeitlimit"):
+                capture_santander_statement(timeout_seconds=90)
+
+        self.assertGreaterEqual(harness.navigation_timeout_ms, 89_000)
+        self.assertLessEqual(harness.navigation_timeout_ms, 90_000)
+        self.assertTrue(harness.browser.closed)
+
+    def test_browser_launch_timeout_is_converted_to_export_timeout(self):
+        harness = _FakePlaywright(mode="launch_timeout")
+        with patch.dict(sys.modules, harness.module_mocks()):
+            with patch("app.finance_browser_download.time.monotonic", side_effect=(0, 0)):
+                with self.assertRaisesRegex(TimeoutError, "Browser"):
+                    capture_santander_statement(timeout_seconds=30)
+
+        self.assertEqual(30000, harness.launch_options["timeout"])
+        self.assertIsNone(harness.browser)
 
 
 if __name__ == "__main__":

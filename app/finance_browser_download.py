@@ -48,6 +48,13 @@ def _checked_download(filename: str, data: bytes) -> CapturedStatement:
     return CapturedStatement(name, data)
 
 
+def _remaining_timeout_ms(deadline: float) -> int:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Zeitlimit für den Santander-Export überschritten")
+    return max(1, int(remaining * 1000))
+
+
 def capture_santander_statement(
     *, timeout_seconds: int = DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
 ) -> CapturedStatement:
@@ -68,22 +75,40 @@ def capture_santander_statement(
             f"{MIN_BANK_BROWSER_TIMEOUT_SECONDS} und {MAX_BANK_BROWSER_TIMEOUT_SECONDS} Sekunden liegen"
         )
     try:
+        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise RuntimeError("Browser-Abruf benötigt das optionale Paket playwright") from exc
 
+    deadline = time.monotonic() + timeout_seconds
     with TemporaryDirectory(prefix="simpleoffice-bank-") as directory:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=False, downloads_path=directory)
+            try:
+                browser = playwright.chromium.launch(
+                    headless=False,
+                    downloads_path=directory,
+                    timeout=_remaining_timeout_ms(deadline),
+                )
+            except PlaywrightTimeoutError as exc:
+                raise TimeoutError("Zeitlimit beim Start des Santander-Browsers überschritten") from exc
             try:
                 context = browser.new_context(accept_downloads=True)
                 page = context.new_page()
                 downloads = []
                 context.on("page", lambda popup: popup.on("download", lambda item: downloads.append(item)))
                 page.on("download", lambda item: downloads.append(item))
-                page.goto(SANTANDER_START_URL, wait_until="domcontentloaded", timeout=30000)
-                deadline = time.monotonic() + timeout_seconds
-                while time.monotonic() < deadline:
+                try:
+                    page.goto(
+                        SANTANDER_START_URL,
+                        wait_until="domcontentloaded",
+                        timeout=_remaining_timeout_ms(deadline),
+                    )
+                except PlaywrightTimeoutError as exc:
+                    raise TimeoutError("Santander-Seite wurde nicht innerhalb des Zeitlimits geladen") from exc
+                while True:
+                    remaining_seconds = deadline - time.monotonic()
+                    if remaining_seconds <= 0:
+                        raise TimeoutError("Keine Kontoauszugsdatei innerhalb des Zeitlimits heruntergeladen")
                     if downloads:
                         download = downloads.pop(0)
                         if not _allowed_santander_url(download.url):
@@ -101,7 +126,9 @@ def capture_santander_statement(
                         return _checked_download(filename, Path(path).read_bytes())
                     if not any(not tab.is_closed() for tab in context.pages):
                         raise ValueError("Bankbrowser wurde geschlossen")
-                    next(tab for tab in context.pages if not tab.is_closed()).wait_for_timeout(250)
-                raise TimeoutError("Keine Kontoauszugsdatei innerhalb des Zeitlimits heruntergeladen")
+                    wait_milliseconds = max(1, min(250, int(remaining_seconds * 1000)))
+                    next(tab for tab in context.pages if not tab.is_closed()).wait_for_timeout(wait_milliseconds)
+            except PlaywrightTimeoutError as exc:
+                raise TimeoutError("Santander-Export wurde nicht innerhalb des Zeitlimits abgeschlossen") from exc
             finally:
                 browser.close()
