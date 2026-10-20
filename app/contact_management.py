@@ -642,6 +642,31 @@ class ContactManagement:
         merged["addresses"] = addresses
         merged["tags"] = self._clean_labels([*target_n.get("tags", []), *source_n.get("tags", [])])
         merged["groups"] = self._clean_labels([*target_n.get("groups", []), *source_n.get("groups", [])])
+        external_sources: list[dict[str, Any]] = []
+        seen_sources: set[tuple[str, str, str, tuple[str, ...]]] = set()
+        target_sources = target_n.get("external_data_sources", [])
+        source_sources = source_n.get("external_data_sources", [])
+        if not isinstance(target_sources, list):
+            target_sources = []
+        if not isinstance(source_sources, list):
+            source_sources = []
+        for item in (*target_sources, *source_sources):
+            if not isinstance(item, dict):
+                continue
+            raw_fields = item.get("fields", [])
+            field_key = tuple(sorted(str(value) for value in raw_fields)) if isinstance(raw_fields, (list, tuple, set)) else ()
+            key = (
+                str(item.get("url", "")), str(item.get("retrieved_at", "")),
+                str(item.get("recorded_by", "")), field_key,
+            )
+            if not key[0] or key in seen_sources:
+                continue
+            seen_sources.add(key)
+            external_sources.append(copy.deepcopy(item))
+        if external_sources:
+            merged["external_data_sources"] = external_sources
+        else:
+            merged.pop("external_data_sources", None)
         merged["managers"] = sorted(set(target_n.get("managers", [])) | set(source_n.get("managers", [])), key=str.casefold)
         merged["readers"] = sorted((set(target_n.get("readers", [])) | set(source_n.get("readers", []))) - set(merged["managers"]), key=str.casefold)
         merged["changes"] = [*source_n.get("changes", []), *target_n.get("changes", [])][-200:]

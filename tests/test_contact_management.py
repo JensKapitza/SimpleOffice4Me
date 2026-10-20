@@ -97,6 +97,35 @@ class ContactManagementTest(unittest.TestCase):
             self.assertIn("merge_target", reasons)
             self.assertIn("merge_source", reasons)
 
+    def test_merge_preserves_external_company_data_sources_from_both_contacts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = ContactStore(Path(temp))
+            target = store.upsert(
+                {"display_name": "Musterwerke GmbH"},
+                "admin",
+                metadata={"company_data_source": {
+                    "url": "https://www.google.com/maps/search/?q=company",
+                    "fields": ["company"],
+                }},
+            )
+            source = store.upsert(
+                {"display_name": "Musterwerke Berlin"},
+                "admin",
+                metadata={"company_data_source": {
+                    "url": "https://www.musterwerke.example/impressum",
+                    "fields": ["website", "phone"],
+                }},
+            )
+
+            merged = ContactManagement(Path(temp)).merge(
+                target["contact_id"], source["contact_id"], "admin",
+            )
+
+            self.assertEqual(
+                {"https://www.google.com/maps/search/", "https://www.musterwerke.example/impressum"},
+                {row["url"] for row in merged["external_data_sources"]},
+            )
+
     def test_merge_preserves_different_phone_and_email_as_vcard_values(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

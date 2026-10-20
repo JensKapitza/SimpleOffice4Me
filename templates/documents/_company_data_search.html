@@ -1,0 +1,53 @@
+{% set company_search_name = company_search_name|default('', true) %}
+{% set company_search_city = company_search_city|default('', true) %}
+{% set company_search_contact_id = company_search_contact_id|default('', true) %}
+{% set company_search_existing_address_count = company_search_existing_address_count|default(0, true) %}
+{% set company_search_query = (company_search_name ~ ' ' ~ company_search_city)|trim %}
+<input type="hidden" name="company_data_source" data-company-data-source>
+<input type="hidden" name="company_data_fields" data-company-data-fields>
+{% for field in ('street','house_number','postal','city','state','country') %}<input type="hidden" name="company_data_{{ field }}" data-company-hidden-address="{{ field }}">{% endfor %}
+<div class="col-12" data-company-data-search data-contact-id="{{ company_search_contact_id }}" data-company-search-endpoint="{{ url_for('documents.company_contact_search') }}" data-contact-url-template="{{ url_for('documents.contact_detail', contact_id='__CONTACT_ID__') }}" data-existing-address-count="{{ company_search_existing_address_count }}">
+  <details class="border rounded p-3 bg-light-subtle">
+    <summary class="fw-semibold">Firmendaten suchen und manuell übernehmen</summary>
+    <p class="small text-secondary mt-2 mb-3">Funktioniert ohne API-Schlüssel oder Registrierung. Suchseiten öffnen sich nur nach deinem Klick in einem neuen Tab. Ergebnisse werden nicht automatisch ausgelesen; Daten bleiben bis zur Vorschau und ausdrücklichen Speicherung im Formular.</p>
+    <div class="row g-2 align-items-end mb-3">
+      <div class="col-md-6"><label class="form-label" for="company-search-name">Firmenname</label><input id="company-search-name" class="form-control" data-company-query-name value="{{ company_search_name }}" maxlength="200" autocomplete="organization"></div>
+      <div class="col-md-4"><label class="form-label" for="company-search-city">Ort (optional)</label><input id="company-search-city" class="form-control" data-company-query-city value="{{ company_search_city }}" maxlength="100" autocomplete="address-level2"></div>
+      <div class="col-md-2"><button class="btn btn-outline-secondary w-100" type="button" data-company-check-duplicates>Lokale Dubletten</button></div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mb-2" aria-label="Externe Firmen-Suchseiten">
+      <a class="btn btn-sm btn-outline-primary" data-company-provider="googleMaps" href="https://www.google.com/maps/search/?api=1&amp;query={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Google Maps</a>
+      <a class="btn btn-sm btn-outline-primary" data-company-provider="googleSearch" href="https://www.google.com/search?q={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Google Suche</a>
+      <a class="btn btn-sm btn-outline-primary" data-company-provider="bingMaps" href="https://www.bing.com/maps?q={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Bing Maps</a>
+      <a class="btn btn-sm btn-outline-primary" data-company-provider="openStreetMap" href="https://www.openstreetmap.org/search?query={{ company_search_query|urlencode }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">OpenStreetMap</a>
+      <a class="btn btn-sm btn-outline-secondary" data-company-website-link href="#" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer" hidden>Firmenwebsite öffnen</a>
+    </div>
+    <div class="small mb-3" data-company-duplicates aria-live="polite"></div>
+    <label class="form-label" for="company-search-paste">Von einer öffentlichen Firmenwebsite eingefügter Text</label>
+    <textarea class="form-control mb-2" id="company-search-paste" data-company-paste rows="3" maxlength="20000" placeholder="Name: Musterwerke GmbH&#10;Straße: Musterstraße&#10;Hausnummer: 12&#10;PLZ: 12345&#10;Ort: Berlin&#10;Telefon: +49 …&#10;E-Mail: info@example.de&#10;Webseite: https://example.de"></textarea>
+    <button class="btn btn-sm btn-outline-primary mb-3" type="button" data-company-parse>Beschriftete Zeilen zuordnen</button>
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label" for="company-import-name">Anzeigename</label><input class="form-control" id="company-import-name" data-company-value="display_name" data-company-label="Anzeigename" maxlength="300"></div>
+      <div class="col-md-6"><label class="form-label" for="company-import-company">Firma / Arbeitgeber</label><input class="form-control" id="company-import-company" data-company-value="company" data-company-label="Firma" maxlength="300"></div>
+      <div class="col-md-5"><label class="form-label" for="company-import-street">Straße</label><input class="form-control" id="company-import-street" data-company-value="street" data-company-label="Straße" maxlength="300"></div>
+      <div class="col-md-2"><label class="form-label" for="company-import-house-number">Hausnummer</label><input class="form-control" id="company-import-house-number" data-company-value="house_number" data-company-label="Hausnummer" maxlength="30"></div>
+      <div class="col-md-3"><label class="form-label" for="company-import-postal">PLZ</label><input class="form-control" id="company-import-postal" data-company-value="postal" data-company-label="PLZ" maxlength="20"></div>
+      <div class="col-md-3"><label class="form-label" for="company-import-city">Ort</label><input class="form-control" id="company-import-city" data-company-value="city" data-company-label="Ort" maxlength="100"></div>
+      <div class="col-md-4"><label class="form-label" for="company-import-state">Region / Bundesland</label><input class="form-control" id="company-import-state" data-company-value="state" data-company-label="Region" maxlength="100"></div>
+      <div class="col-md-2"><label class="form-label" for="company-import-country">Land (ISO-Code)</label><input class="form-control" id="company-import-country" data-company-value="country" data-company-label="Land" maxlength="2" placeholder="DE"></div>
+      <div class="col-md-6"><label class="form-label" for="company-import-phone">Telefon</label><input class="form-control" id="company-import-phone" data-company-value="phone" data-company-label="Telefon" maxlength="100"></div>
+      <div class="col-md-6"><label class="form-label" for="company-import-email">E-Mail</label><input class="form-control" type="email" id="company-import-email" data-company-value="email" data-company-label="E-Mail" maxlength="254"></div>
+      <div class="col-md-6"><label class="form-label" for="company-import-website">Webseite</label><input class="form-control" type="url" id="company-import-website" data-company-value="website" data-company-label="Webseite" maxlength="500" value="{{ contact.fields.website|default('') if contact is defined else '' }}"></div>
+      <div class="col-md-6"><label class="form-label" for="company-import-source">Quelle (HTTPS)</label><input class="form-control" type="url" id="company-import-source" data-company-source-url maxlength="2000" placeholder="https://www.example.de/impressum"></div>
+    </div>
+    <div class="d-flex flex-wrap gap-2 mt-3">
+      <button class="btn btn-sm btn-outline-primary" type="button" data-company-preview-button>Feldzuordnung prüfen</button>
+      <button class="btn btn-sm btn-success" type="button" data-company-apply>Nur leere Felder übernehmen</button>
+    </div>
+    <div class="small text-secondary mt-2" data-company-assist-status role="status" aria-live="polite"></div>
+    <div class="table-responsive mt-3" data-company-preview hidden>
+      <table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Feld</th><th scope="col">Vorhanden</th><th scope="col">Vorschlag</th><th scope="col">Übernehmen</th></tr></thead><tbody data-company-preview-rows></tbody></table>
+      <p class="form-text mt-2 mb-0">Die Übernahme füllt nur leere Kontaktfelder. Adressen werden als neue Adresse ergänzt; gleiche vorhandene Adressen werden serverseitig dedupliziert. Dauerhaft gespeichert wird erst mit „Kontakt speichern“.</p>
+    </div>
+  </details>
+</div>

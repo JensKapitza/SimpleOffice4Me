@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 {% block script %}
 <script defer src="{{ url_for('static', filename='js/company-contact-autocomplete.js') }}"></script>
+<script defer src="{{ url_for('static', filename='js/company-data-search.js') }}"></script>
 <script defer src="{{ url_for('static', filename='js/contact-import.js') }}"></script>
 {% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
@@ -43,7 +44,35 @@
 <p class="small text-secondary mt-3 mb-0"><strong>Wichtig:</strong> Foto- und QR-Daten sind nur Vorschläge. Ein Kontakt wird erst mit „Kontakt speichern“ angelegt.</p>
 </div></div></div>
 <section class="card mb-4"><div class="card-header">CardDAV für Thunderbird</div><div class="card-body"><p class="text-secondary">{{ 'Aktiviert' if carddav.enabled else 'Noch nicht aktiviert' }}. Für Thunderbird ein separates App-Passwort verwenden.</p><label class="form-label" for="carddav-endpoint">CardDAV-Adresse für diesen Benutzer</label><div class="input-group mb-2"><input id="carddav-endpoint" class="form-control font-monospace" readonly value="{{ carddav_endpoint }}"><a class="btn btn-outline-secondary" href="{{ carddav_endpoint }}">Öffnen</a></div><p class="small text-secondary">Benutzername: <code>{{ g.user['username'] }}</code></p><form method="post" action="{{ url_for('documents.activate_carddav') }}" class="input-group"><input required class="form-control" name="password" type="password" minlength="12" placeholder="CardDAV-App-Passwort, mindestens 12 Zeichen"><button type="submit" class="btn btn-outline-primary">Aktivieren / Passwort ersetzen</button></form></div></section>
-<div class="row g-4"><section class="col-lg-6"><div class="card h-100"><div class="card-header">Kontakt anlegen</div><div class="card-body"><form id="contact-create-form" method="post" class="row g-2"><div class="col-md-6"><input class="form-control" name="first_name" placeholder="Vorname"></div><div class="col-md-6"><input class="form-control" name="last_name" placeholder="Nachname"></div><div class="col-12"><input class="form-control" name="display_name" placeholder="Anzeigename"></div><div class="col-md-6"><input class="form-control" name="email" placeholder="E-Mail"></div><div class="col-md-6"><input class="form-control" name="phone" placeholder="Telefon"></div><div class="col-md-6"><input class="form-control" name="website" placeholder="Webseite"></div><div class="col-md-6"><input class="form-control" name="birthday" placeholder="Geburtstag (YYYY-MM-DD)"></div><div class="col-md-6 position-relative" data-company-autocomplete data-company-endpoint="{{ url_for('documents.company_contact_search') }}"><input class="form-control" name="company" autocomplete="off" placeholder="Firma suchen oder eingeben" data-company-name aria-describedby="new-company-status"><input type="hidden" name="company_contact_id" data-company-id><div class="list-group position-absolute start-0 end-0 shadow-sm" data-company-results role="listbox" hidden style="z-index:1050"></div><div class="form-text" id="new-company-status" data-company-status aria-live="polite">Ab zwei Zeichen werden vorhandene Kontakte gesucht.</div></div><div class="col-12"><input class="form-control" name="custom_customer_number" placeholder="Eigenes Feld, z. B. custom_Kundennummer"></div><div class="col-12"><button type="submit" class="btn btn-primary">Kontakt speichern</button></div></form></div></div></section><section class="col-lg-6"><div class="card h-100"><div class="card-header">API-Feldzuordnung und vCard-Freigabe</div><div class="card-body"><form id="contact-schema-form" method="post" action="{{ url_for('documents.save_contact_schema') }}"><label class="form-label">Pflichtfelder</label><input class="form-control mb-2" name="required" value="{{ schema.required|join(',') }}"><label class="form-label">Alias-Zuordnung (JSON)</label><textarea id="contact-aliases" class="form-control font-monospace" rows="8" name="aliases">{{ schema.aliases|tojson(indent=2) }}</textarea>
+<div class="row g-4">
+  <section class="col-lg-6"><div class="card h-100"><div class="card-header">Kontakt anlegen</div><div class="card-body">
+    <form id="contact-create-form" method="post" class="row g-2" data-company-link-form data-company-edit-form>
+      <input type="hidden" name="company_data_source" data-company-data-source>
+      <input type="hidden" name="company_data_fields" data-company-data-fields>
+      {% for field in ('street','postal','city','state','country') %}<input type="hidden" name="company_data_{{ field }}" data-company-hidden-address="{{ field }}">{% endfor %}
+      <div class="col-md-6"><input class="form-control" name="first_name" placeholder="Vorname"></div>
+      <div class="col-md-6"><input class="form-control" name="last_name" placeholder="Nachname"></div>
+      <div class="col-12"><input required class="form-control" name="display_name" placeholder="Anzeigename"></div>
+      <div class="col-md-6"><input class="form-control" type="email" name="email" placeholder="E-Mail"></div>
+      <div class="col-md-6"><input class="form-control" name="phone" placeholder="Telefon"></div>
+      <div class="col-md-6"><input class="form-control" type="url" name="website" placeholder="Webseite"></div>
+      <div class="col-md-6"><input class="form-control" name="birthday" placeholder="Geburtstag (YYYY-MM-DD)"></div>
+      <div class="col-md-6 position-relative" data-company-autocomplete data-company-endpoint="{{ url_for('documents.company_contact_search') }}">
+        <input class="form-control" name="company" autocomplete="off" placeholder="Firma suchen oder eingeben" data-company-name aria-describedby="new-company-status">
+        <input type="hidden" name="company_contact_id" data-company-id>
+        <div class="list-group position-absolute start-0 end-0 shadow-sm" data-company-results role="listbox" hidden style="z-index:1050"></div>
+        <div class="form-text" id="new-company-status" data-company-status aria-live="polite">Ab zwei Zeichen werden vorhandene Kontakte gesucht.</div>
+      </div>
+      <div class="col-12"><input class="form-control" name="custom_customer_number" placeholder="Eigenes Feld, z. B. custom_Kundennummer"></div>
+      {% set company_search_name = '' %}
+      {% set company_search_city = '' %}
+      {% set company_search_contact_id = '' %}
+      {% set company_search_existing_address_count = 0 %}
+      {% include "documents/_company_data_search.html" %}
+      <div class="col-12"><button type="submit" class="btn btn-primary">Kontakt speichern</button></div>
+    </form>
+  </div></div></section>
+  <section class="col-lg-6"><div class="card h-100"><div class="card-header">API-Feldzuordnung und vCard-Freigabe</div><div class="card-body"><form id="contact-schema-form" method="post" action="{{ url_for('documents.save_contact_schema') }}"><label class="form-label">Pflichtfelder</label><input class="form-control mb-2" name="required" value="{{ schema.required|join(',') }}"><label class="form-label">Alias-Zuordnung (JSON)</label><textarea id="contact-aliases" class="form-control font-monospace" rows="8" name="aliases">{{ schema.aliases|tojson(indent=2) }}</textarea>
 {% set vcard_fields = [('display_name','Anzeigename (FN)'),('name','Vor-/Nachname (N)'),('nickname','Spitzname'),('email','E-Mail'),('phone','Telefon'),('birthday','Geburtstag'),('company','Firma/Organisation'),('department','Abteilung'),('title','Position/Titel'),('role','Rolle'),('website','Webseite'),('note','Notizen'),('addresses','Adressen'),('categories','Kategorien/Tags'),('groups','Gruppen'),('relationships','Beziehungen'),('contact_type','Kontaktart Kunde/Lieferant/Ansprechpartner'),('status','Status'),('customer_number','Kundennummer'),('supplier_number','Lieferantennummer'),('discount','Rabatt'),('payment_terms','Zahlungsbedingungen'),('payment_days','Zahlungsziel'),('currency','Währung'),('vat_id','USt-IdNr.'),('tax_number','Steuernummer'),('bank_iban','IBAN'),('bank_bic','BIC'),('unknown_properties','Unbekannte/Thunderbird-vCard-Felder')] %}
 <hr><div class="d-flex justify-content-between align-items-center mb-2"><div><strong>vCard/CardDAV-Feldfreigabe</strong><div class="small text-secondary">Nur aktivierte Felder werden an Thunderbird oder beim vCard-Export ausgegeben. Standardmäßig sind alle Felder aktiv.</div></div><div class="btn-group btn-group-sm"><button class="btn btn-outline-secondary" type="button" id="vcard-all">Alle</button><button class="btn btn-outline-secondary" type="button" id="vcard-none">Keine</button></div></div>
 <div class="row g-1">{% for key,label in vcard_fields %}<div class="col-md-6"><div class="form-check"><input class="form-check-input vcard-field" type="checkbox" value="{{ key }}" id="vcard-{{ key }}" {% if key in schema.vcard_export_fields %}checked{% endif %}><label class="form-check-label" for="vcard-{{ key }}">{{ label }}</label></div></div>{% endfor %}</div>
