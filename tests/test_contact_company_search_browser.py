@@ -98,21 +98,7 @@ class CompanySearchBrowserTests(unittest.TestCase):
             page_errors = []
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.goto(f"{self.base_url}/documents/contacts")
-            annotated_hidden_fields = page.locator(
-                'input[type="hidden"][name^="company_data_"]'
-            ).evaluate_all(
-                "fields => fields.filter(field => field.hasAttribute('aria-autocomplete') "
-                "|| field.hasAttribute('autocomplete')).map(field => field.name)"
-            )
-            self.assertEqual([], annotated_hidden_fields)
-            self.assertEqual(
-                "group",
-                page.locator('[aria-label="Externe Firmen-Suchseiten"]').get_attribute("role"),
-            )
-            self.assertEqual(
-                "off",
-                page.locator("[data-company-query-name]").get_attribute("autocomplete"),
-            )
+            self._assert_company_search_markup(page)
             page.locator("[data-company-data-search] summary").click()
             page.locator("[data-company-query-name]").fill(f"Browser Works {label} GmbH")
             page.locator("[data-company-query-city]").fill("Berlin")
@@ -184,9 +170,27 @@ class CompanySearchBrowserTests(unittest.TestCase):
                 "https://www.google.com/search",
                 saved["external_data_sources"][-1]["url"],
             )
+            page.goto(f"{self.base_url}/documents/contacts/{saved['contact_id']}")
+            self._assert_company_search_markup(page)
         finally:
             context.close()
             browser.close()
+
+    def _assert_company_search_markup(self, page):
+        hidden_fields = page.locator('input[type="hidden"][name^="company_data_"]')
+        self.assertGreater(hidden_fields.count(), 0)
+        annotated_hidden_fields = page.locator(
+            'input[type="hidden"][name^="company_data_"]'
+        ).evaluate_all(
+            "fields => fields.filter(field => field.hasAttribute('aria-autocomplete') "
+            "|| field.hasAttribute('autocomplete')).map(field => field.name)"
+        )
+        self.assertEqual([], annotated_hidden_fields)
+        self.assertEqual(
+            "group",
+            page.locator('[aria-label="Externe Firmen-Suchseiten"]').get_attribute("role"),
+        )
+        self.assertEqual("off", page.locator("[data-company-query-name]").get_attribute("autocomplete"))
 
 
 if __name__ == "__main__":
