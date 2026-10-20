@@ -79,7 +79,7 @@ class FinanceFinTSTests(unittest.TestCase):
                     _client(connection, "temporary-pin")
                 load_library.return_value.assert_not_called()
 
-    def test_fints_passes_product_id_to_client_without_persisting_pin(self):
+    def test_fints_passes_registered_product_id_to_client(self):
         connection = {
             "provider": "fints", "bank_code": "12345678", "login_id": "user",
             "endpoint": "https://bank.example.test/fints",
