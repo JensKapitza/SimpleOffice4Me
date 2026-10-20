@@ -857,7 +857,8 @@ def import_books_calibre():
     try:
         rows = calibre_import_rows(upload.read(12 * 1024 * 1024 + 1) if upload else b"")
     except (OSError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        logger.info("Calibre import rejected: %s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "Calibre-Datei konnte nicht gelesen werden."}), 400
 
     normalized = [{
         "title": row["title"], "authors": row["authors"].replace(" & ", "; "),
@@ -881,7 +882,8 @@ def import_books_ris():
     try:
         rows = ris_import_rows(upload.read(4 * 1024 * 1024 + 1) if upload else b"")
     except (OSError, ValueError) as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        logger.info("RIS import rejected: %s", type(exc).__name__)
+        return jsonify({"ok": False, "error": "RIS-Datei konnte nicht gelesen werden."}), 400
     result = _create_imported_books(rows, "ris")
     return jsonify({"ok": True, **result})
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
+from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
 from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
 from .v2.contracts import LogicalObjectId, StorageLocation
@@ -748,23 +749,15 @@ def contact_detail(contact_id: str):
 @login_required
 def company_contact_search():
     query = request.args.get("q", "").strip()
-    if len(query) < 2:
+    if len(query) < 2 or len(query) > 200:
         return jsonify({"items": [], "provider": "local_contacts"})
     actor = str(g.user["username"]); store = _contacts(); excluded = request.args.get("exclude", "").strip()
-    rows = []
-    for contact in store.search(query, actor):
-        if contact.get("contact_id") == excluded: continue
-        fields = contact.get("fields", {}); company_name = store.company_name(contact)
-        if not company_name: continue
-        rows.append({
-            "source": "contact",
-            "contact_id": contact["contact_id"], "company_name": company_name,
-            "display_name": str(fields.get("display_name", "")), "email": str(fields.get("email", "")),
-        })
-        if len(rows) >= 10: break
-    # Company names never leave this server. External providers such as Google
-    # Places are deliberately not part of the contact search contract.
-    return jsonify({"items": rows, "provider": "local_contacts"})
+    # This lookup stays local; external provider links are a separate explicit
+    # user action and are never contacted by this endpoint.
+    return jsonify({
+        "items": company_search_items(store, query, actor, excluded),
+        "provider": "local_contacts",
+    })
 
 
 @bp.get("/contacts/<contact_id>/photo")
@@ -783,6 +776,7 @@ def save_contact():
     contact_id = request.form.get("contact_id", "")
     try:
         store = _contacts(); actor = str(g.user["username"]); values = request.form.to_dict(); company_id = values.get("company_contact_id", "").strip()
+        existing = None
         if contact_id:
             existing = store.get(contact_id, actor)
             for key, raw in existing.get("fields", {}).items():
@@ -791,6 +785,7 @@ def save_contact():
                     and store._vcard_property_name(str(raw)) == "PHOTO"
                 ):
                     values.setdefault(f"custom_{key}", str(raw))
+        metadata = company_data_metadata_from_form(values, existing, store.format_postal_address)
         candidates = store.contacts(actor); company_contact = None
         if company_id:
             if company_id == contact_id: raise ValueError("Ein Kontakt kann nicht sich selbst als Firma zugeordnet werden")
@@ -802,7 +797,7 @@ def save_contact():
             exact = [item for item in candidates if item.get("contact_id") != contact_id and store.company_name(item).casefold() == typed] if typed else []
             if len(exact) == 1:
                 company_contact = exact[0]; values["company"] = store.company_name(company_contact); values["custom_company_contact_id"] = company_contact["contact_id"]
-        contact = store.upsert(values, actor, contact_id)
+        contact = store.upsert(values, actor, contact_id, metadata=metadata or None)
         if company_contact and not contact.get("addresses") and company_contact.get("addresses"):
             source_address = company_contact["addresses"][0]
             store.add_address(contact["contact_id"], "Firma", str(source_address.get("value", "")), actor, components=source_address.get("components", {}))
@@ -983,4 +978,3 @@ def calendar():
         if label_counts[event["invite_search_label"]] > 1:
             event["invite_search_label"] += f" · #{str(event.get('event_id') or '')[:8]}"
     return render_template("documents/calendar.html", events=events, deleted_events=deleted_events, calendars=calendars, contacts=contacts, users=users, video_chat_users=video_chat_users, current_username=actor, current_user_email=str(g.user["email"] or ""), mail_accounts=_mail().accounts(actor), local_calendar_address=local_calendar_address(actor), scheduling_access=_scheduling_access().get(actor), google_sync=_google_calendar().status(actor), booking=_calendar().booking_settings(), booking_url=url_for("documents.book_calendar_slot", _external=True), pending=_calendar().pending_bookings(), itip_messages=_itip().messages(actor), reminders=reminders, reminder_now=reminder_now.isoformat(timespec="seconds"), defaults=_settings().settings(), calendar_weeks=monthcalendar(shown_month.year, shown_month.month), calendar_events=events_by_day, shown_month=shown_month.strftime("%Y-%m"), shown_month_name=f"{month_name[shown_month.month]} {shown_month.year}", previous_month=previous, following_month=following)
-

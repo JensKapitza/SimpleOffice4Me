@@ -84,7 +84,14 @@
   <section class="card mb-4">
     <div class="card-header"><strong>Bankverbindungen / FinTS</strong></div>
     <div class="card-body">
-      <p class="text-secondary">Benutzerkennung darf gespeichert werden. PIN und TAN werden ausschließlich für den aktuellen Abruf abgefragt und niemals gespeichert.</p>
+      <p class="text-secondary">Benutzerkennung darf gespeichert werden. Die PIN wird nur für den jeweiligen Abruf benötigt und nicht gespeichert. Eine TAN/App-Freigabe wird erst nach einer tatsächlichen Bankanforderung unterstützt; bitte keine TAN vorab eingeben.</p>
+      <div class="alert alert-secondary" role="note">
+        <strong>Santander Deutschland:</strong> Neben FinTS ist die offizielle PSD2-Kontoinformationsschnittstelle relevant.
+        Der Zugang erfordert eine autorisierte Anbindung und deine Freigabe bei der Bank.
+        <a href="https://unternehmen.openbank.de/unternehmen/kooperationen/partner/api-market/" target="_blank" rel="noopener noreferrer">Offizielle API-Informationen</a>.
+        Bis zur Anbindung kannst du Umsätze oben über CSV, CAMT oder MT940 importieren.
+        Ein automatisiertes Auslesen der Login-Webseite mit PIN/TAN wird nicht verwendet.
+      </div>
       <form method="post" action="{{ url_for('.create_bank_connection') }}" class="row g-2 mb-4">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="provider" value="fints">
@@ -95,18 +102,36 @@
         <div class="col-12"><button class="btn btn-outline-primary" type="submit">Bankverbindung speichern</button></div>
       </form>
       {% for connection in bank_connections %}
+      {% if connection.status != 'disabled' %}
       <form method="post" action="{{ url_for('.discover_bank_accounts', connection_id=connection.connection_id) }}" class="row g-2 align-items-end border-top pt-3 mt-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-5"><strong>{{ connection.institution or connection.provider }}</strong><div class="small text-secondary">BLZ {{ connection.bank_code }} · Benutzer {{ connection.login_id }}</div></div>
-        <div class="col-md-4"><label class="form-label" for="pin-{{ loop.index }}">PIN nur für diesen Abruf</label><input required class="form-control" id="pin-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
+        <div class="col-md-4"><label class="form-label" for="pin-{{ loop.index }}">PIN nur für diesen Abruf</label><input required class="form-control" id="pin-{{ loop.index }}" name="pin" type="password" autocomplete="new-password" spellcheck="false"></div>
         <div class="col-md-3"><button class="btn btn-primary w-100" type="submit">Konten abrufen</button></div>
       </form>
       <form method="post" action="{{ url_for('.sync_bank_connection', connection_id=connection.connection_id) }}" class="row g-2 align-items-end mt-2">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <div class="col-md-5"><span class="badge text-bg-secondary">{{ connection.status }}</span>{% if connection.last_successful_sync %}<span class="small text-secondary ms-2">Letzter erfolgreicher Abruf vorhanden</span>{% endif %}{% if connection.last_error %}<div class="small text-danger mt-1">{{ connection.last_error }}</div>{% endif %}</div>
+        <div class="col-md-5"><span class="badge text-bg-secondary">{{ connection.status }}</span>{% if connection.last_successful_sync %}<span class="small text-secondary ms-2">Letzter erfolgreicher Abruf: {{ connection.last_successful_sync }}</span>{% endif %}{% if connection.last_error %}<div class="small text-danger mt-1">{{ connection.last_error }}</div>{% endif %}</div>
         <div class="col-md-4"><label class="form-label" for="sync-pin-{{ loop.index }}">PIN nur für Umsatzabruf</label><input required class="form-control" id="sync-pin-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
         <div class="col-md-3"><button class="btn btn-success w-100" type="submit">Umsätze abrufen</button></div>
       </form>
+      {% else %}
+      <div class="border-top pt-3 mt-3"><strong>{{ connection.institution or connection.provider }}</strong> <span class="badge text-bg-secondary">deaktiviert</span><div class="small text-secondary mt-1">Für diese Bankverbindung sind keine Bankabrufe möglich.</div></div>
+      {% endif %}
+      {% for mapping in bank_account_mappings.get(connection.connection_id, []) %}
+      {% if connection.status != 'disabled' %}
+      <form method="post" action="{{ url_for('.read_bank_connection_balance', connection_id=connection.connection_id) }}" class="row g-2 align-items-end border-top pt-2 mt-2">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="remote_account_id" value="{{ mapping.remote_account_id }}">
+        <div class="col-md-5"><strong>{{ mapping.name }}</strong><div class="small text-secondary">Read-only FinTS-Kontostand{% if mapping.remote_iban %} · IBAN endet auf {{ mapping.remote_iban[-4:] }}{% endif %}</div></div>
+        <div class="col-md-4"><label class="form-label" for="balance-pin-{{ connection.connection_id }}-{{ loop.index }}">PIN nur für diesen Saldoabruf</label><input required class="form-control" id="balance-pin-{{ connection.connection_id }}-{{ loop.index }}" name="pin" type="password" autocomplete="off"></div>
+        <div class="col-md-3"><button class="btn btn-outline-primary w-100" type="submit">Kontostand lesen</button></div>
+      </form>
+      {% else %}<div class="small text-secondary mt-2">Read-only-Kontostand nicht verfügbar: Bankverbindung deaktiviert.</div>
+      {% endif %}
+      {% else %}
+      <div class="small text-secondary mt-2">Nach dem Kontenabruf zuerst ein entferntes Konto einem lokalen Konto zuordnen; erst danach kann ein Saldo gelesen werden.</div>
+      {% endfor %}
       {% else %}<div class="small text-secondary">Noch keine Bankverbindung gespeichert.</div>{% endfor %}
     </div>
   </section>

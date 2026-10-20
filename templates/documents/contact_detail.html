@@ -1,6 +1,6 @@
 {% extends "layout.html" %}
 {% from "documents/_country_datalist.html" import eu_country_datalist %}
-{% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script><script defer src="{{ url_for('static', filename='js/company-contact-autocomplete.js') }}"></script><script defer src="{{ url_for('static', filename='js/contact-qr.js') }}"></script>{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/contact-history.js') }}"></script><script defer src="{{ url_for('static', filename='js/company-contact-autocomplete.js') }}"></script><script defer src="{{ url_for('static', filename='js/company-data-search.js') }}"></script><script defer src="{{ url_for('static', filename='js/contact-qr.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 {% set username = g.user['username'] %}
@@ -23,7 +23,7 @@
         <div class="card-header">Kontaktdaten{% if can_manage %} bearbeiten{% endif %}</div>
         <div class="card-body">
           {% if can_manage %}
-          <form method="post" action="{{ url_for('documents.save_contact') }}" class="row g-3" data-company-link-form>
+          <form method="post" action="{{ url_for('documents.save_contact') }}" class="row g-3" data-company-link-form data-company-edit-form>
             <input type="hidden" name="contact_id" value="{{ contact.contact_id }}">
             <div class="col-md-6"><label class="form-label">Vorname</label><input class="form-control" name="first_name" value="{{ contact.fields.first_name|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Nachname</label><input class="form-control" name="last_name" value="{{ contact.fields.last_name|default('') }}"></div>
@@ -34,6 +34,11 @@
             <div class="col-md-4"><label class="form-label">Geburtstag</label><input class="form-control" type="date" name="birthday" value="{{ contact.fields.birthday|default('') }}"></div>
             <div class="col-md-8"><label class="form-label">Webseite</label><input class="form-control" type="url" name="website" value="{{ contact.fields.website|default('') }}"></div>
             <div class="col-md-6 position-relative" data-company-autocomplete data-company-endpoint="{{ url_for('documents.company_contact_search') }}" data-company-exclude="{{ contact.contact_id }}"><label class="form-label" for="contact-company">Firma / Organisation</label><input id="contact-company" class="form-control" name="company" value="{{ linked_company.fields.display_name if linked_company else contact.fields.company|default('') }}" autocomplete="off" data-company-name aria-describedby="contact-company-status"><input type="hidden" name="company_contact_id" value="{{ linked_company.contact_id if linked_company else '' }}" data-company-id><div class="list-group position-absolute start-0 end-0 shadow-sm" data-company-results role="listbox" hidden style="z-index:1050"></div><div class="form-text" id="contact-company-status" data-company-status aria-live="polite">Ab zwei Zeichen werden vorhandene Kontakte gesucht.</div></div>
+            {% set company_search_name = contact.fields.company|default(contact.fields.display_name, true) %}
+            {% set company_search_city = contact.addresses[0].components.city if contact.addresses else '' %}
+            {% set company_search_contact_id = contact.contact_id %}
+            {% set company_search_existing_address_count = contact.addresses|length %}
+            {% include "documents/_company_data_search.html" %}
             <div class="col-md-6"><label class="form-label">Abteilung</label><input class="form-control" name="department" value="{{ contact.fields.department|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Position / Titel</label><input class="form-control" name="title" value="{{ contact.fields.title|default('') }}"></div>
             <div class="col-md-6"><label class="form-label">Rolle</label><input class="form-control" name="role" value="{{ contact.fields.role|default('') }}"></div>
@@ -106,6 +111,19 @@
           </div>
         </div>
       </div>
+      {% if contact.external_data_sources %}
+      <div class="card mt-4" id="external-company-data-sources">
+        <div class="card-header">Quellen manuell übernommener Firmendaten</div>
+        <ul class="list-group list-group-flush">
+          {% for source in contact.external_data_sources|reverse %}
+          <li class="list-group-item">
+            <a href="{{ source.url }}" target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">{{ source.host }}</a>
+            <div class="small text-secondary">Bestätigt {{ source.retrieved_at }} von {{ source.recorded_by }} · Felder: {{ source.fields|join(', ') }}</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
       <div class="card mt-4">
         <div class="card-header">Adressen</div>
         <div class="card-body">

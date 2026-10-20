@@ -65,6 +65,19 @@ class CalendarWebTest(unittest.TestCase):
         self.assertIn("Buchungsseite öffnen", body)
         self.assertIn("Vor dem Teilen die Buchung aktivieren", body)
 
+    def test_public_booking_company_field_uses_valid_autocomplete(self):
+        CalendarStore(app.config["DOCUMENT_ROOT"]).save_booking_settings(
+            True, 60, "09:00", "10:00", "jens", "Europe/Berlin"
+        )
+
+        response = self.client.get("/documents/calendar/book?date=2026-08-10")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            'id="booking-company" maxlength="160" autocomplete="off"',
+            response.get_data(as_text=True),
+        )
+
     def test_appointment_type_is_optional_free_text_and_billable_after_creation(self):
         contact = ContactStore(Path(app.config["DOCUMENT_ROOT"])).upsert(
             {"display_name": "Kunde Termin", "email": "termin@example.test"}, "jens",

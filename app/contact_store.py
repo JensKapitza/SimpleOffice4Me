@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from .contact_company_data import append_company_data_addresses, append_company_data_source, company_name as _company_name, company_people_for_store
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
@@ -183,37 +184,22 @@ class ContactStore:
             raise ValueError("contact is not shared with this user")
         return contact
 
-    @staticmethod
-    def company_name(contact: dict[str, Any]) -> str:
-        fields = contact.get("fields", {})
-        return str(fields.get("company") or fields.get("display_name") or "").strip()
-
-    def company_people(self, company: dict[str, Any], actor: str = "") -> list[dict[str, Any]]:
-        """Return web-only person assignments, including unambiguous legacy name links."""
-        company_id = str(company.get("contact_id", ""))
-        names = {value.casefold() for value in (self.company_name(company), str(company.get("fields", {}).get("display_name", "")).strip()) if value}
-        rows = []
-        for contact in self.contacts(actor):
-            if contact.get("contact_id") == company_id: continue
-            fields = contact.get("fields", {})
-            explicit = str(fields.get("company_contact_id", "")) == company_id
-            legacy = not fields.get("company_contact_id") and str(fields.get("company", "")).strip().casefold() in names
-            if explicit or legacy: rows.append(contact)
-        return rows
+    company_name = staticmethod(_company_name)
+    company_people = company_people_for_store
 
     def can_manage(self, contact_id: str, actor: str) -> bool:
         contact = next((item for item in self.contacts() if item.get("contact_id") == contact_id), None)
         return bool(contact and self._can_manage(contact, self._principal(actor)))
 
     def can_manage_contact(self, contact: dict[str, Any], actor: str) -> bool:
-        """Check a contact that was already loaded without rereading the store."""
         return self._can_manage(contact, self._principal(actor))
 
-    def upsert(self, values: dict[str, str], actor: str, contact_id: str = "", source: dict[str, str] | None = None) -> dict[str, Any]:
+    def upsert(self, values: dict[str, str], actor: str, contact_id: str = "",
+               source: dict[str, str] | None = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         self._require_actor(actor)
         fields = self._validated_fields(values)
         with exclusive_file_lock(self.control / ".contacts-write.lock"):
-            return self._upsert_locked(fields, actor, contact_id, source)
+            return self._upsert_locked(fields, actor, contact_id, source, metadata=metadata)
 
     def patch_fields(self, contact_id: str, changes: dict[str, str], actor: str) -> dict[str, Any]:
         """Atomically change selected fields while retaining every other field."""
@@ -288,6 +274,20 @@ class ContactStore:
                 addresses = self._materialize_vcard_addresses(
                     metadata.get("addresses", []), addresses, actor, changed_at
                 )
+            if "append_addresses" in metadata:
+                addresses = append_company_data_addresses(
+                    addresses,
+                    metadata["append_addresses"],
+                    actor,
+                    changed_at,
+                    self.format_postal_address,
+                    metadata,
+                )
+        external_data_sources = append_company_data_source(
+            existing.get("external_data_sources") if existing else None,
+            metadata.get("company_data_source") if metadata else None,
+            actor,
+        )
         contact = {
             "contact_id": contact_id or str(uuid.uuid4()),
             "fields": fields,
@@ -305,6 +305,7 @@ class ContactStore:
             "updated_by": actor,
             "source": source or existing.get("source", {}) if existing else (source or {}),
         }
+        if external_data_sources: contact["external_data_sources"] = external_data_sources[-50:]
         payload["contacts"] = [item for item in payload["contacts"] if item.get("contact_id") != contact["contact_id"]] + [contact]
         synced: list[dict[str, Any]] = []
         canonical_company = self.company_name(contact)

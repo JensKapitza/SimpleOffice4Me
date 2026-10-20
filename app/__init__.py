@@ -65,6 +65,13 @@ def _jinja_error_context(error, extracted_frames):
     return template, line, match.group(1)[:120] if match else ""
 
 
+def configured_session_cookie_secure() -> bool:
+    """Return whether deployments require Secure session cookies on every request."""
+    return os.environ.get("SIMPLEOFFICE_HTTPS", "").strip().casefold() in {
+        "1", "true", "yes", "on",
+    }
+
+
 def configured_upload_limit_bytes() -> int:
     """Return a bounded total request limit for file imports."""
     requested = os.environ.get(
@@ -159,10 +166,10 @@ def google_oauth_redirect_uris() -> tuple[str, ...]:
 
 
 class SchemeAwareSessionInterface(SecureCookieSessionInterface):
-    """Set Secure cookies only for the scheme of the active request."""
+    """Require Secure cookies for HTTPS requests or explicitly HTTPS deployments."""
 
     def get_cookie_secure(self, app):
-        return request.is_secure
+        return request.is_secure or app.config.get("SESSION_COOKIE_SECURE", False)
 
 
 if sys.version_info < (3,):
@@ -217,6 +224,7 @@ app.config['GOOGLE_OAUTH_CLIENT_ID'] = google_client_id
 app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = google_client_secret
 app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_REDIRECT_URI', '')
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
+app.config['SESSION_COOKIE_SECURE'] = configured_session_cookie_secure()
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(hours=12)
