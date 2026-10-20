@@ -38,7 +38,7 @@
 
   const autocompleteInputTypes = new Set([
     "color", "date", "datetime-local", "email", "hidden", "month",
-    "number", "password", "range", "search", "tel", "text", "time",
+    "number", "password", "range", "tel", "text", "time",
     "url", "week",
   ]);
 

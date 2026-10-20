@@ -261,7 +261,8 @@ class RuntimeSupportTests(unittest.TestCase):
                 python.chmod(0o755)
                 result = subprocess.run([shell, str(root / starter)], cwd=root,
                                         env={**os.environ, "PYTHON": sys.executable,
-                                             "SIMPLEOFFICE_ALLOW_PRERELEASE": "1"},
+                                             "SIMPLEOFFICE_ALLOW_PRERELEASE": "1",
+                                             "SIMPLEOFFICE_NATIVE_PACKAGES": "0"},
                                         capture_output=True, text=True, timeout=20)
                 self.assertEqual(1, result.returncode)
                 self.assertIn("unsupported-venv", result.stderr)
