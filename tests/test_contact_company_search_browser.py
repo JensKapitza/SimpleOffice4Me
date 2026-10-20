@@ -160,7 +160,7 @@ class CompanySearchBrowserTests(unittest.TestCase):
             self.assertEqual("Teststraße 8", saved["addresses"][0]["components"]["street"])
             self.assertEqual("10115", saved["addresses"][0]["components"]["postal"])
             self.assertEqual(
-                "https://www.google.com/search/",
+                "https://www.google.com/search",
                 saved["external_data_sources"][-1]["url"],
             )
         finally:
