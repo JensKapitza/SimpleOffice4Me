@@ -4,8 +4,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, g
 
+from app import site_visits
 from app.site_visit_report import build_visit_report
 from app.site_visits import _selected_report_ids
 from app.site_visit_scan import parse_nmap_options, parse_scan_request, scan_authorized_private_network
@@ -70,6 +71,45 @@ class SiteVisitStoreTests(unittest.TestCase):
         self.assertFalse(rows[0]["include_in_report"])
         self.assertEqual(1, len(rows[0]["history"]))
 
+    def test_unassigned_finding_can_be_assigned_later_and_reassignment_is_validated(self):
+        room = self.store.add_room(self.visit["visit_id"], "alice", {"name": "Büro 1"})
+        self.store.add_asset(self.visit["visit_id"], "alice", {"name": "Switch", "room_id": room["room_id"]})
+        asset = self.store.get(self.visit["visit_id"], "alice")["assets"][0]
+        self.store.add_finding(self.visit["visit_id"], "alice", {"title": "Unbekannte Dose"})
+        finding = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual("", finding["room_id"])
+        self.assertEqual("", finding["asset_id"])
+
+        self.store.update_finding(
+            self.visit["visit_id"], "alice", finding["finding_id"],
+            {"room_id": room["room_id"], "asset_id": asset["asset_id"]},
+        )
+        assigned = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual(room["room_id"], assigned["room_id"])
+        self.assertEqual(asset["asset_id"], assigned["asset_id"])
+
+        with self.assertRaisesRegex(ValueError, "Unbekannter Raum"):
+            self.store.update_finding(
+                self.visit["visit_id"], "alice", finding["finding_id"],
+                {"room_id": "00000000-0000-0000-0000-000000000000"},
+            )
+        with self.assertRaisesRegex(ValueError, "Unbekanntes Gerät"):
+            self.store.update_finding(
+                self.visit["visit_id"], "alice", finding["finding_id"],
+                {"asset_id": "00000000-0000-0000-0000-000000000000"},
+            )
+        unchanged = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual(room["room_id"], unchanged["room_id"])
+        self.assertEqual(asset["asset_id"], unchanged["asset_id"])
+
+        self.store.update_finding(
+            self.visit["visit_id"], "alice", finding["finding_id"],
+            {"room_id": "", "asset_id": ""},
+        )
+        cleared = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual("", cleared["room_id"])
+        self.assertEqual("", cleared["asset_id"])
+
     def test_scan_merges_ports_into_existing_manual_device_atomically(self):
         self.store.add_asset(self.visit["visit_id"], "alice", {"name": "Gateway", "ip": "192.168.1.1", "ports": "22,443"})
         scan = {"cidr": "192.168.1.0/30", "ports": [80], "probed_hosts": 2, "device_count": 1, "scanned_at": "2026-09-28T00:00:00Z", "scanner": "tcp-connect", "limitations": "TCP only", "devices": [{"ip": "192.168.1.1", "ports": [{"port": 80, "protocol": "tcp", "state": "open", "source": "scan", "observed_at": "2026-09-28T00:00:00Z"}]}]}
@@ -109,6 +149,44 @@ class SiteVisitStoreTests(unittest.TestCase):
             self.store.get(self.visit["visit_id"], "bob")
         with self.assertRaisesRegex(ValueError, "Dateityp"):
             self.store.add_attachment(self.visit["visit_id"], "alice", "x.html", "text/html", b"<script>", "visit", self.visit["visit_id"])
+
+
+class SiteVisitFindingAssignmentRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(__name__)
+        self.visit_id = "visit-1"
+        self.record = {
+            "visit_id": self.visit_id,
+            "findings": [
+                {"finding_id": "free", "room_id": "", "asset_id": ""},
+                {"finding_id": "assigned-room", "room_id": "room-1", "asset_id": ""},
+                {"finding_id": "assigned-asset", "room_id": "", "asset_id": "asset-1"},
+            ],
+            "rooms": [],
+            "assets": [],
+        }
+
+    def _render(self, path):
+        with self.app.test_request_context(path):
+            g.user = {"username": "alice", "is_admin": False}
+            with patch("app.site_visits._visit", return_value=self.record):
+                with patch("app.site_visits.render_template", side_effect=lambda name, **context: (name, context)):
+                    return site_visits.finding_assignments(self.visit_id)
+
+    def test_unassigned_filter_only_lists_findings_without_room_or_asset(self):
+        template, context = self._render(
+            f"/site-visits/{self.visit_id}/findings/assignments?scope=unassigned"
+        )
+
+        self.assertEqual("site_visits/unassigned_findings.html", template)
+        self.assertEqual(["free"], [finding["finding_id"] for finding in context["findings"]])
+        self.assertEqual(1, context["unassigned_finding_count"])
+
+    def test_all_filter_keeps_partially_assigned_findings_available_for_reassignment(self):
+        _, context = self._render(f"/site-visits/{self.visit_id}/findings/assignments?scope=all")
+
+        self.assertEqual(3, len(context["findings"]))
+        self.assertEqual("all", context["finding_scope"])
 
 
 class SiteVisitScanTests(unittest.TestCase):

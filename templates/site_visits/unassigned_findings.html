@@ -1,0 +1,71 @@
+{% extends "layout.html" %}
+{% block title %}Unzugeordnete Befunde · {{ visit.title }}{% endblock %}
+{% block body %}{% include "documents/nav.html" %}
+<main id="main-content" class="container-xl py-4">
+  <a class="small text-decoration-none" href="{{ url_for('site_visits.detail', visit_id=visit.visit_id) }}">← Zurück zum Ortstermin</a>
+  <header class="d-flex flex-wrap justify-content-between align-items-end gap-3 my-3">
+    <div>
+      <p class="small text-uppercase fw-semibold text-primary mb-1">{{ visit.title }}</p>
+      <h1 class="h2 mb-1">{{ 'Befunde ohne Zuordnung' if finding_scope == 'unassigned' else 'Befunde zuordnen' }}</h1>
+      <p class="text-secondary mb-0">Freie Befunde bleiben erhalten und können später einem Raum oder Gerät zugeordnet werden.</p>
+    </div>
+    <a class="btn btn-outline-primary" href="{{ url_for('site_visits.detail', visit_id=visit.visit_id) }}#findings">Zur Befundliste</a>
+  </header>
+
+  <form method="get" class="row g-2 align-items-end mb-3">
+    <div class="col-sm-6 col-md-4">
+      <label class="form-label" for="finding-scope">Anzeige</label>
+      <select class="form-select" id="finding-scope" name="scope">
+        <option value="unassigned" {{ 'selected' if finding_scope == 'unassigned' }}>Ohne Raum und Gerät ({{ unassigned_finding_count }})</option>
+        <option value="all" {{ 'selected' if finding_scope == 'all' }}>Alle Befunde ({{ total_findings }})</option>
+      </select>
+    </div>
+    <div class="col-auto"><button class="btn btn-outline-primary" type="submit">Filtern</button></div>
+  </form>
+
+  {% if findings %}
+    <div class="row g-3">
+      {% for finding in findings %}
+        <div class="col-12 col-xl-6">
+          <article class="card h-100">
+            <div class="card-body">
+              <h2 class="h5">{{ finding.title }}</h2>
+              <p class="text-secondary">{{ finding.description or 'Ohne Detailbeschreibung' }}</p>
+              <p class="small mb-3">{{ {'unreviewed':'Ungeprüft','confirmed':'Bestätigt','corrected':'Behoben','not_assessable':'Nicht bewertbar','rejected':'Verworfen'}.get(finding.status, finding.status) }} · Erfasst {{ finding.created_at[:16] }}</p>
+              <form method="post" action="{{ url_for('site_visits.update_finding', visit_id=visit.visit_id, finding_id=finding.finding_id) }}" class="row g-2 align-items-end">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="status" value="{{ finding.status }}">
+                <input type="hidden" name="return_to" value="assignment">
+                <input type="hidden" name="scope" value="{{ finding_scope }}">
+                <div class="col-md-5">
+                  <label class="form-label" for="room-{{ finding.finding_id }}">Raum</label>
+                  <select class="form-select" id="room-{{ finding.finding_id }}" name="room_id">
+                    <option value="" {{ 'selected' if not finding.room_id }}>Ohne Raum</option>
+                    {% for room in rooms %}<option value="{{ room.room_id }}" {{ 'selected' if room.room_id == finding.room_id }}>{{ room.name }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-5">
+                  <label class="form-label" for="asset-{{ finding.finding_id }}">Gerät / Objekt</label>
+                  <select class="form-select" id="asset-{{ finding.finding_id }}" name="asset_id">
+                    <option value="" {{ 'selected' if not finding.asset_id }}>Ohne Gerät</option>
+                    {% for asset in assets %}<option value="{{ asset.asset_id }}" {{ 'selected' if asset.asset_id == finding.asset_id }}>{{ asset.name }}</option>{% endfor %}
+                  </select>
+                </div>
+                <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">Zuordnen</button></div>
+              </form>
+            </div>
+          </article>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    {% if not total_findings %}
+      <div class="alert alert-info" role="status" aria-live="polite">Für diesen Ortstermin wurden noch keine Befunde erfasst.</div>
+    {% elif finding_scope == 'unassigned' %}
+      <div class="alert alert-success" role="status" aria-live="polite">Alle Befunde dieses Ortstermins sind einem Raum oder Gerät zugeordnet.</div>
+    {% else %}
+      <div class="alert alert-info" role="status" aria-live="polite">Keine Befunde für diese Ansicht.</div>
+    {% endif %}
+  {% endif %}
+</main>
+{% endblock %}

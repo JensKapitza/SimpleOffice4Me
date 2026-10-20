@@ -324,7 +324,7 @@ class SiteVisitStore:
 
     def update_finding(self, visit_id: str, actor: str, finding_id: str, values: dict[str, Any]) -> dict[str, Any]:
         finding_id = _identifier(finding_id)
-        allowed = {"title": (240, True), "description": (12000, False), "source": (600, False), "observed_at": (80, False), "exclusion_reason": (1000, False)}
+        allowed = {"title": (240, True), "description": (12000, False), "source": (600, False), "observed_at": (80, False), "exclusion_reason": (1000, False), "room_id": (36, False), "asset_id": (36, False)}
         updates = {key: _text(values.get(key), limit, required=required) for key, (limit, required) in allowed.items() if key in values}
         if "status" in values:
             status = str(values["status"] or "")
@@ -344,6 +344,12 @@ class SiteVisitStore:
             updates["custom_values"] = self._custom_values(values["custom_values"])
         def apply(record: dict[str, Any]) -> None:
             finding = self._find(record, "findings", "finding_id", finding_id)
+            room_id = updates.get("room_id", finding.get("room_id", ""))
+            asset_id = updates.get("asset_id", finding.get("asset_id", ""))
+            if room_id and not any(row["room_id"] == room_id for row in record["rooms"]):
+                raise ValueError("Unbekannter Raum")
+            if asset_id and not any(row["asset_id"] == asset_id for row in record["assets"]):
+                raise ValueError("Unbekanntes Gerät")
             before = {key: finding.get(key) for key in updates}
             finding.update(updates)
             if finding.get("status") not in {"confirmed", "corrected"}:
