@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 import unittest
@@ -7,6 +8,8 @@ from unittest.mock import patch
 from PIL import Image
 
 from app.preview_service import PreviewService
+from app.document_store import CONTROL_DIR
+from app.settings_store import SettingsStore
 from app.video_settings import save_video_preview_frame_count, video_preview_frame_count
 
 
@@ -45,6 +48,37 @@ class VideoPreviewServiceTest(unittest.TestCase):
                 self.assertEqual(7, save_video_preview_frame_count(root, 7, "tester"))
                 self.assertEqual(7, video_preview_frame_count(root))
                 self.assertEqual(7, PreviewService(root, self._tools()).video_frame_count)
+
+    def test_legacy_environment_value_is_preserved_when_other_settings_are_saved(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "18"}):
+                SettingsStore(root).save({"interface": {"timezone": "UTC"}}, "tester")
+                self.assertEqual(18, SettingsStore(root).settings()["media"]["video_preview_frames"])
+                self.assertEqual(18, video_preview_frame_count(root))
+
+    def test_legacy_video_settings_file_is_preserved_and_copied_on_next_settings_save(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            legacy_path = root / CONTROL_DIR / "video-preview-settings.json"
+            legacy_path.parent.mkdir(parents=True)
+            legacy_path.write_text(json.dumps({"version": 1, "frame_count": 12}), encoding="utf-8")
+
+            SettingsStore(root).save({"interface": {"timezone": "UTC"}}, "tester")
+
+            self.assertEqual(12, SettingsStore(root).settings()["media"]["video_preview_frames"])
+            self.assertEqual(12, video_preview_frame_count(root))
+            self.assertEqual(5, save_video_preview_frame_count(root, 5, "tester"))
+            self.assertEqual(5, video_preview_frame_count(root))
+            self.assertTrue(legacy_path.exists())
+
+    def test_video_frame_count_settings_reject_invalid_central_values(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = SettingsStore(temp)
+            for value in (True, 0, 31):
+                with self.subTest(value=value):
+                    with self.assertRaisesRegex(ValueError, "video preview frame count"):
+                        store.save({"media": {"video_preview_frames": value}}, "tester")
 
     def test_generate_publishes_ten_frames_and_video_metadata(self):
         with tempfile.TemporaryDirectory() as temp:

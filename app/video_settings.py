@@ -1,45 +1,42 @@
-"""Persistent settings for derived video previews."""
+"""Compatibility helpers for the centralized video preview setting."""
 from __future__ import annotations
 
-import json
-import os
+import logging
 from pathlib import Path
 from typing import Any
 
-from .document_store import CONTROL_DIR, atomic_json_write, utc_now
-from .revision_history import RevisionHistory
+from .settings_store import (
+    DEFAULT_VIDEO_PREVIEW_FRAMES,
+    LEGACY_VIDEO_PREVIEW_SETTINGS_FILE as SETTINGS_FILE,
+    MAX_VIDEO_PREVIEW_FRAMES,
+    MIN_VIDEO_PREVIEW_FRAMES,
+    SettingsStore,
+)
 
-DEFAULT_VIDEO_PREVIEW_FRAMES = 10
-MIN_VIDEO_PREVIEW_FRAMES = 1
-MAX_VIDEO_PREVIEW_FRAMES = 30
-SETTINGS_FILE = "video-preview-settings.json"
-
-
-def _bounded_count(value: Any, default: int = DEFAULT_VIDEO_PREVIEW_FRAMES) -> int:
-    try:
-        count = int(value)
-    except (TypeError, ValueError):
-        count = default
-    return max(MIN_VIDEO_PREVIEW_FRAMES, min(MAX_VIDEO_PREVIEW_FRAMES, count))
+_LOGGER = logging.getLogger(__name__)
 
 
 def video_preview_frame_count(root: str | Path) -> int:
-    """Return the saved frame count, falling back to the deployment default."""
-    path = Path(root).expanduser().resolve() / CONTROL_DIR / SETTINGS_FILE
-    try:
-        stored = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, json.JSONDecodeError):
-        stored = {}
-    if isinstance(stored, dict) and "frame_count" in stored:
-        return _bounded_count(stored.get("frame_count"))
-    return _bounded_count(os.environ.get("SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES", DEFAULT_VIDEO_PREVIEW_FRAMES))
+    """Return the central setting, preserving deployment and file-based values."""
+    media = SettingsStore(root).settings().get("media", {})
+    count = media.get("video_preview_frames") if isinstance(media, dict) else None
+    if (
+        isinstance(count, int)
+        and not isinstance(count, bool)
+        and MIN_VIDEO_PREVIEW_FRAMES <= count <= MAX_VIDEO_PREVIEW_FRAMES
+    ):
+        return count
+    _LOGGER.warning("Invalid video preview frame count; using default")
+    return DEFAULT_VIDEO_PREVIEW_FRAMES
 
 
 def save_video_preview_frame_count(root: str | Path, value: Any, actor: str) -> int:
-    """Persist a global frame count and record the configuration change."""
+    """Persist and audit the global frame count in SettingsStore."""
+    if isinstance(value, bool):
+        raise ValueError("Anzahl der Video-Vorschaubilder ist ungültig")
     try:
         count = int(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("Anzahl der Video-Vorschaubilder ist ungültig") from exc
     if not MIN_VIDEO_PREVIEW_FRAMES <= count <= MAX_VIDEO_PREVIEW_FRAMES:
         raise ValueError(
@@ -48,14 +45,5 @@ def save_video_preview_frame_count(root: str | Path, value: Any, actor: str) -> 
     username = str(actor or "").strip()
     if not username:
         raise ValueError("Ein Benutzer ist für die Einstellungsänderung erforderlich")
-    resolved_root = Path(root).expanduser().resolve()
-    payload = {"version": 1, "frame_count": count, "updated_at": utc_now(), "updated_by": username}
-    atomic_json_write(resolved_root / CONTROL_DIR / SETTINGS_FILE, payload)
-    RevisionHistory(resolved_root).record(
-        "video_preview_settings_updated",
-        username,
-        "settings",
-        "video-preview",
-        {"frame_count": count, "updated_at": payload["updated_at"]},
-    )
+    SettingsStore(root).save({"media": {"video_preview_frames": count}}, username)
     return count
