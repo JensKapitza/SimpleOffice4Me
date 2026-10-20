@@ -119,7 +119,9 @@ def _normalize_balance(result: Any, remote_account_id: str, account: Any) -> dic
     return balance
 
 
-def _restore_retry_response(challenge_data: str):
+def _restore_retry_response(challenge_data: str, *, decoupled: bool):
+    if not isinstance(decoupled, bool):
+        raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen TAN-Modus")
     try:
         from fints.client import NeedRetryResponse
     except ImportError as exc:
@@ -127,6 +129,9 @@ def _restore_retry_response(challenge_data: str):
     response = NeedRetryResponse.from_data(_decode_state(challenge_data))
     if not is_tan_response(response):
         raise ValueError("FinTS-SCA-Sitzung enthält keine TAN-Herausforderung")
+    # python-fints NeedTANResponse serialization omits this mode flag, so restore
+    # it only from the authenticated, encrypted server-side challenge payload.
+    response.decoupled = decoupled
     return response
 
 
@@ -174,12 +179,12 @@ def fetch_balance(
         raise ValueError("TAN-Eingabe ist ungültig")
     client_data = _decode_state(challenge_state.get("client_data"))
     dialog_blob = _decode_state(challenge_state.get("dialog_data"))
-    retry_response = _restore_retry_response(challenge_state.get("challenge_data"))
+    retry_response = _restore_retry_response(
+        challenge_state.get("challenge_data"),
+        decoupled=challenge_state.get("decoupled"),
+    )
     if challenge_state.get("step") not in {"accounts", "balance"}:
         raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen Verarbeitungsschritt")
-    retry_decoupled = getattr(retry_response, "decoupled", None)
-    if not isinstance(retry_decoupled, bool) or challenge_state.get("decoupled") is not retry_decoupled:
-        raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen TAN-Modus")
     client = _client(connection, pin, from_data=client_data)
     if not retry_response.decoupled and not str(tan or ""):
         raise ValueError("Die Bank verlangt eine TAN")

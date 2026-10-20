@@ -39,7 +39,9 @@ Fordert die Bank für einen ausdrücklich gestarteten Saldoabruf eine TAN oder A
 kann dieser einzelne lesende Vorgang fortgesetzt werden. Der kurzlebige python-fints-Client-,
 Dialog- und Retry-Zustand wird mit `SECRET_KEY` serverseitig verschlüsselt gespeichert,
 an den angemeldeten Benutzer, die Bankverbindung und das zugeordnete Konto gebunden und
-nach fünf Minuten gelöscht. Der zufällige Fortsetzungstoken wird nur gehasht gespeichert
+nach fünf Minuten gelöscht. Der decoupled App-Freigabemodus wird dabei separat im selben
+authentifizierten Payload festgehalten, da python-fints ihn nicht im Retry-Blob serialisiert.
+Der zufällige Fortsetzungstoken wird nur gehasht gespeichert
 und kann einmalig verwendet werden. Je Benutzer sind höchstens drei und insgesamt höchstens
 100 Freigaben offen. Der Token wird nur als CSRF-geschütztes Formularfeld übertragen. Für
 die Fortsetzung müssen PIN und gegebenenfalls TAN erneut eingegeben werden; beide bleiben
