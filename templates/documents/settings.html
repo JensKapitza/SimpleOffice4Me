@@ -4,12 +4,21 @@
 <main id="main-content" class="container-xl py-4">
   <div class="mb-4">
     <h1 class="h2">{{ 'Settings and defaults' if g.language == 'en' else 'Einstellungen und Standardwerte' }}</h1>
-    <p class="text-secondary">{{ 'Personal and global settings are stored separately.' if g.language == 'en' else 'Persönliche und globale Einstellungen werden getrennt gespeichert.' }}</p>
+    <p class="text-secondary">{{ 'Personal and global settings are stored separately. Only administrators can change global defaults.' if g.language == 'en' else 'Persönliche und globale Einstellungen werden getrennt gespeichert. Globale Standardwerte können nur Administratoren ändern.' }}</p>
   </div>
+  {% if can_manage_media_settings %}
+  <nav aria-label="Einstellungsbereiche" class="mb-4">
+    <div class="nav nav-tabs">
+      <a class="nav-link active" href="{{ url_for('documents.settings') }}" aria-current="page">Allgemein</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
+    </div>
+  </nav>
+  {% endif %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="alert alert-light border" role="note"><strong>Nachvollziehbarkeit:</strong> Änderungen an globalen Standardwerten werden revisionssicher mit Benutzer, Zeitpunkt und geänderten Feldern protokolliert. Passwörter, Tokens und vergleichbare Geheimnisfelder werden im Audit automatisch geschwärzt.</div>
 
   <form method="post" class="row g-4" autocomplete="off">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <section class="col-lg-6">
       <div class="card h-100">
         <div class="card-header">{{ 'My profile' if g.language == 'en' else 'Mein Profil' }}</div>
@@ -36,6 +45,7 @@
             <option value="dark" {% if g.theme_preference == 'dark' %}selected{% endif %}>{{ 'Dark' if g.language == 'en' else 'Dunkel' }}</option>
           </select>
           <div class="form-text mb-3">{{ 'The selection is stored in your account and applies on all devices.' if g.language == 'en' else 'Die Auswahl wird in deinem Konto gespeichert und gilt auf allen Geräten.' }}</div>
+          {% if can_manage_media_settings %}
           <label class="form-label">{{ 'Default language for new sessions' if g.language == 'en' else 'Standardsprache für neue Sitzungen' }}</label>
           <select class="form-select mb-3" name="default_language">
             <option value="de" {% if settings.interface.default_language == 'de' %}selected{% endif %}>Deutsch</option>
@@ -44,10 +54,12 @@
           <label class="form-label">{{ 'Time zone' if g.language == 'en' else 'Zeitzone' }}</label>
           <input required maxlength="100" pattern="[A-Za-z0-9._+\-/]+" class="form-control" name="timezone" value="{{ settings.interface.timezone }}" placeholder="Europe/Berlin" spellcheck="false">
           <div class="form-text">IANA-Zeitzone, z. B. Europe/Berlin.</div>
+          {% endif %}
         </div>
       </div>
     </section>
 
+    {% if can_manage_media_settings %}
     <section class="col-lg-6">
       <div class="card h-100">
         <div class="card-header">Dokumente und Import</div>
@@ -93,6 +105,7 @@
         </div>
       </div>
     </section>
+    {% endif %}
 
     <section class="col-lg-6">
       <div class="card h-100">
@@ -106,8 +119,8 @@
     </section>
 
     <div class="col-12 d-flex flex-wrap align-items-center gap-3">
-      <button type="submit" class="btn btn-primary">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
-      <span class="small text-secondary">Nur bewusst geänderte Werte speichern. Änderungen erscheinen anschließend im Logbuch.</span>
+      <button type="submit" class="btn btn-primary">{{ 'Save profile and defaults' if can_manage_media_settings and g.language == 'en' else 'Save profile' if g.language == 'en' else 'Profil und Standardwerte speichern' if can_manage_media_settings else 'Profil speichern' }}</button>
+      <span class="small text-secondary">{{ 'Global defaults are admin-only. Changes are recorded in the settings history.' if can_manage_media_settings and g.language == 'en' else 'Globalwerte können nur Administratoren ändern. Änderungen werden im Settings-Verlauf protokolliert.' if can_manage_media_settings else 'Persönliche Änderungen werden in deinem Konto gespeichert.' }}</span>
     </div>
   </form>
 

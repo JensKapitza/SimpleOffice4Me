@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from contextlib import contextmanager
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -15,10 +16,21 @@ from .revision_history import RevisionHistory
 
 
 _SETTINGS_LOCK = threading.RLock()
+_LOGGER = logging.getLogger(__name__)
 DEFAULT_VIDEO_PREVIEW_FRAMES = 10
 MIN_VIDEO_PREVIEW_FRAMES = 1
 MAX_VIDEO_PREVIEW_FRAMES = 30
 LEGACY_VIDEO_PREVIEW_SETTINGS_FILE = "video-preview-settings.json"
+DEFAULT_PREVIEW_ENABLED = True
+DEFAULT_PREVIEW_TIMEOUT_SECONDS = 45
+MIN_PREVIEW_TIMEOUT_SECONDS = 5
+MAX_PREVIEW_TIMEOUT_SECONDS = 300
+DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024 * 1024
+MIN_PREVIEW_MAX_BYTES = 1024
+MAX_PREVIEW_MAX_BYTES = 2 * 1024 * 1024 * 1024
+DEFAULT_PREVIEW_MAX_PIXELS = 80_000_000
+MIN_PREVIEW_MAX_PIXELS = 1_000_000
+MAX_PREVIEW_MAX_PIXELS = 250_000_000
 
 
 @contextmanager
@@ -37,13 +49,29 @@ def _settings_write_lock(path: Path):
                     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+def _bounded_setting(value: Any, default: int, minimum: int, maximum: int) -> int:
+    if isinstance(value, bool):
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "interface": {"default_language": "de", "timezone": "Europe/Berlin"},
     "documents": {"default_state": "new", "default_tags": [], "upload_to_archive": False},
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
-    "media": {"video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES},
+    "media": {
+        "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
+        "preview_enabled": DEFAULT_PREVIEW_ENABLED,
+        "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
+        "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
+        "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
+    },
 }
 
 TRANSLATIONS = {
@@ -334,28 +362,87 @@ class SettingsStore:
             if section in result and isinstance(values, dict):
                 result[section].update(values)
         stored_media = stored.get("media") if isinstance(stored, dict) else None
-        if not isinstance(stored_media, dict) or "video_preview_frames" not in stored_media:
-            result["media"]["video_preview_frames"] = self._legacy_video_preview_frames()
+        if not isinstance(stored_media, dict) or any(
+            key not in stored_media for key in DEFAULT_SETTINGS["media"]
+        ):
+            legacy_media = self._legacy_media_settings()
+            for key, legacy_value in legacy_media.items():
+                if not isinstance(stored_media, dict) or key not in stored_media:
+                    result["media"][key] = legacy_value
+        result["media"] = self._normalize_media_settings(result["media"])
         return result
 
-    def _legacy_video_preview_frames(self) -> int:
+    def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
         try:
             legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             legacy = {}
-        value = (
+        legacy_frames = (
             legacy.get("frame_count")
             if isinstance(legacy, dict) and "frame_count" in legacy
             else os.environ.get("SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES", DEFAULT_VIDEO_PREVIEW_FRAMES)
         )
-        if isinstance(value, bool):
-            return DEFAULT_VIDEO_PREVIEW_FRAMES
-        try:
-            count = int(value)
-        except (TypeError, ValueError, OverflowError):
-            return DEFAULT_VIDEO_PREVIEW_FRAMES
-        return max(MIN_VIDEO_PREVIEW_FRAMES, min(MAX_VIDEO_PREVIEW_FRAMES, count))
+        return {
+            "video_preview_frames": _bounded_setting(
+                legacy_frames, DEFAULT_VIDEO_PREVIEW_FRAMES,
+                MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
+            ),
+            "preview_enabled": os.environ.get("SIMPLEOFFICE_PREVIEWS", "1").strip().casefold()
+            not in {"0", "false", "off"},
+            "preview_timeout_seconds": _bounded_setting(
+                os.environ.get("SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS"),
+                DEFAULT_PREVIEW_TIMEOUT_SECONDS, MIN_PREVIEW_TIMEOUT_SECONDS,
+                MAX_PREVIEW_TIMEOUT_SECONDS,
+            ),
+            "preview_max_bytes": _bounded_setting(
+                os.environ.get("SIMPLEOFFICE_PREVIEW_MAX_BYTES"),
+                DEFAULT_PREVIEW_MAX_BYTES, MIN_PREVIEW_MAX_BYTES, MAX_PREVIEW_MAX_BYTES,
+            ),
+            "preview_max_pixels": _bounded_setting(
+                os.environ.get("SIMPLEOFFICE_PREVIEW_MAX_PIXELS"),
+                DEFAULT_PREVIEW_MAX_PIXELS, MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
+            ),
+        }
+
+    @staticmethod
+    def _normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(media)
+        if not isinstance(normalized.get("preview_enabled"), bool):
+            _LOGGER.warning("Invalid stored document preview enable setting; using default")
+            normalized["preview_enabled"] = DEFAULT_PREVIEW_ENABLED
+        ranges = {
+            "video_preview_frames": (
+                DEFAULT_VIDEO_PREVIEW_FRAMES,
+                MIN_VIDEO_PREVIEW_FRAMES,
+                MAX_VIDEO_PREVIEW_FRAMES,
+            ),
+            "preview_timeout_seconds": (
+                DEFAULT_PREVIEW_TIMEOUT_SECONDS,
+                MIN_PREVIEW_TIMEOUT_SECONDS,
+                MAX_PREVIEW_TIMEOUT_SECONDS,
+            ),
+            "preview_max_bytes": (
+                DEFAULT_PREVIEW_MAX_BYTES,
+                MIN_PREVIEW_MAX_BYTES,
+                MAX_PREVIEW_MAX_BYTES,
+            ),
+            "preview_max_pixels": (
+                DEFAULT_PREVIEW_MAX_PIXELS,
+                MIN_PREVIEW_MAX_PIXELS,
+                MAX_PREVIEW_MAX_PIXELS,
+            ),
+        }
+        for key, (default, minimum, maximum) in ranges.items():
+            value = normalized.get(key)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or not minimum <= value <= maximum
+            ):
+                _LOGGER.warning("Invalid stored media setting %s; using default", key)
+                normalized[key] = default
+        return normalized
 
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
@@ -395,6 +482,30 @@ class SettingsStore:
             or not MIN_VIDEO_PREVIEW_FRAMES <= video_preview_frames <= MAX_VIDEO_PREVIEW_FRAMES
         ):
             raise ValueError("video preview frame count must be between 1 and 30")
+        preview_enabled = media.get("preview_enabled", DEFAULT_PREVIEW_ENABLED)
+        if not isinstance(preview_enabled, bool):
+            raise ValueError("document previews enabled must be boolean")
+        preview_timeout = media.get("preview_timeout_seconds", DEFAULT_PREVIEW_TIMEOUT_SECONDS)
+        if (
+            isinstance(preview_timeout, bool)
+            or not isinstance(preview_timeout, int)
+            or not MIN_PREVIEW_TIMEOUT_SECONDS <= preview_timeout <= MAX_PREVIEW_TIMEOUT_SECONDS
+        ):
+            raise ValueError("preview timeout must be between 5 and 300 seconds")
+        preview_max_bytes = media.get("preview_max_bytes", DEFAULT_PREVIEW_MAX_BYTES)
+        if (
+            isinstance(preview_max_bytes, bool)
+            or not isinstance(preview_max_bytes, int)
+            or not MIN_PREVIEW_MAX_BYTES <= preview_max_bytes <= MAX_PREVIEW_MAX_BYTES
+        ):
+            raise ValueError("preview byte limit is outside the allowed range")
+        preview_max_pixels = media.get("preview_max_pixels", DEFAULT_PREVIEW_MAX_PIXELS)
+        if (
+            isinstance(preview_max_pixels, bool)
+            or not isinstance(preview_max_pixels, int)
+            or not MIN_PREVIEW_MAX_PIXELS <= preview_max_pixels <= MAX_PREVIEW_MAX_PIXELS
+        ):
+            raise ValueError("preview pixel limit is outside the allowed range")
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "de"))
@@ -425,5 +536,11 @@ class SettingsStore:
             },
             "sharing": {"default_expiry_days": expiry},
             "s3": {"enabled": s3.get("enabled", False)},
-            "media": {"video_preview_frames": video_preview_frames},
+            "media": {
+                "video_preview_frames": video_preview_frames,
+                "preview_enabled": preview_enabled,
+                "preview_timeout_seconds": preview_timeout,
+                "preview_max_bytes": preview_max_bytes,
+                "preview_max_pixels": preview_max_pixels,
+            },
         }

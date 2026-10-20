@@ -676,48 +676,6 @@ def run_restic(repository_id: str, action: str):
     return redirect(url_for("documents.replication"))
 
 
-@bp.route("/settings")
-@login_required
-def settings():
-    return render_template("documents/settings.html", settings=_settings().settings())
-
-
-@bp.post("/settings")
-@login_required
-def save_settings():
-    theme = request.form.get("theme", "system").strip().casefold()
-    if theme not in {"light", "dark", "system"}:
-        flash("Unbekanntes Farbschema. / Unknown color scheme.")
-        return redirect(url_for("documents.settings"))
-    values = {
-        "interface": {"default_language": request.form.get("default_language", "de"), "timezone": request.form.get("timezone", "Europe/Berlin")},
-        "documents": {"default_state": request.form.get("default_state", "new"), "default_tags": request.form.get("default_tags", "").split(","), "upload_to_archive": request.form.get("upload_to_archive") == "1"},
-        "calendar": {"default_visibility": request.form.get("default_visibility", "private"), "default_public_notice": request.form.get("default_public_notice", "Belegt"), "default_duration_minutes": request.form.get("default_duration_minutes", "60")},
-        "sharing": {"default_expiry_days": request.form.get("default_expiry_days", "7")},
-    }
-    try:
-        _settings().save(values, str(g.user["username"]))
-        display_name = request.form.get("display_name", "").strip()
-        if not display_name:
-            raise ValueError("Anzeigename fehlt.")
-        get_db().execute("UPDATE user SET display_name = ?, theme = ?, profile_source = ?, profile_updated_at = CURRENT_TIMESTAMP WHERE id = ?", (display_name, theme, "manual", g.user["id"]))
-        get_db().commit()
-        flash("Standardwerte gespeichert. Bestehende Daten wurden nicht verändert.")
-    except (TypeError, ValueError) as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.settings"))
-
-
-@bp.post("/settings/language")
-@login_required
-def set_language():
-    language = request.form.get("language", "de")
-    if language in {"de", "en"}:
-        from flask import session
-        session["simpleoffice_language"] = language
-    return redirect(url_for("documents.settings"))
-
-
 @bp.post("/todo")
 @login_required
 def add_todo():
