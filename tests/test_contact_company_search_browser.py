@@ -134,11 +134,9 @@ class CompanySearchBrowserTests(unittest.TestCase):
             selected_fields = page.locator("[data-company-include]:checked:not(:disabled)")
             self.assertGreater(selected_fields.count(), 0)
             apply_button = page.locator("[data-company-apply]")
-            apply_button.evaluate("button => button.addEventListener('click', () => { button.dataset.testClick = 'yes'; })")
             apply_button.click()
             source_value = page.locator("[data-company-data-source]").input_value()
             status_text = page.locator("[data-company-assist-status]").inner_text()
-            self.assertEqual("yes", apply_button.get_attribute("data-test-click"))
             self.assertTrue(
                 source_value,
                 f"No source recorded after apply: status={status_text!r}; "

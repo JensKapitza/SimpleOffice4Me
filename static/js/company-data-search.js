@@ -72,8 +72,12 @@
     const sourceUrl = root.querySelector("[data-company-source-url]");
     const websiteValue = root.querySelector('[data-company-value="website"]');
     const websiteLink = root.querySelector("[data-company-website-link]");
-    const sourceHidden = root.querySelector("[data-company-data-source]");
-    const fieldsHidden = root.querySelector("[data-company-data-fields]");
+    const editForm = root.closest("form[data-company-edit-form]")
+      || document.querySelector(root.dataset.companyEditForm || "[data-company-edit-form]");
+    const sourceHidden = editForm?.querySelector("[data-company-data-source]")
+      || root.querySelector("[data-company-data-source]");
+    const fieldsHidden = editForm?.querySelector("[data-company-data-fields]")
+      || root.querySelector("[data-company-data-fields]");
     const paste = root.querySelector("[data-company-paste]");
     const status = root.querySelector("[data-company-assist-status]");
     const preview = root.querySelector("[data-company-preview]");
@@ -191,8 +195,6 @@
         checkLocalDuplicates(queryName.value);
       });
     }
-    const editForm = root.closest("form[data-company-edit-form]")
-      || document.querySelector(root.dataset.companyEditForm || "[data-company-edit-form]");
     for (const field of editForm?.querySelectorAll('[name="company"], [name="display_name"]') || []) {
       field.addEventListener("input", () => {
         if (!queryName.value.trim()) queryName.value = field.value;
