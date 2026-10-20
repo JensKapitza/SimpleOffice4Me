@@ -57,7 +57,7 @@ class CalendarStoreTest(unittest.TestCase):
             event = store.add("Vertraulicher Termin", "Ursprünglicher Inhalt", "2026-07-25T10:00", "", "", "admin")
             store.update(event["event_id"], "Geänderter Termin", "Neuer Inhalt", "2026-07-25T10:30", "", "", "admin", "private", "", [])
 
-            store.delete(event["event_id"], "admin", date(2026, 7, 1))
+            store.delete(event["event_id"], "admin")
 
             deleted = store.get(event["event_id"], "admin")
             self.assertEqual("deleted", deleted["status"])
