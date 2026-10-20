@@ -1,12 +1,13 @@
+import os
+import tempfile
 import unittest
 from datetime import date
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import Mock, patch
 
-from app.finance_fints import _client, default_fetch_window, normalize_transaction
+from app.finance_fints import FinTSUnavailable, _client, default_fetch_window, normalize_transaction
 from app.finance_fints_sync import FinTSSyncService
 from app.finance_store import FinanceStore
-import tempfile
-from pathlib import Path
 
 
 class FinanceFinTSTests(unittest.TestCase):
@@ -49,6 +50,51 @@ class FinanceFinTSTests(unittest.TestCase):
         }
         with self.assertRaisesRegex(ValueError, "deaktiviert"):
             _client(connection, "temporary-pin")
+
+    def test_fints_requires_registered_product_id_before_client_creation(self):
+        connection = {
+            "provider": "fints", "bank_code": "12345678", "login_id": "user",
+            "endpoint": "https://bank.example.test/fints",
+        }
+        client_type = Mock()
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FINTS_PRODUCT_ID": ""}), patch(
+            "app.finance_fints._library", return_value=client_type,
+        ) as load_library:
+            with self.assertRaisesRegex(FinTSUnavailable, "registrierte Produkt-ID"):
+                _client(connection, "temporary-pin")
+        load_library.assert_called_once_with()
+        client_type.assert_not_called()
+
+    def test_fints_rejects_unprintable_or_overlong_product_id(self):
+        connection = {
+            "provider": "fints", "bank_code": "12345678", "login_id": "user",
+            "endpoint": "https://bank.example.test/fints",
+        }
+        invalid_values = ("invalid\nproduct", "x" * 65)
+        for product_id in invalid_values:
+            with self.subTest(product_id=product_id), patch.dict(
+                os.environ, {"SIMPLEOFFICE_FINTS_PRODUCT_ID": product_id},
+            ), patch("app.finance_fints._library", return_value=Mock()) as load_library:
+                with self.assertRaisesRegex(FinTSUnavailable, "Produkt-ID fehlt oder ist ungültig"):
+                    _client(connection, "temporary-pin")
+                load_library.return_value.assert_not_called()
+
+    def test_fints_passes_product_id_to_client_without_persisting_pin(self):
+        connection = {
+            "provider": "fints", "bank_code": "12345678", "login_id": "user",
+            "endpoint": "https://bank.example.test/fints",
+        }
+        client_type = Mock()
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FINTS_PRODUCT_ID": "registered-test-product"}), patch(
+            "app.finance_fints._library", return_value=client_type,
+        ):
+            client = _client(connection, "temporary-pin")
+
+        self.assertIs(client_type.return_value, client)
+        client_type.assert_called_once_with(
+            "12345678", "user", "temporary-pin", "https://bank.example.test/fints",
+            product_id="registered-test-product",
+        )
 
     @patch("app.finance_fints_sync.fetch_transactions")
     def test_disabled_connection_cannot_be_reenabled_by_sync(self, fetch):

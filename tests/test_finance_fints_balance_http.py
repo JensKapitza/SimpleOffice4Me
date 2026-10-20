@@ -9,7 +9,7 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, db as database
-from app.finance_fints import FinTSAuthenticationRequired
+from app.finance_fints import FinTSAuthenticationRequired, FinTSUnavailable
 from app.finance_store import FinanceStore
 
 
@@ -135,6 +135,22 @@ class FinTSBalanceHttpTests(unittest.TestCase):
             self.connection["connection_id"], "balance-user",
         )))
         self.assertEqual([], self.store.bank_transactions(self.account["account_id"], "balance-user"))
+
+    def test_missing_fints_product_registration_is_explained_instead_of_swallowed(self):
+        with patch(
+            "app.finance_web.fetch_balance",
+            side_effect=FinTSUnavailable("FinTS-Produkt-ID fehlt; SIMPLEOFFICE_FINTS_PRODUCT_ID prüfen."),
+        ):
+            response = self.client.post(
+                self.url,
+                data={"remote_account_id": self.mapping["remote_account_id"], "pin": "temporary-pin"},
+                headers={"X-CSRF-Token": "f" * 40},
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("SIMPLEOFFICE_FINTS_PRODUCT_ID prüfen", response.get_data(as_text=True))
+        self.assertNotIn("temporary-pin", response.get_data(as_text=True))
 
 
 if __name__ == "__main__":

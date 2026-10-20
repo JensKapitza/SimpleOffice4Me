@@ -261,7 +261,10 @@ def read_bank_connection_balance(connection_id: str):
     except FinTSAuthenticationRequired:
         flash("Die Bank verlangt für diese Saldoabfrage eine TAN/App-Freigabe. Der Adapter speichert keine TAN und hat keinen Kontostand geändert.")
         return redirect(url_for(".index", account_id=mapping["account_id"]))
-    except (FinTSUnavailable, ValueError):
+    except FinTSUnavailable as exc:
+        flash(str(exc))
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
+    except ValueError:
         flash("Kontostand konnte nicht abgerufen werden. Bitte Bankverbindung, PIN und Kontozuordnung prüfen.")
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     except Exception as exc:
