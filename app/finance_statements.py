@@ -173,7 +173,6 @@ def _preamble_iban(line: str) -> str:
     while cursor < len(line) and line[cursor].isspace():
         cursor += 1
 
-    start = cursor
     if cursor + 2 > len(line) or not all(
         character.isascii() and character.isalpha()
         for character in line[cursor:cursor + 2]
