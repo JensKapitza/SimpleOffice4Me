@@ -123,7 +123,6 @@ class FinTSBalanceTests(TestCase):
             def get_data(self):
                 return b"retry-state"
 
-        account = SimpleNamespace(currency="EUR")
         client = FakeFinTSClient(resumed=Decimal("42.25"))
         state = {
             "operation": "balance",
@@ -144,8 +143,8 @@ class FinTSBalanceTests(TestCase):
                 challenge_state=state, tan="request-local-tan",
             )
         self.assertEqual("42.25", result["booked_balance"])
+        self.assertEqual("EUR", result["currency"])
         self.assertEqual("request-local-tan", client.sent_tan)
-        self.assertEqual("EUR", account.currency)
 
     def test_fetch_balance_direct_decimal(self):
         client = SimpleNamespace(get_balance=lambda account: Decimal("-17.32"))
