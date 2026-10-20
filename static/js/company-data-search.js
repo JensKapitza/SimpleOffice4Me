@@ -183,6 +183,14 @@
         updateLinks();
       });
     }
+    for (const field of [queryName, queryCity]) {
+      field.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        previewGeneration += 1;
+        checkLocalDuplicates(queryName.value);
+      });
+    }
     const editForm = root.closest("form[data-company-edit-form]")
       || document.querySelector(root.dataset.companyEditForm || "[data-company-edit-form]");
     for (const field of editForm?.querySelectorAll('[name="company"], [name="display_name"]') || []) {
