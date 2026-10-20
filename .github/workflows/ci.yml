@@ -56,6 +56,26 @@ jobs:
           python tools/check_project_policy.py .
           python -m compileall -q app tools
 
+  company-search-browser:
+    name: Company search desktop and mobile browser flows
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+          cache: pip
+      - name: Install app and browser test dependency
+        run: python -m pip install --editable '.[web-export]'
+      - name: Install Chromium and WebKit browsers
+        run: python -m playwright install --with-deps chromium webkit
+      - name: Test external search and return flow on desktop, Android and iPhone viewports
+        run: python -m unittest tests.test_contact_company_search_browser -v
+
   python315-pr:
     name: Python 3.15 final acceptance
     if: github.event_name == 'pull_request'
