@@ -191,6 +191,7 @@ class CompanySearchBrowserTests(unittest.TestCase):
             page.locator('[aria-label="Externe Firmen-Suchseiten"]').get_attribute("role"),
         )
         self.assertEqual("off", page.locator("[data-company-query-name]").get_attribute("autocomplete"))
+        self.assertEqual("url", page.locator("[data-company-source-url]").get_attribute("autocomplete"))
 
 
 if __name__ == "__main__":

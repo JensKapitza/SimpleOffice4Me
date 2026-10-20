@@ -38,7 +38,7 @@
       <div class="col-md-6"><label class="form-label" for="company-import-phone">Telefon</label><input class="form-control" id="company-import-phone" data-company-value="phone" data-company-label="Telefon" maxlength="100"></div>
       <div class="col-md-6"><label class="form-label" for="company-import-email">E-Mail</label><input class="form-control" type="email" id="company-import-email" data-company-value="email" data-company-label="E-Mail" maxlength="254"></div>
       <div class="col-md-6"><label class="form-label" for="company-import-website">Webseite</label><input class="form-control" type="url" id="company-import-website" data-company-value="website" data-company-label="Webseite" maxlength="500" value="{{ contact.fields.website|default('') if contact is defined else '' }}"></div>
-      <div class="col-md-6"><label class="form-label" for="company-import-source">Quelle (HTTPS)</label><input class="form-control" type="url" id="company-import-source" data-company-source-url maxlength="2000" placeholder="https://www.example.de/impressum"></div>
+      <div class="col-md-6"><label class="form-label" for="company-import-source">Quelle (HTTPS)</label><input class="form-control" type="url" id="company-import-source" data-company-source-url maxlength="2000" autocomplete="url" placeholder="https://www.example.de/impressum"></div>
     </div>
     <div class="d-flex flex-wrap gap-2 mt-3">
       <button class="btn btn-sm btn-outline-primary" type="button" data-company-preview-button>Feldzuordnung prüfen</button>
