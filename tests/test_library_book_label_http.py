@@ -126,6 +126,7 @@ class BookLabelHttpContractTest(unittest.TestCase):
 
         self.assertEqual(302, response.status_code)
         render.assert_called_once()
+        self.assertTrue(render.call_args.kwargs["scan_optimized"])
         self.assertEqual(3, print_label.call_count)
         self.assertEqual(3, library.record_print.call_count)
 

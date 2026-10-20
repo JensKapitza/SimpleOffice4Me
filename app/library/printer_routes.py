@@ -44,6 +44,7 @@ def _render_requested(kind: str):
             settings,
             caption=request.form.get("caption", ""),
             show_text=request.form.get("barcode_style", "with_text") == "with_text",
+            scan_optimized=True,
         )
     if kind == "image":
         upload = request.files.get("image")

@@ -84,8 +84,11 @@ Die Druckoberfläche **PrinterShare** verlinkt direkt zu **Barcode scannen** und
 **Barcode-Etiketten drucken** in dieser bestehenden Bibliotheksfunktion; es gibt
 keinen zweiten Barcode-Renderer. Im freien Barcodeformular wird druckbares
 ASCII als Code 128-B ausgegeben, optional mit Klartext und einer Menge von 1 bis
-100 Etiketten. Die Kamerafunktion übernimmt EAN-8, EAN-13, Code 128 oder Code 39
-in das manuell änderbare Formular. Fehlen HTTPS, Kameraberechtigung oder
+100 Etiketten. Der direkte Barcode-Workflow hält für Scanner zehn Modulbreiten
+Ruhezone und mindestens drei Druckpunkte pro Modul ein; passt der Code damit
+nicht auf das gewählte Medium, wird er vor dem Druck abgewiesen. Die
+Kamerafunktion übernimmt EAN-8, EAN-13, Code 128 oder Code 39 in das manuell
+änderbare Formular. Fehlen HTTPS, Kameraberechtigung oder
 Browser-Unterstützung, bleiben manuelle Eingabe und Vorschau verfügbar. Ein
 Mehrfachdruck protokolliert jedes gesendete Etikett separat; bei einem
 Zwischenfehler zeigt die Oberfläche an, wie viele Kopien bereits gesendet
