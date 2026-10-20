@@ -175,6 +175,11 @@ def fetch_balance(
     client_data = _decode_state(challenge_state.get("client_data"))
     dialog_blob = _decode_state(challenge_state.get("dialog_data"))
     retry_response = _restore_retry_response(challenge_state.get("challenge_data"))
+    if challenge_state.get("step") not in {"accounts", "balance"}:
+        raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen Verarbeitungsschritt")
+    retry_decoupled = getattr(retry_response, "decoupled", None)
+    if not isinstance(retry_decoupled, bool) or challenge_state.get("decoupled") is not retry_decoupled:
+        raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen TAN-Modus")
     client = _client(connection, pin, from_data=client_data)
     if not retry_response.decoupled and not str(tan or ""):
         raise ValueError("Die Bank verlangt eine TAN")

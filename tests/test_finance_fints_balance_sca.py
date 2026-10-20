@@ -134,3 +134,16 @@ class FinTSBalanceSCATests(TestCase):
             )
         self.assertEqual("", client.sent_tan)
         self.assertEqual("15.00", result["booked_balance"])
+
+    def test_resume_rejects_mismatched_decoupled_metadata(self):
+        state = self.challenge_state()
+        state["decoupled"] = True
+        with patch("app.finance_fints_balances._client") as make_client, patch(
+            "app.finance_fints_balances._restore_retry_response", return_value=NeedTANResponse(),
+        ):
+            with self.assertRaisesRegex(ValueError, "TAN-Modus"):
+                fetch_balance(
+                    {"provider": "fints"}, "iban:DE123", "request-pin",
+                    challenge_state=state, tan="123456",
+                )
+        make_client.assert_not_called()

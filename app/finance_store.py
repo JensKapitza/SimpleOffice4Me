@@ -45,7 +45,7 @@ def _validated_fints_challenge_payload(payload: Any) -> dict[str, Any]:
         raise ValueError("FinTS-SCA-Zustand hat ein ungültiges Format")
     if payload.get("version") != 1 or payload.get("operation") != "balance":
         raise ValueError("FinTS-SCA-Vorgang wird nicht unterstützt")
-    if payload.get("step") not in {"initial", "accounts", "balance"}:
+    if payload.get("step") not in {"accounts", "balance"}:
         raise ValueError("FinTS-SCA-Schritt wird nicht unterstützt")
     if not isinstance(payload.get("decoupled"), bool):
         raise ValueError("FinTS-SCA-Methode ist ungültig")
