@@ -157,7 +157,8 @@ class CompanySearchBrowserTests(unittest.TestCase):
                 if contact["fields"].get("company") == f"Browser Works {label} GmbH"
             )
             self.assertEqual(f"Browser Works {label} GmbH", saved["fields"]["display_name"])
-            self.assertIn("Teststraße 8", [address["value"] for address in saved["addresses"]])
+            self.assertEqual("Teststraße 8", saved["addresses"][0]["components"]["street"])
+            self.assertEqual("10115", saved["addresses"][0]["components"]["postal"])
             self.assertEqual(
                 "https://www.google.com/search/",
                 saved["external_data_sources"][-1]["url"],
