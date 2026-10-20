@@ -110,7 +110,9 @@ chaquopy {
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
             install 'defusedxml==0.7.1'
-            install 'Pillow==13.0.0'
+            // Chaquopy 13.1 currently provides Pillow 11.0.0 only. The APK
+            // remains a security blocker until a patched Android wheel is available.
+            install 'Pillow==11.0.0'
             install 'reportlab==4.2.5'
             install 'pypdf==6.1.1'
             install 'cryptography==42.0.8'

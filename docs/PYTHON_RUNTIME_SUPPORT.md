@@ -22,6 +22,21 @@ Upstream-Patchnummer: `3.10.22` ist deshalb keine sinnvolle Jammy-Mindestprüfun
 
 ## Technische Durchsetzung
 
+Pillow 13.0.0 ist die von `pip-audit` gemeldete Fix-Version für acht Advisories
+gegen Pillow 12.3.0 (CVE-2026-112395, CVE-2026-112397, CVE-2026-112400,
+CVE-2026-112404, CVE-2026-112895, CVE-2026-112896, CVE-2026-112897 und
+CVE-2026-112899). Pillow 13 erfordert CPython 3.11 oder neuer. Die Abhängigkeit
+ist daher versioniert: Python 3.11–3.15 installieren Pillow 13; die befristete
+Jammy-Python-3.10-Ausnahme behält vorerst Pillow 12.x bei und bleibt durch die
+gemeldeten Advisories betroffen.
+
+Das Android-APK verwendet weiterhin Pillow 11.0.0, weil der konfigurierte
+Chaquopy-Paketindex derzeit keine Pillow-13-Wheels für die verwendeten Android-
+ABIs bereitstellt. Auch diese Runtime bleibt ein offener Security-Blocker. Die
+bekannten Paketbefunde werden weder unterdrückt noch als akzeptabler Restbefund
+behandelt. Für Python 3.10 und Android ist eine gepatchte kompatible Version
+oder eine Produktentscheidung zu Support und Bildverarbeitung erforderlich.
+
 `simpleoffice_runtime_support.py` ist die gemeinsame, unabhängige Prüfung für
 Source-/Editable-Builds (`setup.py`, auch PEP 517), Web-/SFTP-Starter,
 Systempaket-Build/-Installation und den Import der Anwendung. Direkte Starts

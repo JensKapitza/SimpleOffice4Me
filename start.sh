@@ -425,6 +425,7 @@ venv_uses_system_site_packages() {
 native_dependency_versions_ok() {
   "$VENV/bin/python" - <<'PY'
 from importlib.metadata import PackageNotFoundError, version
+import sys
 
 try:
     from packaging.specifiers import SpecifierSet
@@ -433,12 +434,13 @@ except ImportError:
     from pip._vendor.packaging.specifiers import SpecifierSet
     from pip._vendor.packaging.version import Version
 
+pillow_specifier = ">=12.2,<13" if sys.version_info < (3, 11) else ">=13.0.0,<14"
 requirements = {
     "Flask": ">=3.0,<4",
     "argon2-cffi": ">=23.1,<26",
     "beautifulsoup4": ">=4.12,<5",
     "defusedxml": ">=0.7,<1",
-    "Pillow": ">=13.0.0,<14",
+    "Pillow": pillow_specifier,
     "reportlab": ">=4.0,<6",
     "pypdf": ">=5.0,<7",
     "waitress": ">=3.0,<4",

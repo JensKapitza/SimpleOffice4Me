@@ -45,7 +45,14 @@ Die SBOM gehört zum jeweiligen Release-Artefakt. Abhängigkeitswarnungen werden
 - Logout änderte den Sitzungszustand per GET; im Produkt ist nur noch POST erlaubt.
 - Der SBOM-Serienwert war statisch; er wird nun eindeutig aus dem tatsächlichen Komponentenbestand abgeleitet.
 
-Am 26.07.2026 wurde nach einem `pip-audit`-Befund die Bildbibliothek von Pillow 11.x auf mindestens 12.3 angehoben. Befunde des isolierten Prüfwerkzeugs (`pip`) gehören zur Build-Umgebung und werden dort separat aktualisiert.
+Am 20.10.2026 meldete `pip-audit` acht Pillow-Advisories für 12.3.0, jeweils mit
+13.0.0 als Fix-Version. CPython 3.11–3.15 verwenden Pillow 13.0.0. Die
+Canonical-Ubuntu-22.04-Python-3.10-Ausnahme bleibt vorerst bei Pillow 12.x, weil
+Pillow 13 Python 3.10 nicht unterstützt; das Android-APK bleibt wegen fehlender
+Chaquopy-Pillow-13-Wheels bei Pillow 11.0.0. Beide Legacy-Runtimes sind damit
+weiterhin von den Advisory-Befunden betroffen und ein offener Security-Blocker.
+`pip-audit` wird nicht unterdrückt; eine gepatchte kompatible Version oder eine
+Entscheidung über den betroffenen Support-/Funktionsumfang ist erforderlich.
 
 ## Nicht automatisch erfüllbar
 

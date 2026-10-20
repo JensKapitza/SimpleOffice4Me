@@ -91,6 +91,10 @@ python -m pip install 'Pillow==13.0.0'
 python tools/check_android_launcher_assets.py android/apk/app/build/outputs/apk/debug/app-debug.apk
 ```
 
+Die Pillow-13-Version oben wird nur auf dem Build-Host für die PNG-Prüfung
+verwendet. Das APK enthält aufgrund fehlender Pillow-13-Wheels für Chaquopy
+weiterhin Pillow 11.0.0 und bleibt damit ein offener Security-Blocker.
+
 Der Befehl liefert JSON und Exitcode 0 bei gültigen Ressourcen; fehlende,
 beschädigte oder falsch dimensionierte Launcher-Bilder liefern Exitcode 1.
 ARM64 und ARM32 werden geprüft. Die bestehenden APK-Auslöser bleiben erhalten:

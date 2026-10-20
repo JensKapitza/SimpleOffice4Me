@@ -231,6 +231,14 @@ class RuntimeSupportTests(unittest.TestCase):
         self.assertEqual(dependencies, legacy["install_requires"])
         self.assertEqual(classifiers, legacy["classifiers"])
         self.assertEqual(">=3.10", legacy["python_requires"])
+        pillow_requirements = [requirement for requirement in dependencies if requirement.startswith("Pillow")]
+        self.assertEqual(
+            [
+                "Pillow>=12.2,<13; python_version < '3.11'",
+                "Pillow>=13.0.0,<14; python_version >= '3.11'",
+            ],
+            pillow_requirements,
+        )
 
     def test_standalone_option_keeps_system_python_and_default_venv_untouched(self):
         starter = (ROOT / "start.sh").read_text()
