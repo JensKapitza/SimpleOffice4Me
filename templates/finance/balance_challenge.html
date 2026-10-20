@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <h1 class="h3 mb-0">Bankfreigabe für Kontostand</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('.index', account_id=account.account_id) }}">Abbrechen</a>
+  </div>
+  <p>Die Bank verlangt eine zusätzliche Freigabe für den ausschließlich lesenden Saldoabruf von <strong>{{ account.name }}</strong>.</p>
+  {% if challenge_text %}<div class="alert alert-info" role="status" aria-live="polite">{{ challenge_text }}</div>{% endif %}
+  {% if decoupled %}
+  <p>Bestätige die Anfrage in der offiziellen App oder auf dem Gerät deiner Bank. Danach kannst du hier fortfahren; eine TAN wird nicht benötigt.</p>
+  {% else %}
+  <p>Gib die von deiner Bank angeforderte TAN ein. Sie wird nur für diesen Fortsetzungsschritt verwendet und nicht gespeichert.</p>
+  {% endif %}
+  <form method="post" action="{{ url_for('.continue_bank_connection_balance', connection_id=connection_id) }}" class="card card-body">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="challenge_token" value="{{ challenge_token }}">
+    <div class="mb-3"><label class="form-label" for="resume-pin">PIN zur Fortsetzung</label><input required class="form-control" id="resume-pin" name="pin" type="password" autocomplete="new-password" maxlength="256"></div>
+    {% if not decoupled %}<div class="mb-3"><label class="form-label" for="resume-tan">TAN</label><input required class="form-control" id="resume-tan" name="tan" type="password" autocomplete="one-time-code" maxlength="256"></div>{% endif %}
+    <button class="btn btn-primary align-self-start" type="submit">Freigabe fortsetzen</button>
+  </form>
+  <p class="small text-secondary mt-3">Die Freigabe läuft nach fünf Minuten ab. Der Zustand ist verschlüsselt, an dein Konto gebunden und kann nur einmal verwendet werden. Es werden keine Umsätze importiert.</p>
+</main>
+{% endblock %}

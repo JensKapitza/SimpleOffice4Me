@@ -214,6 +214,9 @@ def discover_bank_accounts(connection_id: str):
             local = store.account_by_iban(remote.get("iban", ""), actor) if remote.get("iban") else None
             suggestions.append({"remote": remote, "local": local})
         return render_template("finance/bank_discovery.html", connection=connection, suggestions=suggestions, accounts=local_accounts)
+    except FinTSAuthenticationRequired:
+        flash("Die Bank verlangt bei der Kontenermittlung eine TAN/App-Freigabe. Dieser Vorgang kann hier nicht fortgesetzt werden.")
+        return redirect(url_for(".index"))
     except (ValueError, FinTSUnavailable) as exc:
         flash(f"Konten konnten nicht abgerufen werden: {exc}")
         return redirect(url_for(".index"))
@@ -258,8 +261,15 @@ def read_bank_connection_balance(connection_id: str):
     pin = request.form.get("pin", "")
     try:
         balance = fetch_balance(connection, remote_account_id, pin)
-    except FinTSAuthenticationRequired:
-        flash("Die Bank verlangt für diese Saldoabfrage eine TAN/App-Freigabe. Der Adapter speichert keine TAN und hat keinen Kontostand geändert.")
+    except FinTSAuthenticationRequired as exc:
+        if exc.challenge_state:
+            try:
+                token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
+            except ValueError:
+                flash("Die TAN-Freigabe konnte nicht sicher vorbereitet werden. Bitte den Saldoabruf erneut starten.")
+                return redirect(url_for(".index", account_id=mapping["account_id"]))
+            return _balance_challenge_response(mapping, connection_id, token, exc.challenge_state)
+        flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte den Bankabruf erneut starten.")
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     except FinTSUnavailable as exc:
         flash(str(exc))
@@ -278,6 +288,74 @@ def read_bank_connection_balance(connection_id: str):
         "finance/balance_report.html",
         account=mapping,
         balance=balance,
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@bp.post("/bank-connections/<connection_id>/balance/challenge")
+@login_required
+def continue_bank_connection_balance(connection_id: str):
+    actor = _actor()
+    store = _store()
+    pin = request.form.get("pin", "")
+    tan = request.form.get("tan", "")
+    token = request.form.get("challenge_token", "")
+    try:
+        connection = store.bank_connection(connection_id, actor)
+        challenge_state = store.consume_fints_challenge(token, connection_id, actor)
+        mapping = next((
+            item for item in store.bank_account_mappings(connection_id, actor)
+            if item["remote_account_id"] == challenge_state["remote_account_id"]
+        ), None)
+        if mapping is None:
+            raise ValueError("FinTS-SCA-Kontozuordnung ist nicht mehr verfügbar")
+        balance = fetch_balance(
+            connection,
+            challenge_state["remote_account_id"],
+            pin,
+            challenge_state=challenge_state,
+            tan=tan,
+        )
+    except FinTSAuthenticationRequired as exc:
+        if exc.challenge_state and "mapping" in locals():
+            try:
+                next_token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
+            except ValueError:
+                flash("Die TAN-Freigabe ist abgelaufen. Bitte den Saldoabruf neu starten.")
+                return redirect(url_for(".index"))
+            return _balance_challenge_response(mapping, connection_id, next_token, exc.challenge_state)
+        flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte erneut starten.")
+        return redirect(url_for(".index"))
+    except (ValueError, FinTSUnavailable):
+        flash("TAN-Freigabe fehlgeschlagen oder abgelaufen. Bitte den Saldoabruf neu starten.")
+        return redirect(url_for(".index"))
+    except Exception as exc:
+        current_app.logger.warning("FinTS SCA continuation failed: %s", type(exc).__name__)
+        flash("TAN-Freigabe konnte nicht sicher fortgesetzt werden. Bitte erneut starten.")
+        return redirect(url_for(".index"))
+    finally:
+        pin = ""
+        tan = ""
+    response = make_response(render_template(
+        "finance/balance_report.html", account=mapping, balance=balance,
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _balance_challenge_response(mapping, connection_id: str, token: str, challenge_state: dict):
+    response = make_response(render_template(
+        "finance/balance_challenge.html",
+        account=mapping,
+        connection_id=connection_id,
+        challenge_token=token,
+        challenge_text=challenge_state["challenge_text"],
+        decoupled=challenge_state["decoupled"],
     ))
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"

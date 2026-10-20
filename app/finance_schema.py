@@ -210,6 +210,13 @@ CREATE TABLE IF NOT EXISTS finance_bank_connection_account(
     FOREIGN KEY(connection_id) REFERENCES finance_bank_connection(connection_id) ON DELETE CASCADE,
     FOREIGN KEY(account_id) REFERENCES finance_account(account_id)
 );
+CREATE TABLE IF NOT EXISTS finance_fints_challenge(
+    token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, connection_id TEXT NOT NULL,
+    payload TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+    FOREIGN KEY(connection_id) REFERENCES finance_bank_connection(connection_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS finance_fints_challenge_owner_expiry_idx
+    ON finance_fints_challenge(owner, expires_at);
 CREATE TABLE IF NOT EXISTS finance_tax_year(
     owner TEXT NOT NULL, tax_year INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'collecting',
     submitted_on TEXT NOT NULL DEFAULT '', advisor_note TEXT NOT NULL DEFAULT '',
