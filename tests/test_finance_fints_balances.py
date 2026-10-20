@@ -37,6 +37,8 @@ class FinTSBalanceTests(TestCase):
                 "remote_account_id": "iban:DE123",
                 "booked_balance": "42.25",
                 "currency": "EUR",
+                "available_balance": "",
+                "available_currency": "",
             },
             result,
         )
@@ -55,15 +57,45 @@ class FinTSBalanceTests(TestCase):
                     {"provider": "fints"}, "iban:DE123", "temporary-pin"
                 )
 
+    def test_fetch_balance_requires_interactive_authentication_for_account_discovery(self):
+        class NeedTANResponse:
+            challenge = "approve account discovery"
+
+        client = SimpleNamespace(get_sepa_accounts=lambda: NeedTANResponse())
+        with patch("app.finance_fints_balances._client", return_value=client):
+            with self.assertRaises(FinTSAuthenticationRequired):
+                fetch_balance(
+                    {"provider": "fints"}, "iban:DE123", "temporary-pin"
+                )
+
     def test_fetch_balance_direct_decimal(self):
         client = SimpleNamespace(get_balance=lambda account: Decimal("-17.32"))
         with patch("app.finance_fints_balances._client", return_value=client), patch(
-            "app.finance_fints_balances._find_remote_account", return_value=object()
+            "app.finance_fints_balances._find_remote_account", return_value=SimpleNamespace(currency="CHF")
         ):
             result = fetch_balance(
                 {"provider": "fints"}, "iban:DE123", "temporary-pin"
             )
         self.assertEqual("-17.32", result["booked_balance"])
+        self.assertEqual("CHF", result["currency"])
+        self.assertEqual("", result["available_balance"])
+        self.assertEqual("", result["available_currency"])
+
+    def test_available_balance_is_reported_only_when_provider_supplies_it(self):
+        account = SimpleNamespace(currency="EUR")
+        result = SimpleNamespace(
+            amount=Decimal("42.00"),
+            available_balance=SimpleNamespace(amount=Decimal("35.50"), currency="CHF"),
+            currency="EUR",
+        )
+        client = SimpleNamespace(get_balance=lambda _account: result)
+        with patch("app.finance_fints_balances._client", return_value=client), patch(
+            "app.finance_fints_balances._find_remote_account", return_value=account
+        ):
+            balance = fetch_balance({"provider": "fints"}, "iban:DE123", "temporary-pin")
+        self.assertEqual("42.00", balance["booked_balance"])
+        self.assertEqual("35.50", balance["available_balance"])
+        self.assertEqual("CHF", balance["available_currency"])
 
     def test_decimal_amount_rejects_overflow(self):
         with self.assertRaises(ValueError):

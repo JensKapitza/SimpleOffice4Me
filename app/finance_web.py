@@ -7,13 +7,14 @@ import time
 from pathlib import Path
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
 
 from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
 from .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts
+from .finance_fints_balances import fetch_balance
 from .finance_fints_sync import FinTSSyncService
 from .finance_match_adapters import proposals_for_transaction
 from .safe_paths import safe_filename
@@ -90,6 +91,11 @@ def index():
     _cleanup_staging(actor)
     store = _store()
     accounts = store.accounts(actor)
+    connections = store.bank_connections(actor)
+    bank_account_mappings = {
+        connection["connection_id"]: store.bank_account_mappings(connection["connection_id"], actor)
+        for connection in connections
+    }
     selected = request.args.get("account_id", "").strip()
     if selected and selected not in {row["account_id"] for row in accounts}:
         selected = ""
@@ -97,7 +103,8 @@ def index():
     return render_template(
         "finance/index.html",
         accounts=accounts,
-        bank_connections=store.bank_connections(actor),
+        bank_connections=connections,
+        bank_account_mappings=bank_account_mappings,
         selected_account_id=selected,
         transactions=transactions,
     )
@@ -225,6 +232,54 @@ def map_bank_account(connection_id: str):
     except ValueError as exc:
         flash(f"Kontozuordnung nicht gespeichert: {exc}")
         return redirect(url_for(".index"))
+
+
+@bp.post("/bank-connections/<connection_id>/balance")
+@login_required
+def read_bank_connection_balance(connection_id: str):
+    actor = _actor()
+    store = _store()
+    try:
+        connection = store.bank_connection(connection_id, actor)
+        if str(connection.get("status", "")).casefold() == "disabled":
+            abort(404)
+        remote_account_id = str(request.form.get("remote_account_id", "")).strip()
+        if not remote_account_id or len(remote_account_id) > 200:
+            abort(404)
+        mapping = next((
+            item for item in store.bank_account_mappings(connection_id, actor)
+            if item["remote_account_id"] == remote_account_id
+        ), None)
+        if mapping is None:
+            abort(404)
+    except ValueError:
+        abort(404)
+
+    pin = request.form.get("pin", "")
+    try:
+        balance = fetch_balance(connection, remote_account_id, pin)
+    except FinTSAuthenticationRequired:
+        flash("Die Bank verlangt für diese Saldoabfrage eine TAN/App-Freigabe. Der Adapter speichert keine TAN und hat keinen Kontostand geändert.")
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
+    except (FinTSUnavailable, ValueError):
+        flash("Kontostand konnte nicht abgerufen werden. Bitte Bankverbindung, PIN und Kontozuordnung prüfen.")
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
+    except Exception as exc:
+        current_app.logger.warning("FinTS balance read failed: %s", type(exc).__name__)
+        flash("Kontostand konnte nicht sicher abgerufen werden.")
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
+    finally:
+        pin = ""
+
+    response = make_response(render_template(
+        "finance/balance_report.html",
+        account=mapping,
+        balance=balance,
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @bp.post("/bank-connections/<connection_id>/sync")

@@ -85,6 +85,9 @@ class FinTSSyncService:
         }
 
     def sync_connection(self, connection_id: str, pin: str, actor: str, *, today: date | None = None) -> dict[str, Any]:
+        connection = self.store.bank_connection(connection_id, actor)
+        if str(connection.get("status", "")).casefold() == "disabled":
+            raise ValueError("Bankverbindung ist deaktiviert")
         mappings = self.store.bank_account_mappings(connection_id, actor)
         if not mappings:
             raise ValueError("Für diese Bankverbindung ist noch kein Konto zugeordnet")

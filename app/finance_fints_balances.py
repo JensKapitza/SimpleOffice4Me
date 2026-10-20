@@ -7,6 +7,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from .finance_schema import currency as _currency
 from .finance_fints import FinTSAuthenticationRequired, _client, _find_remote_account
 
 
@@ -32,7 +33,7 @@ def fetch_balance(connection: dict[str, Any], remote_account_id: str, pin: str) 
     try:
         account = _find_remote_account(client, remote_account_id)
         result = client.get_balance(account)
-        if result.__class__.__name__.casefold().startswith("needtan"):
+        if hasattr(result, "challenge") or result.__class__.__name__.casefold().startswith("needtan"):
             raise FinTSAuthenticationRequired("Die Bank verlangt eine TAN/App-Freigabe für die Saldoabfrage.")
         if result is None:
             raise ValueError("FinTS lieferte keinen Kontostand")
@@ -44,10 +45,24 @@ def fetch_balance(connection: dict[str, Any], remote_account_id: str, pin: str) 
         currency = getattr(result, "currency", None)
         if currency is None:
             currency = getattr(booked, "currency", None)
-        return {
+        if currency is None:
+            currency = getattr(account, "currency", None)
+        available = getattr(result, "available_balance", None)
+        if available is None:
+            available = getattr(result, "available_amount", None)
+        if callable(available):
+            available = None
+        normalized_currency = _currency(currency or "EUR")
+        balance = {
             "remote_account_id": remote_account_id,
             "booked_balance": _decimal_amount(booked),
-            "currency": str(currency or "EUR").upper(),
+            "currency": normalized_currency,
         }
+        balance["available_balance"] = _decimal_amount(available) if available is not None else ""
+        balance["available_currency"] = (
+            _currency(getattr(available, "currency", None) or normalized_currency)
+            if available is not None else ""
+        )
+        return balance
     finally:
         del client
