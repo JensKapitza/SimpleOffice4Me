@@ -16,16 +16,20 @@ if [ -n "${TERMUX_VERSION:-}" ] \
 fi
 
 if [ "$IS_TERMUX" -eq 1 ]; then
-  echo "Termux erkannt: Python und native SFTP-Abhängigkeiten werden über pkg bereitgestellt."
-  # Python selbst gehört zum Bootstrap: start-sftp.sh muss auf einer frischen
-  # Termux-Installation nicht bereits ein manuell eingerichtetes Python voraussetzen.
-  pkg install -y python python-pip python-cryptography python-pillow python-bcrypt python-pynacl
-
   # Wenn der Android-Schnellstarter bereits eingerichtet wurde, dieselbe
   # projektlokale Umgebung weiterverwenden statt eine zweite Termux-venv anzulegen.
   if [ -x "$ROOT/.venv-android/bin/python" ]; then
     VENV="$ROOT/.venv-android"
   fi
+fi
+
+if [ "$IS_TERMUX" -eq 1 ] && [ "${SIMPLEOFFICE_NATIVE_PACKAGES:-1}" != "0" ]; then
+  echo "Termux erkannt: Python und native SFTP-Abhängigkeiten werden über pkg bereitgestellt."
+  # Python selbst gehört zum Bootstrap: start-sftp.sh muss auf einer frischen
+  # Termux-Installation nicht bereits ein manuell eingerichtetes Python voraussetzen.
+  pkg install -y python python-pip python-cryptography python-pillow python-bcrypt python-pynacl
+elif [ "$IS_TERMUX" -eq 1 ]; then
+  echo "Native Python-Pakete wurden über SIMPLEOFFICE_NATIVE_PACKAGES=0 deaktiviert."
 fi
 
 run_privileged() {
@@ -92,7 +96,7 @@ if [ -x "$VENV_PYTHON" ]; then
   "$VENV_PYTHON" "$ROOT/simpleoffice_runtime_support.py"
 fi
 
-if [ "$IS_TERMUX" -eq 1 ] && [ -x "$VENV_PYTHON" ]; then
+if [ "$IS_TERMUX" -eq 1 ] && [ "${SIMPLEOFFICE_NATIVE_PACKAGES:-1}" != "0" ] && [ -x "$VENV_PYTHON" ]; then
   if ! venv_uses_system_site_packages \
     || termux_venv_has_local_native_packages; then
     echo "Vorhandene Termux-venv ist isoliert, veraltet oder überschreibt native Pakete; erstelle sie sauber neu."
@@ -103,7 +107,7 @@ fi
 
 if [ ! -x "$VENV_PYTHON" ]; then
   check_bootstrap
-  if [ "$IS_TERMUX" -eq 1 ]; then
+  if [ "$IS_TERMUX" -eq 1 ] && [ "${SIMPLEOFFICE_NATIVE_PACKAGES:-1}" != "0" ]; then
     "$PYTHON_BOOTSTRAP" -m venv --system-site-packages "$VENV"
   else
     "$PYTHON_BOOTSTRAP" -m venv "$VENV"
@@ -112,7 +116,7 @@ fi
 
 "$VENV_PYTHON" "$ROOT/simpleoffice_runtime_support.py"
 
-if [ "$IS_TERMUX" -eq 1 ]; then
+if [ "$IS_TERMUX" -eq 1 ] && [ "${SIMPLEOFFICE_NATIVE_PACKAGES:-1}" != "0" ]; then
   # Auch ein späterer versehentlicher pip-Aufruf darf diese Android-nativen
   # Pakete niemals aus einem Source-Archiv bauen.
   export PIP_ONLY_BINARY="pynacl,bcrypt,cryptography"
