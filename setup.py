@@ -20,8 +20,7 @@ RUNTIME_DEPENDENCIES = [
     "argon2-cffi>=23.1,<26",
     "beautifulsoup4>=4.12,<5",
     "defusedxml>=0.7,<1",
-    "Pillow>=13.0.0,<14; python_version >= '3.11'",
-    "Pillow>=12.2,<13; python_version < '3.11'",
+    "Pillow>=13.0.0,<14",
     "reportlab>=4.0,<6",
     "pypdf>=5.0,<7",
     "waitress>=3.0,<4",
@@ -36,7 +35,7 @@ setup(
     version="2.0.0",
     description="Self-hosted, file-based document management",
     # Syntax floor only; vendor security policy is checked above.
-    python_requires=">=3.10",
+    python_requires=">=3.11",
     classifiers=[f"Programming Language :: Python :: 3.{minor}" for minor in range(11, 16)],
     packages=["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"],
     py_modules=[
@@ -68,8 +67,7 @@ setup(
         "quality": ["ruff==0.17.1"],
         "ocr": [
             "rapidocr==3.10.0",
-            "onnxruntime==1.24.3; python_version == '3.10'",
-            "onnxruntime==1.30.0; python_version >= '3.11'",
+                        "onnxruntime==1.30.0",
         ],
         "sftp": ["paramiko>=3.5,<6"],
         "banking": ["fints>=4.2,<6"],
