@@ -34,7 +34,9 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: '3.15'
+          # cibuildwheel manages target interpreters; the orchestration host
+          # should use a stable, published CPython release.
+          python-version: '3.13'
       - name: Install Android NDK and cibuildwheel
         run: |
           python -m pip install --upgrade pip
