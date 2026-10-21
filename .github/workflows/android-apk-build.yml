@@ -136,6 +136,32 @@ jobs:
             --xml-output artifacts/android/gradle-runtime.cdx.xml
           python -m json.tool artifacts/android/gradle-runtime.cdx.json > /dev/null
 
+      - name: Inventory Python wheels bundled in APK
+        run: |
+          python tools/android_apk_python_sbom.py \
+            android/apk/app/build/outputs/apk/debug/app-debug.apk \
+            --output artifacts/android/chaquopy-python.cdx.json \
+            --xml-output artifacts/android/chaquopy-python.cdx.xml
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          bom = json.loads(Path("artifacts/android/chaquopy-python.cdx.json").read_text())
+          versions = {component["name"].lower(): component["version"] for component in bom["components"]}
+          if "pillow" not in versions:
+              raise SystemExit("APK Pillow inventory missing: packaging audit incomplete")
+          print("APK-bundled Pillow version:", versions["pillow"])
+          PY
+
+      - name: Upload APK-bundled Python SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-python-sbom-${{ matrix.abi }}
+          path: |
+            artifacts/android/chaquopy-python.cdx.json
+            artifacts/android/chaquopy-python.cdx.xml
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload resolved Android JVM SBOM
         uses: actions/upload-artifact@v7
         with:
