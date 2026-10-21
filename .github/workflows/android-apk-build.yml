@@ -124,8 +124,10 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           "$ZIPALIGN" -c -P '${{ matrix.page-size }}' -v 4 "$APK"
           mkdir -p artifacts/android
-          cp "$APK" "artifacts/android/${{ matrix.output }}"
-          sha256sum "artifacts/android/${{ matrix.output }}" > "artifacts/android/${{ matrix.output }}.sha256"
+          VERSIONED_OUTPUT="${{ matrix.output }}"
+          VERSIONED_OUTPUT="${VERSIONED_OUTPUT%.apk}-${SIMPLEOFFICE_BUILD_DATE}-${SIMPLEOFFICE_BUILD_SEQUENCE}.apk"
+          cp "$APK" "artifacts/android/${VERSIONED_OUTPUT}"
+          sha256sum "artifacts/android/${VERSIONED_OUTPUT}" > "artifacts/android/${VERSIONED_OUTPUT}.sha256"
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v7
