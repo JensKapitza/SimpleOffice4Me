@@ -3,14 +3,23 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 from xml.etree import ElementTree as ET
+from unittest.mock import patch
+from types import SimpleNamespace
 
-from tools.generate_sbom import write_xml_sbom
+from tools.generate_sbom import build_sbom, write_xml_sbom
 
 
 NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
 
 
 class SbomXmlTests(unittest.TestCase):
+    def test_build_sbom_deduplicates_identical_distribution_records(self):
+        distribution = SimpleNamespace(metadata={"Name": "simpleoffice4me"}, version="2.0.0")
+        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[distribution, distribution]):
+            document = build_sbom()
+        matching = [item for item in document["components"] if item["purl"] == "pkg:pypi/simpleoffice4me@2.0.0"]
+        self.assertEqual(1, len(matching))
+
     def test_xml_preserves_inventory_and_spdx_license(self):
         document = {
             "bomFormat": "CycloneDX", "specVersion": "1.6",

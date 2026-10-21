@@ -19,12 +19,18 @@ from simpleoffice_version import build_info  # noqa: E402
 
 
 def build_sbom() -> dict:
-    components = []
+    unique_components = {}
     for distribution in sorted(importlib.metadata.distributions(), key=lambda item: item.metadata["Name"].casefold()):
         name = distribution.metadata["Name"]
         if not name:
             continue
-        components.append({"type": "library", "name": name, "version": distribution.version, "purl": f"pkg:pypi/{name}@{distribution.version}"})
+        purl = f"pkg:pypi/{name}@{distribution.version}"
+        component = {"type": "library", "name": name, "version": distribution.version, "purl": purl}
+        previous = unique_components.get(purl)
+        if previous is not None and previous != component:
+            raise ValueError(f"conflicting installed distribution metadata for {purl}")
+        unique_components[purl] = component
+    components = list(unique_components.values())
     inventory = "\n".join(f"{item['name']}=={item['version']}" for item in components)
     serial = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/JensKapitza/SimpleOffice4Me\n" + inventory)
     release_version = str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")
