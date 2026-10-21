@@ -57,7 +57,7 @@ class CaptureFirstBrowserTests(unittest.TestCase):
         return output.getvalue()
 
     def test_camera_snapshot_and_multi_photo_import_work_on_desktop_android_and_ios(self):
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import expect, sync_playwright
 
         with sync_playwright() as playwright:
             scenarios = (
@@ -108,10 +108,7 @@ class CaptureFirstBrowserTests(unittest.TestCase):
             ])
             self.assertIn("2 Foto(s)", page.locator("#photo-selection").inner_text())
             page.locator("#photo-start").click()
-            page.wait_for_function(
-                "document.getElementById('photo-summary').textContent.startsWith('2 neu')",
-                timeout=30000,
-            )
+            expect(page.locator("#photo-summary")).to_contain_text("2 neu", timeout=30000)
             self.assertEqual(2, page.locator("#photo-results a").count())
             self.assertEqual([], page_errors)
         finally:
