@@ -12,6 +12,8 @@ class CaptureFirstNavigationTests(unittest.TestCase):
         self.assertIn('id="capture-first"', images)
         self.assertIn('href="#photo-snapshot-form"', images)
         self.assertIn('href="#mobile-photo-import"', images)
+        self.assertIn("url_for('documents.inbox')", images)
+        self.assertIn("url_for('v3_inbox.index')", images)
 
     def test_capture_offers_unclassified_photo_and_document_uploads(self):
         images = Path("templates/documents/images.html").read_text(encoding="utf-8")

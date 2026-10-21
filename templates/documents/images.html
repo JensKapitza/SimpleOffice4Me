@@ -12,6 +12,8 @@
       <a class="btn btn-primary" href="#photo-snapshot-form"><i class="fas fa-camera me-1" aria-hidden="true"></i>Kamera aufnehmen</a>
       <a class="btn btn-outline-primary" href="#mobile-photo-import"><i class="fas fa-images me-1" aria-hidden="true"></i>Mehrere Fotos importieren</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('documents.index', _anchor='capture-first') }}"><i class="fas fa-file-arrow-up me-1" aria-hidden="true"></i>Andere Dateien / PDF</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('documents.inbox') }}"><i class="fas fa-inbox me-1" aria-hidden="true"></i>Noch nicht zugeordnet</a>
+      {% if v3_inbox_enabled %}<a class="btn btn-outline-secondary" href="{{ url_for('v3_inbox.index') }}"><i class="fas fa-list-check me-1" aria-hidden="true"></i>Uploadstatus</a>{% endif %}
     </div>
   </section>
 

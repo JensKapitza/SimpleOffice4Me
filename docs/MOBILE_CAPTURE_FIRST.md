@@ -18,6 +18,9 @@ document type to be selected first. The page links to three existing paths:
   processing for it.
 - **Andere Dateien / PDF** opens the existing multi-file document importer.
   Files enter the regular DocumentStore and can be managed and associated later.
+- **Noch nicht zugeordnet** opens the existing DocumentStore inbox. When V3 Inbox
+  is enabled, **Uploadstatus** also shows each upload's validation and malware-scan
+  state.
 
 These actions preserve the existing DocumentStore, photo importer, inbox, and
 web-upload security checks. When V3 Inbox is enabled, uploads also use its
