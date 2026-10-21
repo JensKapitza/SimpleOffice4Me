@@ -46,6 +46,7 @@ from .ssh_keys import add_key, keys_for, revoke_key
 from .virtual_filesystem import VirtualFileSystem
 from .v2.materialize import materialize_verified_object
 from .db import get_db
+from .settings_store import SettingsStore
 
 
 bp = Blueprint("webdav", "app.webdav")
@@ -222,7 +223,18 @@ class _SearchError(Exception):
 def _quota_state() -> dict[str, int] | None:
     if hasattr(g, "_webdav_quota_state"):
         return g._webdav_quota_state
-    limit = max(0, int(current_app.config.get("WEBDAV_QUOTA_BYTES", 0)))
+    configured_limit = max(0, int(current_app.config.get("WEBDAV_QUOTA_BYTES", 0)))
+    settings = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+    limit = settings.settings()["network"]["webdav_quota_bytes"]
+    # Preserve existing deployment quota until an explicit admin override exists.
+    try:
+        import json as _json
+        persisted = _json.loads(settings.path.read_text(encoding="utf-8"))
+        has_override = isinstance(persisted, dict) and isinstance(persisted.get("network"), dict) and "webdav_quota_bytes" in persisted["network"]
+    except (OSError, ValueError):
+        has_override = False
+    if not has_override:
+        limit = configured_limit
     if not limit:
         g._webdav_quota_state = None
         return None
