@@ -55,7 +55,6 @@ jobs:
           CIBW_ARCHS_ANDROID: arm64_v8a
           CIBW_BUILD_VERBOSITY: '1'
           CIBW_TEST_SKIP: '*'
-          CIBW_BUILD_FRONTEND: build
           CIBW_OUTPUT_DIR: wheelhouse
           PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
         shell: bash
@@ -72,7 +71,10 @@ jobs:
           esac
           source_dir="$(find unpacked -mindepth 1 -maxdepth 1 -type d -print -quit)"
           test -n "$source_dir"
-          test -f "$source_dir/pyproject.toml" -o -f "$source_dir/setup.py"
+          if [[ ! -f "$source_dir/pyproject.toml" && ! -f "$source_dir/setup.py" ]]; then
+            echo "Source archive has no Python build metadata: $source_dir" >&2
+            exit 1
+          fi
           python -m cibuildwheel "$source_dir" --platform android --output-dir wheelhouse
       - name: Verify resulting Android wheels
         env:
