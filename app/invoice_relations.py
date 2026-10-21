@@ -455,12 +455,10 @@ class InvoiceRelationStore:
                     ((invoice_id,) for invoice_id in batch),
                 )
                 rows = db.execute(
-                    """SELECT source_invoice_id,target_invoice_id FROM invoice_relation AS relation
+                    """SELECT source_invoice_id,target_invoice_id FROM invoice_relation
                         WHERE removed_at='' AND (
-                            EXISTS (SELECT 1 FROM selected_invoice_ids selected
-                                    WHERE selected.invoice_id=relation.source_invoice_id)
-                            OR EXISTS (SELECT 1 FROM selected_invoice_ids selected
-                                       WHERE selected.invoice_id=relation.target_invoice_id)
+                            source_invoice_id IN (SELECT invoice_id FROM selected_invoice_ids)
+                            OR target_invoice_id IN (SELECT invoice_id FROM selected_invoice_ids)
                         )""",
                 ).fetchall()
             for row in rows:
