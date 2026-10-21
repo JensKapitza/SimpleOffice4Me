@@ -94,13 +94,10 @@ jobs:
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT" && test -x "$AAPT"
           PROJECT_MAJOR="$(python - <<'PY'
-          import re
+          import tomllib
           from pathlib import Path
-          project = Path('pyproject.toml').read_text(encoding='utf-8')
-          match = re.search(r'(?ms)^\\[project\\]\\s.*?^version\\s*=\\s*["\\x27](\\d+)\\.\\d+\\.\\d+["\\x27]', project)
-          if not match:
-              raise SystemExit('project major version missing')
-          print(match.group(1))
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(project['project']['version'].split('.')[0])
           PY
           )"
           EXPECTED_VERSION="${PROJECT_MAJOR}.${SIMPLEOFFICE_BUILD_DATE}.${SIMPLEOFFICE_BUILD_SEQUENCE}"
