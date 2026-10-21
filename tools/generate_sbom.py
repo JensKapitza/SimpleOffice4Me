@@ -100,6 +100,37 @@ def build_cargo_sbom(metadata: dict) -> dict:
             'components': components, 'dependencies': dependencies}
 
 
+
+def build_gradle_sbom(resolution: dict) -> dict:
+    """Build an Android JVM SBOM from Gradle's resolved debugRuntimeClasspath."""
+    records = resolution["components"]
+    graph = resolution["dependencies"]
+    components = []
+    refs = {}
+    for record in records:
+        group, name, version = (record[field] for field in ("group", "name", "version"))
+        key = f"{group}:{name}:{version}"
+        purl = f"pkg:maven/{urllib.parse.quote(group, safe='.-_')}/{urllib.parse.quote(name, safe='.-_')}@{urllib.parse.quote(version, safe='.-_')}"
+        if key in refs or purl in refs.values():
+            raise ValueError(f"duplicate resolved Gradle component: {key}")
+        refs[key] = purl
+        components.append({"type": "library", "group": group, "name": name, "version": version, "purl": purl})
+    if set(graph) != set(refs):
+        raise ValueError("Gradle dependency graph does not match resolved component inventory")
+    dependencies = []
+    for key in sorted(graph):
+        if any(target not in refs for target in graph[key]):
+            raise ValueError(f"unresolved Gradle dependency for {key}")
+        dependencies.append({"ref": refs[key], "dependsOn": sorted({refs[target] for target in graph[key]})})
+    serial = uuid.uuid5(uuid.NAMESPACE_URL, "gradle\n" + "\n".join(sorted(refs.values())))
+    return {
+        "bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": f"urn:uuid:{serial}", "version": 1,
+        "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(),
+                     "component": {"type": "application", "name": "SimpleOffice4Me-Android-Gradle"}},
+        "components": components, "dependencies": dependencies,
+    }
+
+
 def _npm_name(package_path: str, package: dict) -> str:
     name = package.get('name')
     if name:
@@ -293,6 +324,8 @@ def write_xml_sbom(document: dict, path: Path) -> None:
     components = _xml_element(root, "components")
     for component in document["components"]:
         node = _xml_element(components, "component", type=component["type"], **{"bom-ref": component["purl"]})
+        if component.get('group'):
+            _xml_element(node, 'group', component['group'])
         _xml_element(node, "name", component["name"])
         _xml_element(node, "version", component["version"])
         if component.get('hashes'):
@@ -332,15 +365,18 @@ def main() -> None:
     parser.add_argument('--cargo-metadata', type=Path,
                         help='JSON from cargo metadata --locked --format-version 1')
     parser.add_argument('--npm-lock', type=Path, help='Resolved npm package-lock.json v2/v3')
+    parser.add_argument('--gradle-resolution', type=Path, help='Resolved Gradle runtime dependency JSON')
     parser.add_argument('--npm-os', help='Target npm OS (linux, darwin, or win32)')
     parser.add_argument('--npm-cpu', help='Target npm CPU (x64, arm64, ia32, etc.)')
     parser.add_argument('--npm-libc', choices=('gnu', 'musl'), help='Linux libc for optional platform packages')
     args = parser.parse_args()
     try:
-        if args.cargo_metadata and args.npm_lock:
+        if sum(bool(value) for value in (args.cargo_metadata, args.npm_lock, args.gradle_resolution)) > 1:
             parser.error('select only one SBOM input source')
         if args.cargo_metadata:
             document = build_cargo_sbom(json.loads(args.cargo_metadata.read_text(encoding='utf-8')))
+        elif args.gradle_resolution:
+            document = build_gradle_sbom(json.loads(args.gradle_resolution.read_text(encoding='utf-8')))
         elif args.npm_lock:
             if bool(args.npm_os) != bool(args.npm_cpu):
                 parser.error('--npm-os and --npm-cpu must be provided together')
@@ -353,7 +389,7 @@ def main() -> None:
     except (OSError, ValueError, KeyError, TypeError, StopIteration):
         if args.cargo_metadata:
             parser.error('Cargo metadata must contain a resolved root package and valid package records')
-        parser.error('npm lock must contain a resolved root package and valid package records')
+        parser.error('SBOM input must contain valid resolved package records')
     path = Path(args.output)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(document, indent=2) + '\n', encoding='utf-8')
