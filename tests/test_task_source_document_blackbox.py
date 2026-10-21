@@ -100,7 +100,8 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         self.assertEqual(document_id, task["source_document_id"])
         updated = self.client.post(
             f"/documents/todo/{task['id']}",
-            data={"title": "Updated task", "status": "in-process", "return_to": "tasks"},
+            data={"title": "Updated task", "status": "in-process", "return_to": "tasks",
+                  "source_document_id": "attacker-document"},
         )
         self.assertEqual(302, updated.status_code)
         saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
