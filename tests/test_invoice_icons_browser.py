@@ -130,9 +130,16 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
                 self.assertEqual("true", icon.get_attribute("aria-hidden"))
                 self.assertNotEqual("rgba(0, 0, 0, 0)", icon.evaluate("node => getComputedStyle(node).color"))
                 viewport_width = page.evaluate("window.innerWidth")
+                overflowing = page.evaluate("""() => Array.from(document.querySelectorAll('body *'))
+                    .map(node => ({tag: node.tagName, id: node.id, className: String(node.className),
+                                   right: Math.round(node.getBoundingClientRect().right),
+                                   width: Math.round(node.getBoundingClientRect().width),
+                                   scrollWidth: node.scrollWidth, clientWidth: node.clientWidth}))
+                    .filter(node => node.right > window.innerWidth + 1 && node.width > 0)
+                    .slice(0, 20)""")
                 self.assertLessEqual(
                     page.evaluate("document.documentElement.scrollWidth"), viewport_width,
-                    f"horizontal page overflow at {url}",
+                    f"horizontal page overflow at {url}: {overflowing}",
                 )
             self.assertTrue(page.get_by_role("link", name="Herunterladen").first.is_visible())
             self.assertTrue(page.get_by_role("link", name="PDF").first.is_visible())
