@@ -133,30 +133,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {python-version: "3.10", os: ubuntu-22.04, runtime: jammy-system}
           - {python-version: "3.11", os: ubuntu-24.04, runtime: stable}
           - {python-version: "3.14", os: ubuntu-24.04, runtime: stable}
           - {python-version: "3.15", os: ubuntu-24.04, runtime: stable}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Canonical Jammy Python (no setup-python upstream 3.10)
-        if: matrix.runtime == 'jammy-system'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --only-upgrade python3.10 python3.10-minimal libpython3.10-stdlib libpython3.10-minimal
-          sudo apt-get install -y python3.10-venv
-          /usr/bin/python3.10 -m venv "$RUNNER_TEMP/jammy-python"
-          echo "$RUNNER_TEMP/jammy-python/bin" >> "$GITHUB_PATH"
       - name: Set up Python
-        if: matrix.runtime != 'jammy-system'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Create authenticated Jammy runtime proof
-        if: matrix.runtime == 'jammy-system'
-        run: sudo /usr/bin/python3.10 simpleoffice_runtime_support.py --write-proof
       - name: Check runtime support contract
         run: python simpleoffice_runtime_support.py
       - name: Install project
