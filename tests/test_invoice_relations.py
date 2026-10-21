@@ -39,6 +39,16 @@ class InvoiceRelationStoreTests(unittest.TestCase):
         )
         self.assertEqual(["invoice-a"], [row["invoice_id"] for row in visible])
 
+    def test_relation_history_limit_applies_to_target_as_well_as_source(self):
+        from unittest.mock import patch
+        import app.invoice_relations as relations
+
+        self.store.add_relationship("invoice-a", "invoice-b", "follow_up", "alice")
+        with patch.object(relations, "MAX_RELATION_HISTORY_PER_INVOICE", 1):
+            with self.assertRaisesRegex(ValueError, "history limit"):
+                self.store.add_relationship("invoice-c", "invoice-b", "supplement", "alice")
+        self.assertEqual(1, len(self.store.relationships_for("invoice-b")))
+
     def test_typed_relations_are_bidirectional_unique_acyclic_and_soft_removed(self):
         relation = self.store.add_relationship("invoice-a", "invoice-b", "follow_up", "alice")
         self.assertEqual("follow_up", relation["relation_type"])
