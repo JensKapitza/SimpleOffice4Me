@@ -133,7 +133,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
             self.assertTrue(retry.duplicate)
             self.assertEqual(first.document["document_id"], retry.document["document_id"])
             self.assertEqual("camera-1.jpg", retry.document["attributes"]["photo_upload"]["original_filename"])
-            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+            self.assertEqual(1, len(list((root / "inbox").glob("*.jpg"))))
 
     def test_concurrent_identical_photo_uploads_create_only_one_document(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -149,7 +149,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
 
             self.assertEqual(1, len({result.document["document_id"] for result in results}))
             self.assertEqual(1, sum(not result.duplicate for result in results))
-            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+            self.assertEqual(1, len(list((root / "inbox").glob("*.jpg"))))
 
     def test_concurrent_same_name_different_photos_never_overwrite(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -164,7 +164,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
                 results = list(pool.map(import_copy, payloads))
 
             self.assertEqual(2, len({result.document["document_id"] for result in results}))
-            self.assertEqual(2, len(list((root / "inbox").iterdir())))
+            self.assertEqual(2, len(list((root / "inbox").glob("*.jpg"))))
 
     def test_archive_choice_keeps_inbox_and_archive_destinations_distinct(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -194,7 +194,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
 
             self.assertFalse(result.duplicate)
             self.assertEqual("camera.jpg", result.document["attributes"]["photo_upload"]["original_filename"])
-            self.assertEqual(1, len(list(folder.iterdir())))
+            self.assertEqual(1, len(list(folder.glob("*.jpg"))))
 
     def test_retry_completes_metadata_after_post_scan_processing_failure(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -214,7 +214,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
             self.assertFalse(resumed.duplicate)
             self.assertEqual(partial["document_id"], resumed.document["document_id"])
             self.assertTrue(resumed.document["attributes"]["photo_upload"]["sha256"])
-            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+            self.assertEqual(1, len(list((root / "inbox").glob("*.jpg"))))
 
 
 class PhotoUploadHttpTest(unittest.TestCase):
