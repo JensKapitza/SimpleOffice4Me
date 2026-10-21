@@ -2,6 +2,13 @@ name: Android APK build
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'android/apk/**'
+      - 'tools/android_apk_python_sbom.py'
+      - 'tools/generate_sbom.py'
+      - 'tests/test_android_apk_python_sbom.py'
+      - '.github/workflows/android-apk-build.yml'
   push:
     branches:
       - main
@@ -130,6 +137,7 @@ jobs:
       - name: Convert Android JVM inventory to CycloneDX XML and JSON
         run: |
           python -m pip install 'packaging>=24,<27'
+          python -m unittest discover -s tests -p test_android_apk_python_sbom.py
           python tools/generate_sbom.py \
             --gradle-resolution android/apk/app/build/reports/sbom/gradle-runtime.json \
             --output artifacts/android/gradle-runtime.cdx.json \
