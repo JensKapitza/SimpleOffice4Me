@@ -194,7 +194,10 @@ class SiteVisitReportRouteTests(unittest.TestCase):
             "status": "confirmed",
             "include_in_report": "1",
         })
-        self.finding_id = finding["finding_id"]
+        self.finding_id = next(
+            row["finding_id"] for row in finding["findings"]
+            if row["title"] == "Validated observation"
+        )
 
     def tearDown(self):
         flask_app.config.update(self.previous)
