@@ -42,8 +42,6 @@ def build_visit_report(record: dict, selected_ids: list[str]) -> tuple[bytes, st
     findings = [row for row in record.get("findings", []) if row.get("finding_id") in selected and row.get("status") != "rejected"]
     if len(findings) != len(selected):
         raise ValueError("Auswahl enthält nicht verfügbare oder verworfene Befunde")
-    if not findings:
-        raise ValueError("Mindestens einen berichtsfähigen Befund auswählen")
     now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).astimezone().strftime("%d.%m.%Y %H:%M %Z")
     output = BytesIO()
     doc = SimpleDocTemplate(output, pagesize=A4, rightMargin=18*mm, leftMargin=18*mm, topMargin=18*mm, bottomMargin=18*mm, title=f"Ortsterminbericht – {record.get('title', '')}", author=str(record.get("owner", "")))
@@ -83,6 +81,8 @@ def build_visit_report(record: dict, selected_ids: list[str]) -> tuple[bytes, st
     if len(links) > 1: story.append(_table(links, [42*mm, 42*mm, 25*mm, 38*mm, 28*mm]))
     else: story.append(Paragraph("Keine Verbindungen erfasst.", styles["BodyText"]))
     story.append(Paragraph("Befunde und Begründungen", styles["SOHeading"]))
+    if not findings:
+        story.append(Paragraph("Keine bestätigten Befunde vorhanden.", styles["BodyText"]))
     finding_by_id = {row["finding_id"]: row for row in findings}
     edge_lines = {row["target_id"]: row for row in record.get("finding_edges", []) if row.get("target_id") in finding_by_id and row.get("source_id") in finding_by_id}
     for index, finding in enumerate(findings, 1):
