@@ -1,12 +1,13 @@
 """CycloneDX XML regression tests for installed Python and resolved Cargo inventories."""
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import base64
 import unittest
 from xml.etree import ElementTree as ET
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from tools.generate_sbom import build_sbom, build_cargo_sbom, write_xml_sbom
+from tools.generate_sbom import build_sbom, build_cargo_sbom, build_npm_sbom, write_xml_sbom
 
 
 NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
@@ -70,6 +71,73 @@ class SbomXmlTests(unittest.TestCase):
             tree = ET.parse(output)
         edges = tree.findall(".//cdx:dependencies/cdx:dependency[@ref='pkg:cargo/app@1.0']/cdx:dependency", NS)
         self.assertEqual({"pkg:cargo/common@1.0", "pkg:cargo/common@2.0"}, {edge.attrib["ref"] for edge in edges})
+
+    def test_npm_lock_preserves_resolved_graph_hash_and_license(self):
+        lock = {
+            "name": "fixture-app", "version": "1.0.0", "lockfileVersion": 3,
+            "packages": {
+                "": {"name": "fixture-app", "version": "1.0.0", "devDependencies": {"@scope/tool": "^1"}},
+                "node_modules/@scope/tool": {
+                    "version": "1.2.0", "integrity": "sha512-" + base64.b64encode(b"fixture digest").decode(),
+                    "license": "MIT", "dependencies": {"nested": "^2"},
+                },
+                "node_modules/@scope/tool/node_modules/nested": {"version": "2.1.0", "license": "Apache-2.0"},
+            },
+        }
+        document = build_npm_sbom(lock, npm_os="linux", npm_cpu="x64")
+        tool_ref = "pkg:npm/%40scope/tool@1.2.0"
+        nested_ref = "pkg:npm/nested@2.1.0"
+        tool = next(item for item in document["components"] if item["purl"] == tool_ref)
+        self.assertEqual([{"alg": "SHA-512", "content": base64.b64decode(lock["packages"]["node_modules/@scope/tool"]["integrity"].removeprefix("sha512-")).hex()}], tool["hashes"])
+        self.assertEqual([{"license": {"name": "MIT"}}], tool["licenses"])
+        root_edge = next(item for item in document["dependencies"] if item["ref"] == "pkg:npm/fixture-app@1.0.0")
+        self.assertEqual([tool_ref], root_edge["dependsOn"])
+        tool_edge = next(item for item in document["dependencies"] if item["ref"] == tool_ref)
+        self.assertEqual([nested_ref], tool_edge["dependsOn"])
+
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "npm.xml"
+            write_xml_sbom(document, output)
+            root = ET.parse(output).getroot()
+        xml_tool = root.find("cdx:components/cdx:component[cdx:name='@scope/tool']", NS)
+        self.assertEqual("MIT", xml_tool.findtext("cdx:licenses/cdx:license/cdx:name", namespaces=NS))
+        self.assertEqual("SHA-512", xml_tool.find("cdx:hashes/cdx:hash", NS).attrib["alg"])
+        root_ref = root.find("cdx:metadata/cdx:component", NS).attrib["bom-ref"]
+        self.assertEqual("pkg:npm/fixture-app@1.0.0", root_ref)
+
+    def test_npm_lock_filters_unselected_optional_platform_packages(self):
+        lock = {
+            "name": "fixture-app", "version": "1.0.0", "lockfileVersion": 3,
+            "packages": {
+                "": {
+                    "name": "fixture-app", "version": "1.0.0",
+                    "optionalDependencies": {
+                        "linux-tool": "1.0.0", "mac-tool": "1.0.0",
+                        "gnu-cli": "1.0.0", "musl-cli": "1.0.0",
+                    },
+                },
+                "node_modules/linux-tool": {"version": "1.0.0", "os": ["linux"], "cpu": ["x64"]},
+                "node_modules/mac-tool": {"version": "1.0.0", "os": ["darwin"], "cpu": ["arm64"]},
+                "node_modules/gnu-cli": {
+                    "name": "@scope/cli-linux-x64-gnu", "version": "1.0.0", "optional": True,
+                },
+                "node_modules/musl-cli": {
+                    "name": "@scope/cli-linux-x64-musl", "version": "1.0.0", "optional": True,
+                },
+            },
+        }
+        document = build_npm_sbom(lock, npm_os="linux", npm_cpu="x64", npm_libc="gnu")
+        self.assertEqual(
+            ["pkg:npm/%40scope/cli-linux-x64-gnu@1.0.0", "pkg:npm/linux-tool@1.0.0"],
+            [item["purl"] for item in document["components"]],
+        )
+        self.assertEqual(
+            {
+                "ref": "pkg:npm/fixture-app@1.0.0",
+                "dependsOn": ["pkg:npm/%40scope/cli-linux-x64-gnu@1.0.0", "pkg:npm/linux-tool@1.0.0"],
+            },
+            document["dependencies"][0],
+        )
 
     def test_rejects_wrong_spec_version(self):
         with TemporaryDirectory() as tmp:

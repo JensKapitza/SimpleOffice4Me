@@ -33,6 +33,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf webkit2gtk-driver xvfb xdotool dbus-x11
       - run: npm ci --no-audit --no-fund
       - run: npm audit --audit-level=high
+      - name: Generate locked npm dependency SBOM
+        working-directory: .
+        run: |
+          python tools/generate_sbom.py --npm-lock desktop/tauri/package-lock.json \
+            --npm-os linux --npm-cpu x64 --npm-libc gnu --output artifacts/tauri-npm-sbom.cdx.json \
+            --xml-output artifacts/tauri-npm-sbom.cdx.xml
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npm run build -- -- --locked
@@ -58,6 +64,17 @@ jobs:
             --input-format json --input-version v1_6 --fail-on-errors
           "$validator" validate --input-file artifacts/tauri-rust-sbom.cdx.xml \
             --input-format xml --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file artifacts/tauri-npm-sbom.cdx.json \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file artifacts/tauri-npm-sbom.cdx.xml \
+            --input-format xml --input-version v1_6 --fail-on-errors
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-npm-sbom
+          path: |
+            artifacts/tauri-npm-sbom.cdx.json
+            artifacts/tauri-npm-sbom.cdx.xml
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-rust-sbom
