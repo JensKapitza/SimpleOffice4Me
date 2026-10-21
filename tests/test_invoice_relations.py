@@ -1,5 +1,6 @@
 import hashlib
 import json
+import secrets
 import tempfile
 import threading
 import unittest
@@ -326,7 +327,7 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
 
     def test_relationship_mutation_requires_the_session_csrf_token(self):
         app.config["TEST_CSRF_PROTECTION"] = True
-        token = "invoice-relationship-csrf-token-123456"
+        token = secrets.token_urlsafe(32)
         with self.client.session_transaction() as session:
             session["_csrf_token"] = token
         url = "/documents/business/invoices/invoice-a/relationships"
