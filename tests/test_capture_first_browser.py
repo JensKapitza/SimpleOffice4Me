@@ -97,8 +97,8 @@ class CaptureFirstBrowserTests(unittest.TestCase):
                     })
                     page.locator("#photo-snapshot-submit").click()
             self.assertEqual(200, uploaded.value.status)
-            self.assertTrue(uploaded.value.json()["ok"])
             self.assertGreaterEqual(page.locator("img.card-img-top").count(), 1)
+            self.assertIn(f"capture-{seed}.jpg", page.locator("#main-content").inner_text())
 
             bulk_input = page.locator("#photo-files")
             self.assertTrue(bulk_input.evaluate("node => node.multiple"))
