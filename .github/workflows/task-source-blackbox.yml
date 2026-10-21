@@ -1,0 +1,28 @@
+name: Task source document black-box
+
+on:
+  pull_request:
+    paths:
+      - "app/todo_store.py"
+      - "app/task_management.py"
+      - "app/documents_routes_content.py"
+      - "app/documents_routes_workflows.py"
+      - "templates/documents/_task_card.html"
+      - "templates/tasks/board.html"
+      - "tests/test_task_source_document_blackbox.py"
+      - ".github/workflows/task-source-blackbox.yml"
+  workflow_dispatch:
+
+jobs:
+  blackbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install application
+        run: python -m pip install -e .
+      - name: Run task source document HTTP black-box tests
+        run: python -m unittest discover -s tests -p 'test_task_source_document_blackbox.py' -v
