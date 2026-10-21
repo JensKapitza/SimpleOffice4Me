@@ -1,0 +1,32 @@
+name: OSS scanner image
+
+on:
+  pull_request:
+    paths:
+      - '.oss-scanner/**'
+      - 'app/**'
+      - 'tests/**'
+      - 'tools/**'
+      - 'templates/**'
+      - 'static/**'
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'simpleoffice_*.py'
+      - '.github/workflows/oss-scanner-image.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  scanner-image:
+    name: Build and test scanner image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build scanner image
+        run: docker build --pull --file .oss-scanner/Dockerfile --tag simpleoffice4me-oss-scanner .
+
+      - name: Run scanner image tests without network access
+        run: docker run --rm --network none simpleoffice4me-oss-scanner

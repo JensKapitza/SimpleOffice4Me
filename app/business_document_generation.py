@@ -70,6 +70,16 @@ ZUGFERD_VERSION = "2.5.2"
 ZUGFERD_PROFILE = "EN16931"
 MONEY = Decimal("0.01")
 QTY = Decimal("0.001")
+INVOICE_UNITS = {
+    "C62": {"de": "Stück", "en": "Piece"},
+    "HUR": {"de": "Stunde", "en": "Hour"},
+    "DAY": {"de": "Tag", "en": "Day"},
+    "MON": {"de": "Monat", "en": "Month"},
+    "MTR": {"de": "Meter", "en": "Metre"},
+    "KGM": {"de": "Kilogramm", "en": "Kilogram"},
+    "LTR": {"de": "Liter", "en": "Litre"},
+    "KWH": {"de": "Kilowattstunde", "en": "Kilowatt hour"},
+}
 SUPPORTED_TEMPLATE_SUFFIXES = {".pdf", ".odt", ".ott", ".doc", ".docx", ".rtf", ".odp", ".ppt", ".pptx"}
 DIN_LEFT_MARGIN = 25 * mm
 DIN_RIGHT_MARGIN = 20 * mm
@@ -636,11 +646,12 @@ def apply_available_customer_credit(root: Path, invoice_id: str, actor: str) -> 
 
 
 def _build_invoice_lines(root: Path, form) -> list[dict[str, Any]]:
-    store = ObjectStore(root); object_ids = form.getlist("line_object_id"); descriptions = form.getlist("line_description"); quantities = form.getlist("line_quantity"); nets = form.getlist("line_net_price"); vats = form.getlist("line_vat_rate"); categories=form.getlist("line_category"); project_ids=form.getlist("line_project_id"); source_types=form.getlist("line_source_type"); source_ids=form.getlist("line_source_id")
-    count = max(len(object_ids), len(descriptions), len(quantities), len(nets), len(vats),len(categories),len(project_ids),len(source_types),len(source_ids)); lines: list[dict[str, Any]] = []
+    store = ObjectStore(root); object_ids = form.getlist("line_object_id"); descriptions = form.getlist("line_description"); quantities = form.getlist("line_quantity"); nets = form.getlist("line_net_price"); vats = form.getlist("line_vat_rate"); categories=form.getlist("line_category"); units=form.getlist("line_unit"); project_ids=form.getlist("line_project_id"); source_types=form.getlist("line_source_type"); source_ids=form.getlist("line_source_id")
+    count = max(len(object_ids), len(descriptions), len(quantities), len(nets), len(vats),len(categories),len(units),len(project_ids),len(source_types),len(source_ids)); lines: list[dict[str, Any]] = []
     for index in range(count):
-        object_id = object_ids[index].strip() if index < len(object_ids) else ""; description = descriptions[index].strip() if index < len(descriptions) else ""; qty_text = quantities[index] if index < len(quantities) else "1"; net_text = nets[index] if index < len(nets) else "0"; vat_text = vats[index] if index < len(vats) else "0"; category=categories[index].strip() if index<len(categories) else ""; project_id=project_ids[index].strip() if index<len(project_ids) else ""; source_type=source_types[index].strip() if index<len(source_types) else ""; source_id=source_ids[index].strip() if index<len(source_ids) else ""
+        object_id = object_ids[index].strip() if index < len(object_ids) else ""; description = descriptions[index].strip() if index < len(descriptions) else ""; qty_text = quantities[index] if index < len(quantities) else "1"; net_text = nets[index] if index < len(nets) else "0"; vat_text = vats[index] if index < len(vats) else "0"; category=categories[index].strip() if index<len(categories) else ""; unit=units[index].strip().upper() if index<len(units) else "C62"; project_id=project_ids[index].strip() if index<len(project_ids) else ""; source_type=source_types[index].strip() if index<len(source_types) else ""; source_id=source_ids[index].strip() if index<len(source_ids) else ""
         if not object_id and not description: continue
+        if unit not in INVOICE_UNITS: raise ValueError(f"invoice line {index + 1}: invalid unit")
         snapshot: dict[str, Any] = {"category":category}
         if project_id:
             if not all((source_type,source_id)) or source_type not in {"time_group","time_entry"}: raise ValueError(f"invoice line {index + 1}: invalid project billing source")
@@ -660,7 +671,7 @@ def _build_invoice_lines(root: Path, form) -> list[dict[str, Any]]:
         except InvalidOperation as exc: raise ValueError("invalid VAT rate") from exc
         if vat_rate < 0: raise ValueError("VAT rate must not be negative")
         net_total = (net_price * quantity).quantize(MONEY, rounding=ROUND_HALF_UP); tax_total = (net_total * vat_rate / Decimal("100")).quantize(MONEY, rounding=ROUND_HALF_UP); gross_total = net_total + tax_total
-        lines.append({"line_id": len(lines) + 1, **snapshot, "description": description or "Position", "quantity": format(quantity, "f"), "unit": "C62", "net_unit_price": f"{net_price:.2f}", "vat_rate": format(vat_rate, "f"), "net_total": f"{net_total:.2f}", "tax_total": f"{tax_total:.2f}", "gross_total": f"{gross_total:.2f}"})
+        lines.append({"line_id": len(lines) + 1, **snapshot, "description": description or "Position", "quantity": format(quantity, "f"), "unit": unit, "net_unit_price": f"{net_price:.2f}", "vat_rate": format(vat_rate, "f"), "net_total": f"{net_total:.2f}", "tax_total": f"{tax_total:.2f}", "gross_total": f"{gross_total:.2f}"})
     if not lines: raise ValueError("at least one invoice line is required")
     return lines
 
@@ -725,11 +736,11 @@ def _invoice_content_pdf(row: dict[str, Any]) -> bytes:
             Paragraph(f"<b>Bezug:</b> Rechnung {html.escape(str(row['reference_invoice_number']))}", normal),
             Spacer(1, 3 * mm),
         ]
-    rows = [["Pos.", "Beschreibung", "Menge", "Netto", "MwSt.", "Gesamt"]]
+    rows = [["Pos.", "Beschreibung", "Menge", "Einheit", "Netto", "MwSt.", "Gesamt"]]
     for line in row["lines"]:
         description=(f"<b>{html.escape(line['category'])}</b><br/>" if line.get("category") else "")+html.escape(line["description"])
-        rows.append([str(line["line_id"]), Paragraph(description, small), line["quantity"], f"{line['net_unit_price']} €", f"{line['vat_rate']} %", f"{line['net_total']} €"])
-    positions = Table(rows, repeatRows=1, colWidths=[11*mm, 83*mm, 18*mm, 24*mm, 19*mm, 25*mm]); positions.setStyle(TableStyle([("FONT", (0,0), (-1,0), "Helvetica-Bold", 8), ("FONT", (0,1), (-1,-1), "Helvetica", 8), ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")), ("GRID", (0,0), (-1,-1), .25, colors.HexColor("#bbbbbb")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (2,1), (-1,-1), "RIGHT"), ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4)])); flow += [positions, Spacer(1, 5 * mm)]
+        rows.append([str(line["line_id"]), Paragraph(description, small), line["quantity"], INVOICE_UNITS.get(line.get("unit", "C62"), INVOICE_UNITS["C62"])["de"], f"{line['net_unit_price']} €", f"{line['vat_rate']} %", f"{line['net_total']} €"])
+    positions = Table(rows, repeatRows=1, colWidths=[9*mm, 75*mm, 15*mm, 20*mm, 22*mm, 17*mm, 22*mm]); positions.setStyle(TableStyle([("FONT", (0,0), (-1,0), "Helvetica-Bold", 8), ("FONT", (0,1), (-1,-1), "Helvetica", 8), ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#eeeeee")), ("GRID", (0,0), (-1,-1), .25, colors.HexColor("#bbbbbb")), ("VALIGN", (0,0), (-1,-1), "TOP"), ("ALIGN", (2,1), (-1,-1), "RIGHT"), ("TOPPADDING", (0,0), (-1,-1), 4), ("BOTTOMPADDING", (0,0), (-1,-1), 4)])); flow += [positions, Spacer(1, 5 * mm)]
     totals = row["totals"]; settlement = row.get("settlement", {}); credit = Decimal(str(settlement.get("customer_credit", "0"))); bank_due = Decimal(str(settlement.get("bank_due", totals["gross"])))
     totals_rows = [["Nettosumme", f"{totals['net']} €"], ["Umsatzsteuer", f"{totals['tax']} €"], ["Gesamtbetrag", f"{totals['gross']} €"]]
     if credit > 0: totals_rows += [["Verrechnung Kundenguthaben", f"- {credit:.2f} €"], ["Noch zu überweisen", f"{bank_due:.2f} €"]]
@@ -808,8 +819,8 @@ def _cii_xml(row: dict[str, Any]) -> bytes:
     trans=ET.SubElement(root,q("rsm","SupplyChainTradeTransaction"))
     for line in row["lines"]:
         li=ET.SubElement(trans,q("ram","IncludedSupplyChainTradeLineItem")); assoc=ET.SubElement(li,q("ram","AssociatedDocumentLineDocument")); ET.SubElement(assoc,q("ram","LineID")).text=str(line["line_id"]); product=ET.SubElement(li,q("ram","SpecifiedTradeProduct")); ET.SubElement(product,q("ram","Name")).text=line.get("object_name") or line["description"]; ET.SubElement(product,q("ram","Description")).text=line["description"]
-        agreement=ET.SubElement(li,q("ram","SpecifiedLineTradeAgreement")); price=ET.SubElement(agreement,q("ram","NetPriceProductTradePrice")); ET.SubElement(price,q("ram","ChargeAmount")).text=line["net_unit_price"]; basis=ET.SubElement(price,q("ram","BasisQuantity"),{"unitCode":"C62"}); basis.text="1"
-        delivery=ET.SubElement(li,q("ram","SpecifiedLineTradeDelivery")); qty=ET.SubElement(delivery,q("ram","BilledQuantity"),{"unitCode":"C62"}); qty.text=line["quantity"]
+        agreement=ET.SubElement(li,q("ram","SpecifiedLineTradeAgreement")); price=ET.SubElement(agreement,q("ram","NetPriceProductTradePrice")); ET.SubElement(price,q("ram","ChargeAmount")).text=line["net_unit_price"]; basis=ET.SubElement(price,q("ram","BasisQuantity"),{"unitCode":line.get("unit", "C62")}); basis.text="1"
+        delivery=ET.SubElement(li,q("ram","SpecifiedLineTradeDelivery")); qty=ET.SubElement(delivery,q("ram","BilledQuantity"),{"unitCode":line.get("unit", "C62")}); qty.text=line["quantity"]
         settlement=ET.SubElement(li,q("ram","SpecifiedLineTradeSettlement")); tax=ET.SubElement(settlement,q("ram","ApplicableTradeTax")); ET.SubElement(tax,q("ram","TypeCode")).text="VAT"; ET.SubElement(tax,q("ram","CategoryCode")).text="S" if Decimal(line["vat_rate"]) > 0 else "Z"; ET.SubElement(tax,q("ram","RateApplicablePercent")).text=line["vat_rate"]; summ=ET.SubElement(settlement,q("ram","SpecifiedTradeSettlementLineMonetarySummation")); ET.SubElement(summ,q("ram","LineTotalAmount")).text=line["net_total"]
     agreement=ET.SubElement(trans,q("ram","ApplicableHeaderTradeAgreement")); seller=ET.SubElement(agreement,q("ram","SellerTradeParty")); ET.SubElement(seller,q("ram","Name")).text=row["seller"]["name"]; saddr=ET.SubElement(seller,q("ram","PostalTradeAddress")); ET.SubElement(saddr,q("ram","PostcodeCode")).text=row["seller"]["postal"]; ET.SubElement(saddr,q("ram","LineOne")).text=row["seller"]["street"]; ET.SubElement(saddr,q("ram","CityName")).text=row["seller"]["city"]; ET.SubElement(saddr,q("ram","CountryID")).text=row["seller"]["country"]
     if row["seller"].get("vat_id"): taxreg=ET.SubElement(seller,q("ram","SpecifiedTaxRegistration")); ident=ET.SubElement(taxreg,q("ram","ID"),{"schemeID":"VA"}); ident.text=row["seller"]["vat_id"]

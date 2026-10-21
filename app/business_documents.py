@@ -9,17 +9,23 @@ from __future__ import annotations
 import sqlite3
 
 from flask import Blueprint
+from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
 from .invoice_relations import (
     INVOICE_RELATION_TYPES,
     INVOICE_RELATION_TYPES_EN,
-    InvoiceRelationStore,
-    invoice_project_ids,
     invoice_overview_data,
     invoice_reference_candidates,
     invoice_relationship_context,
+)
+from .invoice_relation_routes import (
+    add_invoice_annotation,
+    add_invoice_relationship,
+    register_invoice_relation_routes,
+    remove_invoice_relationship,
+    revise_invoice_annotation,
 )
 from .safe_paths import resolve_file_under
 from .v2.materialize import materialize_verified_object
@@ -27,6 +33,7 @@ from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
+register_invoice_relation_routes(bp)
 
 
 def _managed_invoice(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
@@ -337,6 +344,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     )
     row["reference_invoice_id"] = reference_invoice_id
     row["reference_invoice_number"] = reference_invoice_number
+    row["task_id"] = str(form.get("task_id", "")).strip()
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
@@ -351,6 +359,8 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
     with exclusive_file_lock(lock_path):
         existing = invoice(root, invoice_id) if invoice_id else None
         if existing and (existing.get("status") != "draft" or existing.get("contact_id") != contact_id): raise ValueError("only a matching invoice draft can be edited")
+        if existing and str(form.get("draft_updated_at", "")) != str(existing.get("updated_at", "")):
+            raise Conflict(description="This invoice draft changed in another session. Reload it before saving.")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
     DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"reference_invoice_id":row.get("reference_invoice_id", ""),"totals":row["totals"]})
@@ -511,6 +521,23 @@ def contact_letter(contact_id:str):
         except ValueError as exc:flash(str(exc))
     return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),links=contact_links(root,contact_id))
 
+def _invoice_task(root: Path, task_id: str, actor: str, contact_id: str, *, required: bool = True):
+    if not task_id:
+        return None
+    from .todo_store import TodoStore
+
+    task = next((item for item in TodoStore(root).items(actor) if item.get("id") == task_id), None)
+    if task is None:
+        if required:
+            abort(404)
+        return None
+    if str(task.get("contact_id", "")) != contact_id:
+        if required:
+            abort(409)
+        return None
+    return task
+
+
 @bp.route("/contacts/<contact_id>/invoice",methods=("GET","POST"))
 @login_required
 def contact_invoice(contact_id:str):
@@ -523,9 +550,14 @@ def contact_invoice(contact_id:str):
         try:draft=invoice(root,draft_id)
         except ValueError:abort(404)
         if draft.get("contact_id")!=contact_id or draft.get("status")!="draft":abort(409)
+    task_id = (request.form.get("task_id", "").strip() if request.method == "POST" else
+               str((draft or {}).get("task_id") or request.args.get("task_id", "")).strip())
+    linked_task = _invoice_task(root, task_id, actor, contact_id, required=not bool(draft))
     crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else (draft.get("buyer",{}).get("address_id","") if draft else request.args.get("address",""));address,addresses=address_labels(contact,crm,selected);settings=business_settings(root)
     if request.method=="POST":
         try:
+            if draft and task_id != str(draft.get("task_id", "")):
+                abort(409)
             row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
             _v3_finance_sync(root,row,actor)
             if request.form.get("action")=="finalize":
@@ -561,6 +593,7 @@ def contact_invoice(contact_id:str):
         links=contact_links(root, contact_id), draft=draft, recipient=recipient,
         reference_invoices=reference_invoices,
         selected_reference_invoice_id=selected_reference_invoice_id,
+        linked_task=linked_task,
     )
 
 @bp.get("/invoices/<invoice_id>/draft.pdf")
@@ -720,6 +753,55 @@ def invoice_overview():
         relation_error=relation_error,
     )
 
+@bp.route("/invoices/new", methods=("GET", "POST"))
+@login_required
+def invoice_create_start():
+    root, actor = _root(), _actor()
+    contacts = ContactStore(root)
+    if request.method == "POST":
+        contact_id = request.form.get("contact_id", "").strip()
+        task_id = request.form.get("task_id", "").strip()
+        try:
+            contact = contacts.get(contact_id, actor)
+        except ValueError:
+            abort(404)
+        if not contacts.can_manage_contact(contact, actor):
+            abort(403)
+        if task_id:
+            _invoice_task(root, task_id, actor, contact_id)
+        return redirect(url_for(".contact_invoice", contact_id=contact_id, **({"task_id": task_id} if task_id else {})))
+
+    query = request.args.get("q", "").strip()
+    task_id = request.args.get("task_id", "").strip()
+    linked_task = None
+    if task_id:
+        from .todo_store import TodoStore
+
+        linked_task = next((item for item in TodoStore(root).items(actor) if item.get("id") == task_id), None)
+        if linked_task is None:
+            abort(404)
+        task_contact_id = str(linked_task.get("contact_id", ""))
+        if not task_contact_id:
+            abort(409)
+        if not contacts.can_manage(task_contact_id, actor):
+            abort(403)
+    folded_query = query.casefold()
+    candidates = []
+    for contact in contacts.contacts(actor):
+        if not contacts.can_manage_contact(contact, actor):
+            continue
+        if linked_task and contact.get("contact_id") != linked_task.get("contact_id"):
+            continue
+        fields = contact.get("fields", {})
+        label = str(fields.get("display_name", "")).strip()
+        company = str(fields.get("company", "")).strip()
+        searchable = f"{label} {company} {contact.get('contact_id', '')}".casefold()
+        if folded_query and folded_query not in searchable:
+            continue
+        candidates.append({**contact, "invoice_start_label": label or company or contact["contact_id"]})
+    candidates.sort(key=lambda contact: str(contact["invoice_start_label"]).casefold())
+    return render_template("documents/invoice_create_start.html", contacts=candidates, query=query, task=linked_task)
+
 @bp.get("/invoices/<invoice_id>")
 @login_required
 def invoice_detail(invoice_id:str):
@@ -743,171 +825,15 @@ def invoice_detail(invoice_id:str):
         related_invoices=related, related_invoice_candidates=candidates,
         invoice_relationship_types=(INVOICE_RELATION_TYPES_EN if g.language == "en" else INVOICE_RELATION_TYPES),
         annotations=annotations,
+        linked_task=_invoice_task(
+            root, str(row.get("task_id", "")), actor, row["contact_id"], required=False,
+        ) if row.get("task_id") else None,
         relation_error=relation_error,
         today=date.today().isoformat(),
         credit=CustomerCreditLedger(root).account(row["contact_id"],row.get("currency","EUR")),
         write_off_reasons=sorted(WRITE_OFF_REASONS),
     )
 
-
-@bp.post("/invoices/<invoice_id>/relationships")
-@login_required
-def add_invoice_relationship(invoice_id: str):
-    root, actor = _root(), _actor()
-    source = _managed_invoice(root, invoice_id, actor)
-    if source.get("status") in {"draft", "finalizing"}:
-        abort(409)
-    target_id = request.form.get("related_invoice_id", "").strip()
-    target = _managed_invoice(root, target_id, actor)
-    if target.get("contact_id") != source.get("contact_id"):
-        abort(404)
-    if target.get("status") in {"draft", "finalizing"}:
-        flash("Verknüpfungen sind nur zwischen finalisierten Rechnungen möglich.", "warning")
-        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-    if (
-        str(source.get("reference_invoice_id", "")) == target_id
-        or str(target.get("reference_invoice_id", "")) == invoice_id
-    ):
-        flash("Diese Rechnungen sind bereits im Rechnungsdokument aufeinander bezogen.", "warning")
-        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-    relationship_type = request.form.get("relationship_type", "").strip()
-    if relationship_type == "project_related" and not (invoice_project_ids(source) & invoice_project_ids(target)):
-        flash("Projektbezogene Rechnungen benötigen mindestens ein gemeinsames Projekt.", "warning")
-        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-    try:
-        relation = InvoiceRelationStore(root).add_relationship(
-            invoice_id, target_id, relationship_type, actor,
-        )
-    except ValueError as exc:
-        messages = {
-            "invoice relationship type is invalid": "Bitte einen gültigen Beziehungstyp auswählen.",
-            "an invoice cannot be linked to itself": "Eine Rechnung kann nicht mit sich selbst verknüpft werden.",
-            "invoice relationship would create a cycle": "Die Verknüpfung würde einen Beziehungskreis erzeugen.",
-            "invoice relationship already exists": "Diese Rechnungsverknüpfung besteht bereits.",
-            "invoice relationship history limit reached": "Für diese Rechnung sind bereits zu viele Verknüpfungen historisiert.",
-        }
-        flash(messages.get(str(exc), "Rechnungsverknüpfung konnte nicht gespeichert werden."), "warning")
-    except (OSError, sqlite3.Error) as exc:
-        current_app.logger.warning("Invoice relationship write failed (%s)", type(exc).__name__)
-        flash("Rechnungsverknüpfung konnte nicht sicher gespeichert werden.", "danger")
-    else:
-        mirrored = _mirror_invoice_relation_event(
-            root, actor, invoice_id, "invoice_relationship_created",
-            {"relation_id": relation["relation_id"], "related_invoice_id": target_id,
-             "relationship_type": relationship_type},
-        )
-        message = "Rechnung wurde verknüpft. Die Rechnung und ihr PDF bleiben unverändert."
-        if not mirrored:
-            message += " Die separate Beziehungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
-        flash(message, "success" if mirrored else "warning")
-    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-
-
-@bp.post("/invoices/<invoice_id>/relationships/<relation_id>/remove")
-@login_required
-def remove_invoice_relationship(invoice_id: str, relation_id: str):
-    root, actor = _root(), _actor()
-    _managed_invoice(root, invoice_id, actor)
-    try:
-        service = InvoiceRelationStore(root)
-        relation = service.relationship_for(invoice_id, relation_id)
-    except (OSError, sqlite3.Error) as exc:
-        current_app.logger.warning("Invoice relationship read failed (%s)", type(exc).__name__)
-        flash("Rechnungsverknüpfung konnte nicht sicher gelesen werden.", "danger")
-        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-    if relation is None:
-        abort(404)
-    try:
-        removed = service.remove_relationship(invoice_id, relation_id, actor)
-    except KeyError:
-        abort(404)
-    except ValueError:
-        abort(400)
-    except (OSError, sqlite3.Error) as exc:
-        current_app.logger.warning("Invoice relationship removal failed (%s)", type(exc).__name__)
-        flash("Rechnungsverknüpfung konnte nicht sicher entfernt werden.", "danger")
-        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-    mirrored = _mirror_invoice_relation_event(
-        root, actor, invoice_id, "invoice_relationship_removed",
-        {"relation_id": relation_id, "related_invoice_id": removed["target_invoice_id"] if removed["source_invoice_id"] == invoice_id else removed["source_invoice_id"],
-         "relationship_type": removed["relation_type"]},
-    )
-    message = "Rechnungsverknüpfung wurde entfernt. Die Rechnungsdokumente bleiben unverändert."
-    if not mirrored:
-        message += " Die separate Beziehungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
-    flash(message, "success" if mirrored else "warning")
-    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-
-
-@bp.post("/invoices/<invoice_id>/annotations")
-@login_required
-def add_invoice_annotation(invoice_id: str):
-    root, actor = _root(), _actor()
-    _managed_invoice(root, invoice_id, actor)
-    try:
-        annotation = InvoiceRelationStore(root).add_annotation(
-            invoice_id, request.form.get("body", ""), actor,
-        )
-    except ValueError as exc:
-        messages = {
-            "an internal annotation is required": "Eine interne Anmerkung eingeben.",
-            "annotation is too long or contains unsupported control characters": "Die Anmerkung ist zu lang oder enthält ungültige Steuerzeichen.",
-            "invoice annotation limit reached": "Für diese Rechnung sind bereits zu viele interne Anmerkungen vorhanden.",
-        }
-        flash(messages.get(str(exc), "Interne Anmerkung konnte nicht gespeichert werden."), "warning")
-    except (OSError, sqlite3.Error) as exc:
-        current_app.logger.warning("Invoice annotation write failed (%s)", type(exc).__name__)
-        flash("Interne Anmerkung konnte nicht sicher gespeichert werden.", "danger")
-    else:
-        mirrored = _mirror_invoice_relation_event(
-            root, actor, invoice_id, "invoice_annotation_added",
-            {"annotation_id": annotation["annotation_id"], "version": annotation["version"]},
-        )
-        message = "Interne Anmerkung wurde revisionssicher hinzugefügt."
-        if not mirrored:
-            message += " Die separate Anmerkungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
-        flash(message, "success" if mirrored else "warning")
-    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
-
-
-@bp.post("/invoices/<invoice_id>/annotations/<annotation_id>")
-@login_required
-def revise_invoice_annotation(invoice_id: str, annotation_id: str):
-    root, actor = _root(), _actor()
-    _managed_invoice(root, invoice_id, actor)
-    deleted = request.form.get("action") == "delete"
-    try:
-        annotation = InvoiceRelationStore(root).revise_annotation(
-            invoice_id, annotation_id, request.form.get("body", ""), actor,
-            request.form.get("version", ""), deleted=deleted,
-        )
-    except KeyError:
-        abort(404)
-    except ValueError as exc:
-        messages = {
-            "invalid invoice annotation identifier": "Die Anmerkung wurde nicht gefunden.",
-            "invoice annotation does not exist": "Die Anmerkung wurde nicht gefunden.",
-            "invoice annotation is deleted": "Die Anmerkung wurde bereits entfernt.",
-            "invoice annotation changed; reload before editing": "Die Anmerkung wurde zwischenzeitlich geändert. Bitte Seite neu laden.",
-            "invoice annotation history limit reached": "Die Änderungshistorie dieser Anmerkung ist ausgeschöpft.",
-            "an internal annotation is required": "Eine interne Anmerkung eingeben.",
-            "annotation is too long or contains unsupported control characters": "Die Anmerkung ist zu lang oder enthält ungültige Steuerzeichen.",
-        }
-        flash(messages.get(str(exc), "Interne Anmerkung konnte nicht geändert werden."), "warning")
-    except (OSError, sqlite3.Error) as exc:
-        current_app.logger.warning("Invoice annotation revision failed (%s)", type(exc).__name__)
-        flash("Interne Anmerkung konnte nicht sicher geändert werden.", "danger")
-    else:
-        mirrored = _mirror_invoice_relation_event(
-            root, actor, invoice_id,
-            "invoice_annotation_deleted" if deleted else "invoice_annotation_revised",
-            {"annotation_id": annotation["annotation_id"], "version": annotation["version"]},
-        )
-        message = "Interne Anmerkung wurde entfernt." if deleted else "Interne Anmerkung wurde versioniert geändert."
-        if not mirrored:
-            message += " Die separate Anmerkungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
-        flash(message, "success" if mirrored else "warning")
-    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
 @bp.post("/invoices/<invoice_id>/payments")
 @login_required
