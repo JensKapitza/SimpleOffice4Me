@@ -19,6 +19,7 @@ from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .settings_store import (
     DEFAULT_SETTINGS,
+    MAX_WEBDAV_QUOTA_BYTES,
     MAX_PREVIEW_MAX_BYTES,
     MAX_PREVIEW_MAX_PIXELS,
     MAX_PREVIEW_TIMEOUT_SECONDS,
@@ -480,3 +481,42 @@ def save_documents_media_settings():
         current_app.logger.warning("Document and media settings save failed: %s", type(exc).__name__)
         flash("Dokument- und Medien-Einstellungen konnten nicht gespeichert werden.")
     return redirect(url_for("admin.documents_media_settings"))
+
+
+@bp.get("/settings/network-sync")
+@admin_required
+def network_sync_settings():
+    store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+    return render_template(
+        "admin/network_sync_settings.html",
+        network=store.settings()["network"],
+        max_quota=MAX_WEBDAV_QUOTA_BYTES,
+    )
+
+
+@bp.post("/settings/network-sync")
+@admin_required
+def save_network_sync_settings():
+    reset = request.form.get("reset") == "1"
+    try:
+        if reset:
+            quota = DEFAULT_SETTINGS["network"]["webdav_quota_bytes"]
+        else:
+            raw = request.form.get("webdav_quota_bytes", "")
+            if not raw.isascii() or not raw.isdigit() or len(raw) > len(str(MAX_WEBDAV_QUOTA_BYTES)):
+                raise ValueError("Bitte eine gültige WebDAV-Quota in Bytes eingeben.")
+            quota = int(raw)
+            if quota > MAX_WEBDAV_QUOTA_BYTES:
+                raise ValueError("Die WebDAV-Quota darf 1 PiB nicht überschreiten.")
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"network": {"webdav_quota_bytes": quota}}, str(g.user["username"]),
+        )
+        audit("network_sync_settings_updated", "settings", "network.webdav_quota_bytes",
+              detail={"webdav_quota_bytes": quota, "reset_to_defaults": reset})
+        flash("Netzwerk-Einstellungen gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except OSError:
+        current_app.logger.exception("Network settings save failed")
+        flash("Netzwerk-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.network_sync_settings"))
