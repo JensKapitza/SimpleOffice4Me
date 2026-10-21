@@ -31,6 +31,52 @@ def _python_package_key(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _python_component_evidence(distribution) -> dict:
+    evidence = {}
+    license_expression = distribution.metadata.get("License-Expression")
+    license_name = distribution.metadata.get("License")
+    if license_expression:
+        evidence["licenses"] = [{"expression": str(license_expression).strip()}]
+    elif license_name and str(license_name).strip():
+        evidence["licenses"] = [{"license": {"name": str(license_name).strip()}}]
+
+    read_text = getattr(distribution, "read_text", None)
+    direct_url = read_text("direct_url.json") if read_text is not None else None
+    if direct_url:
+        direct_url_data = json.loads(direct_url)
+        if not isinstance(direct_url_data, dict):
+            raise ValueError(f"invalid direct_url.json for {distribution.metadata['Name']}")
+        archive_info = direct_url_data.get("archive_info", {})
+        if not isinstance(archive_info, dict):
+            raise ValueError(f"invalid archive metadata for {distribution.metadata['Name']}")
+        available_hashes = archive_info.get("hashes", {})
+        if not isinstance(available_hashes, dict):
+            raise ValueError(f"invalid archive hashes for {distribution.metadata['Name']}")
+        available_hashes = dict(available_hashes)
+        legacy_hash = archive_info.get("hash")
+        if legacy_hash:
+            algorithm, separator, digest = str(legacy_hash).partition("=")
+            if separator:
+                current = available_hashes.get(algorithm)
+                if current is not None and str(current).casefold() != digest.casefold():
+                    raise ValueError(f"conflicting archive hashes for {distribution.metadata['Name']}")
+                available_hashes.setdefault(algorithm, digest)
+        hash_algorithms = {"sha256": ("SHA-256", 64), "sha512": ("SHA-512", 128)}
+        hashes = []
+        for algorithm, digest in sorted(available_hashes.items()):
+            normalized = algorithm.casefold().replace("-", "")
+            if normalized not in hash_algorithms:
+                continue
+            cyclonedx_algorithm, expected_length = hash_algorithms[normalized]
+            digest = str(digest).casefold()
+            if len(digest) != expected_length or not re.fullmatch(r"[0-9a-f]+", digest):
+                raise ValueError(f"invalid {algorithm} archive hash for {distribution.metadata['Name']}")
+            hashes.append({"alg": cyclonedx_algorithm, "content": digest})
+        if hashes:
+            evidence["hashes"] = hashes
+    return evidence
+
+
 def _validated_marker_environment(environment: dict | None) -> dict | None:
     if environment is None:
         return None
@@ -65,6 +111,7 @@ def build_sbom(
         key = _python_package_key(name)
         purl = f"pkg:pypi/{key}@{distribution.version}"
         component = {"type": "library", "name": name, "version": distribution.version, "purl": purl}
+        component.update(_python_component_evidence(distribution))
         previous = unique_components.get(purl)
         if previous is not None and previous != component:
             raise ValueError(f"conflicting installed distribution metadata for {purl}")

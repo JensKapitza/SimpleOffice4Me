@@ -36,7 +36,9 @@ class SbomXmlTests(unittest.TestCase):
                     "Requires-Dist: ocr-engine; extra == 'ocr'\n"
                     "Provides-Extra: ocr\n"
                 ),
-                "flask-3.1.3.dist-info": "Name: Flask\nVersion: 3.1.3\n",
+                "flask-3.1.3.dist-info": (
+                    "Name: Flask\nVersion: 3.1.3\nLicense-Expression: BSD-3-Clause\n"
+                ),
                 "python_312_only-1.0.dist-info": "Name: python-312-only\nVersion: 1.0\n",
                 "ocr_engine-1.0.dist-info": "Name: ocr-engine\nVersion: 1.0\n",
                 "unrelated-9.0.dist-info": "Name: unrelated\nVersion: 9.0\n",
@@ -48,6 +50,11 @@ class SbomXmlTests(unittest.TestCase):
                     "Metadata-Version: 2.1\n" + metadata,
                     encoding="utf-8",
                 )
+                if directory == "flask-3.1.3.dist-info":
+                    (dist_info / "direct_url.json").write_text(json.dumps({
+                        "url": "https://example.invalid/flask-3.1.3.whl",
+                        "archive_info": {"hashes": {"sha256": "a" * 64}},
+                    }), encoding="utf-8")
 
             marker_environment = default_environment()
             marker_environment.update(python_version="3.12", python_full_version="3.12.8")
@@ -73,6 +80,9 @@ class SbomXmlTests(unittest.TestCase):
 
         root_ref = "pkg:pypi/simpleoffice4me@2.0.0"
         references = {component["purl"] for component in document["components"]}
+        flask = next(item for item in document["components"] if item["purl"] == "pkg:pypi/flask@3.1.3")
+        self.assertEqual([{"alg": "SHA-256", "content": "a" * 64}], flask["hashes"])
+        self.assertEqual([{"expression": "BSD-3-Clause"}], flask["licenses"])
         self.assertEqual(
             {
                 "pkg:pypi/flask@3.1.3",
@@ -105,6 +115,13 @@ class SbomXmlTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "Python marker environment is missing"):
                 build_python_environment_sbom(site_packages, marker_environment={})
+
+    def test_python_sbom_rejects_malformed_direct_url_metadata(self):
+        distribution = SimpleNamespace(
+            metadata={"Name": "sample"}, version="1.0", read_text=lambda name: "[]",
+        )
+        with self.assertRaisesRegex(ValueError, "invalid direct_url.json"):
+            build_sbom(distributions=[distribution])
 
     def test_build_sbom_deduplicates_project_distribution_as_application_root(self):
         distribution = SimpleNamespace(metadata={"Name": "simpleoffice4me"}, version="2.0.0")
