@@ -123,6 +123,28 @@ jobs:
           cp "$APK" "artifacts/android/${{ matrix.output }}"
           sha256sum "artifacts/android/${{ matrix.output }}" > "artifacts/android/${{ matrix.output }}.sha256"
 
+      - name: Generate resolved Android JVM dependency SBOM
+        working-directory: android/apk
+        run: gradle --no-daemon :app:exportResolvedAndroidDependencies
+
+      - name: Convert Android JVM inventory to CycloneDX XML and JSON
+        run: |
+          python tools/generate_sbom.py \
+            --gradle-resolution android/apk/app/build/reports/sbom/gradle-runtime.json \
+            --output artifacts/android/gradle-runtime.cdx.json \
+            --xml-output artifacts/android/gradle-runtime.cdx.xml
+          python -m json.tool artifacts/android/gradle-runtime.cdx.json > /dev/null
+
+      - name: Upload resolved Android JVM SBOM
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-gradle-sbom-${{ matrix.abi }}
+          path: |
+            artifacts/android/gradle-runtime.cdx.json
+            artifacts/android/gradle-runtime.cdx.xml
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload installable APK
         uses: actions/upload-artifact@v7
         with:
