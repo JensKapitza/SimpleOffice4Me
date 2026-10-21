@@ -66,8 +66,8 @@ class CalDavTest(unittest.TestCase):
         resource = "/caldav/calendars/admin/tasks/" + store.resource(task)
         original = self.client.get(resource, headers=self.auth)
         self.assertEqual(200, original.status_code)
-        self.assertIn("X-SIMPLEOFFICE-DOCUMENT-ID:source-document", original.text)
         self.assertIn("X-SIMPLEOFFICE-DOCUMENT-ID:related-document", original.text)
+        self.assertNotIn("X-SIMPLEOFFICE-DOCUMENT-ID:source-document", original.text)
         updated_content = "\r\n".join(
             line for line in original.text.splitlines()
             if not line.startswith("X-SIMPLEOFFICE-DOCUMENT-ID:")
@@ -84,8 +84,8 @@ class CalDavTest(unittest.TestCase):
         self.assertEqual("source-document", saved["source_document_id"])
         self.assertEqual(["related-document"], saved["document_ids"])
         current = self.client.get(resource, headers=self.auth)
-        self.assertIn("X-SIMPLEOFFICE-DOCUMENT-ID:source-document", current.text)
         self.assertIn("X-SIMPLEOFFICE-DOCUMENT-ID:related-document", current.text)
+        self.assertNotIn("X-SIMPLEOFFICE-DOCUMENT-ID:source-document", current.text)
 
     def test_vtodo_thunderbird_fields_unknown_properties_and_multiple_lists_roundtrip(self):
         collection = "/caldav/calendars/admin/tasks-team/"
