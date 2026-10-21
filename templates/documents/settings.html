@@ -16,6 +16,7 @@
   {% endif %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="alert alert-light border" role="note"><strong>Nachvollziehbarkeit:</strong> Änderungen an globalen Standardwerten werden revisionssicher mit Benutzer, Zeitpunkt und geänderten Feldern protokolliert. Passwörter, Tokens und vergleichbare Geheimnisfelder werden im Audit automatisch geschwärzt.</div>
+  <section class="card mb-4"><div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3"><div><h2 class="h5 mb-1">Lokale Ordner</h2><p class="small text-secondary mb-0">Ordnerzugriff auf diesem Gerät verwalten; die Freigabe bleibt lokal und wird nicht an den Server übertragen.</p></div><a class="btn btn-outline-primary" href="{{ url_for('documents.local_storage') }}">Lokale Ordner verwalten</a></div></section>
 
   <form method="post" class="row g-4" autocomplete="off">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
