@@ -166,7 +166,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
 
         self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", activity)
         self.assertIn("Intent.ACTION_OPEN_DOCUMENT", activity)
-        self.assertIn("Intent.EXTRA_INITIAL_URI", activity)
+        self.assertIn("DocumentsContract.EXTRA_INITIAL_URI", activity)
         self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", activity)
         self.assertIn("Build.VERSION.SDK_INT < Build.VERSION_CODES.O", activity)
         self.assertIn("prepareLocalFolderImport", activity)

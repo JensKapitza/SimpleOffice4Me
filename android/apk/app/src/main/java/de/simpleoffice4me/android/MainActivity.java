@@ -16,6 +16,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.provider.DocumentsContract;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -204,7 +205,7 @@ public class MainActivity extends Activity {
                                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                 .putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
                                         params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
-                        chooser.putExtra(Intent.EXTRA_INITIAL_URI, initialFolder);
+                        chooser.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialFolder);
                     }
                     startActivityForResult(chooser, FILE_CHOOSER_REQUEST);
                     return true;
@@ -738,7 +739,7 @@ public class MainActivity extends Activity {
                                 | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
                 if (!folderId.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     try {
-                        picker.putExtra(Intent.EXTRA_INITIAL_URI, localFolderRegistry.treeUriForImport(folderId));
+                        picker.putExtra(DocumentsContract.EXTRA_INITIAL_URI, localFolderRegistry.treeUriForImport(folderId));
                     } catch (SecurityException | IllegalArgumentException ignored) {
                         // The old grant may have been revoked; still allow a fresh selection.
                     }
