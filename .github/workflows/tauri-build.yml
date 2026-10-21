@@ -40,11 +40,30 @@ jobs:
         working-directory: .
         run: |
           cargo metadata --locked --format-version 1 --manifest-path desktop/tauri/src-tauri/Cargo.toml > "$RUNNER_TEMP/tauri-cargo-metadata.json"
-          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" --output artifacts/tauri-rust-sbom.cdx.json
+          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" --output artifacts/tauri-rust-sbom.cdx.json --xml-output artifacts/tauri-rust-sbom.cdx.xml
+      - name: Install pinned CycloneDX CLI validator
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          "$validator" validate --input-file artifacts/tauri-rust-sbom.cdx.json \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file artifacts/tauri-rust-sbom.cdx.xml \
+            --input-format xml --input-version v1_6 --fail-on-errors
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-rust-sbom
-          path: artifacts/tauri-rust-sbom.cdx.json
+          path: |
+            artifacts/tauri-rust-sbom.cdx.json
+            artifacts/tauri-rust-sbom.cdx.xml
           if-no-files-found: error
       - name: Audit locked Rust dependencies
         run: |
