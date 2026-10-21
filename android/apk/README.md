@@ -12,12 +12,11 @@ This project is the Android counterpart of the Electron desktop wrapper. Electro
 - SQLite, secrets and application data remain in Android private app storage.
 - Cleartext HTTP is permitted only for localhost/127.0.0.1.
 
-Both APK variants require Android API 24 / Android 7.0 or newer:
+The installable APK requires Android API 24 / Android 7.0 or newer:
 
 - `arm64-v8a`: modern 64-bit ARM devices, using Python 3.13.
-- `armeabi-v7a`: legacy 32-bit ARM devices, using Python 3.11. This is intended for devices such as a Galaxy Tab 3 running an Android 7 ROM when the device userspace is 32-bit.
 
-The two builds are intentionally separate. Keeping ARM32 out of the modern APK avoids increasing the normal package size and lets the current ARM64/Python 3.13 runtime stay unchanged.
+Legacy ARM32 is not offered because no verified Pillow 13 wheel is available for that ABI.
 
 ## Native Android integration
 
@@ -35,21 +34,35 @@ The **Bildschirm** page can open Android's system cast settings when provided by
 
 Requirements: JDK 17, Android SDK 36 and Gradle 8.13.
 
-The default local build remains ARM64 and uses Python 3.13:
+The supported local build uses ARM64 and Python 3.13. It requires the pinned
+Pillow and cryptography wheels produced by the Android native-wheel build. The
+wheel preflight downloads the ReportLab universal wheel from PyPI and verifies
+its published SHA-256 before Gradle uses it:
+
+1. Download `android-cp313-arm64-Pillow-wheel` and
+   `android-cp313-arm64-cryptography-wheel` from the Android native-wheel CI.
+2. Extract both wheels and their `*-SHA256SUMS` files into
+   `android/apk/app/wheelhouse` and verify them with:
+
+   ```bash
+   cd android/apk/app/wheelhouse
+   sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS
+   ```
+3. From the repository root, run the compatibility preflight. This verifies
+   the native wheels and adds the hash-verified ReportLab wheel to the wheelhouse:
+
+   ```bash
+   python tools/check_chaquopy_wheels.py \
+     --python 3.13 \
+     --abi arm64-v8a \
+     --wheel-dir android/apk/app/wheelhouse
+   ```
+4. Build the APK as shown below.
 
 ```bash
 cd android/apk
 export CHAQUOPY_BUILD_PYTHON="$(command -v python3.13)"
-gradle assembleDebug
-```
-
-For ARM32, use a Python 3.11 build interpreter and select the matching runtime profile:
-
-```bash
-cd android/apk
-export SIMPLEOFFICE_ANDROID_ABI=armeabi-v7a
-export SIMPLEOFFICE_ANDROID_PYTHON=3.11
-export CHAQUOPY_BUILD_PYTHON="$(command -v python3.11)"
+export SIMPLEOFFICE_ANDROID_WHEEL_DIR="$PWD/app/wheelhouse"
 gradle assembleDebug
 ```
 
@@ -61,18 +74,13 @@ app/build/outputs/apk/debug/app-debug.apk
 
 A normal `assembleRelease` without a configured release signing key creates an unsigned APK and must not be distributed as an installable package.
 
-GitHub Actions builds and verifies both architectures independently. Artifact folder names remain
-stable for integrations; the APK filenames include the UTC build date and GitHub Actions
-workflow run number:
+GitHub Actions builds and verifies the supported architecture. The APK filename includes the UTC
+build date and GitHub Actions workflow run number:
 
 ```text
 simpleoffice4me-android-installable/
   SimpleOffice4Me-Android-arm64-20261021-123.apk
   SimpleOffice4Me-Android-arm64-20261021-123.apk.sha256
-
-simpleoffice4me-android-arm32-installable/
-  SimpleOffice4Me-Android-arm32-20261021-123.apk
-  SimpleOffice4Me-Android-arm32-20261021-123.apk.sha256
 ```
 
 The Android package displays a version such as `2.20261021.123` (major project
@@ -87,7 +95,7 @@ in-place update: Android also requires the same signing certificate and
 application ID. Configure a persistent protected release signing key before
 promising upgrades without reinstalling; never commit signing credentials.
 
-CI verifies that each APK contains only the requested native ABI. It also verifies the APK signature with `apksigner`. ARM64 is checked for 16 KiB native-library alignment, while the Android-7-oriented ARM32 package uses the legacy 4 KiB alignment check.
+CI verifies that the APK contains only the requested native ABI and checks the signature with `apksigner`. ARM64 is checked for 16 KiB native-library alignment.
 
 ## Current Android-specific limits
 
@@ -107,7 +115,7 @@ python tools/check_android_launcher_assets.py android/apk/app/build/outputs/apk/
 
 Der Befehl liefert JSON und Exitcode 0 bei gültigen Ressourcen; fehlende,
 beschädigte oder falsch dimensionierte Launcher-Bilder liefern Exitcode 1.
-ARM64 und ARM32 werden geprüft. Die bestehenden APK-Auslöser bleiben erhalten:
+ARM64 wird geprüft. Die bestehenden APK-Auslöser bleiben erhalten:
 Push auf `main` und manueller Workflow-Start. Für die PR-Abnahme wird der
 Workflow manuell gegen den geprüften PR-Branch gestartet. Die Prüfung ersetzt
 keinen visuellen Test des Launchers auf einem Android-Gerät.

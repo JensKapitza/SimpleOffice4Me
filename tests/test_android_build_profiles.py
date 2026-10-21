@@ -1,4 +1,4 @@
-"""Regression tests for default ARM64 and opt-in legacy ARM32 build policy."""
+"""Regression tests for supported Android ABI profiles and security gates."""
 from pathlib import Path
 import unittest
 
@@ -8,23 +8,29 @@ GRADLE = ROOT / "android/apk/app/build.gradle"
 
 
 class AndroidBuildProfilesTests(unittest.TestCase):
-    def test_legacy_arm32_requires_manual_opt_in(self):
+    def test_arm32_is_unavailable_without_a_verified_pillow_wheel(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("build_arm32:", workflow)
-        self.assertIn("default: false", workflow)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.build_arm32", workflow)
-        self.assertIn('"abi":"armeabi-v7a","python":"3.11"', workflow)
-        self.assertIn('"abi":"arm64-v8a","python":"3.15"', workflow)
-        # The fallback matrix for PR/push/manual-without-opt-in contains only ARM64.
-        fallback = workflow.split(" || '", 1)[1].split("') }}", 1)[0]
-        self.assertNotIn("armeabi-v7a", fallback)
-        self.assertIn("arm64-v8a", fallback)
+        gradle = GRADLE.read_text(encoding="utf-8")
+        self.assertNotIn("abi: armeabi-v7a", workflow)
+        self.assertNotIn("ARM32", workflow)
+        self.assertNotIn("'armeabi-v7a': '3.11'", gradle)
+        self.assertIn("Unsupported Android ABI", gradle)
 
     def test_gradle_rejects_wrong_python_abi_combinations(self):
         gradle = GRADLE.read_text(encoding="utf-8")
-        self.assertIn("'arm64-v8a': '3.15'", gradle)
-        self.assertIn("'armeabi-v7a': '3.11'", gradle)
+        self.assertIn("'arm64-v8a': '3.13'", gradle)
         self.assertIn("pythonRuntimeVersion != expectedPythonVersion", gradle)
+        self.assertIn("Pillow-13.0.0-*.whl", gradle)
+        self.assertIn("cryptography-48.0.1-*.whl", gradle)
+        self.assertIn("reportlab-4.2.5-py3-none-any.whl", gradle)
+        self.assertIn("localReportlabWheel.absolutePath", gradle)
+
+    def test_apk_job_consumes_hash_verified_native_wheel_artifacts(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("android-cp313-arm64-Pillow-wheel", workflow)
+        self.assertIn("android-cp313-arm64-cryptography-wheel", workflow)
+        self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS", workflow)
+        self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
 
     def test_security_gate_precedes_artifact_upload(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")

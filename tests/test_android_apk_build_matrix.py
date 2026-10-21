@@ -3,10 +3,10 @@ from pathlib import Path
 
 
 class AndroidApkBuildMatrixTest(unittest.TestCase):
-    def test_gradle_exposes_arm64_and_arm32_runtime_profiles(self):
+    def test_gradle_exposes_only_the_verified_arm64_runtime_profile(self):
         text = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
-        self.assertIn("'arm64-v8a': '3.15'", text)
-        self.assertIn("'armeabi-v7a': '3.11'", text)
+        self.assertIn("'arm64-v8a': '3.13'", text)
+        self.assertNotIn("'armeabi-v7a': '3.11'", text)
         self.assertIn("SIMPLEOFFICE_ANDROID_ABI", text)
         self.assertIn("SIMPLEOFFICE_ANDROID_PYTHON", text)
         self.assertIn("abiFilters androidAbi", text)
@@ -44,16 +44,14 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertLess(code("2026-10-21", 9999), code("2026-10-22", 1))
         self.assertLess(code("2026-10-22", 1), 2_100_000_000)
 
-    def test_ci_publishes_arm64_by_default_and_arm32_on_demand(self):
+    def test_ci_publishes_only_verified_arm64_apk(self):
         text = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
-        self.assertIn("build_arm32:", text)
-        self.assertIn("default: false", text)
-        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.build_arm32", text)
-        self.assertIn('"abi":"arm64-v8a","python":"3.15"', text)
-        self.assertIn('"abi":"armeabi-v7a","python":"3.11"', text)
-        self.assertIn("SimpleOffice4Me-Android-arm32.apk", text)
-        self.assertIn("simpleoffice4me-android-arm32-installable", text)
-        self.assertIn('"page-size":"4"', text)
+        self.assertIn("abi: arm64-v8a", text)
+        self.assertIn("python: '3.13'", text)
+        self.assertNotIn("abi: armeabi-v7a", text)
+        self.assertNotIn("ARM32", text)
+        self.assertIn("simpleoffice4me-android-installable", text)
+        self.assertIn("page-size: '16'", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("pull_request:", text)
         self.assertIn("push:", text)

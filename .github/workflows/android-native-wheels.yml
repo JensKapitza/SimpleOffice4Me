@@ -2,39 +2,24 @@ name: Android native wheel build (experimental)
 
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - '.github/workflows/android-native-wheels.yml'
-      - 'tools/check_chaquopy_wheels.py'
-      - 'tests/test_chaquopy_wheels.py'
-      - 'android/apk/app/build.gradle'
-
-# Superseded PR revisions should not occupy Android build runners.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   native-wheel:
-    name: Android ARM64 Python 3.15 - ${{ matrix.package }}
+    name: Android ARM64 Python 3.13 - ${{ matrix.package }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
         include:
-          - package: cffi
-            version: '1.17.1'
           - package: Pillow
             version: '13.0.0'
           - package: cryptography
-            version: '42.0.8'
-          - package: reportlab
-            version: '4.2.5'
-          - package: argon2-cffi-bindings
-            version: '21.2.0'
+            version: '48.0.1'
+            sdist_sha256: 266f4ee051abb2f725b74ef8072b521ce1feacf685a3364fa6a6b45548db791a
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -51,26 +36,56 @@ jobs:
       - name: Attempt Android ARM64 wheel build
         env:
           CIBW_PLATFORM: android
-          CIBW_BUILD: cp315-android_arm64_v8a
+          CIBW_BUILD: cp313-android_arm64_v8a
           CIBW_ARCHS_ANDROID: arm64_v8a
           CIBW_BUILD_VERBOSITY: '1'
           CIBW_TEST_SKIP: '*'
           CIBW_OUTPUT_DIR: wheelhouse
           PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
+          PACKAGE_NAME: ${{ matrix.package }}
+          SOURCE_SHA256: ${{ matrix.sdist_sha256 }}
+          PILLOW_SOURCE_COMMIT: 293218ad059d994baf1777d882911bed6a49704a
+          PILLOW_DEPENDENCIES_COMMIT: 93950a8f9ada1165a4ab8c719326d5017e3f6c72
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p wheelhouse sources
-          python -m pip download --no-deps --no-binary :all: --dest sources "$PACKAGE_SPEC"
-          archive="$(find sources -maxdepth 1 -type f -print -quit)"
-          test -n "$archive"
-          mkdir -p unpacked
-          case "$archive" in
-            *.zip) python -m zipfile -e "$archive" unpacked ;;
-            *) tar -xf "$archive" -C unpacked ;;
-          esac
-          source_dir="$(find unpacked -mindepth 1 -maxdepth 1 -type d -print -quit)"
-          test -n "$source_dir"
+          if [[ "$PACKAGE_SPEC" == Pillow==* ]]; then
+            source_dir="$PWD/sources/Pillow"
+            git clone --depth 1 --branch 13.0.0 --recurse-submodules \
+              https://github.com/python-pillow/Pillow.git "$source_dir"
+            actual_commit="$(git -C "$source_dir" rev-parse HEAD)"
+            if [[ "$actual_commit" != "$PILLOW_SOURCE_COMMIT" ]]; then
+              echo "Pillow source tag resolved to unexpected commit: $actual_commit" >&2
+              exit 1
+            fi
+            git -C "$source_dir" submodule update --init --recursive
+            dependencies_dir="$PWD/sources/pillow-dependencies"
+            git clone --filter=blob:none --no-checkout \
+              https://github.com/python-pillow/pillow-depends.git "$dependencies_dir"
+            git -C "$dependencies_dir" checkout --detach "$PILLOW_DEPENDENCIES_COMMIT"
+            actual_dependencies_commit="$(git -C "$dependencies_dir" rev-parse HEAD)"
+            if [[ "$actual_dependencies_commit" != "$PILLOW_DEPENDENCIES_COMMIT" ]]; then
+              echo "Pillow dependency sources resolved to unexpected commit: $actual_dependencies_commit" >&2
+              exit 1
+            fi
+            git -C "$dependencies_dir" archive --format=zip \
+              --prefix=pillow-depends-main/ "$PILLOW_DEPENDENCIES_COMMIT" \
+              > "$source_dir/pillow-depends-main.zip"
+          else
+            printf '%s --hash=sha256:%s\n' "$PACKAGE_SPEC" "$SOURCE_SHA256" > sources/requirements.txt
+            python -m pip download --require-hashes --no-deps --no-binary :all: \
+              --dest sources --requirement sources/requirements.txt
+            archive="$(find sources -maxdepth 1 -type f -print -quit)"
+            test -n "$archive"
+            mkdir -p unpacked
+            case "$archive" in
+              *.zip) python -m zipfile -e "$archive" unpacked ;;
+              *) tar -xf "$archive" -C unpacked ;;
+            esac
+            source_dir="$(find unpacked -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            test -n "$source_dir"
+          fi
           if [[ ! -f "$source_dir/pyproject.toml" && ! -f "$source_dir/setup.py" ]]; then
             echo "Source archive has no Python build metadata: $source_dir" >&2
             exit 1
@@ -79,6 +94,7 @@ jobs:
       - name: Verify resulting Android wheels
         env:
           PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
+          PACKAGE_NAME: ${{ matrix.package }}
         shell: bash
         run: |
           set -euo pipefail
@@ -89,14 +105,16 @@ jobs:
           from tools.check_chaquopy_wheels import compatible_wheels
           package, version = os.environ["PACKAGE_SPEC"].split("==", 1)
           html = "".join(f'<a href="{wheel.name}">wheel</a>' for wheel in Path("wheelhouse").glob("*.whl"))
-          if not compatible_wheels(html, package, version, "3.15", "arm64-v8a"):
-              raise SystemExit(f"No compatible Android ARM64 Python 3.15 wheel built for {package}=={version}")
+          if not compatible_wheels(html, package, version, "3.13", "arm64-v8a"):
+              raise SystemExit(f"No compatible Android ARM64 Python 3.13 wheel built for {package}=={version}")
           PY
+          (cd wheelhouse && sha256sum *.whl > "${PACKAGE_NAME}-SHA256SUMS")
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: android-cp315-arm64-${{ matrix.package }}-wheel-attempt
+          name: android-cp313-arm64-${{ matrix.package }}-wheel
           path: |
             wheelhouse/*.whl
+            wheelhouse/${{ matrix.package }}-SHA256SUMS
           if-no-files-found: ignore
           retention-days: 7

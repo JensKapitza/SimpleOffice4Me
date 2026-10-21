@@ -10,12 +10,30 @@ if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
 def escapedErrorReportUrl = errorReportUrl.replace('\\', '\\\\').replace('"', '\\"')
 
 def androidAbi = (System.getenv('SIMPLEOFFICE_ANDROID_ABI') ?: 'arm64-v8a').trim()
-def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.15').trim()
+def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.13').trim()
 def androidRuntimeProfiles = [
-    'arm64-v8a': '3.15',
-    'armeabi-v7a': '3.11',
+    'arm64-v8a': '3.13',
 ]
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
+def androidWheelDirectory = (System.getenv('SIMPLEOFFICE_ANDROID_WHEEL_DIR') ?: '').trim()
+def localPillowWheel = null
+def localCryptographyWheel = null
+def localReportlabWheel = null
+if (androidWheelDirectory) {
+    def wheelDirectory = file(androidWheelDirectory)
+    if (!wheelDirectory.isDirectory()) {
+        throw new GradleException("Android wheel directory does not exist: ${wheelDirectory}")
+    }
+    def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'Pillow-13.0.0-*.whl' }.files
+    def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-48.0.1-*.whl' }.files
+    def reportlabWheels = fileTree(dir: wheelDirectory).matching { include 'reportlab-4.2.5-py3-none-any.whl' }.files
+    if (pillowWheels.size() != 1 || cryptographyWheels.size() != 1 || reportlabWheels.size() != 1) {
+        throw new GradleException('Android wheel directory must contain exactly one verified Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel')
+    }
+    localPillowWheel = pillowWheels.first()
+    localCryptographyWheel = cryptographyWheels.first()
+    localReportlabWheel = reportlabWheels.first()
+}
 
 def projectMetadata = file('../../../pyproject.toml')
 if (!projectMetadata.isFile()) {
@@ -128,10 +146,22 @@ chaquopy {
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
             install 'defusedxml==0.7.1'
-            install 'Pillow==13.0.0'
-            install 'reportlab==4.2.5'
+            if (localPillowWheel) {
+                install localPillowWheel.absolutePath
+            } else {
+                install 'Pillow==13.0.0'
+            }
+            if (localReportlabWheel) {
+                install localReportlabWheel.absolutePath
+            } else {
+                install 'reportlab==4.2.5'
+            }
             install 'pypdf==6.1.1'
-            install 'cryptography==42.0.8'
+            if (localCryptographyWheel) {
+                install localCryptographyWheel.absolutePath
+            } else {
+                install 'cryptography==48.0.1'
+            }
             install 'tzdata==2026.2'
         }
     }

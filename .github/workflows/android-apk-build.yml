@@ -2,12 +2,6 @@ name: Android APK build
 
 on:
   workflow_dispatch:
-    inputs:
-      build_arm32:
-        description: 'Also build legacy ARM32 APK (Python 3.11)'
-        type: boolean
-        required: false
-        default: false
   pull_request:
     paths:
       - 'android/apk/**'
@@ -40,18 +34,45 @@ env:
   SIMPLEOFFICE_ERROR_REPORT_URL: ${{ vars.SIMPLEOFFICE_ERROR_REPORT_URL }}
 
 jobs:
+  native-wheels:
+    uses: ./.github/workflows/android-native-wheels.yml
+
   apk:
     name: APK ${{ matrix.label }}
+    needs: native-wheels
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON((github.event_name == 'workflow_dispatch' && inputs.build_arm32) && '[{"label":"ARM64","abi":"arm64-v8a","python":"3.15","output":"SimpleOffice4Me-Android-arm64.apk","artifact":"simpleoffice4me-android-installable","page-size":"16"},{"label":"ARM32","abi":"armeabi-v7a","python":"3.11","output":"SimpleOffice4Me-Android-arm32.apk","artifact":"simpleoffice4me-android-arm32-installable","page-size":"4"}]' || '[{"label":"ARM64","abi":"arm64-v8a","python":"3.15","output":"SimpleOffice4Me-Android-arm64.apk","artifact":"simpleoffice4me-android-installable","page-size":"16"}]') }}
+        include:
+          - label: ARM64
+            abi: arm64-v8a
+            python: '3.13'
+            output: SimpleOffice4Me-Android-arm64.apk
+            artifact: simpleoffice4me-android-installable
+            page-size: '16'
     env:
       SIMPLEOFFICE_ANDROID_ABI: ${{ matrix.abi }}
       SIMPLEOFFICE_ANDROID_PYTHON: ${{ matrix.python }}
+      SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
       - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-cp313-arm64-Pillow-wheel
+          path: android/apk/app/wheelhouse
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-cp313-arm64-cryptography-wheel
+          path: android/apk/app/wheelhouse
+
+      - name: Verify local Android wheel hashes
+        shell: bash
+        run: |
+          cd android/apk/app/wheelhouse
+          sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS
 
       - uses: actions/setup-java@v6
         with:
@@ -81,7 +102,8 @@ jobs:
           python -m pip install 'packaging==26.3'
           python tools/check_chaquopy_wheels.py \
             --python "${{ matrix.python }}" \
-            --abi "${{ matrix.abi }}"
+            --abi "${{ matrix.abi }}" \
+            --wheel-dir android/apk/app/wheelhouse
 
       - name: Set deterministic APK version identity
         shell: bash

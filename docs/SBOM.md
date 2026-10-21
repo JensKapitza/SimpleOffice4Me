@@ -28,10 +28,9 @@ fail closed rather than being represented as a complete SBOM.
 
 ## Current Android constraint
 
-The ARM64 Android profile targets Python 3.15, and the legacy ARM32/Python 3.11
-profile is only available through manual workflow dispatch. The Android APK job
-checks the actual Chaquopy wheel index before Gradle runs and rejects the APK if
-its bundled Pillow is below the patched baseline. If a required ABI wheel is not
-available, the APK build remains blocked; an experimental source-build result
-is not treated as a supported runtime until it is installed into and verified
-in a real APK.
+The Android APK profile targets ARM64/Python 3.13. ARM32 is not offered because
+the patched Pillow 13 baseline has no verified wheel for that ABI. The APK job
+checks the actual Chaquopy wheel index before Gradle runs and rejects APKs whose
+bundled Pillow is below the patched baseline. The ARM64 APK remains blocked
+until source-built Pillow 13 and cryptography 48 wheels are installed into and
+verified in a real APK; a successful standalone wheel build is not sufficient.
