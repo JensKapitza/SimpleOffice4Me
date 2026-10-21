@@ -199,6 +199,16 @@ def board():
         parent_uid = str(row.get("parent_uid", ""))
         if parent_uid:
             by_parent.setdefault(parent_uid, []).append(row)
+    from .document_store import DocumentStore
+    document_store = DocumentStore(current_app.config["DOCUMENT_ROOT"])
+    source_documents = {}
+    for row in rows:
+        source_id = str(row.get("source_document_id") or "")
+        if source_id and source_id not in source_documents:
+            try:
+                source_documents[source_id] = document_store.get_document(source_id)
+            except (ValueError, OSError):
+                pass
     top_level = [row for row in rows if not row.get("parent_uid")]
     grouped = {status: [row for row in top_level if row.get("status", "needs-action") == status] for status, _de, _en in BOARD_COLUMNS}
     known_statuses = set(grouped)
@@ -208,6 +218,7 @@ def board():
         columns=BOARD_COLUMNS,
         grouped=grouped,
         children=by_parent,
+        source_documents=source_documents,
         lists=_store().lists(actor),
         query=request.args.get("q", "").strip(),
         selected_list=request.args.get("list_id", "").strip(),
