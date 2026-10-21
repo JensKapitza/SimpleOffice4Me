@@ -17,6 +17,8 @@ from .revision_history import RevisionHistory
 
 _SETTINGS_LOCK = threading.RLock()
 _LOGGER = logging.getLogger(__name__)
+DEFAULT_WEBDAV_QUOTA_BYTES = 0
+MAX_WEBDAV_QUOTA_BYTES = 1024 ** 5
 DEFAULT_VIDEO_PREVIEW_FRAMES = 10
 MIN_VIDEO_PREVIEW_FRAMES = 1
 MAX_VIDEO_PREVIEW_FRAMES = 30
@@ -65,6 +67,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
+    "network": {"webdav_quota_bytes": DEFAULT_WEBDAV_QUOTA_BYTES},
     "media": {
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -369,6 +372,11 @@ class SettingsStore:
             for key, legacy_value in legacy_media.items():
                 if not isinstance(stored_media, dict) or key not in stored_media:
                     result["media"][key] = legacy_value
+        network = result["network"]
+        quota = network.get("webdav_quota_bytes")
+        if type(quota) is not int or not 0 <= quota <= MAX_WEBDAV_QUOTA_BYTES:
+            _LOGGER.warning("Invalid stored WebDAV quota; using default")
+            network["webdav_quota_bytes"] = DEFAULT_WEBDAV_QUOTA_BYTES
         result["media"] = self._normalize_media_settings(result["media"])
         return result
 
@@ -460,6 +468,9 @@ class SettingsStore:
             media_update = settings.get("media")
             if isinstance(media_update, dict):
                 merged["media"] = {**latest["media"], **media_update}
+            network_update = settings.get("network")
+            if isinstance(network_update, dict):
+                merged["network"] = {**latest["network"], **network_update}
             normalized = self._validate(merged)
             atomic_json_write(self.path, normalized)
             self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
@@ -476,6 +487,12 @@ class SettingsStore:
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
         s3 = settings.get("s3", {})
+        network = settings.get("network", {})
+        if not isinstance(network, dict):
+            raise ValueError("network settings must be an object")
+        quota = network.get("webdav_quota_bytes", DEFAULT_WEBDAV_QUOTA_BYTES)
+        if type(quota) is not int or not 0 <= quota <= MAX_WEBDAV_QUOTA_BYTES:
+            raise ValueError("WebDAV quota must be between 0 and 1 PiB")
         media = settings.get("media", {})
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
@@ -540,6 +557,7 @@ class SettingsStore:
             },
             "sharing": {"default_expiry_days": expiry},
             "s3": {"enabled": s3.get("enabled", False)},
+            "network": {"webdav_quota_bytes": quota},
             "media": {
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
