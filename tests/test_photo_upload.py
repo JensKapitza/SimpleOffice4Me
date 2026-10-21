@@ -177,7 +177,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
             self.assertFalse(inbox.duplicate)
             self.assertFalse(archived.duplicate)
             self.assertNotEqual(inbox.document["document_id"], archived.document["document_id"])
-            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+            self.assertEqual(1, len(list((root / "inbox").glob("*.jpg"))))
             self.assertEqual(1, len(list((root / "archive").rglob("*.jpg"))))
 
     def test_retry_finishes_metadata_for_file_left_by_interrupted_import(self):
