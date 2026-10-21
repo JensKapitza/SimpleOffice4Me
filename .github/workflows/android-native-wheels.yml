@@ -9,6 +9,11 @@ on:
       - 'tests/test_chaquopy_wheels.py'
       - 'android/apk/app/build.gradle'
 
+# Superseded PR revisions should not occupy Android build runners.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
 
