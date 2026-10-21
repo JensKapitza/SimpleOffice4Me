@@ -28,9 +28,11 @@ class AndroidBuildProfilesTests(unittest.TestCase):
 
     def test_security_gate_precedes_artifact_upload(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        gate = workflow.index("--enforce-pillow-baseline")
-        self.assertLess(gate, workflow.index("- name: Upload APK-bundled Python SBOM"))
-        self.assertLess(gate, workflow.index("- name: Upload installable APK"))
+        sbom_upload = workflow.index("- name: Upload APK-bundled Python SBOM")
+        gate = workflow.index("- name: Enforce Android Pillow security baseline")
+        apk_upload = workflow.index("- name: Upload installable APK")
+        self.assertLess(sbom_upload, gate)
+        self.assertLess(gate, apk_upload)
 
 
 if __name__ == "__main__":

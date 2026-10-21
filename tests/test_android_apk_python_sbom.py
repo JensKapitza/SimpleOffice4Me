@@ -79,7 +79,7 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
             nested = BytesIO()
             with zipfile.ZipFile(nested, "w") as requirements:
                 requirements.writestr("Pillow-12.2.0.dist-info/METADATA",
-                                      "Metadata-Version: 2.1\\nName: Pillow\\nVersion: 12.2.0\\n")
+                                      "Metadata-Version: 2.1\nName: Pillow\nVersion: 12.2.0\n")
             empty = BytesIO()
             with zipfile.ZipFile(empty, "w") as requirements:
                 requirements.writestr("package/__init__.py", "")
