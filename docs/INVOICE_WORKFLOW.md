@@ -20,6 +20,9 @@ validation and immutable-invoice workflow. Starting from a task stores the task
 identifier on the invoice; the task's contact page and invoice detail page show
 the reciprocal navigation when the user is authorized to access both records.
 Creating an invoice never completes the task automatically.
+If a draft changes after an editor was opened elsewhere, saving the stale form is
+rejected with HTTP 409; reload the latest draft before continuing to prevent
+one session from silently replacing another session's changes.
 
 Invoice and task access is checked server-side. The invoice draft editor and
 finalization routes retain the application's authenticated mutation/CSRF
