@@ -6,16 +6,50 @@ compatible.
 """
 from __future__ import annotations
 
+import sqlite3
+
 from flask import Blueprint
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
+from .invoice_relations import (
+    INVOICE_RELATION_TYPES,
+    INVOICE_RELATION_TYPES_EN,
+    InvoiceRelationStore,
+    invoice_project_ids,
+    invoice_overview_data,
+    invoice_reference_candidates,
+    invoice_relationship_context,
+)
 from .safe_paths import resolve_file_under
 from .v2.materialize import materialize_verified_object
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
+
+
+def _managed_invoice(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
+    try:
+        row = invoice(root, invoice_id)
+        contacts = ContactStore(root)
+        contact = contacts.get(str(row.get("contact_id", "")), actor)
+    except ValueError:
+        abort(404)
+    if not contacts.can_manage_contact(contact, actor):
+        abort(403)
+    return row
+
+
+def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
+    try:
+        DocumentStore(root).history.record(action, actor, "invoice", invoice_id, details)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        current_app.logger.warning(
+            "Invoice sidecar audit mirror failed for %s (%s)", action, type(exc).__name__
+        )
+        return False
+    return True
 
 def _v3_finance_enabled() -> bool:
     from .v3_capabilities import enabled
@@ -298,6 +332,11 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     recipient_lines=[person] if recipient_type == "private" else [company,*([person] if person else [])]
     buyer_label="\n".join(recipient_lines+address_lines); buyer_name=person if recipient_type == "private" else company
     now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":buyer_label,"recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
+    reference_invoice_id, reference_invoice_number = validated_invoice_reference(
+        root, contact_id, form.get("reference_invoice_id", ""),
+    )
+    row["reference_invoice_id"] = reference_invoice_id
+    row["reference_invoice_number"] = reference_invoice_number
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
@@ -314,7 +353,7 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
         if existing and (existing.get("status") != "draft" or existing.get("contact_id") != contact_id): raise ValueError("only a matching invoice draft can be edited")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
-    DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
+    DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"reference_invoice_id":row.get("reference_invoice_id", ""),"totals":row["totals"]})
     return row
 
 
@@ -346,6 +385,15 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
+        reference_id, reference_number = timed(
+            "reference_invoice_validate",
+            lambda: validated_invoice_reference(
+                root, str(row.get("contact_id", "")),
+                str(row.get("reference_invoice_id", "")),
+            ),
+        )
+        row["reference_invoice_id"] = reference_id
+        row["reference_invoice_number"] = reference_number
         timed("project_positions_load", lambda: _validate_project_sources(root, row, actor))
         timed("business_settings_load", lambda: business_settings(root))
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
@@ -495,7 +543,25 @@ def contact_invoice(contact_id:str):
     fields=contact.get("fields",{}); default_names=_recipient_names(contact); default_company=str(fields.get("company","")).strip(); default_person=next((name for name in default_names if name.casefold()!=default_company.casefold()),"")
     recipient={"type":draft.get("buyer",{}).get("recipient_type") if draft else ("company" if default_company else "private"),"company":draft.get("buyer",{}).get("company","") if draft else default_company,"contact":draft.get("buyer",{}).get("contact_name","") if draft else (default_person or str(fields.get("display_name","")).strip())}
     if request.method=="POST":recipient={"type":request.form.get("recipient_type","private"),"company":request.form.get("recipient_company",""),"contact":request.form.get("recipient_contact","")}
-    payment_days=str((date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days) if draft else str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=draft.get("issue_date",date.today().isoformat()) if draft else date.today().isoformat(),service_date=draft.get("service_date",date.today().isoformat()) if draft else date.today().isoformat(),links=contact_links(root,contact_id),draft=draft,recipient=recipient)
+    selected_reference_invoice_id = (
+        request.form.get("reference_invoice_id", "").strip() if request.method == "POST" else
+        str((draft or {}).get("reference_invoice_id", ""))
+    )
+    reference_invoices = invoice_reference_candidates(invoices(root), contact_id, draft_id)
+    payment_days = str(
+        (date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days
+        if draft else crm.get("payment_days") or settings.get("default_payment_days") or "14"
+    )
+    return render_template(
+        "documents/contact_invoice.html", contact=contact, crm=crm, address=address,
+        addresses=addresses, templates=templates(root), business=settings,
+        payment_days=payment_days,
+        issue_date=draft.get("issue_date", date.today().isoformat()) if draft else date.today().isoformat(),
+        service_date=draft.get("service_date", date.today().isoformat()) if draft else date.today().isoformat(),
+        links=contact_links(root, contact_id), draft=draft, recipient=recipient,
+        reference_invoices=reference_invoices,
+        selected_reference_invoice_id=selected_reference_invoice_id,
+    )
 
 @bp.get("/invoices/<invoice_id>/draft.pdf")
 @login_required
@@ -636,25 +702,212 @@ def customer_document_archive_download(contact_id: str):
 @bp.get("/invoices")
 @login_required
 def invoice_overview():
-    root,actor=_root(),_actor();contacts=ContactStore(root);query=request.args.get("q","").strip().casefold();selected_status=request.args.get("status","").strip(); contact_map={item["contact_id"]:item for item in contacts.contacts(actor) if contacts.can_manage_contact(item,actor)}; rows=[]
-    for row in invoices(root):
-        contact=contact_map.get(row.get("contact_id"))
-        if contact is None:continue
-        state=row["payment_state"]["status"]
-        if selected_status and state!=selected_status:continue
-        searchable=f"{row.get('invoice_number','')} {row.get('buyer',{}).get('name','')} {contact.get('fields',{}).get('display_name','')}"
-        if query and query not in searchable.casefold():continue
-        rows.append({**row,"contact":contact})
-    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}; return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
+    root, actor = _root(), _actor()
+    query = request.args.get("q", "").strip()
+    selected_status = request.args.get("status", "").strip()
+    selected_project_id = request.args.get("project_id", "").strip()
+    selected_related_invoice_id = request.args.get("related_invoice_id", "").strip()
+    rows, project_options, related_options, relation_error = invoice_overview_data(
+        root, actor, query, selected_status, selected_project_id,
+        selected_related_invoice_id,
+    )
+    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}
+    return render_template(
+        "documents/invoice_overview.html", rows=rows, stats=stats, query=query,
+        selected_status=selected_status, project_options=project_options,
+        selected_project_id=selected_project_id, related_options=related_options,
+        selected_related_invoice_id=selected_related_invoice_id,
+        relation_error=relation_error,
+    )
 
 @bp.get("/invoices/<invoice_id>")
 @login_required
 def invoice_detail(invoice_id:str):
-    try:row=invoice(_root(),invoice_id)
+    root, actor = _root(), _actor()
+    try:row=invoice(root,invoice_id)
     except ValueError:abort(404)
-    contacts=ContactStore(_root());contact=contacts.get(row["contact_id"],_actor())
-    if not contacts.can_manage_contact(contact,_actor()):abort(403)
-    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,today=date.today().isoformat(),credit=CustomerCreditLedger(_root()).account(row["contact_id"],row.get("currency","EUR")),write_off_reasons=sorted(WRITE_OFF_REASONS))
+    contacts=ContactStore(root);contact=contacts.get(row["contact_id"],actor)
+    if not contacts.can_manage_contact(contact,actor):abort(403)
+    try:
+        related, candidates, annotations = invoice_relationship_context(root, row, actor)
+        relation_error = False
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning(
+            "Invoice sidecar read failed for %s (%s)", invoice_id, type(exc).__name__
+        )
+        related, candidates, annotations = [], [], []
+        relation_error = True
+    return render_template(
+        "documents/invoice_detail.html",
+        invoice={**row,"payment_state":invoice_state(row)}, contact=contact,
+        related_invoices=related, related_invoice_candidates=candidates,
+        invoice_relationship_types=(INVOICE_RELATION_TYPES_EN if g.language == "en" else INVOICE_RELATION_TYPES),
+        annotations=annotations,
+        relation_error=relation_error,
+        today=date.today().isoformat(),
+        credit=CustomerCreditLedger(root).account(row["contact_id"],row.get("currency","EUR")),
+        write_off_reasons=sorted(WRITE_OFF_REASONS),
+    )
+
+
+@bp.post("/invoices/<invoice_id>/relationships")
+@login_required
+def add_invoice_relationship(invoice_id: str):
+    root, actor = _root(), _actor()
+    source = _managed_invoice(root, invoice_id, actor)
+    if source.get("status") in {"draft", "finalizing"}:
+        abort(409)
+    target_id = request.form.get("related_invoice_id", "").strip()
+    target = _managed_invoice(root, target_id, actor)
+    if target.get("contact_id") != source.get("contact_id"):
+        abort(404)
+    if target.get("status") in {"draft", "finalizing"}:
+        flash("Verknüpfungen sind nur zwischen finalisierten Rechnungen möglich.", "warning")
+        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+    if (
+        str(source.get("reference_invoice_id", "")) == target_id
+        or str(target.get("reference_invoice_id", "")) == invoice_id
+    ):
+        flash("Diese Rechnungen sind bereits im Rechnungsdokument aufeinander bezogen.", "warning")
+        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+    relationship_type = request.form.get("relationship_type", "").strip()
+    if relationship_type == "project_related" and not (invoice_project_ids(source) & invoice_project_ids(target)):
+        flash("Projektbezogene Rechnungen benötigen mindestens ein gemeinsames Projekt.", "warning")
+        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+    try:
+        relation = InvoiceRelationStore(root).add_relationship(
+            invoice_id, target_id, relationship_type, actor,
+        )
+    except ValueError as exc:
+        messages = {
+            "invoice relationship type is invalid": "Bitte einen gültigen Beziehungstyp auswählen.",
+            "an invoice cannot be linked to itself": "Eine Rechnung kann nicht mit sich selbst verknüpft werden.",
+            "invoice relationship would create a cycle": "Die Verknüpfung würde einen Beziehungskreis erzeugen.",
+            "invoice relationship already exists": "Diese Rechnungsverknüpfung besteht bereits.",
+            "invoice relationship history limit reached": "Für diese Rechnung sind bereits zu viele Verknüpfungen historisiert.",
+        }
+        flash(messages.get(str(exc), "Rechnungsverknüpfung konnte nicht gespeichert werden."), "warning")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Invoice relationship write failed (%s)", type(exc).__name__)
+        flash("Rechnungsverknüpfung konnte nicht sicher gespeichert werden.", "danger")
+    else:
+        mirrored = _mirror_invoice_relation_event(
+            root, actor, invoice_id, "invoice_relationship_created",
+            {"relation_id": relation["relation_id"], "related_invoice_id": target_id,
+             "relationship_type": relationship_type},
+        )
+        message = "Rechnung wurde verknüpft. Die Rechnung und ihr PDF bleiben unverändert."
+        if not mirrored:
+            message += " Die separate Beziehungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
+        flash(message, "success" if mirrored else "warning")
+    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+
+
+@bp.post("/invoices/<invoice_id>/relationships/<relation_id>/remove")
+@login_required
+def remove_invoice_relationship(invoice_id: str, relation_id: str):
+    root, actor = _root(), _actor()
+    _managed_invoice(root, invoice_id, actor)
+    try:
+        service = InvoiceRelationStore(root)
+        relation = service.relationship_for(invoice_id, relation_id)
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Invoice relationship read failed (%s)", type(exc).__name__)
+        flash("Rechnungsverknüpfung konnte nicht sicher gelesen werden.", "danger")
+        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+    if relation is None:
+        abort(404)
+    try:
+        removed = service.remove_relationship(invoice_id, relation_id, actor)
+    except KeyError:
+        abort(404)
+    except ValueError:
+        abort(400)
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Invoice relationship removal failed (%s)", type(exc).__name__)
+        flash("Rechnungsverknüpfung konnte nicht sicher entfernt werden.", "danger")
+        return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+    mirrored = _mirror_invoice_relation_event(
+        root, actor, invoice_id, "invoice_relationship_removed",
+        {"relation_id": relation_id, "related_invoice_id": removed["target_invoice_id"] if removed["source_invoice_id"] == invoice_id else removed["source_invoice_id"],
+         "relationship_type": removed["relation_type"]},
+    )
+    message = "Rechnungsverknüpfung wurde entfernt. Die Rechnungsdokumente bleiben unverändert."
+    if not mirrored:
+        message += " Die separate Beziehungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
+    flash(message, "success" if mirrored else "warning")
+    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+
+
+@bp.post("/invoices/<invoice_id>/annotations")
+@login_required
+def add_invoice_annotation(invoice_id: str):
+    root, actor = _root(), _actor()
+    _managed_invoice(root, invoice_id, actor)
+    try:
+        annotation = InvoiceRelationStore(root).add_annotation(
+            invoice_id, request.form.get("body", ""), actor,
+        )
+    except ValueError as exc:
+        messages = {
+            "an internal annotation is required": "Eine interne Anmerkung eingeben.",
+            "annotation is too long or contains unsupported control characters": "Die Anmerkung ist zu lang oder enthält ungültige Steuerzeichen.",
+            "invoice annotation limit reached": "Für diese Rechnung sind bereits zu viele interne Anmerkungen vorhanden.",
+        }
+        flash(messages.get(str(exc), "Interne Anmerkung konnte nicht gespeichert werden."), "warning")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Invoice annotation write failed (%s)", type(exc).__name__)
+        flash("Interne Anmerkung konnte nicht sicher gespeichert werden.", "danger")
+    else:
+        mirrored = _mirror_invoice_relation_event(
+            root, actor, invoice_id, "invoice_annotation_added",
+            {"annotation_id": annotation["annotation_id"], "version": annotation["version"]},
+        )
+        message = "Interne Anmerkung wurde revisionssicher hinzugefügt."
+        if not mirrored:
+            message += " Die separate Anmerkungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
+        flash(message, "success" if mirrored else "warning")
+    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
+
+
+@bp.post("/invoices/<invoice_id>/annotations/<annotation_id>")
+@login_required
+def revise_invoice_annotation(invoice_id: str, annotation_id: str):
+    root, actor = _root(), _actor()
+    _managed_invoice(root, invoice_id, actor)
+    deleted = request.form.get("action") == "delete"
+    try:
+        annotation = InvoiceRelationStore(root).revise_annotation(
+            invoice_id, annotation_id, request.form.get("body", ""), actor,
+            request.form.get("version", ""), deleted=deleted,
+        )
+    except KeyError:
+        abort(404)
+    except ValueError as exc:
+        messages = {
+            "invalid invoice annotation identifier": "Die Anmerkung wurde nicht gefunden.",
+            "invoice annotation does not exist": "Die Anmerkung wurde nicht gefunden.",
+            "invoice annotation is deleted": "Die Anmerkung wurde bereits entfernt.",
+            "invoice annotation changed; reload before editing": "Die Anmerkung wurde zwischenzeitlich geändert. Bitte Seite neu laden.",
+            "invoice annotation history limit reached": "Die Änderungshistorie dieser Anmerkung ist ausgeschöpft.",
+            "an internal annotation is required": "Eine interne Anmerkung eingeben.",
+            "annotation is too long or contains unsupported control characters": "Die Anmerkung ist zu lang oder enthält ungültige Steuerzeichen.",
+        }
+        flash(messages.get(str(exc), "Interne Anmerkung konnte nicht geändert werden."), "warning")
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Invoice annotation revision failed (%s)", type(exc).__name__)
+        flash("Interne Anmerkung konnte nicht sicher geändert werden.", "danger")
+    else:
+        mirrored = _mirror_invoice_relation_event(
+            root, actor, invoice_id,
+            "invoice_annotation_deleted" if deleted else "invoice_annotation_revised",
+            {"annotation_id": annotation["annotation_id"], "version": annotation["version"]},
+        )
+        message = "Interne Anmerkung wurde entfernt." if deleted else "Interne Anmerkung wurde versioniert geändert."
+        if not mirrored:
+            message += " Die separate Anmerkungshistorie ist gespeichert; das zentrale Auditprotokoll war nicht verfügbar."
+        flash(message, "success" if mirrored else "warning")
+    return redirect(url_for(".invoice_detail", invoice_id=invoice_id))
 
 @bp.post("/invoices/<invoice_id>/payments")
 @login_required
