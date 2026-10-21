@@ -101,6 +101,18 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 links = self._source_link(url, document_id)
                 self.assertEqual(200, self.client.get(links[0]["href"]).status_code)
 
+    def test_soft_deleted_source_has_a_clear_unavailable_state(self):
+        document_id = self._create_document_task()
+        DocumentStore(self.root).soft_delete_document(document_id, "jens")
+
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                response = self.client.get(url)
+                self.assertEqual(200, response.status_code)
+                body = response.get_data(as_text=True)
+                self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                self.assertNotIn(f'href="/documents/{document_id}"', body)
+
 
 if __name__ == "__main__":
     unittest.main()

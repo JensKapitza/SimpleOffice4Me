@@ -214,6 +214,9 @@ def _task_source_documents(rows: list[dict[str, Any]]) -> dict[str, list[dict[st
                 task_sources.append({"available": False})
                 continue
             path = str(document.get("last_path") or "")
+            if not path or document.get("system_state") == "webdav_deleted":
+                task_sources.append({"available": False})
+                continue
             task_sources.append({
                 "available": True,
                 "document_id": document_id,
@@ -240,9 +243,12 @@ def board():
         source_id = str(row.get("source_document_id") or "")
         if source_id and source_id not in source_documents:
             try:
-                source_documents[source_id] = document_store.get_document(source_id)
+                document = document_store.get_document(source_id)
             except (ValueError, OSError):
                 pass
+            else:
+                if document.get("last_path") and document.get("system_state") != "webdav_deleted":
+                    source_documents[source_id] = document
     top_level = [row for row in rows if not row.get("parent_uid")]
     grouped = {status: [row for row in top_level if row.get("status", "needs-action") == status] for status, _de, _en in BOARD_COLUMNS}
     known_statuses = set(grouped)

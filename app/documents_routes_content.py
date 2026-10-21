@@ -725,9 +725,12 @@ def tasks():
     task_documents: dict[str, dict[str, Any]] = {}
     for document_id in document_ids:
         try:
-            task_documents[document_id] = _store().get_document(document_id)
+            document = _store().get_document(document_id)
         except ValueError:
             continue
+        if not document.get("last_path") or document.get("system_state") == "webdav_deleted":
+            continue
+        task_documents[document_id] = document
     task_external_attachments: dict[str, list[dict[str, str]]] = {}
     for row in rows:
         links = []
