@@ -201,6 +201,14 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+      - name: Enforce Android Pillow security baseline
+        run: |
+          python tools/android_apk_python_sbom.py \
+            android/apk/app/build/outputs/apk/debug/app-debug.apk \
+            --output artifacts/android/chaquopy-python.cdx.json \
+            --xml-output artifacts/android/chaquopy-python.cdx.xml \
+            --enforce-pillow-baseline
+
       - name: Upload installable APK
         uses: actions/upload-artifact@v7
         with:
