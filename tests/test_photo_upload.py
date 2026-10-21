@@ -103,6 +103,16 @@ class PhotoBulkUploadTest(unittest.TestCase):
             staging = root / CONTROL_DIR / "staging"
             self.assertEqual([], list(staging.glob("*")) if staging.exists() else [])
 
+    def test_untrusted_upload_path_is_reduced_to_a_safe_filename(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            result = PhotoBulkImporter(root).import_photo(
+                self._jpeg(), "../../outside/camera.jpg", "tester"
+            )
+
+            self.assertEqual("inbox/camera.jpg", result.document["last_path"])
+            self.assertTrue((root / result.document["last_path"]).is_file())
+
     def test_received_at_is_a_real_utc_instant(self):
         with tempfile.TemporaryDirectory() as temp:
             document = PhotoBulkImporter(temp).import_photo(self._jpeg(), "photo.jpg", "tester").document
@@ -229,7 +239,7 @@ class PhotoUploadHttpTest(unittest.TestCase):
         self.app.add_url_rule(
             "/documents/<document_id>",
             endpoint="documents.detail",
-            view_func=lambda document_id: document_id,
+            view_func=lambda _document_id: "document-detail",
         )
         self.app.before_request(protect_browser_mutation)
         self.app.register_blueprint(photo_upload_blueprint)

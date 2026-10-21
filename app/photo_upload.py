@@ -15,12 +15,13 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, request, url_for
+from werkzeug.utils import secure_filename
 
 from .access_control import has_feature
 from .auth import login_required
 from .document_store import DocumentStore, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
-from .safe_paths import resolve_file_under
+from .safe_paths import resolve_file_under, resolve_for_write_under
 from .settings_store import SettingsStore
 from .v2.materialize import materialize_verified_object
 
@@ -338,7 +339,8 @@ def _safe_filename(filename: str) -> str:
     name = Path(original).name.strip().strip(".")
     if not name:
         name = "foto"
-    suffix = Path(name).suffix.lower()
+    name = secure_filename(name).strip(".") or "foto"
+    suffix = Path(name).suffix.lower()[:20]
     stem = Path(name).stem[:180] or "foto"
     return f"{stem}{suffix}"
 
@@ -459,7 +461,8 @@ class PhotoBulkImporter:
             restore_ocr = self.store._image_ocr
             self.store._image_ocr = lambda _path: ""  # type: ignore[method-assign]
         try:
-            self.store._scan_file(path.resolve(), force_hash=True)
+            safe_path = resolve_file_under(self.store.root, path.relative_to(self.store.root))
+            self.store._scan_file(safe_path, force_hash=True)
         finally:
             if restore_ocr is not None:
                 self.store._image_ocr = restore_ocr  # type: ignore[method-assign]
@@ -550,13 +553,16 @@ class PhotoBulkImporter:
         if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
             raise ValueError("upload size limit must be positive")
         original_filename = _bounded_text(filename, 512)
-        safe_name = _safe_filename(original_filename)
+        safe_name = secure_filename(_safe_filename(original_filename)) or "foto"
         if Path(safe_name).suffix.lower() not in PHOTO_EXTENSIONS:
             raise ValueError("Erlaubt sind JPEG, PNG, GIF und WebP.")
         received_at = utc_now()
         source = getattr(upload, "stream", upload)
-        staging = self.store.control / "staging" / f"photo-{uuid.uuid4().hex}-{safe_name}"
-        staging.parent.mkdir(parents=True, exist_ok=True)
+        staging_root = self.store.control / "staging"
+        staging_root.mkdir(parents=True, exist_ok=True)
+        staging = resolve_for_write_under(
+            staging_root, f"photo-{uuid.uuid4().hex}-{safe_name}"
+        )
         written = 0
         digest = ""
         try:
@@ -598,7 +604,7 @@ class PhotoBulkImporter:
                 )
                 destination_dir.mkdir(parents=True, exist_ok=True)
                 self.store.ensure_folder_policy(destination_dir, actor)
-                target = destination_dir / safe_name
+                target = resolve_for_write_under(destination_dir, safe_name)
                 target_is_existing = False
                 if target.exists():
                     if target.is_symlink():
@@ -628,7 +634,8 @@ class PhotoBulkImporter:
                 while target.exists():
                     if target_is_existing:
                         break
-                    target = destination_dir / f"{Path(safe_name).stem}-{uuid.uuid4().hex[:8]}{Path(safe_name).suffix}"
+                    target_name = f"{Path(safe_name).stem}-{uuid.uuid4().hex[:8]}{Path(safe_name).suffix}"
+                    target = resolve_for_write_under(destination_dir, target_name)
                 if not target_is_existing:
                     staging.replace(target)
                 return self._complete_photo_import(
