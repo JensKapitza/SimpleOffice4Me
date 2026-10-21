@@ -15,6 +15,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
 
     def test_manifest_exposes_share_and_open_targets_without_legacy_storage_permission(self):
         manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
+        legacy_backup = self.read(ANDROID / "src" / "main" / "res" / "xml" / "backup_rules.xml")
+        extraction = self.read(ANDROID / "src" / "main" / "res" / "xml" / "data_extraction_rules.xml")
         self.assertIn('android.intent.action.SEND', manifest)
         self.assertIn('android.intent.action.SEND_MULTIPLE', manifest)
         self.assertIn('android:mimeType="*/*"', manifest)
@@ -23,6 +25,10 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertNotIn('WRITE_EXTERNAL_STORAGE', manifest)
         self.assertNotIn('READ_EXTERNAL_STORAGE', manifest)
         self.assertNotIn('GET_ACCOUNTS', manifest)
+        self.assertIn('android:fullBackupContent="@xml/backup_rules"', manifest)
+        self.assertIn('android:dataExtractionRules="@xml/data_extraction_rules"', manifest)
+        self.assertIn('path="simpleoffice-local-folders.xml"', legacy_backup)
+        self.assertEqual(2, extraction.count('path="simpleoffice-local-folders.xml"'))
 
     def test_manifest_has_narrow_browsable_deep_link(self):
         manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
@@ -148,6 +154,39 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('nicht unterstütztem Link-Schema wurde blockiert', handler)
         self.assertIn('webView.setDownloadListener', activity)
         self.assertIn('downloadHandler.onActivityResult', activity)
+
+    def test_local_folders_use_persistable_tree_grants_and_keep_uris_native(self):
+        registry = self.read(JAVA / "AndroidLocalFolderRegistry.java")
+        activity = self.read(JAVA / "MainActivity.java")
+        runtime = self.read(ANDROID / "src" / "main" / "python" / "android_runtime.py")
+        settings = self.read(ROOT / "templates" / "documents" / "settings.html")
+        page = self.read(ROOT / "templates" / "documents" / "local_storage.html")
+        script = self.read(ROOT / "static" / "js" / "local-folder-storage.js")
+        documentation = self.read(ROOT / "docs" / "ANDROID_INTEGRATION.md")
+
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", activity)
+        self.assertIn("Intent.ACTION_OPEN_DOCUMENT", activity)
+        self.assertIn("DocumentsContract.EXTRA_INITIAL_URI", activity)
+        self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", activity)
+        self.assertIn("Build.VERSION.SDK_INT < Build.VERSION_CODES.O", activity)
+        self.assertIn("prepareLocalFolderImport", activity)
+        self.assertIn("takePersistableUriPermission", registry)
+        self.assertIn("getPersistedUriPermissions", registry)
+        self.assertIn("releasePersistableUriPermission", registry)
+        public_entry = registry.split("private JSONObject publicEntry", 1)[1].split("private String accessStatus", 1)[0]
+        self.assertNotIn('.put("uri"', public_entry)
+        self.assertIn('os.environ["SIMPLEOFFICE_ANDROID"] = "1"', runtime)
+        self.assertIn("documents.local_storage", settings)
+        self.assertIn("Lokale Ordner", page)
+        self.assertIn("documents.upload", page)
+        self.assertIn("window.showDirectoryPicker", script)
+        self.assertIn("indexedDB", script)
+        self.assertIn("prepareImport", script)
+        self.assertIn("initial-folder-unsupported", script)
+        self.assertIn('upload.append("files"', script)
+        self.assertIn("permission_revoked", script)
+        self.assertNotIn("content://", script)
+        self.assertIn("nicht an Flask", documentation)
 
     def test_native_google_drive_authorization_stays_out_of_javascript(self):
         activity = self.read(JAVA / "MainActivity.java")

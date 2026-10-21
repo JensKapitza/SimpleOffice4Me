@@ -17,6 +17,10 @@ on:
       - 'tests/test_android_apk_python_sbom.py'
       - 'tests/test_android_build_profiles.py'
       - 'tests/test_chaquopy_wheels.py'
+      - 'tests/test_android_apk_build_matrix.py'
+      - 'tests/test_android_native_integration.py'
+      - 'pyproject.toml'
+      - 'simpleoffice_version.py'
       - '.github/workflows/android-apk-build.yml'
   push:
     branches:
@@ -79,6 +83,12 @@ jobs:
             --python "${{ matrix.python }}" \
             --abi "${{ matrix.abi }}"
 
+      - name: Set deterministic APK version identity
+        shell: bash
+        run: |
+          echo "SIMPLEOFFICE_BUILD_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          echo "SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}" >> "$GITHUB_ENV"
+
       - name: Build installable Android APK
         working-directory: android/apk
         run: gradle --no-daemon assembleDebug
@@ -101,27 +111,37 @@ jobs:
             exit 1
           fi
 
-      - name: Verify APK package version matches project version
+      - name: Verify APK package date version and Android versionCode
         shell: bash
         run: |
           set -euo pipefail
           APK='android/apk/app/build/outputs/apk/debug/app-debug.apk'
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT" && test -x "$AAPT"
-          PROJECT_VERSION="$(python - <<'PY'
-          import re
+          PROJECT_MAJOR="$(python - <<'PY'
+          import tomllib
           from pathlib import Path
-          text = Path('pyproject.toml').read_text(encoding='utf-8')
-          match = re.search(r'(?ms)^\[project\]\s.*?^version\s*=\s*["\x27]([^"\x27]+)["\x27]', text)
-          if not match:
-              raise SystemExit('project version missing')
-          print(match.group(1))
+          project = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))
+          print(project['project']['version'].split('.')[0])
           PY
           )"
+          EXPECTED_VERSION="${PROJECT_MAJOR}.${SIMPLEOFFICE_BUILD_DATE}.${SIMPLEOFFICE_BUILD_SEQUENCE}"
           BADGING="$("$AAPT" dump badging "$APK" | head -n 1)"
           case "$BADGING" in
-            *"versionName='$PROJECT_VERSION'"*) ;;
-            *) echo "APK version does not match project version $PROJECT_VERSION: $BADGING" >&2; exit 1 ;;
+            *"versionName='$EXPECTED_VERSION'"*) ;;
+            *) echo "APK version does not match $EXPECTED_VERSION: $BADGING" >&2; exit 1 ;;
+          esac
+          EXPECTED_CODE="$(python - <<'PY'
+          import datetime as dt
+          import os
+          day = dt.datetime.strptime(os.environ['SIMPLEOFFICE_BUILD_DATE'], '%Y%m%d').date()
+          sequence = int(os.environ['SIMPLEOFFICE_BUILD_SEQUENCE'])
+          print((day - dt.date(2020, 1, 1)).days * 10000 + sequence)
+          PY
+          )"
+          case "$BADGING" in
+            *"versionCode='$EXPECTED_CODE'"*) ;;
+            *) echo "APK versionCode does not match $EXPECTED_CODE: $BADGING" >&2; exit 1 ;;
           esac
 
       - name: Verify packaged launcher images
@@ -141,8 +161,10 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           "$ZIPALIGN" -c -P '${{ matrix.page-size }}' -v 4 "$APK"
           mkdir -p artifacts/android
-          cp "$APK" "artifacts/android/${{ matrix.output }}"
-          sha256sum "artifacts/android/${{ matrix.output }}" > "artifacts/android/${{ matrix.output }}.sha256"
+          VERSIONED_OUTPUT="${{ matrix.output }}"
+          VERSIONED_OUTPUT="${VERSIONED_OUTPUT%.apk}-${SIMPLEOFFICE_BUILD_DATE}-${SIMPLEOFFICE_BUILD_SEQUENCE}.apk"
+          cp "$APK" "artifacts/android/${VERSIONED_OUTPUT}"
+          sha256sum "artifacts/android/${VERSIONED_OUTPUT}" > "artifacts/android/${VERSIONED_OUTPUT}.sha256"
 
       - name: Generate resolved Android JVM dependency SBOM
         working-directory: android/apk

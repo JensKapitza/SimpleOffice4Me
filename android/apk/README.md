@@ -61,17 +61,31 @@ app/build/outputs/apk/debug/app-debug.apk
 
 A normal `assembleRelease` without a configured release signing key creates an unsigned APK and must not be distributed as an installable package.
 
-GitHub Actions builds and verifies both architectures independently. The ARM64 artifact name remains unchanged for compatibility, and ARM32 is published separately:
+GitHub Actions builds and verifies both architectures independently. Artifact folder names remain
+stable for integrations; the APK filenames include the UTC build date and GitHub Actions
+workflow run number:
 
 ```text
 simpleoffice4me-android-installable/
-  SimpleOffice4Me-Android-arm64.apk
-  SimpleOffice4Me-Android-arm64.apk.sha256
+  SimpleOffice4Me-Android-arm64-20261021-123.apk
+  SimpleOffice4Me-Android-arm64-20261021-123.apk.sha256
 
 simpleoffice4me-android-arm32-installable/
-  SimpleOffice4Me-Android-arm32.apk
-  SimpleOffice4Me-Android-arm32.apk.sha256
+  SimpleOffice4Me-Android-arm32-20261021-123.apk
+  SimpleOffice4Me-Android-arm32-20261021-123.apk.sha256
 ```
+
+The Android package displays a version such as `2.20261021.123` (major project
+version, UTC date, build sequence). `versionCode` is an independent, increasing
+integer computed from the date and sequence. Local builds default to sequence 1;
+set `SIMPLEOFFICE_BUILD_DATE=YYYYMMDD` and
+`SIMPLEOFFICE_BUILD_SEQUENCE=123` to reproduce a particular CI version.
+
+**Update signing:** CI debug APKs use a debug signing key that may differ between
+workflow runs or machines. A higher `versionCode` alone does not permit an
+in-place update: Android also requires the same signing certificate and
+application ID. Configure a persistent protected release signing key before
+promising upgrades without reinstalling; never commit signing credentials.
 
 CI verifies that each APK contains only the requested native ABI. It also verifies the APK signature with `apksigner`. ARM64 is checked for 16 KiB native-library alignment, while the Android-7-oriented ARM32 package uses the legacy 4 KiB alignment check.
 
