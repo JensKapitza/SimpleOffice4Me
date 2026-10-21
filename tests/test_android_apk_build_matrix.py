@@ -47,6 +47,9 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertIn("Verify APK package version matches project version", text)
         self.assertIn("SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}", text)
         self.assertIn("date -u +%Y%m%d", text)
+        self.assertIn("VERSIONED_OUTPUT", text)
+        self.assertIn("SIMPLEOFFICE_BUILD_DATE", text)
+        self.assertIn("SIMPLEOFFICE_BUILD_SEQUENCE", text)
 
 
 if __name__ == "__main__":
