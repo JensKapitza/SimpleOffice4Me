@@ -13,7 +13,7 @@ from app.db import ensure_auth_database, get_db
 from app.contact_store import ContactStore
 from app.document_store import CONTROL_DIR
 from app.business_document_generation import _invoice_content_pdf, invoice
-from app.invoice_relations import InvoiceRelationStore
+from app.invoice_relations import InvoiceRelationStore, filter_invoice_overview
 from app.password_security import hash_password
 from pypdf import PdfReader
 
@@ -25,6 +25,19 @@ class InvoiceRelationStoreTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_overview_filter_handles_invoices_without_payment_state(self):
+        rows = [{"invoice_id": "invoice-a", "contact_id": "customer-a",
+                 "invoice_number": "2026-0001", "payment_state": None}]
+        contacts = {"customer-a": {"fields": {"display_name": "Customer A"}}}
+        visible, _, _ = filter_invoice_overview(
+            rows, contacts, {}, {}, "", "paid", "", "",
+        )
+        self.assertEqual([], visible)
+        visible, _, _ = filter_invoice_overview(
+            rows, contacts, {}, {}, "", "", "", "",
+        )
+        self.assertEqual(["invoice-a"], [row["invoice_id"] for row in visible])
 
     def test_typed_relations_are_bidirectional_unique_acyclic_and_soft_removed(self):
         relation = self.store.add_relationship("invoice-a", "invoice-b", "follow_up", "alice")
