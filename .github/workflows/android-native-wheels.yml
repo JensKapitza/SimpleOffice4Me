@@ -63,15 +63,16 @@ jobs:
           set -euo pipefail
           mkdir -p wheelhouse sources
           python -m pip download --no-deps --no-binary :all: --dest sources "$PACKAGE_SPEC"
-          archive="$(find sources -maxdepth 1 -type f | head -n 1)"
+          archive="$(find sources -maxdepth 1 -type f -print -quit)"
           test -n "$archive"
           mkdir -p unpacked
           case "$archive" in
             *.zip) python -m zipfile -e "$archive" unpacked ;;
             *) tar -xf "$archive" -C unpacked ;;
           esac
-          source_dir="$(find unpacked -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          source_dir="$(find unpacked -mindepth 1 -maxdepth 1 -type d -print -quit)"
           test -n "$source_dir"
+          test -f "$source_dir/pyproject.toml" -o -f "$source_dir/setup.py"
           python -m cibuildwheel "$source_dir" --platform android --output-dir wheelhouse
       - name: Verify resulting Android wheels
         env:
