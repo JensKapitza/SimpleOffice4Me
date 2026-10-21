@@ -73,6 +73,22 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no dist-info"):
                 packaged_distributions(apk)
 
+    def test_incomplete_second_requirements_archive_fails_closed(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            nested = BytesIO()
+            with zipfile.ZipFile(nested, "w") as requirements:
+                requirements.writestr("Pillow-12.2.0.dist-info/METADATA",
+                                      "Metadata-Version: 2.1\\nName: Pillow\\nVersion: 12.2.0\\n")
+            empty = BytesIO()
+            with zipfile.ZipFile(empty, "w") as requirements:
+                requirements.writestr("package/__init__.py", "")
+            with zipfile.ZipFile(apk, "w") as output:
+                output.writestr("assets/chaquopy/requirements-common.imy", nested.getvalue())
+                output.writestr("assets/chaquopy/requirements-arm64-v8a.imy", empty.getvalue())
+            with self.assertRaisesRegex(ValueError, "archive has no dist-info METADATA"):
+                packaged_distributions(apk)
+
     def test_no_chaquopy_requirements_archive_fails(self):
         with TemporaryDirectory() as tmp:
             apk = Path(tmp) / "app.apk"
