@@ -58,6 +58,12 @@ jobs:
         with:
           gradle-version: '8.13'
 
+      - name: Set deterministic APK version identity
+        shell: bash
+        run: |
+          echo "SIMPLEOFFICE_BUILD_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          echo "SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}" >> "$GITHUB_ENV"
+
       - name: Build installable Android APK
         working-directory: android/apk
         run: gradle --no-daemon assembleDebug
@@ -87,20 +93,11 @@ jobs:
           APK='android/apk/app/build/outputs/apk/debug/app-debug.apk'
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT" && test -x "$AAPT"
-          PROJECT_VERSION="$(python - <<'PY'
-          import re
-          from pathlib import Path
-          text = Path('pyproject.toml').read_text(encoding='utf-8')
-          match = re.search(r'(?ms)^\[project\]\s.*?^version\s*=\s*["\x27]([^"\x27]+)["\x27]', text)
-          if not match:
-              raise SystemExit('project version missing')
-          print(match.group(1))
-          PY
-          )"
+          EXPECTED_VERSION="2.${SIMPLEOFFICE_BUILD_DATE}.${SIMPLEOFFICE_BUILD_SEQUENCE}"
           BADGING="$("$AAPT" dump badging "$APK" | head -n 1)"
           case "$BADGING" in
-            *"versionName='$PROJECT_VERSION'"*) ;;
-            *) echo "APK version does not match project version $PROJECT_VERSION: $BADGING" >&2; exit 1 ;;
+            *"versionName='$EXPECTED_VERSION'"*) ;;
+            *) echo "APK version does not match $EXPECTED_VERSION: $BADGING" >&2; exit 1 ;;
           esac
 
       - name: Verify packaged launcher images
