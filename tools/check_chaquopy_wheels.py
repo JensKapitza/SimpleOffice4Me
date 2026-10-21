@@ -10,6 +10,7 @@ import argparse
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
+from urllib.request import Request
 import re
 from urllib.error import URLError
 from urllib.request import urlopen
@@ -90,7 +91,10 @@ def main():
                 print(f"OK local {package}=={version} ({args.python}, {args.abi})")
                 continue
         try:
-            with urlopen(f"{INDEX}/{package}/", timeout=15) as response:
+            url = f"{INDEX}/{package}/"
+            if urlsplit(url).scheme != "https" or urlsplit(url).hostname != "chaquo.com":
+                raise ValueError("wheel index must use trusted HTTPS origin")
+            with urlopen(Request(url, headers={"Accept": "text/html"}), timeout=15) as response:  # nosec B310 - fixed HTTPS host and validated scheme
                 html = response.read().decode("utf-8")
         except (OSError, URLError) as exc:
             errors.append(f"{package}: could not inspect wheel index ({exc})")
