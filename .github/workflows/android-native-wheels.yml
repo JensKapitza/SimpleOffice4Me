@@ -90,6 +90,9 @@ jobs:
             echo "Source archive has no Python build metadata: $source_dir" >&2
             exit 1
           fi
+          if [[ "$PACKAGE_SPEC" == Pillow==* ]]; then
+            export CIBW_BEFORE_ALL='BUILD_PREFIX="$(pwd)/build/deps" .github/workflows/wheels-dependencies.sh'
+          fi
           (
             cd "$source_dir"
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"

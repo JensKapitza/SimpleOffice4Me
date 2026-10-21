@@ -21,6 +21,7 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertIn("PILLOW_DEPENDENCIES_COMMIT: 93950a8f9ada1165a4ab8c719326d5017e3f6c72", workflow)
         self.assertIn('! -name requirements.txt', workflow)
         self.assertIn('cd "$source_dir"', workflow)
+        self.assertIn('BUILD_PREFIX="$(pwd)/build/deps" .github/workflows/wheels-dependencies.sh', workflow)
         self.assertIn('"$GITHUB_WORKSPACE/wheelhouse"', workflow)
         self.assertIn("package: cryptography", workflow)
         self.assertIn("version: '48.0.1'", workflow)
