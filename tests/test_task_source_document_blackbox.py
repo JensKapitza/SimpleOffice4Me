@@ -51,6 +51,15 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 detail = self.client.get(links[0]["href"])
                 self.assertEqual(200, detail.status_code)
 
+    def test_anonymous_browser_cannot_read_task_views_or_source(self):
+        document_id = self._create_document_task()
+        anonymous = app.test_client()
+        for url in ("/documents/tasks", "/tasks/", f"/documents/{document_id}"):
+            with self.subTest(url=url):
+                response = anonymous.get(url)
+                self.assertNotEqual(200, response.status_code)
+                self.assertNotIn("Quelldatei öffnen", response.get_data(as_text=True))
+
     def test_legacy_task_without_source_still_renders(self):
         created = self.client.post("/documents/todo", data={"title": "Legacy task"})
         self.assertEqual(302, created.status_code)
