@@ -7,7 +7,7 @@ from xml.etree import ElementTree as ET
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from tools.generate_sbom import build_sbom, build_cargo_sbom, build_npm_sbom, write_xml_sbom
+from tools.generate_sbom import build_sbom, build_cargo_sbom, build_npm_sbom, build_gradle_sbom, write_xml_sbom
 
 
 NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
@@ -40,6 +40,34 @@ class SbomXmlTests(unittest.TestCase):
             ".//cdx:dependencies/cdx:dependency[@ref='pkg:pypi/alpha-pkg@1.0']/cdx:dependency",
             NS,
         ))
+
+    def test_gradle_resolved_dependency_graph(self):
+        resolution = {
+            "components": [
+                {"group": "org.example", "name": "app", "version": "1.0"},
+                {"group": "org.example", "name": "lib", "version": "2.0"},
+            ],
+            "dependencies": {
+                "org.example:app:1.0": ["org.example:lib:2.0"],
+                "org.example:lib:2.0": [],
+            },
+        }
+        document = build_gradle_sbom(resolution)
+        self.assertEqual("pkg:maven/org.example/lib@2.0", document["dependencies"][0]["dependsOn"][0])
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "gradle.xml"
+            write_xml_sbom(document, output)
+            root = ET.parse(output).getroot()
+        component = root.find("cdx:components/cdx:component", NS)
+        self.assertEqual("org.example", component.findtext("cdx:group", namespaces=NS))
+        self.assertIsNotNone(root.find("cdx:dependencies", NS))
+
+    def test_gradle_rejects_missing_resolved_dependencies(self):
+        with self.assertRaisesRegex(ValueError, "unresolved Gradle dependency"):
+            build_gradle_sbom({
+                "components": [{"group": "a", "name": "b", "version": "1"}],
+                "dependencies": {"a:b:1": ["missing:lib:1"]},
+            })
 
     def test_xml_preserves_inventory_and_spdx_license(self):
         document = {
