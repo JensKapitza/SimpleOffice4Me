@@ -35,6 +35,24 @@ class TodoStoreTest(unittest.TestCase):
         self.assertEqual(50, updated["percent_complete"])
         self.assertEqual("in-process", updated["status"])
 
+    def test_source_document_id_survives_updates_and_legacy_tasks(self):
+        task = self.store.add("Review source", "admin", {
+            "source_document_id": "stable-doc-123",
+            "document_ids": ["stable-doc-123"],
+        })
+        self.assertEqual("stable-doc-123", task["source_document_id"])
+        self.assertEqual("stable-doc-123", self.store.items("admin")[0]["source_document_id"])
+        updated = self.store.update(task["id"], {"title": "Review renamed source"}, "admin")
+        self.assertEqual("stable-doc-123", updated["source_document_id"])
+        self.assertEqual(["stable-doc-123"], updated["document_ids"])
+        legacy = self.store.add("No source", "admin")
+        self.assertEqual("", legacy["source_document_id"])
+
+    def test_source_document_id_remains_stable_when_other_task_fields_change(self):
+        task = self.store.add("Document task", "admin", {"source_document_id": "doc-1"})
+        updated = self.store.update(task["id"], {"due": "2026-11-01", "status": "in-process"}, "admin")
+        self.assertEqual("doc-1", updated["source_document_id"])
+
     def test_resource_etag_sync_and_tombstone(self):
         values = {"uid": "task-1@example.test", "title": "CalDAV", "status": "needs-action", "due": "2026-09-02"}
         item, created = self.store.put_resource("task.ics", values, "admin", create_only=True)
