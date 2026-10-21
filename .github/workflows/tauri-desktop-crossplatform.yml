@@ -70,6 +70,7 @@ jobs:
             --output "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.json" \
             --xml-output "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.xml"
       - name: Install pinned CycloneDX CLI and validate the platform inventories
+        working-directory: .
         shell: bash
         run: |
           set -euo pipefail
