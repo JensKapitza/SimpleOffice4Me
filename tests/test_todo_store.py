@@ -54,6 +54,10 @@ class TodoStoreTest(unittest.TestCase):
         updated = self.store.update(task["id"], {"due": "2026-11-01", "status": "in-process"}, "admin")
         self.assertEqual("doc-1", updated["source_document_id"])
 
+    def test_source_document_id_rejects_path_like_values(self):
+        with self.assertRaisesRegex(ValueError, "invalid source document identifier"):
+            self.store.add("Document task", "admin", {"source_document_id": "../private/file.pdf"})
+
     def test_caldav_partial_put_preserves_source_and_related_document_ids(self):
         task = self.store.add("Source document", "admin", {
             "uid": "source-document@example.test",

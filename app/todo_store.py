@@ -16,6 +16,7 @@ from .revision_history import RevisionHistory
 
 RESOURCE = re.compile(r"^[A-Za-z0-9._-]{1,160}\.ics$")
 OFFLINE_OPERATION = re.compile(r"^[A-Za-z0-9._:-]{8,160}$")
+SOURCE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 STATUSES = {"needs-action", "in-process", "completed", "cancelled"}
 LIST_PERMISSIONS = {"read", "create", "edit", "complete", "delete", "manage"}
 
@@ -402,6 +403,8 @@ class TodoStore:
         sequence = self._integer(values.get("sequence"), 0, 2**31 - 1)
         list_id = str(values.get("list_id", "")).strip() or self.default_list_id(actor)
         source_document_id = str(values.get("source_document_id", "")).strip()
+        if source_document_id and not SOURCE_DOCUMENT_ID.fullmatch(source_document_id):
+            raise ValueError("invalid source document identifier")
         document_ids = self._strings(values.get("document_ids"), 500)
         if source_document_id:
             document_ids = [document_id for document_id in document_ids if document_id != source_document_id]
