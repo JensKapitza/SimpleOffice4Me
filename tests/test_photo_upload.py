@@ -2,13 +2,16 @@ import io
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import Flask, g, session
 from PIL import Image
 
 from app.document_store import CONTROL_DIR, DocumentStore
-from app.photo_upload import PhotoBulkImporter, metadata_tags
+from app.photo_upload import PhotoBulkImporter, bp as photo_upload_blueprint, metadata_tags
+from app.security_controls import protect_browser_mutation
 
 
 class PhotoBulkUploadTest(unittest.TestCase):
@@ -25,7 +28,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
             importer = PhotoBulkImporter(root)
             client_last_modified = "2026-08-31T14:15:16.000Z"
             with patch.object(DocumentStore, "scan", side_effect=AssertionError("bulk upload must not rescan archive")):
-                document = importer.import_photo(
+                imported = importer.import_photo(
                     self._jpeg(),
                     "DCIM_0001.jpg",
                     "tester",
@@ -43,6 +46,7 @@ class PhotoBulkUploadTest(unittest.TestCase):
                     },
                 )
 
+            document = imported.document
             upload = document["attributes"]["photo_upload"]
             rich = document["attributes"]["photo_metadata"]
             self.assertEqual("mobile-web-bulk", upload["source"])
@@ -101,11 +105,177 @@ class PhotoBulkUploadTest(unittest.TestCase):
 
     def test_received_at_is_a_real_utc_instant(self):
         with tempfile.TemporaryDirectory() as temp:
-            document = PhotoBulkImporter(temp).import_photo(self._jpeg(), "photo.jpg", "tester")
+            document = PhotoBulkImporter(temp).import_photo(self._jpeg(), "photo.jpg", "tester").document
             received = datetime.fromisoformat(document["attributes"]["photo_upload"]["received_at"].replace("Z", "+00:00"))
             if received.tzinfo is None:
                 received = received.replace(tzinfo=timezone.utc)
             self.assertLess(abs((datetime.now(timezone.utc) - received.astimezone(timezone.utc)).total_seconds()), 30)
+
+    def test_repeated_photo_content_reuses_the_existing_document(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            importer = PhotoBulkImporter(root)
+            payload = self._jpeg().getvalue()
+            first = importer.import_photo(io.BytesIO(payload), "camera-1.jpg", "tester")
+            retry = importer.import_photo(io.BytesIO(payload), "renamed-retry.jpg", "tester")
+
+            self.assertFalse(first.duplicate)
+            self.assertTrue(retry.duplicate)
+            self.assertEqual(first.document["document_id"], retry.document["document_id"])
+            self.assertEqual("camera-1.jpg", retry.document["attributes"]["photo_upload"]["original_filename"])
+            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+
+    def test_concurrent_identical_photo_uploads_create_only_one_document(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            importer = PhotoBulkImporter(root)
+            payload = self._jpeg().getvalue()
+
+            def import_copy(index):
+                return importer.import_photo(io.BytesIO(payload), f"camera-{index}.jpg", "tester")
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(import_copy, (1, 2)))
+
+            self.assertEqual(1, len({result.document["document_id"] for result in results}))
+            self.assertEqual(1, sum(not result.duplicate for result in results))
+            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+
+    def test_concurrent_same_name_different_photos_never_overwrite(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            importer = PhotoBulkImporter(root)
+            payloads = (self._jpeg(80, 40), self._jpeg(40, 80))
+
+            def import_copy(payload):
+                return importer.import_photo(payload, "camera.jpg", "tester")
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                results = list(pool.map(import_copy, payloads))
+
+            self.assertEqual(2, len({result.document["document_id"] for result in results}))
+            self.assertEqual(2, len(list((root / "inbox").iterdir())))
+
+    def test_archive_choice_keeps_inbox_and_archive_destinations_distinct(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            importer = PhotoBulkImporter(root)
+            payload = self._jpeg().getvalue()
+            inbox = importer.import_photo(io.BytesIO(payload), "same.jpg", "tester")
+            archived = importer.import_photo(io.BytesIO(payload), "same.jpg", "tester", archive=True)
+
+            self.assertFalse(inbox.duplicate)
+            self.assertFalse(archived.duplicate)
+            self.assertNotEqual(inbox.document["document_id"], archived.document["document_id"])
+            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+            self.assertEqual(1, len(list((root / "archive").rglob("*.jpg"))))
+
+    def test_retry_finishes_metadata_for_file_left_by_interrupted_import(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            importer = PhotoBulkImporter(root)
+            importer.store.initialize()
+            folder = root / "inbox"
+            folder.mkdir()
+            payload = self._jpeg().getvalue()
+            (folder / "camera.jpg").write_bytes(payload)
+
+            result = importer.import_photo(io.BytesIO(payload), "camera.jpg", "tester")
+
+            self.assertFalse(result.duplicate)
+            self.assertEqual("camera.jpg", result.document["attributes"]["photo_upload"]["original_filename"])
+            self.assertEqual(1, len(list(folder.iterdir())))
+
+    def test_retry_completes_metadata_after_post_scan_processing_failure(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            importer = PhotoBulkImporter(root)
+            payload = self._jpeg().getvalue()
+            with patch("app.photo_upload.extract_photo_metadata", side_effect=OSError("metadata tool unavailable")):
+                with self.assertRaisesRegex(OSError, "metadata tool unavailable"):
+                    importer.import_photo(io.BytesIO(payload), "camera.jpg", "tester")
+
+            target = root / "inbox" / "camera.jpg"
+            partial = importer.store.get_document(target)
+            self.assertNotIn("photo_upload", partial.get("attributes", {}))
+
+            resumed = importer.import_photo(io.BytesIO(payload), "camera.jpg", "tester")
+
+            self.assertFalse(resumed.duplicate)
+            self.assertEqual(partial["document_id"], resumed.document["document_id"])
+            self.assertTrue(resumed.document["attributes"]["photo_upload"]["sha256"])
+            self.assertEqual(1, len(list((root / "inbox").iterdir())))
+
+
+class PhotoUploadHttpTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.app = Flask(__name__)
+        self.app.config.update(
+            TESTING=True,
+            TEST_CSRF_PROTECTION=True,
+            DOCUMENT_ROOT=self.temp.name,
+            SECRET_KEY="photo-upload-http-test",
+            MAX_CONTENT_LENGTH=1024 * 1024,
+        )
+
+        @self.app.before_request
+        def authenticate_test_user():
+            username = session.get("username")
+            g.user = {"username": username, "is_admin": True} if username else None
+
+        self.app.add_url_rule("/auth/login", endpoint="auth.login", view_func=lambda: "login")
+        self.app.add_url_rule(
+            "/documents/<document_id>",
+            endpoint="documents.detail",
+            view_func=lambda document_id: document_id,
+        )
+        self.app.before_request(protect_browser_mutation)
+        self.app.register_blueprint(photo_upload_blueprint)
+        self.client = self.app.test_client()
+        with self.client.session_transaction() as state:
+            state["username"] = "tester"
+            state["_csrf_token"] = "photo-upload-http-csrf-token"
+
+    @staticmethod
+    def _jpeg():
+        stream = io.BytesIO()
+        Image.new("RGB", (80, 40), "white").save(stream, format="JPEG")
+        return stream.getvalue()
+
+    def _post(self, filename: str, payload: bytes):
+        return self.client.post(
+            "/documents/photos/upload",
+            data={
+                "_csrf_token": "photo-upload-http-csrf-token",
+                "file": (io.BytesIO(payload), filename),
+                "batch_id": f"batch-{filename}",
+            },
+        )
+
+    def test_duplicate_photo_response_reuses_existing_document(self):
+        payload = self._jpeg()
+        first = self._post("camera.jpg", payload)
+        duplicate = self._post("camera-retry.jpg", payload)
+
+        self.assertEqual(200, first.status_code)
+        self.assertFalse(first.json["duplicate"])
+        self.assertEqual(200, duplicate.status_code)
+        self.assertTrue(duplicate.json["duplicate"])
+        self.assertEqual(first.json["document_id"], duplicate.json["document_id"])
+
+    def test_unsupported_heic_photo_has_a_clear_generic_import_fallback(self):
+        response = self.client.post(
+            "/documents/photos/upload",
+            data={
+                "_csrf_token": "photo-upload-http-csrf-token",
+                "file": (io.BytesIO(b"not decoded by the photo path"), "photo.heic"),
+            },
+        )
+
+        self.assertEqual(415, response.status_code)
+        self.assertIn("HEIC kann als normale Datei importiert werden", response.json["error"])
 
 
 if __name__ == "__main__":
