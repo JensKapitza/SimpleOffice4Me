@@ -8,11 +8,12 @@ from io import BytesIO
 from pathlib import Path
 
 from app import app
-from app.db import ensure_auth_database
+from app.db import ensure_auth_database, get_db
 from app.contact_store import ContactStore
 from app.document_store import CONTROL_DIR
 from app.business_document_generation import _invoice_content_pdf, invoice
 from app.invoice_relations import InvoiceRelationStore
+from app.password_security import hash_password
 from pypdf import PdfReader
 
 
@@ -112,7 +113,13 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         with app.app_context():
             ensure_auth_database()
         self.client = self._login("invoice-owner")
-        self.outsider = self._login("invoice-outsider")
+        with app.app_context():
+            get_db().execute(
+                "INSERT INTO user(username,password,is_admin) VALUES(?,?,0)",
+                ("invoice-outsider", hash_password("synthetic-invoice-password")),
+            )
+            get_db().commit()
+        self.outsider = self._login("invoice-outsider", register=False)
         self.contact = ContactStore(self.root).upsert(
             {"display_name": "Invoice Customer"}, "invoice-owner",
         )
@@ -135,10 +142,11 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         self.temp.cleanup()
 
     @staticmethod
-    def _login(username: str):
+    def _login(username: str, *, register: bool = True):
         client = app.test_client()
         password = "synthetic-invoice-password"
-        client.post("/auth/register", data={"username": username, "password": password})
+        if register:
+            client.post("/auth/register", data={"username": username, "password": password})
         client.post("/auth/login", data={"username": username, "password": password})
         return client
 
@@ -287,8 +295,9 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
 
         project_response = self.client.get("/documents/business/invoices?project_id=project-a")
         self.assertEqual(200, project_response.status_code)
-        self.assertIn("2026-0001", project_response.get_data(as_text=True))
-        self.assertNotIn("2026-0002", project_response.get_data(as_text=True))
+        project_rows = project_response.get_data(as_text=True).partition("<tbody>")[2].partition("</tbody>")[0]
+        self.assertIn("2026-0001", project_rows)
+        self.assertNotIn("2026-0002", project_rows)
 
         related_response = self.client.get(
             "/documents/business/invoices?related_invoice_id=invoice-b"
@@ -316,8 +325,9 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
 
     def test_relationship_mutation_requires_the_session_csrf_token(self):
         app.config["TEST_CSRF_PROTECTION"] = True
+        token = "invoice-relationship-csrf-token-123456"
         with self.client.session_transaction() as session:
-            session["_csrf_token"] = "invoice-relationship-csrf-token"
+            session["_csrf_token"] = token
         url = "/documents/business/invoices/invoice-a/relationships"
         data = {"related_invoice_id": "invoice-b", "relationship_type": "follow_up"}
 
@@ -325,7 +335,7 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         self.assertEqual(403, rejected.status_code)
         self.assertEqual([], InvoiceRelationStore(self.root).relationships_for("invoice-a"))
 
-        accepted = self.client.post(url, data={**data, "_csrf_token": "invoice-relationship-csrf-token"})
+        accepted = self.client.post(url, data={**data, "_csrf_token": token})
         self.assertEqual(302, accepted.status_code)
         self.assertEqual(1, len(InvoiceRelationStore(self.root).relationships_for("invoice-a")))
 
