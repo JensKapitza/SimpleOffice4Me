@@ -12,6 +12,7 @@ on:
     paths:
       - 'android/apk/**'
       - 'tools/android_apk_python_sbom.py'
+      - 'tools/check_chaquopy_wheels.py'
       - 'tools/generate_sbom.py'
       - 'tests/test_android_apk_python_sbom.py'
       - 'tests/test_android_build_profiles.py'
@@ -59,6 +60,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: '8.13'
+
+      - name: Preflight native Chaquopy wheel availability
+        run: |
+          python -m pip install 'packaging==26.3'
+          python tools/check_chaquopy_wheels.py \
+            --python "${{ matrix.python }}" \
+            --abi "${{ matrix.abi }}"
 
       - name: Build installable Android APK
         working-directory: android/apk
