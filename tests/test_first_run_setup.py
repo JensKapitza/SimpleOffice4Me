@@ -120,7 +120,8 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertIn("erforderliche Bearbeitung", task["description"])
         self.assertNotIn("Angebot.pdf", task["title"])
         self.assertNotIn("Angebot.pdf", task["description"])
-        self.assertEqual([document["document_id"]], task["document_ids"])
+        self.assertEqual(document["document_id"], task["source_document_id"])
+        self.assertEqual([], task["document_ids"])
         TodoStore(self.root).update(
             task["id"],
             {
@@ -131,8 +132,9 @@ class FirstRunSetupTest(unittest.TestCase):
             "jens",
         )
         body = self.client.get("/documents/tasks", base_url=self.base_url).get_data(as_text=True)
-        self.assertIn("Angebot.pdf", body)
+        self.assertIn("Quelldatei öffnen", body)
         self.assertIn(f"/documents/{document['document_id']}", body)
+        self.assertNotIn("Angebot.pdf", body)
         self.assertIn("extern.pdf", body)
         self.assertIn("https://files.example/extern.pdf", body)
         self.assertIn("Kunde Beispiel", body)
