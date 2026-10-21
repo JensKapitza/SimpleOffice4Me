@@ -30,6 +30,19 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertNotIn("versionName '1.0.7'", gradle)
         self.assertNotIn("versionCode 8", gradle)
 
+    def test_date_based_android_codes_increase_across_builds_and_days(self):
+        from datetime import date
+
+        epoch = date(2020, 1, 1)
+
+        def code(day, sequence):
+            return (date.fromisoformat(day) - epoch).days * 10000 + sequence
+
+        self.assertLess(2_000_000, code("2026-10-21", 1))
+        self.assertLess(code("2026-10-21", 1), code("2026-10-21", 2))
+        self.assertLess(code("2026-10-21", 9999), code("2026-10-22", 1))
+        self.assertLess(code("2026-10-22", 1), 2_100_000_000)
+
     def test_ci_publishes_a_separate_arm32_apk(self):
         text = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
         self.assertIn("abi: arm64-v8a", text)
