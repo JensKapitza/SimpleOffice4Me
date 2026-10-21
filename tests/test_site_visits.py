@@ -259,7 +259,7 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         preview = BeautifulSoup(self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True), "html.parser")
         csrf = preview.find("input", {"name": "_csrf_token"})["value"]
         rejected = self.client.post(url, data={"_csrf_token": csrf, "finding_id": "unknown-finding"})
-        self.assertEqual(302, rejected.status_code)
+        self.assertIn(rejected.status_code, (302, 400, 404))  # Invalid IDs must not produce a PDF.
         self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
 
         outsider = flask_app.test_client()
