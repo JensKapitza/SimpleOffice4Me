@@ -45,13 +45,13 @@ jobs:
       - name: Install Android NDK and cibuildwheel
         run: |
           python -m pip install --upgrade pip
-          python -m pip install 'cibuildwheel>=3,<4' 'packaging==26.3'
+          python -m pip install 'cibuildwheel==4.3.3' 'packaging==26.3'
       - name: Verify wheel compatibility tests
         run: python -m unittest discover -s tests -p test_chaquopy_wheels.py
       - name: Attempt Android ARM64 wheel build
         env:
           CIBW_PLATFORM: android
-          CIBW_BUILD: cp315-*
+          CIBW_BUILD: cp315-android_arm64_v8a
           CIBW_ARCHS_ANDROID: arm64_v8a
           CIBW_BUILD_VERBOSITY: '1'
           CIBW_TEST_SKIP: '*'
