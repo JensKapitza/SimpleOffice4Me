@@ -178,7 +178,7 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.previous = {key: flask_app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")}
         flask_app.config.update(
             TESTING=True,
-            TEST_CSRF_PROTECTION=True,
+            TEST_CSRF_PROTECTION=False,
             DATABASE=str(Path(self.temp.name) / "users.sqlite"),
             DOCUMENT_ROOT=str(self.root),
         )
@@ -187,6 +187,9 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.client = flask_app.test_client()
         self.client.post("/auth/register", data={"username": "report-owner", "password": "report-owner-password"})
         self.client.post("/auth/login", data={"username": "report-owner", "password": "report-owner-password"})
+        # Authentication fixtures use the test-only CSRF exemption; enable the
+        # real browser mutation guard for every report request under test.
+        flask_app.config["TEST_CSRF_PROTECTION"] = True
         self.store = SiteVisitStore(self.root)
         self.visit = self.store.create("report-owner", {"title": "Report route test"})
         finding = self.store.add_finding(self.visit["visit_id"], "report-owner", {
@@ -260,8 +263,10 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
 
         outsider = flask_app.test_client()
+        flask_app.config["TEST_CSRF_PROTECTION"] = False
         outsider.post("/auth/register", data={"username": "report-outsider", "password": "report-outsider-password"})
         outsider.post("/auth/login", data={"username": "report-outsider", "password": "report-outsider-password"})
+        flask_app.config["TEST_CSRF_PROTECTION"] = True
         self.assertEqual(404, outsider.get(f"/site-visits/{self.visit['visit_id']}/report").status_code)
 
 
