@@ -6,7 +6,7 @@ from xml.etree import ElementTree as ET
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from tools.generate_sbom import build_sbom, write_xml_sbom
+from tools.generate_sbom import build_sbom, build_cargo_sbom, write_xml_sbom
 
 
 NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
@@ -47,6 +47,29 @@ class SbomXmlTests(unittest.TestCase):
         self.assertEqual("MIT OR Apache-2.0", component.findtext("cdx:licenses/cdx:expression", namespaces=NS))
         child_names = [child.tag.rsplit("}", 1)[-1] for child in component]
         self.assertLess(child_names.index("licenses"), child_names.index("purl"))
+
+    def test_cargo_dependency_graph_preserves_distinct_versions(self):
+        metadata = {
+            "packages": [
+                {"id": "root", "name": "app", "version": "1.0"},
+                {"id": "old", "name": "common", "version": "1.0"},
+                {"id": "new", "name": "common", "version": "2.0"},
+            ],
+            "resolve": {"root": "root", "nodes": [
+                {"id": "root", "dependencies": ["old", "new"]},
+                {"id": "old", "dependencies": []},
+                {"id": "new", "dependencies": []},
+            ]},
+        }
+        document = build_cargo_sbom(metadata)
+        root_edge = next(edge for edge in document["dependencies"] if edge["ref"] == "pkg:cargo/app@1.0")
+        self.assertEqual(["pkg:cargo/common@1.0", "pkg:cargo/common@2.0"], root_edge["dependsOn"])
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "cargo.xml"
+            write_xml_sbom(document, output)
+            tree = ET.parse(output)
+        edges = tree.findall(".//cdx:dependencies/cdx:dependency[@ref='pkg:cargo/app@1.0']/cdx:dependency", NS)
+        self.assertEqual({"pkg:cargo/common@1.0", "pkg:cargo/common@2.0"}, {edge.attrib["ref"] for edge in edges})
 
     def test_rejects_wrong_spec_version(self):
         with TemporaryDirectory() as tmp:
