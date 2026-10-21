@@ -138,7 +138,9 @@ def filter_invoice_overview(
     filtered = []
     for row in visible:
         project_ids_for_row = invoice_project_ids(row)
-        if selected_status and row.get("payment_state", {}).get("status") != selected_status:
+        payment_state = row.get("payment_state")
+        payment_status = payment_state.get("status") if isinstance(payment_state, dict) else None
+        if selected_status and payment_status != selected_status:
             continue
         if selected_project_id and selected_project_id not in project_ids_for_row:
             continue
@@ -387,12 +389,18 @@ class InvoiceRelationStore:
         with exclusive_file_lock(self.lock_path):
             with self._db() as db:
                 db.execute("BEGIN IMMEDIATE")
-                count = db.execute(
-                    """SELECT COUNT(*) FROM invoice_relation
-                       WHERE source_invoice_id=? OR target_invoice_id=?""",
-                    (source_id, source_id),
-                ).fetchone()[0]
-                if int(count) >= MAX_RELATION_HISTORY_PER_INVOICE:
+                counts = db.execute(
+                    """SELECT
+                         SUM(CASE WHEN source_invoice_id=? OR target_invoice_id=?
+                                  THEN 1 ELSE 0 END),
+                         SUM(CASE WHEN source_invoice_id=? OR target_invoice_id=?
+                                  THEN 1 ELSE 0 END)
+                       FROM invoice_relation
+                       WHERE source_invoice_id IN (?, ?) OR target_invoice_id IN (?, ?)""",
+                    (source_id, source_id, target_id, target_id,
+                     source_id, target_id, source_id, target_id),
+                ).fetchone()
+                if any(int(count or 0) >= MAX_RELATION_HISTORY_PER_INVOICE for count in counts):
                     raise ValueError("invoice relationship history limit reached")
                 if self._would_cycle(db, source_id, target_id):
                     raise ValueError("invoice relationship would create a cycle")
