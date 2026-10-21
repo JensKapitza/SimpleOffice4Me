@@ -10,8 +10,15 @@ class DockerBuildContextSecurityTests(unittest.TestCase):
         ignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
         gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github" / "workflows" / "ubuntu-26-compat.yml").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("COPY . /opt/simpleoffice4me", dockerfile)
+        self.assertIn("      - '.dockerignore'", workflow)
+        self.assertIn("Create disposable local-secret sentinels for image-context test", workflow)
+        self.assertIn("Verify local secret files are absent from the image", workflow)
+        self.assertIn("test ! -e /opt/simpleoffice4me/.env", workflow)
         for pattern in (
             "**/.env",
             "**/.env.*",
