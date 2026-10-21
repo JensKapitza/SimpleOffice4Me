@@ -10,9 +10,11 @@ import argparse
 from email.parser import BytesParser
 from email.policy import default
 from io import BytesIO
+import json
 from pathlib import Path
 import sys
 import zipfile
+from types import SimpleNamespace
 
 from packaging.utils import canonicalize_name
 
@@ -21,9 +23,6 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from tools.generate_sbom import build_sbom, write_xml_sbom  # noqa: E402
-from unittest.mock import patch  # noqa: E402
-from types import SimpleNamespace  # noqa: E402
-import json  # noqa: E402
 
 
 def packaged_distributions(apk_path: Path) -> list:
@@ -31,7 +30,11 @@ def packaged_distributions(apk_path: Path) -> list:
     archives = []
     with zipfile.ZipFile(apk_path) as apk:
         for member in apk.namelist():
-            if member.startswith("assets/chaquopy/") and member.endswith(".zip") and "requirements" in member:
+            if (
+                member.startswith("assets/chaquopy/")
+                and Path(member).name.startswith("requirements-")
+                and Path(member).suffix in {".imy", ".zip"}
+            ):
                 archives.append(member)
         if not archives:
             raise ValueError("APK has no Chaquopy requirements archives")
@@ -47,8 +50,10 @@ def packaged_distributions(apk_path: Path) -> list:
                     key = canonicalize_name(name)
                     requirements = metadata.get_all("Requires-Dist", [])
                     record = SimpleNamespace(metadata={"Name": name}, version=version, requires=requirements)
-                    if key in found and found[key].version != version:
-                        raise ValueError(f"conflicting bundled versions for {name}")
+                    if key in found and (
+                        found[key].version != version or found[key].requires != requirements
+                    ):
+                        raise ValueError(f"conflicting bundled package metadata for {name}")
                     found[key] = record
     if not found:
         raise ValueError("APK requirements archives contain no dist-info METADATA")
@@ -63,8 +68,7 @@ def main() -> None:
     args = parser.parse_args()
     try:
         distributions = packaged_distributions(args.apk)
-        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=distributions):
-            document = build_sbom()
+        document = build_sbom(distributions)
     except (OSError, ValueError, zipfile.BadZipFile) as exc:
         parser.error(str(exc))
     args.output.parent.mkdir(parents=True, exist_ok=True)

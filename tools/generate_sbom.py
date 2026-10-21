@@ -28,11 +28,13 @@ def _python_package_key(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def build_sbom() -> dict:
-    """Inventory installed Python distributions and their active metadata requirements."""
+def build_sbom(distributions=None, *, extras: tuple[str, ...] = ()) -> dict:
+    """Inventory installed Python distributions, rooted at project requirements when available."""
     unique_components = {}
     installed = {}
-    for distribution in sorted(importlib.metadata.distributions(), key=lambda item: item.metadata["Name"].casefold()):
+    discover_project = distributions is None
+    package_distributions = distributions if distributions is not None else importlib.metadata.distributions()
+    for distribution in sorted(package_distributions, key=lambda item: item.metadata["Name"].casefold()):
         name = distribution.metadata["Name"]
         if not name:
             continue
@@ -46,24 +48,77 @@ def build_sbom() -> dict:
             raise ValueError(f"multiple installed versions of Python distribution {key}")
         unique_components[purl] = component
         installed[key] = (purl, distribution)
-    components = sorted(unique_components.values(), key=lambda item: item["purl"])
-    dependencies = []
-    for purl, distribution in sorted(installed.values(), key=lambda item: item[0]):
-        references = set()
-        for requirement_text in getattr(distribution, 'requires', None) or []:
-            requirement = Requirement(requirement_text)
-            if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
-                continue
-            dependency = installed.get(_python_package_key(requirement.name))
-            if dependency is not None:
-                references.add(dependency[0])
-        dependencies.append({"ref": purl, "dependsOn": sorted(references)})
-    inventory = "\n".join(f"{item['name']}=={item['version']}" for item in components)
+    project = installed.get(_python_package_key('simpleoffice4me')) if discover_project else None
+    if project is None:
+        included = set(unique_components)
+        dependency_map = _python_edges(installed, included, extras)
+        metadata_component = {"type": "application", "name": "SimpleOffice4Me",
+                             "version": str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")}
+    else:
+        root_ref, root_distribution = project
+        included, dependency_map = _python_runtime_graph(installed, root_ref, root_distribution, extras)
+        del unique_components[root_ref]
+        metadata_component = {
+            "type": "application", "name": root_distribution.metadata["Name"],
+            "version": root_distribution.version, "bom-ref": root_ref,
+        }
+    components = sorted((unique_components[ref] for ref in included if ref in unique_components),
+                        key=lambda item: item["purl"])
+    dependencies = [
+        {"ref": ref, "dependsOn": sorted(dependency_map.get(ref, set()))}
+        for ref in sorted(included | ({project[0]} if project else set()))
+    ]
+    inventory = "\n".join(sorted({ref for ref in included} | ({project[0]} if project else set())))
     serial = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/JensKapitza/SimpleOffice4Me\n" + inventory)
-    release_version = str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")
     return {"bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": f"urn:uuid:{serial}", "version": 1,
-            "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": release_version}}, "components": components,
+            "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": metadata_component}, "components": components,
             "dependencies": dependencies}
+
+
+def _python_resolved_requirements(distribution, installed: dict, extra: str) -> dict[str, set[str]]:
+    dependencies = {}
+    for requirement_text in getattr(distribution, 'requires', None) or []:
+        requirement = Requirement(requirement_text)
+        if requirement.marker is not None and not requirement.marker.evaluate({"extra": extra}):
+            continue
+        dependency = installed.get(_python_package_key(requirement.name))
+        if dependency is None:
+            raise ValueError(f"unresolved installed Python dependency: {requirement.name}")
+        dependencies.setdefault(dependency[0], set()).update(requirement.extras)
+    return dependencies
+
+
+def _python_edges(installed: dict, included: set[str], extras: tuple[str, ...]) -> dict[str, set[str]]:
+    edges = {}
+    for purl, distribution in installed.values():
+        if purl in included:
+            references = set()
+            for extra in ('', *extras):
+                references.update(_python_resolved_requirements(distribution, installed, extra))
+            edges[purl] = references & included
+    return edges
+
+
+def _python_runtime_graph(installed: dict, root_ref: str, root_distribution, extras: tuple[str, ...]):
+    included = set()
+    edges = {}
+    pending = [(root_ref, root_distribution, extra) for extra in ('', *extras)]
+    visited = set()
+    distributions_by_ref = {purl: distribution for purl, distribution in installed.values()}
+    while pending:
+        parent_ref, distribution, extra = pending.pop()
+        state = (parent_ref, extra)
+        if state in visited:
+            continue
+        visited.add(state)
+        references = _python_resolved_requirements(distribution, installed, extra)
+        edges.setdefault(parent_ref, set()).update(references)
+        for ref, child_extras in references.items():
+            included.add(ref)
+            child = distributions_by_ref[ref]
+            pending.append((ref, child, ''))
+            pending.extend((ref, child, child_extra) for child_extra in child_extras)
+    return included, edges
 
 
 def build_cargo_sbom(metadata: dict) -> dict:
@@ -369,6 +424,7 @@ def main() -> None:
     parser.add_argument('--npm-os', help='Target npm OS (linux, darwin, or win32)')
     parser.add_argument('--npm-cpu', help='Target npm CPU (x64, arm64, ia32, etc.)')
     parser.add_argument('--npm-libc', choices=('gnu', 'musl'), help='Linux libc for optional platform packages')
+    parser.add_argument('--extra', action='append', default=[], help='Include an installed project extra (repeatable)')
     args = parser.parse_args()
     try:
         if sum(bool(value) for value in (args.cargo_metadata, args.npm_lock, args.gradle_resolution)) > 1:
@@ -385,7 +441,7 @@ def main() -> None:
                 npm_os=args.npm_os, npm_cpu=args.npm_cpu, npm_libc=args.npm_libc,
             )
         else:
-            document = build_sbom()
+            document = build_sbom(extras=tuple(args.extra))
     except (OSError, ValueError, KeyError, TypeError, StopIteration):
         if args.cargo_metadata:
             parser.error('Cargo metadata must contain a resolved root package and valid package records')

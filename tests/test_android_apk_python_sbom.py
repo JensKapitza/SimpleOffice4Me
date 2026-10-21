@@ -6,9 +6,10 @@ import unittest
 import zipfile
 
 from tools.android_apk_python_sbom import packaged_distributions
+from tools.generate_sbom import build_sbom
 
 
-def make_apk(path: Path, metadata: bytes | None, archive_name="assets/chaquopy/requirements-common.zip"):
+def make_apk(path: Path, metadata: bytes | None, archive_name="assets/chaquopy/requirements-common.imy"):
     nested = BytesIO()
     with zipfile.ZipFile(nested, "w") as requirements:
         if metadata is not None:
@@ -25,6 +26,20 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
             packages = packaged_distributions(apk)
         self.assertEqual([("Pillow", "11.0.0")], [(p.metadata["Name"], p.version) for p in packages])
         self.assertEqual(["typing-extensions"], packages[0].requires)
+
+    def test_sbom_uses_only_distributions_extracted_from_the_apk(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 11.0.0\n")
+            document = build_sbom(packaged_distributions(apk))
+        self.assertEqual(["pkg:pypi/pillow@11.0.0"], [item["purl"] for item in document["components"]])
+
+    def test_sbom_fails_when_bundled_wheel_dependency_is_missing(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 11.0.0\nRequires-Dist: missing-wheel\n")
+            with self.assertRaisesRegex(ValueError, "unresolved installed Python dependency: missing-wheel"):
+                build_sbom(packaged_distributions(apk))
 
     def test_missing_wheel_metadata_is_not_claimed_complete(self):
         with TemporaryDirectory() as tmp:

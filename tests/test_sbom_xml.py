@@ -14,24 +14,34 @@ NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
 
 
 class SbomXmlTests(unittest.TestCase):
-    def test_build_sbom_deduplicates_identical_distribution_records(self):
+    def test_build_sbom_deduplicates_project_distribution_as_application_root(self):
         distribution = SimpleNamespace(metadata={"Name": "simpleoffice4me"}, version="2.0.0")
         with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[distribution, distribution]):
             document = build_sbom()
         matching = [item for item in document["components"] if item["purl"] == "pkg:pypi/simpleoffice4me@2.0.0"]
-        self.assertEqual(1, len(matching))
+        self.assertEqual([], matching)
+        root_ref = document["metadata"]["component"]["bom-ref"]
+        self.assertEqual("pkg:pypi/simpleoffice4me@2.0.0", root_ref)
+        self.assertEqual([{"ref": root_ref, "dependsOn": []}], document["dependencies"])
 
     def test_python_dependencies_respect_markers_and_extras(self):
+        root = SimpleNamespace(
+            metadata={"Name": "simpleoffice4me"}, version="2.0",
+            requires=["alpha-pkg>=1", "extra-only; extra == 'pdf'"],
+        )
         alpha = SimpleNamespace(
             metadata={"Name": "Alpha_Pkg"}, version="1.0",
-            requires=["beta-pkg>=2", "missing-package; python_version < '2'", "extra-only; extra == 'pdf'"],
+            requires=["beta-pkg>=2", "missing-package; python_version < '2'"],
         )
         beta = SimpleNamespace(metadata={"Name": "Beta.Pkg"}, version="2.1", requires=[])
-        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[alpha, beta]):
+        extra_only = SimpleNamespace(metadata={"Name": "Extra_Only"}, version="1.0", requires=[])
+        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[root, alpha, beta, extra_only]):
             document = build_sbom()
         edges = {entry["ref"]: entry["dependsOn"] for entry in document["dependencies"]}
         self.assertEqual(["pkg:pypi/beta-pkg@2.1"], edges["pkg:pypi/alpha-pkg@1.0"])
         self.assertEqual([], edges["pkg:pypi/beta-pkg@2.1"])
+        self.assertEqual(["pkg:pypi/alpha-pkg@1.0"], edges["pkg:pypi/simpleoffice4me@2.0"])
+        self.assertNotIn("pkg:pypi/extra-only@1.0", {item["purl"] for item in document["components"]})
         with TemporaryDirectory() as tmp:
             output = Path(tmp) / "python.xml"
             write_xml_sbom(document, output)
@@ -40,6 +50,18 @@ class SbomXmlTests(unittest.TestCase):
             ".//cdx:dependencies/cdx:dependency[@ref='pkg:pypi/alpha-pkg@1.0']/cdx:dependency",
             NS,
         ))
+        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[root, alpha, beta, extra_only]):
+            with_extra = build_sbom(extras=("pdf",))
+        extra_edges = {entry["ref"]: entry["dependsOn"] for entry in with_extra["dependencies"]}
+        self.assertIn("pkg:pypi/extra-only@1.0", extra_edges["pkg:pypi/simpleoffice4me@2.0"])
+
+    def test_python_sbom_fails_closed_for_missing_active_dependency(self):
+        root = SimpleNamespace(
+            metadata={"Name": "simpleoffice4me"}, version="2.0", requires=["missing-package>=1"],
+        )
+        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[root]):
+            with self.assertRaisesRegex(ValueError, "unresolved installed Python dependency: missing-package"):
+                build_sbom()
 
     def test_gradle_resolved_dependency_graph(self):
         resolution = {
