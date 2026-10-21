@@ -423,15 +423,22 @@ class InvoiceRelationStore:
 
     def relationships_for(self, invoice_id: str, *, include_removed: bool = False) -> list[dict[str, Any]]:
         invoice_id = self._invoice_id(invoice_id)
-        removed_filter = "" if include_removed else " AND removed_at=''"
         limit = MAX_RELATION_HISTORY_PER_INVOICE
         with self._db() as db:
-            rows = db.execute(
-                f"""SELECT * FROM invoice_relation
-                   WHERE (source_invoice_id=? OR target_invoice_id=?){removed_filter}
-                   ORDER BY created_at DESC,relation_id DESC LIMIT ?""",
-                (invoice_id, invoice_id, limit),
-            ).fetchall()
+            if include_removed:
+                rows = db.execute(
+                    """SELECT * FROM invoice_relation
+                       WHERE (source_invoice_id=? OR target_invoice_id=?)
+                       ORDER BY created_at DESC,relation_id DESC LIMIT ?""",
+                    (invoice_id, invoice_id, limit),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    """SELECT * FROM invoice_relation
+                       WHERE (source_invoice_id=? OR target_invoice_id=?) AND removed_at=''
+                       ORDER BY created_at DESC,relation_id DESC LIMIT ?""",
+                    (invoice_id, invoice_id, limit),
+                ).fetchall()
         return [dict(row) for row in rows]
 
     def related_invoice_ids(self, invoice_ids: list[str]) -> dict[str, set[str]]:
@@ -439,13 +446,22 @@ class InvoiceRelationStore:
         related: dict[str, set[str]] = {invoice_id: set() for invoice_id in selected}
         for start in range(0, len(selected), 400):
             batch = selected[start:start + 400]
-            placeholders = ",".join("?" for _ in batch)
             with self._db() as db:
+                db.execute(
+                    "CREATE TEMP TABLE selected_invoice_ids (invoice_id TEXT PRIMARY KEY)"
+                )
+                db.executemany(
+                    "INSERT INTO selected_invoice_ids(invoice_id) VALUES(?)",
+                    ((invoice_id,) for invoice_id in batch),
+                )
                 rows = db.execute(
-                    f"""SELECT source_invoice_id,target_invoice_id FROM invoice_relation
-                        WHERE removed_at='' AND (source_invoice_id IN ({placeholders})
-                        OR target_invoice_id IN ({placeholders}))""",
-                    (*batch, *batch),
+                    """SELECT source_invoice_id,target_invoice_id FROM invoice_relation AS relation
+                        WHERE removed_at='' AND (
+                            EXISTS (SELECT 1 FROM selected_invoice_ids selected
+                                    WHERE selected.invoice_id=relation.source_invoice_id)
+                            OR EXISTS (SELECT 1 FROM selected_invoice_ids selected
+                                       WHERE selected.invoice_id=relation.target_invoice_id)
+                        )""",
                 ).fetchall()
             for row in rows:
                 source_id = str(row["source_invoice_id"])
