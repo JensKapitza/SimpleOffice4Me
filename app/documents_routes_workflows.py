@@ -125,7 +125,7 @@ def create_document_task(document_id: str):
             "Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: "
             + str(document.get("last_path", "Dokument"))
         )
-        _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id]})
+        _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id], "source_document_id": document_id})
         flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
