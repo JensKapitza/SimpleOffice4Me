@@ -199,6 +199,15 @@ tasks.register('exportResolvedAndroidDependencies') {
         def resolution = configuration.incoming.resolutionResult
         def components = [:]
         def edges = [:]
+        def rootDependencies = []
+        resolution.root.dependencies.each { dependency ->
+            if (dependency instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult) {
+                def selected = dependency.selected.moduleVersion
+                if (selected != null) {
+                    rootDependencies.add("${selected.group}:${selected.name}:${selected.version}")
+                }
+            }
+        }
         resolution.allComponents.each { component ->
             def module = component.moduleVersion
             if (module == null) return
@@ -217,7 +226,11 @@ tasks.register('exportResolvedAndroidDependencies') {
         }
         def result = [components: components.values().toList().sort { a, b ->
             "${a.group}:${a.name}:${a.version}" <=> "${b.group}:${b.name}:${b.version}"
-        }, dependencies: edges]
+        }, dependencies: edges, application: [
+            name: 'SimpleOffice4Me Android',
+            version: appVersionName,
+            bomRef: "urn:simpleoffice4me:android:${androidAbi}:python-${pythonRuntimeVersion}",
+        ], rootDependencies: rootDependencies.unique().sort()]
         def output = outputFile.get().asFile
         output.parentFile.mkdirs()
         output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(result))

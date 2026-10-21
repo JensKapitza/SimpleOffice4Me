@@ -160,6 +160,27 @@ jobs:
           print("APK-bundled Pillow version:", versions["pillow"])
           PY
 
+      - name: Install pinned CycloneDX CLI validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          for bom in artifacts/android/gradle-runtime.cdx.json artifacts/android/chaquopy-python.cdx.json; do
+            "$validator" validate --input-file "$bom" --input-format json \
+              --input-version v1_6 --fail-on-errors
+          done
+          for bom in artifacts/android/gradle-runtime.cdx.xml artifacts/android/chaquopy-python.cdx.xml; do
+            "$validator" validate --input-file "$bom" --input-format xml \
+              --input-version v1_6 --fail-on-errors
+          done
+
       - name: Upload APK-bundled Python SBOM
         uses: actions/upload-artifact@v7
         with:

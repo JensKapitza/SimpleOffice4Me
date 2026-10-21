@@ -65,6 +65,8 @@ class SbomXmlTests(unittest.TestCase):
 
     def test_gradle_resolved_dependency_graph(self):
         resolution = {
+            "application": {"name": "SimpleOffice4Me Android", "version": "1.0", "bomRef": "urn:simpleoffice4me:android:arm64"},
+            "rootDependencies": ["org.example:app:1.0"],
             "components": [
                 {"group": "org.example", "name": "app", "version": "1.0"},
                 {"group": "org.example", "name": "lib", "version": "2.0"},
@@ -75,7 +77,10 @@ class SbomXmlTests(unittest.TestCase):
             },
         }
         document = build_gradle_sbom(resolution)
-        self.assertEqual("pkg:maven/org.example/lib@2.0", document["dependencies"][0]["dependsOn"][0])
+        root_edge = document["dependencies"][0]
+        self.assertEqual("urn:simpleoffice4me:android:arm64", root_edge["ref"])
+        self.assertEqual(["pkg:maven/org.example/app@1.0"], root_edge["dependsOn"])
+        self.assertEqual("pkg:maven/org.example/lib@2.0", document["dependencies"][1]["dependsOn"][0])
         with TemporaryDirectory() as tmp:
             output = Path(tmp) / "gradle.xml"
             write_xml_sbom(document, output)
@@ -87,8 +92,17 @@ class SbomXmlTests(unittest.TestCase):
     def test_gradle_rejects_missing_resolved_dependencies(self):
         with self.assertRaisesRegex(ValueError, "unresolved Gradle dependency"):
             build_gradle_sbom({
+                "application": {"name": "Android", "version": "1", "bomRef": "android"},
+                "rootDependencies": ["a:b:1"],
                 "components": [{"group": "a", "name": "b", "version": "1"}],
                 "dependencies": {"a:b:1": ["missing:lib:1"]},
+            })
+        with self.assertRaisesRegex(ValueError, "unresolved Gradle application dependency"):
+            build_gradle_sbom({
+                "application": {"name": "Android", "version": "1", "bomRef": "android"},
+                "rootDependencies": ["missing:lib:1"],
+                "components": [{"group": "a", "name": "b", "version": "1"}],
+                "dependencies": {"a:b:1": []},
             })
 
     def test_xml_preserves_inventory_and_spdx_license(self):

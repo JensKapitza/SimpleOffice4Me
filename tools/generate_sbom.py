@@ -160,6 +160,7 @@ def build_gradle_sbom(resolution: dict) -> dict:
     """Build an Android JVM SBOM from Gradle's resolved debugRuntimeClasspath."""
     records = resolution["components"]
     graph = resolution["dependencies"]
+    application = resolution["application"]
     components = []
     refs = {}
     for record in records:
@@ -172,7 +173,13 @@ def build_gradle_sbom(resolution: dict) -> dict:
         components.append({"type": "library", "group": group, "name": name, "version": version, "purl": purl})
     if set(graph) != set(refs):
         raise ValueError("Gradle dependency graph does not match resolved component inventory")
-    dependencies = []
+    root_dependencies = resolution['rootDependencies']
+    if any(target not in refs for target in root_dependencies):
+        raise ValueError("unresolved Gradle application dependency")
+    dependencies = [{
+        'ref': application['bomRef'],
+        'dependsOn': sorted({refs[target] for target in root_dependencies}),
+    }]
     for key in sorted(graph):
         if any(target not in refs for target in graph[key]):
             raise ValueError(f"unresolved Gradle dependency for {key}")
@@ -181,7 +188,8 @@ def build_gradle_sbom(resolution: dict) -> dict:
     return {
         "bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": f"urn:uuid:{serial}", "version": 1,
         "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(),
-                     "component": {"type": "application", "name": "SimpleOffice4Me-Android-Gradle"}},
+                     "component": {"type": "application", "name": application['name'],
+                                   "version": application['version'], "bom-ref": application['bomRef']}},
         "components": components, "dependencies": dependencies,
     }
 
