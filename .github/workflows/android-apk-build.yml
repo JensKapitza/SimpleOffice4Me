@@ -138,21 +138,13 @@ jobs:
             --xml-output artifacts/android/gradle-runtime.cdx.xml
           python -m json.tool artifacts/android/gradle-runtime.cdx.json > /dev/null
 
-      - name: Inventory Python wheels bundled in APK
+      - name: Inventory APK Python wheels and enforce Pillow security baseline
         run: |
           python tools/android_apk_python_sbom.py \
             android/apk/app/build/outputs/apk/debug/app-debug.apk \
             --output artifacts/android/chaquopy-python.cdx.json \
-            --xml-output artifacts/android/chaquopy-python.cdx.xml
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          bom = json.loads(Path("artifacts/android/chaquopy-python.cdx.json").read_text())
-          versions = {component["name"].lower(): component["version"] for component in bom["components"]}
-          if "pillow" not in versions:
-              raise SystemExit("APK Pillow inventory missing: packaging audit incomplete")
-          print("APK-bundled Pillow version:", versions["pillow"])
-          PY
+            --xml-output artifacts/android/chaquopy-python.cdx.xml \
+            --enforce-pillow-baseline
 
       - name: Install pinned CycloneDX CLI validator
         shell: bash
@@ -194,14 +186,6 @@ jobs:
             artifacts/android/gradle-runtime.cdx.xml
           if-no-files-found: error
           retention-days: 14
-
-      - name: Enforce Android Pillow security baseline
-        run: |
-          python tools/android_apk_python_sbom.py \
-            android/apk/app/build/outputs/apk/debug/app-debug.apk \
-            --output artifacts/android/chaquopy-python.cdx.json \
-            --xml-output artifacts/android/chaquopy-python.cdx.xml \
-            --enforce-pillow-baseline
 
       - name: Upload installable APK
         uses: actions/upload-artifact@v7
