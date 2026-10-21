@@ -33,6 +33,24 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("gosu", dockerfile)
         self.assertIn("HEALTHCHECK", dockerfile)
 
+    def test_scanner_build_context_includes_required_workflows_but_excludes_local_data(self):
+        dockerignore = self.text(".oss-scanner/Dockerfile.dockerignore")
+        for item in (
+            "!.github/workflows/android-apk-build.yml",
+            "!.github/workflows/desktop-build.yml",
+            "!.github/workflows/server-deb-build.yml",
+            "!.github/workflows/ubuntu-26-compat.yml",
+            ".git",
+            ".venv",
+            "instance",
+            "database/documents",
+            "database/files",
+            "packaging/private",
+            "packaging/*.secret.sh",
+        ):
+            with self.subTest(item=item):
+                self.assertIn(item, dockerignore)
+
     def test_federation_compose_restart_smoke_is_wired_to_docker_ci(self):
         compose = self.text("deploy/docker/compose.federation-test.yaml")
         workflow = self.text(".github/workflows/ubuntu-26-compat.yml")
