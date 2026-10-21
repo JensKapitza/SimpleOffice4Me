@@ -62,6 +62,8 @@ jobs:
           test -n "$source_dir"
           python -m cibuildwheel "$source_dir" --platform android --output-dir wheelhouse
       - name: Verify resulting Android wheels
+        env:
+          PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
         shell: bash
         run: |
           set -euo pipefail
