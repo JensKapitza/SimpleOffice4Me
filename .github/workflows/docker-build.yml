@@ -127,6 +127,7 @@ jobs:
               "implementation_version": platform.python_version(),
               "os_name": os.name,
               "platform_machine": platform.machine(),
+              "platform_python_implementation": platform.python_implementation(),
               "platform_release": platform.release(),
               "platform_system": platform.system(),
               "platform_version": platform.version(),

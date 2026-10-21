@@ -16,6 +16,7 @@ from tools.generate_sbom import (
     build_gradle_sbom,
     build_python_environment_sbom,
     main as generate_sbom_main,
+    PYTHON_MARKER_ENVIRONMENT_KEYS,
     write_xml_sbom,
 )
 
@@ -115,6 +116,11 @@ class SbomXmlTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "Python marker environment is missing"):
                 build_python_environment_sbom(site_packages, marker_environment={})
+
+    def test_docker_sbom_captures_every_python_marker_from_the_target_image(self):
+        workflow = Path(".github/workflows/docker-build.yml").read_text(encoding="utf-8")
+        for key in PYTHON_MARKER_ENVIRONMENT_KEYS:
+            self.assertIn(f'"{key}"', workflow)
 
     def test_python_sbom_rejects_malformed_direct_url_metadata(self):
         distribution = SimpleNamespace(
