@@ -1,11 +1,15 @@
 import tempfile
+import hashlib
 from contextlib import nullcontext
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
+from bs4 import BeautifulSoup
 
+from app import app as flask_app
+from app.db import ensure_auth_database
 from app.site_visit_report import build_visit_report
 from app.site_visits import _selected_report_ids
 from app.site_visit_scan import parse_nmap_options, parse_scan_request, scan_authorized_private_network
@@ -165,6 +169,73 @@ class SiteVisitScanTests(unittest.TestCase):
         self.assertEqual(2, connect.call_count)
         self.assertEqual("tcp", result["devices"][0]["ports"][0]["protocol"])
         self.assertEqual("TCP connect (-T3)", result["scanner"])
+
+
+class SiteVisitReportRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name) / "documents"
+        self.previous = {key: flask_app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
+        flask_app.config.update(
+            TESTING=True,
+            DATABASE=str(Path(self.temp.name) / "users.sqlite"),
+            DOCUMENT_ROOT=str(self.root),
+        )
+        with flask_app.app_context():
+            ensure_auth_database()
+        self.client = flask_app.test_client()
+        self.client.post("/auth/register", data={"username": "report-owner", "password": "report-owner-password"})
+        self.client.post("/auth/login", data={"username": "report-owner", "password": "report-owner-password"})
+        self.store = SiteVisitStore(self.root)
+        self.visit = self.store.create("report-owner", {"title": "Report route test"})
+        finding = self.store.add_finding(self.visit["visit_id"], "report-owner", {
+            "title": "Validated observation",
+            "description": "The selected finding appears in the output.",
+            "status": "confirmed",
+            "include_in_report": "1",
+        })
+        self.finding_id = finding["finding_id"]
+
+    def tearDown(self):
+        flask_app.config.update(self.previous)
+        self.temp.cleanup()
+
+    def test_preview_and_download_return_audited_pdf(self):
+        url = f"/site-visits/{self.visit['visit_id']}/report"
+        preview = self.client.get(url)
+        self.assertEqual(200, preview.status_code)
+        page = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
+        form = page.find("form", action=f"/site-visits/{self.visit['visit_id']}/report.pdf")
+        self.assertIsNotNone(form)
+        csrf = form.find("input", {"name": "_csrf_token"})["value"]
+
+        response = self.client.post(
+            f"/site-visits/{self.visit['visit_id']}/report.pdf",
+            data={"_csrf_token": csrf, "finding_id": self.finding_id},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/pdf", response.mimetype)
+        self.assertIn("attachment;", response.headers["Content-Disposition"])
+        self.assertIn("private", response.headers["Cache-Control"])
+        self.assertTrue(response.data.startswith(b"%PDF"))
+        report = self.store.get(self.visit["visit_id"], "report-owner")["reports"][-1]
+        self.assertEqual([self.finding_id], report["finding_ids"])
+        self.assertEqual(hashlib.sha256(response.data).hexdigest(), report["sha256"])
+
+    def test_invalid_selection_missing_csrf_and_foreign_visit_are_rejected(self):
+        url = f"/site-visits/{self.visit['visit_id']}/report.pdf"
+        self.assertEqual(403, self.client.post(url, data={"finding_id": self.finding_id}).status_code)
+        preview = BeautifulSoup(self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True), "html.parser")
+        csrf = preview.find("input", {"name": "_csrf_token"})["value"]
+        rejected = self.client.post(url, data={"_csrf_token": csrf, "finding_id": "unknown-finding"})
+        self.assertEqual(302, rejected.status_code)
+        self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
+
+        outsider = flask_app.test_client()
+        outsider.post("/auth/register", data={"username": "report-outsider", "password": "report-outsider-password"})
+        outsider.post("/auth/login", data={"username": "report-outsider", "password": "report-outsider-password"})
+        self.assertEqual(404, outsider.get(f"/site-visits/{self.visit['visit_id']}/report").status_code)
 
 
 if __name__ == "__main__":
