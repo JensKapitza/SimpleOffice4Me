@@ -74,7 +74,7 @@
       </div></div>
       {% endif %}
 
-      <div class="card"><div class="card-header"><strong><i class="fa-solid fa-files me-1" aria-hidden="true"></i>Nachfolger</strong></div><div class="list-group list-group-flush">{% for row in successors %}<a class="list-group-item list-group-item-action" href="{{ url_for('v3_finance.detail',lifecycle_id=row.lifecycle_id) }}"><i class="fa-solid fa-code-branch me-1" aria-hidden="true"></i>{{ row.kind }} · {{ row.title }}<div class="small text-secondary">{{ row.status }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine Nachfolger.</div>{% endfor %}</div></div>
+      <div class="card"><div class="card-header"><strong><i class="fa-solid fa-copy me-1" aria-hidden="true"></i>Nachfolger</strong></div><div class="list-group list-group-flush">{% for row in successors %}<a class="list-group-item list-group-item-action" href="{{ url_for('v3_finance.detail',lifecycle_id=row.lifecycle_id) }}"><i class="fa-solid fa-code-branch me-1" aria-hidden="true"></i>{{ row.kind }} · {{ row.title }}<div class="small text-secondary">{{ row.status }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine Nachfolger.</div>{% endfor %}</div></div>
     </aside>
   </div>
 </main>

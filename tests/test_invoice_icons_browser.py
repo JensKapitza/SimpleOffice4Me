@@ -117,7 +117,7 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
         try:
             page = context.new_page()
             pages = (
-                ("/documents/business/invoices", "h1 .fa-files"),
+                ("/documents/business/invoices", "h1 .fa-copy"),
                 (f"/documents/business/contacts/{self.contact_id}/billing", ".fa-file-circle-plus"),
                 (f"/documents/business/contacts/{self.contact_id}/invoice", "h1 .fa-file-circle-plus"),
                 ("/documents/business/invoices/invoice-icon-test", "h1 .fa-file-invoice"),
