@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1>Netzwerk &amp; Synchronisation</h1>
+  <p class="text-secondary">WebDAV-Speichergrenze für den Dokumentbestand. Änderungen gelten bei der nächsten WebDAV-Anfrage ohne Neustart.</p>
+  <nav class="nav nav-tabs mb-4" aria-label="Einstellungsbereiche">
+    <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
+    <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
+    <a class="nav-link active" aria-current="page" href="{{ url_for('admin.network_sync_settings') }}">Netzwerk &amp; Synchronisation</a>
+  </nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  <section class="card"><div class="card-body">
+    <h2 class="h5">WebDAV-Quota</h2>
+    <p>Begrenzt die über WebDAV verwaltete Datenmenge. Null bedeutet keine zusätzliche Anwendungs-Quota. Freier physischer Speicher und bestehende Sicherheitsprüfungen bleiben maßgeblich.</p>
+    <form method="post" action="{{ url_for('admin.save_network_sync_settings') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label class="form-label" for="webdav-quota">Maximale Datenmenge (Bytes)</label>
+      <input class="form-control" id="webdav-quota" type="number" name="webdav_quota_bytes"
+             min="0" max="{{ max_quota }}" step="1" value="{{ network.webdav_quota_bytes }}" required>
+      <div class="form-text mb-3">Standard 0 Bytes (unbegrenzt), zulässig 0–{{ max_quota }} Bytes (1 PiB). Bestehende Deployment-Vorgaben gelten bis zur ersten Speicherung.</div>
+      <button class="btn btn-primary" type="submit">Speichern</button>
+      <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Standardwert wiederherstellen</button>
+    </form>
+  </div></section>
+</main>
+{% endblock %}
