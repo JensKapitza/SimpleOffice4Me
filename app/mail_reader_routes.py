@@ -241,6 +241,7 @@ def index():
     case_history: list[dict] = []
     ui_features = selected.get("ui_features", {}) if selected else {}
     can_delegated_send = False
+    fetch_disabled = False
 
     if case_id:
         try:
@@ -328,6 +329,8 @@ def index():
                 except (ValueError, PermissionError, FileNotFoundError, KeyError) as exc:
                     current_app.logger.warning("Local EML preview denied for %s: %s", _actor(), type(exc).__name__)
                     flash("Die archivierte Nachricht konnte nicht geöffnet werden.")
+        elif not selected.get("auto_fetch_enabled", True) and request.args.get("force_fetch") != "1":
+            fetch_disabled = True
         else:
             try:
                 account = _account(store, selected["id"])
@@ -383,6 +386,7 @@ def index():
         suggested_case_id=suggested_case_id,
         ui_features=ui_features,
         can_delegated_send=can_delegated_send,
+        fetch_disabled=fetch_disabled,
     )
 
 

@@ -11,19 +11,21 @@
         <input type="hidden" name="id" value="{{ selected.id if selected else '' }}">
         <div class="col-12">
           <label class="form-label" for="mail-autoconfig-email">E-Mail-Adresse</label>
-          <div class="input-group"><input class="form-control" id="mail-autoconfig-email" type="email" autocomplete="email" value="{{ selected.smtp_from if selected else '' }}" placeholder="name@example.org"><button class="btn btn-outline-primary" type="button" id="mail-autoconfig-button">Server automatisch ermitteln</button></div>
+          <div class="input-group"><input class="form-control" id="mail-autoconfig-email" name="email" type="email" required autocomplete="email" value="{{ selected.smtp_from if selected else '' }}" placeholder="name@example.org"><button class="btn btn-outline-primary" type="button" id="mail-autoconfig-button">Server automatisch ermitteln</button></div>
           <div class="form-text">Wie bei Thunderbird: Provider-Autokonfiguration und Thunderbird-ISPDB werden geprüft; falls nichts gefunden wird, werden Domain-Vorschläge angezeigt.</div>
           <div class="small mt-2" id="mail-autoconfig-status" role="status" aria-live="polite"></div>
         </div>
-        <div class="col-md-6"><label class="form-label">Bezeichnung</label><input class="form-control" name="label" value="{{ selected.label if selected else '' }}"></div>
-        <div class="col-md-6"><label class="form-label">IMAP-Server</label><input class="form-control" required name="host" value="{{ selected.host if selected else '' }}"></div>
+        <div class="col-md-6"><label class="form-label" for="mail-account-label">Anzeigename</label><input class="form-control" id="mail-account-label" name="label" value="{{ selected.label if selected else '' }}" placeholder="Geschäftlich"></div>
+        <div class="col-md-6"><label class="form-label" for="mail-password">Passwort</label><input class="form-control" id="mail-password" type="password" name="password" autocomplete="new-password" {% if not selected or (not selected.password_saved and not selected.password_env) %}required{% endif %}><div class="form-text">{% if selected and selected.password_state == 'legacy' %}Ein Altbestand wird bei der nächsten Anmeldung verschlüsselt migriert. Leer lassen erhält das bestehende Passwort.{% elif selected and selected.password_saved %}Leer lassen, um das verschlüsselt gespeicherte Passwort weiterzuverwenden.{% elif selected and selected.password_env %}Eine administrative Passwortvariable ist hinterlegt; Freigabe und Verfügbarkeit werden bei der Anmeldung geprüft.{% else %}Zum erstmaligen Einrichten erforderlich. Es wird nur gespeichert, wenn die verschlüsselte Speicheroption aktiviert ist.{% endif %}</div></div>
+        <div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" value="1" name="remember_password" id="remember" {% if not selected or selected.password_saved %}checked{% endif %}><label class="form-check-label" for="remember">Passwort installationsgebunden verschlüsselt speichern</label><div class="form-text">Das Passwort wird nie im Klartext gespeichert oder an den Browser zurückgegeben.</div></div>
+        <div class="col-12 form-check ms-2"><input type="hidden" name="_auto_fetch_control" value="1"><input class="form-check-input" type="checkbox" value="1" name="auto_fetch_enabled" id="auto-fetch-enabled" {% if not selected or selected.auto_fetch_enabled %}checked{% endif %}><label class="form-check-label" for="auto-fetch-enabled">Automatischen IMAP-Abruf beim Öffnen des Postfachs aktivieren</label><div class="form-text">Ist der Abruf deaktiviert, bleiben Archiv und manuelle Einmal-Abrufe verfügbar.</div></div>
+        <div class="col-12"><details id="mail-advanced-settings"><summary class="btn btn-outline-secondary">Erweiterte Einstellungen</summary><div class="row g-3 mt-1">
+        <div class="col-md-6"><label class="form-label">IMAP-Server</label><input class="form-control" name="host" value="{{ selected.host if selected else '' }}"></div>
         <div class="col-md-4"><label class="form-label">Port</label><input class="form-control" type="number" min="1" max="65535" name="port" value="{{ selected.port if selected else 993 }}"></div>
         <div class="col-md-4"><label class="form-label">Transport</label><select class="form-select" name="security"><option value="tls" {% if not selected or selected.security == 'tls' %}selected{% endif %}>TLS (993)</option><option value="starttls" {% if selected and selected.security == 'starttls' %}selected{% endif %}>STARTTLS (143)</option></select></div>
         <div class="col-md-4"><label class="form-label">IMAP-Anmeldung</label><select class="form-select" name="auth_method"><option value="auto" {% if not selected or selected.auth_method|default('auto') == 'auto' %}selected{% endif %}>Automatisch</option><option value="login" {% if selected and selected.auth_method|default('') == 'login' %}selected{% endif %}>LOGIN</option><option value="plain" {% if selected and selected.auth_method|default('') == 'plain' %}selected{% endif %}>SASL PLAIN</option></select></div>
         <div class="col-md-4"><label class="form-label">Quellordner</label><input class="form-control" name="folder" value="{{ selected.folder if selected else 'INBOX' }}"></div>
-        <div class="col-md-6"><label class="form-label">Benutzername</label><input class="form-control" required name="username" autocomplete="username" value="{{ selected.username if selected else '' }}"></div>
-        <div class="col-md-6"><label class="form-label">Passwort</label><input class="form-control" type="password" name="password" autocomplete="new-password"><div class="form-text">Leer lassen, um ein bereits gespeichertes Passwort weiterzuverwenden.</div></div>
-        <div class="col-12 form-check ms-2"><input class="form-check-input" type="checkbox" value="1" name="remember_password" id="remember" {% if selected and selected.password_saved %}checked{% endif %}><label class="form-check-label" for="remember">Passwort installationsgebunden verschlüsselt speichern</label><div class="form-text">{% if selected and selected.password_saved %}Ein verschlüsseltes IMAP-Passwort ist gespeichert und mit dem Installationsschlüssel entsperrbar. Neues Passwort + deaktivierte Option entfernt es.{% else %}Kein entsperrbares IMAP-Passwort gespeichert.{% endif %}</div></div>
+        <div class="col-md-6"><label class="form-label">IMAP-Benutzername (optional abweichend)</label><input class="form-control" name="username" autocomplete="username" value="{{ selected.username if selected else '' }}"></div>
         <div class="col-md-6"><label class="form-label">ManageSieve-Server</label><input class="form-control" name="sieve_host" value="{{ selected.sieve_host if selected else '' }}" placeholder="wie IMAP-Server"></div>
         <div class="col-md-3"><label class="form-label">Sieve-Port</label><input class="form-control" type="number" min="1" max="65535" name="sieve_port" value="{{ selected.sieve_port if selected else 4190 }}"></div>
         <div class="col-md-3"><label class="form-label">Passwort-Env</label><input class="form-control" name="password_env" value="{{ selected.password_env if selected else '' }}" placeholder="optional" aria-describedby="mail-env-help"></div>
@@ -55,13 +57,15 @@
             {% endfor %}
           </div>
         </div>
-        <div class="col-12"><button type="submit" class="btn btn-primary">Konfiguration speichern</button></div>
+        </div></details></div>
+        <div class="col-12"><button type="submit" class="btn btn-primary">Konto speichern</button></div>
       </form>
     </div></div></section>
     <section class="col-xl-7">
       <div class="card mb-4"><div class="card-header"><strong>Konten und Archivlauf</strong></div><div class="card-body">
         <div class="alert alert-secondary small">Der Test verwendet <strong>IMAP LOGIN ausschließlich über TLS</strong>. Bei Ablehnung zeigt SimpleOffice die vom Server angekündigten <code>AUTH=</code>-Verfahren, <code>LOGINDISABLED</code> und Hinweise zu App-Passwort/OAuth an; Passwörter und vollständige Serverantworten werden nicht protokolliert.</div>
-        {% for account in accounts %}<article class="border rounded p-3 mb-3"><div class="d-flex justify-content-between"><div><strong>{{ account.label }}</strong> <span class="badge {{ 'text-bg-success' if account.password_saved else 'text-bg-warning' }}">{{ 'Passwort gespeichert' if account.password_saved else 'Passwort erforderlich' }}</span><div class="small text-secondary">{{ account.username }} · {{ account.host }}:{{ account.port }} · {{ account.folder }}</div></div><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('mail_client.index', account=account.id) }}">Bearbeiten</a></div>
+        {% for account in accounts %}<article class="border rounded p-3 mb-3"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ account.label }}</strong> <span class="badge {{ 'text-bg-success' if account.password_state == 'stored' else 'text-bg-info' if account.password_state == 'environment' else 'text-bg-warning' }}">{{ 'Passwort verschlüsselt gespeichert' if account.password_state == 'stored' else 'Admin-Passwortvariable konfiguriert' if account.password_state == 'environment' else 'Altpasswort; Migration bei Anmeldung' if account.password_state == 'legacy' else 'Passwort bei Anmeldung nötig' }}</span> <span class="badge {{ 'text-bg-success' if account.auto_fetch_enabled else 'text-bg-secondary' }}">{{ 'Abruf beim Öffnen aktiv' if account.auto_fetch_enabled else 'Automatischer Abruf aus' }}</span><div class="small text-secondary">{{ account.username }} · {{ account.host }}:{{ account.port }} · {{ account.folder }}</div></div><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('mail_client.index', account=account.id) }}">Bearbeiten</a></div>
+          <form method="post" action="{{ url_for('mail_client.set_auto_fetch', account_id=account.id) }}" class="mt-2"><input type="hidden" name="enabled" value="{{ '0' if account.auto_fetch_enabled else '1' }}"><button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Automatischen Abruf deaktivieren' if account.auto_fetch_enabled else 'Automatischen Abruf aktivieren' }}</button></form>
           <div class="row g-2 mt-2"><form class="col-md-5 d-flex gap-2" method="post" action="{{ url_for('mail_client.test_account', account_id=account.id) }}"><input class="form-control form-control-sm" type="password" name="password" placeholder="Passwort, falls nicht gespeichert"><button type="submit" class="btn btn-sm btn-outline-primary text-nowrap">Login testen</button></form>
           <form class="col-md-7 d-flex flex-wrap gap-2" method="post" action="{{ url_for('mail_client.archive', account_id=account.id) }}"><input class="form-control form-control-sm w-auto" type="number" min="1" max="1000" name="limit" value="250" aria-label="Maximale Nachrichten"><input class="form-control form-control-sm flex-grow-1" type="password" name="password" placeholder="Passwort, falls nicht gespeichert"><div class="form-check align-self-center"><input class="form-check-input" type="checkbox" value="1" name="extract_attachments" id="extract-{{ account.id }}"><label class="form-check-label small" for="extract-{{ account.id }}">Anhänge bestätigen und mit ClamAV prüfen</label></div><button type="submit" class="btn btn-sm btn-primary">Jetzt kopieren</button></form></div>
           {% set recovery = archive_states.get(account.id, {}) %}
@@ -152,6 +156,7 @@
   const email = document.getElementById('mail-autoconfig-email');
   const button = document.getElementById('mail-autoconfig-button');
   const status = document.getElementById('mail-autoconfig-status');
+  const username = form?.elements.namedItem('username');
   if (!form || !email || !button || !status) return;
 
   const setValue = (name, value) => {
@@ -160,6 +165,7 @@
   };
   let timer = null;
   let lastEmail = '';
+  let suggestedUsername = username?.value || '';
 
   async function discover(force = false) {
     const value = email.value.trim();
@@ -174,6 +180,7 @@
       if (!response.ok || !data.ok) throw new Error(data.error || 'Autokonfiguration fehlgeschlagen');
       const s = data.settings;
       ['label','host','port','security','auth_method','username','folder','smtp_host','smtp_port','smtp_security','smtp_username','smtp_from','sieve_host','sieve_port'].forEach(name => setValue(name, s[name]));
+      suggestedUsername = username?.value || '';
       const warning = Array.isArray(s.warnings) && s.warnings.length ? ` ${s.warnings.join(' ')}` : '';
       status.className = `small mt-2 ${s.confidence === 'guess' ? 'text-warning' : 'text-success'}`;
       status.textContent = `${s.source_label}: IMAP ${s.host}:${s.port}, SMTP ${s.smtp_host}:${s.smtp_port}.${warning}`;
@@ -187,9 +194,15 @@
 
   button.addEventListener('click', () => discover(true));
   email.addEventListener('input', () => {
+    const value = email.value.trim();
+    if (username && (!username.value || username.value === suggestedUsername)) {
+      username.value = value;
+      suggestedUsername = value;
+    }
     clearTimeout(timer);
     timer = setTimeout(() => discover(false), 700);
   });
+  username?.addEventListener('input', () => { suggestedUsername = ''; });
 })();
 </script>
 {% endblock %}

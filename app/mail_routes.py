@@ -6,7 +6,7 @@ import smtplib
 import os
 import uuid
 
-from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .auth import login_required
 from .db import get_db
@@ -236,13 +236,56 @@ def autoconfig():
 @login_required
 def save_account():
     try:
-        row = _store().save_account(_actor(), request.form.to_dict(), request.form.get("password", ""), request.form.get("remember_password") == "1")
-        state = "gespeichert und für diese Installation entsperrbar" if row["password_saved"] else "nicht gespeichert"
-        flash(f"IMAP-Konfiguration gespeichert. Das IMAP-Passwort ist {state}. Neue Konten bleiben standardmäßig schreibgeschützt.")
+        store = _store()
+        values = request.form.to_dict()
+        email = request.form.get("email", "").strip()
+        if email:
+            values["username"] = request.form.get("username", "").strip() or email
+        if request.form.get("_auto_fetch_control") == "1":
+            values["auto_fetch_enabled"] = request.form.get("auto_fetch_enabled") == "1"
+        password = request.form.get("password", "")
+        account_id = values.get("id", "").strip()
+        existing = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None) if account_id else None
+        if account_id and existing is None:
+            abort(404)
+        if not password and not (existing and existing.get("password_saved")) and not values.get("password_env", "").strip():
+            raise ValueError("Für ein neues Konto ein Passwort eingeben oder in den erweiterten Einstellungen eine freigegebene Passwortvariable konfigurieren.")
+        row = store.save_account(_actor(), values, password, request.form.get("remember_password") == "1")
+        if row["password_saved"]:
+            imap_state = "verschlüsselt gespeichert"
+        elif row.get("password_env"):
+            imap_state = "als Admin-Variable referenziert; die Freigabe wird bei der Anmeldung geprüft"
+        else:
+            imap_state = "nicht gespeichert; für künftige Anmeldungen muss es erneut eingegeben werden"
+        if row["smtp_password_saved"]:
+            smtp_state = "verschlüsselt gespeichert"
+        elif row.get("smtp_password_env") or row.get("password_env"):
+            smtp_state = "über Passwortvariable konfiguriert; Freigabe wird bei Anmeldung geprüft"
+        elif request.form.get("smtp_password"):
+            smtp_state = "nicht gespeichert; für künftige Anmeldungen erneut eingeben"
+        else:
+            smtp_state = "IMAP-Passwort wird verwendet"
+        flash(f"IMAP-Konfiguration gespeichert. IMAP-Passwort: {imap_state}. SMTP-Passwort: {smtp_state}. Neue Konten bleiben standardmäßig schreibgeschützt.")
         return redirect(url_for("mail_client.index", account=row["id"]))
     except (ValueError, RuntimeError) as exc:
         flash(str(exc))
         return redirect(url_for("mail_client.index"))
+
+
+@bp.post("/accounts/<account_id>/auto-fetch")
+@login_required
+def set_auto_fetch(account_id: str):
+    enabled = request.form.get("enabled") == "1"
+    try:
+        _store().set_auto_fetch_enabled(_actor(), account_id, enabled)
+    except KeyError:
+        abort(404)
+    except (OSError, ValueError) as exc:
+        current_app.logger.warning("Mail auto-fetch update failed for %s: %s", _actor(), type(exc).__name__)
+        flash("Abrufstatus konnte nicht gespeichert werden.")
+    else:
+        flash("Automatischer Abruf aktiviert." if enabled else "Automatischer Abruf deaktiviert. Manuelles Abrufen bleibt möglich.")
+    return redirect(url_for("mail_client.index", account=account_id))
 
 
 @bp.post("/accounts/<account_id>/readonly")

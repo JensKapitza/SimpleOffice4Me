@@ -93,6 +93,7 @@
   </div></div></section>
   {% endif %}
 
+  {% if fetch_disabled %}<div class="alert alert-secondary d-flex flex-wrap justify-content-between align-items-center gap-2" role="status"><span>Automatischer IMAP-Abruf ist für dieses Konto deaktiviert. Das lokale Archiv bleibt verfügbar.</span><a class="btn btn-sm btn-primary" href="{{ url_for('mail_reader.index', account=selected.id, folder=folder, q=query, page=page, force_fetch=1) }}">Einmal manuell abrufen</a></div>{% endif %}
   {% if connection_error %}<div class="alert alert-warning"><i class="fas fa-triangle-exclamation me-2"></i>{{ connection_error }} {% if selected %}<a href="{{ url_for('mail_client.index', account=selected.id) }}" class="alert-link">Kontoeinstellungen öffnen</a>{% endif %}</div>{% endif %}
 
   {% if ui_features.cases %}

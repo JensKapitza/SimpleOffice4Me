@@ -50,6 +50,12 @@ def _mail_ui_features(value: object | None = None) -> dict[str, bool]:
     return {name: bool(value.get(name, True)) for name in MAIL_UI_FEATURES}
 
 
+def _form_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() in {"1", "true", "on", "yes"}
+
+
 
 class ImapAuthenticationError(RuntimeError):
     """Safe, actionable IMAP authentication failure without credentials."""
@@ -161,6 +167,13 @@ class MailStore:
             safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
             safe["password_saved"] = bool(row.get("password"))
             safe["smtp_password_saved"] = bool(row.get("smtp_password"))
+            stored_password = str(row.get("password", "") or "")
+            safe["password_state"] = (
+                "stored" if stored_password.startswith("enc:") else
+                "legacy" if stored_password else
+                "environment" if row.get("password_env") else "missing"
+            )
+            safe["auto_fetch_enabled"] = _form_bool(row.get("auto_fetch_enabled", True))
             safe["ui_features"] = _mail_ui_features(row.get("ui_features"))
             result.append(safe)
         return result
@@ -250,6 +263,12 @@ class MailStore:
         return row
 
     def save_account(self, actor: str, data: dict[str, Any], password: str, remember: bool) -> dict[str, Any]:
+        with exclusive_file_lock(self.accounts_path.with_suffix(".lock")):
+            return self._save_account_locked(actor, data, password, remember)
+
+    def _save_account_locked(
+        self, actor: str, data: dict[str, Any], password: str, remember: bool,
+    ) -> dict[str, Any]:
         host = str(data.get("host", "")).strip()
         username = str(data.get("username", "")).strip()
         if not host or len(host) > 253 or not username or len(username) > 320:
@@ -318,6 +337,11 @@ class MailStore:
             "smtp_from": smtp_from,
             "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
             "smtp_password": stored_smtp_password,
+            "auto_fetch_enabled": (
+                _form_bool(data.get("auto_fetch_enabled"))
+                if "auto_fetch_enabled" in data
+                else _form_bool((previous or {}).get("auto_fetch_enabled", True))
+            ),
             "ui_features": (
                 {
                     name: str(data.get(f"ui_{name}", "")) == "1"
@@ -334,9 +358,34 @@ class MailStore:
         safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
         safe["password_saved"] = bool(row["password"])
         safe["smtp_password_saved"] = bool(row["smtp_password"])
+        safe["password_state"] = (
+            "stored" if str(row["password"]).startswith("enc:") else
+            "legacy" if row["password"] else
+            "environment" if row["password_env"] else "missing"
+        )
+        safe["auto_fetch_enabled"] = row["auto_fetch_enabled"]
         safe["ui_features"] = _mail_ui_features(row.get("ui_features"))
         self.history.record("mail_account_updated" if previous else "mail_account_created", actor, "mail-accounts", account_id, safe)
         return safe
+
+    def set_auto_fetch_enabled(self, actor: str, account_id: str, enabled: bool) -> bool:
+        account_id = _safe_id(account_id)
+        with exclusive_file_lock(self.accounts_path.with_suffix(".lock")):
+            payload = self._read(self.accounts_path, {"version": 1, "accounts": []})
+            row = next((
+                item for item in payload.get("accounts", [])
+                if item.get("id") == account_id and item.get("owner") == actor
+            ), None)
+            if row is None:
+                raise KeyError("mail account does not exist")
+            row["auto_fetch_enabled"] = bool(enabled)
+            self.control.mkdir(parents=True, exist_ok=True)
+            atomic_json_write(self.accounts_path, payload)
+        self.history.record(
+            "mail_auto_fetch_updated", actor, "mail-accounts", account_id,
+            {"auto_fetch_enabled": bool(enabled)},
+        )
+        return bool(enabled)
 
     def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:
         _safe_id(account_id)

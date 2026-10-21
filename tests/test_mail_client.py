@@ -143,7 +143,45 @@ class MailClientTests(unittest.TestCase):
     def test_saved_password_state_is_visible_without_exposing_secret(self):
         listed = self.store.accounts("alice")[0]
         self.assertTrue(listed["password_saved"])
+        self.assertEqual("stored", listed["password_state"])
         self.assertNotIn("password", listed)
+
+    def test_auto_fetch_state_is_locked_persistent_and_preserved_on_account_edit(self):
+        self.assertTrue(self.store.accounts("alice")[0]["auto_fetch_enabled"])
+
+        self.store.set_auto_fetch_enabled("alice", self.account["id"], False)
+        self.assertFalse(self.store.accounts("alice")[0]["auto_fetch_enabled"])
+        restarted = MailStore(self.root, b"test-master-key-long-enough")
+        self.assertFalse(restarted.accounts("alice")[0]["auto_fetch_enabled"])
+        self.assertRaises(KeyError, self.store.set_auto_fetch_enabled, "bob", self.account["id"], True)
+
+        updated = self.store.save_account(
+            "alice",
+            {"id": self.account["id"], "host": "imap.example.test", "username": "alice@example.test"},
+            "",
+            True,
+        )
+        self.assertFalse(updated["auto_fetch_enabled"])
+        explicit = self.store.save_account(
+            "alice",
+            {"id": self.account["id"], "host": "imap.example.test", "username": "alice@example.test", "auto_fetch_enabled": "0"},
+            "",
+            True,
+        )
+        self.assertFalse(explicit["auto_fetch_enabled"])
+        self.assertTrue(self.store.set_auto_fetch_enabled("alice", self.account["id"], True))
+        self.assertTrue(self.store.accounts("alice")[0]["auto_fetch_enabled"])
+
+    def test_account_state_describes_environment_password_without_returning_secrets(self):
+        account = self.store.save_account(
+            "alice",
+            {"id": "environment", "host": "imap.example.test", "username": "alice@example.test", "password_env": "MAIL_PASSWORD"},
+            "",
+            False,
+        )
+        self.assertFalse(account["password_saved"])
+        self.assertEqual("environment", account["password_state"])
+        self.assertNotIn("password", account)
 
     def test_new_password_without_storage_clears_stale_saved_password(self):
         updated = self.store.save_account("alice", {
