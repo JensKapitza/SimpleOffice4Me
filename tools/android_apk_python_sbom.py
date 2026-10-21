@@ -40,10 +40,12 @@ def packaged_distributions(apk_path: Path) -> list:
         if not archives:
             raise ValueError("APK has no Chaquopy requirements archives")
         for archive in archives:
+            metadata_count = 0
             with zipfile.ZipFile(BytesIO(apk.read(archive))) as wheels:
                 for path in wheels.namelist():
                     if not path.endswith(".dist-info/METADATA"):
                         continue
+                    metadata_count += 1
                     metadata = BytesParser(policy=default).parsebytes(wheels.read(path))
                     name, version = metadata.get("Name"), metadata.get("Version")
                     if not name or not version:
@@ -56,6 +58,8 @@ def packaged_distributions(apk_path: Path) -> list:
                     ):
                         raise ValueError(f"conflicting bundled package metadata for {name}")
                     found[key] = record
+            if metadata_count == 0:
+                raise ValueError(f"Chaquopy requirements archive has no dist-info METADATA: {archive}")
     if not found:
         raise ValueError("APK requirements archives contain no dist-info METADATA")
     return list(found.values())
