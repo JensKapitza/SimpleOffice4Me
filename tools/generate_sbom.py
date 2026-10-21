@@ -50,6 +50,18 @@ def build_cargo_sbom(metadata: dict) -> dict:
         if package.get('license'):
             component['licenses'] = [{'expression': package['license']}]
         components.append(component)
+    # Resolve edges by Cargo package ID, not by name: multiple versions may coexist.
+    purls_by_id = {
+        package['id']: f"pkg:cargo/{package['name']}@{package['version']}"
+        for package in packages
+    }
+    nodes = metadata['resolve']['nodes']
+    if {node['id'] for node in nodes} != set(purls_by_id):
+        raise ValueError("Cargo resolve nodes must cover every resolved package")
+    dependencies = []
+    for node in sorted(nodes, key=lambda item: purls_by_id[item['id']]):
+        refs = sorted({purls_by_id[dependency] for dependency in node['dependencies']})
+        dependencies.append({'ref': purls_by_id[node['id']], 'dependsOn': refs})
     inventory = "\n".join(item['purl'] for item in components)
     serial = uuid.uuid5(uuid.NAMESPACE_URL, inventory)
     return {'bomFormat': 'CycloneDX', 'specVersion': '1.6',
@@ -57,7 +69,7 @@ def build_cargo_sbom(metadata: dict) -> dict:
             'metadata': {'timestamp': datetime.now(timezone.utc).isoformat(),
                          'component': {'type': 'application', 'name': root['name'],
                                        'version': root['version']}},
-            'components': components}
+            'components': components, 'dependencies': dependencies}
 
 
 
@@ -102,6 +114,12 @@ def write_xml_sbom(document: dict, path: Path) -> None:
                     licenses.remove(license_node)
                     _xml_element(licenses, "expression", license_item["expression"])
         _xml_element(node, "purl", component["purl"])
+    if document.get("dependencies") is not None:
+        dependency_list = _xml_element(root, "dependencies")
+        for dependency in document["dependencies"]:
+            item = _xml_element(dependency_list, "dependency", ref=dependency["ref"])
+            for reference in dependency["dependsOn"]:
+                _xml_element(item, "dependency", ref=reference)
     path.parent.mkdir(parents=True, exist_ok=True)
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
