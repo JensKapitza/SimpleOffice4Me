@@ -209,7 +209,12 @@ def _todo_ics(item: dict) -> str:
     lines.extend(line if str(line).upper().startswith("EXDATE") else "EXDATE:" + str(line) for line in item.get("exdates", []))
     if item.get("project_id"): lines.append("X-SIMPLEOFFICE-PROJECT-ID:" + esc(item["project_id"]))
     if item.get("contact_id"): lines.append("X-SIMPLEOFFICE-CONTACT-ID:" + esc(item["contact_id"]))
-    for document_id in item.get("document_ids", []): lines.append("X-SIMPLEOFFICE-DOCUMENT-ID:" + esc(document_id))
+    document_ids = list(item.get("document_ids", []))
+    source_document_id = str(item.get("source_document_id", "")).strip()
+    if source_document_id and source_document_id not in document_ids:
+        document_ids.append(source_document_id)
+    for document_id in document_ids:
+        lines.append("X-SIMPLEOFFICE-DOCUMENT-ID:" + esc(document_id))
     lines.extend(str(line) for line in item.get("extra_lines", []) if str(line).upper() not in {"BEGIN:VTODO", "END:VTODO"})
     return "\r\n".join([*lines, "END:VTODO", "END:VCALENDAR", ""])
 

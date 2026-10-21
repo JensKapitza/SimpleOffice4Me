@@ -38,13 +38,14 @@ class TodoStoreTest(unittest.TestCase):
     def test_source_document_id_survives_updates_and_legacy_tasks(self):
         task = self.store.add("Review source", "admin", {
             "source_document_id": "stable-doc-123",
-            "document_ids": ["stable-doc-123"],
+            "document_ids": ["stable-doc-123", "related-doc-456"],
         })
         self.assertEqual("stable-doc-123", task["source_document_id"])
+        self.assertEqual(["related-doc-456"], task["document_ids"])
         self.assertEqual("stable-doc-123", self.store.items("admin")[0]["source_document_id"])
         updated = self.store.update(task["id"], {"title": "Review renamed source"}, "admin")
         self.assertEqual("stable-doc-123", updated["source_document_id"])
-        self.assertEqual(["stable-doc-123"], updated["document_ids"])
+        self.assertEqual(["related-doc-456"], updated["document_ids"])
         legacy = self.store.add("No source", "admin")
         self.assertEqual("", legacy["source_document_id"])
 
@@ -69,7 +70,7 @@ class TodoStoreTest(unittest.TestCase):
 
         self.assertFalse(created)
         self.assertEqual("source-1", changed["source_document_id"])
-        self.assertEqual(["source-1", "related-1"], changed["document_ids"])
+        self.assertEqual(["related-1"], changed["document_ids"])
         self.assertEqual("email-1", changed["email_document_id"])
 
     def test_resource_etag_sync_and_tombstone(self):
