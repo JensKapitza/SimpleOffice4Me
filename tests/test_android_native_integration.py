@@ -271,10 +271,10 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('meta[name="csrf-token"]', ui)
         self.assertIn("X-CSRF-Token", ui)
 
-    def test_android_7_and_both_abis_remain_supported(self):
+    def test_android_7_and_both_runtime_profiles_remain_supported(self):
         gradle = self.read(ANDROID / "build.gradle")
         self.assertIn('minSdk 24', gradle)
-        self.assertIn("'arm64-v8a': '3.13'", gradle)
+        self.assertIn("'arm64-v8a': '3.15'", gradle)
         self.assertIn("'armeabi-v7a': '3.11'", gradle)
         self.assertIn("file('../../../pyproject.toml')", gradle)
         self.assertIn("versionCode appVersionCode", gradle)
