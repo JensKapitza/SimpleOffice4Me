@@ -745,7 +745,7 @@ def contact_detail(contact_id: str):
     if store.can_manage(contact_id, actor):
         from .business_document_generation import invoices as business_invoices
 
-        for row in business_invoices(current_app.config["DOCUMENT_ROOT"]):
+        for row in business_invoices(_store().root):
             task_id = str(row.get("task_id", ""))
             if task_id and row.get("contact_id") == contact_id:
                 task_invoices.setdefault(task_id, []).append(row)
