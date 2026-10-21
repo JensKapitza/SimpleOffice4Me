@@ -86,6 +86,30 @@ class TodoStoreTest(unittest.TestCase):
         self.assertTrue(deleted[0]["deleted"])
         self.assertTrue(new_token.endswith(":2"))
 
+    def test_caldav_put_preserves_document_links_when_client_omits_extension_fields(self):
+        item = self.store.add(
+            "Dokument prüfen",
+            "admin",
+            {
+                "document_ids": ["source-document"],
+                "email_document_id": "source-email",
+                "uid": "document-task@example.test",
+            },
+        )
+        values = {
+            "uid": item["uid"],
+            "title": "Dokument weiter prüfen",
+            "status": "in-process",
+        }
+
+        updated, created = self.store.put_resource(
+            self.store.resource(item), values, "admin", self.store.etag(item)
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(["source-document"], updated["document_ids"])
+        self.assertEqual("source-email", updated["email_document_id"])
+
     def test_offline_task_status_is_idempotent_and_atomic(self):
         task = self.store.add("Offline", "admin", {"status": "needs-action"})
         base = self.store.etag(task)

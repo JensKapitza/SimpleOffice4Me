@@ -33,6 +33,11 @@ Quelle: [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html).
   auslässt, darf bestehende Dokument- und Quelldatei-Verknüpfungen nicht
   löschen; Web-Links werden bei jeder Anzeige erneut gegen die aktuellen
   Dokumentberechtigungen geprüft.
+- Allgemeine Dokumentverknüpfungen werden als
+  `X-SIMPLEOFFICE-DOCUMENT-ID` übertragen; die primäre Quelldatei-ID bleibt
+  serverseitige Aufgabenmetadaten. Bei partiellen VTODO-Updates bleiben beide
+  Referenzarten erhalten, wenn der Client unbekannte Erweiterungen auslässt.
+- Alte Freitextpfade werden nicht automatisch in IDs umgewandelt.
 
 ### CalDAV – RFC 4791
 

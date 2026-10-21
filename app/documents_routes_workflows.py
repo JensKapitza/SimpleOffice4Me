@@ -108,7 +108,11 @@ def detail(document_id: str):
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
         preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "thumbnail_url": url_for("documents.document_thumbnail", document_id=document_id), "collage_url": url_for("documents.document_collage", document_id=document_id) if document.get("preview", {}).get("collage") else "", "preview_status": document.get("preview", {}).get("status", "pending"), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
-        document_tasks=[row for row in _todos().items(str(g.user["username"])) if document_id in row.get("document_ids", [])],
+        document_tasks=[
+            row for row in _todos().items(str(g.user["username"]))
+            if document_id in row.get("document_ids", [])
+            or document_id == str(row.get("source_document_id", ""))
+        ],
         malware_scan=security.latest_document_scan(document),
         safe_attachments=safe_attachments,
         eml_attachments=eml_attachments,

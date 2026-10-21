@@ -346,13 +346,9 @@ class TodoStore:
             owner = str(existing.get("owner") if existing else self._list(data, list_id, actor, "edit").get("owner") or actor)
             task_values = dict(values)
             if existing is not None:
-                # CalDAV clients may strip unrecognized properties from VTODO
-                # updates. Retain server-side document links on partial PUTs.
-                for key, default in (
-                    ("document_ids", []),
-                    ("source_document_id", ""),
-                    ("email_document_id", ""),
-                ):
+                # CalDAV clients may strip unknown VTODO properties from PUTs.
+                # Preserve stable document links rather than silently clearing them.
+                for key, default in (("document_ids", []), ("source_document_id", ""), ("email_document_id", "")):
                     if not task_values.get(key):
                         task_values[key] = existing.get(key, default)
             item = self._task(item_id, str(values.get("title", "")), owner, {**task_values, "list_id": list_id}, created_at=existing.get("created_at", "") if existing else utc_now())

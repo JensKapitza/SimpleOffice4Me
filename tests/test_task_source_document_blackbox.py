@@ -45,6 +45,9 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
 
     def test_document_created_task_links_source_in_both_task_views(self):
         document_id = self._create_document_task()
+        document_page = self.client.get(f"/documents/{document_id}")
+        self.assertEqual(200, document_page.status_code)
+        self.assertIn("Review fixture", document_page.get_data(as_text=True))
         for url in ("/documents/tasks", "/tasks/"):
             with self.subTest(url=url):
                 links = self._source_link(url, document_id)

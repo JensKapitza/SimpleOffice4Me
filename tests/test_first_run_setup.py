@@ -118,6 +118,8 @@ class FirstRunSetupTest(unittest.TestCase):
         self.assertEqual(302, response.status_code)
         task = TodoStore(self.root).items("jens")[0]
         self.assertIn("erforderliche Bearbeitung", task["description"])
+        self.assertNotIn("Angebot.pdf", task["title"])
+        self.assertNotIn("Angebot.pdf", task["description"])
         self.assertEqual([document["document_id"]], task["document_ids"])
         TodoStore(self.root).update(
             task["id"],
