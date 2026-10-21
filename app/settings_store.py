@@ -472,6 +472,16 @@ class SettingsStore:
             if isinstance(network_update, dict):
                 merged["network"] = {**latest["network"], **network_update}
             normalized = self._validate(merged)
+            # Saving unrelated preferences must not silently override an existing
+            # deployment WebDAV quota with the new zero default.
+            try:
+                previous = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                previous = {}
+            previous_network = previous.get("network") if isinstance(previous, dict) else None
+            explicit_network = isinstance(previous_network, dict) and "webdav_quota_bytes" in previous_network
+            if "network" not in settings and not explicit_network:
+                normalized.pop("network", None)
             atomic_json_write(self.path, normalized)
             self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
             return normalized
