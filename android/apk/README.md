@@ -87,7 +87,7 @@ sowie den Vordergrund für Adaptive Icons. Nach dem Build prüft die CI das
 fertige APK einschließlich PNG-Dekodierung und sichtbar belegter Bildfläche:
 
 ```sh
-python -m pip install 'Pillow==11.0.0'
+python -m pip install 'Pillow==13.0.0'
 python tools/check_android_launcher_assets.py android/apk/app/build/outputs/apk/debug/app-debug.apk
 ```
 

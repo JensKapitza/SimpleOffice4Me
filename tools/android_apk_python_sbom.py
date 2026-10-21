@@ -73,9 +73,9 @@ def enforce_android_pillow_policy(distributions: list) -> None:
     }
     if "pillow" not in versions:
         raise ValueError("APK is missing Pillow metadata; cannot verify security baseline")
-    if Version(versions["pillow"]) < Version("12.2.0"):
+    if Version(versions["pillow"]) < Version("13.0.0"):
         raise ValueError(
-            f"APK bundles Pillow {versions['pillow']} below the 12.2.0 security baseline"
+            f"APK bundles Pillow {versions['pillow']} below the 13.0.0 security baseline"
         )
 
 

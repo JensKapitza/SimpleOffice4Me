@@ -23,7 +23,7 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
         with TemporaryDirectory() as tmp:
             apk = Path(tmp) / "app.apk"
             make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 11.0.0\n")
-            with self.assertRaisesRegex(ValueError, "below the 12.2.0 security baseline"):
+            with self.assertRaisesRegex(ValueError, "below the 13.0.0 security baseline"):
                 enforce_android_pillow_policy(packaged_distributions(apk))
 
     def test_security_gate_accepts_updated_pillow(self):
