@@ -93,7 +93,17 @@ jobs:
           APK='android/apk/app/build/outputs/apk/debug/app-debug.apk'
           AAPT="$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n 1)"
           test -n "$AAPT" && test -x "$AAPT"
-          EXPECTED_VERSION="2.${SIMPLEOFFICE_BUILD_DATE}.${SIMPLEOFFICE_BUILD_SEQUENCE}"
+          PROJECT_MAJOR="$(python - <<'PY'
+          import re
+          from pathlib import Path
+          project = Path('pyproject.toml').read_text(encoding='utf-8')
+          match = re.search(r'(?ms)^\\[project\\]\\s.*?^version\\s*=\\s*["\\x27](\\d+)\\.\\d+\\.\\d+["\\x27]', project)
+          if not match:
+              raise SystemExit('project major version missing')
+          print(match.group(1))
+          PY
+          )"
+          EXPECTED_VERSION="${PROJECT_MAJOR}.${SIMPLEOFFICE_BUILD_DATE}.${SIMPLEOFFICE_BUILD_SEQUENCE}"
           BADGING="$("$AAPT" dump badging "$APK" | head -n 1)"
           case "$BADGING" in
             *"versionName='$EXPECTED_VERSION'"*) ;;
