@@ -89,6 +89,26 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 self.assertEqual(200, page.status_code)
                 self.assertNotIn(filename, page.get_data(as_text=True))
 
+    def test_document_task_ignores_forged_source_id_and_retains_link_after_update(self):
+        document_id = self._create_document_task()
+        forged = self.client.post(
+            f"/documents/{document_id}/tasks",
+            data={"title": "Forged source", "source_document_id": "attacker-document"},
+        )
+        self.assertEqual(302, forged.status_code)
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Forged source")
+        self.assertEqual(document_id, task["source_document_id"])
+        updated = self.client.post(
+            f"/documents/todo/{task['id']}",
+            data={"title": "Updated task", "status": "in-process", "return_to": "tasks"},
+        )
+        self.assertEqual(302, updated.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(document_id, saved["source_document_id"])
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                self._source_link(url, document_id)
+
     def test_source_document_link_survives_move_and_rename(self):
         document_id = self._create_document_task()
         moved = DocumentStore(self.root).move_document(
