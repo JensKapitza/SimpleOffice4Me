@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h2 mb-2">{{ 'Create invoice' if g.language == 'en' else 'Rechnung erstellen' }}</h1>
+  <p class="text-secondary mb-4">{{ 'Choose an existing customer to continue to the invoice editor.' if g.language == 'en' else 'Wählen Sie einen vorhandenen Kunden aus, um mit dem Rechnungsentwurf fortzufahren.' }}</p>
+  {% if task %}<div class="alert alert-info" role="status" aria-live="polite">{{ 'Started from task:' if g.language == 'en' else 'Aus Aufgabe gestartet:' }} <strong>{{ task.title }}</strong></div>{% endif %}
+  <form role="search" aria-label="{{ 'Search customers' if g.language == 'en' else 'Kunden suchen' }}" method="get" class="card card-body mb-4">
+    {% if task %}<input type="hidden" name="task_id" value="{{ task.id }}">{% endif %}
+    <label class="form-label" for="customer-search">{{ 'Customer' if g.language == 'en' else 'Kunde' }}</label>
+    <div class="d-flex flex-wrap gap-2"><input id="customer-search" class="form-control flex-grow-1" type="search" name="q" value="{{ query }}" placeholder="{{ 'Name, company or contact ID' if g.language == 'en' else 'Name, Firma oder Kontakt-ID' }}" enterkeyhint="search" autocomplete="off"><button class="btn btn-outline-primary" type="submit">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button>{% if query %}<a class="btn btn-outline-secondary" href="{{ url_for('.invoice_create_start', task_id=task.id) if task else url_for('.invoice_create_start') }}">{{ 'Reset' if g.language == 'en' else 'Zurücksetzen' }}</a>{% endif %}</div>
+  </form>
+  <section aria-label="{{ 'Available customers' if g.language == 'en' else 'Verfügbare Kunden' }}">
+    <div class="list-group">
+      {% for contact in contacts %}
+       <form method="post" action="{{ url_for('.invoice_create_start') }}" class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-3">
+         <input type="hidden" name="contact_id" value="{{ contact.contact_id }}">
+         {% if task %}<input type="hidden" name="task_id" value="{{ task.id }}">{% endif %}
+        <div><strong>{{ contact.invoice_start_label }}</strong>{% if contact.fields.company and contact.fields.company != contact.invoice_start_label %}<div class="small text-secondary">{{ contact.fields.company }}</div>{% endif %}</div>
+        <button class="btn btn-primary" type="submit">{{ 'Select customer' if g.language == 'en' else 'Kunden auswählen' }}</button>
+      </form>
+      {% else %}
+      <p class="list-group-item text-secondary">{{ 'No matching customers found.' if g.language == 'en' else 'Keine passenden Kunden gefunden.' }}</p>
+      {% endfor %}
+    </div>
+  </section>
+</main>
+{% endblock %}

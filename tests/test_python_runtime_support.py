@@ -234,8 +234,8 @@ class RuntimeSupportTests(unittest.TestCase):
         pillow_requirements = [requirement for requirement in dependencies if requirement.startswith("Pillow")]
         self.assertEqual(
             [
-                "Pillow>=12.2,<13; python_version < '3.11'",
                 "Pillow>=13.0.0,<14; python_version >= '3.11'",
+                "Pillow>=12.2,<13; python_version < '3.11'",
             ],
             pillow_requirements,
         )
