@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <h1 class="h2 mb-2">{{ 'Create invoice' if g.language == 'en' else 'Rechnung erstellen' }}</h1>
   <p class="text-secondary mb-4">{{ 'Choose an existing customer to continue to the invoice editor.' if g.language == 'en' else 'Wählen Sie einen vorhandenen Kunden aus, um mit dem Rechnungsentwurf fortzufahren.' }}</p>
-  {% if task %}<div class="alert alert-info">{{ 'Started from task:' if g.language == 'en' else 'Aus Aufgabe gestartet:' }} <strong>{{ task.title }}</strong></div>{% endif %}
+  {% if task %}<div class="alert alert-info" role="status" aria-live="polite">{{ 'Started from task:' if g.language == 'en' else 'Aus Aufgabe gestartet:' }} <strong>{{ task.title }}</strong></div>{% endif %}
   <form role="search" aria-label="{{ 'Search customers' if g.language == 'en' else 'Kunden suchen' }}" method="get" class="card card-body mb-4">
     {% if task %}<input type="hidden" name="task_id" value="{{ task.id }}">{% endif %}
     <label class="form-label" for="customer-search">{{ 'Customer' if g.language == 'en' else 'Kunde' }}</label>
