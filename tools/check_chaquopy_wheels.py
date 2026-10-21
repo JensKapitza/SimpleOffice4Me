@@ -52,10 +52,18 @@ def compatible_wheels(html: str, package: str, version: str, python: str, abi: s
         if name != canonicalize_name(package) or str(wheel_version) != version:
             continue
         if any(
-            (tag.interpreter == python_tag or (tag.abi == "abi3" and tag.interpreter.startswith("cp3") and int(tag.interpreter[3:]) <= python_minor) or tag.interpreter == "py3")
-            and ("android_" in tag.platform)
+            tag.platform.startswith("android_")
             and tag.platform.endswith(abi_tag)
-            and (tag.abi in (python_tag, "abi3", "none"))
+            and (
+                (tag.interpreter == python_tag and tag.abi in (python_tag, "abi3", "none"))
+                or (
+                    tag.abi == "abi3"
+                    and tag.interpreter.startswith("cp3")
+                    and tag.interpreter[3:].isdigit()
+                    and int(tag.interpreter[3:]) <= python_minor
+                )
+                or (tag.interpreter == "py3" and tag.abi == "none")
+            )
             for tag in tags
         ):
             return True
