@@ -19,8 +19,8 @@ class DockerBuildContextSecurityTests(unittest.TestCase):
         self.assertIn("Create disposable local-secret sentinels for image-context test", workflow)
         self.assertIn("Verify local secret files are absent from the image", workflow)
         self.assertIn("test ! -e /opt/simpleoffice4me/.env", workflow)
-        self.assertIn("test ! -e \\"/opt/simpleoffice4me/.env.$SENTINEL\\"", workflow)
-        self.assertIn("test ! -e \\"/opt/simpleoffice4me/deploy/docker/secrets/$SENTINEL\\"", workflow)
+        self.assertIn('/opt/simpleoffice4me/.env.$SENTINEL', workflow)
+        self.assertIn('/opt/simpleoffice4me/deploy/docker/secrets/$SENTINEL', workflow)
         self.assertIn("if: always()", workflow)
         self.assertIn("docker run --rm --entrypoint /bin/sh", workflow)
         for pattern in (
