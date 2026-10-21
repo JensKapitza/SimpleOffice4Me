@@ -22,6 +22,10 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertIn("file('../../../pyproject.toml')", gradle)
         self.assertIn("versionCode appVersionCode", gradle)
         self.assertIn("versionName appVersionName", gradle)
+        self.assertIn("SIMPLEOFFICE_BUILD_DATE", gradle)
+        self.assertIn("SIMPLEOFFICE_BUILD_SEQUENCE", gradle)
+        self.assertIn("daysSinceEpoch * 10000 + buildSequence", gradle)
+        self.assertIn("def appVersionName = \"${versionMajor}.${buildDate}.${buildSequence}\"", gradle)
         self.assertIn("include 'pyproject.toml'", gradle)
         self.assertNotIn("versionName '1.0.7'", gradle)
         self.assertNotIn("versionCode 8", gradle)
@@ -41,6 +45,8 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertNotIn("pull_request:", text)
         self.assertIn("assets/simpleoffice/pyproject.toml", text)
         self.assertIn("Verify APK package version matches project version", text)
+        self.assertIn("SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}", text)
+        self.assertIn("date -u +%Y%m%d", text)
 
 
 if __name__ == "__main__":
