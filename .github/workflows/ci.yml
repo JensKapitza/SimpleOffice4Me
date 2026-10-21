@@ -300,12 +300,25 @@ jobs:
           python tools/generate_sbom.py --xml-output artifacts/sbom.cdx.xml
           python -m json.tool artifacts/sbom.cdx.json > /dev/null
           python -m unittest discover -s tests -p test_sbom_xml.py
-          python - <<'PY'
-          from xml.etree import ElementTree as ET
-          root = ET.parse("artifacts/sbom.cdx.xml").getroot()
-          assert root.tag == "{http://cyclonedx.org/schema/bom/1.6}bom"
-          assert root.find("{http://cyclonedx.org/schema/bom/1.6}components") is not None
-          PY
+      - name: Install pinned CycloneDX CLI validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          echo "CYCLONEDX_VALIDATOR=$validator" >> "$GITHUB_ENV"
+      - name: Validate generated CycloneDX 1.6 JSON and XML against the official schema
+        run: |
+          "$CYCLONEDX_VALIDATOR" validate --input-file artifacts/sbom.cdx.json \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$CYCLONEDX_VALIDATOR" validate --input-file artifacts/sbom.cdx.xml \
+            --input-format xml --input-version v1_6 --fail-on-errors
       - name: Upload Python CycloneDX SBOM artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

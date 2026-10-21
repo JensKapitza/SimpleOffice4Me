@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a CycloneDX 1.5 SBOM from Python packages or locked Cargo metadata."""
+"""Create a CycloneDX 1.6 SBOM from Python packages or locked Cargo metadata."""
 from __future__ import annotations
 
 import argparse
@@ -87,7 +87,6 @@ def write_xml_sbom(document: dict, path: Path) -> None:
         node = _xml_element(components, "component", type=component["type"], **{"bom-ref": component["purl"]})
         _xml_element(node, "name", component["name"])
         _xml_element(node, "version", component["version"])
-        _xml_element(node, "purl", component["purl"])
         if component.get("licenses"):
             licenses = _xml_element(node, "licenses")
             for license_item in component["licenses"]:
@@ -96,6 +95,7 @@ def write_xml_sbom(document: dict, path: Path) -> None:
                     # SPDX expressions are represented directly under <licenses>.
                     licenses.remove(license_node)
                     _xml_element(licenses, "expression", license_item["expression"])
+        _xml_element(node, "purl", component["purl"])
     path.parent.mkdir(parents=True, exist_ok=True)
     tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")

@@ -36,6 +36,8 @@ class SbomXmlTests(unittest.TestCase):
         self.assertEqual("pkg:cargo/sample@1.2", component.attrib["bom-ref"])
         self.assertEqual("sample", component.findtext("cdx:name", namespaces=NS))
         self.assertEqual("MIT OR Apache-2.0", component.findtext("cdx:licenses/cdx:expression", namespaces=NS))
+        child_names = [child.tag.rsplit("}", 1)[-1] for child in component]
+        self.assertLess(child_names.index("licenses"), child_names.index("purl"))
 
     def test_rejects_wrong_spec_version(self):
         with TemporaryDirectory() as tmp:
