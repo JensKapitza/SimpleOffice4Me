@@ -9,7 +9,7 @@
     <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
     <a class="nav-link active" aria-current="page" href="{{ url_for('admin.network_sync_settings') }}">Netzwerk &amp; Synchronisation</a>
   </nav>
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <section class="card"><div class="card-body">
     <h2 class="h5">WebDAV-Quota</h2>
     <p>Begrenzt die über WebDAV verwaltete Datenmenge. Null bedeutet keine zusätzliche Anwendungs-Quota. Freier physischer Speicher und bestehende Sicherheitsprüfungen bleiben maßgeblich.</p>
