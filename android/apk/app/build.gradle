@@ -52,7 +52,11 @@ if (daysSinceEpoch < 0 || daysSinceEpoch > 200000) {
 }
 // Android versionCode must increase for upgrades and fit into a signed int.
 // Sequence is the GitHub workflow run number, not an issue number or commit hash.
-def appVersionCode = (daysSinceEpoch * 10000 + buildSequence) as int
+def calculatedVersionCode = daysSinceEpoch * 10000L + buildSequence
+if (calculatedVersionCode <= 0 || calculatedVersionCode > 2_100_000_000L) {
+    throw new GradleException("Android versionCode is outside the supported range: ${calculatedVersionCode}")
+}
+def appVersionCode = calculatedVersionCode.toInteger()
 def appVersionName = "${versionMajor}.${buildDate}.${buildSequence}"
 
 if (!expectedPythonVersion) {
