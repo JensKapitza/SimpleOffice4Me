@@ -84,7 +84,7 @@ class CaptureFirstBrowserTests(unittest.TestCase):
             page.goto(self.base_url + "/documents/images")
             snapshot_input = page.locator("#photo-snapshot-file")
             self.assertEqual("environment", snapshot_input.get_attribute("capture"))
-            self.assertTrue(page.get_by_label("Neues Foto").is_visible())
+            self.assertTrue(snapshot_input.is_visible())
 
             with page.expect_response(
                 lambda response: response.url.endswith("/documents/photos/upload")
