@@ -107,6 +107,7 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         }
         app.config.update(
             TESTING=True,
+            TEST_CSRF_PROTECTION=False,
             DATABASE=str(self.base / "users.sqlite"),
             DOCUMENT_ROOT=str(self.root),
         )
