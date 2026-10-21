@@ -129,6 +129,7 @@ jobs:
 
       - name: Convert Android JVM inventory to CycloneDX XML and JSON
         run: |
+          python -m pip install 'packaging>=24,<27'
           python tools/generate_sbom.py \
             --gradle-resolution android/apk/app/build/reports/sbom/gradle-runtime.json \
             --output artifacts/android/gradle-runtime.cdx.json \
