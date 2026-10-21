@@ -10,6 +10,15 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertFalse(compatible_wheels(index, "cffi", "1.17.1", "3.15", "arm64-v8a"))
         self.assertFalse(compatible_wheels(index, "cffi", "1.17.1", "3.13", "armeabi-v7a"))
 
+    def test_abi3_from_older_python_is_compatible(self):
+        index = '<a href="cryptography-48.0.1-cp313-abi3-android_24_arm64_v8a.whl#sha256=123">wheel</a>'
+        self.assertTrue(compatible_wheels(index, "cryptography", "48.0.1", "3.15", "arm64-v8a"))
+        self.assertFalse(compatible_wheels(index, "cryptography", "48.0.1", "3.11", "arm64-v8a"))
+
+    def test_abi3_from_newer_python_is_not_compatible(self):
+        index = '<a href="cryptography-48.0.1-cp315-abi3-android_24_arm64_v8a.whl">wheel</a>'
+        self.assertFalse(compatible_wheels(index, "cryptography", "48.0.1", "3.14", "arm64-v8a"))
+
     def test_linux_wheel_cannot_satisfy_android(self):
         index = '<a href="cffi-1.17.1-cp315-cp315-manylinux_2_17_aarch64.whl">wheel</a>'
         self.assertFalse(compatible_wheels(index, "cffi", "1.17.1", "3.15", "arm64-v8a"))
