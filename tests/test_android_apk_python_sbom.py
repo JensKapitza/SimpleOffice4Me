@@ -1,0 +1,46 @@
+"""Black-box checks for APK Chaquopy wheel inventory extraction."""
+from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+import zipfile
+
+from tools.android_apk_python_sbom import packaged_distributions
+
+
+def make_apk(path: Path, metadata: bytes | None, archive_name="assets/chaquopy/requirements-common.zip"):
+    nested = BytesIO()
+    with zipfile.ZipFile(nested, "w") as requirements:
+        if metadata is not None:
+            requirements.writestr("Pillow-11.0.0.dist-info/METADATA", metadata)
+    with zipfile.ZipFile(path, "w") as apk:
+        apk.writestr(archive_name, nested.getvalue())
+
+
+class AndroidApkPythonSbomTests(unittest.TestCase):
+    def test_extracts_actual_bundled_version(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 11.0.0\nRequires-Dist: typing-extensions\n")
+            packages = packaged_distributions(apk)
+        self.assertEqual([("Pillow", "11.0.0")], [(p.metadata["Name"], p.version) for p in packages])
+        self.assertEqual(["typing-extensions"], packages[0].requires)
+
+    def test_missing_wheel_metadata_is_not_claimed_complete(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            make_apk(apk, None)
+            with self.assertRaisesRegex(ValueError, "no dist-info"):
+                packaged_distributions(apk)
+
+    def test_no_chaquopy_requirements_archive_fails(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            with zipfile.ZipFile(apk, "w") as archive:
+                archive.writestr("assets/example.txt", "example")
+            with self.assertRaisesRegex(ValueError, "no Chaquopy"):
+                packaged_distributions(apk)
+
+
+if __name__ == "__main__":
+    unittest.main()
