@@ -83,15 +83,33 @@ jobs:
           file "${appimages[0]}" | grep -E 'ELF 64-bit.*x86-64'
           "${appimages[0]}" --appimage-version
 
+  android-native-wheels:
+    uses: ./.github/workflows/android-native-wheels.yml
+
   android-arm64:
     name: Android ARM64 toolchain
+    needs: android-native-wheels
     runs-on: ubuntu-26.04
     timeout-minutes: 35
     env:
       SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
       SIMPLEOFFICE_ANDROID_PYTHON: '3.13'
+      SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-cp313-arm64-Pillow-wheel
+          path: android/apk/app/wheelhouse
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-cp313-arm64-cryptography-wheel
+          path: android/apk/app/wheelhouse
+      - name: Verify native wheel artifacts
+        shell: bash
+        run: |
+          cd android/apk/app/wheelhouse
+          sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -102,6 +120,13 @@ jobs:
       - name: Select Chaquopy build interpreter
         shell: bash
         run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+      - name: Preflight Android wheels and install ReportLab wheel
+        run: |
+          python -m pip install 'packaging==26.3'
+          python tools/check_chaquopy_wheels.py \
+            --python "$SIMPLEOFFICE_ANDROID_PYTHON" \
+            --abi "$SIMPLEOFFICE_ANDROID_ABI" \
+            --wheel-dir android/apk/app/wheelhouse
       - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
         with:
           gradle-version: '8.13'

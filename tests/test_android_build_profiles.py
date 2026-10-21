@@ -32,6 +32,16 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
 
+    def test_ubuntu_26_android_job_uses_the_same_verified_wheel_artifacts(self):
+        workflow = (ROOT / ".github/workflows/ubuntu-26-compat.yml").read_text(encoding="utf-8")
+        self.assertIn("android-native-wheels:", workflow)
+        self.assertIn("needs: android-native-wheels", workflow)
+        self.assertIn("SIMPLEOFFICE_ANDROID_WHEEL_DIR:", workflow)
+        self.assertIn("android-cp313-arm64-Pillow-wheel", workflow)
+        self.assertIn("android-cp313-arm64-cryptography-wheel", workflow)
+        self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS", workflow)
+        self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
+
     def test_security_gate_precedes_artifact_upload(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         sbom_upload = workflow.index("- name: Upload APK-bundled Python SBOM")

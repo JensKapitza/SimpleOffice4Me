@@ -76,7 +76,7 @@ jobs:
             printf '%s --hash=sha256:%s\n' "$PACKAGE_SPEC" "$SOURCE_SHA256" > sources/requirements.txt
             python -m pip download --require-hashes --no-deps --no-binary :all: \
               --dest sources --requirement sources/requirements.txt
-            archive="$(find sources -maxdepth 1 -type f -print -quit)"
+            archive="$(find sources -maxdepth 1 -type f ! -name requirements.txt -print -quit)"
             test -n "$archive"
             mkdir -p unpacked
             case "$archive" in
@@ -90,7 +90,10 @@ jobs:
             echo "Source archive has no Python build metadata: $source_dir" >&2
             exit 1
           fi
-          python -m cibuildwheel "$source_dir" --platform android --output-dir wheelhouse
+          (
+            cd "$source_dir"
+            python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
+          )
       - name: Verify resulting Android wheels
         env:
           PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
