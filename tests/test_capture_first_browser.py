@@ -57,7 +57,7 @@ class CaptureFirstBrowserTests(unittest.TestCase):
         return output.getvalue()
 
     def test_camera_snapshot_and_multi_photo_import_work_on_desktop_android_and_ios(self):
-        from playwright.sync_api import expect, sync_playwright
+        from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
             scenarios = (
@@ -70,6 +70,8 @@ class CaptureFirstBrowserTests(unittest.TestCase):
                     self._exercise_capture(browser_type, device_options, index)
 
     def _exercise_capture(self, browser_type, device_options, seed: int):
+        from playwright.sync_api import expect
+
         browser = browser_type.launch()
         context = browser.new_context(**device_options)
         context.add_cookies([{
