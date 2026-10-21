@@ -1,0 +1,76 @@
+"""HTTP black-box regression tests for source-document task navigation (#762)."""
+import io
+import tempfile
+import unittest
+from pathlib import Path
+
+from bs4 import BeautifulSoup
+
+from app import app
+from app.db import ensure_auth_database
+from app.document_store import DocumentStore
+
+
+class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.previous = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
+        self.root = Path(self.temp.name) / "documents"
+        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "users.sqlite"), DOCUMENT_ROOT=str(self.root))
+        with app.app_context():
+            ensure_auth_database()
+        self.client = app.test_client()
+        self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"})
+        self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"})
+
+    def tearDown(self):
+        app.config.update(self.previous)
+        self.temp.cleanup()
+
+    def _create_document_task(self):
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"safe fixture"), "original.txt", "jens")
+        document_id = document["document_id"]
+        response = self.client.post(f"/documents/{document_id}/tasks", data={"title": "Review fixture"})
+        self.assertEqual(302, response.status_code)
+        return document_id
+
+    def _source_link(self, url, document_id):
+        response = self.client.get(url)
+        self.assertEqual(200, response.status_code)
+        soup = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        links = [link for link in soup.find_all("a") if link.get_text(strip=True) == "Quelldatei öffnen"]
+        self.assertTrue(any(link.get("href", "").endswith(f"/documents/{document_id}") for link in links))
+        return links
+
+    def test_document_created_task_links_source_in_both_task_views(self):
+        document_id = self._create_document_task()
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                links = self._source_link(url, document_id)
+                detail = self.client.get(links[0]["href"])
+                self.assertEqual(200, detail.status_code)
+
+    def test_legacy_task_without_source_still_renders(self):
+        created = self.client.post("/documents/todo", data={"title": "Legacy task"})
+        self.assertEqual(302, created.status_code)
+        for url in ("/documents/tasks", "/tasks/"):
+            page = self.client.get(url)
+            self.assertEqual(200, page.status_code)
+            self.assertIn("Legacy task", page.get_data(as_text=True))
+            self.assertNotIn("Quelldatei öffnen", page.get_data(as_text=True))
+
+    def test_unknown_source_id_does_not_produce_broken_link(self):
+        created = self.client.post("/documents/todo", data={
+            "title": "Missing document", "source_document_id": "nonexistent-source-id",
+        })
+        self.assertEqual(302, created.status_code)
+        for url in ("/documents/tasks", "/tasks/"):
+            response = self.client.get(url)
+            self.assertEqual(200, response.status_code)
+            body = response.get_data(as_text=True)
+            self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+            self.assertNotIn("Quelldatei öffnen", body)
+
+
+if __name__ == "__main__":
+    unittest.main()
