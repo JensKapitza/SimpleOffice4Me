@@ -1,0 +1,47 @@
+"""CycloneDX XML regression tests for installed Python and resolved Cargo inventories."""
+from pathlib import Path
+from tempfile import TemporaryDirectory
+import unittest
+from xml.etree import ElementTree as ET
+
+from tools.generate_sbom import write_xml_sbom
+
+
+NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
+
+
+class SbomXmlTests(unittest.TestCase):
+    def test_xml_preserves_inventory_and_spdx_license(self):
+        document = {
+            "bomFormat": "CycloneDX", "specVersion": "1.6",
+            "serialNumber": "urn:uuid:00000000-0000-0000-0000-000000000001",
+            "version": 1,
+            "metadata": {
+                "timestamp": "2026-10-21T00:00:00+00:00",
+                "component": {"type": "application", "name": "SimpleOffice4Me", "version": "2.0"},
+            },
+            "components": [{
+                "type": "library", "name": "sample", "version": "1.2",
+                "purl": "pkg:cargo/sample@1.2",
+                "licenses": [{"expression": "MIT OR Apache-2.0"}],
+            }],
+        }
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "sbom.xml"
+            write_xml_sbom(document, output)
+            root = ET.parse(output).getroot()
+        self.assertEqual("1", root.attrib["version"])
+        self.assertEqual("urn:uuid:00000000-0000-0000-0000-000000000001", root.attrib["serialNumber"])
+        component = root.find("cdx:components/cdx:component", NS)
+        self.assertEqual("pkg:cargo/sample@1.2", component.attrib["bom-ref"])
+        self.assertEqual("sample", component.findtext("cdx:name", namespaces=NS))
+        self.assertEqual("MIT OR Apache-2.0", component.findtext("cdx:licenses/cdx:expression", namespaces=NS))
+
+    def test_rejects_wrong_spec_version(self):
+        with TemporaryDirectory() as tmp:
+            with self.assertRaisesRegex(ValueError, "1.6"):
+                write_xml_sbom({"specVersion": "1.5"}, Path(tmp) / "sbom.xml")
+
+
+if __name__ == "__main__":
+    unittest.main()
