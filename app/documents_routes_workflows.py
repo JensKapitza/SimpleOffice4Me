@@ -740,8 +740,17 @@ def contact_detail(contact_id: str):
     store = _contacts(); visible = store.contacts(actor); company_id = str(contact.get("fields", {}).get("company_contact_id", ""))
     linked_company = next((item for item in visible if item.get("contact_id") == company_id), None)
     company_contacts = [{"contact_id": item["contact_id"], "name": store.company_name(item)} for item in visible if item.get("contact_id") != contact_id and store.company_name(item)]
+    contact_tasks = _todos().items(actor, contact_id=contact_id)
+    task_invoices: dict[str, list[dict[str, Any]]] = {}
+    if store.can_manage(contact_id, actor):
+        from .business_document_generation import invoices as business_invoices
+
+        for row in business_invoices(current_app.config["DOCUMENT_ROOT"]):
+            task_id = str(row.get("task_id", ""))
+            if task_id and row.get("contact_id") == contact_id:
+                task_invoices.setdefault(task_id, []).append(row)
     return render_template("documents/contact_detail.html", contact=contact, users=users, has_photo=store.has_photo(contact), is_owner=not contact.get("owner") or contact.get("owner") == actor,
-                           contact_tasks=_todos().items(actor, contact_id=contact_id), task_lists=_todos().lists(actor), company_contacts=company_contacts,
+                           contact_tasks=contact_tasks, task_invoices=task_invoices, task_lists=_todos().lists(actor), company_contacts=company_contacts,
                            company_people=store.company_people(contact, actor), linked_company=linked_company)
 
 

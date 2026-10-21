@@ -11,6 +11,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
+from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
 
 from app.business_documents import (
@@ -23,6 +24,7 @@ from app.business_documents import (
     _draft_invoice_number,
     _draft_watermark,
     _build_invoice_lines,
+    _invoice_task,
     _pdfa3_convert,
     _validate_hybrid,
     _zugferd_status,
@@ -63,6 +65,18 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_invoice_task_link_requires_visible_task_for_same_customer(self):
+        task = {"id": "task-1", "contact_id": "contact-1"}
+        with mock.patch("app.todo_store.TodoStore") as todo_store:
+            todo_store.return_value.items.return_value = [task]
+            self.assertIs(task, _invoice_task(Path("."), "task-1", "tester", "contact-1"))
+            with self.assertRaises(Conflict) as caught:
+                _invoice_task(Path("."), "task-1", "tester", "contact-2")
+            self.assertEqual(409, caught.exception.code)
+            todo_store.return_value.items.return_value = []
+            with self.assertRaises(NotFound):
+                _invoice_task(Path("."), "task-1", "tester", "contact-1")
+
     def test_generated_pdf_indexes_only_new_file_and_batches_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -189,11 +203,19 @@ class BusinessDocumentTests(unittest.TestCase):
                 ("line_object_id", ""), ("line_project_id", ""),
                 ("line_source_type", "calendar_event"), ("line_source_id", event["event_id"]),
                 ("line_description", "Technische Beratung"), ("line_category", "Termin"),
-                ("line_quantity", "1"), ("line_net_price", "100"), ("line_vat_rate", "19"),
+                ("line_quantity", "1"), ("line_unit", "HUR"),
+                ("line_net_price", "100"), ("line_vat_rate", "19"),
             ])
             lines = _build_invoice_lines(root, form)
             self.assertEqual(event["event_id"], lines[0]["source_id"])
             self.assertEqual("calendar_event", lines[0]["source_type"])
+            self.assertEqual("HUR", lines[0]["unit"])
+            invalid_unit = MultiDict([
+                ("line_description", "Ungültige Einheit"), ("line_quantity", "1"),
+                ("line_unit", "NOT-A-UNIT"), ("line_net_price", "1"), ("line_vat_rate", "19"),
+            ])
+            with self.assertRaisesRegex(ValueError, "invalid unit"):
+                _build_invoice_lines(root, invalid_unit)
             _validate_project_sources(root, {"invoice_id": "draft-1", "contact_id": "customer-1", "lines": lines}, "tester")
 
             directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True, exist_ok=True)

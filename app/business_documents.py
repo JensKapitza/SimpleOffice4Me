@@ -298,6 +298,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     recipient_lines=[person] if recipient_type == "private" else [company,*([person] if person else [])]
     buyer_label="\n".join(recipient_lines+address_lines); buyer_name=person if recipient_type == "private" else company
     now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":buyer_label,"recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
+    row["task_id"] = str(form.get("task_id", "")).strip()
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
@@ -463,6 +464,23 @@ def contact_letter(contact_id:str):
         except ValueError as exc:flash(str(exc))
     return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),links=contact_links(root,contact_id))
 
+def _invoice_task(root: Path, task_id: str, actor: str, contact_id: str, *, required: bool = True):
+    if not task_id:
+        return None
+    from .todo_store import TodoStore
+
+    task = next((item for item in TodoStore(root).items(actor) if item.get("id") == task_id), None)
+    if task is None:
+        if required:
+            abort(404)
+        return None
+    if str(task.get("contact_id", "")) != contact_id:
+        if required:
+            abort(409)
+        return None
+    return task
+
+
 @bp.route("/contacts/<contact_id>/invoice",methods=("GET","POST"))
 @login_required
 def contact_invoice(contact_id:str):
@@ -475,9 +493,14 @@ def contact_invoice(contact_id:str):
         try:draft=invoice(root,draft_id)
         except ValueError:abort(404)
         if draft.get("contact_id")!=contact_id or draft.get("status")!="draft":abort(409)
+    task_id = (request.form.get("task_id", "").strip() if request.method == "POST" else
+               str((draft or {}).get("task_id") or request.args.get("task_id", "")).strip())
+    linked_task = _invoice_task(root, task_id, actor, contact_id, required=not bool(draft))
     crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else (draft.get("buyer",{}).get("address_id","") if draft else request.args.get("address",""));address,addresses=address_labels(contact,crm,selected);settings=business_settings(root)
     if request.method=="POST":
         try:
+            if draft and task_id != str(draft.get("task_id", "")):
+                abort(409)
             row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
             _v3_finance_sync(root,row,actor)
             if request.form.get("action")=="finalize":
@@ -495,7 +518,7 @@ def contact_invoice(contact_id:str):
     fields=contact.get("fields",{}); default_names=_recipient_names(contact); default_company=str(fields.get("company","")).strip(); default_person=next((name for name in default_names if name.casefold()!=default_company.casefold()),"")
     recipient={"type":draft.get("buyer",{}).get("recipient_type") if draft else ("company" if default_company else "private"),"company":draft.get("buyer",{}).get("company","") if draft else default_company,"contact":draft.get("buyer",{}).get("contact_name","") if draft else (default_person or str(fields.get("display_name","")).strip())}
     if request.method=="POST":recipient={"type":request.form.get("recipient_type","private"),"company":request.form.get("recipient_company",""),"contact":request.form.get("recipient_contact","")}
-    payment_days=str((date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days) if draft else str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=draft.get("issue_date",date.today().isoformat()) if draft else date.today().isoformat(),service_date=draft.get("service_date",date.today().isoformat()) if draft else date.today().isoformat(),links=contact_links(root,contact_id),draft=draft,recipient=recipient)
+    payment_days=str((date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days) if draft else str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=draft.get("issue_date",date.today().isoformat()) if draft else date.today().isoformat(),service_date=draft.get("service_date",date.today().isoformat()) if draft else date.today().isoformat(),links=contact_links(root,contact_id),draft=draft,recipient=recipient,linked_task=linked_task)
 
 @bp.get("/invoices/<invoice_id>/draft.pdf")
 @login_required
@@ -647,14 +670,65 @@ def invoice_overview():
         rows.append({**row,"contact":contact})
     stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}; return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
 
+@bp.route("/invoices/new", methods=("GET", "POST"))
+@login_required
+def invoice_create_start():
+    root, actor = _root(), _actor()
+    contacts = ContactStore(root)
+    if request.method == "POST":
+        contact_id = request.form.get("contact_id", "").strip()
+        task_id = request.form.get("task_id", "").strip()
+        try:
+            contact = contacts.get(contact_id, actor)
+        except ValueError:
+            abort(404)
+        if not contacts.can_manage_contact(contact, actor):
+            abort(403)
+        if task_id:
+            _invoice_task(root, task_id, actor, contact_id)
+        return redirect(url_for(".contact_invoice", contact_id=contact_id, **({"task_id": task_id} if task_id else {})))
+
+    query = request.args.get("q", "").strip()
+    task_id = request.args.get("task_id", "").strip()
+    linked_task = None
+    if task_id:
+        from .todo_store import TodoStore
+
+        linked_task = next((item for item in TodoStore(root).items(actor) if item.get("id") == task_id), None)
+        if linked_task is None:
+            abort(404)
+        task_contact_id = str(linked_task.get("contact_id", ""))
+        if not task_contact_id:
+            abort(409)
+        if not contacts.can_manage(task_contact_id, actor):
+            abort(403)
+    folded_query = query.casefold()
+    candidates = []
+    for contact in contacts.contacts(actor):
+        if not contacts.can_manage_contact(contact, actor):
+            continue
+        if linked_task and contact.get("contact_id") != linked_task.get("contact_id"):
+            continue
+        fields = contact.get("fields", {})
+        label = str(fields.get("display_name", "")).strip()
+        company = str(fields.get("company", "")).strip()
+        searchable = f"{label} {company} {contact.get('contact_id', '')}".casefold()
+        if folded_query and folded_query not in searchable:
+            continue
+        candidates.append({**contact, "invoice_start_label": label or company or contact["contact_id"]})
+    candidates.sort(key=lambda contact: str(contact["invoice_start_label"]).casefold())
+    return render_template("documents/invoice_create_start.html", contacts=candidates, query=query, task=linked_task)
+
 @bp.get("/invoices/<invoice_id>")
 @login_required
 def invoice_detail(invoice_id:str):
-    try:row=invoice(_root(),invoice_id)
+    root, actor = _root(), _actor()
+    try:row=invoice(root,invoice_id)
     except ValueError:abort(404)
-    contacts=ContactStore(_root());contact=contacts.get(row["contact_id"],_actor())
-    if not contacts.can_manage_contact(contact,_actor()):abort(403)
-    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,today=date.today().isoformat(),credit=CustomerCreditLedger(_root()).account(row["contact_id"],row.get("currency","EUR")),write_off_reasons=sorted(WRITE_OFF_REASONS))
+    contacts=ContactStore(root);contact=contacts.get(row["contact_id"],actor)
+    if not contacts.can_manage_contact(contact,actor):abort(403)
+    linked_task = _invoice_task(root, str(row.get("task_id", "")), actor, row["contact_id"], required=False) if row.get("task_id") else None
+    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,linked_task=linked_task,today=date.today().isoformat(),credit=CustomerCreditLedger(root).account(row["contact_id"],row.get("currency","EUR")),write_off_reasons=sorted(WRITE_OFF_REASONS))
 
 @bp.post("/invoices/<invoice_id>/payments")
 @login_required
