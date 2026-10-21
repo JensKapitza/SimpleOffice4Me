@@ -398,8 +398,8 @@ class PhotoBulkImporter:
                 (digest,),
             ).fetchall()
         for row in rows:
-            document_id = str(row["document_id"] or "")
-            relative = Path(str(row["relative_path"] or ""))
+            relative = Path(str(row[0] or ""))
+            document_id = str(row[1] or "")
             if relative.parts[:len(expected_root.parts)] != expected_root.parts:
                 continue
             if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", document_id):
