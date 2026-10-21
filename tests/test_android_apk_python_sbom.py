@@ -32,6 +32,18 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
             make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 13.0.0\n")
             enforce_android_pillow_policy(packaged_distributions(apk))
 
+    def test_security_gate_rejects_missing_pillow(self):
+        from types import SimpleNamespace
+        package = SimpleNamespace(metadata={"Name": "Flask"}, version="3.1.3")
+        with self.assertRaisesRegex(ValueError, "missing Pillow metadata"):
+            enforce_android_pillow_policy([package])
+
+    def test_security_gate_rejects_old_pillow_even_with_new_chaquopy(self):
+        from types import SimpleNamespace
+        package = SimpleNamespace(metadata={"Name": "Pillow"}, version="11.0.0")
+        with self.assertRaisesRegex(ValueError, "below the 12.2.0"):
+            enforce_android_pillow_policy([package])
+
     def test_extracts_actual_bundled_version(self):
         with TemporaryDirectory() as tmp:
             apk = Path(tmp) / "app.apk"
