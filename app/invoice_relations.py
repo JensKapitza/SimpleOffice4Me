@@ -138,7 +138,9 @@ def filter_invoice_overview(
     filtered = []
     for row in visible:
         project_ids_for_row = invoice_project_ids(row)
-        if selected_status and row.get("payment_state", {}).get("status") != selected_status:
+        payment_state = row.get("payment_state")
+        payment_status = payment_state.get("status") if isinstance(payment_state, dict) else None
+        if selected_status and payment_status != selected_status:
             continue
         if selected_project_id and selected_project_id not in project_ids_for_row:
             continue
