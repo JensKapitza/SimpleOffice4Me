@@ -19,6 +19,7 @@ class InvoiceIconTests(unittest.TestCase):
         self.assertIn('fa-file-pdf me-1" aria-hidden="true"></i>{{ tr(\'billing.download\') }}', billing)
         self.assertIn('fa-file-invoice me-1" aria-hidden="true"></i>{{ tr(\'invoice.open\') }}', overview)
         self.assertIn('fa-file-pdf me-1" aria-hidden="true"></i>{{ tr(\'billing.download\') }}', overview)
+        self.assertIn("aria-label=\"{{ 'Actions' if g.language == 'en' else 'Aktionen' }}\"", overview)
         self.assertIn('fa-file-invoice me-2" aria-hidden="true"></i>{{ tr(\'invoice.title\') }}', detail)
         self.assertIn('fa-chart-column me-1" aria-hidden="true"></i>EÜR', detail)
         self.assertIn("fa-file-pen' if draft else 'fa-file-circle-plus", draft)
