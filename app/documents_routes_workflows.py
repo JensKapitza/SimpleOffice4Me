@@ -115,22 +115,6 @@ def detail(document_id: str):
     )
 
 
-@bp.post("/<document_id>/tasks")
-@login_required
-def create_document_task(document_id: str):
-    document = _document_or_404(document_id)
-    try:
-        title = request.form.get("title", "") or ("Prüfen: " + document.get("last_path", "Dokument"))
-        description = request.form.get("description", "").strip() or (
-            "Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: "
-            + str(document.get("last_path", "Dokument"))
-        )
-        _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id], "source_document_id": document_id})
-        flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
-    except ValueError as exc: flash(str(exc))
-    return redirect(url_for("documents.detail", document_id=document_id))
-
-
 @bp.get("/recovery")
 @login_required
 def document_recovery():

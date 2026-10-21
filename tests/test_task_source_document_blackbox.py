@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from app import app
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
+from app.todo_store import TodoStore
 
 
 class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
@@ -70,6 +71,35 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             body = response.get_data(as_text=True)
             self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
             self.assertNotIn("Quelldatei öffnen", body)
+
+    def test_default_source_task_text_does_not_disclose_the_filename(self):
+        filename = "private-customer-contract.pdf"
+        document = DocumentStore(self.root).import_upload(io.BytesIO(b"private fixture"), filename, "jens")
+
+        response = self.client.post(f"/documents/{document['document_id']}/tasks")
+
+        self.assertEqual(302, response.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("Dokument prüfen", task["title"])
+        self.assertIn("Quelldokument öffnen", task["description"])
+        self.assertNotIn(filename, task["title"] + task["description"])
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                page = self.client.get(url)
+                self.assertEqual(200, page.status_code)
+                self.assertNotIn(filename, page.get_data(as_text=True))
+
+    def test_source_document_link_survives_move_and_rename(self):
+        document_id = self._create_document_task()
+        moved = DocumentStore(self.root).move_document(
+            document_id, "renamed", "jens", destination_name="renamed-source.txt",
+        )
+
+        self.assertTrue(moved["last_path"].endswith("renamed-source.txt"))
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                links = self._source_link(url, document_id)
+                self.assertEqual(200, self.client.get(links[0]["href"]).status_code)
 
 
 if __name__ == "__main__":

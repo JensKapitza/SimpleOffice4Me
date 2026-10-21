@@ -53,6 +53,25 @@ class TodoStoreTest(unittest.TestCase):
         updated = self.store.update(task["id"], {"due": "2026-11-01", "status": "in-process"}, "admin")
         self.assertEqual("doc-1", updated["source_document_id"])
 
+    def test_caldav_partial_put_preserves_source_and_related_document_ids(self):
+        task = self.store.add("Source document", "admin", {
+            "uid": "source-document@example.test",
+            "source_document_id": "source-1",
+            "document_ids": ["source-1", "related-1"],
+            "email_document_id": "email-1",
+        })
+        changed, created = self.store.put_resource(
+            self.store.resource(task),
+            {"uid": task["uid"], "title": "Review the source", "status": "in-process"},
+            "admin",
+            expected_etag=self.store.etag(task),
+        )
+
+        self.assertFalse(created)
+        self.assertEqual("source-1", changed["source_document_id"])
+        self.assertEqual(["source-1", "related-1"], changed["document_ids"])
+        self.assertEqual("email-1", changed["email_document_id"])
+
     def test_resource_etag_sync_and_tombstone(self):
         values = {"uid": "task-1@example.test", "title": "CalDAV", "status": "needs-action", "due": "2026-09-02"}
         item, created = self.store.put_resource("task.ics", values, "admin", create_only=True)

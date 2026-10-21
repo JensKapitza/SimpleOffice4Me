@@ -28,6 +28,11 @@ Quelle: [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html).
   `DESCRIPTION`, Status, Fortschritt, Priorität, Start, Fälligkeit, Abschluss,
   Kategorien und eingebetteten `VALARM`-Komponenten. Unbekannte
   Erweiterungszeilen bleiben beim Roundtrip erhalten.
+- Aufgaben-Quelldateien werden serverseitig über stabile Dokument-IDs statt
+  Pfadtext verknüpft. Ein VTODO-PUT, das unbekannte Dokument-Erweiterungen
+  auslässt, darf bestehende Dokument- und Quelldatei-Verknüpfungen nicht
+  löschen; Web-Links werden bei jeder Anzeige erneut gegen die aktuellen
+  Dokumentberechtigungen geprüft.
 
 ### CalDAV – RFC 4791
 
