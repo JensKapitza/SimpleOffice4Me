@@ -49,6 +49,9 @@
                 <strong class="text-break">{{ task.title }}</strong>
                 {% if task.priority %}<span class="badge text-bg-warning">P{{ task.priority }}</span>{% endif %}
               </div>
+              {% if task.source_document_id %}{% if source_documents.get(task.source_document_id) %}
+              <a class="btn btn-sm btn-outline-primary my-2" href="{{ url_for('documents.detail', document_id=task.source_document_id) }}">{{ 'Open source file' if g.language == 'en' else 'Quelldatei öffnen' }}</a>
+              {% else %}<p class="small text-muted my-2">{{ 'Source file unavailable or access denied' if g.language == 'en' else 'Quelldatei nicht verfügbar oder Zugriff verweigert' }}</p>{% endif %}{% endif %}
               {% if task.description %}<p class="small text-secondary my-2 text-break">{{ task.description }}</p>{% endif %}
               <div class="small d-flex flex-wrap gap-1 mb-2">
                 {% if task.due %}<span class="badge text-bg-light border">{{ 'Due' if g.language == 'en' else 'Fällig' }}: {{ task.due }}</span>{% endif %}
