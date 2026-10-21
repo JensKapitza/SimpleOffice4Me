@@ -8,7 +8,7 @@ version = "2.0.0"
 description = "Self-hosted, file-based document management"
 # Syntax floor for the Ubuntu 22.04 vendor exception, not upstream 3.10 support.
 # Production policy is enforced by simpleoffice_runtime_support.py.
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
@@ -21,8 +21,7 @@ dependencies = [
   "argon2-cffi>=23.1,<26",
   "beautifulsoup4>=4.12,<5",
   "defusedxml>=0.7,<1",
-  "Pillow>=13.0.0,<14; python_version >= '3.11'",
-  "Pillow>=12.2,<13; python_version < '3.11'",
+  "Pillow>=13.0.0,<14",
   "reportlab>=4.0,<6",
   "pypdf>=5.0,<7",
   "waitress>=3.0,<4",
@@ -37,8 +36,7 @@ web-export = [
 ]
 ocr = [
   "rapidocr==3.10.0",
-  "onnxruntime==1.24.3; python_version == '3.10'",
-  "onnxruntime==1.30.0; python_version >= '3.11'",
+    "onnxruntime==1.30.0",
 ]
 security = [
   "pip-audit>=2.7,<3",
