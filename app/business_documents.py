@@ -7,6 +7,7 @@ compatible.
 from __future__ import annotations
 
 from flask import Blueprint
+from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
@@ -313,6 +314,8 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
     with exclusive_file_lock(lock_path):
         existing = invoice(root, invoice_id) if invoice_id else None
         if existing and (existing.get("status") != "draft" or existing.get("contact_id") != contact_id): raise ValueError("only a matching invoice draft can be edited")
+        if existing and str(form.get("draft_updated_at", "")) != str(existing.get("updated_at", "")):
+            raise Conflict(description="This invoice draft changed in another session. Reload it before saving.")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
     DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})

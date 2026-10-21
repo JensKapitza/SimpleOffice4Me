@@ -18,6 +18,7 @@ class InvoiceCreateStartTests(unittest.TestCase):
         self.assertIn('name="q"', start)
         self.assertIn('name="contact_id"', start)
         self.assertIn('name="task_id"', start)
+        self.assertIn('name="draft_updated_at"', editor)
         self.assertIn("_invoice_task(root, task_id, actor, contact_id)", route)
         self.assertIn('"task_id"] = str(form.get("task_id", "")).strip()', route)
         self.assertIn("invoice_create_start', task_id=item.id", contact)

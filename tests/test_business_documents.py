@@ -25,6 +25,7 @@ from app.business_documents import (
     _draft_watermark,
     _build_invoice_lines,
     _invoice_task,
+    save_invoice_draft,
     _pdfa3_convert,
     _validate_hybrid,
     _zugferd_status,
@@ -65,6 +66,26 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_invoice_draft_rejects_stale_parallel_editor_without_overwriting(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            directory = root / CONTROL_DIR / "invoices"
+            directory.mkdir(parents=True)
+            path = directory / "draft-1.json"
+            current = {
+                "invoice_id": "draft-1",
+                "contact_id": "contact-1",
+                "status": "draft",
+                "updated_at": "2026-10-21T12:00:00+00:00",
+                "marker": "saved-by-another-session",
+            }
+            path.write_text(json.dumps(current), encoding="utf-8")
+            form = MultiDict([("draft_updated_at", "2026-10-21T11:59:00+00:00")])
+            with mock.patch("app.business_documents._invoice_row_from_form", side_effect=AssertionError("stale draft must not be rebuilt")):
+                with self.assertRaises(Conflict):
+                    save_invoice_draft(root, "contact-1", form, "tester", "draft-1")
+            self.assertEqual(current, json.loads(path.read_text(encoding="utf-8")))
+
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
         with mock.patch("app.todo_store.TodoStore") as todo_store:
