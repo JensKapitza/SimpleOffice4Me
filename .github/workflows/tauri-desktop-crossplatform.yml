@@ -4,6 +4,7 @@ on:
     paths:
       - 'desktop/tauri/**'
       - 'tools/prepare_tauri_client.py'
+      - 'tools/generate_sbom.py'
       - 'static/css/app.css'
       - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
       - 'docs/assets/simpleoffice-documentation-logo.png'
@@ -20,8 +21,18 @@ jobs:
         include:
           - os: windows-2022
             name: windows
+            target: x86_64-pc-windows-msvc
+            npm_os: win32
+            npm_cpu: x64
+            validator: cyclonedx-win-x64.exe
+            validator_sha256: 9b360974c41a5d612eb026fb5e3bb1fa28e08865f7a4f915665b8bc94bd3bc31
           - os: macos-14
             name: macos
+            target: x86_64-apple-darwin
+            npm_os: darwin
+            npm_cpu: x64
+            validator: cyclonedx-osx-x64
+            validator_sha256: 0ea92306fc6ea1a3f6598d8e0257d52903341d0df21a325fb1510aee7c6b30dd
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -33,9 +44,49 @@ jobs:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci --no-audit --no-fund
+      - name: Generate resolved platform-specific npm inventory
+        working-directory: .
+        run: |
+          python tools/generate_sbom.py --npm-lock desktop/tauri/package-lock.json \
+            --npm-os '${{ matrix.npm_os }}' --npm-cpu '${{ matrix.npm_cpu }}' \
+            --output "artifacts/tauri-platform/${{ matrix.name }}-npm.cdx.json" \
+            --xml-output "artifacts/tauri-platform/${{ matrix.name }}-npm.cdx.xml"
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npm run build -- -- --locked
+      - name: Generate resolved platform-specific Rust inventory
+        working-directory: .
+        run: |
+          cargo metadata --locked --format-version 1 --filter-platform '${{ matrix.target }}' \
+            --manifest-path desktop/tauri/src-tauri/Cargo.toml > "$RUNNER_TEMP/tauri-cargo-metadata.json"
+          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" \
+            --output "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.json" \
+            --xml-output "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.xml"
+      - name: Install pinned CycloneDX CLI and validate the platform inventories
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/${{ matrix.validator }}"
+          curl --fail --location --retry 3 \
+            "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/${{ matrix.validator }}" \
+            --output "$validator"
+          printf '%s  %s\n' '${{ matrix.validator_sha256 }}' "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          for bom in "artifacts/tauri-platform/${{ matrix.name }}-npm.cdx.json" \
+                     "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.json"; do
+            "$validator" validate --input-file "$bom" --input-format json \
+              --input-version v1_6 --fail-on-errors
+          done
+          for bom in "artifacts/tauri-platform/${{ matrix.name }}-npm.cdx.xml" \
+                     "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.xml"; do
+            "$validator" validate --input-file "$bom" --input-format xml \
+              --input-version v1_6 --fail-on-errors
+          done
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-platform-sbom-${{ matrix.name }}
+          path: artifacts/tauri-platform/${{ matrix.name }}-*
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-desktop-${{ matrix.name }}
