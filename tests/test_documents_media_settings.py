@@ -106,6 +106,18 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertNotIn('name="default_language"', user_html)
         self.assertIn('name="_csrf_token"', user_html)
 
+    def test_local_folder_settings_page_is_available_to_signed_in_users(self):
+        settings = self.user.get("/documents/settings")
+        self.assertEqual(200, settings.status_code)
+        self.assertIn("Lokale Ordner verwalten", settings.get_data(as_text=True))
+
+        response = self.user.get("/documents/local-storage")
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Lokale Ordner", body)
+        self.assertIn("nicht an den Server übertragen", body)
+        self.assertIn("local-folder-storage.js", body)
+
     def test_general_global_defaults_are_admin_only_while_user_profile_stays_editable(self):
         path = "/documents/settings"
         denied = self.user.post(
