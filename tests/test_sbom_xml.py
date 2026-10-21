@@ -2,18 +2,110 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import base64
+import json
 import unittest
 from xml.etree import ElementTree as ET
 from unittest.mock import patch
 from types import SimpleNamespace
+from packaging.markers import default_environment
 
-from tools.generate_sbom import build_sbom, build_cargo_sbom, build_npm_sbom, build_gradle_sbom, write_xml_sbom
+from tools.generate_sbom import (
+    build_sbom,
+    build_cargo_sbom,
+    build_npm_sbom,
+    build_gradle_sbom,
+    build_python_environment_sbom,
+    main as generate_sbom_main,
+    write_xml_sbom,
+)
 
 
 NS = {"cdx": "http://cyclonedx.org/schema/bom/1.6"}
 
 
 class SbomXmlTests(unittest.TestCase):
+    def test_python_environment_inventories_resolved_project_and_selected_extra(self):
+        with TemporaryDirectory() as tmp:
+            site_packages = Path(tmp) / "lib" / "python3.12" / "site-packages"
+            site_packages.mkdir(parents=True)
+            records = {
+                "simpleoffice4me-2.0.0.dist-info": (
+                    "Name: SimpleOffice4Me\nVersion: 2.0.0\n"
+                    "Requires-Dist: Flask>=3.0\n"
+                    "Requires-Dist: python-312-only; python_version < '3.13'\n"
+                    "Requires-Dist: ocr-engine; extra == 'ocr'\n"
+                    "Provides-Extra: ocr\n"
+                ),
+                "flask-3.1.3.dist-info": "Name: Flask\nVersion: 3.1.3\n",
+                "python_312_only-1.0.dist-info": "Name: python-312-only\nVersion: 1.0\n",
+                "ocr_engine-1.0.dist-info": "Name: ocr-engine\nVersion: 1.0\n",
+                "unrelated-9.0.dist-info": "Name: unrelated\nVersion: 9.0\n",
+            }
+            for directory, metadata in records.items():
+                dist_info = site_packages / directory
+                dist_info.mkdir()
+                (dist_info / "METADATA").write_text(
+                    "Metadata-Version: 2.1\n" + metadata,
+                    encoding="utf-8",
+                )
+
+            marker_environment = default_environment()
+            marker_environment.update(python_version="3.12", python_full_version="3.12.8")
+            document = build_python_environment_sbom(
+                Path(tmp), extras=("ocr",), marker_environment=marker_environment,
+            )
+            marker_file = Path(tmp) / "markers.json"
+            marker_file.write_text(json.dumps(marker_environment), encoding="utf-8")
+            json_output = Path(tmp) / "container.cdx.json"
+            xml_output = Path(tmp) / "container.cdx.xml"
+            with patch("sys.argv", [
+                "generate_sbom.py", "--python-environment", tmp,
+                "--marker-environment", str(marker_file), "--extra", "ocr",
+                "--output", str(json_output), "--xml-output", str(xml_output),
+            ]):
+                generate_sbom_main()
+            cli_document = json.loads(json_output.read_text(encoding="utf-8"))
+            self.assertEqual(
+                {item["purl"] for item in document["components"]},
+                {item["purl"] for item in cli_document["components"]},
+            )
+            ET.parse(xml_output)
+
+        root_ref = "pkg:pypi/simpleoffice4me@2.0.0"
+        references = {component["purl"] for component in document["components"]}
+        self.assertEqual(
+            {
+                "pkg:pypi/flask@3.1.3",
+                "pkg:pypi/ocr-engine@1.0",
+                "pkg:pypi/python-312-only@1.0",
+            },
+            references,
+        )
+        self.assertNotIn("pkg:pypi/unrelated@9.0", references)
+        self.assertEqual(root_ref, document["metadata"]["component"]["bom-ref"])
+        root_edge = next(item for item in document["dependencies"] if item["ref"] == root_ref)
+        self.assertEqual(sorted(references), root_edge["dependsOn"])
+
+    def test_python_environment_requires_the_project_distribution(self):
+        with TemporaryDirectory() as tmp:
+            site_packages = Path(tmp) / "site-packages"
+            site_packages.mkdir()
+            with self.assertRaisesRegex(ValueError, "does not contain the SimpleOffice4Me distribution"):
+                build_python_environment_sbom(site_packages)
+
+    def test_python_environment_rejects_incomplete_marker_environment(self):
+        with TemporaryDirectory() as tmp:
+            site_packages = Path(tmp) / "site-packages"
+            site_packages.mkdir()
+            project = site_packages / "simpleoffice4me-2.0.0.dist-info"
+            project.mkdir()
+            (project / "METADATA").write_text(
+                "Metadata-Version: 2.1\nName: SimpleOffice4Me\nVersion: 2.0.0\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(ValueError, "Python marker environment is missing"):
+                build_python_environment_sbom(site_packages, marker_environment={})
+
     def test_build_sbom_deduplicates_project_distribution_as_application_root(self):
         distribution = SimpleNamespace(metadata={"Name": "simpleoffice4me"}, version="2.0.0")
         with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[distribution, distribution]):

@@ -21,18 +21,42 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from simpleoffice_version import build_info  # noqa: E402
+from packaging.markers import default_environment  # noqa: E402
 from packaging.requirements import Requirement  # noqa: E402
+
+PYTHON_MARKER_ENVIRONMENT_KEYS = frozenset(default_environment()) - {"extra"}
 
 
 def _python_package_key(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-def build_sbom(distributions=None, *, extras: tuple[str, ...] = ()) -> dict:
+def _validated_marker_environment(environment: dict | None) -> dict | None:
+    if environment is None:
+        return None
+    if not isinstance(environment, dict):
+        raise ValueError("Python marker environment must be a JSON object")
+    missing = PYTHON_MARKER_ENVIRONMENT_KEYS - environment.keys()
+    if missing:
+        raise ValueError(f"Python marker environment is missing: {', '.join(sorted(missing))}")
+    if any(not isinstance(value, str) for value in environment.values()):
+        raise ValueError("Python marker environment values must be strings")
+    return {key: environment[key] for key in PYTHON_MARKER_ENVIRONMENT_KEYS}
+
+
+def build_sbom(
+    distributions=None,
+    *,
+    extras: tuple[str, ...] = (),
+    discover_project: bool | None = None,
+    marker_environment: dict | None = None,
+) -> dict:
     """Inventory installed Python distributions, rooted at project requirements when available."""
     unique_components = {}
     installed = {}
-    discover_project = distributions is None
+    if discover_project is None:
+        discover_project = distributions is None
+    marker_environment = _validated_marker_environment(marker_environment)
     package_distributions = distributions if distributions is not None else importlib.metadata.distributions()
     for distribution in sorted(package_distributions, key=lambda item: item.metadata["Name"].casefold()):
         name = distribution.metadata["Name"]
@@ -51,12 +75,14 @@ def build_sbom(distributions=None, *, extras: tuple[str, ...] = ()) -> dict:
     project = installed.get(_python_package_key('simpleoffice4me')) if discover_project else None
     if project is None:
         included = set(unique_components)
-        dependency_map = _python_edges(installed, included, extras)
+        dependency_map = _python_edges(installed, included, extras, marker_environment)
         metadata_component = {"type": "application", "name": "SimpleOffice4Me",
                              "version": str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")}
     else:
         root_ref, root_distribution = project
-        included, dependency_map = _python_runtime_graph(installed, root_ref, root_distribution, extras)
+        included, dependency_map = _python_runtime_graph(
+            installed, root_ref, root_distribution, extras, marker_environment,
+        )
         del unique_components[root_ref]
         metadata_component = {
             "type": "application", "name": root_distribution.metadata["Name"],
@@ -75,11 +101,47 @@ def build_sbom(distributions=None, *, extras: tuple[str, ...] = ()) -> dict:
             "dependencies": dependencies}
 
 
-def _python_resolved_requirements(distribution, installed: dict, extra: str) -> dict[str, set[str]]:
+def build_python_environment_sbom(
+    environment: Path,
+    extras: tuple[str, ...] = (),
+    marker_environment: dict | None = None,
+) -> dict:
+    """Inventory the installed project inside a copied virtual environment."""
+    if not environment.is_dir():
+        raise ValueError(f"Python environment is not a directory: {environment}")
+    if environment.name == "site-packages":
+        site_packages = environment
+    else:
+        candidates = sorted(environment.glob("lib*/python*/site-packages"))
+        if len(candidates) != 1:
+            raise ValueError("Python environment must contain exactly one lib/python*/site-packages directory")
+        site_packages = candidates[0]
+    distributions = tuple(importlib.metadata.distributions(path=[str(site_packages)]))
+    if not any(
+        _python_package_key(distribution.metadata.get("Name", "")) == "simpleoffice4me"
+        for distribution in distributions
+    ):
+        raise ValueError("Python environment does not contain the SimpleOffice4Me distribution")
+    return build_sbom(
+        distributions,
+        extras=extras,
+        discover_project=True,
+        marker_environment=marker_environment,
+    )
+
+
+def _python_resolved_requirements(
+    distribution,
+    installed: dict,
+    extra: str,
+    marker_environment: dict | None = None,
+) -> dict[str, set[str]]:
     dependencies = {}
+    environment = dict(marker_environment or {})
+    environment["extra"] = extra
     for requirement_text in getattr(distribution, 'requires', None) or []:
         requirement = Requirement(requirement_text)
-        if requirement.marker is not None and not requirement.marker.evaluate({"extra": extra}):
+        if requirement.marker is not None and not requirement.marker.evaluate(environment):
             continue
         dependency = installed.get(_python_package_key(requirement.name))
         if dependency is None:
@@ -88,18 +150,31 @@ def _python_resolved_requirements(distribution, installed: dict, extra: str) -> 
     return dependencies
 
 
-def _python_edges(installed: dict, included: set[str], extras: tuple[str, ...]) -> dict[str, set[str]]:
+def _python_edges(
+    installed: dict,
+    included: set[str],
+    extras: tuple[str, ...],
+    marker_environment: dict | None = None,
+) -> dict[str, set[str]]:
     edges = {}
     for purl, distribution in installed.values():
         if purl in included:
             references = set()
             for extra in ('', *extras):
-                references.update(_python_resolved_requirements(distribution, installed, extra))
+                references.update(_python_resolved_requirements(
+                    distribution, installed, extra, marker_environment,
+                ))
             edges[purl] = references & included
     return edges
 
 
-def _python_runtime_graph(installed: dict, root_ref: str, root_distribution, extras: tuple[str, ...]):
+def _python_runtime_graph(
+    installed: dict,
+    root_ref: str,
+    root_distribution,
+    extras: tuple[str, ...],
+    marker_environment: dict | None = None,
+):
     included = set()
     edges = {}
     pending = [(root_ref, root_distribution, extra) for extra in ('', *extras)]
@@ -111,7 +186,7 @@ def _python_runtime_graph(installed: dict, root_ref: str, root_distribution, ext
         if state in visited:
             continue
         visited.add(state)
-        references = _python_resolved_requirements(distribution, installed, extra)
+        references = _python_resolved_requirements(distribution, installed, extra, marker_environment)
         edges.setdefault(parent_ref, set()).update(references)
         for ref, child_extras in references.items():
             included.add(ref)
@@ -433,18 +508,34 @@ def main() -> None:
                         help='JSON from cargo metadata --locked --format-version 1')
     parser.add_argument('--npm-lock', type=Path, help='Resolved npm package-lock.json v2/v3')
     parser.add_argument('--gradle-resolution', type=Path, help='Resolved Gradle runtime dependency JSON')
+    parser.add_argument('--python-environment', type=Path,
+                        help='Copied virtual environment or site-packages directory to inventory')
+    parser.add_argument('--marker-environment', type=Path,
+                        help='JSON PEP 508 marker environment for a copied Python environment')
     parser.add_argument('--npm-os', help='Target npm OS (linux, darwin, or win32)')
     parser.add_argument('--npm-cpu', help='Target npm CPU (x64, arm64, ia32, etc.)')
     parser.add_argument('--npm-libc', choices=('gnu', 'musl'), help='Linux libc for optional platform packages')
     parser.add_argument('--extra', action='append', default=[], help='Include an installed project extra (repeatable)')
     args = parser.parse_args()
     try:
-        if sum(bool(value) for value in (args.cargo_metadata, args.npm_lock, args.gradle_resolution)) > 1:
+        if sum(bool(value) for value in (
+            args.cargo_metadata, args.npm_lock, args.gradle_resolution, args.python_environment,
+        )) > 1:
             parser.error('select only one SBOM input source')
+        if args.marker_environment and not args.python_environment:
+            parser.error('--marker-environment requires --python-environment')
         if args.cargo_metadata:
             document = build_cargo_sbom(json.loads(args.cargo_metadata.read_text(encoding='utf-8')))
         elif args.gradle_resolution:
             document = build_gradle_sbom(json.loads(args.gradle_resolution.read_text(encoding='utf-8')))
+        elif args.python_environment:
+            marker_environment = (
+                json.loads(args.marker_environment.read_text(encoding='utf-8'))
+                if args.marker_environment else None
+            )
+            document = build_python_environment_sbom(
+                args.python_environment, tuple(args.extra), marker_environment,
+            )
         elif args.npm_lock:
             if bool(args.npm_os) != bool(args.npm_cpu):
                 parser.error('--npm-os and --npm-cpu must be provided together')

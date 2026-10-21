@@ -7,6 +7,13 @@ on:
       - main
     tags:
       - 'v*'
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'pyproject.toml'
+      - 'tools/generate_sbom.py'
+      - 'tests/test_sbom_xml.py'
+      - '.github/workflows/docker-build.yml'
 
 permissions:
   contents: read
@@ -31,6 +38,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+
+      - name: Install pinned SBOM metadata parser
+        run: python -m pip install 'packaging==26.3'
 
       - name: Validate Raspberry Pi deployment files
         shell: bash
@@ -82,6 +96,74 @@ jobs:
             org.opencontainers.image.revision=${{ steps.version.outputs.revision }}
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
+
+      - name: Generate CycloneDX SBOM from the built container environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="/tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar"
+          image="simpleoffice4me:${{ steps.version.outputs.version }}-${{ matrix.arch }}"
+          container="simpleoffice-sbom-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${{ matrix.arch }}"
+          site_packages="artifacts/container/${{ matrix.arch }}/site-packages"
+          marker_environment="artifacts/container/${{ matrix.arch }}/marker-environment.json"
+          mkdir -p "artifacts/container/${{ matrix.arch }}"
+          docker load --input "$archive"
+          docker create --name "$container" "$image" > /dev/null
+          trap 'docker rm -f "$container" > /dev/null 2>&1 || true' EXIT
+          docker cp \
+            "$container:/opt/simpleoffice4me/.venv/lib/python3.12/site-packages" \
+            "artifacts/container/${{ matrix.arch }}/"
+          docker rm "$container" > /dev/null
+          trap - EXIT
+          docker run --rm --network none \
+            --entrypoint /opt/simpleoffice4me/.venv/bin/python "$image" -c '
+          import json
+          import os
+          import platform
+          import sys
+
+          print(json.dumps({
+              "implementation_name": sys.implementation.name,
+              "implementation_version": platform.python_version(),
+              "os_name": os.name,
+              "platform_machine": platform.machine(),
+              "platform_release": platform.release(),
+              "platform_system": platform.system(),
+              "platform_version": platform.version(),
+              "python_full_version": platform.python_version(),
+              "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
+              "sys_platform": sys.platform,
+          }, sort_keys=True))
+          ' > "$marker_environment"
+          python tools/generate_sbom.py \
+            --python-environment "$site_packages" --marker-environment "$marker_environment" \
+            --extra ocr \
+            --output "artifacts/container/${{ matrix.arch }}-python.cdx.json" \
+            --xml-output "artifacts/container/${{ matrix.arch }}-python.cdx.xml"
+          python -m json.tool "artifacts/container/${{ matrix.arch }}-python.cdx.json" > /dev/null
+
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          for format in json xml; do
+            "$validator" validate \
+              --input-file "artifacts/container/${{ matrix.arch }}-python.cdx.$format" \
+              --input-format "$format" --input-version v1_6 --fail-on-errors
+          done
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: simpleoffice4me-container-python-sbom-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}
+          path: |
+            artifacts/container/${{ matrix.arch }}-python.cdx.json
+            artifacts/container/${{ matrix.arch }}-python.cdx.xml
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Compress Docker image
         run: gzip -9 /tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar
