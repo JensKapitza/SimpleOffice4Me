@@ -115,7 +115,10 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         body = response.get_data(as_text=True)
         self.assertIn("Lokale Ordner", body)
-        self.assertIn("nicht an den Server übertragen", body)
+        self.assertIn(
+            "Es werden keine Ordnerpfade oder Android-URIs an den Server gesendet.",
+            body,
+        )
         self.assertIn("local-folder-storage.js", body)
 
     def test_general_global_defaults_are_admin_only_while_user_profile_stays_editable(self):
