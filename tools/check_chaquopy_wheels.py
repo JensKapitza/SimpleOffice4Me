@@ -15,7 +15,6 @@ from urllib.error import URLError
 from urllib.request import urlopen
 
 from packaging.utils import canonicalize_name, parse_wheel_filename
-from packaging.tags import Tag
 
 INDEX = "https://chaquo.com/pypi-13.1"
 NATIVE = ("cffi", "argon2-cffi-bindings", "pillow", "cryptography", "reportlab")
