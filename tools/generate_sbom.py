@@ -8,6 +8,7 @@ import binascii
 import importlib.metadata
 import json
 import platform
+import re
 import sys
 import urllib.parse
 import uuid
@@ -20,26 +21,49 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from simpleoffice_version import build_info  # noqa: E402
+from packaging.requirements import Requirement  # noqa: E402
+
+
+def _python_package_key(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def build_sbom() -> dict:
+    """Inventory installed Python distributions and their active metadata requirements."""
     unique_components = {}
+    installed = {}
     for distribution in sorted(importlib.metadata.distributions(), key=lambda item: item.metadata["Name"].casefold()):
         name = distribution.metadata["Name"]
         if not name:
             continue
-        purl = f"pkg:pypi/{name}@{distribution.version}"
+        key = _python_package_key(name)
+        purl = f"pkg:pypi/{key}@{distribution.version}"
         component = {"type": "library", "name": name, "version": distribution.version, "purl": purl}
         previous = unique_components.get(purl)
         if previous is not None and previous != component:
             raise ValueError(f"conflicting installed distribution metadata for {purl}")
+        if key in installed and installed[key][0] != purl:
+            raise ValueError(f"multiple installed versions of Python distribution {key}")
         unique_components[purl] = component
-    components = list(unique_components.values())
+        installed[key] = (purl, distribution)
+    components = sorted(unique_components.values(), key=lambda item: item["purl"])
+    dependencies = []
+    for purl, distribution in sorted(installed.values(), key=lambda item: item[0]):
+        references = set()
+        for requirement_text in distribution.requires or []:
+            requirement = Requirement(requirement_text)
+            if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
+                continue
+            dependency = installed.get(_python_package_key(requirement.name))
+            if dependency is not None:
+                references.add(dependency[0])
+        dependencies.append({"ref": purl, "dependsOn": sorted(references)})
     inventory = "\n".join(f"{item['name']}=={item['version']}" for item in components)
     serial = uuid.uuid5(uuid.NAMESPACE_URL, "https://github.com/JensKapitza/SimpleOffice4Me\n" + inventory)
     release_version = str(build_info(PROJECT_ROOT).get("release_version") or "2.0.0")
     return {"bomFormat": "CycloneDX", "specVersion": "1.6", "serialNumber": f"urn:uuid:{serial}", "version": 1,
-            "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": release_version}}, "components": components}
+            "metadata": {"timestamp": datetime.now(timezone.utc).isoformat(), "component": {"type": "application", "name": "SimpleOffice4Me", "version": release_version}}, "components": components,
+            "dependencies": dependencies}
 
 
 def build_cargo_sbom(metadata: dict) -> dict:
