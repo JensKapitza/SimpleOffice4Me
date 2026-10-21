@@ -476,7 +476,6 @@ PY
 termux_native_dependencies_ok() {
   "$VENV/bin/python" - <<'PY'
 import importlib
-import sys
 from importlib.metadata import PackageNotFoundError, version
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -487,10 +486,9 @@ except ImportError:
     from pip._vendor.packaging.specifiers import SpecifierSet
     from pip._vendor.packaging.version import Version
 
-pillow_specifier = ">=12.2,<13" if sys.version_info < (3, 11) else ">=13.0.0,<14"
 requirements = {
     "cryptography": (">=48.0.1,<51", "cryptography"),
-    "Pillow": (pillow_specifier, "PIL"),
+    "Pillow": (">=13.0.0,<14", "PIL"),
 }
 problems = []
 for distribution, (specifier, module) in requirements.items():
