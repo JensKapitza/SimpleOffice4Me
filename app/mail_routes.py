@@ -246,10 +246,17 @@ def save_account():
         password = request.form.get("password", "")
         account_id = values.get("id", "").strip()
         existing = next((row for row in store.accounts(_actor()) if row["id"] == account_id), None) if account_id else None
-        if account_id and existing is None:
-            abort(404)
-        if not password and not (existing and existing.get("password_saved")) and not values.get("password_env", "").strip():
-            raise ValueError("Für ein neues Konto ein Passwort eingeben oder in den erweiterten Einstellungen eine freigegebene Passwortvariable konfigurieren.")
+        has_existing_secret = bool(existing and (
+            existing.get("password_saved") or existing.get("smtp_password_saved")
+        ))
+        has_credential = any((
+            password,
+            request.form.get("smtp_password", ""),
+            values.get("password_env", "").strip(),
+            values.get("smtp_password_env", "").strip(),
+        ))
+        if not has_credential and not has_existing_secret:
+            raise ValueError("Für ein neues Konto ein IMAP- oder SMTP-Passwort eingeben oder in den erweiterten Einstellungen eine administrative Passwortvariable konfigurieren.")
         row = store.save_account(_actor(), values, password, request.form.get("remember_password") == "1")
         if row["password_saved"]:
             imap_state = "verschlüsselt gespeichert"

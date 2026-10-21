@@ -8,11 +8,13 @@ authentication overrides, folders, Sieve and UI preferences remain available
 under **Advanced settings**. The server still validates the final configuration
 and accepts only TLS or STARTTLS.
 
-New accounts require either a password or an administrator-bound IMAP password
-environment variable. The account form defaults to storing entered credentials
-using the installation-key encrypted mail secret store. Unchecking the storage
-option uses entered secrets only for the current configuration request; the
-success message says they must be re-entered for later connections. Empty
+New accounts require at least one IMAP or SMTP credential (a password or an
+administrator-bound environment-variable reference). IMAP access requires an
+IMAP credential; SMTP-only accounts can send without an IMAP password. The
+account form defaults to storing entered credentials using the installation-key
+encrypted mail secret store. Unchecking the storage option uses entered secrets
+only for the current configuration request; the success message says they must
+be re-entered for later connections. Empty
 password fields when editing an account preserve saved credentials. Saved
 passwords are never returned to the browser. Clearing a stored IMAP or SMTP
 secret requires its explicit delete checkbox; an empty password field alone
