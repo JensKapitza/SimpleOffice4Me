@@ -86,7 +86,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify APK package version matches project version
+      - name: Verify APK package date version and Android versionCode
         shell: bash
         run: |
           set -euo pipefail
@@ -105,6 +105,18 @@ jobs:
           case "$BADGING" in
             *"versionName='$EXPECTED_VERSION'"*) ;;
             *) echo "APK version does not match $EXPECTED_VERSION: $BADGING" >&2; exit 1 ;;
+          esac
+          EXPECTED_CODE="$(python - <<'PY'
+          import datetime as dt
+          import os
+          day = dt.datetime.strptime(os.environ['SIMPLEOFFICE_BUILD_DATE'], '%Y%m%d').date()
+          sequence = int(os.environ['SIMPLEOFFICE_BUILD_SEQUENCE'])
+          print((day - dt.date(2020, 1, 1)).days * 10000 + sequence)
+          PY
+          )"
+          case "$BADGING" in
+            *"versionCode='$EXPECTED_CODE'"*) ;;
+            *) echo "APK versionCode does not match $EXPECTED_CODE: $BADGING" >&2; exit 1 ;;
           esac
 
       - name: Verify packaged launcher images
