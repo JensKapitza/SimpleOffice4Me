@@ -3,7 +3,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from flask import Flask, g
+
+from app import task_management
 from app.task_management import next_recurrence_values
 from app.todo_store import TodoStore
 
@@ -84,6 +88,55 @@ class TaskSubtaskPersistenceTest(unittest.TestCase):
         current = self._item(store, task["id"], "alice")
         self.assertEqual("FREQ=WEEKLY", current["rrule"])
         self.assertEqual("in-process", current["status"])
+
+
+class TaskSourceDocumentRouteTests(unittest.TestCase):
+    def test_board_resolves_visible_documents_without_disclosing_hidden_metadata(self):
+        app = Flask(__name__)
+        with tempfile.TemporaryDirectory() as directory:
+            app.config["DOCUMENT_ROOT"] = directory
+            self._assert_source_visibility(app)
+
+    def _assert_source_visibility(self, app):
+        rows = [{
+            "id": "task-1",
+            "uid": "task-1@example.test",
+            "title": "Review source",
+            "status": "needs-action",
+            "document_ids": ["visible-document", "hidden-document"],
+            "email_document_id": "visible-document",
+        }]
+        todos = patch("app.task_management._store")
+        visible_rows = patch("app.task_management._visible_rows", return_value=rows)
+        render = patch("app.task_management.render_template", side_effect=lambda _template, **context: context)
+
+        def visible_document(_store, document_id):
+            if document_id == "visible-document":
+                return {"document_id": document_id, "last_path": "projects/source.pdf"}
+            raise ValueError("unknown document")
+
+        with app.test_request_context("/tasks/"):
+            g.user = {"username": "alice", "is_admin": False}
+            with todos as store_patch, visible_rows, render:
+                store_patch.return_value.lists.return_value = []
+                with patch("app.task_management.DocumentStore.get_document", new=visible_document):
+                    context = task_management.board()
+
+        links = context["task_source_documents"]["task-1"]
+        self.assertEqual(
+            [{"available": True, "document_id": "visible-document", "name": "source.pdf"}, {"available": False}],
+            links,
+        )
+
+    def test_board_template_offers_visible_source_link_and_safe_unavailable_state(self):
+        root = Path(__file__).resolve().parents[1]
+        template = (root / "templates" / "tasks" / "board.html").read_text(encoding="utf-8")
+
+        self.assertIn("task_source_documents.get(task.id, [])", template)
+        self.assertIn("url_for('documents.detail', document_id=source.document_id)", template)
+        self.assertIn("Quelldatei öffnen", template)
+        self.assertIn("Quelldatei nicht verfügbar oder nicht zugänglich", template)
+        self.assertNotIn("{{ source.document_id }}", template)
 
 
 if __name__ == "__main__":
