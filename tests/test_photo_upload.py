@@ -275,6 +275,32 @@ class PhotoUploadHttpTest(unittest.TestCase):
         self.assertTrue(duplicate.json["duplicate"])
         self.assertEqual(first.json["document_id"], duplicate.json["document_id"])
 
+    def test_photo_upload_records_a_completed_item_through_the_optional_web_inbox(self):
+        payload = self._jpeg()
+        inbox = {"item": object(), "error": "", "malware_status": "clean"}
+        with patch("app.photo_upload.begin_web_inbox_upload", return_value=inbox) as begin, \
+             patch("app.photo_upload.complete_web_inbox_upload") as complete:
+            response = self._post("inbox-photo.jpg", payload)
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(4, len(begin.call_args.args))
+        self.assertEqual(inbox, complete.call_args.args[1])
+        self.assertEqual(response.json["document_id"], complete.call_args.kwargs["document_id"])
+
+    def test_photo_upload_scan_rejection_stops_before_document_storage(self):
+        inbox = {
+            "item": object(),
+            "error": "Malware-Scanner nicht verfügbar.",
+            "error_status": 503,
+        }
+        with patch("app.photo_upload.begin_web_inbox_upload", return_value=inbox), \
+             patch("app.photo_upload.PhotoBulkImporter.import_photo") as importer:
+            response = self._post("blocked-photo.jpg", self._jpeg())
+
+        self.assertEqual(503, response.status_code)
+        importer.assert_not_called()
+        self.assertEqual("Malware-Scanner nicht verfügbar.", response.json["error"])
+
     def test_unsupported_heic_photo_has_a_clear_generic_import_fallback(self):
         response = self.client.post(
             "/documents/photos/upload",

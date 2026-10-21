@@ -20,9 +20,11 @@ document type to be selected first. The page links to three existing paths:
   Files enter the regular DocumentStore and can be managed and associated later.
 
 These actions preserve the existing DocumentStore, photo importer, inbox, and
-web-upload security checks. The capture page does not create a parallel
-attachment store. A mobile upload is not automatically linked to a business
-object; the user can add existing document relationships later.
+web-upload security checks. When V3 Inbox is enabled, uploads also use its
+existing per-file status and optional malware-scan flow before being marked
+complete. The capture page does not create a parallel attachment store. A
+mobile upload is not automatically linked to a business object; the user can
+add existing document relationships later.
 
 Camera availability, permission prompts, HEIC support, iOS file selection, and
 physical-device retry behavior still require Android WebView and iOS device

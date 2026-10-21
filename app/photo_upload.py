@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import shutil
 import subprocess
 import uuid
@@ -24,6 +25,11 @@ from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_file_under, resolve_for_write_under
 from .settings_store import SettingsStore
 from .v2.materialize import materialize_verified_object
+from .v3_inbox_web import (
+    begin_web_inbox_upload,
+    complete_web_inbox_upload,
+    fail_web_inbox_upload,
+)
 
 
 bp = Blueprint("photo_upload", __name__, url_prefix="/documents/photos")
@@ -680,15 +686,40 @@ def upload_photo():
             "ok": False,
             "error": "Dieses Fotoformat wird nicht unterstützt. JPEG, PNG, GIF und WebP funktionieren hier; HEIC kann als normale Datei importiert werden.",
         }), 415
+    actor = str(g.user["username"])
+    source_key = f"{getattr(g, 'request_id', '') or uuid.uuid4().hex}:photo"
+    try:
+        inbox = begin_web_inbox_upload(current_app.config, uploaded, actor, source_key)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        current_app.logger.warning(
+            "Photo inbox initialization failed (%s)", type(exc).__name__
+        )
+        return jsonify({"ok": False, "error": "Fotoeingang ist nicht verfügbar. Bitte erneut versuchen."}), 503
+    if inbox.get("error"):
+        return jsonify({"ok": False, "error": str(inbox["error"])}), int(inbox.get("error_status", 400))
     try:
         imported = PhotoBulkImporter(current_app.config["DOCUMENT_ROOT"]).import_photo(
-            uploaded, uploaded.filename, str(g.user["username"]),
+            uploaded, uploaded.filename, actor,
             archive=request.form.get("archive") == "1",
             max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             client=_client_metadata(), run_ocr=request.form.get("run_ocr") == "1",
         )
     except (OSError, RuntimeError, ValueError):
+        fail_web_inbox_upload(
+            current_app.config["DOCUMENT_ROOT"], inbox.get("item"), "photo import failed"
+        )
         return jsonify({"ok": False, "error": "Foto konnte nicht verarbeitet werden."}), 400
+    complete_web_inbox_upload(
+        current_app.config["DOCUMENT_ROOT"],
+        inbox,
+        source_key=source_key,
+        original_name=uploaded.filename,
+        actor=actor,
+        document_id=imported.document["document_id"],
+        imported_metadata=imported.document,
+        imported_size=int(imported.document.get("size", 0) or 0),
+        mime_type=uploaded.mimetype or "",
+    )
     return jsonify({
         "ok": True, "document_id": imported.document["document_id"],
         "duplicate": imported.duplicate,
