@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import unittest
 import zipfile
 
-from tools.android_apk_python_sbom import packaged_distributions
+from tools.android_apk_python_sbom import packaged_distributions, enforce_android_pillow_policy
 from tools.generate_sbom import build_sbom
 
 
@@ -19,6 +19,19 @@ def make_apk(path: Path, metadata: bytes | None, archive_name="assets/chaquopy/r
 
 
 class AndroidApkPythonSbomTests(unittest.TestCase):
+    def test_security_gate_rejects_bundled_pillow_11(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 11.0.0\n")
+            with self.assertRaisesRegex(ValueError, "below the 12.2.0 security baseline"):
+                enforce_android_pillow_policy(packaged_distributions(apk))
+
+    def test_security_gate_accepts_updated_pillow(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            make_apk(apk, b"Metadata-Version: 2.1\nName: Pillow\nVersion: 13.0.0\n")
+            enforce_android_pillow_policy(packaged_distributions(apk))
+
     def test_extracts_actual_bundled_version(self):
         with TemporaryDirectory() as tmp:
             apk = Path(tmp) / "app.apk"
