@@ -50,7 +50,7 @@ def build_sbom() -> dict:
     dependencies = []
     for purl, distribution in sorted(installed.values(), key=lambda item: item[0]):
         references = set()
-        for requirement_text in distribution.requires or []:
+        for requirement_text in getattr(distribution, 'requires', None) or []:
             requirement = Requirement(requirement_text)
             if requirement.marker is not None and not requirement.marker.evaluate({"extra": ""}):
                 continue
