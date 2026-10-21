@@ -13,7 +13,9 @@ class CargoSbomCliTests(unittest.TestCase):
     def test_declared_locked_packages_and_licenses_are_exported_without_host_packages(self):
         with tempfile.TemporaryDirectory() as directory:
             metadata, output = Path(directory) / 'cargo.json', Path(directory) / 'sbom.json'
-            metadata.write_text(json.dumps({'resolve': {'root': 'app-id'}, 'packages': [
+            metadata.write_text(json.dumps({'resolve': {'root': 'app-id', 'nodes': [
+                {'id': 'app-id', 'dependencies': ['lib-id']},
+                {'id': 'lib-id', 'dependencies': []}]}, 'packages': [
                 {'id': 'app-id', 'name': 'fixture-app', 'version': '2.4.6', 'license': 'GPL-3.0-only'},
                 {'id': 'lib-id', 'name': 'fixture-lib', 'version': '1.2.3', 'license': 'MIT OR Apache-2.0'}]}))
             result = subprocess.run([sys.executable, str(TOOL), '--cargo-metadata', str(metadata),
@@ -29,6 +31,10 @@ class CargoSbomCliTests(unittest.TestCase):
                 {'type': 'library', 'name': 'fixture-lib', 'version': '1.2.3',
                  'purl': 'pkg:cargo/fixture-lib@1.2.3', 'licenses': [{'expression': 'MIT OR Apache-2.0'}]},
             ], sbom['components'])
+            self.assertEqual([
+                {'ref': 'pkg:cargo/fixture-app@2.4.6', 'dependsOn': ['pkg:cargo/fixture-lib@1.2.3']},
+                {'ref': 'pkg:cargo/fixture-lib@1.2.3', 'dependsOn': []},
+            ], sbom['dependencies'])
 
     def test_missing_resolved_root_is_rejected_without_creating_output(self):
         with tempfile.TemporaryDirectory() as directory:
