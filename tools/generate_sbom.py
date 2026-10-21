@@ -310,7 +310,7 @@ def build_npm_sbom(
         purls_by_path[package_path] = package_ref
 
     root_ref = purl(root_name, root_version)
-    dependencies = []
+    dependency_edges = {}
     for package_path, package in sorted(packages.items()):
         if package_path and package_path not in purls_by_path:
             continue
@@ -338,7 +338,11 @@ def build_npm_sbom(
                     continue
                 raise ValueError(f"npm dependency is not an installable package: {resolved_path}")
             resolved.add(resolved_ref)
-        dependencies.append({'ref': parent_ref, 'dependsOn': sorted(resolved)})
+        dependency_edges.setdefault(parent_ref, set()).update(resolved)
+    dependencies = [
+        {'ref': reference, 'dependsOn': sorted(resolved)}
+        for reference, resolved in sorted(dependency_edges.items())
+    ]
 
     inventory = '\n'.join(sorted(unique_components))
     serial = uuid.uuid5(uuid.NAMESPACE_URL, 'https://github.com/JensKapitza/SimpleOffice4Me/npm\n' + inventory)

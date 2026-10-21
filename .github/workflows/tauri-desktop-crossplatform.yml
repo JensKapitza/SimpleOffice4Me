@@ -28,11 +28,11 @@ jobs:
             validator_sha256: 9b360974c41a5d612eb026fb5e3bb1fa28e08865f7a4f915665b8bc94bd3bc31
           - os: macos-14
             name: macos
-            target: x86_64-apple-darwin
+            target: aarch64-apple-darwin
             npm_os: darwin
-            npm_cpu: x64
-            validator: cyclonedx-osx-x64
-            validator_sha256: 0ea92306fc6ea1a3f6598d8e0257d52903341d0df21a325fb1510aee7c6b30dd
+            npm_cpu: arm64
+            validator: cyclonedx-osx-arm64
+            validator_sha256: 750c148780154833f6401f9067d08c5a4c31567b6ee3c26c062c3a95c62d741c
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -51,6 +51,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Generate resolved platform-specific npm inventory
         working-directory: .
+        shell: bash
         run: |
           python tools/generate_sbom.py --npm-lock desktop/tauri/package-lock.json \
             --npm-os '${{ matrix.npm_os }}' --npm-cpu '${{ matrix.npm_cpu }}' \
@@ -61,6 +62,7 @@ jobs:
       - run: npm run build -- -- --locked
       - name: Generate resolved platform-specific Rust inventory
         working-directory: .
+        shell: bash
         run: |
           cargo metadata --locked --format-version 1 --filter-platform '${{ matrix.target }}' \
             --manifest-path desktop/tauri/src-tauri/Cargo.toml > "$RUNNER_TEMP/tauri-cargo-metadata.json"
@@ -75,7 +77,19 @@ jobs:
           curl --fail --location --retry 3 \
             "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/${{ matrix.validator }}" \
             --output "$validator"
-          printf '%s  %s\n' '${{ matrix.validator_sha256 }}' "$validator" | sha256sum --check --status
+          python - "$validator" '${{ matrix.validator_sha256 }}' <<'PY'
+          import hashlib
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          digest = hashlib.sha256()
+          with path.open("rb") as source:
+              for block in iter(lambda: source.read(1024 * 1024), b""):
+                  digest.update(block)
+          if digest.hexdigest() != sys.argv[2]:
+              raise SystemExit(f"CycloneDX CLI checksum mismatch for {path.name}")
+          PY
           chmod 0755 "$validator"
           for bom in "artifacts/tauri-platform/${{ matrix.name }}-npm.cdx.json" \
                      "artifacts/tauri-platform/${{ matrix.name }}-rust.cdx.json"; do

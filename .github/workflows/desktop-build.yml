@@ -54,6 +54,7 @@ jobs:
         run: python -m pip install 'packaging==26.3'
       - name: Generate resolved Electron npm SBOM
         working-directory: .
+        shell: bash
         run: |
           python tools/generate_sbom.py --npm-lock desktop/electron/package-lock.json \
             --output "artifacts/desktop/${{ matrix.artifact }}-npm.cdx.json" \
@@ -129,7 +130,19 @@ jobs:
           curl --fail --location --retry 3 \
             "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/$asset" \
             --output "$validator"
-          printf '%s  %s\n' "$digest" "$validator" | sha256sum --check --status
+          python - "$validator" "$digest" <<'PY'
+          import hashlib
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          digest = hashlib.sha256()
+          with path.open("rb") as source:
+              for block in iter(lambda: source.read(1024 * 1024), b""):
+                  digest.update(block)
+          if digest.hexdigest() != sys.argv[2]:
+              raise SystemExit(f"CycloneDX CLI checksum mismatch for {path.name}")
+          PY
           chmod 0755 "$validator"
           "$validator" validate --input-file "artifacts/desktop/${{ matrix.artifact }}-npm.cdx.json" \
             --input-format json --input-version v1_6 --fail-on-errors

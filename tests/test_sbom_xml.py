@@ -160,12 +160,16 @@ class SbomXmlTests(unittest.TestCase):
         lock = {
             "name": "fixture-app", "version": "1.0.0", "lockfileVersion": 3,
             "packages": {
-                "": {"name": "fixture-app", "version": "1.0.0", "devDependencies": {"@scope/tool": "^1"}},
+                "": {
+                    "name": "fixture-app", "version": "1.0.0",
+                    "devDependencies": {"@scope/tool": "^1", "nested": "^2"},
+                },
                 "node_modules/@scope/tool": {
                     "version": "1.2.0", "integrity": "sha512-" + base64.b64encode(b"fixture digest").decode(),
                     "license": "MIT", "dependencies": {"nested": "^2"},
                 },
                 "node_modules/@scope/tool/node_modules/nested": {"version": "2.1.0", "license": "Apache-2.0"},
+                "node_modules/nested": {"version": "2.1.0", "license": "Apache-2.0"},
             },
         }
         document = build_npm_sbom(lock, npm_os="linux", npm_cpu="x64")
@@ -175,9 +179,11 @@ class SbomXmlTests(unittest.TestCase):
         self.assertEqual([{"alg": "SHA-512", "content": base64.b64decode(lock["packages"]["node_modules/@scope/tool"]["integrity"].removeprefix("sha512-")).hex()}], tool["hashes"])
         self.assertEqual([{"license": {"name": "MIT"}}], tool["licenses"])
         root_edge = next(item for item in document["dependencies"] if item["ref"] == "pkg:npm/fixture-app@1.0.0")
-        self.assertEqual([tool_ref], root_edge["dependsOn"])
+        self.assertEqual([tool_ref, nested_ref], root_edge["dependsOn"])
         tool_edge = next(item for item in document["dependencies"] if item["ref"] == tool_ref)
         self.assertEqual([nested_ref], tool_edge["dependsOn"])
+        dependency_refs = [item["ref"] for item in document["dependencies"]]
+        self.assertEqual(len(dependency_refs), len(set(dependency_refs)))
 
         with TemporaryDirectory() as tmp:
             output = Path(tmp) / "npm.xml"
@@ -215,12 +221,13 @@ class SbomXmlTests(unittest.TestCase):
             ["pkg:npm/%40scope/cli-linux-x64-gnu@1.0.0", "pkg:npm/linux-tool@1.0.0"],
             [item["purl"] for item in document["components"]],
         )
+        root_edge = next(item for item in document["dependencies"] if item["ref"] == "pkg:npm/fixture-app@1.0.0")
         self.assertEqual(
             {
                 "ref": "pkg:npm/fixture-app@1.0.0",
                 "dependsOn": ["pkg:npm/%40scope/cli-linux-x64-gnu@1.0.0", "pkg:npm/linux-tool@1.0.0"],
             },
-            document["dependencies"][0],
+            root_edge,
         )
 
     def test_rejects_wrong_spec_version(self):
