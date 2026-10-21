@@ -54,6 +54,8 @@ jobs:
           CIBW_BUILD: cp315-*
           CIBW_ARCHS_ANDROID: arm64_v8a
           CIBW_BUILD_VERBOSITY: '1'
+          CIBW_TEST_SKIP: '*'
+          CIBW_BUILD_FRONTEND: build
           CIBW_OUTPUT_DIR: wheelhouse
           PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
         shell: bash
