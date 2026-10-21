@@ -303,6 +303,8 @@ class MailStore:
         stored_password = (previous or {}).get("password", "")
         if password:
             stored_password = self.secrets.encrypt(password, username=username) if remember else ""
+        elif _form_bool(data.get("clear_saved_password")):
+            stored_password = ""
         elif stored_password:
             if str(stored_password).startswith("enc:v2:"):
                 old_username = str((previous or {}).get("username", ""))
@@ -314,6 +316,8 @@ class MailStore:
         stored_smtp_password = (previous or {}).get("smtp_password", "")
         if data.get("smtp_password"):
             stored_smtp_password = self.secrets.encrypt(str(data["smtp_password"]), username=smtp_username) if remember else ""
+        elif _form_bool(data.get("clear_saved_smtp_password")):
+            stored_smtp_password = ""
         elif stored_smtp_password:
             if str(stored_smtp_password).startswith("enc:v2:"):
                 old_smtp_username = str((previous or {}).get("smtp_username") or (previous or {}).get("username", ""))

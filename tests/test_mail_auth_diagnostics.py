@@ -35,6 +35,8 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
         self.assertIn('<details id="mail-advanced-settings">', template)
         self.assertIn('name="_auto_fetch_control"', template)
         self.assertIn('name="auto_fetch_enabled"', template)
+        self.assertIn('name="clear_saved_password"', template)
+        self.assertIn('name="clear_saved_smtp_password"', template)
         self.assertIn("mail_client.set_auto_fetch", template)
 
     def test_saved_imap_password_is_reused_for_smtp_and_remains_encrypted(self):

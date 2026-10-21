@@ -14,9 +14,11 @@ using the installation-key encrypted mail secret store. Unchecking the storage
 option uses entered secrets only for the current configuration request; the
 success message says they must be re-entered for later connections. Empty
 password fields when editing an account preserve saved credentials. Saved
-passwords are never returned to the browser. Environment-variable names are
-not treated as authorization: the owner, account, protocol and server binding
-are checked when a connection is attempted.
+passwords are never returned to the browser. Clearing a stored IMAP or SMTP
+secret requires its explicit delete checkbox; an empty password field alone
+never removes an existing secret. Environment-variable names are not treated
+as authorization: the owner, account, protocol and server binding are checked
+when a connection is attempted.
 
 ## Automatic and manual IMAP access
 

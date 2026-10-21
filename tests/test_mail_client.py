@@ -183,6 +183,38 @@ class MailClientTests(unittest.TestCase):
         self.assertEqual("environment", account["password_state"])
         self.assertNotIn("password", account)
 
+    def test_blank_edits_preserve_saved_secrets_until_explicitly_cleared(self):
+        account = self.store.save_account(
+            "alice",
+            {
+                "id": self.account["id"], "host": "imap.example.test",
+                "username": "alice@example.test", "smtp_password": "smtp-secret",
+                "smtp_username": "alice@example.test", "smtp_from": "alice@example.test",
+            },
+            "imap-secret",
+            True,
+        )
+        preserved = self.store.save_account(
+            "alice",
+            {"id": account["id"], "host": "imap.example.test", "username": "alice@example.test"},
+            "",
+            False,
+        )
+        self.assertTrue(preserved["password_saved"])
+        self.assertTrue(preserved["smtp_password_saved"])
+
+        cleared = self.store.save_account(
+            "alice",
+            {
+                "id": account["id"], "host": "imap.example.test", "username": "alice@example.test",
+                "clear_saved_password": "1", "clear_saved_smtp_password": "1",
+            },
+            "",
+            False,
+        )
+        self.assertFalse(cleared["password_saved"])
+        self.assertFalse(cleared["smtp_password_saved"])
+
     def test_new_password_without_storage_clears_stale_saved_password(self):
         updated = self.store.save_account("alice", {
             **self.account, "auth_method": "auto", "smtp_from": "alice@example.test",
