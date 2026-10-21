@@ -2,6 +2,11 @@
 
 SimpleOffice4Me can be built and distributed as a Docker image.
 
+The image build context excludes local `.env` files and `deploy/docker/secrets/`.
+Only the placeholder `deploy/docker/.env.example` is included. Supply real
+credentials at runtime through Compose secrets or environment configuration;
+never put them in files copied into an image.
+
 ## GitHub Actions artifacts
 
 The `Docker build` workflow builds two downloadable image archives on pull requests and manual runs:
