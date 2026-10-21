@@ -227,22 +227,25 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.assertEqual(hashlib.sha256(response.data).hexdigest(), report["sha256"])
 
     def test_empty_selection_generates_downloadable_audited_pdf(self):
+        from io import BytesIO
         from pypdf import PdfReader
-        preview = self.client.get(f"/site-visits/{self.visit['visit_id']}/report")
+        empty_visit = self.store.create("report-owner", {"title": "Ortstermin ohne Befunde"})
+        visit_id = empty_visit["visit_id"]
+        preview = self.client.get(f"/site-visits/{visit_id}/report")
         self.assertEqual(200, preview.status_code)
         page = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
         csrf = page.find("input", {"name": "_csrf_token"})["value"]
         response = self.client.post(
-            f"/site-visits/{self.visit['visit_id']}/report.pdf",
+            f"/site-visits/{visit_id}/report.pdf",
             data={"_csrf_token": csrf},
         )
         self.assertEqual(200, response.status_code)
         self.assertEqual("application/pdf", response.mimetype)
         self.assertIn("attachment;", response.headers["Content-Disposition"])
         self.assertTrue(response.data.startswith(b"%PDF"))
-        pdf = PdfReader(__import__("io").BytesIO(response.data))
+        pdf = PdfReader(BytesIO(response.data))
         self.assertIn("Keine bestätigten Befunde vorhanden.", "\\n".join(page.extract_text() for page in pdf.pages))
-        report = self.store.get(self.visit["visit_id"], "report-owner")["reports"][-1]
+        report = self.store.get(visit_id, "report-owner")["reports"][-1]
         self.assertEqual([], report["finding_ids"])
         self.assertEqual(hashlib.sha256(response.data).hexdigest(), report["sha256"])
 
