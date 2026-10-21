@@ -21,6 +21,26 @@ class SbomXmlTests(unittest.TestCase):
         matching = [item for item in document["components"] if item["purl"] == "pkg:pypi/simpleoffice4me@2.0.0"]
         self.assertEqual(1, len(matching))
 
+    def test_python_dependencies_respect_markers_and_extras(self):
+        alpha = SimpleNamespace(
+            metadata={"Name": "Alpha_Pkg"}, version="1.0",
+            requires=["beta-pkg>=2", "missing-package; python_version < '2'", "extra-only; extra == 'pdf'"],
+        )
+        beta = SimpleNamespace(metadata={"Name": "Beta.Pkg"}, version="2.1", requires=[])
+        with patch("tools.generate_sbom.importlib.metadata.distributions", return_value=[alpha, beta]):
+            document = build_sbom()
+        edges = {entry["ref"]: entry["dependsOn"] for entry in document["dependencies"]}
+        self.assertEqual(["pkg:pypi/beta-pkg@2.1"], edges["pkg:pypi/alpha-pkg@1.0"])
+        self.assertEqual([], edges["pkg:pypi/beta-pkg@2.1"])
+        with TemporaryDirectory() as tmp:
+            output = Path(tmp) / "python.xml"
+            write_xml_sbom(document, output)
+            tree = ET.parse(output)
+        self.assertIsNotNone(tree.find(
+            ".//cdx:dependencies/cdx:dependency[@ref='pkg:pypi/alpha-pkg@1.0']/cdx:dependency",
+            NS,
+        ))
+
     def test_xml_preserves_inventory_and_spdx_license(self):
         document = {
             "bomFormat": "CycloneDX", "specVersion": "1.6",
