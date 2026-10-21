@@ -41,7 +41,7 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
     def test_security_gate_rejects_old_pillow_even_with_new_chaquopy(self):
         from types import SimpleNamespace
         package = SimpleNamespace(metadata={"Name": "Pillow"}, version="11.0.0")
-        with self.assertRaisesRegex(ValueError, "below the 12.2.0"):
+        with self.assertRaisesRegex(ValueError, "below the 13.0.0"):
             enforce_android_pillow_policy([package])
 
     def test_extracts_actual_bundled_version(self):
