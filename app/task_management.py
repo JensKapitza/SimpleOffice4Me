@@ -274,6 +274,8 @@ def create_task():
     actor = _actor()
     try:
         values = request.form.to_dict()
+        # Only document-detail task creation can establish source provenance.
+        values.pop("source_document_id", None)
         values["categories"] = request.form.getlist("categories") or values.get("categories", "")
         values["assigned_to"] = request.form.getlist("assigned_to") or values.get("assigned_to", "")
         _store().add(values.get("title", ""), actor, values)
