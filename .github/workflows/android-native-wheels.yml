@@ -116,7 +116,23 @@ jobs:
               fi
               test -f "$zlib_lib"
               ln -sf "$zlib_lib" "$zlib_prefix/lib/libz.so"
-              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$zlib_prefix CFLAGS=\"-I$zlib_prefix/include\" LDFLAGS=\"-L$zlib_prefix/lib\""
+              # Build JPEG for the target ABI; host libjpeg cannot be linked
+              # into an Android wheel. Keep the install under the workspace.
+              jpeg_source="$GITHUB_WORKSPACE/sources/libjpeg-turbo"
+              git clone --depth 1 --branch 3.1.2 \
+                https://github.com/libjpeg-turbo/libjpeg-turbo.git "$jpeg_source"
+              jpeg_prefix="$GITHUB_WORKSPACE/sources/android-jpeg-prefix"
+              cmake -S "$jpeg_source" -B "$jpeg_source/build-android" \
+                -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+                -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+                -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$jpeg_prefix" \
+                -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_SIMD=OFF \
+                -DWITH_JAVA=OFF -DWITH_TURBOJPEG=OFF
+              cmake --build "$jpeg_source/build-android" --parallel 2
+              cmake --install "$jpeg_source/build-android"
+              test -f "$jpeg_prefix/include/jpeglib.h"
+              test -f "$jpeg_prefix/lib/libjpeg.a"
+              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$zlib_prefix JPEG_ROOT=$jpeg_prefix CFLAGS=\"-I$zlib_prefix/include -I$jpeg_prefix/include\" LDFLAGS=\"-L$zlib_prefix/lib -L$jpeg_prefix/lib\""
               echo "Pillow zlib prefix: $zlib_prefix"
               ls -l "$zlib_prefix/include" "$zlib_prefix/lib"
             fi
