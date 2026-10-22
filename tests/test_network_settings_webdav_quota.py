@@ -1,4 +1,6 @@
 """Black-box verification that the persisted WebDAV quota controls uploads."""
+from unittest.mock import patch
+
 from app import app, configured_webdav_quota_bytes
 from app.settings_store import SettingsStore
 
@@ -15,13 +17,15 @@ class NetworkSettingsWebDavQuotaTests(WebDavTestBase):
             {"network": {"webdav_quota_mib": 1}}, "jens"
         )
 
-        # A service restart reloads the persisted setting before WebDAV requests.
-        app.config["WEBDAV_QUOTA_BYTES"] = configured_webdav_quota_bytes(document_root)
-        response = self.client.put(
-            f"{self.files}/quota-test.txt",
-            data=b"x" * (1024 * 1024),
-            headers=self.auth,
-        )
+        # Scope the simulated process restart to this request so the shared test app
+        # cannot leak the quota into later tests.
+        quota_bytes = configured_webdav_quota_bytes(document_root)
+        with patch.dict(app.config, {"WEBDAV_QUOTA_BYTES": quota_bytes}):
+            response = self.client.put(
+                f"{self.files}/quota-test.txt",
+                data=b"x" * (1024 * 1024),
+                headers=self.auth,
+            )
         self.assertEqual(507, response.status_code)
         self.assertIn(b"quota-not-exceeded", response.data)
 
