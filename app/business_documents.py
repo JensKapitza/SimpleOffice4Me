@@ -299,13 +299,6 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             raise ValueError("Freitextadresse: mindestens zwei Zeilen, maximal 1000 Zeichen.")
         label = chr(10).join(lines)
         candidate = {"id": "", "label": label, "street": lines[0], "postal": "", "city": "", "country": "DE"}
-    if form.get("address_mode") == "manual" and form.get("save_billing_address") == "1":
-        saved = contacts.add_address(contact_id, "Rechnungsadresse", label, actor, components={"street": street, "postal": postal, "city": city, "country": country})
-        contact = contacts.get(contact_id, actor)
-        crm = ContactCRMStore(root).record(contact_id)
-        label, candidates = address_labels(contact, crm)
-        candidate = next((item for item in candidates if item["id"] == f"contact-{len(contact.get('addresses', [])) - 1}"), candidate)
-        label = candidate["label"]
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
@@ -345,6 +338,16 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
             raise Conflict(description="This invoice draft changed in another session. Reload it before saving.")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
+        if form.get("address_mode") == "manual" and form.get("save_billing_address") == "1":
+            buyer = row["buyer"]
+            components = {key: buyer[key] for key in ("street", "postal", "city", "country")}
+            contact = ContactStore(root).get(contact_id, actor)
+            matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
+            if not matching:
+                try:
+                    ContactStore(root).add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
+                except (OSError, ValueError) as exc:
+                    logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
     DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
     return row
 
