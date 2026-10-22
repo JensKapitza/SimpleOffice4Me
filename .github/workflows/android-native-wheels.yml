@@ -132,7 +132,24 @@ jobs:
               cmake --install "$jpeg_source/build-android"
               test -f "$jpeg_prefix/include/jpeglib.h"
               test -f "$jpeg_prefix/lib/libjpeg.a"
-              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$zlib_prefix JPEG_ROOT=$jpeg_prefix CFLAGS=\"-I$zlib_prefix/include -I$jpeg_prefix/include\" LDFLAGS=\"-L$zlib_prefix/lib -L$jpeg_prefix/lib\""
+              # Pillow requires FreeType for ImageFont; cross-compile it
+              # rather than disabling text rendering or linking host libs.
+              freetype_source="$GITHUB_WORKSPACE/sources/freetype"
+              git clone --depth 1 --branch VER-2-13-3 \
+                https://github.com/freetype/freetype.git "$freetype_source"
+              freetype_prefix="$GITHUB_WORKSPACE/sources/android-freetype-prefix"
+              cmake -S "$freetype_source" -B "$freetype_source/build-android" \
+                -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+                -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+                -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$freetype_prefix" \
+                -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON \
+                -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=ON \
+                -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON
+              cmake --build "$freetype_source/build-android" --parallel 2
+              cmake --install "$freetype_source/build-android"
+              test -f "$freetype_prefix/include/freetype2/ft2build.h"
+              test -f "$freetype_prefix/lib/libfreetype.a"
+              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$zlib_prefix JPEG_ROOT=$jpeg_prefix FREETYPE_ROOT=$freetype_prefix CFLAGS=\"-I$zlib_prefix/include -I$jpeg_prefix/include -I$freetype_prefix/include/freetype2\" LDFLAGS=\"-L$zlib_prefix/lib -L$jpeg_prefix/lib -L$freetype_prefix/lib\""
               echo "Pillow zlib prefix: $zlib_prefix"
               ls -l "$zlib_prefix/include" "$zlib_prefix/lib"
             fi
