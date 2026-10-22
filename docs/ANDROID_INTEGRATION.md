@@ -82,8 +82,10 @@ Flask-Endpunkt. Der Server validiert weiterhin alle relativen Pfade und führt
 den normalen hashbasierten Import einschließlich Inbox-/Auditpfad aus. Die
 SAF-URI wird nicht an Flask übertragen. Ein kleiner Abbruchknopf trennt einen
 laufenden Transfer; ein unterbrochener Multipart-Request wird nicht als
-vollständiger Import verarbeitet. Sobald alle Bytes übertragen wurden, wird
-der Abbruch deaktiviert, während der Server den Import beendet.
+vollständiger Import verarbeitet. Vor der Bestätigung zeigt die APK Dateianzahl,
+Gesamtgröße und das Ziel eines neuen eindeutigen Importordners. Sobald alle
+Bytes übertragen wurden, wird der Abbruch deaktiviert, während der Server den
+Import beendet.
 
 - pro Upload höchstens 1000 Dateien und maximal 64 Verzeichnisebenen;
 - bis zu 20 SAF-Wurzeln in einer Importwarteschlange und höchstens 10000

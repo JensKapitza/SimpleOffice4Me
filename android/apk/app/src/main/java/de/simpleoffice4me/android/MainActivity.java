@@ -413,10 +413,12 @@ public class MainActivity extends Activity {
                 + "remove:(id)=>String(window.SimpleOfficeAndroid.removeLocalFolder(bridgeToken,String(id||''))),"
                  + "check:(id)=>JSON.parse(String(window.SimpleOfficeAndroid.checkLocalFolder(bridgeToken,String(id||'')))),"
                  + "prepareImport:(id)=>String(window.SimpleOfficeAndroid.prepareLocalFolderImport(bridgeToken,String(id||'')))};"
-                 + "window.SimpleOfficeFolderImport={"
-                 + "add:()=>String(window.SimpleOfficeAndroid.addFolderToImportQueue(bridgeToken)),"
-                 + "count:()=>Number(window.SimpleOfficeAndroid.queuedFolderImportCount(bridgeToken)),"
-                 + "start:(csrf,maxBytes)=>String(window.SimpleOfficeAndroid.startFolderImport(bridgeToken,String(csrf||''),String(maxBytes||''))),"
+                  + "window.SimpleOfficeFolderImport={"
+                  + "add:()=>String(window.SimpleOfficeAndroid.addFolderToImportQueue(bridgeToken)),"
+                  + "count:()=>Number(window.SimpleOfficeAndroid.queuedFolderImportCount(bridgeToken)),"
+                  + "prepared:()=>Boolean(window.SimpleOfficeAndroid.folderImportPrepared(bridgeToken)),"
+                  + "preview:()=>String(window.SimpleOfficeAndroid.folderImportPreview(bridgeToken)),"
+                  + "start:(csrf,maxBytes)=>String(window.SimpleOfficeAndroid.startFolderImport(bridgeToken,String(csrf||''),String(maxBytes||''))),"
                  + "cancel:()=>String(window.SimpleOfficeAndroid.cancelFolderImport(bridgeToken))};"
                  + "window.SimpleOfficePdf=(function(){const pending=new Map();"
                 + "window.addEventListener('simpleoffice:pdf-render',event=>{const detail=event.detail||{};const item=pending.get(String(detail.requestId||''));if(!item)return;pending.delete(String(detail.requestId||''));if(detail.ok)item.resolve(detail.result||{});else item.reject(new Error(detail.error||'PDF konnte nicht gerendert werden.'));});"
@@ -724,6 +726,8 @@ public class MainActivity extends Activity {
     }
 
     private int queuedFolderImportCount() {
+        AndroidFolderImportTask task = folderImportTask;
+        if (task != null && task.isPrepared()) return task.getTreeCount();
         synchronized (queuedFolderImportUris) {
             return queuedFolderImportUris.size();
         }
@@ -953,6 +957,18 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public boolean folderImportPrepared(String token) {
+            AndroidFolderImportTask task = folderImportTask;
+            return bridgeAllowed(token) && task != null && task.isPrepared();
+        }
+
+        @JavascriptInterface
+        public String folderImportPreview(String token) {
+            AndroidFolderImportTask task = folderImportTask;
+            return bridgeAllowed(token) && task != null ? task.getPreviewMessage() : "";
+        }
+
+        @JavascriptInterface
         public String startFolderImport(String token, String csrfToken, String maxBytesValue) {
             if (!bridgeAllowed(token) || webView == null || !isDocumentsUploadPage(webView.getUrl())) return "blocked";
             String csrf = csrfToken == null ? "" : csrfToken.trim();
@@ -964,7 +980,19 @@ public class MainActivity extends Activity {
                 return "invalid";
             }
             if (maxBytes <= 0 || maxBytes > 4L * 1024 * 1024 * 1024) return "invalid";
-            if (folderImportSelectionPending || folderImportTask != null) return "busy";
+            if (folderImportSelectionPending) return "busy";
+            AndroidFolderImportTask preparedTask = folderImportTask;
+            if (preparedTask != null) {
+                if (!preparedTask.confirm()) return "busy";
+                try {
+                    executor.execute(preparedTask);
+                    return "pending";
+                } catch (RuntimeException error) {
+                    preparedTask.cancel();
+                    folderImportTask = null;
+                    return "unavailable";
+                }
+            }
             List<Uri> trees;
             List<Uri> ownedGrants;
             synchronized (queuedFolderImportUris) {

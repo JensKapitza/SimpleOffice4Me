@@ -217,6 +217,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", activity)
         self.assertIn("addFolderToImportQueue(String token)", activity)
         self.assertIn("startFolderImport(String token, String csrfToken", activity)
+        self.assertIn("folderImportPrepared(String token)", activity)
         self.assertIn("queuedFolderImportUris", activity)
         self.assertIn("queuedFolderImportOwnedGrants", activity)
         self.assertIn("alreadyPersisted", activity)
@@ -232,6 +233,9 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("MAX_FILES = 1000", importer)
         self.assertIn("MAX_DEPTH = 64", importer)
         self.assertIn("MAX_MANIFEST_BYTES = 400000", importer)
+        self.assertIn('notifyListener("preview"', importer)
+        self.assertIn("previewMessage", importer)
+        self.assertIn("totalBytes", importer)
         self.assertIn("setFixedLengthStreamingMode(bodyLength)", importer)
         self.assertIn('setRequestProperty("Cookie", cookie)', importer)
         self.assertIn('setRequestProperty("X-CSRF-Token", csrfToken)', importer)
@@ -243,6 +247,8 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("simpleoffice:folder-import", page)
         self.assertIn("cancel-folder-import", page)
         self.assertIn("start-folder-import", page)
+        self.assertIn("Import bestätigen", page)
+        self.assertIn("Vorgemerkte Ordner prüfen", page)
 
     def test_webview_follows_android_activity_lifecycle(self):
         activity = self.read(JAVA / "MainActivity.java")

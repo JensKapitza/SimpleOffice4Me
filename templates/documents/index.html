@@ -50,10 +50,15 @@
     if (nativeFolderImport) {
       const queuedCount = nativeFolderImport.count();
       if (queuedCount > 0) {
+        const prepared = nativeFolderImport.prepared();
         startFolderImport.hidden = false;
         cancelFolderImport.hidden = false;
-        folderButton.textContent = 'Weiteren Ordner hinzufügen';
-        status.textContent = queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
+        startFolderImport.textContent = prepared ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
+        folderButton.disabled = prepared || folderButton.disabled;
+        folderButton.textContent = prepared ? 'Ordner geprüft' : 'Weiteren Ordner hinzufügen';
+        status.textContent = prepared
+          ? nativeFolderImport.preview()
+          : queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
       }
     }
   };
@@ -101,10 +106,13 @@
     const active = detail.state === 'scanning' || detail.state === 'uploading' || detail.state === 'finishing';
     const cancellable = detail.state === 'scanning' || detail.state === 'uploading';
     const queued = detail.state === 'queued';
-    cancelFolderImport.hidden = !cancellable && !queued;
-    startFolderImport.hidden = !queued;
-    startFolderImport.disabled = active || (detail.state === 'queued' && folderButton.disabled);
+    const preview = detail.state === 'preview';
+    cancelFolderImport.hidden = !cancellable && !queued && !preview;
+    startFolderImport.hidden = !queued && !preview;
+    startFolderImport.disabled = active || (queued && folderButton.disabled);
+    startFolderImport.textContent = preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
     folderButton.disabled = active || (!('webkitdirectory' in folder) && !nativeFolderImport);
+    if (preview) folderButton.disabled = true;
     folderButton.textContent = queued ? 'Weiteren Ordner hinzufügen' : 'Ordner importieren';
     if (detail.message) status.textContent = detail.message;
   });
