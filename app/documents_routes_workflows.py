@@ -1,6 +1,5 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
-
 from .documents_core import *  # noqa: F401,F403
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
@@ -10,7 +9,6 @@ from .v2.storage_runtime import (
     restore_document as restore_document_v2,
     restore_document_content as restore_document_content_v2,
 )
-
 @bp.post("/upload")
 @login_required
 def upload():
@@ -93,7 +91,6 @@ def upload():
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
     return redirect(url_for("documents.index"))
 
-
 @bp.route("/<document_id>")
 @login_required
 def detail(document_id: str):
@@ -137,13 +134,11 @@ def detail(document_id: str):
         eml_attachments=eml_attachments,
     )
 
-
 @bp.get("/recovery")
 @login_required
 def document_recovery():
     actor = str(g.user["username"])
     return render_template("documents/recovery.html", items=_store().recovery_items(actor))
-
 
 @bp.post("/recovery/<document_id>/restore")
 @login_required
@@ -175,7 +170,6 @@ def restore_deleted_document(document_id: str):
         flash(f"Wiederherstellung nicht ausgeführt: {exc}")
         return redirect(url_for("documents.document_recovery"))
 
-
 @bp.post("/<document_id>/restore-content")
 @login_required
 def restore_document_content(document_id: str):
@@ -200,7 +194,6 @@ def restore_document_content(document_id: str):
         flash(f"Inhaltsversion nicht wiederhergestellt: {exc}")
     return redirect(url_for("documents.detail", document_id=document_id))
 
-
 @bp.route("/<document_id>/attachments", methods=["GET", "POST"])
 @login_required
 def document_attachments(document_id: str):
@@ -222,14 +215,12 @@ def document_attachments(document_id: str):
         flash(f"Anhänge wurden nicht freigegeben: {exc}")
     return redirect(url_for("documents.detail", document_id=document_id))
 
-
 @bp.get("/security")
 @login_required
 def security_center():
     actor = str(g.user["username"])
     security = _attachment_security()
     return render_template("documents/security.html", status=security.scanner.status(), scans=security.recent_scans(), is_admin=_security_admin(actor))
-
 
 @bp.post("/security/scan-now")
 @login_required
@@ -239,7 +230,6 @@ def security_scan_now():
     try: flash(f"Serverprüfung abgeschlossen: {_attachment_security().scan_documents(actor)}")
     except (OSError, RuntimeError, ValueError) as exc: flash(f"Serverprüfung fehlgeschlagen: {exc}")
     return redirect(url_for("documents.security_center"))
-
 
 @bp.post("/<document_id>/security/scan")
 @login_required
@@ -262,7 +252,6 @@ def security_scan_document(document_id: str):
         return redirect(url_for("documents.index", page=request.form.get("page", "1")))
     return redirect(url_for("documents.detail", document_id=document_id))
 
-
 @bp.post("/security/update")
 @login_required
 def security_update():
@@ -274,7 +263,6 @@ def security_update():
         flash("ClamAV-Signaturen wurden aktualisiert.")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc: flash(f"Signatur-Update fehlgeschlagen: {exc}")
     return redirect(url_for("documents.security_center"))
-
 
 @bp.post("/<document_id>/relationships")
 @login_required
@@ -298,7 +286,6 @@ def add_document_relationship(document_id: str):
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id, link_query=request.form.get("link_query", "")))
 
-
 @bp.post("/<document_id>/notes")
 @login_required
 def add_note(document_id: str):
@@ -309,7 +296,6 @@ def add_note(document_id: str):
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
-
 
 @bp.post("/<document_id>/deadlines")
 @login_required
@@ -327,7 +313,6 @@ def add_document_deadline(document_id: str):
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.detail", document_id=document_id))
-
 
 @bp.get("/retention")
 @login_required
@@ -359,7 +344,6 @@ def retention_overview():
             key=str.casefold,
         ),
     )
-
 
 @bp.post("/retention/rules")
 @login_required
