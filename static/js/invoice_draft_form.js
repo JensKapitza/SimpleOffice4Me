@@ -50,6 +50,7 @@
     row.querySelector(".line-description").value = line.description || "";
     row.querySelector(".line-category").value = line.category || "";
     row.querySelector(".line-qty").value = line.quantity || "1";
+    row.querySelector('[name="line_unit"]').value = line.unit || "C62";
     row.querySelector(".line-net").value = line.net_unit_price || "0.00";
     row.querySelector(".line-vat").value = line.vat_rate || "0";
     row.querySelectorAll("input").forEach(input => input.addEventListener("input", recalculate));

@@ -32,8 +32,13 @@ möglich.
 
 ## Konfiguration und Bedienung
 
-Ein globales Kontingent für den sichtbaren verwalteten Dokumentbaum wird in
-MiB gesetzt:
+Administratoren konfigurieren das globale Kontingent in MiB unter
+**Einstellungen → Netzwerk & Synchronisation → WebDAV-Speicherkontingent**.
+Ein Neustart übernimmt den persistent gespeicherten Wert für alle WebDAV-Worker.
+Der frühere Umgebungswert wird als Ausgangswert migriert, wenn noch kein
+persistierter Einstellungswert existiert. Für Installationsskripte ohne
+persistente Einstellung bleibt die initiale Vorgabe per Umgebungsvariable
+verfügbar:
 
 ```bash
 SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240 ./start.sh
@@ -47,9 +52,9 @@ set SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240
 start.bat
 ```
 
-Zulässig sind positive Ganzzahlen bis 1 TiB. `0`, ein leerer, negativer oder
-ungültiger Wert deaktiviert die Begrenzung. Die Seite **Dokumente auf dem
-Desktop bearbeiten** zeigt Belegung und Obergrenze. Standardkonforme Clients
+Zulässig sind positive Ganzzahlen bis 1 TiB oder `0` für unbegrenzt. Gespeicherte
+Werte haben Vorrang vor der alten Umgebungsvariablen. Die Seite **Dokumente auf
+dem Desktop bearbeiten** zeigt Belegung und Obergrenze. Standardkonforme Clients
 können auf einer Collection direkt abfragen:
 
 ```xml

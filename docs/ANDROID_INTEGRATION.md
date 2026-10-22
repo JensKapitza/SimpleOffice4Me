@@ -46,6 +46,31 @@ Lokale Downloads aus dem eingebetteten WebView werden durch `AndroidDownloadHand
 
 Nach erfolgreichem Speichern kann der Benutzer **Öffnen** wählen. Android erhält dafür nur einen temporären Lesezugriff auf den ausgewählten `content://`-URI. Nichtlokale Download-Links werden nur für `http` oder `https` an Android weitergereicht; andere Download-Schemata werden blockiert.
 
+## Lokal freigegebene Ordner
+
+Die Seite **Einstellungen → Lokale Ordner** kann unter Android einen Ordner über
+`ACTION_OPEN_DOCUMENT_TREE` auswählen. Die App speichert die `content://`-URI
+und die persistierbare SAF-Berechtigung ausschließlich in privaten Android-
+`SharedPreferences`; die JavaScript-Bridge gibt nur eine zufällige lokale ID,
+den Anzeigenamen, die Beschreibung und den Berechtigungsstatus zurück. Die URI
+wird nicht an Flask, WebDAV oder einen anderen Server gesendet. Die Registry
+wird außerdem von Cloud-Backup und Geräteübertragung ausgeschlossen, weil eine
+SAF-Berechtigung gerätegebunden ist.
+
+- Die Ordnerauswahl verlangt die ausdrückliche Bestätigung im Systemdialog und
+  nimmt keine klassischen Dateisystempfade oder breite Speicherberechtigungen an.
+- Der Anzeigename und die Beschreibung sind lokale Metadaten und können geändert
+  werden, ohne die ausgewählte URI zu ändern.
+- **Verbindung prüfen** fragt die gespeicherte Dokumentanbieter-Berechtigung ab;
+  nach Widerruf wird die Freigabe als nicht verfügbar markiert und kann erneut
+  ausgewählt werden.
+- **Freigabe entfernen** entfernt nur den gespeicherten Verweis und gibt die
+  persistierbare Berechtigung frei. Dateien des Ordners werden nicht verändert.
+- Das ist ein gerätelokaler Zugriff, kein serverseitiger Mount oder Speicherort.
+  Wenn der Benutzer Dateien auswählt und ausdrücklich importiert, werden nur die
+  Dateiinhalte als Kopien über den bestehenden Upload-/Importpfad übernommen;
+  der Ordner-URI bleibt in der nativen Android-Schicht.
+
 ## Deep Links
 
 Für gezielte Navigation gibt es ausschließlich das Schema `simpleoffice4me://open`.
