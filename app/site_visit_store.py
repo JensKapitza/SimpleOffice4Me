@@ -533,6 +533,50 @@ class SiteVisitStore:
         self._mutate(visit_id, actor, "report_generated", "report", entry["report_id"], lambda row: self._append(row, "reports", entry, 100))
         return entry
 
+    def save_report_pdf(self, visit_id: str, actor: str, payload: bytes, finding_ids: list[str]) -> dict[str, Any]:
+        """Persist the exact generated PDF before recording its audit entry."""
+        self._owned(visit_id, actor)
+        if not payload.startswith(b"%PDF-"):
+            raise ValueError("Ungültiger PDF-Bericht")
+        report_id = str(uuid.uuid4())
+        directory = self.directory / _identifier(visit_id) / "reports"
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{report_id}.pdf"
+        temporary = directory / f".{report_id}.tmp"
+        digest = hashlib.sha256(payload).hexdigest()
+        entry = {"report_id": report_id, "created_at": utc_now(), "created_by": actor,
+                 "finding_ids": list(finding_ids), "sha256": digest,
+                 "relative_path": f"reports/{report_id}.pdf"}
+        try:
+            with temporary.open("xb") as stream:
+                stream.write(payload)
+                stream.flush()
+                import os
+                os.fsync(stream.fileno())
+            temporary.replace(path)
+            self._mutate(visit_id, actor, "report_generated", "report", report_id,
+                         lambda row: self._append(row, "reports", entry, 100))
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
+            raise
+        return entry
+
+    def report_pdf_path(self, visit_id: str, actor: str, report_id: str) -> Path:
+        """Resolve a stored PDF only after verifying visit ownership and integrity."""
+        record = self._owned(visit_id, actor)
+        report_id = _identifier(report_id)
+        entry = self._find(record, "reports", "report_id", report_id)
+        if entry.get("relative_path") != f"reports/{report_id}.pdf":
+            raise ValueError("Bericht nicht verfügbar")
+        directory = (self.directory / _identifier(visit_id) / "reports").resolve()
+        path = (directory / f"{report_id}.pdf").resolve()
+        if path.parent != directory or not path.is_file() or path.is_symlink():
+            raise ValueError("Bericht nicht verfügbar")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != entry.get("sha256"):
+            raise ValueError("Bericht ist beschädigt")
+        return path
+
     @staticmethod
     def power_totals(record: dict[str, Any]) -> list[dict[str, Any]]:
         totals: dict[str, float] = {}
