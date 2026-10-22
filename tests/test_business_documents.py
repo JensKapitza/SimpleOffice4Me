@@ -121,8 +121,8 @@ class BusinessDocumentTests(unittest.TestCase):
             buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1",
                      "postal": "12345", "city": "Teststadt", "country": "DE"}
             row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
-            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \\
-                 mock.patch.object(ContactStore, "get", side_effect=ValueError("contact lookup unavailable")), \\
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", side_effect=ValueError("contact lookup unavailable")), \
                  mock.patch("app.business_documents.DocumentStore"):
                 saved = save_invoice_draft(root, "contact-1", form, "tester")
             self.assertEqual("draft-test", saved["invoice_id"])
