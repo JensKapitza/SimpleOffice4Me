@@ -143,7 +143,77 @@ class MailClientTests(unittest.TestCase):
     def test_saved_password_state_is_visible_without_exposing_secret(self):
         listed = self.store.accounts("alice")[0]
         self.assertTrue(listed["password_saved"])
+        self.assertEqual("stored", listed["password_state"])
         self.assertNotIn("password", listed)
+
+    def test_auto_fetch_state_is_locked_persistent_and_preserved_on_account_edit(self):
+        self.assertTrue(self.store.accounts("alice")[0]["auto_fetch_enabled"])
+
+        self.store.set_auto_fetch_enabled("alice", self.account["id"], False)
+        self.assertFalse(self.store.accounts("alice")[0]["auto_fetch_enabled"])
+        restarted = MailStore(self.root, b"test-master-key-long-enough")
+        self.assertFalse(restarted.accounts("alice")[0]["auto_fetch_enabled"])
+        self.assertRaises(KeyError, self.store.set_auto_fetch_enabled, "bob", self.account["id"], True)
+
+        updated = self.store.save_account(
+            "alice",
+            {"id": self.account["id"], "host": "imap.example.test", "username": "alice@example.test"},
+            "",
+            True,
+        )
+        self.assertFalse(updated["auto_fetch_enabled"])
+        explicit = self.store.save_account(
+            "alice",
+            {"id": self.account["id"], "host": "imap.example.test", "username": "alice@example.test", "auto_fetch_enabled": "0"},
+            "",
+            True,
+        )
+        self.assertFalse(explicit["auto_fetch_enabled"])
+        self.assertTrue(self.store.set_auto_fetch_enabled("alice", self.account["id"], True))
+        self.assertTrue(self.store.accounts("alice")[0]["auto_fetch_enabled"])
+
+    def test_account_state_describes_environment_password_without_returning_secrets(self):
+        account = self.store.save_account(
+            "alice",
+            {"id": "environment", "host": "imap.example.test", "username": "alice@example.test", "password_env": "MAIL_PASSWORD"},
+            "",
+            False,
+        )
+        self.assertFalse(account["password_saved"])
+        self.assertEqual("environment", account["password_state"])
+        self.assertNotIn("password", account)
+
+    def test_blank_edits_preserve_saved_secrets_until_explicitly_cleared(self):
+        account = self.store.save_account(
+            "alice",
+            {
+                "id": self.account["id"], "host": "imap.example.test",
+                "username": "alice@example.test", "smtp_password": "smtp-secret",
+                "smtp_username": "alice@example.test", "smtp_from": "alice@example.test",
+            },
+            "imap-secret",
+            True,
+        )
+        preserved = self.store.save_account(
+            "alice",
+            {"id": account["id"], "host": "imap.example.test", "username": "alice@example.test"},
+            "",
+            False,
+        )
+        self.assertTrue(preserved["password_saved"])
+        self.assertTrue(preserved["smtp_password_saved"])
+
+        cleared = self.store.save_account(
+            "alice",
+            {
+                "id": account["id"], "host": "imap.example.test", "username": "alice@example.test",
+                "clear_saved_password": "1", "clear_saved_smtp_password": "1",
+            },
+            "",
+            False,
+        )
+        self.assertFalse(cleared["password_saved"])
+        self.assertFalse(cleared["smtp_password_saved"])
 
     def test_new_password_without_storage_clears_stale_saved_password(self):
         updated = self.store.save_account("alice", {
@@ -169,6 +239,30 @@ class MailClientTests(unittest.TestCase):
         self.assertTrue(result["revision"])
         self.assertEqual(1, len(self.store.scripts_for("alice", self.account["id"])))
         with self.assertRaises(KeyError): self.store.scripts_for("bob", self.account["id"])
+
+    def test_sieve_script_paths_reject_traversal_and_symlinked_account_directories(self):
+        for name in ("../outside", "folder/script", ".."):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.store.save_script("alice", self.account["id"], name, "keep;\n")
+
+        directory = self.store._sieve_directory("alice", self.account["id"], create=True)
+        self.assertIsNotNone(directory)
+        outside = self.root.parent / "outside-mail-scripts"
+        outside.mkdir()
+        directory.rmdir()
+        try:
+            try:
+                directory.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation is unavailable on this platform")
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                self.store.scripts_for("alice", self.account["id"])
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                self.store.save_script("alice", self.account["id"], "main", "keep;\n")
+        finally:
+            if directory.is_symlink():
+                directory.unlink()
+            outside.rmdir()
 
     def test_archive_uses_examine_and_never_mutating_imap_commands(self):
         fake = FakeImap()

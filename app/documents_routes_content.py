@@ -721,12 +721,16 @@ def tasks():
     all_rows = _todos().items(actor)
     document_ids = {str(document_id) for row in rows for document_id in row.get("document_ids", [])}
     document_ids.update(str(row.get("email_document_id")) for row in rows if row.get("email_document_id"))
+    document_ids.update(str(row.get("source_document_id")) for row in rows if row.get("source_document_id"))
     task_documents: dict[str, dict[str, Any]] = {}
     for document_id in document_ids:
         try:
-            task_documents[document_id] = _store().get_document(document_id)
+            document = _store().get_document(document_id)
         except ValueError:
             continue
+        if not document.get("last_path") or document.get("system_state") == "webdav_deleted":
+            continue
+        task_documents[document_id] = document
     task_external_attachments: dict[str, list[dict[str, str]]] = {}
     for row in rows:
         links = []

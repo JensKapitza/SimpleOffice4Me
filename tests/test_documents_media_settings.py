@@ -10,13 +10,15 @@ from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
-from app import app, db as database
+from app import app, configured_webdav_quota_bytes, db as database
 from app.settings_store import (
+    DEFAULT_WEBDAV_QUOTA_MIB,
     DEFAULT_PREVIEW_MAX_BYTES,
     DEFAULT_PREVIEW_MAX_PIXELS,
     DEFAULT_PREVIEW_TIMEOUT_SECONDS,
     DEFAULT_PREVIEW_ENABLED,
     DEFAULT_VIDEO_PREVIEW_FRAMES,
+    MAX_WEBDAV_QUOTA_MIB,
     SettingsStore,
 )
 
@@ -105,6 +107,93 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertNotIn("/admin/settings/documents-media", user_html)
         self.assertNotIn('name="default_language"', user_html)
         self.assertIn('name="_csrf_token"', user_html)
+
+    def test_network_settings_tab_is_admin_only_and_describes_quota(self):
+        path = "/admin/settings/network"
+        self.assertEqual(403, self.user.get(path).status_code)
+        response = self.admin.get(path)
+        self.assertEqual(200, response.status_code)
+        html = response.get_data(as_text=True)
+        self.assertIn('name="webdav_quota_mib"', html)
+        self.assertIn('name="_csrf_token"', html)
+        self.assertIn("Neustart erforderlich", html)
+        self.assertIn("Netzwerk &amp; Synchronisation", html)
+        self.assertIn(path, self.admin.get("/documents/settings").get_data(as_text=True))
+        self.assertNotIn(path, self.user.get("/documents/settings").get_data(as_text=True))
+
+    def test_network_quota_requires_admin_and_csrf_then_persists_and_audits(self):
+        path = "/admin/settings/network"
+        self.assertEqual(403, self.admin.post(path, data={"webdav_quota_mib": "2048"}).status_code)
+        self.assertEqual(
+            403,
+            self.user.post(
+                path, data={"webdav_quota_mib": "2048"},
+                headers={"X-CSRF-Token": "u" * 40},
+            ).status_code,
+        )
+        saved = self.admin.post(
+            path, data={"webdav_quota_mib": "2048"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        self.assertEqual(2048, SettingsStore(self.root).settings()["network"]["webdav_quota_mib"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event WHERE action=?",
+                ("network_settings_updated",),
+            ).fetchone()
+        self.assertEqual("media-admin", row["actor_name"])
+        self.assertEqual("network.webdav_quota", row["target_id"])
+        self.assertTrue(json.loads(row["detail"])["restart_required"])
+
+    def test_invalid_network_quota_is_rejected_and_reset_restores_default(self):
+        path = "/admin/settings/network"
+        for value in ("-1", "invalid", "1.5", str(MAX_WEBDAV_QUOTA_MIB + 1), "9" * 32):
+            with self.subTest(value=value):
+                response = self.admin.post(
+                    path, data={"webdav_quota_mib": value},
+                    headers={"X-CSRF-Token": "a" * 40}, follow_redirects=True,
+                )
+                self.assertEqual(200, response.status_code)
+                self.assertEqual(DEFAULT_WEBDAV_QUOTA_MIB, SettingsStore(self.root).settings()["network"]["webdav_quota_mib"])
+
+        custom = self.admin.post(
+            path, data={"webdav_quota_mib": "256"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, custom.status_code)
+        self.assertEqual(256, SettingsStore(self.root).settings()["network"]["webdav_quota_mib"])
+        reset = self.admin.post(
+            path, data={"reset": "1"}, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        self.assertEqual(DEFAULT_WEBDAV_QUOTA_MIB, SettingsStore(self.root).settings()["network"]["webdav_quota_mib"])
+
+    def test_legacy_webdav_quota_migrates_once_and_persisted_value_wins(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "512"}):
+            store = SettingsStore(self.root / "legacy")
+            self.assertEqual(512, store.settings()["network"]["webdav_quota_mib"])
+            store.save({"interface": {"timezone": "UTC"}}, "media-admin")
+        with patch.dict(os.environ, {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "1024"}):
+            self.assertEqual(512, SettingsStore(self.root / "legacy").settings()["network"]["webdav_quota_mib"])
+            self.assertEqual(512 * 1024 * 1024, configured_webdav_quota_bytes(self.root / "legacy"))
+        with self.assertRaises(ValueError):
+            SettingsStore(self.root / "legacy").save({"network": {"webdav_quota_mib": True}}, "media-admin")
+
+    def test_local_folder_settings_page_is_available_to_signed_in_users(self):
+        settings = self.user.get("/documents/settings")
+        self.assertEqual(200, settings.status_code)
+        self.assertIn("Lokale Ordner verwalten", settings.get_data(as_text=True))
+
+        response = self.user.get("/documents/local-storage")
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Lokale Ordner", body)
+        self.assertIn(
+            "Es werden keine Ordnerpfade oder Android-URIs an den Server gesendet.",
+            body,
+        )
+        self.assertIn("local-folder-storage.js", body)
 
     def test_general_global_defaults_are_admin_only_while_user_profile_stays_editable(self):
         path = "/documents/settings"

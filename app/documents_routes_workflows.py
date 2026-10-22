@@ -108,27 +108,15 @@ def detail(document_id: str):
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
         preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "thumbnail_url": url_for("documents.document_thumbnail", document_id=document_id), "collage_url": url_for("documents.document_collage", document_id=document_id) if document.get("preview", {}).get("collage") else "", "preview_status": document.get("preview", {}).get("status", "pending"), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
         defaults=_settings().settings(),
-        document_tasks=[row for row in _todos().items(str(g.user["username"])) if document_id in row.get("document_ids", [])],
+        document_tasks=[
+            row for row in _todos().items(str(g.user["username"]))
+            if document_id in row.get("document_ids", [])
+            or document_id == str(row.get("source_document_id", ""))
+        ],
         malware_scan=security.latest_document_scan(document),
         safe_attachments=safe_attachments,
         eml_attachments=eml_attachments,
     )
-
-
-@bp.post("/<document_id>/tasks")
-@login_required
-def create_document_task(document_id: str):
-    document = _document_or_404(document_id)
-    try:
-        title = request.form.get("title", "") or ("Prüfen: " + document.get("last_path", "Dokument"))
-        description = request.form.get("description", "").strip() or (
-            "Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: "
-            + str(document.get("last_path", "Dokument"))
-        )
-        _todos().add(title, str(g.user["username"]), {**request.form.to_dict(), "description": description, "document_ids": [document_id]})
-        flash("Aufgabe mit dem Dokument verknüpft. / Task linked to document.")
-    except ValueError as exc: flash(str(exc))
-    return redirect(url_for("documents.detail", document_id=document_id))
 
 
 @bp.get("/recovery")
