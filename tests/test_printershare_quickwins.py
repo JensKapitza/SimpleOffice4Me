@@ -175,6 +175,7 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
 
     def test_csv_safe_text_preserves_normal_values(self):
         self.assertEqual("Office Printer", _csv_safe_text("Office Printer"))
+        self.assertEqual("Office Printer", _csv_safe_text("Office Printer"))
         self.assertEqual("'@cmd", _csv_safe_text("@cmd"))
         self.assertEqual("'  =1+1", _csv_safe_text("  =1+1"))
         self.assertEqual("'\t=1+1", _csv_safe_text("\t=1+1"))
