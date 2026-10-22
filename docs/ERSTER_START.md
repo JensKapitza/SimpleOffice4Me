@@ -130,7 +130,9 @@ Grenze, wird seine unvollständige Staging-Datei automatisch entfernt. Bei einem
 harten Prozessabbruch kann sie beim nächsten Start weiterhin sichtbar sein.
 
 Optional kann der über WebDAV sichtbare Dokumentbaum zusätzlich begrenzt
-werden. Ohne Angabe bleibt das bisherige unbegrenzte Verhalten erhalten:
+werden. Administratoren verwalten das Kontingent nach der Einrichtung unter
+**Einstellungen → Netzwerk & Synchronisation**. Nach Änderungen ist ein Neustart
+erforderlich. Für die Erstkonfiguration bleibt die Umgebungsvariable verfügbar:
 
 ```bash
 SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240 ./start.sh
