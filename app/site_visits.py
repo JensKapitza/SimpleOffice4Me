@@ -413,12 +413,26 @@ def report_pdf(visit_id: str):
     try:
         selected = _selected_report_ids(record, request.form.getlist("finding_id"), defaults=False)
         payload, digest, finding_ids = build_visit_report(record, selected)
-        _store().record_report(visit_id, _actor(), {"finding_ids": finding_ids, "sha256": digest})
+        _store().save_report_pdf(visit_id, _actor(), payload, finding_ids)
     except ValueError as exc:
         flash(str(exc), "danger")
         return redirect(url_for("site_visits.report_preview", visit_id=visit_id))
     name = "Ortsterminbericht-" + record["visit_id"][:8] + ".pdf"
     response = send_file(BytesIO(payload), mimetype="application/pdf", as_attachment=True, download_name=name, max_age=0)
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@bp.get("/<visit_id>/reports/<report_id>.pdf")
+@login_required
+def saved_report_pdf(visit_id: str, report_id: str):
+    try:
+        path = _store().report_pdf_path(visit_id, _actor(), report_id)
+    except ValueError:
+        abort(404)
+    response = send_file(path, mimetype="application/pdf", as_attachment=True,
+                         download_name=f"Ortsterminbericht-{visit_id[:8]}-{report_id[:8]}.pdf", max_age=0)
     response.headers["Cache-Control"] = "private, no-store"
     response.headers["X-Content-Type-Options"] = "nosniff"
     return response
