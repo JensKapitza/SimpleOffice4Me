@@ -13,7 +13,7 @@ from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
-from app.business_document_generation import _invoice_content_pdf
+from app.business_document_generation import _cii_xml, _invoice_content_pdf
 
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
@@ -68,6 +68,24 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_cii_payment_means_precedes_header_vat_tax(self):
+        from xml.etree import ElementTree as ET
+
+        xml = _cii_xml({
+            "invoice_number": "RE-2026-1", "issue_date": "2026-10-22", "service_date": "2026-10-22",
+            "due_date": "2026-11-05", "currency": "EUR", "seller": {
+                "name": "Seller", "street": "Seller St 1", "postal": "10117", "city": "Berlin",
+                "country": "DE", "iban": "DE89370400440532013000",
+            }, "buyer": {"name": "Buyer", "street": "Buyer St 2", "postal": "10115", "city": "Berlin", "country": "DE"}, "lines": [], "totals": {
+                "net": "10.00", "tax": "1.90", "gross": "11.90", "due": "11.90",
+                "vat_groups": {"19": {"basis": "10.00", "tax": "1.90"}},
+            },
+        })
+        root = ET.fromstring(xml)
+        settlement = root.find(".//{*}ApplicableHeaderTradeSettlement")
+        child_names = [element.tag.rsplit("}", 1)[-1] for element in settlement]
+        self.assertLess(child_names.index("SpecifiedTradeSettlementPaymentMeans"), child_names.index("ApplicableTradeTax"))
+
     def test_saved_invoice_address_rejects_missing_or_stale_selection(self):
         from app.business_documents import _invoice_row_from_form
 
