@@ -621,9 +621,12 @@ class SiteVisitStore:
         if path.parent != directory or not path.is_file() or not path.is_relative_to(self.root):
             raise ValueError("Bericht nicht verfügbar")
         digest = hashlib.sha256()
-        with path.open("rb") as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                digest.update(chunk)
+        try:
+            with path.open("rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ValueError("Bericht nicht verfügbar") from exc
         if digest.hexdigest() != entry.get("sha256"):
             raise ValueError("Bericht ist beschädigt")
         return path
