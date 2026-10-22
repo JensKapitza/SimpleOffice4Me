@@ -305,6 +305,28 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                         for link in soup.find_all("a")
                     ))
 
+    def test_source_without_last_path_does_not_offer_broken_link(self):
+        document_id = self._create_document_task()
+        original_get_document = DocumentStore.get_document
+
+        def source_without_path(store, reference):
+            document = original_get_document(store, reference)
+            if str(reference) == document_id:
+                return {**document, "last_path": ""}
+            return document
+
+        with patch.object(DocumentStore, "get_document", source_without_path):
+            for url in ("/documents/tasks", "/tasks/"):
+                with self.subTest(url=url):
+                    response = self.client.get(url)
+                    self.assertEqual(200, response.status_code)
+                    body = response.get_data(as_text=True)
+                    self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                    self.assertFalse(any(
+                        document_id in str(link.get("href", ""))
+                        for link in BeautifulSoup(body, "html.parser").find_all("a")
+                    ))
+
     def test_soft_deleted_source_has_a_clear_unavailable_state(self):
         document_id = self._create_document_task()
         DocumentStore(self.root).soft_delete_document(document_id, "jens")
