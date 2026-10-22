@@ -110,7 +110,9 @@ jobs:
               export ZLIB_ROOT="$sysroot/usr"
               export ZLIB_INCLUDE_DIR="$sysroot/usr/include"
               export ZLIB_LIBRARY="$sysroot/usr/lib/aarch64-linux-android/24/libz.so"
-              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$ZLIB_ROOT ZLIB_INCLUDE_DIR=$ZLIB_INCLUDE_DIR ZLIB_LIBRARY=$ZLIB_LIBRARY"
+              # cibuildwheel isolates the target environment. Forward the
+              # compiler and linker search paths as well as zlib hints.
+              export CIBW_ENVIRONMENT_ANDROID="CFLAGS=\"-I$sysroot/usr/include\" LDFLAGS=\"-L$sysroot/usr/lib/aarch64-linux-android/24 -L$sysroot/usr/lib/aarch64-linux-android\" ZLIB_ROOT=$ZLIB_ROOT ZLIB_INCLUDE_DIR=$ZLIB_INCLUDE_DIR ZLIB_LIBRARY=$ZLIB_LIBRARY"
             fi
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
           )
