@@ -64,6 +64,21 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 self.assertNotEqual(200, response.status_code)
                 self.assertNotIn("Quelldatei öffnen", response.get_data(as_text=True))
 
+    def test_anonymous_browser_cannot_create_document_source_task(self):
+        document = DocumentStore(self.root).import_upload(
+            io.BytesIO(b"protected fixture"), "protected.txt", "jens",
+        )
+        anonymous = app.test_client()
+        response = anonymous.post(
+            f"/documents/{document['document_id']}/tasks",
+            data={"title": "Unauthorized task"},
+        )
+        self.assertIn(response.status_code, (302, 401, 403))
+        self.assertFalse(any(
+            task["title"] == "Unauthorized task"
+            for task in TodoStore(self.root).items("jens")
+        ))
+
     def test_legacy_task_without_source_still_renders(self):
         created = self.client.post("/documents/todo", data={"title": "Legacy task"})
         self.assertEqual(302, created.status_code)
