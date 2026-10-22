@@ -36,13 +36,16 @@
   const update = (source) => {
     const selected = Array.from(source.files || []);
     if (!selected.length) return;
-    // FileList cannot be assigned directly across pickers; DataTransfer preserves File objects.
-    const transfer = new DataTransfer();
-    selected.forEach(file => transfer.items.add(file));
-    files.files = transfer.files;
+    const other = source === folder ? files : folder;
+    // Submit the selected picker directly, without relying on DataTransfer in WebViews.
+    other.removeAttribute('name');
+    other.required = false;
+    source.setAttribute('name', 'files');
+    source.required = true;
+    const bytes = selected.reduce((sum, file) => sum + file.size, 0);
     status.textContent = selected.length + ' Datei(en), ' +
-      (selected.reduce((sum, file) => sum + file.size, 0) / 1048576).toFixed(1) +
-      ' MiB ausgewählt' + (source === folder ? ' (inklusive Unterordner)' : '');
+      (bytes / 1048576).toFixed(1) + ' MiB ausgewählt' +
+      (source === folder ? ' (inklusive Unterordner)' : '');
   };
   files.addEventListener('change', () => update(files));
   folder.addEventListener('change', () => update(folder));
