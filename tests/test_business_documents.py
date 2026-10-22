@@ -135,6 +135,13 @@ class BusinessDocumentTests(unittest.TestCase):
         self.assertEqual("DE", address["country"])
         self.assertEqual("Musterstraße 1\n10115, Berlin\nde", address["label"])
 
+    def test_free_text_invoice_address_allows_two_street_lines_without_country(self):
+        address = _parse_free_text_invoice_address("Musterstraße 1\\nHinterhaus\\n10115 Berlin")
+        self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("DE", address["country"])
+
     def test_free_text_invoice_address_rejects_missing_fields_and_invalid_country(self):
         for value in ("Musterstraße 1", "Musterstraße 1\nBerlin", "Musterstraße 1\n10115 Berlin\nGermany"):
             with self.subTest(value=value), self.assertRaises(ValueError):
