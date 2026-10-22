@@ -9,7 +9,6 @@ import android.util.Log;
 import android.webkit.CookieManager;
 
 import org.json.JSONArray;
-import org.json.JSONException;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -129,7 +128,7 @@ final class AndroidFolderImportTask implements Runnable {
             notifyListener("error", 0, 0, "Der Ordnerstapel überschreitet das zulässige Größenlimit.");
         } catch (SecurityException error) {
             notifyListener("error", 0, 0, "Der Zugriff auf den ausgewählten Ordner wurde widerrufen.");
-        } catch (IOException | JSONException error) {
+        } catch (IOException error) {
             notifyListener(cancelled ? "cancelled" : "error", 0, 0,
                     cancelled ? "Ordnerimport abgebrochen." : "Ordnerimport fehlgeschlagen. Bitte Verbindung und Ordnerzugriff prüfen.");
         } catch (RuntimeException error) {
