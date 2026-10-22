@@ -5,7 +5,9 @@ import copy
 import hashlib
 import json
 import math
+import os
 import re
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,6 +88,25 @@ class SiteVisitStore:
 
     def _path(self, visit_id: str) -> Path:
         return self.directory / f"{_identifier(visit_id)}.json"
+
+    def _report_directory(self, visit_id: str, *, create: bool) -> Path | None:
+        """Resolve a report directory beneath the private control root."""
+        current = self.root
+        relative_parts = (CONTROL_DIR, "site-visits", _identifier(visit_id), "reports")
+        for part in relative_parts:
+            current = current / part
+            if current.is_symlink():
+                raise ValueError("Berichtsspeicher enthält einen unsicheren symbolischen Link")
+            if not current.exists():
+                if not create:
+                    return None
+                current.mkdir(mode=0o700)
+            if not current.is_dir():
+                raise ValueError("Berichtsspeicher ist kein Verzeichnis")
+            current = current.resolve(strict=True)
+            if not current.is_relative_to(self.root):
+                raise ValueError("Berichtsspeicher liegt außerhalb des Dokumentbereichs")
+        return current
 
     def _read(self, path: Path) -> dict[str, Any] | None:
         try:
@@ -538,6 +559,83 @@ class SiteVisitStore:
         entry = {"report_id": str(uuid.uuid4()), "created_at": utc_now(), "created_by": actor, "finding_ids": list(report.get("finding_ids", [])), "sha256": str(report.get("sha256", ""))}
         self._mutate(visit_id, actor, "report_generated", "report", entry["report_id"], lambda row: self._append(row, "reports", entry, 100))
         return entry
+
+    def save_report_pdf(self, visit_id: str, actor: str, payload: bytes, finding_ids: list[str]) -> dict[str, Any]:
+        """Persist the exact generated PDF before recording its audit entry."""
+        visit_id = _identifier(visit_id)
+        self._owned(visit_id, actor)
+        if not payload.startswith(b"%PDF-"):
+            raise ValueError("Ungültiger PDF-Bericht")
+        report_id = str(uuid.uuid4())
+        directory = self._report_directory(visit_id, create=True)
+        if directory is None:
+            raise OSError("Berichtsspeicher konnte nicht angelegt werden")
+        path = directory / f"{report_id}.pdf"
+        if path.is_symlink() or path.exists():
+            raise ValueError("Berichtsdatei ist bereits vorhanden")
+        temporary_name: str | None = None
+        digest = hashlib.sha256(payload).hexdigest()
+        entry = {"report_id": report_id, "created_at": utc_now(), "created_by": actor,
+                 "finding_ids": list(finding_ids), "sha256": digest,
+                 "relative_path": f"reports/{report_id}.pdf"}
+        metadata_written = False
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=directory, prefix=f".{report_id}-", suffix=".tmp", delete=False,
+            ) as stream:
+                temporary_name = stream.name
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_name, path)
+            with exclusive_file_lock(self._path(visit_id).with_suffix(".lock")):
+                record = self._owned(visit_id, actor)
+                self._append(record, "reports", entry, 100)
+                record["updated_at"] = utc_now()
+                record["updated_by"] = actor
+                self._audit(record, actor, "report_generated", "report", report_id)
+                metadata_path = self._path(visit_id)
+                try:
+                    atomic_json_write(metadata_path, record)
+                except Exception:
+                    metadata_path.with_suffix(metadata_path.suffix + ".tmp").unlink(missing_ok=True)
+                    raise
+                metadata_written = True
+        except Exception:
+            if not metadata_written:
+                path.unlink(missing_ok=True)
+            raise
+        finally:
+            if temporary_name is not None:
+                Path(temporary_name).unlink(missing_ok=True)
+        return entry
+
+    def report_pdf_path(self, visit_id: str, actor: str, report_id: str) -> Path:
+        """Resolve a stored PDF only after verifying visit ownership and integrity."""
+        record = self._owned(visit_id, actor)
+        report_id = _identifier(report_id)
+        entry = self._find(record, "reports", "report_id", report_id)
+        if entry.get("relative_path") != f"reports/{report_id}.pdf":
+            raise ValueError("Bericht nicht verfügbar")
+        directory = self._report_directory(visit_id, create=False)
+        if directory is None:
+            raise ValueError("Bericht nicht verfügbar")
+        candidate = directory / f"{report_id}.pdf"
+        if candidate.is_symlink():
+            raise ValueError("Bericht nicht verfügbar")
+        path = candidate.resolve(strict=False)
+        if path.parent != directory or not path.is_file() or not path.is_relative_to(self.root):
+            raise ValueError("Bericht nicht verfügbar")
+        digest = hashlib.sha256()
+        try:
+            with path.open("rb") as source:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(chunk)
+        except OSError as exc:
+            raise ValueError("Bericht nicht verfügbar") from exc
+        if digest.hexdigest() != entry.get("sha256"):
+            raise ValueError("Bericht ist beschädigt")
+        return path
 
     @staticmethod
     def power_totals(record: dict[str, Any]) -> list[dict[str, Any]]:

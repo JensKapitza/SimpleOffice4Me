@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4">
+    <h1 class="h2 mb-1">Netzwerk &amp; Synchronisation</h1>
+    <p class="text-secondary mb-0">Globale Netzwerkgrenzen. Geänderte Werte werden nach einem Neustart von allen WebDAV-Workern übernommen.</p>
+  </div>
+  <nav aria-label="Einstellungsbereiche" class="mb-4">
+    <div class="nav nav-tabs">
+      <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
+      <a class="nav-link active" href="{{ url_for('admin.network_settings') }}" aria-current="page">Netzwerk &amp; Synchronisation</a>
+    </div>
+  </nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card">
+    <div class="card-header"><strong>WebDAV-Speicherkontingent</strong></div>
+    <div class="card-body">
+      <p>Begrenzt den belegten Platz unter dem verwalteten Dokumentstamm für WebDAV. Null bedeutet unbegrenzt; vorhandene Dateien werden durch eine kleinere Grenze nicht gelöscht. Der Wert aus der bisherigen Umgebungsvariablen wird einmalig übernommen, wenn noch kein persistierter Wert vorhanden ist.</p>
+      <form method="post" action="{{ url_for('admin.save_network_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="webdav-quota">WebDAV-Kontingent (MiB)</label>
+          <input class="form-control" id="webdav-quota" type="number" name="webdav_quota_mib" value="{{ network.webdav_quota_mib }}" min="0" max="1048576" step="1" required>
+          <div class="form-text">Standard: 0 (unbegrenzt). Zulässig: 0 oder 1–1.048.576 MiB (bis 1 TiB). Neustart erforderlich.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellungen speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

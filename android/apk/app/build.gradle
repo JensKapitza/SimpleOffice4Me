@@ -25,21 +25,39 @@ def projectVersionMatch = projectMetadata.getText('UTF-8') =~ /(?ms)^\[project\]
 if (!projectVersionMatch.find()) {
     throw new GradleException('Project version is missing from pyproject.toml [project]')
 }
-def appVersionName = projectVersionMatch.group(1).trim()
-def semanticVersionMatch = appVersionName =~ /^(\d+)\.(\d+)\.(\d+)$/
-if (!semanticVersionMatch.matches()) {
-    throw new GradleException("Android build requires a numeric MAJOR.MINOR.PATCH project version, got ${appVersionName}")
+def projectReleaseVersion = projectVersionMatch.group(1).trim()
+def majorMatch = projectReleaseVersion =~ /^(\d+)\.\d+\.\d+$/
+if (!majorMatch.matches()) {
+    throw new GradleException("Expected MAJOR.MINOR.PATCH project version, got ${projectReleaseVersion}")
 }
-def versionMajor = semanticVersionMatch.group(1).toInteger()
-def versionMinor = semanticVersionMatch.group(2).toInteger()
-def versionPatch = semanticVersionMatch.group(3).toInteger()
-if (versionMinor > 999 || versionPatch > 999) {
-    throw new GradleException('Android version mapping requires MINOR and PATCH values <= 999')
+def versionMajor = majorMatch.group(1).toInteger()
+def buildDate = (System.getenv('SIMPLEOFFICE_BUILD_DATE') ?: java.time.LocalDate.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE)).trim()
+if (!(buildDate ==~ /\d{8}/)) {
+    throw new GradleException("SIMPLEOFFICE_BUILD_DATE must be YYYYMMDD")
 }
-def appVersionCode = versionMajor * 1_000_000 + versionMinor * 1_000 + versionPatch
-if (appVersionCode <= 0 || appVersionCode > 2_100_000_000) {
-    throw new GradleException("Derived Android versionCode is outside the supported range: ${appVersionCode}")
+def parsedBuildDate
+try {
+    parsedBuildDate = java.time.LocalDate.parse(buildDate, java.time.format.DateTimeFormatter.BASIC_ISO_DATE)
+} catch (java.time.format.DateTimeParseException exc) {
+    throw new GradleException("Invalid build date: ${buildDate}", exc)
 }
+def rawBuildSequence = (System.getenv('SIMPLEOFFICE_BUILD_SEQUENCE') ?: '1').trim()
+if (!(rawBuildSequence ==~ /[1-9]\d{0,3}/)) {
+    throw new GradleException('SIMPLEOFFICE_BUILD_SEQUENCE must be 1..9999')
+}
+def buildSequence = rawBuildSequence.toInteger()
+def daysSinceEpoch = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.of(2020, 1, 1), parsedBuildDate)
+if (daysSinceEpoch < 0 || daysSinceEpoch > 200000) {
+    throw new GradleException('Build date is outside the supported range')
+}
+// Android versionCode must increase for upgrades and fit into a signed int.
+// Sequence is the GitHub workflow run number, not an issue number or commit hash.
+def calculatedVersionCode = daysSinceEpoch * 10000L + buildSequence
+if (calculatedVersionCode <= 0 || calculatedVersionCode > 2_100_000_000L) {
+    throw new GradleException("Android versionCode is outside the supported range: ${calculatedVersionCode}")
+}
+def appVersionCode = calculatedVersionCode.toInteger()
+def appVersionName = "${versionMajor}.${buildDate}.${buildSequence}"
 
 if (!expectedPythonVersion) {
     throw new GradleException("Unsupported Android ABI: ${androidAbi}")

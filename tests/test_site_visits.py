@@ -1,12 +1,16 @@
 import tempfile
+import hashlib
 from contextlib import nullcontext
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask, g
+from bs4 import BeautifulSoup
 
-from app import site_visits
+from app import app as flask_app, site_visits
+from app.db import ensure_auth_database, get_db
+from app.password_security import hash_password
 from app.site_visit_report import build_visit_report
 from app.site_visits import _selected_report_ids
 from app.site_visit_scan import parse_nmap_options, parse_scan_request, scan_authorized_private_network
@@ -26,6 +30,52 @@ class SiteVisitStoreTests(unittest.TestCase):
     def tearDown(self):
         self.context.pop()
         self.temp.cleanup()
+
+    def test_report_write_failure_keeps_metadata_and_files_clean(self):
+        visit_id = self.visit["visit_id"]
+        original = self.store.get(visit_id, "alice")["reports"]
+        def fail_metadata_write(path, _value):
+            path.with_suffix(path.suffix + ".tmp").write_text("partial", encoding="utf-8")
+            raise OSError("simulated metadata write failure")
+
+        with patch("app.site_visit_store.atomic_json_write", side_effect=fail_metadata_write):
+            with self.assertRaises(OSError):
+                self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 test", [])
+        self.assertEqual(original, self.store.get(visit_id, "alice")["reports"])
+        report_dir = self.store.directory / visit_id / "reports"
+        self.assertEqual([], list(report_dir.iterdir()))
+        self.assertFalse(self.store._path(visit_id).with_suffix(".json.tmp").exists())
+
+    def test_report_legacy_metadata_is_not_reconstructed(self):
+        visit_id = self.visit["visit_id"]
+        entry = self.store.record_report(visit_id, "alice", {"finding_ids": [], "sha256": "0" * 64})
+        with self.assertRaisesRegex(ValueError, "nicht verfügbar"):
+            self.store.report_pdf_path(visit_id, "alice", entry["report_id"])
+
+    def test_multiple_report_pdfs_keep_distinct_bytes_and_audit_entries(self):
+        visit_id = self.visit["visit_id"]
+        first = self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 first", [])
+        second = self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 second", [])
+        self.assertNotEqual(first["report_id"], second["report_id"])
+        self.assertEqual(2, len(self.store.get(visit_id, "alice")["reports"]))
+        first_path = self.store.report_pdf_path(visit_id, "alice", first["report_id"])
+        second_path = self.store.report_pdf_path(visit_id, "alice", second["report_id"])
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(b"%PDF-1.4 first", first_path.read_bytes())
+        self.assertEqual(b"%PDF-1.4 second", second_path.read_bytes())
+
+    def test_report_directory_symlink_is_rejected(self):
+        visit_id = self.visit["visit_id"]
+        entry = self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 test", [])
+        report_dir = self.store.directory / visit_id / "reports"
+        outside = Path(self.temp.name) / "reports-outside"
+        report_dir.rename(outside)
+        try:
+            report_dir.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"directory symlinks are unavailable: {type(exc).__name__}")
+        with self.assertRaisesRegex(ValueError, "symbolischen Link"):
+            self.store.report_pdf_path(visit_id, "alice", entry["report_id"])
 
     def test_free_fields_rooms_and_device_map_are_preserved(self):
         room = self.store.add_room(self.visit["visit_id"], "alice", {"name": "Serverraum", "floor": "UG"})
@@ -243,6 +293,169 @@ class SiteVisitScanTests(unittest.TestCase):
         self.assertEqual(2, connect.call_count)
         self.assertEqual("tcp", result["devices"][0]["ports"][0]["protocol"])
         self.assertEqual("TCP connect (-T3)", result["scanner"])
+
+
+class SiteVisitReportRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name) / "documents"
+        self.previous = {key: flask_app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")}
+        flask_app.config.update(
+            TESTING=True,
+            TEST_CSRF_PROTECTION=False,
+            DATABASE=str(Path(self.temp.name) / "users.sqlite"),
+            DOCUMENT_ROOT=str(self.root),
+        )
+        with flask_app.app_context():
+            ensure_auth_database()
+        self.client = flask_app.test_client()
+        self.client.post("/auth/register", data={"username": "report-owner", "password": "report-owner-password"})
+        self.client.post("/auth/login", data={"username": "report-owner", "password": "report-owner-password"})
+        # Authentication fixtures use the test-only CSRF exemption; enable the
+        # real browser mutation guard for every report request under test.
+        flask_app.config["TEST_CSRF_PROTECTION"] = True
+        self.store = SiteVisitStore(self.root)
+        self.visit = self.store.create("report-owner", {"title": "Report route test"})
+        finding = self.store.add_finding(self.visit["visit_id"], "report-owner", {
+            "title": "Validated observation",
+            "description": "The selected finding appears in the output.",
+            "status": "confirmed",
+            "include_in_report": "1",
+        })
+        self.finding_id = next(
+            row["finding_id"] for row in finding["findings"]
+            if row["title"] == "Validated observation"
+        )
+
+    def tearDown(self):
+        flask_app.config.update(self.previous)
+        self.temp.cleanup()
+
+    def test_preview_and_download_return_audited_pdf(self):
+        url = f"/site-visits/{self.visit['visit_id']}/report"
+        preview = self.client.get(url)
+        self.assertEqual(200, preview.status_code)
+        page = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
+        form = page.find("form", action=f"/site-visits/{self.visit['visit_id']}/report.pdf")
+        self.assertIsNotNone(form)
+        csrf = form.find("input", {"name": "_csrf_token"})["value"]
+
+        response = self.client.post(
+            f"/site-visits/{self.visit['visit_id']}/report.pdf",
+            data={"_csrf_token": csrf, "finding_id": self.finding_id},
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/pdf", response.mimetype)
+        self.assertIn("attachment;", response.headers["Content-Disposition"])
+        self.assertIn("private", response.headers["Cache-Control"])
+        self.assertTrue(response.data.startswith(b"%PDF"))
+        report = self.store.get(self.visit["visit_id"], "report-owner")["reports"][-1]
+        self.assertEqual([self.finding_id], report["finding_ids"])
+        self.assertEqual(hashlib.sha256(response.data).hexdigest(), report["sha256"])
+
+    def test_empty_selection_generates_downloadable_audited_pdf(self):
+        from io import BytesIO
+        from pypdf import PdfReader
+        empty_visit = self.store.create("report-owner", {"title": "Ortstermin ohne Befunde"})
+        visit_id = empty_visit["visit_id"]
+        preview = self.client.get(f"/site-visits/{visit_id}/report")
+        self.assertEqual(200, preview.status_code)
+        page = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
+        csrf = page.find("input", {"name": "_csrf_token"})["value"]
+        response = self.client.post(
+            f"/site-visits/{visit_id}/report.pdf",
+            data={"_csrf_token": csrf},
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/pdf", response.mimetype)
+        self.assertIn("attachment;", response.headers["Content-Disposition"])
+        self.assertTrue(response.data.startswith(b"%PDF"))
+        pdf = PdfReader(BytesIO(response.data))
+        self.assertIn("Keine bestätigten Befunde vorhanden.", "\\n".join(page.extract_text() for page in pdf.pages))
+        report = self.store.get(visit_id, "report-owner")["reports"][-1]
+        self.assertEqual([], report["finding_ids"])
+        self.assertEqual(hashlib.sha256(response.data).hexdigest(), report["sha256"])
+
+    def test_saved_report_can_be_downloaded_after_store_reopen(self):
+        preview = BeautifulSoup(
+            self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True),
+            "html.parser",
+        )
+        csrf = preview.find("input", {"name": "_csrf_token"})["value"]
+        original = self.client.post(
+            f"/site-visits/{self.visit['visit_id']}/report.pdf",
+            data={"_csrf_token": csrf, "finding_id": self.finding_id},
+        )
+        self.assertEqual(200, original.status_code)
+        reopened = SiteVisitStore(self.root)
+        entry = reopened.get(self.visit["visit_id"], "report-owner")["reports"][-1]
+        self.assertIn("relative_path", entry)
+        url = f"/site-visits/{self.visit['visit_id']}/reports/{entry['report_id']}.pdf"
+        downloaded = self.client.get(url)
+        self.assertEqual(200, downloaded.status_code)
+        self.assertEqual(original.data, downloaded.data)
+        self.assertEqual(hashlib.sha256(downloaded.data).hexdigest(), entry["sha256"])
+        self.assertIn("attachment;", downloaded.headers["Content-Disposition"])
+        self.assertIn("private", downloaded.headers["Cache-Control"])
+        self.assertEqual(404, self.client.get(
+            f"/site-visits/{self.visit['visit_id']}/reports/00000000-0000-0000-0000-000000000000.pdf"
+        ).status_code)
+        path = reopened.report_pdf_path(self.visit["visit_id"], "report-owner", entry["report_id"])
+        path.write_bytes(b"%PDF- corrupted")
+        self.assertEqual(404, self.client.get(url).status_code)
+        path.unlink()
+        target = self.root / "unrelated-private-file.pdf"
+        target.write_bytes(original.data)
+        path.symlink_to(target)
+        self.assertEqual(404, self.client.get(url).status_code)
+        path.unlink()
+        with self.assertRaises(ValueError):
+            reopened.report_pdf_path(self.visit["visit_id"], "other-owner", entry["report_id"])
+
+    def test_report_storage_failure_returns_controlled_error_without_metadata(self):
+        preview = BeautifulSoup(
+            self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True),
+            "html.parser",
+        )
+        csrf = preview.find("input", {"name": "_csrf_token"})["value"]
+        with patch("app.site_visit_store.atomic_json_write", side_effect=OSError("disk full")):
+            response = self.client.post(
+                f"/site-visits/{self.visit['visit_id']}/report.pdf",
+                data={"_csrf_token": csrf, "finding_id": self.finding_id},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
+        report_dir = self.store.directory / self.visit["visit_id"] / "reports"
+        self.assertEqual([], list(report_dir.iterdir()))
+        with self.client.session_transaction() as state:
+            self.assertIn("Der Bericht konnte nicht gespeichert werden", state["_flashes"][-1][1])
+
+    def test_invalid_selection_missing_csrf_and_foreign_visit_are_rejected(self):
+        url = f"/site-visits/{self.visit['visit_id']}/report.pdf"
+        self.assertEqual(403, self.client.post(url, data={"finding_id": self.finding_id}).status_code)
+        preview = BeautifulSoup(self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True), "html.parser")
+        csrf = preview.find("input", {"name": "_csrf_token"})["value"]
+        rejected = self.client.post(url, data={"_csrf_token": csrf, "finding_id": "unknown-finding"})
+        self.assertEqual(302, rejected.status_code, rejected.get_data(as_text=True)[:500])
+        self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
+
+        outsider = flask_app.test_client()
+        with flask_app.app_context():
+            db = get_db()
+            db.execute(
+                "INSERT INTO user (username, password, is_admin, is_disabled, auth_version, created_at, updated_at) "
+                "VALUES (?, ?, 0, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                ("report-outsider", hash_password("report-outsider-password")),
+            )
+            db.commit()
+        with patch.dict(flask_app.config, {"TEST_CSRF_PROTECTION": False}):
+            login_response = outsider.post(
+                "/auth/login",
+                data={"username": "report-outsider", "password": "report-outsider-password"},
+            )
+        self.assertEqual(302, login_response.status_code)
+        self.assertEqual(404, outsider.get(f"/site-visits/{self.visit['visit_id']}/report").status_code)
 
 
 if __name__ == "__main__":

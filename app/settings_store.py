@@ -13,6 +13,7 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
+from .settings_limits import DEFAULT_WEBDAV_QUOTA_MIB, MAX_WEBDAV_QUOTA_MIB
 
 
 _SETTINGS_LOCK = threading.RLock()
@@ -65,6 +66,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
+    "network": {"webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB},
     "media": {
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -370,7 +372,32 @@ class SettingsStore:
                 if not isinstance(stored_media, dict) or key not in stored_media:
                     result["media"][key] = legacy_value
         result["media"] = self._normalize_media_settings(result["media"])
+        stored_network = stored.get("network") if isinstance(stored, dict) else None
+        if not isinstance(stored_network, dict) or "webdav_quota_mib" not in stored_network:
+            result["network"]["webdav_quota_mib"] = self._legacy_webdav_quota()
+        result["network"] = self._normalize_network_settings(result["network"])
         return result
+
+    @staticmethod
+    def _legacy_webdav_quota() -> int:
+        """Read the old environment setting only until a persisted value exists."""
+        requested = os.environ.get("SIMPLEOFFICE_WEBDAV_QUOTA_MIB", "0").strip()
+        return _bounded_setting(
+            requested, DEFAULT_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
+            MAX_WEBDAV_QUOTA_MIB,
+        )
+
+    @staticmethod
+    def _normalize_network_settings(network: dict[str, Any]) -> dict[str, Any]:
+        quota = network.get("webdav_quota_mib", DEFAULT_WEBDAV_QUOTA_MIB)
+        if (
+            isinstance(quota, bool)
+            or not isinstance(quota, int)
+            or not DEFAULT_WEBDAV_QUOTA_MIB <= quota <= MAX_WEBDAV_QUOTA_MIB
+        ):
+            _LOGGER.warning("Invalid stored WebDAV quota; using the unlimited default")
+            quota = DEFAULT_WEBDAV_QUOTA_MIB
+        return {"webdav_quota_mib": quota}
 
     def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
@@ -476,7 +503,17 @@ class SettingsStore:
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
         s3 = settings.get("s3", {})
+        network = settings.get("network", {})
         media = settings.get("media", {})
+        if not isinstance(network, dict):
+            raise ValueError("network settings must be an object")
+        webdav_quota = network.get("webdav_quota_mib", DEFAULT_WEBDAV_QUOTA_MIB)
+        if (
+            isinstance(webdav_quota, bool)
+            or not isinstance(webdav_quota, int)
+            or not DEFAULT_WEBDAV_QUOTA_MIB <= webdav_quota <= MAX_WEBDAV_QUOTA_MIB
+        ):
+            raise ValueError("WebDAV quota must be 0 or between 1 and 1,048,576 MiB")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
         video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
@@ -540,6 +577,7 @@ class SettingsStore:
             },
             "sharing": {"default_expiry_days": expiry},
             "s3": {"enabled": s3.get("enabled", False)},
+            "network": {"webdav_quota_mib": webdav_quota},
             "media": {
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,

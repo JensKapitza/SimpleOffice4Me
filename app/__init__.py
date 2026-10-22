@@ -36,10 +36,10 @@ from flask.sessions import SecureCookieSessionInterface
 from jinja2 import TemplateNotFound, UndefinedError
 
 
-MIB = 1024 * 1024
+from .settings_limits import MIB, MAX_WEBDAV_QUOTA_MIB
+
 DEFAULT_UPLOAD_LIMIT_MIB = 512
 MAX_UPLOAD_LIMIT_MIB = 4096
-MAX_WEBDAV_QUOTA_MIB = 1024 * 1024
 DEFAULT_WEBDAV_QUARANTINE_MIB = 1024
 MAX_WEBDAV_QUARANTINE_MIB = 64 * 1024
 
@@ -85,13 +85,17 @@ def configured_upload_limit_bytes() -> int:
     return max(1, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
 
 
-def configured_webdav_quota_bytes() -> int:
+def configured_webdav_quota_bytes(document_root: str | Path | None = None) -> int:
     """Return the optional managed-tree WebDAV quota in bytes.
 
     Zero keeps the historic unlimited behavior.  Invalid or negative values
     fail safely to that backwards-compatible default instead of introducing
     a surprising storage outage during startup.
     """
+    if document_root is not None:
+        from .settings_store import SettingsStore
+        quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quota_mib"]
+        return quota_mib * MIB
     requested = os.environ.get("SIMPLEOFFICE_WEBDAV_QUOTA_MIB", "0").strip()
     try:
         limit_mib = int(requested)
@@ -386,6 +390,11 @@ from .s3_overlay import bp as s3_overlay_bp
 app.register_blueprint(s3_overlay_bp)
 
 from .settings_store import SettingsStore, translate, ui_literal_translations
+
+# Persisted admin settings override the legacy environment default on startup.
+app.config["WEBDAV_QUOTA_BYTES"] = (
+    configured_webdav_quota_bytes(app.config["DOCUMENT_ROOT"])
+)
 
 
 @app.before_request

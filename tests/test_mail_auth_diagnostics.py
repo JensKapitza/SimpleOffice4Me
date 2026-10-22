@@ -28,6 +28,17 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_setup_form_keeps_basic_fields_visible_and_advanced_fields_collapsed(self):
+        template = (Path(__file__).resolve().parents[1] / "templates/documents/mail_client.html").read_text(encoding="utf-8")
+        self.assertIn('id="mail-autoconfig-email" name="email"', template)
+        self.assertIn('id="mail-password"', template)
+        self.assertIn('<details id="mail-advanced-settings">', template)
+        self.assertIn('name="_auto_fetch_control"', template)
+        self.assertIn('name="auto_fetch_enabled"', template)
+        self.assertIn('name="clear_saved_password"', template)
+        self.assertIn('name="clear_saved_smtp_password"', template)
+        self.assertIn("mail_client.set_auto_fetch", template)
+
     def test_saved_imap_password_is_reused_for_smtp_and_remains_encrypted(self):
         smtp = self.store.smtp_account("alice", self.account["id"])
         self.assertEqual("secret-password", smtp["smtp_plain_password"])
@@ -86,6 +97,86 @@ class MailAuthDiagnosticsTests(unittest.TestCase):
                     self.assertEqual(302, client.post(f"/documents/mail/accounts/{self.account['id']}/test").status_code)
                     self.assertEqual(302, client.post(f"/documents/mail/accounts/{self.account['id']}/smtp/test").status_code)
             self.assertEqual({"imap": "secret-password", "smtp": "smtp-secret"}, observed)
+        finally:
+            app.config.update(previous)
+
+    def test_new_account_requires_a_credential_and_saves_it_encrypted_by_default(self):
+        client, previous = self._login_client()
+        fields = {
+            "email": "new-alice@example.test",
+            "host": "imap.example.test",
+            "username": "new-alice@example.test",
+            "label": "New account",
+            "_auto_fetch_control": "1",
+            "auto_fetch_enabled": "1",
+        }
+        try:
+            with patch("app.mail_routes._store", return_value=self.store):
+                missing = client.post("/documents/mail/accounts", data=fields, follow_redirects=True)
+                self.assertIn("Passwort eingeben", missing.get_data(as_text=True))
+                self.assertFalse(any(row["username"] == fields["username"] for row in self.store.accounts("alice")))
+
+                saved = client.post(
+                    "/documents/mail/accounts",
+                    data={**fields, "password": "new-account-password", "remember_password": "1", "_auto_fetch_control": "1"},
+                    follow_redirects=True,
+                )
+            self.assertIn("verschlüsselt gespeichert", saved.get_data(as_text=True))
+            account = next(row for row in self.store.accounts("alice") if row["username"] == fields["username"])
+            stored = json.loads(self.store.accounts_path.read_text(encoding="utf-8"))
+            raw = next(row for row in stored["accounts"] if row["id"] == account["id"])
+            self.assertTrue(account["password_saved"])
+            self.assertNotIn("new-account-password", str(raw))
+            self.assertTrue(account["auto_fetch_enabled"])
+        finally:
+            app.config.update(previous)
+
+    def test_auto_fetch_toggle_stops_implicit_imap_reads_but_allows_one_manual_fetch(self):
+        client, previous = self._login_client()
+        other_account = self.store.save_account(
+            "alice",
+            {"id": "other-mail", "host": "imap.other.example.test", "username": "alice@other.example.test"},
+            "other-account-password",
+            True,
+        )
+        account = self.store.save_account(
+            "alice",
+            {"id": self.account["id"], "host": "imap.example.test", "username": "alice@example.test"},
+            "",
+            True,
+        )
+        try:
+            with patch("app.mail_routes._store", return_value=self.store):
+                toggled = client.post(
+                    f"/documents/mail/accounts/{account['id']}/auto-fetch",
+                    data={"enabled": "0"},
+                    follow_redirects=True,
+                )
+            self.assertIn("Automatischer Abruf deaktiviert", toggled.get_data(as_text=True))
+            disabled_account = next(row for row in self.store.accounts("alice") if row["id"] == account["id"])
+            self.assertFalse(disabled_account["auto_fetch_enabled"])
+
+            url = f"/documents/mail/reader?account={account['id']}"
+            with patch("app.mail_reader_routes._store", return_value=self.store), \
+                    patch("app.mail_reader_routes.ImapWebClient.folders", return_value=["INBOX"]) as folders, \
+                    patch("app.mail_reader_routes.ImapWebClient.messages", return_value={
+                        "messages": [], "page": 1, "total": 0, "has_prev": False, "has_next": False,
+                    }) as messages:
+                disabled = client.get(url)
+                self.assertEqual(200, disabled.status_code)
+                self.assertIn("Automatischer IMAP-Abruf ist", disabled.get_data(as_text=True))
+                folders.assert_not_called()
+                messages.assert_not_called()
+
+                forced = client.get(url + "&force_fetch=1")
+                self.assertEqual(200, forced.status_code)
+                folders.assert_called_once()
+                messages.assert_called_once()
+
+                other = client.get(f"/documents/mail/reader?account={other_account['id']}")
+                self.assertEqual(200, other.status_code)
+                self.assertEqual(2, folders.call_count)
+                self.assertEqual(2, messages.call_count)
         finally:
             app.config.update(previous)
 
