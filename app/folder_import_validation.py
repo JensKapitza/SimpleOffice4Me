@@ -63,7 +63,11 @@ def validate_upload_batch(files, relative_paths, *, folder_import: bool) -> str 
         if not folder_import:
             continue
         relative = relative_paths[index].replace(chr(92), "/")
-        if len(relative.encode("utf-8")) > 4096:
+        try:
+            relative_size = len(relative.encode("utf-8"))
+        except UnicodeEncodeError:
+            return "Ungültiger relativer Ordnerpfad."
+        if relative_size > 4096:
             return "Relativer Ordnerpfad ist zu lang."
         segments = relative.split("/")
         if relative.startswith("/") or any(_invalid_segment(segment) for segment in segments):
