@@ -3,6 +3,7 @@ import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
@@ -145,6 +146,23 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             with self.subTest(url=url):
                 links = self._source_link(url, document_id)
                 self.assertEqual(200, self.client.get(links[0]["href"]).status_code)
+
+    def test_document_storage_failure_does_not_crash_task_views(self):
+        document_id = self._create_document_task()
+        original_get_document = DocumentStore.get_document
+
+        def unavailable_source(store, reference):
+            if str(reference) == document_id:
+                raise OSError("simulated storage unavailable")
+            return original_get_document(store, reference)
+
+        with patch.object(DocumentStore, "get_document", unavailable_source):
+            for url in ("/documents/tasks", "/tasks/"):
+                with self.subTest(url=url):
+                    response = self.client.get(url)
+                    self.assertEqual(200, response.status_code)
+                    body = response.get_data(as_text=True)
+                    self.assertNotIn(f'href="/documents/{document_id}"', body)
 
     def test_soft_deleted_source_has_a_clear_unavailable_state(self):
         document_id = self._create_document_task()
