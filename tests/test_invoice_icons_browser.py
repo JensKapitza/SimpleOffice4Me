@@ -144,6 +144,67 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_invoice_draft_form_reflows_and_recalculates_at_mobile_widths(self):
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            context = browser.new_context(viewport={"width": 430, "height": 900})
+            context.add_cookies([{
+                "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                "value": self.cookie,
+                "url": self.base_url,
+            }])
+            try:
+                page = context.new_page()
+                url = f"{self.base_url}/documents/business/contacts/{self.contact_id}/invoice"
+                for width in (320, 360, 390, 430, 1280):
+                    with self.subTest(width=width):
+                        page.set_viewport_size({"width": width, "height": 900})
+                        page.goto(url)
+                        page.locator("#invoice-lines").wait_for(state="attached")
+                        invoice_stylesheet = page.locator(
+                            'head link[rel="stylesheet"][href*="invoice-draft.css"]'
+                        )
+                        self.assertEqual(1, invoice_stylesheet.count())
+                        self.assertEqual(0, page.locator("body style").count())
+                        self.assertLessEqual(
+                            page.evaluate("document.documentElement.scrollWidth"), width + 1,
+                            "invoice form causes page-level horizontal scrolling",
+                        )
+                        if width <= 767:
+                            self.assertFalse(page.locator("#invoice-lines thead").is_visible())
+                        else:
+                            self.assertTrue(page.locator("#invoice-lines thead").is_visible())
+
+                        page.get_by_role("button", name="+ freie Position").click()
+                        row = page.locator("#invoice-lines tbody tr").first
+                        row.locator(".line-description").fill("Beratung")
+                        row.locator(".line-qty").fill("2")
+                        row.locator(".line-net").fill("10")
+                        row.locator(".line-vat").fill("19")
+                        self.assertIn("20,00", page.locator("#sum-net").inner_text())
+                        self.assertIn("3,80", page.locator("#sum-tax").inner_text())
+                        self.assertIn("23,80", page.locator("#sum-gross").inner_text())
+                        for selector in (".line-description", ".line-qty", "select[name='line_unit']",
+                                         ".line-net", ".line-vat", ".move-line-up", ".remove-line"):
+                            bounds = row.locator(selector).bounding_box()
+                            self.assertIsNotNone(bounds, f"{selector} is not visible at {width}px")
+                            self.assertGreaterEqual(bounds["x"], -1, f"{selector} extends left at {width}px: {bounds}")
+                            self.assertLessEqual(
+                                bounds["x"] + bounds["width"], width + 1,
+                                f"{selector} extends right at {width}px: {bounds}",
+                            )
+                        self.assertEqual("Menge", row.locator(".line-qty").get_attribute("aria-label"))
+                        if width <= 767:
+                            label = page.locator("#invoice-lines td:nth-child(2)").evaluate(
+                                "node => getComputedStyle(node, '::before').content"
+                            )
+                            self.assertIn("Menge", label)
+            finally:
+                context.close()
+                browser.close()
+
 
 if __name__ == "__main__":
     unittest.main()
