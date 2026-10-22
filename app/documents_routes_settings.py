@@ -33,6 +33,12 @@ def settings():
     )
 
 
+@bp.get("/local-storage")
+@login_required
+def local_storage():
+    return render_template("documents/local_storage.html")
+
+
 def _global_settings_from_form(current: dict) -> dict:
     values = {}
     form_keys = set(request.form)
