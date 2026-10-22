@@ -158,8 +158,8 @@ class DocumentQuickActionsTest(unittest.TestCase):
             def settings():
                 return {"documents": {"default_tags": [], "default_state": "new"}}
 
-        def complete_inbox_upload(**details):
-            completed.append(details)
+        def complete_inbox_upload(*args, **details):
+            completed.append((args, details))
 
         def fail_inbox_upload(*details):
             failed.append(details)
