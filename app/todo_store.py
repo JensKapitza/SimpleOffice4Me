@@ -107,8 +107,8 @@ class TodoStore:
             data = self._read(); item = self._owned(data, item_id, actor); self._list(data, item.get("list_id") or self.default_list_id(actor), actor, "edit")
             before = self._normalized(item, actor)
             merged = {**item, **values}
-            if item.get("source_document_id"):
-                merged["source_document_id"] = item["source_document_id"]
+            # Source provenance is immutable, including for legacy tasks without a source.
+            merged["source_document_id"] = item.get("source_document_id", "")
             merged["sequence"] = int(item.get("sequence", 0)) + 1; merged["ical_dtstamp"] = self._ical_now(); merged["ical_last_modified"] = merged["ical_dtstamp"]
             updated = self._task(item_id, str(values.get("title", item.get("title", ""))), str(item.get("owner") or actor), merged, created_at=item.get("created_at", ""))
             updated.update({"created_by": item.get("created_by", actor), "caldav_resource": item.get("caldav_resource", ""), "uid": item.get("uid") or updated["uid"], "updated_at": utc_now(), "updated_by": actor})
