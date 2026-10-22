@@ -63,13 +63,11 @@ def upload():
                     components[-1] != item.filename.replace(chr(92), "/").rsplit("/", 1)[-1]):
                 flash("Ungültiger relativer Ordnerpfad.")
                 return redirect(url_for("documents.index"))
-    # Do not silently collapse equal basenames from different subfolders.
-    folder_import = request.form.get("folder_import") == "1"
+    # A unique batch directory preserves relative paths and avoids overwriting
+    # existing imports (including duplicate basenames in different subfolders).
     if folder_import:
-        leaf_names = [item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] for item in files]
-        if len(set(leaf_names)) != len(leaf_names):
-            flash("Gleichnamige Dateien in Unterordnern: Import abgebrochen.")
-            return redirect(url_for("documents.index"))
+        import uuid
+        import_root = "imports/" + uuid.uuid4().hex
     stored = 0
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
@@ -84,12 +82,19 @@ def upload():
             flash(f"{item.filename}: {inbox['error']}")
             continue
         try:
-            result = storage.import_stream(
-                item.stream,
-                upload_name,
-                archive=archive,
-                max_bytes=max_bytes,
-            )
+            if folder_import:
+                result = storage.import_stream_at(
+                    StorageLocation(import_root + "/" + relative_paths[item_index].replace(chr(92), "/")),
+                    item.stream,
+                    max_bytes=max_bytes,
+                )
+            else:
+                result = storage.import_stream(
+                    item.stream,
+                    upload_name,
+                    archive=archive,
+                    max_bytes=max_bytes,
+                )
             if not result.ok:
                 fail_web_inbox_upload(
                     current_app.config["DOCUMENT_ROOT"], inbox["item"], result.error.message
