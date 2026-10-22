@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - "app/todo_store.py"
+      - "app/document_store.py"
       - "app/task_management.py"
       - "app/documents_routes_task_source.py"
       - "app/caldav.py"
@@ -18,6 +19,7 @@ on:
       - "templates/documents/detail.html"
       - "templates/tasks/board.html"
       - "tests/test_task_source_document_blackbox.py"
+      - "tests/test_todo_store.py"
       - "tests/test_caldav.py"
       - "tests/test_task_management.py"
       - ".github/workflows/task-source-blackbox.yml"
@@ -25,6 +27,7 @@ on:
     branches: [main]
     paths:
       - "app/todo_store.py"
+      - "app/document_store.py"
       - "app/task_management.py"
       - "app/documents_routes_task_source.py"
       - "app/caldav.py"
@@ -36,6 +39,9 @@ on:
       - "templates/documents/detail.html"
       - "templates/tasks/board.html"
       - "tests/test_task_source_document_blackbox.py"
+      - "tests/test_todo_store.py"
+      - "tests/test_caldav.py"
+      - "tests/test_task_management.py"
       - ".github/workflows/task-source-blackbox.yml"
   workflow_dispatch:
 
@@ -52,3 +58,5 @@ jobs:
         run: python -m pip install -e .
       - name: Run task source document HTTP black-box tests
         run: python -m unittest discover -s tests -p 'test_task_source_document_blackbox.py' -v
+      - name: Run task provenance store regression tests
+        run: python -m unittest discover -s tests -p 'test_todo_store.py' -v
