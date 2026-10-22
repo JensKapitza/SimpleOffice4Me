@@ -283,7 +283,7 @@ def _parse_free_text_invoice_address(value: object, default_country: str = "DE")
     lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
     if len(raw) > 1000 or not 2 <= len(lines) <= 4 or any(len(line) > 250 for line in lines):
         raise ValueError("Freitextadresse: Straße, PLZ/Ort und optional ISO-Land eingeben (maximal 1000 Zeichen).")
-    has_country = len(lines) >= 3
+    has_country = len(lines) >= 3 and bool(re.fullmatch(r"[A-Za-z]{2}", lines[-1]))
     postal_city = lines[-2] if has_country else lines[-1]
     street_lines = lines[:-2] if has_country else lines[:-1]
     postal_city_parts = postal_city.split(maxsplit=1)
@@ -324,6 +324,8 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             default_country=str((candidate or {}).get("country", "DE")),
         )
         label = candidate["label"]
+    if str(form.get("address_mode", "")).strip() == "existing" and not selected:
+        raise ValueError("Bitte eine gespeicherte Rechnungsadresse auswählen.")
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
@@ -366,13 +368,14 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
         if form.get("address_mode") == "manual" and form.get("save_billing_address") == "1":
             buyer = row["buyer"]
             components = {key: buyer[key] for key in ("street", "postal", "city", "country")}
-            contact = ContactStore(root).get(contact_id, actor)
-            matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
-            if not matching:
-                try:
-                    ContactStore(root).add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
-                except (OSError, ValueError) as exc:
-                    logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
+            try:
+                contacts = ContactStore(root)
+                contact = contacts.get(contact_id, actor)
+                matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
+                if not matching:
+                    contacts.add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
+            except (OSError, ValueError) as exc:
+                logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
     DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
     return row
 
