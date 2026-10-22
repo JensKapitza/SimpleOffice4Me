@@ -116,6 +116,7 @@ public class MainActivity extends Activity {
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
         offlineWorksetStore = new AndroidOfflineWorksetStore(this);
         localFolderRegistry = new AndroidLocalFolderRegistry(this);
+        AndroidFolderImportGrantStore.cleanupAbandoned(this);
         ScreenCaptureService.setListener(this::dispatchNativeScreenEvent);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
@@ -650,8 +651,10 @@ public class MainActivity extends Activity {
                     return;
                 }
                 try {
+                    AndroidFolderImportGrantStore.record(this, treeUri);
                     getContentResolver().takePersistableUriPermission(treeUri, grantFlags);
-                } catch (SecurityException error) {
+                } catch (IllegalStateException | SecurityException error) {
+                    AndroidFolderImportGrantStore.forget(this, treeUri);
                     clearPendingFolderImportSelection();
                     dispatchFolderQueueError("Android konnte die Ordnerfreigabe nicht speichern.");
                     return;
@@ -795,6 +798,8 @@ public class MainActivity extends Activity {
                         uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (SecurityException ignored) {
                 // A provider may already have revoked this grant.
+            } finally {
+                AndroidFolderImportGrantStore.forget(this, uri);
             }
         }
     }

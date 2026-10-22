@@ -2,8 +2,10 @@
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="simpleoffice-local-folders.xml" />
+        <exclude domain="sharedpref" path="simpleoffice-folder-import-grants.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="simpleoffice-local-folders.xml" />
+        <exclude domain="sharedpref" path="simpleoffice-folder-import-grants.xml" />
     </device-transfer>
 </data-extraction-rules>

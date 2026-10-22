@@ -97,6 +97,9 @@ Import beendet.
   bleibt an das konfigurierte Upload-Limit gebunden;
 - ein Anbieter, der keinen dauerhaft widerrufbaren SAF-Lesezugriff gewährt,
   wird vor dem Einreihen abgelehnt;
+- temporäre Importberechtigungen werden privat nachgehalten, bei Abbruch oder
+  Abschluss freigegeben und bei einem Neustart als verwaiste Rechte bereinigt;
+  diese Marker werden nicht in Cloud-Backup oder Geräteübertragung aufgenommen;
 - bereits in **Einstellungen → Lokale Ordner** gespeicherte Berechtigungen werden
   wiederverwendet und nach dem Import nicht durch die Importwarteschlange widerrufen;
 - leere Verzeichnisse werden nicht importiert; zwei ausgewählte Wurzeln mit

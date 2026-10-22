@@ -238,6 +238,8 @@ final class AndroidFolderImportTask implements Runnable {
                         uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
             } catch (SecurityException ignored) {
                 // A provider may already have revoked this temporary import grant.
+            } finally {
+                AndroidFolderImportGrantStore.forget(context, uri);
             }
         }
     }

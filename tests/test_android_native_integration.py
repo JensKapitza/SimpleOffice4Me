@@ -28,7 +28,9 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('android:fullBackupContent="@xml/backup_rules"', manifest)
         self.assertIn('android:dataExtractionRules="@xml/data_extraction_rules"', manifest)
         self.assertIn('path="simpleoffice-local-folders.xml"', legacy_backup)
+        self.assertIn('path="simpleoffice-folder-import-grants.xml"', legacy_backup)
         self.assertEqual(2, extraction.count('path="simpleoffice-local-folders.xml"'))
+        self.assertEqual(2, extraction.count('path="simpleoffice-folder-import-grants.xml"'))
 
     def test_manifest_has_narrow_browsable_deep_link(self):
         manifest = self.read(ANDROID / "src" / "main" / "AndroidManifest.xml")
@@ -221,6 +223,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("folderImportBridgeAllowed(token)", activity)
         self.assertIn("queuedFolderImportUris", activity)
         self.assertIn("queuedFolderImportOwnedGrants", activity)
+        self.assertIn("AndroidFolderImportGrantStore.record", activity)
         self.assertIn("alreadyPersisted", activity)
         self.assertIn("!alreadyPersisted", activity)
         self.assertIn("releaseFolderImportGrants", activity)
@@ -230,6 +233,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("takePersistableUriPermission", activity)
         self.assertIn("hasPersistedReadGrant", importer)
         self.assertIn("releasePersistableUriPermission", importer)
+        self.assertIn("cleanupAbandoned", self.read(JAVA / "AndroidFolderImportGrantStore.java"))
         self.assertIn("MAX_TREES = 20", importer)
         self.assertIn("MAX_FILES = 1000", importer)
         self.assertIn("MAX_DEPTH = 64", importer)
