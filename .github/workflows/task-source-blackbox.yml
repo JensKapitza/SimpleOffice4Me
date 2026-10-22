@@ -44,3 +44,7 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_task_source_document_blackbox.py' -v
       - name: Run task provenance store regression tests
         run: python -m unittest discover -s tests -p 'test_todo_store.py' -v
+      - name: Run CalDAV task integration regressions
+        run: python -m unittest discover -s tests -p 'test_caldav.py' -v
+      - name: Run task management regressions
+        run: python -m unittest discover -s tests -p 'test_task_management.py' -v
