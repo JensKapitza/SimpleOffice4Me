@@ -126,6 +126,14 @@ class FolderImportPathValidationTests(unittest.TestCase):
         relative = "/".join(["segment" * 25] * 25) + "/file.txt"
         self.assertIsNotNone(validate_upload_batch(files, [relative], folder_import=True))
 
+    def test_rejects_unpaired_unicode_surrogate_without_exception(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        self.assertIsNotNone(
+            validate_upload_batch(
+                files, ["root/" + chr(0xD800) + "/file.txt"], folder_import=True
+            )
+        )
+
     def test_accepts_single_file_without_folder_metadata(self):
         files = [SimpleNamespace(filename="photo.jpg")]
         self.assertIsNone(validate_upload_batch(files, [], folder_import=False))
