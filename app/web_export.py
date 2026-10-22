@@ -302,6 +302,14 @@ def download():
         output_path.unlink(missing_ok=True)
         audit("web_export", "page", target_id=target, outcome="timeout", detail={"format": export_format, "media": media})
         abort(504, description="Webseitenexport hat das Zeitlimit überschritten.")
+    except OSError:
+        output_path.unlink(missing_ok=True)
+        current_app.logger.exception("web_export_worker_io_failed request_id=%s", getattr(g, "request_id", ""))
+        abort(503, description="Webseitenexport konnte nicht gestartet oder gespeichert werden.")
+    except Exception:
+        # Unexpected failures must not leave temporary reports behind.
+        output_path.unlink(missing_ok=True)
+        raise
 
 
 @bp.route("/settings", methods=["GET", "POST"])
