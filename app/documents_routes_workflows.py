@@ -32,6 +32,9 @@ def upload():
     defaults = _settings().settings()["documents"]
     storage = _storage(actor)
     archive = request.form.get("archive") == "1"
+    if folder_import and archive:
+        flash("Ordnerimport und Archivablage können nicht kombiniert werden.")
+        return redirect(url_for("documents.index"))
     max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
     for item_index, item in enumerate(files):
         upload_name = item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] if folder_import else item.filename
