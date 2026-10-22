@@ -113,6 +113,10 @@ final class AndroidFolderImportTask implements Runnable {
         return treeUris.size();
     }
 
+    List<Uri> getOwnedGrantUris() {
+        return ownedGrantUris;
+    }
+
     String getPreviewMessage() {
         PreparedUpload batch = preparedUpload;
         return batch == null ? "" : batch.previewMessage;
@@ -145,7 +149,7 @@ final class AndroidFolderImportTask implements Runnable {
                 notifyListener("scanning", 0, 0, "Ordner und Dateigrößen werden geprüft …");
                 preparedUpload = prepareUpload();
                 checkCancelled();
-                notifyListener("preview", preparedUpload.files.size(), preparedUpload.totalBytes,
+                notifyListener("preview", preparedUpload.files.size(), preparedUpload.files.size(),
                         preparedUpload.previewMessage);
                 return;
             }
