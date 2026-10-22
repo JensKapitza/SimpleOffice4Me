@@ -240,6 +240,30 @@ class MailClientTests(unittest.TestCase):
         self.assertEqual(1, len(self.store.scripts_for("alice", self.account["id"])))
         with self.assertRaises(KeyError): self.store.scripts_for("bob", self.account["id"])
 
+    def test_sieve_script_paths_reject_traversal_and_symlinked_account_directories(self):
+        for name in ("../outside", "folder/script", ".."):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.store.save_script("alice", self.account["id"], name, "keep;\n")
+
+        directory = self.store._sieve_directory("alice", self.account["id"], create=True)
+        self.assertIsNotNone(directory)
+        outside = self.root.parent / "outside-mail-scripts"
+        outside.mkdir()
+        directory.rmdir()
+        try:
+            try:
+                directory.symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                self.skipTest("symlink creation is unavailable on this platform")
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                self.store.scripts_for("alice", self.account["id"])
+            with self.assertRaisesRegex(ValueError, "symbolic link"):
+                self.store.save_script("alice", self.account["id"], "main", "keep;\n")
+        finally:
+            if directory.is_symlink():
+                directory.unlink()
+            outside.rmdir()
+
     def test_archive_uses_examine_and_never_mutating_imap_commands(self):
         fake = FakeImap()
         account = self.store.account("alice", self.account["id"])

@@ -11,6 +11,7 @@ import re
 import smtplib
 import socket
 import ssl
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -391,20 +392,72 @@ class MailStore:
         )
         return bool(enabled)
 
-    def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:
-        _safe_id(account_id)
+    def _sieve_directory(self, actor: str, account_id: str, *, create: bool) -> Path | None:
+        """Resolve a non-symlink account directory beneath the private Sieve root."""
+        account_id = _safe_id(account_id)
+        directories = (
+            self.root / CONTROL_DIR,
+            self.control,
+            self.scripts,
+            self.scripts / _owner_key(actor),
+            self.scripts / _owner_key(actor) / account_id,
+        )
+        for directory in directories:
+            if directory.is_symlink():
+                raise ValueError("mail Sieve storage contains an unsafe symbolic link")
+            if create:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            elif not directory.exists():
+                return None
+            if not directory.is_dir():
+                raise ValueError("mail Sieve storage path is not a directory")
+            if not directory.resolve(strict=True).is_relative_to(self.root):
+                raise ValueError("mail Sieve storage resolved outside the document root")
+        return directories[-1].resolve(strict=True)
+
+    @staticmethod
+    def _safe_sieve_name(name: str) -> str:
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name) or name in {".", ".."}:
             raise ValueError("invalid Sieve script name")
+        return name
+
+    def _sieve_script_path(
+        self, actor: str, account_id: str, name: str, *, create_directory: bool,
+    ) -> Path:
+        safe_name = self._safe_sieve_name(name)
+        directory = self._sieve_directory(actor, account_id, create=create_directory)
+        if directory is None:
+            raise FileNotFoundError("mail Sieve script directory does not exist")
+        candidate = directory / f"{safe_name}.sieve"
+        if candidate.is_symlink():
+            raise ValueError("mail Sieve script path is a symbolic link")
+        resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(directory)
+        except ValueError:
+            raise ValueError("mail Sieve script resolved outside its account directory") from None
+        return resolved
+
+    def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:
         encoded = content.encode("utf-8")
         if len(encoded) > MAX_SCRIPT_BYTES or b"\0" in encoded:
             raise ValueError("Sieve script is too large or contains NUL")
         # Ownership check; never let another application user write below an account.
         self.account(actor, account_id, password="ownership-check")
-        path = self.scripts / _owner_key(actor) / account_id / f"{name}.sieve"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_bytes(encoded)
-        temporary.replace(path)
+        path = self._sieve_script_path(actor, account_id, name, create_directory=True)
+        temporary_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=path.parent, prefix=".sieve-", suffix=".tmp", delete=False,
+            ) as temporary:
+                temporary_name = temporary.name
+                temporary.write(encoded)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_name, path)
+        finally:
+            if temporary_name is not None:
+                Path(temporary_name).unlink(missing_ok=True)
         digest = hashlib.sha512(encoded).hexdigest()
         snapshot = {"account_id": account_id, "name": name, "sha512": digest, "size": len(encoded), "updated_at": utc_now()}
         commit = self.history.record("sieve_script_saved", actor, "sieve", hashlib.sha256(f"{actor}:{account_id}:{name}".encode()).hexdigest(), snapshot)
@@ -412,14 +465,14 @@ class MailStore:
 
     def script(self, actor: str, account_id: str, name: str) -> str:
         self.account(actor, account_id, password="ownership-check")
-        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name):
-            raise ValueError("invalid Sieve script name")
-        return (self.scripts / _owner_key(actor) / _safe_id(account_id) / f"{name}.sieve").read_text(encoding="utf-8")
+        return self._sieve_script_path(
+            actor, account_id, name, create_directory=False,
+        ).read_text(encoding="utf-8")
 
     def scripts_for(self, actor: str, account_id: str) -> list[dict[str, Any]]:
         self.account(actor, account_id, password="ownership-check")
-        folder = self.scripts / _owner_key(actor) / _safe_id(account_id)
-        if not folder.is_dir():
+        folder = self._sieve_directory(actor, account_id, create=False)
+        if folder is None:
             return []
         return [{"name": p.stem, "size": p.stat().st_size, "sha512": hashlib.sha512(p.read_bytes()).hexdigest()} for p in sorted(folder.glob("*.sieve")) if p.is_file() and not p.is_symlink()]
 
