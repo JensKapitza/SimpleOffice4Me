@@ -6,6 +6,7 @@ import unittest
 from types import SimpleNamespace
 
 from app.folder_import_validation import (
+    MAX_FOLDER_IMPORT_DEPTH,
     MAX_RELATIVE_PATH_MANIFEST_BYTES,
     decode_relative_path_manifest,
     validate_upload_batch,
@@ -114,6 +115,19 @@ class FolderImportPathValidationTests(unittest.TestCase):
         files = [SimpleNamespace(filename="file.txt")]
         path = "root/" + "/".join(["segment"] * 600) + "/file.txt"
         self.assertIsNotNone(validate_upload_batch(files, [path], folder_import=True))
+
+    def test_accepts_maximum_folder_depth(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        path = "root/" + "/".join(["dir"] * MAX_FOLDER_IMPORT_DEPTH) + "/file.txt"
+        self.assertIsNone(validate_upload_batch(files, [path], folder_import=True))
+
+    def test_rejects_folder_depth_over_limit(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        path = "root/" + "/".join(["dir"] * (MAX_FOLDER_IMPORT_DEPTH + 1)) + "/file.txt"
+        self.assertIn(
+            "zu tief",
+            validate_upload_batch(files, [path], folder_import=True),
+        )
 
     def test_rejects_oversized_path_component(self):
         files = [SimpleNamespace(filename="file.txt")]

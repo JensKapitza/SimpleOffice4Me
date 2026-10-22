@@ -130,7 +130,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(("stream.txt", b"stream me", True), calls[0][:3])
         self.assertEqual(app.config["MAX_CONTENT_LENGTH"], calls[0][3])
 
-    def test_folder_upload_preserves_nested_paths_and_reports_partial_failures(self):
+    def test_folder_upload_preserves_multiple_roots_and_reports_partial_failures(self):
         imported = []
         failed = []
         completed = []
@@ -168,7 +168,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             ("folder_import", "1"),
             ("relative_paths", json.dumps([
                 "selected-root/level-one/good.txt",
-                "selected-root/level-one/rejected.txt",
+                "second-root/level-one/rejected.txt",
             ])),
             ("files", (io.BytesIO(b"keep me"), "good.txt")),
             ("files", (io.BytesIO(b"reject me"), "rejected.txt")),

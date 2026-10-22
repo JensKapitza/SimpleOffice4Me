@@ -7,6 +7,7 @@ import unicodedata
 
 _RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", re.I)
 MAX_RELATIVE_PATH_MANIFEST_BYTES = 400_000
+MAX_FOLDER_IMPORT_DEPTH = 64
 
 
 def decode_relative_path_manifest(value: object, expected_count: int) -> tuple[list[str] | None, str | None]:
@@ -70,6 +71,8 @@ def validate_upload_batch(files, relative_paths, *, folder_import: bool) -> str 
         if relative_size > 4096:
             return "Relativer Ordnerpfad ist zu lang."
         segments = relative.split("/")
+        if len(segments) > MAX_FOLDER_IMPORT_DEPTH + 2:
+            return "Die Ordnerstruktur ist zu tief verschachtelt."
         if relative.startswith("/") or any(_invalid_segment(segment) for segment in segments):
             return "Ungültiger relativer Ordnerpfad."
         if segments[-1] != filename.rsplit("/", 1)[-1]:

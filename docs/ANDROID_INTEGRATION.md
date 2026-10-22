@@ -82,18 +82,24 @@ Flask-Endpunkt. Der Server validiert weiterhin alle relativen Pfade und führt
 den normalen hashbasierten Import einschließlich Inbox-/Auditpfad aus. Die
 SAF-URI wird nicht an Flask übertragen. Ein kleiner Abbruchknopf trennt einen
 laufenden Transfer; ein unterbrochener Multipart-Request wird nicht als
-vollständiger Import verarbeitet.
+vollständiger Import verarbeitet. Sobald alle Bytes übertragen wurden, wird
+der Abbruch deaktiviert, während der Server den Import beendet.
 
 - pro Upload höchstens 1000 Dateien und maximal 64 Verzeichnisebenen;
-- höchstens 10000 SAF-Einträge pro ausgewähltem Baum, damit sehr große
-  Verzeichnislisten begrenzt bleiben;
+- bis zu 20 SAF-Wurzeln in einer Importwarteschlange und höchstens 10000
+  Einträge insgesamt, damit sehr große Verzeichnislisten begrenzt bleiben;
 - die relative Pfadliste ist auf 400000 UTF-8-Bytes begrenzt und als einzelnes
   Formularfeld kodiert; nur der Dokument-Upload erhält das eng begrenzte
   Multipart-Teilelimit von 1010, andere Endpunkte behalten ihren Standardwert;
 - Dateiinhalte werden mit begrenztem Puffer übertragen und die gesamte Anfrage
   bleibt an das konfigurierte Upload-Limit gebunden;
-- leere Verzeichnisse werden nicht importiert; Android wählt pro Vorgang einen
-  Verzeichnisbaum, weitere Wurzeln müssen derzeit separat ausgewählt werden;
+- ein Anbieter, der keinen dauerhaft widerrufbaren SAF-Lesezugriff gewährt,
+  wird vor dem Einreihen abgelehnt;
+- bereits in **Einstellungen → Lokale Ordner** gespeicherte Berechtigungen werden
+  wiederverwendet und nach dem Import nicht durch die Importwarteschlange widerrufen;
+- leere Verzeichnisse werden nicht importiert; zwei ausgewählte Wurzeln mit
+  gleichem Namen werden abgelehnt, damit sich Zielpfade nicht überschreiben;
+  stattdessen kann der gemeinsame übergeordnete Ordner gewählt werden;
 - liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
   abgebrochen, statt eine unbeschränkte Anfrage zu starten.
 

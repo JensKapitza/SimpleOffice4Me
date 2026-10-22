@@ -36,6 +36,7 @@ final class AndroidFolderImportTask implements Runnable {
 
     private static final String LOCAL_URL = "http://127.0.0.1:8765/";
     private static final String UPLOAD_URL = LOCAL_URL + "documents/upload";
+    static final int MAX_TREES = 20;
     private static final int MAX_FILES = 1000;
     private static final int MAX_DEPTH = 64;
     private static final int MAX_TREE_ENTRIES = 10000;
@@ -46,24 +47,28 @@ final class AndroidFolderImportTask implements Runnable {
             "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?$", Pattern.CASE_INSENSITIVE);
 
     private final Context context;
-    private final Uri treeUri;
+    private final List<Uri> treeUris;
+    private final List<Uri> ownedGrantUris;
     private final String csrfToken;
     private final long maxRequestBytes;
     private final Listener listener;
     private volatile HttpURLConnection connection;
     private volatile InputStream activeInput;
     private volatile boolean cancelled;
+    private volatile boolean requestBodySent;
 
-    AndroidFolderImportTask(Context context, Uri treeUri, String csrfToken,
+    AndroidFolderImportTask(Context context, List<Uri> treeUris, List<Uri> ownedGrantUris, String csrfToken,
             long maxRequestBytes, Listener listener) {
         this.context = context.getApplicationContext();
-        this.treeUri = treeUri;
+        this.treeUris = Collections.unmodifiableList(new ArrayList<>(treeUris));
+        this.ownedGrantUris = Collections.unmodifiableList(new ArrayList<>(ownedGrantUris));
         this.csrfToken = csrfToken == null ? "" : csrfToken;
         this.maxRequestBytes = maxRequestBytes;
         this.listener = listener;
     }
 
-    void cancel() {
+    boolean cancel() {
+        if (requestBodySent) return false;
         cancelled = true;
         HttpURLConnection active = connection;
         if (active != null) active.disconnect();
@@ -75,21 +80,20 @@ final class AndroidFolderImportTask implements Runnable {
                 // Closing an active SAF stream is best-effort cancellation cleanup.
             }
         }
+        return true;
     }
 
     @Override
     public void run() {
-        boolean persistedGrant = false;
         try {
-            if (!treeUri.isHierarchical() || !"content".equalsIgnoreCase(treeUri.getScheme())) {
-                throw new ImportFailure("Android hat keinen gültigen Ordnerzugriff erteilt.");
+            if (treeUris.isEmpty() || treeUris.size() > MAX_TREES) {
+                throw new ImportFailure("Bitte höchstens 20 Ordner pro Import auswählen.");
             }
-            try {
-                context.getContentResolver().takePersistableUriPermission(
-                        treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                persistedGrant = true;
-            } catch (SecurityException ignored) {
-                // Some providers issue only a temporary grant; use it for this upload.
+            for (Uri uri : treeUris) {
+                if (!uri.isHierarchical() || !"content".equalsIgnoreCase(uri.getScheme())
+                        || !hasPersistedReadGrant(uri)) {
+                    throw new ImportFailure("Eine Ordnerfreigabe ist ungültig oder wurde widerrufen.");
+                }
             }
             notifyListener("scanning", 0, 0, "Ordner und Dateigrößen werden geprüft …");
             List<Entry> files = collectFiles();
@@ -138,10 +142,10 @@ final class AndroidFolderImportTask implements Runnable {
         } finally {
             HttpURLConnection active = connection;
             if (active != null) active.disconnect();
-            if (persistedGrant) {
+            for (Uri uri : ownedGrantUris) {
                 try {
                     context.getContentResolver().releasePersistableUriPermission(
-                            treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
                 } catch (SecurityException ignored) {
                     // A provider may have revoked the one-time grant already.
                 }
@@ -151,20 +155,27 @@ final class AndroidFolderImportTask implements Runnable {
 
     private List<Entry> collectFiles() throws ImportFailure, IOException {
         ContentResolver resolver = context.getContentResolver();
-        String rootId;
-        try {
-            rootId = DocumentsContract.getTreeDocumentId(treeUri);
-        } catch (IllegalArgumentException error) {
-            throw new ImportFailure("Der ausgewählte Ordner ist ungültig.");
-        }
-        String rootName = queryDisplayName(
-                DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner");
-        rootName = validateSegment(rootName);
         List<Entry> result = new ArrayList<>();
-        Set<String> visitedDirectories = new HashSet<>();
-        visitedDirectories.add(rootId);
         int[] entryCount = {0};
-        collectDirectory(resolver, rootId, rootName, 0, visitedDirectories, entryCount, result);
+        Set<String> rootNames = new HashSet<>();
+        for (Uri treeUri : treeUris) {
+            checkCancelled();
+            String rootId;
+            try {
+                rootId = DocumentsContract.getTreeDocumentId(treeUri);
+            } catch (IllegalArgumentException error) {
+                throw new ImportFailure("Ein ausgewählter Ordner ist ungültig.");
+            }
+            String rootName = validateSegment(queryDisplayName(
+                    DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner"));
+            if (!rootNames.add(rootName.toLowerCase(Locale.ROOT))) {
+                throw new ImportFailure("Mehrere ausgewählte Ordner haben denselben Namen. Bitte gemeinsam über einen übergeordneten Ordner importieren.");
+            }
+            Set<String> visitedDirectories = new HashSet<>();
+            visitedDirectories.add(rootId);
+            collectDirectory(resolver, treeUri, rootId, rootName, 0,
+                    visitedDirectories, entryCount, result);
+        }
         Set<String> destinationPaths = new HashSet<>();
         for (Entry entry : result) {
             if (!destinationPaths.add(entry.relativePath.toLowerCase(Locale.ROOT))) {
@@ -174,7 +185,7 @@ final class AndroidFolderImportTask implements Runnable {
         return result;
     }
 
-    private void collectDirectory(ContentResolver resolver, String directoryId, String parentPath,
+    private void collectDirectory(ContentResolver resolver, Uri treeUri, String directoryId, String parentPath,
             int depth, Set<String> visitedDirectories, int[] entryCount, List<Entry> result)
             throws ImportFailure, IOException {
         checkCancelled();
@@ -219,7 +230,7 @@ final class AndroidFolderImportTask implements Runnable {
                 if (!visitedDirectories.add(child.documentId)) {
                     throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
                 }
-                collectDirectory(resolver, child.documentId, path, depth + 1,
+                collectDirectory(resolver, treeUri, child.documentId, path, depth + 1,
                         visitedDirectories, entryCount, result);
                 continue;
             }
@@ -231,6 +242,14 @@ final class AndroidFolderImportTask implements Runnable {
             }
             result.add(new Entry(DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId), path, child.size));
         }
+    }
+
+    private boolean hasPersistedReadGrant(Uri uri) {
+        for (android.content.UriPermission permission
+                : context.getContentResolver().getPersistedUriPermissions()) {
+            if (uri.equals(permission.getUri()) && permission.isReadPermission()) return true;
+        }
+        return false;
     }
 
     private String queryDisplayName(Uri documentUri, String fallback) throws ImportFailure {
@@ -328,6 +347,9 @@ final class AndroidFolderImportTask implements Runnable {
             if (cancelled) throw new ImportFailure("Ordnerimport abgebrochen.");
             throw error;
         }
+        requestBodySent = true;
+        notifyListener("finishing", files.size(), files.size(),
+                "Dateien übertragen; der Server schließt den Import ab …");
         checkCancelled();
         int responseCode = request.getResponseCode();
         updateCookies(request);
