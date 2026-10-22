@@ -186,6 +186,24 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         self.assertEqual(parent["uid"], child.get("parent_uid"))
         self._source_link("/tasks/", document_id)
 
+    def test_task_status_change_preserves_source_document(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        response = self.client.post(
+            f"/tasks/{task['id']}/move",
+            data={"status": "in-process"},
+        )
+        self.assertEqual(302, response.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual("in-process", saved["status"])
+        self.assertEqual(document_id, saved["source_document_id"])
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                self._source_link(url, document_id)
+
     def test_unknown_source_id_does_not_produce_broken_link(self):
         # Seed an existing task with a stale reference; exercise rendering over HTTP.
         TodoStore(self.root).add(
