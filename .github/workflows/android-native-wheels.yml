@@ -105,6 +105,12 @@ jobs:
               test -f "$sysroot/usr/lib/aarch64-linux-android/24/libz.so" || test -f "$sysroot/usr/lib/aarch64-linux-android/libz.so"
               export CFLAGS="-I$sysroot/usr/include ${CFLAGS:-}"
               export LDFLAGS="-L$sysroot/usr/lib/aarch64-linux-android/24 -L$sysroot/usr/lib/aarch64-linux-android ${LDFLAGS:-}"
+              # Pillow dependency discovery uses explicit include/library paths;
+              # compiler flags alone are not sufficient for its setup.py probe.
+              export ZLIB_ROOT="$sysroot/usr"
+              export ZLIB_INCLUDE_DIR="$sysroot/usr/include"
+              export ZLIB_LIBRARY="$sysroot/usr/lib/aarch64-linux-android/24/libz.so"
+              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$ZLIB_ROOT ZLIB_INCLUDE_DIR=$ZLIB_INCLUDE_DIR ZLIB_LIBRARY=$ZLIB_LIBRARY"
             fi
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
           )
