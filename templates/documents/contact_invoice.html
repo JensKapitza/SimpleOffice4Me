@@ -35,7 +35,8 @@
       <div class="card mb-4"><div class="card-header">Rechnungsdaten</div><div class="card-body row g-3"><div class="col-md-6"><label class="form-label" for="invoice-address-mode">Rechnungsadresse</label>
 <select class="form-select mb-2" id="invoice-address-mode" name="address_mode">
 <option value="existing" {% if addresses and not (draft and not draft.buyer.address_id) %}selected{% endif %}>Gespeicherte Kontaktadresse</option>
-<option value="manual" {% if not addresses or (draft and not draft.buyer.address_id) %}selected{% endif %}>Neue Adresse für diese Rechnung</option>
+<option value="manual" {% if not addresses or (draft and not draft.buyer.address_id and draft.buyer.postal) %}selected{% endif %}>Neue strukturierte Adresse</option>
+<option value="free_text" {% if draft and not draft.buyer.address_id and not draft.buyer.postal %}selected{% endif %}>Freitextadresse für diese Rechnung</option>
 </select>
 <div id="invoice-existing-address">
 <select class="form-select" name="address" id="invoice-address-select">
@@ -49,16 +50,20 @@
 <label for="billing-country" class="form-label mt-2">Land (ISO-Code)</label><input class="form-control" id="billing-country" name="billing_country" maxlength="2" value="{{ draft.buyer.country if draft and not draft.buyer.address_id else 'DE' }}">
 <p class="form-text">Diese Adresse wird in der Rechnung gespeichert, ohne den Kontakt zu ändern.</p>
 </div>
+<div id="invoice-free-text-address" class="mt-2"><label for="billing-free-text" class="form-label">Rechnungsadresse als Freitext</label><textarea id="billing-free-text" name="billing_free_text" class="form-control" rows="4" maxlength="1000" placeholder="Straße und Hausnummer&#10;PLZ Ort&#10;Land">{{ draft.buyer.label if draft and not draft.buyer.address_id and not draft.buyer.postal else "" }}</textarea><div class="form-text">Mindestens zwei Zeilen. Wird nur für diese Rechnung verwendet.</div></div>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
   const mode = document.getElementById('invoice-address-mode');
   const existing = document.getElementById('invoice-existing-address');
   const manual = document.getElementById('invoice-manual-address');
+  const freeText = document.getElementById('invoice-free-text-address');
   const fields = ['billing-street', 'billing-postal', 'billing-city'];
   function updateAddressMode() {
     const isManual = mode.value === 'manual';
     existing.hidden = isManual;
     manual.hidden = !isManual;
+    freeText.hidden = mode.value !== 'free_text';
+    document.getElementById('billing-free-text').required = mode.value === 'free_text';
     fields.forEach(id => { document.getElementById(id).required = isManual; });
   }
   mode.addEventListener('change', updateAddressMode);
