@@ -13,7 +13,7 @@ from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
-from app.business_document_generation import _invoice_content_pdf
+from app.business_document_generation import _cii_xml, _invoice_content_pdf
 
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
@@ -76,6 +76,89 @@ class BusinessDocumentTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Ungültiger Rechnungsadressmodus"):
                     _invoice_row_from_form(Path(temp), "contact-1", form, "tester")
                 contacts.assert_not_called()
+
+    def test_cii_payment_means_precedes_header_vat_tax(self):
+        from xml.etree import ElementTree as ET
+
+        xml = _cii_xml({
+            "invoice_number": "RE-2026-1", "issue_date": "2026-10-22", "service_date": "2026-10-22",
+            "due_date": "2026-11-05", "currency": "EUR", "seller": {
+                "name": "Seller", "street": "Seller St 1", "postal": "10117", "city": "Berlin",
+                "country": "DE", "iban": "DE89370400440532013000",
+            }, "buyer": {"name": "Buyer", "street": "Buyer St 2", "postal": "10115", "city": "Berlin", "country": "DE"}, "lines": [], "totals": {
+                "net": "10.00", "tax": "1.90", "gross": "11.90", "due": "11.90",
+                "vat_groups": {"19": {"basis": "10.00", "tax": "1.90"}},
+            },
+        })
+        root = ET.fromstring(xml)
+        settlement = root.find(".//{*}ApplicableHeaderTradeSettlement")
+        child_names = [element.tag.rsplit("}", 1)[-1] for element in settlement]
+        self.assertLess(child_names.index("SpecifiedTradeSettlementPaymentMeans"), child_names.index("ApplicableTradeTax"))
+
+    def test_saved_invoice_address_rejects_missing_or_stale_selection(self):
+        from app.business_documents import _invoice_row_from_form
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact = ContactStore(root).upsert({"display_name": "Customer"}, "tester")
+            ContactStore(root).add_address(
+                contact["contact_id"], "Rechnungsadresse", "First Street 1", "tester",
+                components={"street": "First Street 1", "postal": "10115", "city": "Berlin", "country": "DE"},
+            )
+            for selected in ("", "contact-99", "crm-99"):
+                with self.subTest(selected=selected), self.assertRaisesRegex(ValueError, "gespeicherte Rechnungsadresse"):
+                    _invoice_row_from_form(root, contact["contact_id"], MultiDict([
+                        ("address_mode", "existing"), ("address", selected),
+                    ]), "tester")
+
+    def test_invoice_address_modes_save_edit_and_preserve_pdf_snapshot(self):
+        from app.business_documents import invoice
+
+        for mode in ("existing", "manual", "free_text"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                contact = ContactStore(root).upsert({"display_name": "Customer"}, "tester")
+                components = {"street": "Original Street 1", "postal": "10115", "city": "Berlin", "country": "DE"}
+                if mode == "existing":
+                    ContactStore(root).add_address(
+                        contact["contact_id"], "Rechnungsadresse", "Original Street 1\n10115 Berlin", "tester",
+                        components=components,
+                    )
+                form = MultiDict([
+                    ("address_mode", mode), ("address", "contact-0"),
+                    ("billing_street", components["street"]), ("billing_postal", "10115"),
+                    ("billing_city", "Berlin"), ("billing_country", "DE"),
+                    ("billing_free_text", "Original Street 1\n10115 Berlin\nDE"),
+                    ("save_billing_address", "1"), ("recipient_type", "private"),
+                    ("recipient_contact", "Customer"), ("line_description", "Consulting"),
+                    ("line_quantity", "1"), ("line_net_price", "10"), ("line_vat_rate", "19"),
+                ])
+                with mock.patch("app.business_documents.business_settings", return_value={
+                    "seller_name": "Seller", "seller_street": "Seller Street 2",
+                    "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
+                }), mock.patch("app.business_documents.active_template", return_value={"template_id": "test"}):
+                    row = save_invoice_draft(root, contact["contact_id"], form, "tester")
+                    self.assertEqual(components, {key: row["buyer"][key] for key in components})
+                    self.assertEqual(0 if mode == "free_text" else 1,
+                                     len(ContactStore(root).get(contact["contact_id"], "tester")["addresses"]))
+                    form["draft_updated_at"] = row["updated_at"]
+                    form["line_quantity"] = "2"
+                    edited = save_invoice_draft(root, contact["contact_id"], form, "tester", row["invoice_id"])
+                    self.assertEqual(row["invoice_id"], edited["invoice_id"])
+                    self.assertEqual("23.80", edited["totals"]["gross"])
+                    self.assertEqual(row["buyer"], edited["buyer"])
+                    self.assertEqual(0 if mode == "free_text" else 1,
+                                     len(ContactStore(root).get(contact["contact_id"], "tester")["addresses"]))
+                ContactStore(root).add_address(
+                    contact["contact_id"], "Another address", "Changed Street 9", "tester",
+                    components={**components, "street": "Changed Street 9"},
+                )
+                persisted = invoice(root, row["invoice_id"])
+                self.assertEqual(row["buyer"], persisted["buyer"])
+                pdf_text = "\n".join(page.extract_text() or "" for page in
+                                     PdfReader(io.BytesIO(_invoice_content_pdf(persisted))).pages)
+                self.assertIn("Original Street 1", pdf_text)
+                self.assertNotIn("Changed Street 9", pdf_text)
 
     def test_invoice_draft_rejects_stale_parallel_editor_without_overwriting(self):
         with tempfile.TemporaryDirectory() as temp:
