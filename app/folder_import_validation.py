@@ -12,6 +12,7 @@ def _invalid_segment(segment: str) -> bool:
         not segment
         or segment in (".", "..")
         or segment.rstrip(" .") != segment
+        or len(segment.encode("utf-8")) > 255
         or ":" in segment
         or len(segment) > 255
         or any(ord(char) < 32 for char in segment)
@@ -37,6 +38,8 @@ def validate_upload_batch(files, relative_paths, *, folder_import: bool) -> str 
         if not folder_import:
             continue
         relative = relative_paths[index].replace(chr(92), "/")
+        if len(relative.encode("utf-8")) > 4096:
+            return "Relativer Ordnerpfad ist zu lang."
         segments = relative.split("/")
         if relative.startswith("/") or any(_invalid_segment(segment) for segment in segments):
             return "Ungültiger relativer Ordnerpfad."
