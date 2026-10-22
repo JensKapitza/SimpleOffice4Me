@@ -254,6 +254,36 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.assertEqual([], report["finding_ids"])
         self.assertEqual(hashlib.sha256(response.data).hexdigest(), report["sha256"])
 
+    def test_saved_report_can_be_downloaded_after_store_reopen(self):
+        preview = BeautifulSoup(
+            self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True),
+            "html.parser",
+        )
+        csrf = preview.find("input", {"name": "_csrf_token"})["value"]
+        original = self.client.post(
+            f"/site-visits/{self.visit['visit_id']}/report.pdf",
+            data={"_csrf_token": csrf, "finding_id": self.finding_id},
+        )
+        self.assertEqual(200, original.status_code)
+        reopened = SiteVisitStore(self.root)
+        entry = reopened.get(self.visit["visit_id"], "report-owner")["reports"][-1]
+        self.assertIn("relative_path", entry)
+        url = f"/site-visits/{self.visit['visit_id']}/reports/{entry['report_id']}.pdf"
+        downloaded = self.client.get(url)
+        self.assertEqual(200, downloaded.status_code)
+        self.assertEqual(original.data, downloaded.data)
+        self.assertEqual(hashlib.sha256(downloaded.data).hexdigest(), entry["sha256"])
+        self.assertIn("attachment;", downloaded.headers["Content-Disposition"])
+        self.assertIn("private", downloaded.headers["Cache-Control"])
+        self.assertEqual(404, self.client.get(
+            f"/site-visits/{self.visit['visit_id']}/reports/00000000-0000-0000-0000-000000000000.pdf"
+        ).status_code)
+        path = reopened.report_pdf_path(self.visit["visit_id"], "report-owner", entry["report_id"])
+        path.write_bytes(b"%PDF- corrupted")
+        self.assertEqual(404, self.client.get(url).status_code)
+        with self.assertRaises(ValueError):
+            reopened.report_pdf_path(self.visit["visit_id"], "other-owner", entry["report_id"])
+
     def test_invalid_selection_missing_csrf_and_foreign_visit_are_rejected(self):
         url = f"/site-visits/{self.visit['visit_id']}/report.pdf"
         self.assertEqual(403, self.client.post(url, data={"finding_id": self.finding_id}).status_code)
