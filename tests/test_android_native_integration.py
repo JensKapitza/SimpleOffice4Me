@@ -313,7 +313,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
     def test_android_7_arm64_profile_is_available_and_unverified_arm32_is_rejected(self):
         gradle = self.read(ANDROID / "build.gradle")
         self.assertIn('minSdk 24', gradle)
-        self.assertIn("'arm64-v8a': '3.13'", gradle)
+        self.assertIn("'arm64-v8a': '3.15'", gradle)
         self.assertNotIn("'armeabi-v7a': '3.11'", gradle)
         self.assertIn("Unsupported Android ABI", gradle)
         self.assertIn("file('../../../pyproject.toml')", gradle)
