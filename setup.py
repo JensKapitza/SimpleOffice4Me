@@ -67,7 +67,7 @@ setup(
         "quality": ["ruff==0.17.1"],
         "ocr": [
             "rapidocr==3.10.0",
-                        "onnxruntime==1.30.0",
+            "onnxruntime==1.30.0",
         ],
         "sftp": ["paramiko>=3.5,<6"],
         "banking": ["fints>=4.2,<6"],
