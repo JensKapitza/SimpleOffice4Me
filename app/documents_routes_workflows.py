@@ -33,15 +33,13 @@ def upload():
                 any(ord(char) < 32 for char in name)):
             flash("Ungültiger Dateiname im Import. Vorgang abgebrochen.")
             return redirect(url_for("documents.index"))
-    # Browser folder uploads may expose relative paths in multipart filenames.
-    # Preserve those paths only as provenance; never interpret them as trusted
-    # filesystem destinations or pass them to the legacy import_stream adapter.
+    # Do not silently collapse equal basenames from different subfolders.
     folder_import = request.form.get("folder_import") == "1"
     if folder_import:
-        for item in files:
-            if "/" in item.filename.replace("\\", "/"):
-                flash("Ordnerpfade werden derzeit nicht als Verzeichnisstruktur übernommen.")
-                break
+        leaf_names = [item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] for item in files]
+        if len(set(leaf_names)) != len(leaf_names):
+            flash("Gleichnamige Dateien in Unterordnern: Import abgebrochen.")
+            return redirect(url_for("documents.index"))
     stored = 0
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
@@ -49,6 +47,7 @@ def upload():
     archive = request.form.get("archive") == "1"
     max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
     for item_index, item in enumerate(files):
+        upload_name = item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] if folder_import else item.filename
         source_key = f"{getattr(g, 'request_id', 'web')}:{item_index}:{item.filename}"
         inbox = begin_web_inbox_upload(current_app.config, item, actor, source_key)
         if inbox["error"]:
@@ -57,7 +56,7 @@ def upload():
         try:
             result = storage.import_stream(
                 item.stream,
-                item.filename,
+                upload_name,
                 archive=archive,
                 max_bytes=max_bytes,
             )
