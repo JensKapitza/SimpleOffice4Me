@@ -67,6 +67,10 @@ document.addEventListener('DOMContentLoaded', () => {
     freeText.hidden = mode.value !== 'free_text';
     document.getElementById('billing-free-text').required = mode.value === 'free_text';
     fields.forEach(id => { document.getElementById(id).required = isManual; });
+    const savedAddress = document.getElementById('invoice-address-select');
+    savedAddress.disabled = mode.value !== 'existing';
+    savedAddress.required = mode.value === 'existing';
+    document.getElementById('save-billing-address').disabled = !isManual;
   }
   mode.addEventListener('change', updateAddressMode);
   updateAddressMode();
