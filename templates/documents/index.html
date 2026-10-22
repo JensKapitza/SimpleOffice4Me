@@ -52,6 +52,20 @@
     source.setAttribute('name', 'files');
     source.required = true;
     document.getElementById('document-folder-import').value = source === folder ? '1' : '0';
+    // Keep each browser-provided relative path aligned with its multipart file.
+    // The server must validate these values before using them for storage.
+    const form = source.form;
+    form.querySelectorAll('input[data-folder-relative-path]').forEach((node) => node.remove());
+    if (source === folder) {
+      selected.forEach((file) => {
+        const hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = 'relative_paths';
+        hidden.dataset.folderRelativePath = '1';
+        hidden.value = file.webkitRelativePath || file.name;
+        form.appendChild(hidden);
+      });
+    }
     const bytes = selected.reduce((sum, file) => sum + file.size, 0);
     status.textContent = selected.length + ' Datei(en), ' +
       (bytes / 1048576).toFixed(1) + ' MiB ausgewählt' +
