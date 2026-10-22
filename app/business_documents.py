@@ -366,13 +366,14 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
         if form.get("address_mode") == "manual" and form.get("save_billing_address") == "1":
             buyer = row["buyer"]
             components = {key: buyer[key] for key in ("street", "postal", "city", "country")}
-            contact = ContactStore(root).get(contact_id, actor)
-            matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
-            if not matching:
-                try:
-                    ContactStore(root).add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
-                except (OSError, ValueError) as exc:
-                    logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
+            try:
+                contacts = ContactStore(root)
+                contact = contacts.get(contact_id, actor)
+                matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
+                if not matching:
+                    contacts.add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
+            except (OSError, ValueError) as exc:
+                logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
     DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
     return row
 
