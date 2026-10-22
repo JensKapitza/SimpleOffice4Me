@@ -63,6 +63,23 @@ def upload():
                     components[-1] != item.filename.replace(chr(92), "/").rsplit("/", 1)[-1]):
                 flash("Ungültiger relativer Ordnerpfad.")
                 return redirect(url_for("documents.index"))
+    # Apply the same portable-name rules to every directory component, not
+    # only to the multipart filename. Reject duplicate destinations up front.
+    if folder_import:
+        seen_paths = set()
+        for relative_path in relative_paths:
+            segments = relative_path.replace(chr(92), "/").split("/")
+            for segment in segments:
+                if (segment.rstrip(" .") != segment or
+                        unicodedata.normalize("NFC", segment) != segment or
+                        re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?", segment)):
+                    flash("Ungültiger Verzeichnisname im Ordnerimport.")
+                    return redirect(url_for("documents.index"))
+            key = "/".join(segments).casefold()
+            if key in seen_paths:
+                flash("Doppelter Dateipfad im Ordnerimport.")
+                return redirect(url_for("documents.index"))
+            seen_paths.add(key)
     # A unique batch directory preserves relative paths and avoids overwriting
     # existing imports (including duplicate basenames in different subfolders).
     if folder_import:
