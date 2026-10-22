@@ -47,6 +47,22 @@ def upload():
                     re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?", segment)):
                 flash("Ungültiger oder plattformübergreifend unsicherer Dateiname.")
                 return redirect(url_for("documents.index"))
+    # Each folder file must have a matching, validated relative path.
+    folder_import = request.form.get("folder_import") == "1"
+    relative_paths = request.form.getlist("relative_paths") if folder_import else []
+    if folder_import:
+        if len(relative_paths) != len(files):
+            flash("Ordnerimport unvollständig: Dateipfade fehlen.")
+            return redirect(url_for("documents.index"))
+        for item, relative_path in zip(files, relative_paths):
+            normalized = relative_path.replace(chr(92), "/")
+            components = normalized.split("/")
+            if (not normalized or normalized.startswith("/") or
+                    any(part in ("", ".", "..") for part in components) or
+                    any(ord(char) < 32 or char == ":" for char in normalized) or
+                    components[-1] != item.filename.replace(chr(92), "/").rsplit("/", 1)[-1]):
+                flash("Ungültiger relativer Ordnerpfad.")
+                return redirect(url_for("documents.index"))
     # Do not silently collapse equal basenames from different subfolders.
     folder_import = request.form.get("folder_import") == "1"
     if folder_import:
