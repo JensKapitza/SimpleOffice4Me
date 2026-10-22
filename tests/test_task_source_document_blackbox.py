@@ -204,6 +204,23 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             with self.subTest(url=url):
                 self._source_link(url, document_id)
 
+    def test_invalid_board_move_keeps_source_and_status(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        original_status = task["status"]
+        response = self.client.post(
+            f"/tasks/{task['id']}/move",
+            data={"status": "not-a-valid-status", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(original_status, saved["status"])
+        self.assertEqual(document_id, saved["source_document_id"])
+        self._source_link("/tasks/", document_id)
+
     def test_unknown_source_id_does_not_produce_broken_link(self):
         # Seed an existing task with a stale reference; exercise rendering over HTTP.
         TodoStore(self.root).add(
