@@ -292,6 +292,13 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
         label = "\n".join((street, f"{postal} {city}", country))
         candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
+    if form.get("address_mode") == "free_text":
+        free_text = str(form.get("billing_free_text", "")).strip()
+        lines = [part.strip() for part in free_text.splitlines() if part.strip()]
+        if len(free_text) > 1000 or len(lines) < 2:
+            raise ValueError("Freitextadresse: mindestens zwei Zeilen, maximal 1000 Zeichen.")
+        label = chr(10).join(lines)
+        candidate = {"id": "", "label": label, "street": lines[0], "postal": "", "city": "", "country": "DE"}
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
