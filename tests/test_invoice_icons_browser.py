@@ -144,6 +144,43 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
             context.close()
             browser.close()
 
+    def test_invoice_address_modes_hide_and_disable_inactive_inputs(self):
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            context = browser.new_context(viewport={"width": 360, "height": 800})
+            context.add_cookies([{
+                "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                "value": self.cookie,
+                "url": self.base_url,
+            }])
+            try:
+                page = context.new_page()
+                for width in (320, 360, 390, 430, 1280):
+                    page.set_viewport_size({"width": width, "height": 900})
+                    page.goto(f"{self.base_url}/documents/business/contacts/{self.contact_id}/invoice")
+                    mode = page.locator("#invoice-address-mode")
+                    mode.select_option("free_text")
+                    self.assertTrue(page.locator("#invoice-existing-address").is_hidden())
+                    self.assertTrue(page.locator("#invoice-manual-address").is_hidden())
+                    self.assertTrue(page.locator("#invoice-address-select").is_disabled())
+                    self.assertTrue(page.locator("#save-billing-address").is_disabled())
+                    self.assertTrue(page.locator("#billing-free-text").is_visible())
+                    mode.select_option("manual")
+                    self.assertTrue(page.locator("#invoice-existing-address").is_hidden())
+                    self.assertTrue(page.locator("#invoice-manual-address").is_visible())
+                    self.assertTrue(page.locator("#invoice-address-select").is_disabled())
+                    self.assertTrue(page.locator("#save-billing-address").is_enabled())
+                    self.assertTrue(page.locator("#billing-postal").get_attribute("required") is not None)
+                    mode.select_option("existing")
+                    self.assertTrue(page.locator("#invoice-existing-address").is_visible())
+                    self.assertTrue(page.locator("#invoice-manual-address").is_hidden())
+                    self.assertTrue(page.locator("#invoice-address-select").is_enabled())
+            finally:
+                context.close()
+                browser.close()
+
     def test_invoice_draft_form_reflows_and_recalculates_at_mobile_widths(self):
         from playwright.sync_api import sync_playwright
 
