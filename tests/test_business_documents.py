@@ -13,6 +13,7 @@ from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
+from app.business_document_generation import _invoice_content_pdf
 
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
@@ -154,7 +155,9 @@ class BusinessDocumentTests(unittest.TestCase):
                 "seller_name": "Muster GmbH", "seller_street": "Hauptstraße 1",
                 "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
             }), mock.patch("app.business_documents._build_invoice_lines", return_value=[]), \
-                 mock.patch("app.business_documents._invoice_totals", return_value={"gross": "0.00"}), \
+                 mock.patch("app.business_documents._invoice_totals", return_value={
+                     "net": "0.00", "tax": "0.00", "gross": "0.00", "vat_groups": {},
+                 }), \
                  mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-2026-0001"), \
                  mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
                  mock.patch("app.business_documents.DocumentStore"):
@@ -165,6 +168,10 @@ class BusinessDocumentTests(unittest.TestCase):
             }, {key: row["buyer"][key] for key in ("street", "postal", "city", "country")})
             self.assertEqual("Max Muster\nMusterstraße 1\n10115, Berlin\nDE", row["buyer"]["label"])
             self.assertEqual([], ContactStore(root).get(contact["contact_id"], "tester")["addresses"])
+            pdf = _invoice_content_pdf(row)
+            pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages)
+            for address_part in ("Musterstraße 1", "10115", "Berlin", "DE"):
+                self.assertIn(address_part, pdf_text)
 
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
