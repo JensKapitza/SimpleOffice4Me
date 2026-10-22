@@ -84,6 +84,17 @@ class FolderImportPathValidationTests(unittest.TestCase):
         path = "root/" + "/".join(["segment"] * 600) + "/file.txt"
         self.assertIsNotNone(validate_upload_batch(files, [path], folder_import=True))
 
+    def test_rejects_oversized_path_component(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        self.assertIsNotNone(
+            validate_upload_batch(files, ["root/" + "x" * 256 + "/file.txt"], folder_import=True)
+        )
+
+    def test_rejects_oversized_full_path(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        relative = "/".join(["segment" * 25] * 25) + "/file.txt"
+        self.assertIsNotNone(validate_upload_batch(files, [relative], folder_import=True))
+
     def test_accepts_single_file_without_folder_metadata(self):
         files = [SimpleNamespace(filename="photo.jpg")]
         self.assertIsNone(validate_upload_batch(files, [], folder_import=False))
