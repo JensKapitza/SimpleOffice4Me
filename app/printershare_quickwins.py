@@ -445,7 +445,7 @@ def api_job(job_id: str):
 def _csv_safe_text(value: Any) -> str:
     """Protect untrusted print-job metadata from spreadsheet formula execution."""
     text = "" if value is None else str(value)
-    if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
+    if text.lstrip("\ufeff \t\r\n\v\f\u00a0\u2003").startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
         return "'" + text
     return text
 
