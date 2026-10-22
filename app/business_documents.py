@@ -279,6 +279,19 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage_contact(contact,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
+    if str(form.get("address_mode", "")).strip() == "manual":
+        street = str(form.get("billing_street", "")).strip()
+        postal = str(form.get("billing_postal", "")).strip()
+        city = str(form.get("billing_city", "")).strip()
+        country = str(form.get("billing_country", "DE")).strip().upper() or "DE"
+        if not street or not postal or not city:
+            raise ValueError("Für eine manuelle Rechnungsadresse sind Straße, PLZ und Ort erforderlich.")
+        if len(country) != 2 or not country.isalpha():
+            raise ValueError("Das Land muss als zweistelliger ISO-Code angegeben werden.")
+        if any(len(value) > 250 for value in (street, postal, city)):
+            raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
+        label = "\\n".join((street, f"{postal} {city}", country))
+        candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
