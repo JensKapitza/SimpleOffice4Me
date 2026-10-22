@@ -290,7 +290,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             raise ValueError("Das Land muss als zweistelliger ISO-Code angegeben werden.")
         if any(len(value) > 250 for value in (street, postal, city)):
             raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
-        label = "\\n".join((street, f"{postal} {city}", country))
+        label = "\n".join((street, f"{postal} {city}", country))
         candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
