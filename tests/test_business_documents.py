@@ -112,6 +112,18 @@ class BusinessDocumentTests(unittest.TestCase):
                 add_address.assert_called_once()
                 self.assertEqual("12345", add_address.call_args.kwargs["components"]["postal"])
 
+    def test_free_text_invoice_cannot_finalize_without_structured_address(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            invoice_id = "draft-free-text"
+            directory = root / CONTROL_DIR / "invoices"
+            directory.mkdir(parents=True)
+            row = {"invoice_id": invoice_id, "contact_id": "contact-1", "status": "draft",
+                   "buyer": {"street": "Teststr. 1", "postal": "", "city": "", "country": "DE"}}
+            (directory / (invoice_id + ".json")).write_text(json.dumps(row), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "strukturierte Adressdaten"):
+                finalize_invoice(root, invoice_id, "tester")
+
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
         with mock.patch("app.todo_store.TodoStore") as todo_store:
