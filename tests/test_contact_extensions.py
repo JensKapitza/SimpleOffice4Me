@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import app
-from app.contact_extensions import ContactCRMStore, _eml_preview, _external_update_values
+from app.contact_extensions import ContactCRMStore, _crm_csv_safe, _eml_preview, _external_update_values
 from app.contact_store import ContactStore
 from app.document_store import DocumentStore
 from app.settings_store import TRANSLATIONS, translate, ui_literal_translations
@@ -17,6 +17,14 @@ class ContactExtensionsTest(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_crm_csv_escapes_formula_like_contact_fields(self):
+        for value in ("=1+1", "+SUM(1,2)", "-1+2", "@cmd", "  =HYPERLINK(1)", "\\t=1+1"):
+            with self.subTest(value=value):
+                self.assertEqual("'" + value, _crm_csv_safe(value))
+        for value in ("Firma GmbH", "kontakt@example.test", "12345", ""):
+            with self.subTest(value=value):
+                self.assertEqual(value, _crm_csv_safe(value))
 
     def test_crm_data_is_separate_from_carddav_contact(self):
         contacts = ContactStore(self.root)
