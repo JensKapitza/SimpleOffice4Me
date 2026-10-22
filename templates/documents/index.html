@@ -42,6 +42,7 @@
     folderButton.setAttribute('aria-describedby', 'document-selection');
   }
   const submit = files.form.querySelector('button[type="submit"]');
+  submit.disabled = true;
   const update = (source) => {
     const selected = Array.from(source.files || []);
     if (!selected.length) {
