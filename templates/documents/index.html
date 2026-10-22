@@ -33,6 +33,14 @@
   if (!files || !folder || !status) return;
   document.getElementById('pick-document-files').addEventListener('click', () => files.click());
   document.getElementById('pick-document-folder').addEventListener('click', () => folder.click());
+  // Directory selection is not universally implemented by Android WebViews.
+  // Do not present a silently broken control where the picker is unsupported.
+  const folderButton = document.getElementById('pick-document-folder');
+  if (!('webkitdirectory' in folder)) {
+    folderButton.disabled = true;
+    folderButton.title = 'Ordnerauswahl wird von diesem Browser nicht unterstützt';
+    folderButton.setAttribute('aria-describedby', 'document-selection');
+  }
   const update = (source) => {
     const selected = Array.from(source.files || []);
     if (!selected.length) return;
