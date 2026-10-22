@@ -173,16 +173,16 @@ class BusinessDocumentTests(unittest.TestCase):
             for address_part in ("Musterstraße 1", "10115", "Berlin", "DE"):
                 self.assertIn(address_part, pdf_text)
 
-            with mock.patch("app.business_document_generation._invoice_number", return_value="RE-2026-0001"), \
-                 mock.patch("app.business_document_generation.active_template", return_value={"template_id": "template-1"}), \
-                 mock.patch("app.business_document_generation._validate_project_sources"), \
-                 mock.patch("app.business_document_generation._merge_content_with_template", return_value=b"visual"), \
-                 mock.patch("app.business_document_generation._pdfa3_convert_detailed", return_value=(b"pdfa", {"status": "pdfa3_created"})), \
-                 mock.patch("app.business_document_generation._cii_xml", return_value=b"<Invoice />"), \
-                 mock.patch("app.business_document_generation.embed_invoice_xml", return_value=b"hybrid"), \
-                 mock.patch("app.business_document_generation._validate_hybrid", return_value={"validated": True, "details": []}), \
-                 mock.patch("app.business_document_generation._store_generated_pdf", return_value={"document_id": "stored-pdf-1"}), \
-                 mock.patch("app.business_document_generation.DocumentStore"):
+            with mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
+                 mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_documents._validate_project_sources"), \
+                 mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"), \
+                 mock.patch("app.business_documents._pdfa3_convert_detailed", return_value=(b"pdfa", {"status": "pdfa3_created"})), \
+                 mock.patch("app.business_documents._cii_xml", return_value=b"<Invoice />"), \
+                 mock.patch("app.business_documents.embed_invoice_xml", return_value=b"hybrid"), \
+                 mock.patch("app.business_documents._validate_hybrid", return_value={"validated": True, "details": []}), \
+                 mock.patch("app.business_documents._store_generated_pdf", return_value={"document_id": "stored-pdf-1"}), \
+                 mock.patch("app.business_documents.DocumentStore"):
                 finalized, document = finalize_invoice(root, row["invoice_id"], "tester")
 
             self.assertEqual("stored-pdf-1", document["document_id"])

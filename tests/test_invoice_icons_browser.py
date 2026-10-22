@@ -185,8 +185,11 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
                                          ".line-net", ".line-vat", ".move-line-up", ".remove-line"):
                             bounds = row.locator(selector).bounding_box()
                             self.assertIsNotNone(bounds, f"{selector} is not visible at {width}px")
-                            self.assertGreaterEqual(bounds["x"], -1)
-                            self.assertLessEqual(bounds["x"] + bounds["width"], width + 1)
+                            self.assertGreaterEqual(bounds["x"], -1, f"{selector} extends left at {width}px: {bounds}")
+                            self.assertLessEqual(
+                                bounds["x"] + bounds["width"], width + 1,
+                                f"{selector} extends right at {width}px: {bounds}",
+                            )
                         self.assertEqual("Menge", row.locator(".line-qty").get_attribute("aria-label"))
                         if width <= 767:
                             label = page.locator("#invoice-lines td:nth-child(2)").evaluate(
