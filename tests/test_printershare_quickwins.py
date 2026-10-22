@@ -178,6 +178,10 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
         self.assertEqual("'@cmd", _csv_safe_text("@cmd"))
         self.assertEqual("'  =1+1", _csv_safe_text("  =1+1"))
         self.assertEqual("'\t=1+1", _csv_safe_text("\t=1+1"))
+        self.assertEqual("'\u00a0=1+1", _csv_safe_text("\u00a0=1+1"))
+        self.assertEqual("'\u2003@SUM(1)", _csv_safe_text("\u2003@SUM(1)"))
+        self.assertEqual("'+123", _csv_safe_text("+123"))
+        self.assertEqual("'-123", _csv_safe_text("-123"))
 
     def test_settings_api_does_not_return_secrets(self):
         data = self.alice.get("/printershare/api/settings").get_json()
