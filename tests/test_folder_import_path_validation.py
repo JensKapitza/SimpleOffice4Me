@@ -15,6 +15,8 @@ class FolderImportPathValidationTests(unittest.TestCase):
             "/absolute/secret.txt",
             "root//secret.txt",
             "root/CON/secret.txt",
+            "root/CON.txt/secret.txt",
+            "root/LPT1.log/secret.txt",
             "root/folder./secret.txt",
             "root/folder /secret.txt",
             "root/folder:bad/secret.txt",
