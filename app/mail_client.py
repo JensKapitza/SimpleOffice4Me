@@ -11,6 +11,7 @@ import re
 import smtplib
 import socket
 import ssl
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -48,6 +49,12 @@ def _mail_ui_features(value: object | None = None) -> dict[str, bool]:
     if not isinstance(value, dict):
         return defaults
     return {name: bool(value.get(name, True)) for name in MAIL_UI_FEATURES}
+
+
+def _form_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().casefold() in {"1", "true", "on", "yes"}
 
 
 
@@ -161,6 +168,13 @@ class MailStore:
             safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
             safe["password_saved"] = bool(row.get("password"))
             safe["smtp_password_saved"] = bool(row.get("smtp_password"))
+            stored_password = str(row.get("password", "") or "")
+            safe["password_state"] = (
+                "stored" if stored_password.startswith("enc:") else
+                "legacy" if stored_password else
+                "environment" if row.get("password_env") else "missing"
+            )
+            safe["auto_fetch_enabled"] = _form_bool(row.get("auto_fetch_enabled", True))
             safe["ui_features"] = _mail_ui_features(row.get("ui_features"))
             result.append(safe)
         return result
@@ -250,6 +264,12 @@ class MailStore:
         return row
 
     def save_account(self, actor: str, data: dict[str, Any], password: str, remember: bool) -> dict[str, Any]:
+        with exclusive_file_lock(self.accounts_path.with_suffix(".lock")):
+            return self._save_account_locked(actor, data, password, remember)
+
+    def _save_account_locked(
+        self, actor: str, data: dict[str, Any], password: str, remember: bool,
+    ) -> dict[str, Any]:
         host = str(data.get("host", "")).strip()
         username = str(data.get("username", "")).strip()
         if not host or len(host) > 253 or not username or len(username) > 320:
@@ -284,6 +304,8 @@ class MailStore:
         stored_password = (previous or {}).get("password", "")
         if password:
             stored_password = self.secrets.encrypt(password, username=username) if remember else ""
+        elif _form_bool(data.get("clear_saved_password")):
+            stored_password = ""
         elif stored_password:
             if str(stored_password).startswith("enc:v2:"):
                 old_username = str((previous or {}).get("username", ""))
@@ -295,6 +317,8 @@ class MailStore:
         stored_smtp_password = (previous or {}).get("smtp_password", "")
         if data.get("smtp_password"):
             stored_smtp_password = self.secrets.encrypt(str(data["smtp_password"]), username=smtp_username) if remember else ""
+        elif _form_bool(data.get("clear_saved_smtp_password")):
+            stored_smtp_password = ""
         elif stored_smtp_password:
             if str(stored_smtp_password).startswith("enc:v2:"):
                 old_smtp_username = str((previous or {}).get("smtp_username") or (previous or {}).get("username", ""))
@@ -318,6 +342,11 @@ class MailStore:
             "smtp_from": smtp_from,
             "smtp_password_env": str(data.get("smtp_password_env", "")).strip()[:120],
             "smtp_password": stored_smtp_password,
+            "auto_fetch_enabled": (
+                _form_bool(data.get("auto_fetch_enabled"))
+                if "auto_fetch_enabled" in data
+                else _form_bool((previous or {}).get("auto_fetch_enabled", True))
+            ),
             "ui_features": (
                 {
                     name: str(data.get(f"ui_{name}", "")) == "1"
@@ -334,24 +363,101 @@ class MailStore:
         safe = {k: v for k, v in row.items() if k not in {"password", "smtp_password"}}
         safe["password_saved"] = bool(row["password"])
         safe["smtp_password_saved"] = bool(row["smtp_password"])
+        safe["password_state"] = (
+            "stored" if str(row["password"]).startswith("enc:") else
+            "legacy" if row["password"] else
+            "environment" if row["password_env"] else "missing"
+        )
+        safe["auto_fetch_enabled"] = row["auto_fetch_enabled"]
         safe["ui_features"] = _mail_ui_features(row.get("ui_features"))
         self.history.record("mail_account_updated" if previous else "mail_account_created", actor, "mail-accounts", account_id, safe)
         return safe
 
-    def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:
-        _safe_id(account_id)
+    def set_auto_fetch_enabled(self, actor: str, account_id: str, enabled: bool) -> bool:
+        account_id = _safe_id(account_id)
+        with exclusive_file_lock(self.accounts_path.with_suffix(".lock")):
+            payload = self._read(self.accounts_path, {"version": 1, "accounts": []})
+            row = next((
+                item for item in payload.get("accounts", [])
+                if item.get("id") == account_id and item.get("owner") == actor
+            ), None)
+            if row is None:
+                raise KeyError("mail account does not exist")
+            row["auto_fetch_enabled"] = bool(enabled)
+            self.control.mkdir(parents=True, exist_ok=True)
+            atomic_json_write(self.accounts_path, payload)
+        self.history.record(
+            "mail_auto_fetch_updated", actor, "mail-accounts", account_id,
+            {"auto_fetch_enabled": bool(enabled)},
+        )
+        return bool(enabled)
+
+    def _sieve_directory(self, actor: str, account_id: str, *, create: bool) -> Path | None:
+        """Resolve a non-symlink account directory beneath the private Sieve root."""
+        account_id = _safe_id(account_id)
+        directories = (
+            self.root / CONTROL_DIR,
+            self.control,
+            self.scripts,
+            self.scripts / _owner_key(actor),
+            self.scripts / _owner_key(actor) / account_id,
+        )
+        for directory in directories:
+            if directory.is_symlink():
+                raise ValueError("mail Sieve storage contains an unsafe symbolic link")
+            if create:
+                directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            elif not directory.exists():
+                return None
+            if not directory.is_dir():
+                raise ValueError("mail Sieve storage path is not a directory")
+            if not directory.resolve(strict=True).is_relative_to(self.root):
+                raise ValueError("mail Sieve storage resolved outside the document root")
+        return directories[-1].resolve(strict=True)
+
+    @staticmethod
+    def _safe_sieve_name(name: str) -> str:
         if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name) or name in {".", ".."}:
             raise ValueError("invalid Sieve script name")
+        return name
+
+    def _sieve_script_path(
+        self, actor: str, account_id: str, name: str, *, create_directory: bool,
+    ) -> Path:
+        safe_name = self._safe_sieve_name(name)
+        directory = self._sieve_directory(actor, account_id, create=create_directory)
+        if directory is None:
+            raise FileNotFoundError("mail Sieve script directory does not exist")
+        candidate = directory / f"{safe_name}.sieve"
+        if candidate.is_symlink():
+            raise ValueError("mail Sieve script path is a symbolic link")
+        resolved = candidate.resolve(strict=False)
+        try:
+            resolved.relative_to(directory)
+        except ValueError:
+            raise ValueError("mail Sieve script resolved outside its account directory") from None
+        return resolved
+
+    def save_script(self, actor: str, account_id: str, name: str, content: str) -> dict[str, Any]:
         encoded = content.encode("utf-8")
         if len(encoded) > MAX_SCRIPT_BYTES or b"\0" in encoded:
             raise ValueError("Sieve script is too large or contains NUL")
         # Ownership check; never let another application user write below an account.
         self.account(actor, account_id, password="ownership-check")
-        path = self.scripts / _owner_key(actor) / account_id / f"{name}.sieve"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_bytes(encoded)
-        temporary.replace(path)
+        path = self._sieve_script_path(actor, account_id, name, create_directory=True)
+        temporary_name = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=path.parent, prefix=".sieve-", suffix=".tmp", delete=False,
+            ) as temporary:
+                temporary_name = temporary.name
+                temporary.write(encoded)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temporary_name, path)
+        finally:
+            if temporary_name is not None:
+                Path(temporary_name).unlink(missing_ok=True)
         digest = hashlib.sha512(encoded).hexdigest()
         snapshot = {"account_id": account_id, "name": name, "sha512": digest, "size": len(encoded), "updated_at": utc_now()}
         commit = self.history.record("sieve_script_saved", actor, "sieve", hashlib.sha256(f"{actor}:{account_id}:{name}".encode()).hexdigest(), snapshot)
@@ -359,14 +465,14 @@ class MailStore:
 
     def script(self, actor: str, account_id: str, name: str) -> str:
         self.account(actor, account_id, password="ownership-check")
-        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", name):
-            raise ValueError("invalid Sieve script name")
-        return (self.scripts / _owner_key(actor) / _safe_id(account_id) / f"{name}.sieve").read_text(encoding="utf-8")
+        return self._sieve_script_path(
+            actor, account_id, name, create_directory=False,
+        ).read_text(encoding="utf-8")
 
     def scripts_for(self, actor: str, account_id: str) -> list[dict[str, Any]]:
         self.account(actor, account_id, password="ownership-check")
-        folder = self.scripts / _owner_key(actor) / _safe_id(account_id)
-        if not folder.is_dir():
+        folder = self._sieve_directory(actor, account_id, create=False)
+        if folder is None:
             return []
         return [{"name": p.stem, "size": p.stat().st_size, "sha512": hashlib.sha512(p.read_bytes()).hexdigest()} for p in sorted(folder.glob("*.sieve")) if p.is_file() and not p.is_symlink()]
 

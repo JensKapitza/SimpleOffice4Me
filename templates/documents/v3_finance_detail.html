@@ -6,7 +6,7 @@
   <a href="{{ url_for('v3_finance.index') }}">← Lifecycle</a>
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mt-3 mb-4">
     <div><div class="small text-uppercase text-secondary">{{ item.kind }}</div><h1 class="h2 mb-1">{{ item.title }}</h1><p class="mb-0"><span class="badge text-bg-secondary">{{ item.status }}</span> · Version {{ item.version }}</p></div>
-    {% if item.kind == 'invoice' and item.external_id %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.invoice_detail',invoice_id=item.external_id) }}">Bestehende Rechnung öffnen</a>{% endif %}
+    {% if item.kind == 'invoice' and item.external_id %}<a class="btn btn-primary" href="{{ url_for('contact_audit.business_documents.invoice_detail',invoice_id=item.external_id) }}"><i class="fa-solid fa-file-invoice me-1" aria-hidden="true"></i>Bestehende Rechnung öffnen</a>{% endif %}
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -30,7 +30,7 @@
       <div class="card mb-4"><div class="card-header"><strong>Snapshot / Referenzen</strong></div><div class="card-body">
         <dl class="row mb-0">
           <dt class="col-sm-4">Lifecycle-ID</dt><dd class="col-sm-8"><code>{{ item.lifecycle_id }}</code></dd>
-          <dt class="col-sm-4">Vorgänger</dt><dd class="col-sm-8">{% if item.predecessor_id %}<a href="{{ url_for('v3_finance.detail',lifecycle_id=item.predecessor_id) }}">{{ item.predecessor_id }}</a>{% else %}—{% endif %}</dd>
+          <dt class="col-sm-4">Vorgänger</dt><dd class="col-sm-8">{% if item.predecessor_id %}<a href="{{ url_for('v3_finance.detail',lifecycle_id=item.predecessor_id) }}"><i class="fa-solid fa-link me-1" aria-hidden="true"></i>{{ item.predecessor_id }}</a>{% else %}—{% endif %}</dd>
           <dt class="col-sm-4">Kontakt</dt><dd class="col-sm-8"><code>{{ item.contact_id or '—' }}</code></dd>
           <dt class="col-sm-4">Projekt</dt><dd class="col-sm-8"><code>{{ item.project_id or '—' }}</code></dd>
           <dt class="col-sm-4">Externe ID</dt><dd class="col-sm-8"><code>{{ item.external_id or '—' }}</code></dd>
@@ -57,12 +57,12 @@
       {% endif %}
 
       {% if successor_kinds %}
-      <div class="card mb-4"><div class="card-header"><strong>Nachfolger erzeugen</strong></div><div class="card-body">
+      <div class="card mb-4"><div class="card-header"><strong><i class="fa-solid fa-file-circle-plus me-1" aria-hidden="true"></i>Nachfolger erzeugen</strong></div><div class="card-body">
         <form method="post" action="{{ url_for('v3_finance.convert',lifecycle_id=item.lifecycle_id) }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <select class="form-select mb-2" name="target_kind">{% for kind in successor_kinds %}<option value="{{ kind }}">{{ kind }}</option>{% endfor %}</select>
           <label class="form-label">Rechnungsentwurf-ID (nur bei Ziel invoice)</label><input class="form-control mb-2" name="invoice_id">
-          <button type="submit" class="btn btn-outline-success w-100">Nachfolger anlegen</button>
+          <button type="submit" class="btn btn-outline-success w-100"><i class="fa-solid fa-link me-1" aria-hidden="true"></i>Nachfolger anlegen</button>
         </form>
       </div></div>
       {% endif %}
@@ -74,7 +74,7 @@
       </div></div>
       {% endif %}
 
-      <div class="card"><div class="card-header"><strong>Nachfolger</strong></div><div class="list-group list-group-flush">{% for row in successors %}<a class="list-group-item list-group-item-action" href="{{ url_for('v3_finance.detail',lifecycle_id=row.lifecycle_id) }}">{{ row.kind }} · {{ row.title }}<div class="small text-secondary">{{ row.status }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine Nachfolger.</div>{% endfor %}</div></div>
+      <div class="card"><div class="card-header"><strong><i class="fa-solid fa-copy me-1" aria-hidden="true"></i>Nachfolger</strong></div><div class="list-group list-group-flush">{% for row in successors %}<a class="list-group-item list-group-item-action" href="{{ url_for('v3_finance.detail',lifecycle_id=row.lifecycle_id) }}"><i class="fa-solid fa-code-branch me-1" aria-hidden="true"></i>{{ row.kind }} · {{ row.title }}<div class="small text-secondary">{{ row.status }}</div></a>{% else %}<div class="list-group-item text-secondary">Keine Nachfolger.</div>{% endfor %}</div></div>
     </aside>
   </div>
 </main>

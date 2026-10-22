@@ -26,6 +26,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/quality-wins.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/mobile-viewport.css') }}">
+  {% block styles %}{% endblock %}
   {% if v3_search_enabled %}<link rel="stylesheet" href="{{ url_for('static', filename='css/v3_command_palette.css') }}">{% endif %}
   <script src="{{ url_for('static', filename='js/theme.js') }}"></script>
   {% block script %}{% endblock %}

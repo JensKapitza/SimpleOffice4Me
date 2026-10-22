@@ -231,26 +231,26 @@ def download():
     # Keep path components independent from request data. The suffix is selected only
     # from fixed literals after the format allowlist above.
     suffix = ".pdf" if export_format == "pdf" else ".png"
-    output = tempfile.NamedTemporaryFile(prefix="simpleoffice-export-", suffix=suffix, delete=False)
-    output.close()
-    output_path = Path(output.name)
-    if importlib.util.find_spec("playwright") is None:
-        output_path.unlink(missing_ok=True)
-        abort(503, description=(
-            "Playwright ist in der Python-Umgebung des laufenden Servers nicht installiert. "
-            "Mit derselben Python-Umgebung installieren: python -m pip install '.[web-export]' "
-            "und python -m playwright install chromium."
-        ))
-    token = _renderer_token(g.user)
-    payload = {
-        "base_url": base_url,
-        "target": target,
-        "format": export_format,
-        "media": media,
-        "output": str(output_path),
-        "token": token,
-    }
+    output_path: Path | None = None
     try:
+        output = tempfile.NamedTemporaryFile(prefix="simpleoffice-export-", suffix=suffix, delete=False)
+        output_path = Path(output.name)
+        output.close()
+        if importlib.util.find_spec("playwright") is None:
+            abort(503, description=(
+                "Playwright ist in der Python-Umgebung des laufenden Servers nicht installiert. "
+                "Mit derselben Python-Umgebung installieren: python -m pip install '.[web-export]' "
+                "und python -m playwright install chromium."
+            ))
+        token = _renderer_token(g.user)
+        payload = {
+            "base_url": base_url,
+            "target": target,
+            "format": export_format,
+            "media": media,
+            "output": str(output_path),
+            "token": token,
+        }
         proc = subprocess.run(
             [sys.executable, "-m", "app.web_export_worker"],
             input=json.dumps(payload),
@@ -299,9 +299,20 @@ def download():
         response.call_on_close(lambda: output_path.unlink(missing_ok=True))
         return response
     except subprocess.TimeoutExpired:
-        output_path.unlink(missing_ok=True)
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
         audit("web_export", "page", target_id=target, outcome="timeout", detail={"format": export_format, "media": media})
         abort(504, description="Webseitenexport hat das Zeitlimit überschritten.")
+    except OSError:
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
+        current_app.logger.exception("web_export_worker_io_failed request_id=%s", getattr(g, "request_id", ""))
+        abort(503, description="Webseitenexport konnte nicht gestartet oder gespeichert werden.")
+    except Exception:
+        # Unexpected failures must not leave temporary reports behind.
+        if output_path is not None:
+            output_path.unlink(missing_ok=True)
+        raise
 
 
 @bp.route("/settings", methods=["GET", "POST"])
