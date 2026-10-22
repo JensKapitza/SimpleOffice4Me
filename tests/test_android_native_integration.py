@@ -215,7 +215,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
 
         self.assertIn("Intent.ACTION_OPEN_DOCUMENT_TREE", activity)
         self.assertIn("Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION", activity)
-        self.assertIn("addFolderToImportQueue(String token)", activity)
+        self.assertIn("addFolderToImportQueue(String token, String csrfToken)", activity)
         self.assertIn("startFolderImport(String token, String csrfToken", activity)
         self.assertIn("folderImportPrepared(String token)", activity)
         self.assertIn("queuedFolderImportUris", activity)

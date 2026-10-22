@@ -76,7 +76,11 @@
       } else {
         status.textContent = state === 'busy'
           ? 'Es läuft bereits ein Ordnerimport.'
-          : 'Android-Ordnerauswahl ist nicht verfügbar. Bitte Seite neu laden.';
+          : state === 'finishing'
+            ? 'Dateien sind übertragen; der Server schließt den Import ab.'
+          : state === 'session-changed'
+            ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
+            : 'Android-Ordnerauswahl ist nicht verfügbar. Bitte Seite neu laden.';
       }
       return;
     }
@@ -93,7 +97,11 @@
     } else {
       status.textContent = state === 'busy'
         ? 'Es läuft bereits ein Ordnerimport.'
-        : 'Bitte zuerst mindestens einen Ordner auswählen.';
+        : state === 'finishing'
+          ? 'Dateien sind übertragen; der Server schließt den Import ab.'
+        : state === 'session-changed'
+          ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
+          : 'Bitte zuerst mindestens einen Ordner auswählen.';
     }
   });
   cancelFolderImport.addEventListener('click', () => {

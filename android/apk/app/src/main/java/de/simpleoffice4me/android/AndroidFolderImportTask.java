@@ -19,6 +19,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -115,6 +116,11 @@ final class AndroidFolderImportTask implements Runnable {
     String getPreviewMessage() {
         PreparedUpload batch = preparedUpload;
         return batch == null ? "" : batch.previewMessage;
+    }
+
+    boolean matchesCsrf(String value) {
+        return value != null && MessageDigest.isEqual(
+                csrfToken.getBytes(StandardCharsets.UTF_8), value.getBytes(StandardCharsets.UTF_8));
     }
 
     @Override
