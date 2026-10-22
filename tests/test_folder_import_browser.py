@@ -83,7 +83,19 @@ class FolderImportBrowserTests(unittest.TestCase):
                 if not supported:
                     self.skipTest("Chromium on this host does not expose webkitdirectory")
                 self._select_folder_files(page, ["root/a.txt", "root/nested/b.txt"])
-                self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
+                upload_state = page.locator("#document-upload-form").evaluate(
+                    """form => ({
+                      submitDisabled: form.querySelector('button[type=submit]').disabled,
+                      selectedFiles: document.getElementById('document-folder').files.length,
+                      folderImport: document.getElementById('document-folder-import').value,
+                      manifest: document.getElementById('document-folder-path-manifest').value,
+                      status: document.getElementById('document-selection').textContent
+                    })"""
+                )
+                self.assertTrue(
+                    page.locator("#document-upload-form button[type=submit]").is_enabled(),
+                    f"folder selection did not enable upload: {upload_state}",
+                )
                 self.assertEqual("1", page.locator("#document-folder-import").input_value())
                 self.assertEqual(
                     ["root/a.txt", "root/nested/b.txt"],
