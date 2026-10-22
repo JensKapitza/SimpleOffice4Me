@@ -97,6 +97,14 @@ jobs:
             cd "$source_dir"
             if [[ "$PACKAGE_NAME" == Pillow ]]; then
               export CIBW_BEFORE_ALL_ANDROID="true"
+              # The Android NDK sysroot provides zlib for API 24. Explicitly
+              # point Pillow at the target sysroot rather than host /usr/lib.
+              ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/27.3.13750724}}"
+              sysroot="$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+              test -f "$sysroot/usr/include/zlib.h"
+              test -f "$sysroot/usr/lib/aarch64-linux-android/24/libz.so" || test -f "$sysroot/usr/lib/aarch64-linux-android/libz.so"
+              export CFLAGS="-I$sysroot/usr/include ${CFLAGS:-}"
+              export LDFLAGS="-L$sysroot/usr/lib/aarch64-linux-android/24 -L$sysroot/usr/lib/aarch64-linux-android ${LDFLAGS:-}"
             fi
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
           )
