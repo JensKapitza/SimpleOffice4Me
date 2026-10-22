@@ -90,9 +90,10 @@ jobs:
             echo "Source archive has no Python build metadata: $source_dir" >&2
             exit 1
           fi
-          if [[ "$PACKAGE_SPEC" == Pillow==* ]]; then
-            export CIBW_BEFORE_ALL='BUILD_PREFIX="$(pwd)/build/deps" .github/workflows/wheels-dependencies.sh'
-          fi
+          # Pillow's upstream wheels-dependencies.sh assumes a yum-based
+          # build image. GitHub's Ubuntu Android runner has no yum; running
+          # that hook aborts before compilation. Use cibuildwheel's Android
+          # toolchain directly and diagnose missing libraries separately.
           (
             cd "$source_dir"
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
