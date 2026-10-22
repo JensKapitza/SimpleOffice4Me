@@ -103,16 +103,22 @@ jobs:
               sysroot="$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
               test -f "$sysroot/usr/include/zlib.h"
               test -f "$sysroot/usr/lib/aarch64-linux-android/24/libz.so" || test -f "$sysroot/usr/lib/aarch64-linux-android/libz.so"
-              export CFLAGS="-I$sysroot/usr/include ${CFLAGS:-}"
-              export LDFLAGS="-L$sysroot/usr/lib/aarch64-linux-android/24 -L$sysroot/usr/lib/aarch64-linux-android ${LDFLAGS:-}"
-              # Pillow dependency discovery uses explicit include/library paths;
-              # compiler flags alone are not sufficient for its setup.py probe.
-              export ZLIB_ROOT="$sysroot/usr"
-              export ZLIB_INCLUDE_DIR="$sysroot/usr/include"
-              export ZLIB_LIBRARY="$sysroot/usr/lib/aarch64-linux-android/24/libz.so"
-              # cibuildwheel isolates the target environment. Forward the
-              # compiler and linker search paths as well as zlib hints.
-              export CIBW_ENVIRONMENT_ANDROID="CFLAGS=\"-I$sysroot/usr/include\" LDFLAGS=\"-L$sysroot/usr/lib/aarch64-linux-android/24 -L$sysroot/usr/lib/aarch64-linux-android\" ZLIB_ROOT=$ZLIB_ROOT ZLIB_INCLUDE_DIR=$ZLIB_INCLUDE_DIR ZLIB_LIBRARY=$ZLIB_LIBRARY"
+              # Pillow's setup.py probes ZLIB_ROOT/include and ZLIB_ROOT/lib.
+              # NDK stores Android libraries under the target API directory,
+              # so stage a target-only prefix with the expected layout.
+              zlib_prefix="$GITHUB_WORKSPACE/sources/android-zlib-prefix"
+              mkdir -p "$zlib_prefix/include" "$zlib_prefix/lib"
+              ln -sf "$sysroot/usr/include/zlib.h" "$zlib_prefix/include/zlib.h"
+              ln -sf "$sysroot/usr/include/zconf.h" "$zlib_prefix/include/zconf.h"
+              zlib_lib="$sysroot/usr/lib/aarch64-linux-android/24/libz.so"
+              if [[ ! -f "$zlib_lib" ]]; then
+                zlib_lib="$sysroot/usr/lib/aarch64-linux-android/libz.so"
+              fi
+              test -f "$zlib_lib"
+              ln -sf "$zlib_lib" "$zlib_prefix/lib/libz.so"
+              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$zlib_prefix CFLAGS=\"-I$zlib_prefix/include\" LDFLAGS=\"-L$zlib_prefix/lib\""
+              echo "Pillow zlib prefix: $zlib_prefix"
+              ls -l "$zlib_prefix/include" "$zlib_prefix/lib"
             fi
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
           )
