@@ -106,7 +106,7 @@ class BusinessDocumentTests(unittest.TestCase):
             with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
                  mock.patch.object(ContactStore, "get", return_value=contact), \
                  mock.patch.object(ContactStore, "add_address") as add_address, \
-                 mock.patch.object(DocumentStore, "history") as history:
+                 mock.patch("app.business_documents.DocumentStore") as document_store:
                 save_invoice_draft(root, "contact-1", form, "tester")
                 self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
                 add_address.assert_called_once()
