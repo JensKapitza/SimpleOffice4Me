@@ -8,6 +8,8 @@ class InvoiceCreateStartTests(unittest.TestCase):
     def test_overview_links_to_existing_customer_selection_flow(self):
         overview = (ROOT / "templates/documents/invoice_overview.html").read_text(encoding="utf-8")
         editor = (ROOT / "templates/documents/contact_invoice.html").read_text(encoding="utf-8")
+        layout = (ROOT / "templates/layout.html").read_text(encoding="utf-8")
+        mobile_invoice_css = (ROOT / "static/css/invoice-draft.css").read_text(encoding="utf-8")
         start = (ROOT / "templates/documents/invoice_create_start.html").read_text(encoding="utf-8")
         route = (ROOT / "app/business_documents.py").read_text(encoding="utf-8")
         contact = (ROOT / "templates/documents/contact_detail.html").read_text(encoding="utf-8")
@@ -31,6 +33,11 @@ class InvoiceCreateStartTests(unittest.TestCase):
         self.assertIn("body.insertBefore(row.nextElementSibling, row)", ordering)
         self.assertIn('url_for(".contact_invoice", contact_id=contact_id,', route)
         self.assertIn("contacts.can_manage_contact(contact, actor)", route)
+        self.assertIn("{% block styles %}{% endblock %}", layout)
+        self.assertLess(layout.index("{% block styles %}"), layout.index("</head>"))
+        self.assertIn("css/invoice-draft.css", editor)
+        self.assertNotIn("<style>", editor)
+        self.assertIn("#main-content #invoice-lines tr", mobile_invoice_css)
 
 
 if __name__ == "__main__":
