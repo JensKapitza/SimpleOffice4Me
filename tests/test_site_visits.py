@@ -9,7 +9,8 @@ from flask import Flask
 from bs4 import BeautifulSoup
 
 from app import app as flask_app
-from app.db import ensure_auth_database
+from app.db import ensure_auth_database, get_db
+from app.password_security import hash_password
 from app.site_visit_report import build_visit_report
 from app.site_visits import _selected_report_ids
 from app.site_visit_scan import parse_nmap_options, parse_scan_request, scan_authorized_private_network
@@ -263,10 +264,20 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
 
         outsider = flask_app.test_client()
-        flask_app.config["TEST_CSRF_PROTECTION"] = False
-        outsider.post("/auth/register", data={"username": "report-outsider", "password": "report-outsider-password"})
-        outsider.post("/auth/login", data={"username": "report-outsider", "password": "report-outsider-password"})
-        flask_app.config["TEST_CSRF_PROTECTION"] = True
+        with flask_app.app_context():
+            db = get_db()
+            db.execute(
+                "INSERT INTO user (username, password, is_admin, is_disabled, auth_version, created_at, updated_at) "
+                "VALUES (?, ?, 0, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+                ("report-outsider", hash_password("report-outsider-password")),
+            )
+            db.commit()
+        with patch.dict(flask_app.config, {"TEST_CSRF_PROTECTION": False}):
+            login_response = outsider.post(
+                "/auth/login",
+                data={"username": "report-outsider", "password": "report-outsider-password"},
+            )
+        self.assertEqual(302, login_response.status_code)
         self.assertEqual(404, outsider.get(f"/site-visits/{self.visit['visit_id']}/report").status_code)
 
 
