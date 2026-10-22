@@ -16,6 +16,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.provider.DocumentsContract;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
@@ -39,6 +40,7 @@ import com.chaquo.python.android.AndroidPlatform;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanner;
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.File;
@@ -61,6 +63,7 @@ public class MainActivity extends Activity {
     private static final int FILE_CHOOSER_REQUEST = 702;
     private static final int AUDIO_PERMISSION_REQUEST = 703;
     private static final int SCREEN_CAPTURE_REQUEST = 704;
+    private static final int LOCAL_FOLDER_REQUEST = 705;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Semaphore pdfRenderSlots = new Semaphore(2);
@@ -71,12 +74,17 @@ public class MainActivity extends Activity {
     private AndroidDownloadHandler downloadHandler;
     private AndroidGoogleAuthorization googleAuthorization;
     private AndroidOfflineWorksetStore offlineWorksetStore;
+    private AndroidLocalFolderRegistry localFolderRegistry;
     private WebView webView;
     private ProgressBar progress;
     private TextView status;
     private Bundle pendingWebState;
     private PermissionRequest pendingCameraPermission;
     private ValueCallback<Uri[]> fileChooserCallback;
+    private volatile String pendingLocalFolderId = "";
+    private volatile String pendingLocalFolderResult = "";
+    private volatile boolean localFolderSelectionPending;
+    private volatile Uri pendingLocalFolderImportUri;
     private NfcAdapter nfcAdapter;
     private boolean nfcScanRequested;
     private volatile boolean localPageVisible;
@@ -96,6 +104,7 @@ public class MainActivity extends Activity {
         downloadHandler = new AndroidDownloadHandler(this);
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
         offlineWorksetStore = new AndroidOfflineWorksetStore(this);
+        localFolderRegistry = new AndroidLocalFolderRegistry(this);
         ScreenCaptureService.setListener(this::dispatchNativeScreenEvent);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
@@ -186,12 +195,24 @@ public class MainActivity extends Activity {
                 }
                 fileChooserCallback = callback;
                 try {
-                    startActivityForResult(params.createIntent(), FILE_CHOOSER_REQUEST);
+                    Uri initialFolder = pendingLocalFolderImportUri;
+                    pendingLocalFolderImportUri = null;
+                    Intent chooser = params.createIntent();
+                    if (initialFolder != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        chooser = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                                .addCategory(Intent.CATEGORY_OPENABLE)
+                                .setType("*/*")
+                                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE,
+                                        params.getMode() == WebChromeClient.FileChooserParams.MODE_OPEN_MULTIPLE);
+                        chooser.putExtra(DocumentsContract.EXTRA_INITIAL_URI, initialFolder);
+                    }
+                    startActivityForResult(chooser, FILE_CHOOSER_REQUEST);
                     return true;
-                } catch (ActivityNotFoundException error) {
+                } catch (ActivityNotFoundException | SecurityException error) {
                     fileChooserCallback = null;
                     callback.onReceiveValue(null);
-                    showStatus("Keine App zum Auswählen einer Datei gefunden.", false);
+                    showStatus("Android-Dateiauswahl ist nicht verfügbar.", false);
                     return true;
                 }
             }
@@ -235,6 +256,7 @@ public class MainActivity extends Activity {
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
                     view.evaluateJavascript(nativeShim(nativeBridgeToken), null);
+                    flushPendingLocalFolderResult();
                     flushPendingBarcodeResult();
                     if (navigateToPendingIntent(view, url)) return;
                     injectPendingShareUi(view, url);
@@ -370,6 +392,13 @@ public class MainActivity extends Activity {
                 + "clear:()=>String(window.SimpleOfficeAndroid.clearOfflineData(bridgeToken)),"
                 + "switchAccount:()=>String(window.SimpleOfficeAndroid.switchOfflineAccount(bridgeToken))};}"
                 + "else{window.SimpleOfficeAndroid.unbindOfflineOwner(bridgeToken);delete window.SimpleOfficeOffline;}"
+                + "window.SimpleOfficeLocalFolders={"
+                + "list:()=>JSON.parse(String(window.SimpleOfficeAndroid.localFolders(bridgeToken))),"
+                + "choose:(id)=>String(window.SimpleOfficeAndroid.chooseLocalFolder(bridgeToken,String(id||''))),"
+                + "rename:(id,name,description)=>JSON.parse(String(window.SimpleOfficeAndroid.renameLocalFolder(bridgeToken,String(id||''),String(name||''),String(description||'')))),"
+                + "remove:(id)=>String(window.SimpleOfficeAndroid.removeLocalFolder(bridgeToken,String(id||''))),"
+                + "check:(id)=>JSON.parse(String(window.SimpleOfficeAndroid.checkLocalFolder(bridgeToken,String(id||'')))),"
+                + "prepareImport:(id)=>String(window.SimpleOfficeAndroid.prepareLocalFolderImport(bridgeToken,String(id||'')))};"
                 + "window.SimpleOfficePdf=(function(){const pending=new Map();"
                 + "window.addEventListener('simpleoffice:pdf-render',event=>{const detail=event.detail||{};const item=pending.get(String(detail.requestId||''));if(!item)return;pending.delete(String(detail.requestId||''));if(detail.ok)item.resolve(detail.result||{});else item.reject(new Error(detail.error||'PDF konnte nicht gerendert werden.'));});"
                 + "return {render:(url,page,width)=>new Promise((resolve,reject)=>{const id=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('pdf-'+Date.now()+'-'+Math.random().toString(16).slice(2));pending.set(id,{resolve,reject});const state=String(window.SimpleOfficeAndroid.requestPdfRender(bridgeToken,id,String(url||''),Number(page||0),Number(width||1024)));if(state!=='ok'){pending.delete(id);reject(new Error(state));}})};})();"
@@ -534,6 +563,22 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (googleAuthorization != null && googleAuthorization.onActivityResult(requestCode, resultCode, data)) return;
         if (downloadHandler != null && downloadHandler.onActivityResult(requestCode, resultCode, data)) return;
+        if (requestCode == LOCAL_FOLDER_REQUEST) {
+            String replaceId = pendingLocalFolderId;
+            pendingLocalFolderId = "";
+            localFolderSelectionPending = false;
+            if (resultCode != RESULT_OK || data == null) {
+                dispatchLocalFolderResult("cancelled", "", "Ordnerauswahl abgebrochen.");
+            } else {
+                try {
+                    String entry = localFolderRegistry.saveSelection(data, replaceId);
+                    dispatchLocalFolderResult("selected", entry, "Ordnerfreigabe gespeichert.");
+                } catch (Exception error) {
+                    dispatchLocalFolderResult("error", "", "Ordnerzugriff konnte nicht gespeichert werden.");
+                }
+            }
+            return;
+        }
         if (requestCode == SCREEN_CAPTURE_REQUEST) {
             screenCapturePermissionPending = false;
             if (resultCode != RESULT_OK || data == null) {
@@ -569,6 +614,30 @@ public class MainActivity extends Activity {
         }
         webView.evaluateJavascript(
                 "window.dispatchEvent(new CustomEvent('simpleoffice:pdf-render',{detail:" + detail + "}));",
+                null);
+    }
+
+    private void dispatchLocalFolderResult(String state, String entryJson, String message) {
+        JSONObject detail = new JSONObject();
+        try {
+            detail.put("state", state);
+            detail.put("entry", entryJson == null || entryJson.isEmpty() ? JSONObject.NULL : new JSONObject(entryJson));
+            detail.put("message", message == null ? "" : message);
+        } catch (JSONException error) {
+            pendingLocalFolderResult = "";
+            return;
+        }
+        pendingLocalFolderResult = detail.toString();
+        flushPendingLocalFolderResult();
+    }
+
+    private void flushPendingLocalFolderResult() {
+        String detail = pendingLocalFolderResult;
+        if (detail.isEmpty() || webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
+        pendingLocalFolderResult = "";
+        webView.evaluateJavascript(
+                "window.dispatchEvent(new CustomEvent('simpleoffice:local-folder-result',{detail:JSON.parse("
+                        + JSONObject.quote(detail) + ")}));",
                 null);
     }
 
@@ -642,6 +711,92 @@ public class MainActivity extends Activity {
             if (!bridgeAllowed(token)) return "blocked";
             mainHandler.post(MainActivity.this::beginBarcodeScan);
             return "ok";
+        }
+
+        @JavascriptInterface
+        public String localFolders(String token) {
+            if (!bridgeAllowed(token) || localFolderRegistry == null) return "[]";
+            try {
+                return localFolderRegistry.listJson();
+            } catch (IllegalStateException error) {
+                return "[]";
+            }
+        }
+
+        @JavascriptInterface
+        public String chooseLocalFolder(String token, String existingId) {
+            if (!bridgeAllowed(token) || localFolderRegistry == null) return "blocked";
+            String folderId = existingId == null ? "" : existingId.trim();
+            if (!folderId.isEmpty() && !folderId.matches("[0-9a-fA-F-]{36}")) return "invalid";
+            if (localFolderSelectionPending) return "busy";
+            localFolderSelectionPending = true;
+            pendingLocalFolderId = folderId;
+            mainHandler.post(() -> {
+                Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                if (!folderId.isEmpty() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    try {
+                        picker.putExtra(DocumentsContract.EXTRA_INITIAL_URI, localFolderRegistry.treeUriForImport(folderId));
+                    } catch (SecurityException | IllegalArgumentException ignored) {
+                        // The old grant may have been revoked; still allow a fresh selection.
+                    }
+                }
+                try {
+                    startActivityForResult(picker, LOCAL_FOLDER_REQUEST);
+                } catch (ActivityNotFoundException | SecurityException error) {
+                    pendingLocalFolderId = "";
+                    localFolderSelectionPending = false;
+                    dispatchLocalFolderResult("unavailable", "", "Android-Ordnerauswahl ist nicht verfügbar.");
+                }
+            });
+            return "pending";
+        }
+
+        @JavascriptInterface
+        public String renameLocalFolder(String token, String id, String name, String description) {
+            if (!bridgeAllowed(token) || localFolderRegistry == null) return "blocked";
+            try {
+                return localFolderRegistry.rename(id, name, description);
+            } catch (IllegalArgumentException | IllegalStateException | JSONException error) {
+                return "error";
+            }
+        }
+
+        @JavascriptInterface
+        public String removeLocalFolder(String token, String id) {
+            if (!bridgeAllowed(token) || localFolderRegistry == null) return "blocked";
+            try {
+                return localFolderRegistry.remove(id) ? "ok" : "not-found";
+            } catch (IllegalArgumentException error) {
+                return "invalid";
+            }
+        }
+
+        @JavascriptInterface
+        public String checkLocalFolder(String token, String id) {
+            if (!bridgeAllowed(token) || localFolderRegistry == null) return "{}";
+            try {
+                return localFolderRegistry.check(id);
+            } catch (IllegalArgumentException | JSONException error) {
+                return "{}";
+            }
+        }
+
+        @JavascriptInterface
+        public String prepareLocalFolderImport(String token, String id) {
+            if (!bridgeAllowed(token) || localFolderRegistry == null) return "blocked";
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return "initial-folder-unsupported";
+            try {
+                pendingLocalFolderImportUri = localFolderRegistry.treeUriForImport(id);
+                return "ready";
+            } catch (IllegalArgumentException error) {
+                return "not-found";
+            } catch (SecurityException error) {
+                return "permission-revoked";
+            }
         }
 
         @JavascriptInterface
@@ -1121,6 +1276,7 @@ public class MainActivity extends Activity {
             webView.resumeTimers();
             webView.onResume();
             localPageVisible = isLocalUrl(webView.getUrl());
+            flushPendingLocalFolderResult();
             if (localPageVisible && !navigateToPendingIntent(webView, webView.getUrl())) {
                 flushPendingBarcodeResult();
                 injectPendingShareUi(webView, webView.getUrl());
