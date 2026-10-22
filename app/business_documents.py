@@ -324,6 +324,8 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             default_country=str((candidate or {}).get("country", "DE")),
         )
         label = candidate["label"]
+    if str(form.get("address_mode", "")).strip() == "existing" and not selected:
+        raise ValueError("Bitte eine gespeicherte Rechnungsadresse auswählen.")
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
