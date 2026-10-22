@@ -167,6 +167,25 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             with self.subTest(url=url):
                 self._source_link(url, document_id)
 
+    def test_task_board_subtask_does_not_inherit_source_provenance(self):
+        document_id = self._create_document_task()
+        parent = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        response = self.client.post(
+            f"/tasks/{parent['id']}/subtasks",
+            data={"title": "Independent subtask", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        child = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row["title"] == "Independent subtask"
+        )
+        self.assertFalse(child.get("source_document_id"))
+        self.assertEqual(parent["uid"], child.get("parent_uid"))
+        self._source_link("/tasks/", document_id)
+
     def test_unknown_source_id_does_not_produce_broken_link(self):
         # Seed an existing task with a stale reference; exercise rendering over HTTP.
         TodoStore(self.root).add(
