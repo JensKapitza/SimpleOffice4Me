@@ -1,10 +1,15 @@
 """Regression tests for document folder-import path validation."""
 from __future__ import annotations
 
+import json
 import unittest
 from types import SimpleNamespace
 
-from app.folder_import_validation import validate_upload_batch
+from app.folder_import_validation import (
+    MAX_RELATIVE_PATH_MANIFEST_BYTES,
+    decode_relative_path_manifest,
+    validate_upload_batch,
+)
 
 
 class FolderImportPathValidationTests(unittest.TestCase):
@@ -61,6 +66,24 @@ class FolderImportPathValidationTests(unittest.TestCase):
         paths = [f"root/file-{i}.txt" for i in range(1000)]
         self.assertIsNone(validate_upload_batch(files, paths, folder_import=True))
 
+    def test_decodes_one_bounded_manifest_for_one_thousand_paths(self):
+        paths = [f"root/file-{i}.txt" for i in range(1000)]
+        decoded, error = decode_relative_path_manifest(json.dumps(paths), 1000)
+        self.assertIsNone(error)
+        self.assertEqual(paths, decoded)
+
+    def test_rejects_manifest_over_memory_budget(self):
+        decoded, error = decode_relative_path_manifest(
+            " " * (MAX_RELATIVE_PATH_MANIFEST_BYTES + 1), 0
+        )
+        self.assertIsNone(decoded)
+        self.assertIn("zu groß", error)
+
+    def test_rejects_non_string_manifest_entries(self):
+        decoded, error = decode_relative_path_manifest('["root/file.txt", 1]', 2)
+        self.assertIsNone(decoded)
+        self.assertIn("Dateipfade fehlen", error)
+
     def test_rejects_mismatched_file_and_relative_path(self):
         files = [SimpleNamespace(filename="actual.txt")]
         self.assertIsNotNone(
@@ -77,6 +100,14 @@ class FolderImportPathValidationTests(unittest.TestCase):
         files = [SimpleNamespace(filename="file.txt")]
         self.assertIsNotNone(
             validate_upload_batch(files, ["root/" + "a" * 256 + "/file.txt"], folder_import=True)
+        )
+
+    def test_rejects_unpaired_surrogate_without_raising(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        self.assertIsNotNone(
+            validate_upload_batch(
+                files, ["root/" + chr(0xD800) + "/file.txt"], folder_import=True
+            )
         )
 
     def test_rejects_overlong_relative_path(self):

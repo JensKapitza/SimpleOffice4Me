@@ -16,9 +16,16 @@ def upload():
     if not files:
         flash("Bitte mindestens eine Datei auswählen.")
         return redirect(url_for("documents.index"))
-    from .folder_import_validation import validate_upload_batch
+    from .folder_import_validation import decode_relative_path_manifest, validate_upload_batch
     folder_import = request.form.get("folder_import") == "1"
-    relative_paths = request.form.getlist("relative_paths") if folder_import else []
+    relative_paths = []
+    if folder_import:
+        relative_paths, error = decode_relative_path_manifest(
+            request.form.get("relative_paths", ""), len(files)
+        )
+        if error:
+            flash(error)
+            return redirect(url_for("documents.index"))
     error = validate_upload_batch(files, relative_paths, folder_import=folder_import)
     if error:
         flash(error)

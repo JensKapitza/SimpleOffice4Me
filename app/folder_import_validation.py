@@ -1,18 +1,43 @@
 """Validate a multipart folder-import batch before creating storage objects."""
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 
 _RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", re.I)
+MAX_RELATIVE_PATH_MANIFEST_BYTES = 400_000
+
+
+def decode_relative_path_manifest(value: object, expected_count: int) -> tuple[list[str] | None, str | None]:
+    """Decode one bounded form field instead of one multipart field per path."""
+    if not isinstance(value, str):
+        return None, "Ordnerimport unvollständig: Dateipfade fehlen."
+    try:
+        if len(value.encode("utf-8")) > MAX_RELATIVE_PATH_MANIFEST_BYTES:
+            return None, "Pfadliste ist zu groß. Bitte einen kleineren Ordnerstapel auswählen."
+        paths = json.loads(value)
+    except (UnicodeEncodeError, json.JSONDecodeError):
+        return None, "Ordnerimport unvollständig: Dateipfade sind ungültig."
+    if (
+        not isinstance(paths, list)
+        or len(paths) != expected_count
+        or any(not isinstance(path, str) for path in paths)
+    ):
+        return None, "Ordnerimport unvollständig: Dateipfade fehlen."
+    return paths, None
 
 
 def _invalid_segment(segment: str) -> bool:
+    try:
+        encoded_size = len(segment.encode("utf-8"))
+    except UnicodeEncodeError:
+        return True
     return (
         not segment
         or segment in (".", "..")
         or segment.rstrip(" .") != segment
-        or len(segment.encode("utf-8")) > 255
+        or encoded_size > 255
         or ":" in segment
         or len(segment) > 255
         or any(ord(char) < 32 for char in segment)
