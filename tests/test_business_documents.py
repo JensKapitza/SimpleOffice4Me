@@ -173,6 +173,31 @@ class BusinessDocumentTests(unittest.TestCase):
             for address_part in ("Musterstraße 1", "10115", "Berlin", "DE"):
                 self.assertIn(address_part, pdf_text)
 
+            with mock.patch("app.business_document_generation._invoice_number", return_value="RE-2026-0001"), \
+                 mock.patch("app.business_document_generation.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_document_generation._validate_project_sources"), \
+                 mock.patch("app.business_document_generation._merge_content_with_template", return_value=b"visual"), \
+                 mock.patch("app.business_document_generation._pdfa3_convert_detailed", return_value=(b"pdfa", {"status": "pdfa3_created"})), \
+                 mock.patch("app.business_document_generation._cii_xml", return_value=b"<Invoice />"), \
+                 mock.patch("app.business_document_generation.embed_invoice_xml", return_value=b"hybrid"), \
+                 mock.patch("app.business_document_generation._validate_hybrid", return_value={"validated": True, "details": []}), \
+                 mock.patch("app.business_document_generation._store_generated_pdf", return_value={"document_id": "stored-pdf-1"}), \
+                 mock.patch("app.business_document_generation.DocumentStore"):
+                finalized, document = finalize_invoice(root, row["invoice_id"], "tester")
+
+            self.assertEqual("stored-pdf-1", document["document_id"])
+            self.assertEqual("open", finalized["status"])
+            self.assertEqual("validated", finalized["zugferd"]["status"])
+            ContactStore(root).add_address(
+                contact["contact_id"], "Neue Kontaktadresse", "Andere Straße 5", "tester",
+                components={"street": "Andere Straße 5", "postal": "20095", "city": "Hamburg", "country": "DE"},
+            )
+            self.assertEqual("Musterstraße 1", finalized["buyer"]["street"])
+            finalized_pdf = _invoice_content_pdf(finalized)
+            finalized_text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(finalized_pdf)).pages)
+            self.assertIn("Musterstraße 1", finalized_text)
+            self.assertNotIn("Andere Straße 5", finalized_text)
+
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
         with mock.patch("app.todo_store.TodoStore") as todo_store:

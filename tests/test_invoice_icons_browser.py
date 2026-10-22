@@ -162,7 +162,7 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
                     with self.subTest(width=width):
                         page.set_viewport_size({"width": width, "height": 900})
                         page.goto(url)
-                        page.locator("#invoice-lines").wait_for()
+                        page.locator("#invoice-lines").wait_for(state="attached")
                         self.assertLessEqual(
                             page.evaluate("document.documentElement.scrollWidth"), width + 1,
                             "invoice form causes page-level horizontal scrolling",
