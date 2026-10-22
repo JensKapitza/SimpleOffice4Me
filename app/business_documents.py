@@ -304,7 +304,8 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
         contact = contacts.get(contact_id, actor)
         crm = ContactCRMStore(root).record(contact_id)
         label, candidates = address_labels(contact, crm)
-        candidate = next((item for item in candidates if item["label"] == label), candidate)
+        candidate = next((item for item in candidates if item["id"] == f"contact-{len(contact.get('addresses', [])) - 1}"), candidate)
+        label = candidate["label"]
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
