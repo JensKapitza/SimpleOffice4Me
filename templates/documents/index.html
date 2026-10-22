@@ -41,9 +41,14 @@
     folderButton.title = 'Ordnerauswahl wird von diesem Browser nicht unterstützt';
     folderButton.setAttribute('aria-describedby', 'document-selection');
   }
+  const submit = files.form.querySelector('button[type="submit"]');
   const update = (source) => {
     const selected = Array.from(source.files || []);
-    if (!selected.length) return;
+    if (!selected.length) {
+      submit.disabled = true;
+      status.textContent = 'Keine Dateien ausgewählt';
+      return;
+    }
     const other = source === folder ? files : folder;
     other.value = '';
     // Submit the selected picker directly, without relying on DataTransfer in WebViews.
@@ -72,6 +77,12 @@
         form.appendChild(hidden);
       });
     }
+    if (selected.length > 1000) {
+      submit.disabled = true;
+      status.textContent = selected.length + ' Dateien ausgewählt. Maximal 1000 Dateien pro Import zulässig.';
+      return;
+    }
+    submit.disabled = false;
     const bytes = selected.reduce((sum, file) => sum + file.size, 0);
     status.textContent = selected.length + ' Datei(en), ' +
       (bytes / 1048576).toFixed(1) + ' MiB ausgewählt' +
