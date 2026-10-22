@@ -81,6 +81,35 @@ class EurReceiptsTest(unittest.TestCase):
             self.assertIn("EÜR-Belege-2026.csv", archive.namelist())
             self.assertTrue(any(name.startswith("Belege/2026-08-30_") and name.endswith("beleg.pdf") for name in archive.namelist()))
 
+    def test_csv_and_zip_escape_spreadsheet_formulas(self):
+        self._create(
+            party="=1+1", receipt_number="+SUM(1,2)",
+            category="-2+SUM(1,2)", business_purpose="@cmd",
+        )
+        csv_response = self.client.get("/documents/accounting/receipts/export.csv?year=2026")
+        self.assertEqual(200, csv_response.status_code)
+        text = csv_response.data.decode("utf-8-sig")
+        self.assertIn("'=1+1", text)
+        self.assertIn("'+SUM(1,2)", text)
+        self.assertIn("'-2+SUM(1,2)", text)
+        self.assertIn("'@cmd", text)
+        zip_response = self.client.get("/documents/accounting/receipts/export.zip?year=2026")
+        with zipfile.ZipFile(io.BytesIO(zip_response.data)) as archive:
+            csv_name = next(name for name in archive.namelist() if name.endswith(".csv"))
+            self.assertEqual(csv_response.data, archive.read(csv_name))
+
+    def test_csv_safe_text_escapes_formula_markers_after_whitespace_and_controls(self):
+        values = (
+            "=1+1", "+SUM(1,2)", "-2+SUM(1,2)", "@cmd",
+            "  =1+1", "\t=1+1", "\r=1+1", "\n=1+1", "\tplain text",
+        )
+        for value in values:
+            with self.subTest(value=value):
+                self.assertEqual("'" + value, EurReceiptStore._csv_safe_text(value))
+        for value in ("ordinary text", "119.00"):
+            with self.subTest(value=value):
+                self.assertEqual(value, EurReceiptStore._csv_safe_text(value))
+
     def test_users_only_see_their_own_receipts(self):
         self._create()
         other = app.test_client(); other.post("/auth/register", data={"username": "other", "password": "anderes-passwort"}); other.post("/auth/login", data={"username": "other", "password": "anderes-passwort"})

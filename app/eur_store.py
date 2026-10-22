@@ -176,10 +176,18 @@ class EurReceiptStore:
         return {key: (f"{value:.2f}" if isinstance(value, Decimal) else value) for key, value in result.items()}
 
     @staticmethod
+    def _csv_safe_text(value: Any) -> str:
+        """Prevent spreadsheet formula execution in untrusted receipt text."""
+        text = str(value)
+        if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
+            return "'" + text
+        return text
+
+    @staticmethod
     def csv_bytes(rows: list[dict[str, Any]]) -> bytes:
         output = io.StringIO(newline="")
         writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
         writer.writerow(["Beleg-ID", "Art", "Belegdatum", "Zahlungsdatum", "Geschäftspartner", "Belegnummer", "Kategorie", "Zweck", "Brutto EUR", "Netto EUR", "Steuer EUR", "Steuersatz %", "Zahlungsart", "Status", "Dokument", "SHA-256"])
         for row in rows:
-            writer.writerow([row["receipt_id"], row["direction"], row["receipt_date"], row["payment_date"], row["party"], row["receipt_number"], row["category"], row["business_purpose"], row["gross"], row["net"], row["tax"], row["vat_rate"], row["payment_method"], row["status"], row["document_name"], row["document_sha256"]])
+            writer.writerow([row["receipt_id"], row["direction"], row["receipt_date"], row["payment_date"], EurReceiptStore._csv_safe_text(row["party"]), EurReceiptStore._csv_safe_text(row["receipt_number"]), EurReceiptStore._csv_safe_text(row["category"]), EurReceiptStore._csv_safe_text(row["business_purpose"]), row["gross"], row["net"], row["tax"], row["vat_rate"], row["payment_method"], row["status"], EurReceiptStore._csv_safe_text(row["document_name"]), row["document_sha256"]])
         return ("\ufeff" + output.getvalue()).encode("utf-8")
