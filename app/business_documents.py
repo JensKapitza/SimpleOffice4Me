@@ -283,7 +283,7 @@ def _parse_free_text_invoice_address(value: object, default_country: str = "DE")
     lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
     if len(raw) > 1000 or not 2 <= len(lines) <= 4 or any(len(line) > 250 for line in lines):
         raise ValueError("Freitextadresse: Straße, PLZ/Ort und optional ISO-Land eingeben (maximal 1000 Zeichen).")
-    has_country = len(lines) >= 3
+    has_country = len(lines) >= 3 and bool(re.fullmatch(r"[A-Za-z]{2}", lines[-1]))
     postal_city = lines[-2] if has_country else lines[-1]
     street_lines = lines[:-2] if has_country else lines[:-1]
     postal_city_parts = postal_city.split(maxsplit=1)
