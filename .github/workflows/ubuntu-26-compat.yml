@@ -93,17 +93,17 @@ jobs:
     timeout-minutes: 35
     env:
       SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
-      SIMPLEOFFICE_ANDROID_PYTHON: '3.13'
+      SIMPLEOFFICE_ANDROID_PYTHON: '3.15'
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@v7
         with:
-          name: android-cp313-arm64-Pillow-wheel
+          name: android-cp315-arm64-Pillow-wheel
           path: android/apk/app/wheelhouse
       - uses: actions/download-artifact@v7
         with:
-          name: android-cp313-arm64-cryptography-wheel
+          name: android-cp315-arm64-cryptography-wheel
           path: android/apk/app/wheelhouse
       - name: Verify native wheel artifacts
         shell: bash
@@ -116,7 +116,7 @@ jobs:
           java-version: '17'
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.13'
+          python-version: '3.15'
       - name: Select Chaquopy build interpreter
         shell: bash
         run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
