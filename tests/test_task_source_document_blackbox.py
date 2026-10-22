@@ -156,6 +156,17 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             with self.subTest(url=url):
                 self._source_link(url, document_id)
 
+    def test_filtered_task_views_preserve_source_link(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        status = task.get("status", "needs-action")
+        for url in (f"/documents/tasks?status={status}", f"/tasks/?status={status}"):
+            with self.subTest(url=url):
+                self._source_link(url, document_id)
+
     def test_unknown_source_id_does_not_produce_broken_link(self):
         # Seed an existing task with a stale reference; exercise rendering over HTTP.
         TodoStore(self.root).add(
