@@ -36,6 +36,7 @@ MAX_API_OFFSET = 5000
 ORPHAN_GRACE_SECONDS = 24 * 60 * 60
 TEMP_GRACE_SECONDS = 60 * 60
 REQUEST_ID_RE = re.compile(r"[^A-Za-z0-9._:-]+")
+CSV_LEADING_WHITESPACE_RE = re.compile(r"^[\s\ufeff]*")
 JOB_COUNT_SQL = """
 SELECT COUNT(*) FROM print_job
  WHERE (?=1 OR (source='web' AND source_peer=?))
@@ -445,7 +446,9 @@ def api_job(job_id: str):
 def _csv_safe_text(value: Any) -> str:
     """Protect untrusted print-job metadata from spreadsheet formula execution."""
     text = "" if value is None else str(value)
-    if text.lstrip("\ufeff \t\r\n\v\f\u00a0\u2003").startswith(("=", "+", "-", "@")) or text.startswith(("\t", "\r", "\n")):
+    prefix = CSV_LEADING_WHITESPACE_RE.match(text).group(0)
+    content = text[len(prefix):]
+    if content.startswith(("=", "+", "-", "@")) or any(character in "\t\r\n" for character in prefix):
         return "'" + text
     return text
 
