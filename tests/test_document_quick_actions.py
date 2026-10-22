@@ -193,6 +193,22 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertTrue(any("simulated failure" in message for message in messages))
         self.assertTrue(any("1 Datei(en) vollständig" in message for message in messages))
 
+    def test_folder_upload_persists_nested_file_in_storageport(self):
+        form = MultiDict([
+            ("folder_import", "1"),
+            ("relative_paths", json.dumps(["selected-root/nested/actual.txt"])),
+            ("files", (io.BytesIO(b"persisted folder content"), "actual.txt")),
+        ])
+
+        response = self.client.post("/documents/upload", data=form, content_type="multipart/form-data")
+
+        self.assertEqual(302, response.status_code)
+        document = DocumentStore(self.root).get_document(
+            next(path.relative_to(self.root).as_posix() for path in self.root.rglob("actual.txt"))
+        )
+        self.assertTrue(document["last_path"].endswith("/selected-root/nested/actual.txt"))
+        self.assertEqual(b"persisted folder content", (self.root / document["last_path"]).read_bytes())
+
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")
 
