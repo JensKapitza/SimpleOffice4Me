@@ -86,6 +86,8 @@ class FolderImportBrowserTests(unittest.TestCase):
                 upload_state = page.locator("#document-upload-form").evaluate(
                     """form => ({
                       submitDisabled: form.querySelector('button[type=submit]').disabled,
+                      submitAriaDisabled: form.querySelector('button[type=submit]').getAttribute('aria-disabled'),
+                      submitDisabledPseudo: form.querySelector('button[type=submit]').matches(':disabled'),
                       selectedFiles: document.getElementById('document-folder').files.length,
                       folderImport: document.getElementById('document-folder-import').value,
                       manifest: document.getElementById('document-folder-path-manifest').value,
@@ -96,6 +98,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                     page.locator("#document-upload-form button[type=submit]").is_enabled(),
                     f"folder selection did not enable upload: {upload_state}",
                 )
+                self.assertIsNone(upload_state["submitAriaDisabled"])
                 self.assertEqual("1", page.locator("#document-folder-import").input_value())
                 self.assertEqual(
                     ["root/a.txt", "root/nested/b.txt"],

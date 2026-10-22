@@ -1,5 +1,6 @@
 (() => {
   "use strict";
+  const autoAriaDisabled = new WeakSet();
 
   const autocompleteByKey = {
     first_name: "given-name",
@@ -122,9 +123,25 @@
     table.querySelectorAll("tbody tr > th:first-child:not([scope])").forEach((cell) => cell.setAttribute("scope", "row"));
   };
 
+  const syncDisabledState = (element) => {
+    if (!(element instanceof HTMLElement)) return;
+    if (element.hasAttribute("disabled")) {
+      if (!element.hasAttribute("aria-disabled")) {
+        element.setAttribute("aria-disabled", "true");
+        autoAriaDisabled.add(element);
+      }
+      return;
+    }
+    if (autoAriaDisabled.has(element)) {
+      if (element.getAttribute("aria-disabled") === "true") element.removeAttribute("aria-disabled");
+      autoAriaDisabled.delete(element);
+    }
+  };
+
   const enhanceNavigation = (root) => {
     root.querySelectorAll?.(".nav-link.active:not([aria-current])").forEach((link) => link.setAttribute("aria-current", "page"));
-    root.querySelectorAll?.("[disabled]:not([aria-disabled])").forEach((element) => element.setAttribute("aria-disabled", "true"));
+    if (root instanceof HTMLElement) syncDisabledState(root);
+    root.querySelectorAll?.("[disabled]").forEach(syncDisabledState);
   };
 
   const enhance = (root = document) => {
@@ -140,9 +157,20 @@
 
   enhance(document);
   const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
-      if (node instanceof Element) enhance(node);
-    }));
+    mutations.forEach((mutation) => {
+      if (mutation.type === "attributes" && mutation.attributeName === "disabled") {
+        syncDisabledState(mutation.target);
+        return;
+      }
+      mutation.addedNodes.forEach((node) => {
+        if (node instanceof Element) enhance(node);
+      });
+    });
   });
-  observer.observe(document.documentElement, {subtree: true, childList: true});
+  observer.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["disabled"],
+  });
 })();
