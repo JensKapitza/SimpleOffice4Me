@@ -976,7 +976,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String addFolderToImportQueue(String token, String csrfToken) {
-            if (!bridgeAllowed(token) || webView == null || !isDocumentsUploadPage(webView.getUrl())) return "blocked";
+            if (!folderImportBridgeAllowed(token)) return "blocked";
             String csrf = csrfToken == null ? "" : csrfToken.trim();
             if (csrf.length() < 32 || csrf.length() > 256) return "invalid";
             AndroidFolderImportTask activeTask = folderImportTask;
@@ -1022,24 +1022,24 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public int queuedFolderImportCount(String token) {
-            return bridgeAllowed(token) ? MainActivity.this.queuedFolderImportCount() : 0;
+            return folderImportBridgeAllowed(token) ? MainActivity.this.queuedFolderImportCount() : 0;
         }
 
         @JavascriptInterface
         public boolean folderImportPrepared(String token) {
             AndroidFolderImportTask task = folderImportTask;
-            return bridgeAllowed(token) && task != null && task.isPrepared();
+            return folderImportBridgeAllowed(token) && task != null && task.isPrepared();
         }
 
         @JavascriptInterface
         public String folderImportPreview(String token) {
             AndroidFolderImportTask task = folderImportTask;
-            return bridgeAllowed(token) && task != null ? task.getPreviewMessage() : "";
+            return folderImportBridgeAllowed(token) && task != null ? task.getPreviewMessage() : "";
         }
 
         @JavascriptInterface
         public String startFolderImport(String token, String csrfToken, String maxBytesValue) {
-            if (!bridgeAllowed(token) || webView == null || !isDocumentsUploadPage(webView.getUrl())) return "blocked";
+            if (!folderImportBridgeAllowed(token)) return "blocked";
             String csrf = csrfToken == null ? "" : csrfToken.trim();
             if (csrf.length() < 32 || csrf.length() > 256) return "invalid";
             long maxBytes;
@@ -1108,7 +1108,7 @@ public class MainActivity extends Activity {
 
         @JavascriptInterface
         public String cancelFolderImport(String token) {
-            if (!bridgeAllowed(token)) return "blocked";
+            if (!folderImportBridgeAllowed(token)) return "blocked";
             AndroidFolderImportTask task = folderImportTask;
             if (task != null) {
                 return task.cancel() ? "ok" : "finishing";
@@ -1295,6 +1295,10 @@ public class MainActivity extends Activity {
 
     private boolean bridgeAllowed(String token) {
         return nativeBridgeToken.equals(token) && localPageVisible;
+    }
+
+    private boolean folderImportBridgeAllowed(String token) {
+        return bridgeAllowed(token) && webView != null && isDocumentsUploadPage(webView.getUrl());
     }
 
     private void dispatchNativeScreenEvent(String state, int width, int height, String data, String message) {

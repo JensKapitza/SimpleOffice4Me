@@ -218,6 +218,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("addFolderToImportQueue(String token, String csrfToken)", activity)
         self.assertIn("startFolderImport(String token, String csrfToken", activity)
         self.assertIn("folderImportPrepared(String token)", activity)
+        self.assertIn("folderImportBridgeAllowed(token)", activity)
         self.assertIn("queuedFolderImportUris", activity)
         self.assertIn("queuedFolderImportOwnedGrants", activity)
         self.assertIn("alreadyPersisted", activity)
