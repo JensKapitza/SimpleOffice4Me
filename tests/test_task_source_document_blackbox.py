@@ -22,8 +22,11 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         with app.app_context():
             ensure_auth_database()
         self.client = app.test_client()
-        self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"})
-        self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"})
+        registered = self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"})
+        self.assertIn(registered.status_code, (200, 302))
+        logged_in = self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"})
+        self.assertEqual(302, logged_in.status_code)
+        self.assertEqual(200, self.client.get("/documents/tasks").status_code)
 
     def tearDown(self):
         app.config.update(self.previous)
