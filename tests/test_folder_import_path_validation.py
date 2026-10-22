@@ -70,7 +70,7 @@ class FolderImportPathValidationTests(unittest.TestCase):
     def test_rejects_non_normalized_unicode_path(self):
         files = [SimpleNamespace(filename="file.txt")]
         self.assertIsNotNone(
-            validate_upload_batch(files, ["root/cafe\\u0301/file.txt"], folder_import=True)
+            validate_upload_batch(files, ["root/cafe" + chr(0x0301) + "/file.txt"], folder_import=True)
         )
 
     def test_accepts_single_file_without_folder_metadata(self):
