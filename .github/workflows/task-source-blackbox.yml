@@ -16,6 +16,20 @@ on:
       - "tests/test_caldav.py"
       - "tests/test_task_management.py"
       - ".github/workflows/task-source-blackbox.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/todo_store.py"
+      - "app/task_management.py"
+      - "app/documents_routes_task_source.py"
+      - "app/caldav.py"
+      - "app/documents.py"
+      - "app/documents_routes_content.py"
+      - "app/documents_routes_workflows.py"
+      - "templates/documents/_task_card.html"
+      - "templates/tasks/board.html"
+      - "tests/test_task_source_document_blackbox.py"
+      - ".github/workflows/task-source-blackbox.yml"
   workflow_dispatch:
 
 jobs:
