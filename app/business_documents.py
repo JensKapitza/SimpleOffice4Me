@@ -379,6 +379,9 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+        buyer = row.get("buyer") or {}
+        if not all(str(buyer.get(key, "")).strip() for key in ("street", "postal", "city", "country")):
+            raise ValueError("Für die elektronische Rechnung fehlen strukturierte Adressdaten (Straße, PLZ, Ort oder Land). Bitte den Entwurf mit einer strukturierten Rechnungsadresse bearbeiten.")
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
         timed("project_positions_load", lambda: _validate_project_sources(root, row, actor))
         timed("business_settings_load", lambda: business_settings(root))
