@@ -85,11 +85,24 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         for url in ("/documents/tasks", "/tasks/"):
             self.assertNotIn("Quelldatei öffnen", self.client.get(url).get_data(as_text=True))
 
-    def test_unknown_source_id_does_not_produce_broken_link(self):
-        created = self.client.post("/documents/todo", data={
-            "title": "Missing document", "source_document_id": "nonexistent-source-id",
-        })
+    def test_generic_task_creation_cannot_forge_source_provenance(self):
+        created = self.client.post(
+            "/documents/todo",
+            data={"title": "Generic task", "source_document_id": "forged-document"},
+        )
         self.assertEqual(302, created.status_code)
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Generic task")
+        self.assertFalse(task.get("source_document_id"))
+        for url in ("/documents/tasks", "/tasks/"):
+            page = self.client.get(url)
+            self.assertEqual(200, page.status_code)
+            self.assertNotIn("Quelldatei öffnen", page.get_data(as_text=True))
+
+    def test_unknown_source_id_does_not_produce_broken_link(self):
+        # Seed an existing task with a stale reference; exercise rendering over HTTP.
+        TodoStore(self.root).add(
+            "Missing document", "jens", {"source_document_id": "nonexistent-source-id"},
+        )
         for url in ("/documents/tasks", "/tasks/"):
             response = self.client.get(url)
             self.assertEqual(200, response.status_code)
