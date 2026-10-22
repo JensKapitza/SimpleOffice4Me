@@ -90,11 +90,14 @@ jobs:
             echo "Source archive has no Python build metadata: $source_dir" >&2
             exit 1
           fi
-          # Keep the Android build independent of Pillow's yum-based
-          # manylinux dependency installer. Missing Android libraries must
-          # be diagnosed against the NDK toolchain, not the Linux host.
+          # Pillow upstream enables its manylinux dependency hook via
+          # pyproject.toml. Override it explicitly: on Android it attempts
+          # host installs under /usr/local and cannot build NDK libraries.
           (
             cd "$source_dir"
+            if [[ "$PACKAGE_NAME" == Pillow ]]; then
+              export CIBW_BEFORE_ALL_ANDROID="true"
+            fi
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
           )
       - name: Verify resulting Android wheels
