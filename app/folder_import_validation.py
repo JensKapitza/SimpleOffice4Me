@@ -13,6 +13,7 @@ def _invalid_segment(segment: str) -> bool:
         or segment in (".", "..")
         or segment.rstrip(" .") != segment
         or ":" in segment
+        or len(segment) > 255
         or any(ord(char) < 32 for char in segment)
         or unicodedata.normalize("NFC", segment) != segment
         or bool(_RESERVED.fullmatch(segment))
@@ -20,6 +21,8 @@ def _invalid_segment(segment: str) -> bool:
 
 
 def validate_upload_batch(files, relative_paths, *, folder_import: bool) -> str | None:
+    if folder_import and any(len(path) > 4096 for path in relative_paths):
+        return "Relativer Ordnerpfad ist zu lang."
     if len(files) > 1000:
         return "Maximal 1000 Dateien pro Importvorgang auswählen."
     if folder_import and len(relative_paths) != len(files):
