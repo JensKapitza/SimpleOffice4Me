@@ -69,6 +69,12 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         self.assertIn("SIMPLEOFFICE_BUILD_DATE", text)
         self.assertIn("SIMPLEOFFICE_BUILD_SEQUENCE", text)
 
+    def test_apk_job_downloads_and_hash_verifies_all_native_python_wheels(self):
+        text = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
+        for package in ("Pillow", "cryptography", "cffi", "argon2-cffi-bindings"):
+            self.assertIn(f"android-cp315-arm64-{package}-wheel", text)
+            self.assertIn(f"{package}-SHA256SUMS", text)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 """Offline tests for Android native wheel compatibility preflight."""
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from tools.check_chaquopy_wheels import (
@@ -9,6 +10,7 @@ from tools.check_chaquopy_wheels import (
     download_pypi_pure_wheel,
     pinned_versions,
 )
+from tools.prepare_android_libffi import patch_android_libffi
 
 
 class ChaquopyWheelsTests(unittest.TestCase):
@@ -28,6 +30,39 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertIn("266f4ee051abb2f725b74ef8072b521ce1feacf685a3364fa6a6b45548db791a", workflow)
         self.assertIn("cryptography", workflow)
         self.assertIn("48.0.1", workflow)
+        self.assertIn("LIBFFI_SOURCE_COMMIT", workflow)
+        self.assertIn("3d0ce1e6fcf19f853894862abcbac0ae78a7be60", workflow)
+        self.assertIn("prepare_android_libffi.py", workflow)
+        self.assertIn("package: argon2-cffi-bindings", workflow)
+        self.assertIn("bb89ceffa6c791807d1305ceb77dbfacc5aa499891d2c55661c6459651fc39e3", workflow)
+        self.assertIn("ARGON2_CFFI_USE_SSE2=0", workflow)
+
+    def test_android_libffi_compat_patch_is_versioned_narrow_and_idempotent(self):
+        with TemporaryDirectory() as temporary_directory:
+            configure = Path(temporary_directory) / "configure.ac"
+            configure.write_text(
+                "AC_INIT([libffi],[3.4.6],[https://example.invalid])\n"
+                "LT_SYS_SYMBOL_USCORE\n",
+                encoding="utf-8",
+            )
+
+            self.assertTrue(patch_android_libffi(Path(temporary_directory)))
+            patched = configure.read_text(encoding="utf-8")
+            self.assertNotIn("LT_SYS_SYMBOL_USCORE", patched)
+            self.assertIn("SO4ME_ANDROID_SYMBOL_PREFIX", patched)
+            self.assertIn("sys_symbol_underscore=no", patched)
+            self.assertFalse(patch_android_libffi(Path(temporary_directory)))
+
+    def test_android_libffi_compat_patch_rejects_unexpected_source(self):
+        with TemporaryDirectory() as temporary_directory:
+            configure = Path(temporary_directory) / "configure.ac"
+            configure.write_text("AC_INIT([libffi],[3.4.7])\nLT_SYS_SYMBOL_USCORE\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "expected libffi 3.4.6"):
+                patch_android_libffi(Path(temporary_directory))
+
+            configure.write_text("AC_INIT([libffi],[3.4.6])\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "found 0"):
+                patch_android_libffi(Path(temporary_directory))
 
     def test_exact_python_abi_and_version(self):
         index = '<a href="cffi-1.17.1-1-cp313-cp313-android_24_arm64_v8a.whl">wheel</a>'
