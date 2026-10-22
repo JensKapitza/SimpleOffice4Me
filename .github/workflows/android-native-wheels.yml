@@ -90,10 +90,9 @@ jobs:
             echo "Source archive has no Python build metadata: $source_dir" >&2
             exit 1
           fi
-          # Pillow's upstream wheels-dependencies.sh assumes a yum-based
-          # build image. GitHub's Ubuntu Android runner has no yum; running
-          # that hook aborts before compilation. Use cibuildwheel's Android
-          # toolchain directly and diagnose missing libraries separately.
+          # Keep the Android build independent of Pillow's yum-based
+          # manylinux dependency installer. Missing Android libraries must
+          # be diagnosed against the NDK toolchain, not the Linux host.
           (
             cd "$source_dir"
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
