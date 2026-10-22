@@ -371,7 +371,8 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
             raise Conflict(description="This invoice draft changed in another session. Reload it before saving.")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
-        if form.get("address_mode") == "manual" and form.get("save_billing_address") == "1":
+        address_mode = str(form.get("address_mode", "")).strip()
+        if address_mode == "manual" and form.get("save_billing_address") == "1":
             buyer = row["buyer"]
             components = {key: buyer[key] for key in ("street", "postal", "city", "country")}
             try:
