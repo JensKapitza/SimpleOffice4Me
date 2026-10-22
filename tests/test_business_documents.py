@@ -26,6 +26,7 @@ from app.business_documents import (
     _draft_watermark,
     _build_invoice_lines,
     _parse_free_text_invoice_address,
+    _invoice_row_from_form,
     _invoice_task,
     save_invoice_draft,
     _pdfa3_convert,
@@ -68,6 +69,14 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_invoice_rejects_unknown_address_mode_before_contact_access(self):
+        with tempfile.TemporaryDirectory() as temp:
+            form = MultiDict([("address_mode", "unexpected")])
+            with mock.patch("app.business_documents.ContactStore") as contacts:
+                with self.assertRaisesRegex(ValueError, "Ungültiger Rechnungsadressmodus"):
+                    _invoice_row_from_form(Path(temp), "contact-1", form, "tester")
+                contacts.assert_not_called()
+
     def test_invoice_draft_rejects_stale_parallel_editor_without_overwriting(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
