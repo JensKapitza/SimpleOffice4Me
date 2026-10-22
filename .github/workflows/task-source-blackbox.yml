@@ -6,7 +6,7 @@ permissions:
 on:
   # Always report this required PR check, even when a later commit only
   # changes unrelated files. Path filters can leave required checks pending.
-  pull_request:
+  pull_request: {}
   push:
     branches: [main]
     paths:
@@ -40,6 +40,8 @@ jobs:
           python-version: "3.14"
       - name: Install application
         run: python -m pip install -e .
+      - name: Check changed Python modules compile
+        run: python -m py_compile app/todo_store.py app/task_management.py app/documents_routes_task_source.py app/documents_routes_content.py tests/test_task_source_document_blackbox.py
       - name: Run task source document HTTP black-box tests
         run: python -m unittest discover -s tests -p 'test_task_source_document_blackbox.py' -v
       - name: Run task provenance store regression tests
