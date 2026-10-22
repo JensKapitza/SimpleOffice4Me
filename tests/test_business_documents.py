@@ -86,6 +86,32 @@ class BusinessDocumentTests(unittest.TestCase):
                     save_invoice_draft(root, "contact-1", form, "tester", "draft-1")
             self.assertEqual(current, json.loads(path.read_text(encoding="utf-8")))
 
+    def test_contact_address_not_added_when_draft_validation_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            with mock.patch("app.business_documents._invoice_row_from_form", side_effect=ValueError("invalid invoice")), \
+                 mock.patch.object(ContactStore, "add_address") as add_address:
+                with self.assertRaisesRegex(ValueError, "invalid invoice"):
+                    save_invoice_draft(root, "contact-1", form, "tester")
+                add_address.assert_not_called()
+
+    def test_contact_address_saved_only_after_invoice_draft_is_persisted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1", "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            contact = {"addresses": []}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", return_value=contact), \
+                 mock.patch.object(ContactStore, "add_address") as add_address, \
+                 mock.patch.object(DocumentStore, "history") as history:
+                save_invoice_draft(root, "contact-1", form, "tester")
+                self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+                add_address.assert_called_once()
+                self.assertEqual("12345", add_address.call_args.kwargs["components"]["postal"])
+
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
         with mock.patch("app.todo_store.TodoStore") as todo_store:
