@@ -25,9 +25,10 @@ def upload():
     if error:
         flash(error)
         return redirect(url_for("documents.index"))
+    import_root = ""
     if folder_import:
-        import uuid
-        import_root = "imports/" + uuid.uuid4().hex
+        from uuid import uuid4
+        import_root = "imports/" + uuid4().hex
     stored = 0
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
