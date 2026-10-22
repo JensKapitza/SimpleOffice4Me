@@ -302,6 +302,9 @@ def _parse_free_text_invoice_address(value: object, default_country: str = "DE")
 
 
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    address_mode = str(form.get("address_mode", "existing")).strip()
+    if address_mode not in {"existing", "manual", "free_text"}:
+        raise ValueError("Ungültiger Rechnungsadressmodus.")
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage_contact(contact,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
