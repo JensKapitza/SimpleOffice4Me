@@ -18,6 +18,21 @@ def upload():
     if not files:
         flash("Bitte mindestens eine Datei auswählen.")
         return redirect(url_for("documents.index"))
+    # Bound batch size independently of the HTTP body-size limit.
+    if len(files) > 1000:
+        flash("Maximal 1000 Dateien pro Importvorgang auswählen.")
+        return redirect(url_for("documents.index"))
+    # Reject malformed client-supplied names before creating inbox records.
+    # Folder hierarchy is intentionally not trusted as a server filesystem path.
+    from pathlib import PurePosixPath
+    for item in files:
+        name = item.filename.replace("\\", "/")
+        parts = PurePosixPath(name).parts
+        if (name.startswith("/") or not parts or
+                any(part in (".", "..") for part in name.split("/")) or
+                any(ord(char) < 32 for char in name)):
+            flash("Ungültiger Dateiname im Import. Vorgang abgebrochen.")
+            return redirect(url_for("documents.index"))
     stored = 0
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
