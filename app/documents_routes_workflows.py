@@ -33,6 +33,20 @@ def upload():
                 any(ord(char) < 32 for char in name)):
             flash("Ungültiger Dateiname im Import. Vorgang abgebrochen.")
             return redirect(url_for("documents.index"))
+    # Reject ambiguous names across platforms (Windows/Android/Linux).
+    # Validate the complete batch before any inbox record or file is created.
+    import unicodedata
+    import re
+    for item in files:
+        normalized = item.filename.replace(chr(92), "/")
+        segments = normalized.split("/")
+        for segment in segments:
+            base = segment.rstrip(" .")
+            if (not base or base != segment or ":" in segment or
+                    unicodedata.normalize("NFC", segment) != segment or
+                    re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?", segment)):
+                flash("Ungültiger oder plattformübergreifend unsicherer Dateiname.")
+                return redirect(url_for("documents.index"))
     # Do not silently collapse equal basenames from different subfolders.
     folder_import = request.form.get("folder_import") == "1"
     if folder_import:
