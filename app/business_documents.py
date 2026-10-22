@@ -299,6 +299,12 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             raise ValueError("Freitextadresse: mindestens zwei Zeilen, maximal 1000 Zeichen.")
         label = chr(10).join(lines)
         candidate = {"id": "", "label": label, "street": lines[0], "postal": "", "city": "", "country": "DE"}
+    if form.get("address_mode") == "manual" and form.get("save_billing_address") == "1":
+        saved = contacts.add_address(contact_id, "Rechnungsadresse", label, actor, components={"street": street, "postal": postal, "city": city, "country": country})
+        contact = contacts.get(contact_id, actor)
+        crm = ContactCRMStore(root).record(contact_id)
+        label, candidates = address_labels(contact, crm)
+        candidate = next((item for item in candidates if item["label"] == label), candidate)
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
