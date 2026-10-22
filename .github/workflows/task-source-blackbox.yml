@@ -1,5 +1,8 @@
 name: Task source document black-box
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     paths:
@@ -11,6 +14,8 @@ on:
       - "app/documents_routes_content.py"
       - "app/documents_routes_workflows.py"
       - "templates/documents/_task_card.html"
+      - "templates/documents/tasks.html"
+      - "templates/documents/detail.html"
       - "templates/tasks/board.html"
       - "tests/test_task_source_document_blackbox.py"
       - "tests/test_caldav.py"
@@ -27,6 +32,8 @@ on:
       - "app/documents_routes_content.py"
       - "app/documents_routes_workflows.py"
       - "templates/documents/_task_card.html"
+      - "templates/documents/tasks.html"
+      - "templates/documents/detail.html"
       - "templates/tasks/board.html"
       - "tests/test_task_source_document_blackbox.py"
       - ".github/workflows/task-source-blackbox.yml"
@@ -34,11 +41,11 @@ on:
 
 jobs:
   blackbox:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
       - name: Install application
