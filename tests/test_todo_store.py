@@ -77,6 +77,31 @@ class TodoStoreTest(unittest.TestCase):
         self.assertEqual(["related-1"], changed["document_ids"])
         self.assertEqual("email-1", changed["email_document_id"])
 
+    def test_caldav_cannot_forge_source_document_provenance(self):
+        created, is_new = self.store.put_resource(
+            "forged-source.ics",
+            {"uid": "forged-source@example.test", "title": "Imported task",
+             "source_document_id": "attacker-document"},
+            "admin",
+            create_only=True,
+        )
+        self.assertTrue(is_new)
+        self.assertFalse(created["source_document_id"])
+
+        original = self.store.add("Document review", "admin", {
+            "uid": "document-review@example.test",
+            "source_document_id": "trusted-document",
+        })
+        updated, is_new = self.store.put_resource(
+            self.store.resource(original),
+            {"uid": original["uid"], "title": "Changed over CalDAV",
+             "source_document_id": "attacker-document"},
+            "admin",
+            expected_etag=self.store.etag(original),
+        )
+        self.assertFalse(is_new)
+        self.assertEqual("trusted-document", updated["source_document_id"])
+
     def test_resource_etag_sync_and_tombstone(self):
         values = {"uid": "task-1@example.test", "title": "CalDAV", "status": "needs-action", "due": "2026-09-02"}
         item, created = self.store.put_resource("task.ics", values, "admin", create_only=True)
