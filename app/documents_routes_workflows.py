@@ -18,70 +18,13 @@ def upload():
     if not files:
         flash("Bitte mindestens eine Datei auswählen.")
         return redirect(url_for("documents.index"))
-    # Bound batch size independently of the HTTP body-size limit.
-    if len(files) > 1000:
-        flash("Maximal 1000 Dateien pro Importvorgang auswählen.")
-        return redirect(url_for("documents.index"))
-    # Reject malformed client-supplied names before creating inbox records.
-    # Folder hierarchy is intentionally not trusted as a server filesystem path.
-    from pathlib import PurePosixPath
-    for item in files:
-        name = item.filename.replace("\\", "/")
-        parts = PurePosixPath(name).parts
-        if (name.startswith("/") or not parts or
-                any(part in (".", "..") for part in name.split("/")) or
-                any(ord(char) < 32 for char in name)):
-            flash("Ungültiger Dateiname im Import. Vorgang abgebrochen.")
-            return redirect(url_for("documents.index"))
-    # Reject ambiguous names across platforms (Windows/Android/Linux).
-    # Validate the complete batch before any inbox record or file is created.
-    import unicodedata
-    import re
-    for item in files:
-        normalized = item.filename.replace(chr(92), "/")
-        segments = normalized.split("/")
-        for segment in segments:
-            base = segment.rstrip(" .")
-            if (not base or base != segment or ":" in segment or
-                    unicodedata.normalize("NFC", segment) != segment or
-                    re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?", segment)):
-                flash("Ungültiger oder plattformübergreifend unsicherer Dateiname.")
-                return redirect(url_for("documents.index"))
-    # Each folder file must have a matching, validated relative path.
+    from .folder_import_validation import validate_upload_batch
     folder_import = request.form.get("folder_import") == "1"
     relative_paths = request.form.getlist("relative_paths") if folder_import else []
-    if folder_import:
-        if len(relative_paths) != len(files):
-            flash("Ordnerimport unvollständig: Dateipfade fehlen.")
-            return redirect(url_for("documents.index"))
-        for item, relative_path in zip(files, relative_paths):
-            normalized = relative_path.replace(chr(92), "/")
-            components = normalized.split("/")
-            if (not normalized or normalized.startswith("/") or
-                    any(part in ("", ".", "..") for part in components) or
-                    any(ord(char) < 32 or char == ":" for char in normalized) or
-                    components[-1] != item.filename.replace(chr(92), "/").rsplit("/", 1)[-1]):
-                flash("Ungültiger relativer Ordnerpfad.")
-                return redirect(url_for("documents.index"))
-    # Apply the same portable-name rules to every directory component, not
-    # only to the multipart filename. Reject duplicate destinations up front.
-    if folder_import:
-        seen_paths = set()
-        for relative_path in relative_paths:
-            segments = relative_path.replace(chr(92), "/").split("/")
-            for segment in segments:
-                if (segment.rstrip(" .") != segment or
-                        unicodedata.normalize("NFC", segment) != segment or
-                        re.fullmatch(r"(?i)(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?", segment)):
-                    flash("Ungültiger Verzeichnisname im Ordnerimport.")
-                    return redirect(url_for("documents.index"))
-            key = "/".join(segments).casefold()
-            if key in seen_paths:
-                flash("Doppelter Dateipfad im Ordnerimport.")
-                return redirect(url_for("documents.index"))
-            seen_paths.add(key)
-    # A unique batch directory preserves relative paths and avoids overwriting
-    # existing imports (including duplicate basenames in different subfolders).
+    error = validate_upload_batch(files, relative_paths, folder_import=folder_import)
+    if error:
+        flash(error)
+        return redirect(url_for("documents.index"))
     if folder_import:
         import uuid
         import_root = "imports/" + uuid.uuid4().hex
