@@ -24,6 +24,7 @@ from app.business_documents import (
     _draft_invoice_number,
     _draft_watermark,
     _build_invoice_lines,
+    _parse_free_text_invoice_address,
     _invoice_task,
     save_invoice_draft,
     _pdfa3_convert,
@@ -123,6 +124,47 @@ class BusinessDocumentTests(unittest.TestCase):
             (directory / (invoice_id + ".json")).write_text(json.dumps(row), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "strukturierte Adressdaten"):
                 finalize_invoice(root, invoice_id, "tester")
+
+    def test_free_text_invoice_address_is_parsed_into_structured_fields(self):
+        address = _parse_free_text_invoice_address("Musterstraße 1\r\n10115, Berlin\r\nde")
+
+        self.assertEqual("Musterstraße 1", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("DE", address["country"])
+        self.assertEqual("Musterstraße 1\n10115, Berlin\nde", address["label"])
+
+    def test_free_text_invoice_address_rejects_missing_fields_and_invalid_country(self):
+        for value in ("Musterstraße 1", "Musterstraße 1\nBerlin", "Musterstraße 1\n10115 Berlin\nGermany"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                _parse_free_text_invoice_address(value)
+
+    def test_free_text_invoice_address_is_saved_as_a_structured_draft_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact = ContactStore(root).upsert({"display_name": "Max Muster"}, "tester")
+            form = MultiDict([
+                ("address_mode", "free_text"),
+                ("billing_free_text", "Musterstraße 1\n10115, Berlin\nDE"),
+                ("recipient_type", "private"), ("recipient_contact", "Max Muster"),
+                ("issue_date", "2026-10-22"), ("service_date", "2026-10-22"),
+                ("payment_days", "14"), ("currency", "EUR"),
+            ])
+            with mock.patch("app.business_documents.business_settings", return_value={
+                "seller_name": "Muster GmbH", "seller_street": "Hauptstraße 1",
+                "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
+            }), mock.patch("app.business_documents._build_invoice_lines", return_value=[]), \
+                 mock.patch("app.business_documents._invoice_totals", return_value={"gross": "0.00"}), \
+                 mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-2026-0001"), \
+                 mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                row = save_invoice_draft(root, contact["contact_id"], form, "tester")
+
+            self.assertEqual({
+                "street": "Musterstraße 1", "postal": "10115", "city": "Berlin", "country": "DE",
+            }, {key: row["buyer"][key] for key in ("street", "postal", "city", "country")})
+            self.assertEqual("Max Muster\nMusterstraße 1\n10115, Berlin\nDE", row["buyer"]["label"])
+            self.assertEqual([], ContactStore(root).get(contact["contact_id"], "tester")["addresses"])
 
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
@@ -442,7 +484,11 @@ class BusinessDocumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
             path = directory / "draft-1.json"
-            original = {"invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001", "status": "draft", "template_id": "tpl", "history": []}
+            original = {
+                "invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001",
+                "status": "draft", "template_id": "tpl", "history": [],
+                "buyer": {"street": "Musterstraße 1", "postal": "10115", "city": "Berlin", "country": "DE"},
+            }
             path.write_text(json.dumps(original), encoding="utf-8")
             with mock.patch("app.business_documents.business_settings", return_value={}), \
                  mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \

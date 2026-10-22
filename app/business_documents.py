@@ -6,6 +6,8 @@ compatible.
 """
 from __future__ import annotations
 
+import re
+
 from flask import Blueprint
 from werkzeug.exceptions import Conflict
 
@@ -275,6 +277,30 @@ def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dic
         return inspect_zugferd_pdf(path)
 
 
+def _parse_free_text_invoice_address(value: object, default_country: str = "DE") -> dict[str, str]:
+    """Turn the explicit street / postal-city / ISO-country lines into a CII address."""
+    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
+    if len(raw) > 1000 or not 2 <= len(lines) <= 4 or any(len(line) > 250 for line in lines):
+        raise ValueError("Freitextadresse: Straße, PLZ/Ort und optional ISO-Land eingeben (maximal 1000 Zeichen).")
+    has_country = len(lines) >= 3
+    postal_city = lines[-2] if has_country else lines[-1]
+    street_lines = lines[:-2] if has_country else lines[:-1]
+    postal_city_parts = postal_city.split(maxsplit=1)
+    if not street_lines or len(postal_city_parts) != 2:
+        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort, z. B. ‚10115, Berlin‘.")
+    postal = postal_city_parts[0].rstrip(",")
+    city = postal_city_parts[1].strip()
+    country = (lines[-1] if has_country else str(default_country or "DE")).upper()
+    if not postal or not city or not re.fullmatch(r"[A-Z]{2}", country):
+        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort; das Land muss ein ISO-Code sein.")
+    street = " ".join(street_lines)
+    return {
+        "id": "", "label": "\n".join(lines), "street": street,
+        "postal": postal, "city": city, "country": country,
+    }
+
+
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage_contact(contact,actor):raise PermissionError
@@ -286,19 +312,18 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
         country = str(form.get("billing_country", "DE")).strip().upper() or "DE"
         if not street or not postal or not city:
             raise ValueError("Für eine manuelle Rechnungsadresse sind Straße, PLZ und Ort erforderlich.")
-        if len(country) != 2 or not country.isalpha():
+        if not re.fullmatch(r"[A-Z]{2}", country):
             raise ValueError("Das Land muss als zweistelliger ISO-Code angegeben werden.")
         if any(len(value) > 250 for value in (street, postal, city)):
             raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
         label = "\n".join((street, f"{postal} {city}", country))
         candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
     if form.get("address_mode") == "free_text":
-        free_text = str(form.get("billing_free_text", "")).strip()
-        lines = [part.strip() for part in free_text.splitlines() if part.strip()]
-        if len(free_text) > 1000 or len(lines) < 2:
-            raise ValueError("Freitextadresse: mindestens zwei Zeilen, maximal 1000 Zeichen.")
-        label = chr(10).join(lines)
-        candidate = {"id": "", "label": label, "street": lines[0], "postal": "", "city": "", "country": "DE"}
+        candidate = _parse_free_text_invoice_address(
+            form.get("billing_free_text", ""),
+            default_country=str((candidate or {}).get("country", "DE")),
+        )
+        label = candidate["label"]
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
