@@ -69,6 +69,21 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             self.assertIn("Legacy task", page.get_data(as_text=True))
             self.assertNotIn("Quelldatei öffnen", page.get_data(as_text=True))
 
+    def test_legacy_task_update_cannot_forge_source_provenance(self):
+        created = self.client.post("/documents/todo", data={"title": "Unlinked task"})
+        self.assertEqual(302, created.status_code)
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Unlinked task")
+        response = self.client.post(
+            f"/documents/todo/{task['id']}",
+            data={"title": "Still unlinked", "status": "in-process",
+                  "return_to": "tasks", "source_document_id": "forged-source"},
+        )
+        self.assertEqual(302, response.status_code)
+        updated = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertFalse(updated.get("source_document_id"))
+        for url in ("/documents/tasks", "/tasks/"):
+            self.assertNotIn("Quelldatei öffnen", self.client.get(url).get_data(as_text=True))
+
     def test_unknown_source_id_does_not_produce_broken_link(self):
         created = self.client.post("/documents/todo", data={
             "title": "Missing document", "source_document_id": "nonexistent-source-id",
