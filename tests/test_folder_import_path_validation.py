@@ -52,6 +52,27 @@ class FolderImportPathValidationTests(unittest.TestCase):
         files = [SimpleNamespace(filename="photo.jpg")]
         self.assertIsNotNone(validate_upload_batch(files, [], folder_import=True))
 
+    def test_rejects_more_than_one_thousand_files(self):
+        files = [SimpleNamespace(filename=f"file-{i}.txt") for i in range(1001)]
+        self.assertIsNotNone(validate_upload_batch(files, [], folder_import=False))
+
+    def test_accepts_one_thousand_distinct_files(self):
+        files = [SimpleNamespace(filename=f"file-{i}.txt") for i in range(1000)]
+        paths = [f"root/file-{i}.txt" for i in range(1000)]
+        self.assertIsNone(validate_upload_batch(files, paths, folder_import=True))
+
+    def test_rejects_mismatched_file_and_relative_path(self):
+        files = [SimpleNamespace(filename="actual.txt")]
+        self.assertIsNotNone(
+            validate_upload_batch(files, ["root/other.txt"], folder_import=True)
+        )
+
+    def test_rejects_non_normalized_unicode_path(self):
+        files = [SimpleNamespace(filename="file.txt")]
+        self.assertIsNotNone(
+            validate_upload_batch(files, ["root/cafe\\u0301/file.txt"], folder_import=True)
+        )
+
     def test_accepts_single_file_without_folder_metadata(self):
         files = [SimpleNamespace(filename="photo.jpg")]
         self.assertIsNone(validate_upload_batch(files, [], folder_import=False))
