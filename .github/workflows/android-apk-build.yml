@@ -16,6 +16,7 @@ on:
       - 'pyproject.toml'
       - 'simpleoffice_version.py'
       - '.github/workflows/android-apk-build.yml'
+      - '.github/workflows/android-native-wheels.yml'
   push:
     branches:
       - main
