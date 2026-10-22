@@ -570,10 +570,15 @@ class SiteVisitStore:
         if entry.get("relative_path") != f"reports/{report_id}.pdf":
             raise ValueError("Bericht nicht verfügbar")
         directory = (self.directory / _identifier(visit_id) / "reports").resolve()
-        path = (directory / f"{report_id}.pdf").resolve()
-        if path.parent != directory or not path.is_file() or path.is_symlink():
+        path = directory / f"{report_id}.pdf"
+        if path.is_symlink() or not path.is_file():
             raise ValueError("Bericht nicht verfügbar")
-        if hashlib.sha256(path.read_bytes()).hexdigest() != entry.get("sha256"):
+        try:
+            with path.open("rb") as stream:
+                digest = hashlib.file_digest(stream, "sha256").hexdigest()
+        except OSError as exc:
+            raise ValueError("Bericht nicht verfügbar") from exc
+        if digest != entry.get("sha256"):
             raise ValueError("Bericht ist beschädigt")
         return path
 
