@@ -181,6 +181,8 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
         self.assertEqual("'\u00a0=1+1", _csv_safe_text("\u00a0=1+1"))
         self.assertEqual("'\u2003@SUM(1)", _csv_safe_text("\u2003@SUM(1)"))
         self.assertEqual("'+123", _csv_safe_text("+123"))
+        self.assertEqual("'\ufeff=1+1", _csv_safe_text("\ufeff=1+1"))
+        self.assertEqual("'\ufeff  @SUM(1)", _csv_safe_text("\ufeff  @SUM(1)"))
         self.assertEqual("'-123", _csv_safe_text("-123"))
 
     def test_settings_api_does_not_return_secrets(self):
