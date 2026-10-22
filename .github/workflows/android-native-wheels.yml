@@ -101,6 +101,17 @@ jobs:
               # Android target has no libraqm/HarfBuzz/FriBidi toolchain yet.
               # Keep FreeType text rendering; disable only complex shaping.
               export CIBW_CONFIG_SETTINGS_ANDROID="raqm=disable"
+              # Pillow guesses Linux host include/library directories even
+              # when building with Android clang. Disable only that guess.
+              python - <<'PY'
+              from pathlib import Path
+              setup = Path("setup.py")
+              source = setup.read_text()
+              original = "if not self.disable_platform_guessing:"
+              if source.count(original) != 1:
+                  raise SystemExit("Unexpected Pillow platform guessing layout")
+              setup.write_text(source.replace(original, "if False:  # Android cross-build: do not use Linux host paths", 1))
+              PY
               # The Android NDK sysroot provides zlib for API 24. Explicitly
               # point Pillow at the target sysroot rather than host /usr/lib.
               ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/27.3.13750724}}"
