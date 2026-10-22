@@ -79,6 +79,15 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             for task in TodoStore(self.root).items("jens")
         ))
 
+    def test_invalid_document_id_cannot_create_source_task(self):
+        before = len(TodoStore(self.root).items("jens"))
+        response = self.client.post(
+            "/documents/not-a-real-document/tasks",
+            data={"title": "Orphaned task"},
+        )
+        self.assertEqual(404, response.status_code)
+        self.assertEqual(before, len(TodoStore(self.root).items("jens")))
+
     def test_legacy_task_without_source_still_renders(self):
         created = self.client.post("/documents/todo", data={"title": "Legacy task"})
         self.assertEqual(302, created.status_code)
