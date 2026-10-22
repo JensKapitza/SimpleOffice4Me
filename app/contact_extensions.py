@@ -27,6 +27,14 @@ from .settings_store import translate
 from .v2.materialize import materialize_verified_object
 
 
+def _crm_csv_safe(value: Any) -> str:
+    """Keep untrusted contact text from being evaluated as spreadsheet formulas."""
+    text = str(value or "")
+    if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\\t", "\\r", "\\n")):
+        return "'" + text
+    return text
+
+
 CRM_FILE = "contact-crm.json"
 EXTERNAL_SCALAR_FIELDS = (
     "first_name", "last_name", "display_name", "nickname", "company",
@@ -380,16 +388,10 @@ def register(bp) -> None:
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"]); rows = store.overview(contacts, request.args.get("q", ""), request.args.get("status", ""), request.args.get("role", ""), request.args.get("sort", "name"), request.args.get("without_activity") == "1")
         header_keys = ("name", "company", "email", "phone", "status", "roles", "customer_number", "supplier_number", "latest_activity", "activities")
         headers = tuple(translate(g.language, f"crm.csv.{key}") for key in header_keys)
-        def csv_safe(value):
-            text = str(value or "")
-            if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\\t", "\\r", "\\n")):
-                return "'" + text
-            return text
-
         output = io.StringIO(); writer = csv.writer(output, delimiter=";"); writer.writerow(headers)
         for row in rows:
             fields = row["contact"].get("fields", {}); crm = row["crm"]
-            writer.writerow((csv_safe(fields.get("display_name", "")), csv_safe(fields.get("company", "")), csv_safe(fields.get("email", "")), csv_safe(fields.get("phone", "")), csv_safe(crm.get("status", "active")), csv_safe(", ".join(crm.get("roles", []))), csv_safe(crm.get("customer_number", "")), csv_safe(crm.get("supplier_number", "")), row["last_activity"], row["activity_count"]))
+            writer.writerow((_crm_csv_safe(fields.get("display_name", "")), _crm_csv_safe(fields.get("company", "")), _crm_csv_safe(fields.get("email", "")), _crm_csv_safe(fields.get("phone", "")), _crm_csv_safe(crm.get("status", "active")), _crm_csv_safe(", ".join(crm.get("roles", []))), _crm_csv_safe(crm.get("customer_number", "")), _crm_csv_safe(crm.get("supplier_number", "")), row["last_activity"], row["activity_count"]))
         return Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=crm-kontakte.csv"})
 
     @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
