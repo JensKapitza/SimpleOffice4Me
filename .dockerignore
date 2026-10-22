@@ -1,6 +1,18 @@
 .git
 .github
+# Local dotenv values and Compose secret mounts must never enter image layers.
+.env
+.env.*
+**/.env
+**/.env.*
+!deploy/docker/.env.example
 .venv
+.runtime-tools/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
 **/.build-venv
 instance
 build
@@ -19,6 +31,7 @@ __pycache__
 *.sqlite-*
 database/documents
 database/files
+deploy/docker/secrets/
 packaging/build-client.local.sh
 packaging/build-server.local.sh
 packaging/*.secret.sh

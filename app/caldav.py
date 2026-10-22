@@ -209,7 +209,8 @@ def _todo_ics(item: dict) -> str:
     lines.extend(line if str(line).upper().startswith("EXDATE") else "EXDATE:" + str(line) for line in item.get("exdates", []))
     if item.get("project_id"): lines.append("X-SIMPLEOFFICE-PROJECT-ID:" + esc(item["project_id"]))
     if item.get("contact_id"): lines.append("X-SIMPLEOFFICE-CONTACT-ID:" + esc(item["contact_id"]))
-    for document_id in item.get("document_ids", []): lines.append("X-SIMPLEOFFICE-DOCUMENT-ID:" + esc(document_id))
+    for document_id in item.get("document_ids", []):
+        lines.append("X-SIMPLEOFFICE-DOCUMENT-ID:" + esc(document_id))
     lines.extend(str(line) for line in item.get("extra_lines", []) if str(line).upper() not in {"BEGIN:VTODO", "END:VTODO"})
     return "\r\n".join([*lines, "END:VTODO", "END:VCALENDAR", ""])
 
@@ -290,7 +291,12 @@ def _parse_vtodo(content: str) -> dict[str, Any]:
             calendar_extra.append(line)
     completed_value = date_value(fields.get("COMPLETED"))
     if completed_value: status = "completed"; percent = 100
-    return {"uid": uid, "title": title, "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "status": status, "percent_complete": 100 if status == "completed" else percent, "priority": priority, "start": start_value, "due": date_value(fields.get("DUE")), "completed_at": completed_value, "categories": [unescape(value).strip() for value in fields.get("CATEGORIES", ("", ""))[1].split(",") if value.strip()], "classification": unescape(fields.get("CLASS", ("", ""))[1]), "url": unescape(fields.get("URL", ("", ""))[1]), "organizer": (fields.get("ORGANIZER", ("", ""))[0] + ":" + fields.get("ORGANIZER", ("", ""))[1]) if "ORGANIZER" in fields else "", "attendees": multiples["ATTENDEE"], "related_to": multiples["RELATED-TO"], "rrule": fields.get("RRULE", ("", ""))[1], "rdates": multiples["RDATE"], "exdates": multiples["EXDATE"], "sequence": sequence, "ical_created": fields.get("CREATED", ("", ""))[1], "ical_last_modified": fields.get("LAST-MODIFIED", ("", ""))[1], "ical_dtstamp": fields.get("DTSTAMP", ("", ""))[1], "project_id": unescape(fields.get("X-SIMPLEOFFICE-PROJECT-ID", ("", ""))[1]), "contact_id": unescape(fields.get("X-SIMPLEOFFICE-CONTACT-ID", ("", ""))[1]), "document_ids": [unescape(line.split(":", 1)[1]) for line in multiples["X-SIMPLEOFFICE-DOCUMENT-ID"]], "calendar_extra_lines": calendar_extra, "extra_lines": extra, "raw_ics": content}
+    result = {"uid": uid, "title": title, "description": unescape(fields.get("DESCRIPTION", ("", ""))[1]), "status": status, "percent_complete": 100 if status == "completed" else percent, "priority": priority, "start": start_value, "due": date_value(fields.get("DUE")), "completed_at": completed_value, "categories": [unescape(value).strip() for value in fields.get("CATEGORIES", ("", ""))[1].split(",") if value.strip()], "classification": unescape(fields.get("CLASS", ("", ""))[1]), "url": unescape(fields.get("URL", ("", ""))[1]), "organizer": (fields.get("ORGANIZER", ("", ""))[0] + ":" + fields.get("ORGANIZER", ("", ""))[1]) if "ORGANIZER" in fields else "", "attendees": multiples["ATTENDEE"], "related_to": multiples["RELATED-TO"], "rrule": fields.get("RRULE", ("", ""))[1], "rdates": multiples["RDATE"], "exdates": multiples["EXDATE"], "sequence": sequence, "ical_created": fields.get("CREATED", ("", ""))[1], "ical_last_modified": fields.get("LAST-MODIFIED", ("", ""))[1], "ical_dtstamp": fields.get("DTSTAMP", ("", ""))[1], "project_id": unescape(fields.get("X-SIMPLEOFFICE-PROJECT-ID", ("", ""))[1]), "contact_id": unescape(fields.get("X-SIMPLEOFFICE-CONTACT-ID", ("", ""))[1]), "calendar_extra_lines": calendar_extra, "extra_lines": extra, "raw_ics": content}
+    document_ids = [unescape(line.split(":", 1)[1]).strip() for line in multiples["X-SIMPLEOFFICE-DOCUMENT-ID"]]
+    document_ids = [document_id for document_id in document_ids if document_id]
+    if document_ids:
+        result["document_ids"] = document_ids
+    return result
 
 
 def _task_endpoint(actor: str, parts: list[str], home: str) -> Response:

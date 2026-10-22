@@ -13,6 +13,7 @@ on:
       - 'packaging/**'
       - 'deploy/**'
       - 'Dockerfile'
+      - '.dockerignore'
       - 'pyproject.toml'
       - 'build-dep.sh'
   workflow_dispatch:
@@ -153,6 +154,20 @@ jobs:
           docker compose -f deploy/pi/compose.yaml config >/dev/null
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Create disposable local-secret sentinels for image-context test
+        id: context-sentinel
+        shell: bash
+        run: |
+          set -euo pipefail
+          sentinel="ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          test ! -e .env
+          test ! -e ".env.${sentinel}"
+          test ! -e deploy/docker/secrets
+          printf 'name=%s\n' "$sentinel" >> "$GITHUB_OUTPUT"
+          printf '%s\n' 'not-a-credential-build-context-sentinel' > ".env.${sentinel}"
+          mkdir -p deploy/docker/secrets
+          printf '%s\n' 'not-a-credential-build-context-sentinel' > "deploy/docker/secrets/${sentinel}"
+          printf '%s\n' 'not-a-credential-build-context-sentinel' > .env
       - name: Build amd64 image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -161,6 +176,25 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: simpleoffice4me:local
+      - name: Verify local secret files are absent from the image
+        env:
+          SENTINEL: ${{ steps.context-sentinel.outputs.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SENTINEL"
+          docker run --rm --entrypoint /bin/sh -e SENTINEL simpleoffice4me:local \
+            -eu -c 'test ! -e /opt/simpleoffice4me/.env && test ! -e "/opt/simpleoffice4me/.env.$SENTINEL" && test ! -e "/opt/simpleoffice4me/deploy/docker/secrets/$SENTINEL"'
+      - name: Remove disposable local-secret sentinels
+        if: always()
+        env:
+          SENTINEL: ${{ steps.context-sentinel.outputs.name }}
+        shell: bash
+        run: |
+          if [ -n "${SENTINEL:-}" ]; then
+            rm -f .env ".env.${SENTINEL}" "deploy/docker/secrets/${SENTINEL}"
+            if [ -d deploy/docker/secrets ]; then rmdir deploy/docker/secrets; fi
+          fi
       - name: Run isolated federation restart smoke
         shell: bash
         run: |
