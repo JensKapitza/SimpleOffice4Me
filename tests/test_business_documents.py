@@ -128,6 +128,21 @@ class BusinessDocumentTests(unittest.TestCase):
             self.assertEqual("draft-test", saved["invoice_id"])
             self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
 
+    def test_invoice_draft_survives_optional_contact_address_write_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1",
+                     "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", return_value={"addresses": []}), \
+                 mock.patch.object(ContactStore, "add_address", side_effect=OSError("contact write unavailable")), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                saved = save_invoice_draft(root, "contact-1", form, "tester")
+            self.assertEqual("draft-test", saved["invoice_id"])
+            self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+
     def test_free_text_invoice_cannot_finalize_without_structured_address(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
