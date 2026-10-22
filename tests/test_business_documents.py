@@ -118,7 +118,7 @@ class BusinessDocumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
-            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1",
+            buyer = {"label": "Teststr. 1\n12345 Teststadt", "street": "Teststr. 1",
                      "postal": "12345", "city": "Teststadt", "country": "DE"}
             row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
             with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
@@ -132,7 +132,7 @@ class BusinessDocumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
-            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1",
+            buyer = {"label": "Teststr. 1\n12345 Teststadt", "street": "Teststr. 1",
                      "postal": "12345", "city": "Teststadt", "country": "DE"}
             row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
             with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
@@ -165,7 +165,7 @@ class BusinessDocumentTests(unittest.TestCase):
         self.assertEqual("Musterstraße 1\n10115, Berlin\nde", address["label"])
 
     def test_free_text_invoice_address_allows_two_street_lines_without_country(self):
-        address = _parse_free_text_invoice_address("Musterstraße 1\\nHinterhaus\\n10115 Berlin")
+        address = _parse_free_text_invoice_address("Musterstraße 1\nHinterhaus\n10115 Berlin")
         self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
         self.assertEqual("10115", address["postal"])
         self.assertEqual("Berlin", address["city"])
@@ -173,7 +173,7 @@ class BusinessDocumentTests(unittest.TestCase):
 
     def test_free_text_invoice_address_accepts_multiline_street_and_country(self):
         address = _parse_free_text_invoice_address(
-            "Musterstraße 1\\nHinterhaus\\n10115 Berlin\\nAT"
+            "Musterstraße 1\nHinterhaus\n10115 Berlin\nAT"
         )
         self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
         self.assertEqual("10115", address["postal"])
