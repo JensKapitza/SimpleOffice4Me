@@ -31,6 +31,22 @@ class SiteVisitStoreTests(unittest.TestCase):
         self.context.pop()
         self.temp.cleanup()
 
+    def test_report_write_failure_keeps_metadata_and_files_clean(self):
+        visit_id = self.visit["visit_id"]
+        original = self.store.get(visit_id, "alice")["reports"]
+        with patch.object(self.store, "_mutate", side_effect=OSError("simulated metadata write failure")):
+            with self.assertRaises(OSError):
+                self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 test", [])
+        self.assertEqual(original, self.store.get(visit_id, "alice")["reports"])
+        report_dir = self.store.directory / visit_id / "reports"
+        self.assertEqual([], list(report_dir.iterdir()))
+
+    def test_report_legacy_metadata_is_not_reconstructed(self):
+        visit_id = self.visit["visit_id"]
+        entry = self.store.record_report(visit_id, "alice", {"finding_ids": [], "sha256": "0" * 64})
+        with self.assertRaisesRegex(ValueError, "nicht verfügbar"):
+            self.store.report_pdf_path(visit_id, "alice", entry["report_id"])
+
     def test_free_fields_rooms_and_device_map_are_preserved(self):
         room = self.store.add_room(self.visit["visit_id"], "alice", {"name": "Serverraum", "floor": "UG"})
         self.store.add_asset(self.visit["visit_id"], "alice", {"name": "Altgerät", "kind": "Server", "room_id": room["room_id"], "power_w": "", "description": "Typenschild fehlt"})
