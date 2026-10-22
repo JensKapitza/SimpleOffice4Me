@@ -79,6 +79,27 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
             for task in TodoStore(self.root).items("jens")
         ))
 
+    def test_revoked_document_access_prevents_new_source_task(self):
+        document = DocumentStore(self.root).import_upload(
+            io.BytesIO(b"protected fixture"), "protected.txt", "jens",
+        )
+        document_id = document["document_id"]
+        original_get_document = DocumentStore.get_document
+
+        def deny_source(store, reference):
+            if str(reference) == document_id:
+                raise ValueError("document access revoked")
+            return original_get_document(store, reference)
+
+        before = len(TodoStore(self.root).items("jens"))
+        with patch.object(DocumentStore, "get_document", deny_source):
+            response = self.client.post(
+                f"/documents/{document_id}/tasks",
+                data={"title": "Must not be created"},
+            )
+        self.assertEqual(404, response.status_code)
+        self.assertEqual(before, len(TodoStore(self.root).items("jens")))
+
     def test_invalid_document_id_cannot_create_source_task(self):
         before = len(TodoStore(self.root).items("jens"))
         response = self.client.post(
