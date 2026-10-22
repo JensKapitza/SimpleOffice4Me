@@ -114,6 +114,35 @@ class BusinessDocumentTests(unittest.TestCase):
                 add_address.assert_called_once()
                 self.assertEqual("12345", add_address.call_args.kwargs["components"]["postal"])
 
+    def test_invoice_draft_survives_optional_contact_address_lookup_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1",
+                     "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", side_effect=ValueError("contact lookup unavailable")), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                saved = save_invoice_draft(root, "contact-1", form, "tester")
+            self.assertEqual("draft-test", saved["invoice_id"])
+            self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+
+    def test_invoice_draft_survives_optional_contact_address_write_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1",
+                     "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", return_value={"addresses": []}), \
+                 mock.patch.object(ContactStore, "add_address", side_effect=OSError("contact write unavailable")), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                saved = save_invoice_draft(root, "contact-1", form, "tester")
+            self.assertEqual("draft-test", saved["invoice_id"])
+            self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+
     def test_free_text_invoice_cannot_finalize_without_structured_address(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -134,6 +163,22 @@ class BusinessDocumentTests(unittest.TestCase):
         self.assertEqual("Berlin", address["city"])
         self.assertEqual("DE", address["country"])
         self.assertEqual("Musterstraße 1\n10115, Berlin\nde", address["label"])
+
+    def test_free_text_invoice_address_allows_two_street_lines_without_country(self):
+        address = _parse_free_text_invoice_address("Musterstraße 1\\nHinterhaus\\n10115 Berlin")
+        self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("DE", address["country"])
+
+    def test_free_text_invoice_address_accepts_multiline_street_and_country(self):
+        address = _parse_free_text_invoice_address(
+            "Musterstraße 1\\nHinterhaus\\n10115 Berlin\\nAT"
+        )
+        self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("AT", address["country"])
 
     def test_free_text_invoice_address_rejects_missing_fields_and_invalid_country(self):
         for value in ("Musterstraße 1", "Musterstraße 1\nBerlin", "Musterstraße 1\n10115 Berlin\nGermany"):
