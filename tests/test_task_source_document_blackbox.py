@@ -178,7 +178,12 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                     response = self.client.get(url)
                     self.assertEqual(200, response.status_code)
                     body = response.get_data(as_text=True)
-                    self.assertNotIn(f'href="/documents/{document_id}"', body)
+                    self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                    soup = BeautifulSoup(body, "html.parser")
+                    self.assertFalse(any(
+                        document_id in str(link.get("href", ""))
+                        for link in soup.find_all("a")
+                    ))
 
     def test_soft_deleted_source_has_a_clear_unavailable_state(self):
         document_id = self._create_document_task()
