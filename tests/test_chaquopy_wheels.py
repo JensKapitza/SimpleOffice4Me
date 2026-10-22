@@ -40,6 +40,18 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertTrue(compatible_wheels(index, "cryptography", "48.0.1", "3.15", "arm64-v8a"))
         self.assertFalse(compatible_wheels(index, "cryptography", "48.0.1", "3.11", "arm64-v8a"))
 
+    def test_abi3_tags_cover_old_and_new_cpython_minor_formats(self):
+        for wheel_tag, target, expected in (
+            ("cp38", "3.15", True),
+            ("cp39", "3.8", False),
+            ("cp310", "3.15", True),
+            ("cp313", "3.15", True),
+            ("cp315", "3.14", False),
+        ):
+            with self.subTest(wheel_tag=wheel_tag, target=target):
+                index = f'<a href="cryptography-48.0.1-{wheel_tag}-abi3-android_24_arm64_v8a.whl">wheel</a>'
+                self.assertEqual(expected, compatible_wheels(index, "cryptography", "48.0.1", target, "arm64-v8a"))
+
     def test_abi3_from_newer_python_is_not_compatible(self):
         index = '<a href="cryptography-48.0.1-cp315-abi3-android_24_arm64_v8a.whl">wheel</a>'
         self.assertFalse(compatible_wheels(index, "cryptography", "48.0.1", "3.14", "arm64-v8a"))
