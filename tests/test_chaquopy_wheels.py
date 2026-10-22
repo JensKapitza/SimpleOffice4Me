@@ -43,6 +43,7 @@ class ChaquopyWheelsTests(unittest.TestCase):
     def test_abi3_tags_cover_old_and_new_cpython_minor_formats(self):
         for wheel_tag, target, expected in (
             ("cp38", "3.15", True),
+            ("cp38", "3.8", True),
             ("cp39", "3.8", False),
             ("cp310", "3.15", True),
             ("cp313", "3.15", True),

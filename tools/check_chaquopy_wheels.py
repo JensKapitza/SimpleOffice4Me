@@ -65,8 +65,8 @@ def compatible_wheels(html: str, package: str, version: str, python: str, abi: s
                 or (
                     tag.abi == "abi3"
                     and tag.interpreter.startswith("cp3")
-                    and tag.interpreter[3:].isdigit()
-                    and 38 <= int(tag.interpreter[3:]) <= int(f"3{python_minor}")
+                    and tag.interpreter[2:].isdigit()
+                    and 38 <= int(tag.interpreter[2:]) <= int(f"3{python_minor}")
                 )
                 or (tag.interpreter == "py3" and tag.abi == "none")
             )
