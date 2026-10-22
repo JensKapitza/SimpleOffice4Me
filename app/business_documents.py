@@ -308,7 +308,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage_contact(contact,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
-    if str(form.get("address_mode", "")).strip() == "manual":
+    if address_mode == "manual":
         street = str(form.get("billing_street", "")).strip()
         postal = str(form.get("billing_postal", "")).strip()
         city = str(form.get("billing_city", "")).strip()
@@ -321,13 +321,13 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
         label = "\n".join((street, f"{postal} {city}", country))
         candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
-    if form.get("address_mode") == "free_text":
+    if address_mode == "free_text":
         candidate = _parse_free_text_invoice_address(
             form.get("billing_free_text", ""),
             default_country=str((candidate or {}).get("country", "DE")),
         )
         label = candidate["label"]
-    if str(form.get("address_mode", "")).strip() == "existing":
+    if address_mode == "existing":
         candidate = next((item for item in candidates if item["id"] == selected), None)
         if candidate is None:
             raise ValueError("Bitte eine gültige gespeicherte Rechnungsadresse auswählen.")

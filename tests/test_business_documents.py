@@ -125,7 +125,7 @@ class BusinessDocumentTests(unittest.TestCase):
                         components=components,
                     )
                 form = MultiDict([
-                    ("address_mode", mode), ("address", "contact-0"),
+                    ("address_mode", f" {mode} "), ("address", "contact-0"),
                     ("billing_street", components["street"]), ("billing_postal", "10115"),
                     ("billing_city", "Berlin"), ("billing_country", "DE"),
                     ("billing_free_text", "Original Street 1\n10115 Berlin\nDE"),
