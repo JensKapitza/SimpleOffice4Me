@@ -36,7 +36,7 @@ web-export = [
 ]
 ocr = [
   "rapidocr==3.10.0",
-    "onnxruntime==1.30.0",
+  "onnxruntime==1.30.0",
 ]
 security = [
   "pip-audit>=2.7,<3",
