@@ -412,10 +412,16 @@ def report_pdf(visit_id: str):
     record = _visit(visit_id)
     try:
         selected = _selected_report_ids(record, request.form.getlist("finding_id"), defaults=False)
-        payload, digest, finding_ids = build_visit_report(record, selected)
+        payload, _, finding_ids = build_visit_report(record, selected)
         _store().save_report_pdf(visit_id, _actor(), payload, finding_ids)
     except ValueError as exc:
         flash(str(exc), "danger")
+        return redirect(url_for("site_visits.report_preview", visit_id=visit_id))
+    except OSError as exc:
+        current_app.logger.warning(
+            "Unable to persist site visit report for %s: %s", _actor(), type(exc).__name__
+        )
+        flash("Der Bericht konnte nicht gespeichert werden. Bitte Speicherplatz und Dateiberechtigungen prüfen.", "danger")
         return redirect(url_for("site_visits.report_preview", visit_id=visit_id))
     name = "Ortsterminbericht-" + record["visit_id"][:8] + ".pdf"
     response = send_file(BytesIO(payload), mimetype="application/pdf", as_attachment=True, download_name=name, max_age=0)
@@ -429,7 +435,7 @@ def report_pdf(visit_id: str):
 def saved_report_pdf(visit_id: str, report_id: str):
     try:
         path = _store().report_pdf_path(visit_id, _actor(), report_id)
-    except ValueError:
+    except (OSError, ValueError):
         abort(404)
     response = send_file(path, mimetype="application/pdf", as_attachment=True,
                          download_name=f"Ortsterminbericht-{visit_id[:8]}-{report_id[:8]}.pdf", max_age=0)

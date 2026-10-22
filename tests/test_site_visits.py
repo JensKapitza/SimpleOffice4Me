@@ -34,17 +34,47 @@ class SiteVisitStoreTests(unittest.TestCase):
     def test_report_write_failure_keeps_metadata_and_files_clean(self):
         visit_id = self.visit["visit_id"]
         original = self.store.get(visit_id, "alice")["reports"]
-        with patch.object(self.store, "_mutate", side_effect=OSError("simulated metadata write failure")):
+        def fail_metadata_write(path, _value):
+            path.with_suffix(path.suffix + ".tmp").write_text("partial", encoding="utf-8")
+            raise OSError("simulated metadata write failure")
+
+        with patch("app.site_visit_store.atomic_json_write", side_effect=fail_metadata_write):
             with self.assertRaises(OSError):
                 self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 test", [])
         self.assertEqual(original, self.store.get(visit_id, "alice")["reports"])
         report_dir = self.store.directory / visit_id / "reports"
         self.assertEqual([], list(report_dir.iterdir()))
+        self.assertFalse(self.store._path(visit_id).with_suffix(".json.tmp").exists())
 
     def test_report_legacy_metadata_is_not_reconstructed(self):
         visit_id = self.visit["visit_id"]
         entry = self.store.record_report(visit_id, "alice", {"finding_ids": [], "sha256": "0" * 64})
         with self.assertRaisesRegex(ValueError, "nicht verfügbar"):
+            self.store.report_pdf_path(visit_id, "alice", entry["report_id"])
+
+    def test_multiple_report_pdfs_keep_distinct_bytes_and_audit_entries(self):
+        visit_id = self.visit["visit_id"]
+        first = self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 first", [])
+        second = self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 second", [])
+        self.assertNotEqual(first["report_id"], second["report_id"])
+        self.assertEqual(2, len(self.store.get(visit_id, "alice")["reports"]))
+        first_path = self.store.report_pdf_path(visit_id, "alice", first["report_id"])
+        second_path = self.store.report_pdf_path(visit_id, "alice", second["report_id"])
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(b"%PDF-1.4 first", first_path.read_bytes())
+        self.assertEqual(b"%PDF-1.4 second", second_path.read_bytes())
+
+    def test_report_directory_symlink_is_rejected(self):
+        visit_id = self.visit["visit_id"]
+        entry = self.store.save_report_pdf(visit_id, "alice", b"%PDF-1.4 test", [])
+        report_dir = self.store.directory / visit_id / "reports"
+        outside = Path(self.temp.name) / "reports-outside"
+        report_dir.rename(outside)
+        try:
+            report_dir.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"directory symlinks are unavailable: {type(exc).__name__}")
+        with self.assertRaisesRegex(ValueError, "symbolischen Link"):
             self.store.report_pdf_path(visit_id, "alice", entry["report_id"])
 
     def test_free_fields_rooms_and_device_map_are_preserved(self):
@@ -299,6 +329,24 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         self.assertEqual(404, self.client.get(url).status_code)
         with self.assertRaises(ValueError):
             reopened.report_pdf_path(self.visit["visit_id"], "other-owner", entry["report_id"])
+
+    def test_report_storage_failure_returns_controlled_error_without_metadata(self):
+        preview = BeautifulSoup(
+            self.client.get(f"/site-visits/{self.visit['visit_id']}/report").get_data(as_text=True),
+            "html.parser",
+        )
+        csrf = preview.find("input", {"name": "_csrf_token"})["value"]
+        with patch("app.site_visit_store.atomic_json_write", side_effect=OSError("disk full")):
+            response = self.client.post(
+                f"/site-visits/{self.visit['visit_id']}/report.pdf",
+                data={"_csrf_token": csrf, "finding_id": self.finding_id},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertEqual([], self.store.get(self.visit["visit_id"], "report-owner")["reports"])
+        report_dir = self.store.directory / self.visit["visit_id"] / "reports"
+        self.assertEqual([], list(report_dir.iterdir()))
+        with self.client.session_transaction() as state:
+            self.assertIn("Der Bericht konnte nicht gespeichert werden", state["_flashes"][-1][1])
 
     def test_invalid_selection_missing_csrf_and_foreign_visit_are_rejected(self):
         url = f"/site-visits/{self.visit['visit_id']}/report.pdf"
