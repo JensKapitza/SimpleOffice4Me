@@ -305,6 +305,28 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                         for link in soup.find_all("a")
                     ))
 
+    def test_revoked_document_access_hides_source_navigation(self):
+        document_id = self._create_document_task()
+        original_get_document = DocumentStore.get_document
+
+        def deny_source(store, reference):
+            if str(reference) == document_id:
+                raise ValueError("document access revoked")
+            return original_get_document(store, reference)
+
+        with patch.object(DocumentStore, "get_document", deny_source):
+            for url in ("/documents/tasks", "/tasks/"):
+                with self.subTest(url=url):
+                    response = self.client.get(url)
+                    self.assertEqual(200, response.status_code)
+                    body = response.get_data(as_text=True)
+                    self.assertIn("Quelldatei nicht verfügbar oder Zugriff verweigert", body)
+                    links = BeautifulSoup(body, "html.parser").find_all("a")
+                    self.assertFalse(any(
+                        str(link.get("href", "")).endswith(f"/documents/{document_id}")
+                        for link in links
+                    ))
+
     def test_source_without_last_path_does_not_offer_broken_link(self):
         document_id = self._create_document_task()
         original_get_document = DocumentStore.get_document
