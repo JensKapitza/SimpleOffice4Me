@@ -297,6 +297,12 @@ class SiteVisitReportRouteTests(unittest.TestCase):
         path = reopened.report_pdf_path(self.visit["visit_id"], "report-owner", entry["report_id"])
         path.write_bytes(b"%PDF- corrupted")
         self.assertEqual(404, self.client.get(url).status_code)
+        path.unlink()
+        target = self.root / "unrelated-private-file.pdf"
+        target.write_bytes(original.data)
+        path.symlink_to(target)
+        self.assertEqual(404, self.client.get(url).status_code)
+        path.unlink()
         with self.assertRaises(ValueError):
             reopened.report_pdf_path(self.visit["visit_id"], "other-owner", entry["report_id"])
 
