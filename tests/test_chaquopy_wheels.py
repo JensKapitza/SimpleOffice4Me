@@ -12,16 +12,16 @@ from tools.check_chaquopy_wheels import (
 
 
 class ChaquopyWheelsTests(unittest.TestCase):
-    def test_experimental_builder_pins_cpython_313_android_arm64_source_revisions(self):
+    def test_experimental_builder_pins_cpython_315_android_arm64_source_revisions(self):
         workflow = Path(".github/workflows/android-native-wheels.yml").read_text(encoding="utf-8")
         self.assertIn("cibuildwheel==4.3.3", workflow)
-        self.assertIn("CIBW_BUILD: cp313-android_arm64_v8a", workflow)
+        self.assertIn("CIBW_BUILD: cp315-android_arm64_v8a", workflow)
         self.assertIn("CIBW_ARCHS_ANDROID: arm64_v8a", workflow)
         self.assertIn("PILLOW_SOURCE_COMMIT: 293218ad059d994baf1777d882911bed6a49704a", workflow)
         self.assertIn("PILLOW_DEPENDENCIES_COMMIT: 93950a8f9ada1165a4ab8c719326d5017e3f6c72", workflow)
         self.assertIn('! -name requirements.txt', workflow)
         self.assertIn('cd "$source_dir"', workflow)
-        self.assertIn('BUILD_PREFIX="$(pwd)/build/deps" .github/workflows/wheels-dependencies.sh', workflow)
+        self.assertNotIn('CIBW_BEFORE_ALL=\'BUILD_PREFIX', workflow)
         self.assertIn('"$GITHUB_WORKSPACE/wheelhouse"', workflow)
         self.assertIn("package: cryptography", workflow)
         self.assertIn("version: '48.0.1'", workflow)
