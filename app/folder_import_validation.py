@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 import unicodedata
 
-_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?", re.I)
+_RESERVED = re.compile(r"(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\..*)?", re.I)
 
 
 def _invalid_segment(segment: str) -> bool:
