@@ -1,52 +1,59 @@
-"""Regression checks for the recursive document upload path-validation contract.
-
-These checks exercise the real upload view through a minimal Flask request
-context, mocking only its authentication and storage dependencies.
-"""
+"""Regression tests for document folder-import path validation."""
 from __future__ import annotations
 
-import io
+import unittest
+from types import SimpleNamespace
 
-import pytest
-from flask import Flask, g, request
-
-from app import documents_routes_workflows as workflows
+from app.folder_import_validation import validate_upload_batch
 
 
-@pytest.mark.parametrize("relative_path", [
-    "../secret.txt",
-    "root/../secret.txt",
-    "/absolute/secret.txt",
-    "root//secret.txt",
-    "root/CON/secret.txt",
-    "root/folder./secret.txt",
-    "root/folder /secret.txt",
-    "root/folder:bad/secret.txt",
-])
-def test_folder_upload_rejects_unsafe_relative_paths(monkeypatch, relative_path):
-    app = Flask(__name__)
-    app.secret_key = "test-only"
-    app.add_url_rule("/documents", "documents.index", lambda: "index")
+class FolderImportPathValidationTests(unittest.TestCase):
+    def test_rejects_unsafe_paths(self):
+        invalid = (
+            "../secret.txt",
+            "root/../secret.txt",
+            "/absolute/secret.txt",
+            "root//secret.txt",
+            "root/CON/secret.txt",
+            "root/folder./secret.txt",
+            "root/folder /secret.txt",
+            "root/folder:bad/secret.txt",
+        )
+        files = [SimpleNamespace(filename="secret.txt")]
+        for path in invalid:
+            with self.subTest(path=path):
+                self.assertIsNotNone(
+                    validate_upload_batch(files, [path], folder_import=True)
+                )
 
-    # The route is decorated with login_required; invoke the wrapped view in
-    # a request context, where validation runs before storage is initialized.
-    view = workflows.upload
-    while hasattr(view, "__wrapped__"):
-        view = view.__wrapped__
+    def test_preserves_same_basename_in_different_directories(self):
+        files = [SimpleNamespace(filename="photo.jpg")] * 2
+        self.assertIsNone(
+            validate_upload_batch(
+                files,
+                ["root/first/photo.jpg", "root/second/photo.jpg"],
+                folder_import=True,
+            )
+        )
 
-    with app.test_request_context(
-        "/documents/upload",
-        method="POST",
-        data={
-            "folder_import": "1",
-            "relative_paths": relative_path,
-            "files": (io.BytesIO(b"payload"), "secret.txt"),
-        },
-        content_type="multipart/form-data",
-    ):
-        g.user = {"username": "tester"}
-        response = view()
-        assert response.status_code == 302
-        assert response.location.endswith("/documents")
-        messages = __import__("flask").get_flashed_messages()
-        assert any("Ungültig" in msg or "ungültig" in msg for msg in messages)
+    def test_rejects_case_insensitive_duplicate_destination(self):
+        files = [SimpleNamespace(filename="photo.jpg")] * 2
+        self.assertIsNotNone(
+            validate_upload_batch(
+                files,
+                ["root/Photos/photo.jpg", "root/photos/photo.jpg"],
+                folder_import=True,
+            )
+        )
+
+    def test_rejects_missing_relative_paths(self):
+        files = [SimpleNamespace(filename="photo.jpg")]
+        self.assertIsNotNone(validate_upload_batch(files, [], folder_import=True))
+
+    def test_accepts_single_file_without_folder_metadata(self):
+        files = [SimpleNamespace(filename="photo.jpg")]
+        self.assertIsNone(validate_upload_batch(files, [], folder_import=False))
+
+
+if __name__ == "__main__":
+    unittest.main()
