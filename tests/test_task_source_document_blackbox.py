@@ -130,6 +130,23 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 self.assertEqual(200, page.status_code)
                 self.assertNotIn("Quelldatei öffnen", page.get_data(as_text=True))
 
+    def test_task_board_update_cannot_replace_source_provenance(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        response = self.client.post(
+            f"/tasks/{task['id']}/update",
+            data={"title": "Updated via board", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        saved = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(document_id, saved["source_document_id"])
+        for url in ("/documents/tasks", "/tasks/"):
+            with self.subTest(url=url):
+                self._source_link(url, document_id)
+
     def test_unknown_source_id_does_not_produce_broken_link(self):
         # Seed an existing task with a stale reference; exercise rendering over HTTP.
         TodoStore(self.root).add(
