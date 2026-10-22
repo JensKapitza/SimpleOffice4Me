@@ -71,6 +71,32 @@ SAF-Berechtigung gerätegebunden ist.
   Dateiinhalte als Kopien über den bestehenden Upload-/Importpfad übernommen;
   der Ordner-URI bleibt in der nativen Android-Schicht.
 
+### Ordner rekursiv importieren
+
+Auf der Dokumentseite öffnet **Ordner importieren** unter Android den
+Systemdialog `ACTION_OPEN_DOCUMENT_TREE`. Der native Importer liest die
+Unterordner über `DocumentsContract`, prüft Dateinamen, Tiefe, Dateianzahl,
+Pfadlänge und gemeldete Dateigrößen und streamt anschließend die ausgewählten
+Dateien als einen CSRF- und Session-gebundenen Multipart-Upload an den lokalen
+Flask-Endpunkt. Der Server validiert weiterhin alle relativen Pfade und führt
+den normalen hashbasierten Import einschließlich Inbox-/Auditpfad aus. Die
+SAF-URI wird nicht an Flask übertragen. Ein kleiner Abbruchknopf trennt einen
+laufenden Transfer; ein unterbrochener Multipart-Request wird nicht als
+vollständiger Import verarbeitet.
+
+- pro Upload höchstens 1000 Dateien und maximal 64 Verzeichnisebenen;
+- höchstens 10000 SAF-Einträge pro ausgewähltem Baum, damit sehr große
+  Verzeichnislisten begrenzt bleiben;
+- die relative Pfadliste ist auf 400000 UTF-8-Bytes begrenzt und als einzelnes
+  Formularfeld kodiert; nur der Dokument-Upload erhält das eng begrenzte
+  Multipart-Teilelimit von 1010, andere Endpunkte behalten ihren Standardwert;
+- Dateiinhalte werden mit begrenztem Puffer übertragen und die gesamte Anfrage
+  bleibt an das konfigurierte Upload-Limit gebunden;
+- leere Verzeichnisse werden nicht importiert; Android wählt pro Vorgang einen
+  Verzeichnisbaum, weitere Wurzeln müssen derzeit separat ausgewählt werden;
+- liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
+  abgebrochen, statt eine unbeschränkte Anfrage zu starten.
+
 ## Deep Links
 
 Für gezielte Navigation gibt es ausschließlich das Schema `simpleoffice4me://open`.

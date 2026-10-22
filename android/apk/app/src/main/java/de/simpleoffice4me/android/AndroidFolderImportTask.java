@@ -1,0 +1,459 @@
+package de.simpleoffice4me.android;
+
+import android.content.ContentResolver;
+import android.content.Context;
+import android.database.Cursor;
+import android.net.Uri;
+import android.provider.DocumentsContract;
+import android.util.Log;
+import android.webkit.CookieManager;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Pattern;
+
+/** Streams a user-selected SAF tree through the authenticated document upload route. */
+final class AndroidFolderImportTask implements Runnable {
+    interface Listener {
+        void onUpdate(String state, int completedFiles, int totalFiles, String message);
+    }
+
+    private static final String LOCAL_URL = "http://127.0.0.1:8765/";
+    private static final String UPLOAD_URL = LOCAL_URL + "documents/upload";
+    private static final int MAX_FILES = 1000;
+    private static final int MAX_DEPTH = 64;
+    private static final int MAX_TREE_ENTRIES = 10000;
+    private static final int MAX_PATH_BYTES = 4096;
+    private static final int MAX_MANIFEST_BYTES = 400000;
+    private static final int BUFFER_SIZE = 64 * 1024;
+    private static final Pattern RESERVED_NAME = Pattern.compile(
+            "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?$", Pattern.CASE_INSENSITIVE);
+
+    private final Context context;
+    private final Uri treeUri;
+    private final String csrfToken;
+    private final long maxRequestBytes;
+    private final Listener listener;
+    private volatile HttpURLConnection connection;
+    private volatile InputStream activeInput;
+    private volatile boolean cancelled;
+
+    AndroidFolderImportTask(Context context, Uri treeUri, String csrfToken,
+            long maxRequestBytes, Listener listener) {
+        this.context = context.getApplicationContext();
+        this.treeUri = treeUri;
+        this.csrfToken = csrfToken == null ? "" : csrfToken;
+        this.maxRequestBytes = maxRequestBytes;
+        this.listener = listener;
+    }
+
+    void cancel() {
+        cancelled = true;
+        HttpURLConnection active = connection;
+        if (active != null) active.disconnect();
+        InputStream input = activeInput;
+        if (input != null) {
+            try {
+                input.close();
+            } catch (IOException ignored) {
+                // Closing an active SAF stream is best-effort cancellation cleanup.
+            }
+        }
+    }
+
+    @Override
+    public void run() {
+        boolean persistedGrant = false;
+        try {
+            if (!treeUri.isHierarchical() || !"content".equalsIgnoreCase(treeUri.getScheme())) {
+                throw new ImportFailure("Android hat keinen gültigen Ordnerzugriff erteilt.");
+            }
+            try {
+                context.getContentResolver().takePersistableUriPermission(
+                        treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                persistedGrant = true;
+            } catch (SecurityException ignored) {
+                // Some providers issue only a temporary grant; use it for this upload.
+            }
+            notifyListener("scanning", 0, 0, "Ordner und Dateigrößen werden geprüft …");
+            List<Entry> files = collectFiles();
+            checkCancelled();
+            if (files.isEmpty()) throw new ImportFailure("Der ausgewählte Ordner enthält keine Dateien.");
+
+            String boundary = "----SimpleOfficeFolder" + java.util.UUID.randomUUID().toString().replace("-", "");
+            byte[] folderField = formField(boundary, "folder_import", "1");
+            JSONArray paths = new JSONArray();
+            long bodyLength = folderField.length;
+            List<byte[]> fileHeaders = new ArrayList<>(files.size());
+            for (Entry entry : files) {
+                paths.put(entry.relativePath);
+                byte[] header = fileHeader(boundary, entry.fileName());
+                fileHeaders.add(header);
+                bodyLength = Math.addExact(bodyLength, header.length);
+                bodyLength = Math.addExact(bodyLength, entry.size);
+                bodyLength = Math.addExact(bodyLength, 2); // CRLF after the file body.
+            }
+            byte[] manifestField = formField(boundary, "relative_paths", paths.toString());
+            byte[] closing = ascii("--" + boundary + "--\r\n");
+            bodyLength = Math.addExact(bodyLength, manifestField.length);
+            bodyLength = Math.addExact(bodyLength, closing.length);
+            if (paths.toString().getBytes(StandardCharsets.UTF_8).length > MAX_MANIFEST_BYTES) {
+                throw new ImportFailure("Die Pfadliste ist zu groß. Bitte einen kleineren Ordnerstapel auswählen.");
+            }
+            if (maxRequestBytes <= 0 || bodyLength > maxRequestBytes) {
+                throw new ImportFailure("Der Ordnerstapel überschreitet das konfigurierte Upload-Limit.");
+            }
+            notifyListener("uploading", 0, files.size(), files.size() + " Datei(en) werden importiert …");
+            upload(boundary, files, fileHeaders, folderField, manifestField, closing, bodyLength);
+            notifyListener("done", files.size(), files.size(), "Ordnerimport abgeschlossen.");
+        } catch (ImportFailure error) {
+            notifyListener(cancelled ? "cancelled" : "error", 0, 0, error.getMessage());
+        } catch (ArithmeticException error) {
+            notifyListener("error", 0, 0, "Der Ordnerstapel überschreitet das zulässige Größenlimit.");
+        } catch (SecurityException error) {
+            notifyListener("error", 0, 0, "Der Zugriff auf den ausgewählten Ordner wurde widerrufen.");
+        } catch (IOException | JSONException error) {
+            notifyListener(cancelled ? "cancelled" : "error", 0, 0,
+                    cancelled ? "Ordnerimport abgebrochen." : "Ordnerimport fehlgeschlagen. Bitte Verbindung und Ordnerzugriff prüfen.");
+        } catch (RuntimeException error) {
+            Log.e("AndroidFolderImport", "Folder import failed: " + error.getClass().getSimpleName());
+            notifyListener(cancelled ? "cancelled" : "error", 0, 0,
+                    cancelled ? "Ordnerimport abgebrochen." : "Ordnerimport fehlgeschlagen. Bitte Ordnerzugriff prüfen.");
+        } finally {
+            HttpURLConnection active = connection;
+            if (active != null) active.disconnect();
+            if (persistedGrant) {
+                try {
+                    context.getContentResolver().releasePersistableUriPermission(
+                            treeUri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                } catch (SecurityException ignored) {
+                    // A provider may have revoked the one-time grant already.
+                }
+            }
+        }
+    }
+
+    private List<Entry> collectFiles() throws ImportFailure, IOException {
+        ContentResolver resolver = context.getContentResolver();
+        String rootId;
+        try {
+            rootId = DocumentsContract.getTreeDocumentId(treeUri);
+        } catch (IllegalArgumentException error) {
+            throw new ImportFailure("Der ausgewählte Ordner ist ungültig.");
+        }
+        String rootName = queryDisplayName(
+                DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner");
+        rootName = validateSegment(rootName);
+        List<Entry> result = new ArrayList<>();
+        Set<String> visitedDirectories = new HashSet<>();
+        visitedDirectories.add(rootId);
+        int[] entryCount = {0};
+        collectDirectory(resolver, rootId, rootName, 0, visitedDirectories, entryCount, result);
+        Set<String> destinationPaths = new HashSet<>();
+        for (Entry entry : result) {
+            if (!destinationPaths.add(entry.relativePath.toLowerCase(Locale.ROOT))) {
+                throw new ImportFailure("Der Ordner enthält doppelte Dateipfade.");
+            }
+        }
+        return result;
+    }
+
+    private void collectDirectory(ContentResolver resolver, String directoryId, String parentPath,
+            int depth, Set<String> visitedDirectories, int[] entryCount, List<Entry> result)
+            throws ImportFailure, IOException {
+        checkCancelled();
+        if (depth > MAX_DEPTH) throw new ImportFailure("Der Ordner ist zu tief verschachtelt.");
+        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directoryId);
+        List<Child> children = new ArrayList<>();
+        try (Cursor cursor = resolver.query(childrenUri,
+                new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                        DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                        DocumentsContract.Document.COLUMN_MIME_TYPE,
+                        DocumentsContract.Document.COLUMN_SIZE},
+                null, null, null)) {
+            if (cursor == null) throw new ImportFailure("Android konnte den Ordnerinhalt nicht lesen.");
+            int idColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID);
+            int nameColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+            int mimeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);
+            int sizeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE);
+            while (cursor.moveToNext()) {
+                if (++entryCount[0] > MAX_TREE_ENTRIES) {
+                    throw new ImportFailure("Der Ordner enthält zu viele Einträge.");
+                }
+                String childId = cursor.getString(idColumn);
+                String name = validateSegment(cursor.getString(nameColumn));
+                String mime = cursor.getString(mimeColumn);
+                long size = cursor.isNull(sizeColumn) ? -1 : cursor.getLong(sizeColumn);
+                if (childId == null || childId.isEmpty()) {
+                    throw new ImportFailure("Android hat einen ungültigen Dateieintrag geliefert.");
+                }
+                children.add(new Child(childId, name, mime, size));
+            }
+        } catch (IllegalArgumentException error) {
+            throw new ImportFailure("Android konnte den Ordnerinhalt nicht lesen.");
+        }
+        Collections.sort(children, Comparator.comparing(child -> child.name.toLowerCase(Locale.ROOT)));
+        for (Child child : children) {
+            checkCancelled();
+            String path = parentPath + "/" + child.name;
+            if (path.getBytes(StandardCharsets.UTF_8).length > MAX_PATH_BYTES) {
+                throw new ImportFailure("Ein relativer Ordnerpfad ist zu lang.");
+            }
+            if (DocumentsContract.Document.MIME_TYPE_DIR.equals(child.mimeType)) {
+                if (!visitedDirectories.add(child.documentId)) {
+                    throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
+                }
+                collectDirectory(resolver, child.documentId, path, depth + 1,
+                        visitedDirectories, entryCount, result);
+                continue;
+            }
+            if (child.size < 0) {
+                throw new ImportFailure("Android kann die Größe einer Datei nicht bestimmen. Bitte einen anderen Ordneranbieter verwenden.");
+            }
+            if (result.size() >= MAX_FILES) {
+                throw new ImportFailure("Maximal 1000 Dateien pro Importvorgang auswählen.");
+            }
+            result.add(new Entry(DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId), path, child.size));
+        }
+    }
+
+    private String queryDisplayName(Uri documentUri, String fallback) throws ImportFailure {
+        try (Cursor cursor = context.getContentResolver().query(documentUri,
+                new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String value = cursor.getString(0);
+                if (value != null && !value.trim().isEmpty()) return value;
+            }
+            return fallback;
+        } catch (RuntimeException error) {
+            throw new ImportFailure("Android konnte den ausgewählten Ordner nicht lesen.");
+        }
+    }
+
+    private static String validateSegment(String source) throws ImportFailure {
+        if (source == null) throw new ImportFailure("Android hat einen leeren Dateinamen geliefert.");
+        String value = Normalizer.normalize(source, Normalizer.Form.NFC);
+        if (value.isEmpty() || value.equals(".") || value.equals("..")
+                || value.indexOf('/') >= 0 || value.indexOf('\\') >= 0 || value.indexOf(':') >= 0
+                || value.endsWith(" ") || value.endsWith(".")
+                || value.getBytes(StandardCharsets.UTF_8).length > 255 || value.length() > 255
+                || RESERVED_NAME.matcher(value).matches()) {
+            throw new ImportFailure("Ein Datei- oder Ordnername ist ungültig oder nicht portabel.");
+        }
+        for (int index = 0; index < value.length(); index++) {
+            if (value.charAt(index) < 32) {
+                throw new ImportFailure("Ein Datei- oder Ordnername enthält Steuerzeichen.");
+            }
+        }
+        return value;
+    }
+
+    private void upload(String boundary, List<Entry> files, List<byte[]> headers,
+            byte[] folderField, byte[] manifestField, byte[] closing, long bodyLength)
+            throws IOException, ImportFailure {
+        checkCancelled();
+        String cookie = CookieManager.getInstance().getCookie(LOCAL_URL);
+        if (cookie == null || cookie.trim().isEmpty()) {
+            throw new ImportFailure("Sitzung abgelaufen. Bitte die Dokumentseite neu laden.");
+        }
+        HttpURLConnection request = (HttpURLConnection) new URL(UPLOAD_URL).openConnection();
+        connection = request;
+        request.setRequestMethod("POST");
+        request.setConnectTimeout(15000);
+        request.setReadTimeout(60000);
+        request.setInstanceFollowRedirects(false);
+        request.setDoOutput(true);
+        request.setRequestProperty("Cookie", cookie);
+        request.setRequestProperty("X-CSRF-Token", csrfToken);
+        request.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+        request.setFixedLengthStreamingMode(bodyLength);
+        long uploaded = 0;
+        try (OutputStream output = new BufferedOutputStream(request.getOutputStream())) {
+            output.write(folderField);
+            output.write(manifestField);
+            byte[] buffer = new byte[BUFFER_SIZE];
+            for (int index = 0; index < files.size(); index++) {
+                checkCancelled();
+                Entry entry = files.get(index);
+                output.write(headers.get(index));
+                long fileBytes = 0;
+                InputStream opened = context.getContentResolver().openInputStream(entry.uri);
+                if (opened == null) throw new ImportFailure("Eine Datei konnte nicht geöffnet werden.");
+                activeInput = opened;
+                try (InputStream input = new BufferedInputStream(opened)) {
+                    checkCancelled();
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        checkCancelled();
+                        fileBytes += count;
+                        if (fileBytes > entry.size) {
+                            throw new ImportFailure("Eine Datei wurde während des Imports verändert.");
+                        }
+                        output.write(buffer, 0, count);
+                        uploaded += count;
+                        if ((uploaded & 0x3ffff) < count) {
+                            notifyListener("uploading", index, files.size(),
+                                    "Datei " + (index + 1) + " von " + files.size() + " wird übertragen …");
+                        }
+                    }
+                } finally {
+                    activeInput = null;
+                }
+                if (fileBytes != entry.size) {
+                    throw new ImportFailure("Eine Datei wurde während des Imports verändert.");
+                }
+                output.write(ascii("\r\n"));
+                notifyListener("uploading", index + 1, files.size(),
+                        (index + 1) + " von " + files.size() + " Dateien übertragen.");
+            }
+            output.write(closing);
+            output.flush();
+        } catch (IOException error) {
+            if (cancelled) throw new ImportFailure("Ordnerimport abgebrochen.");
+            throw error;
+        }
+        checkCancelled();
+        int responseCode = request.getResponseCode();
+        updateCookies(request);
+        String location = request.getHeaderField("Location");
+        if (isLoginRedirect(location)) {
+            throw new ImportFailure("Sitzung abgelaufen. Bitte erneut anmelden.");
+        }
+        if ((responseCode == HttpURLConnection.HTTP_MOVED_TEMP
+                || responseCode == HttpURLConnection.HTTP_SEE_OTHER)
+                && isDocumentsRedirect(location)) return;
+        if (responseCode == 413) {
+            throw new ImportFailure("Der Upload ist größer als das konfigurierte Limit.");
+        }
+        if (responseCode == 401) {
+            throw new ImportFailure("Sitzung abgelaufen. Bitte erneut anmelden.");
+        }
+        if (responseCode == 403) {
+            throw new ImportFailure("Sitzung oder Sicherheitsprüfung abgelaufen. Bitte die Seite neu laden.");
+        }
+        if (responseCode < 200 || responseCode >= 300) {
+            throw new ImportFailure("Der Server hat den Ordnerimport abgelehnt (HTTP " + responseCode + ").");
+        }
+    }
+
+    private static byte[] fileHeader(String boundary, String filename) {
+        return ascii("--" + boundary + "\r\nContent-Disposition: form-data; name=\"files\"; filename*=UTF-8''"
+                + encodeFilename(filename) + "\r\nContent-Type: application/octet-stream\r\n\r\n");
+    }
+
+    private static byte[] formField(String boundary, String name, String value) {
+        return ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name
+                + "\"\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n" + value + "\r\n")
+                .getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String encodeFilename(String value) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        StringBuilder result = new StringBuilder(bytes.length * 3);
+        final char[] hex = "0123456789ABCDEF".toCharArray();
+        for (byte item : bytes) {
+            int valueByte = item & 0xff;
+            if ((valueByte >= 'a' && valueByte <= 'z') || (valueByte >= 'A' && valueByte <= 'Z')
+                    || (valueByte >= '0' && valueByte <= '9') || "!#$&+-.^_`|~".indexOf(valueByte) >= 0) {
+                result.append((char) valueByte);
+            } else {
+                result.append('%').append(hex[valueByte >>> 4]).append(hex[valueByte & 15]);
+            }
+        }
+        return result.toString();
+    }
+
+    private static byte[] ascii(String value) {
+        return value.getBytes(StandardCharsets.US_ASCII);
+    }
+
+    private static void updateCookies(HttpURLConnection request) {
+        List<String> cookies = null;
+        for (java.util.Map.Entry<String, List<String>> header : request.getHeaderFields().entrySet()) {
+            if (header.getKey() != null && "Set-Cookie".equalsIgnoreCase(header.getKey())) {
+                cookies = header.getValue();
+                break;
+            }
+        }
+        if (cookies == null) return;
+        CookieManager manager = CookieManager.getInstance();
+        for (String cookie : cookies) manager.setCookie(LOCAL_URL, cookie);
+        manager.flush();
+    }
+
+    private static boolean isLoginRedirect(String location) {
+        if (location == null) return false;
+        Uri uri = Uri.parse(location);
+        return uri.getPath() != null && uri.getPath().startsWith("/auth/");
+    }
+
+    private static boolean isDocumentsRedirect(String location) {
+        if (location == null) return false;
+        Uri uri = Uri.parse(location);
+        if (uri.getScheme() != null && (!"http".equalsIgnoreCase(uri.getScheme())
+                || !"127.0.0.1".equals(uri.getHost()) || uri.getPort() != 8765)) return false;
+        String path = uri.getPath();
+        return "/documents".equals(path) || "/documents/".equals(path);
+    }
+
+    private void checkCancelled() throws ImportFailure {
+        if (cancelled) throw new ImportFailure("Ordnerimport abgebrochen.");
+    }
+
+    private void notifyListener(String state, int completed, int total, String message) {
+        if (listener != null) listener.onUpdate(state, completed, total, message);
+    }
+
+    private static final class Child {
+        final String documentId;
+        final String name;
+        final String mimeType;
+        final long size;
+
+        Child(String documentId, String name, String mimeType, long size) {
+            this.documentId = documentId;
+            this.name = name;
+            this.mimeType = mimeType;
+            this.size = size;
+        }
+    }
+
+    private static final class Entry {
+        final Uri uri;
+        final String relativePath;
+        final long size;
+
+        Entry(Uri uri, String relativePath, long size) {
+            this.uri = uri;
+            this.relativePath = relativePath;
+            this.size = size;
+        }
+
+        String fileName() {
+            return relativePath.substring(relativePath.lastIndexOf('/') + 1);
+        }
+    }
+
+    private static final class ImportFailure extends IOException {
+        ImportFailure(String message) {
+            super(message);
+        }
+    }
+}
