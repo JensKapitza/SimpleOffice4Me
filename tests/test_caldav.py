@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app import app
 from app.calendar_collections import CalendarCollections, CalendarConflict
+from app.todo_store import TodoStore
 
 
 ICS = "\r\n".join(["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Test//EN", "BEGIN:VEVENT", "UID:meeting-1@example.test", "DTSTAMP:20260804T120000Z", "DTSTART;TZID=Europe/Berlin:20260805T090000", "DTEND;TZID=Europe/Berlin:20260805T100000", "SUMMARY:Planung", "DESCRIPTION:Kalenderausbau", "SEQUENCE:2", "CATEGORIES:Team,Projekt", "END:VEVENT", "END:VCALENDAR", ""])
@@ -51,6 +52,40 @@ class CalDavTest(unittest.TestCase):
         self.assertEqual(204, self.client.delete(resource, headers={**self.auth, "If-Match": changed.headers["ETag"]}).status_code)
         removed = self.client.open(collection, method="REPORT", data='<d:sync-collection xmlns:d="DAV:"><d:sync-token>urn:simpleoffice:caldav:tasks:admin:2</d:sync-token></d:sync-collection>', headers=self.auth)
         self.assertIn("404 Not Found", removed.text); self.assertIn("tasks:admin:3", removed.text)
+
+    def test_caldav_edit_keeps_source_documents_when_client_drops_extension_property(self):
+        store = TodoStore(app.config["DOCUMENT_ROOT"])
+        task = store.add(
+            "Dokument prüfen",
+            "admin",
+            {
+                "source_document_id": "source-document",
+                "document_ids": ["related-document"],
+            },
+        )
+        resource = "/caldav/calendars/admin/tasks/" + store.resource(task)
+        original = self.client.get(resource, headers=self.auth)
+        self.assertEqual(200, original.status_code)
+        self.assertIn("X-SIMPLEOFFICE-DOCUMENT-ID:related-document", original.text)
+        self.assertNotIn("X-SIMPLEOFFICE-DOCUMENT-ID:source-document", original.text)
+        updated_content = "\r\n".join(
+            line for line in original.text.splitlines()
+            if not line.startswith("X-SIMPLEOFFICE-DOCUMENT-ID:")
+        ).replace("SUMMARY:Dokument prüfen", "SUMMARY:Dokument weiter prüfen")
+
+        updated = self.client.put(
+            resource,
+            data=updated_content,
+            headers={**self.auth, "If-Match": original.headers["ETag"], "Content-Type": "text/calendar"},
+        )
+
+        self.assertEqual(204, updated.status_code)
+        saved = next(item for item in store.items("admin") if item["id"] == task["id"])
+        self.assertEqual("source-document", saved["source_document_id"])
+        self.assertEqual(["related-document"], saved["document_ids"])
+        current = self.client.get(resource, headers=self.auth)
+        self.assertIn("X-SIMPLEOFFICE-DOCUMENT-ID:related-document", current.text)
+        self.assertNotIn("X-SIMPLEOFFICE-DOCUMENT-ID:source-document", current.text)
 
     def test_vtodo_thunderbird_fields_unknown_properties_and_multiple_lists_roundtrip(self):
         collection = "/caldav/calendars/admin/tasks-team/"

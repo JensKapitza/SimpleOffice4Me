@@ -23,6 +23,7 @@ from .settings_store import (
     MAX_PREVIEW_MAX_PIXELS,
     MAX_PREVIEW_TIMEOUT_SECONDS,
     MAX_VIDEO_PREVIEW_FRAMES,
+    MAX_WEBDAV_QUOTA_MIB,
     MIN_PREVIEW_MAX_BYTES,
     MIN_PREVIEW_MAX_PIXELS,
     MIN_PREVIEW_TIMEOUT_SECONDS,
@@ -432,6 +433,46 @@ def documents_media_settings():
         "admin/documents_media_settings.html",
         media=media,
     )
+
+
+@bp.get("/settings/network")
+@admin_required
+def network_settings():
+    network = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["network"]
+    return render_template("admin/network_settings.html", network=network)
+
+
+@bp.post("/settings/network")
+@admin_required
+def save_network_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        if reset_defaults:
+            network = dict(DEFAULT_SETTINGS["network"])
+        else:
+            raw = request.form.get("webdav_quota_mib", "")
+            if not raw.isascii() or not raw.isdigit() or len(raw) > len(str(MAX_WEBDAV_QUOTA_MIB)):
+                raise ValueError("Bitte ein gültiges WebDAV-Kontingent in MiB eingeben.")
+            network = {"webdav_quota_mib": int(raw)}
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"network": network}, str(g.user["username"]),
+        )
+        audit(
+            "network_settings_updated", "settings", "network.webdav_quota",
+            detail={**network, "reset_to_defaults": reset_defaults, "restart_required": True},
+        )
+        flash(
+            "Netzwerk-Einstellungen auf Standard zurückgesetzt. Neustart erforderlich."
+            if reset_defaults else
+            "Netzwerk-Einstellungen gespeichert. Neustart erforderlich, damit das WebDAV-Kontingent gilt."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Network setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Network settings save failed: %s", type(exc).__name__)
+        flash("Netzwerk-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.network_settings"))
 
 
 @bp.post("/settings/documents-media")

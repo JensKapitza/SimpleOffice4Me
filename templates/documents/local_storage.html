@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4" data-local-folder-page data-upload-url="{{ url_for('documents.upload') }}" data-csrf-token="{{ csrf_token() }}">
+  <a class="small text-decoration-none" href="{{ url_for('documents.settings') }}">← Einstellungen</a>
+  <header class="d-flex flex-wrap justify-content-between align-items-end gap-3 my-3">
+    <div>
+      <p class="small text-uppercase fw-semibold text-primary mb-1">Speicher auf diesem Gerät</p>
+      <h1 class="h2 mb-1">Lokale Ordner</h1>
+      <p class="text-secondary mb-0">Ausgewählte Ordner und ihre Berechtigungen werden ausschließlich auf diesem Gerät verwaltet. Es werden keine Ordnerpfade oder Android-URIs an den Server gesendet.</p>
+    </div>
+    <button class="btn btn-primary" id="local-folder-add" type="button">Lokalen Ordner hinzufügen</button>
+  </header>
+
+  <div class="alert alert-info" id="local-folder-status" role="status" aria-live="polite" hidden></div>
+  <div class="alert alert-warning" id="local-folder-fallback" role="status" aria-live="polite" hidden>
+    Dieser Browser bietet keine dauerhafte Ordnerauswahl an. Dateien können weiterhin über <a href="{{ url_for('documents.index') }}">Dokumente importieren</a> ausgewählt werden.
+  </div>
+  <section id="local-folder-list" class="row g-3" aria-label="Gespeicherte lokale Ordner"></section>
+  <div class="alert alert-light border mt-3" id="local-folder-empty" role="status" aria-live="polite" hidden>
+    Noch kein lokaler Ordner freigegeben. Die Auswahl benötigt eine ausdrückliche Bestätigung im Systemdialog.
+  </div>
+</main>
+<script src="{{ url_for('static', filename='js/local-folder-storage.js') }}" defer></script>
+{% endblock %}

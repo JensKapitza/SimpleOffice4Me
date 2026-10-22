@@ -28,6 +28,17 @@ Quelle: [RFC 5545](https://www.rfc-editor.org/rfc/rfc5545.html).
   `DESCRIPTION`, Status, Fortschritt, Priorität, Start, Fälligkeit, Abschluss,
   Kategorien und eingebetteten `VALARM`-Komponenten. Unbekannte
   Erweiterungszeilen bleiben beim Roundtrip erhalten.
+- Aufgaben-Quelldateien werden serverseitig über stabile Dokument-IDs statt
+  Pfadtext verknüpft. Ein VTODO-PUT, das unbekannte Dokument-Erweiterungen
+  auslässt, darf bestehende Dokument- und Quelldatei-Verknüpfungen nicht
+  löschen; Web-Links werden bei jeder Anzeige erneut gegen die aktuellen
+  Dokumentberechtigungen geprüft.
+- Allgemeine Dokumentverknüpfungen werden als stabile
+  `X-SIMPLEOFFICE-DOCUMENT-ID`-Referenzen übertragen; die private primäre
+  Quelldatei-ID bleibt serverseitige Aufgabenmetadaten und wird nicht im VTODO
+  offengelegt. Bei partiellen VTODO-Updates bleiben alle gespeicherten
+  Referenzarten bestehen, wenn der Client unbekannte Erweiterungen auslässt.
+- Alte Freitextpfade werden nicht automatisch in IDs umgewandelt.
 
 ### CalDAV – RFC 4791
 
