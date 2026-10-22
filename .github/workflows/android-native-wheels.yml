@@ -98,6 +98,28 @@ jobs:
           # host installs under /usr/local and cannot build NDK libraries.
           (
             cd "$source_dir"
+            if [[ "$PACKAGE_NAME" == cffi ]]; then
+              # cffi needs target libffi, not the runner's Linux libffi.
+              ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/27.3.13750724}}"
+              toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64"
+              ffi_source="$GITHUB_WORKSPACE/sources/libffi"
+              git clone --depth 1 --branch v3.4.6 \
+                https://github.com/libffi/libffi.git "$ffi_source"
+              ffi_prefix="$GITHUB_WORKSPACE/sources/android-libffi-prefix"
+              (
+                cd "$ffi_source"
+                ./autogen.sh
+                env CC="$toolchain/bin/aarch64-linux-android24-clang" \
+                  AR="$toolchain/bin/llvm-ar" RANLIB="$toolchain/bin/llvm-ranlib" \
+                  ./configure --host=aarch64-linux-android \
+                    --prefix="$ffi_prefix" --disable-shared --enable-static
+                make -j2
+                make install
+              )
+              test -f "$ffi_prefix/include/ffi.h"
+              test -f "$ffi_prefix/lib/libffi.a"
+              export CIBW_ENVIRONMENT_ANDROID="PKG_CONFIG_PATH=$ffi_prefix/lib/pkgconfig CFLAGS=-I$ffi_prefix/include LDFLAGS=-L$ffi_prefix/lib"
+            fi
             if [[ "$PACKAGE_NAME" == Pillow ]]; then
               export CIBW_BEFORE_ALL_ANDROID="true"
               # Upstream forces raqm=enable for its release wheels, but the
