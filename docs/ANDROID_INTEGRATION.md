@@ -20,10 +20,13 @@ CPython-Symbole für native Erweiterungen global sichtbar und lädt
 `cryptography.hazmat.bindings._rust` explizit vor. Der Android-Wheel-ELF
 referenziert CPython-Datensymbole wie `PyLong_Type` ohne direkten
 `DT_NEEDED`-Verweis auf `libpython`; deshalb reicht ein erfolgreicher APK-Build
-als Kompatibilitätsnachweis nicht aus. Die Android-APK-CI installiert den
-ARM64-Build zusätzlich in einem ARM64-Emulator und verlangt eine HTTP-Antwort
-des lokalen Python-/Flask-Backends. Der vollständige SAF-Dokumentanbieter-Test
-bleibt separat eine Geräteabnahme.
+als Kompatibilitätsnachweis nicht aus. Die Android-APK-CI sammelt deshalb die
+ELF-Dynamik- und Symboltabellen des Wheels und der eingebetteten Python-Laufzeit.
+Das liefert keinen Laufzeitnachweis: Die derzeitigen GitHub-gehosteten Linux-
+und macOS-ARM-Runner konnten den ARM64-Emulator mangels Android-Emulatorpaket
+beziehungsweise nutzbarer Nested-Virtualisierung nicht starten. Vor Freigabe
+muss der App-Start einschließlich `_rust`-Import auf einem ARM64-Gerät oder
+einem Emulator mit funktionierender Hardwarevirtualisierung nachgewiesen werden.
 
 ## Dateien mit Android teilen oder öffnen
 

@@ -74,17 +74,5 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertLess(sbom_upload, gate)
         self.assertLess(gate, apk_upload)
 
-    def test_arm64_apk_has_runtime_smoke_on_arm64_emulator(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
-        smoke = workflow.split("  android-runtime-smoke:", 1)[1]
-        self.assertIn("needs: apk", smoke)
-        self.assertIn("runs-on: macos-14", smoke)
-        self.assertIn("name: simpleoffice4me-android-installable", smoke)
-        self.assertIn("arch: arm64-v8a", smoke)
-        self.assertIn("emulator-options: -accel off", smoke)
-        self.assertIn("emulator-boot-timeout: 1200", smoke)
-        self.assertIn("smoke_android_python_runtime.py", smoke)
-
-
 if __name__ == "__main__":
     unittest.main()
