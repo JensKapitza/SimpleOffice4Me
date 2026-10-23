@@ -227,7 +227,8 @@ jobs:
         run: |
           python tools/android_elf_diagnostics.py \
             --apk android/apk/app/build/outputs/apk/debug/app-debug.apk \
-            --output artifacts/android/elf-diagnostics
+            --output artifacts/android/elf-diagnostics \
+            --require-python-dependency
 
       - name: Upload Android ELF linkage diagnostics
         uses: actions/upload-artifact@v7
