@@ -46,6 +46,8 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("org.cyclonedx.bom' version '3.5.1' apply false", root_gradle)
         self.assertIn("id 'org.cyclonedx.bom'", gradle)
+        self.assertIn("projectType = org.cyclonedx.model.Component.Type.APPLICATION", gradle)
+        self.assertIn("componentVersion = appVersionName", gradle)
         self.assertIn("includeConfigs = ['debugRuntimeClasspath']", gradle)
         self.assertIn("includeMetadataResolution = true", gradle)
         self.assertIn(":app:cyclonedxDirectBom", workflow)

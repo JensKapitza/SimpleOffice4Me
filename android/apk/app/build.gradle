@@ -4,13 +4,6 @@ plugins {
     id 'org.cyclonedx.bom'
 }
 
-tasks.named('cyclonedxDirectBom') {
-    includeConfigs = ['debugRuntimeClasspath']
-    includeMetadataResolution = true
-    jsonOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.json')
-    xmlOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.xml')
-}
-
 def errorReportUrl = (System.getenv('SIMPLEOFFICE_ERROR_REPORT_URL') ?: '').trim()
 if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
     throw new GradleException('SIMPLEOFFICE_ERROR_REPORT_URL must use https://')
@@ -100,6 +93,16 @@ if (calculatedVersionCode <= 0 || calculatedVersionCode > 2_100_000_000L) {
 }
 def appVersionCode = calculatedVersionCode.toInteger()
 def appVersionName = "${versionMajor}.${buildDate}.${buildSequence}"
+
+tasks.named('cyclonedxDirectBom') {
+    projectType = org.cyclonedx.model.Component.Type.APPLICATION
+    componentName = 'SimpleOffice4Me Android'
+    componentVersion = appVersionName
+    includeConfigs = ['debugRuntimeClasspath']
+    includeMetadataResolution = true
+    jsonOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.json')
+    xmlOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.xml')
+}
 
 if (!expectedPythonVersion) {
     throw new GradleException("Unsupported Android ABI: ${androidAbi}")
