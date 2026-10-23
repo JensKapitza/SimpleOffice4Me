@@ -14,8 +14,6 @@ from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
-from app.business_document_generation import _cii_xml, _invoice_content_pdf
-
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
     PAGE_NUMBER_CLEAR_BOTTOM,
