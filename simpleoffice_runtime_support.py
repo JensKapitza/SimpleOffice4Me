@@ -264,12 +264,10 @@ def runtime_problem() -> str | None:
     if series in SUPPORTED_SERIES:
         return None
     if series == (3, 10):
-        if datetime.date.today() <= JAMMY_SUPPORT_END and _jammy_python():
-            return None
         return (
-            "Python 3.10 ist upstream EOL. Ausnahme: unverändertes Ubuntu-22.04-Systempaket "
-            "python3.10-minimal bis 31.05.2027 (auch dessen venv). Sicherheitsupdates müssen aktiviert "
-            "und installiert sein. Sonst CPython 3.11–3.15 verwenden."
+            "Python 3.10 wird nicht mehr unterstützt. "
+            "CPython 3.11–3.15 installieren und eine neue virtuelle Umgebung erstellen; "
+            "siehe docs/PYTHON_RUNTIME_SUPPORT.md."
         )
     return "Freigegeben sind CPython 3.11–3.15 final; siehe docs/PYTHON_RUNTIME_SUPPORT.md."
 
@@ -285,8 +283,8 @@ def require_supported_runtime() -> None:
 
 if __name__ == "__main__":
     if "--write-proof" in sys.argv:
-        write_runtime_proof()
-        raise SystemExit(0)
+        print("Python-3.10-Legacy-Nachweise werden nicht mehr erstellt.", file=sys.stderr)
+        raise SystemExit(2)
     problem = runtime_problem()
     if problem:
         print(problem, file=sys.stderr)

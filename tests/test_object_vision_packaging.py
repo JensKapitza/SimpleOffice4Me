@@ -25,8 +25,7 @@ class ObjectVisionPackagingTests(unittest.TestCase):
         self.assertIsNotNone(setup_pin)
         self.assertEqual(project_pin.group(1), setup_pin.group(1))
         self.assertIn("onnxruntime", ocr_extra.casefold())
-        self.assertIn("python_version == '3.10'", ocr_extra)
-        self.assertIn("python_version >= '3.11'", ocr_extra)
+        self.assertIn("onnxruntime==1.30.0", ocr_extra)
 
     def test_desktop_builder_installs_and_bundles_ocr_extra(self):
         builder = (

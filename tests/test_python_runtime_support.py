@@ -56,16 +56,16 @@ class RuntimeSupportTests(unittest.TestCase):
         with patch.dict(os.environ, {"SIMPLEOFFICE_ALLOW_PRERELEASE": "1"}):
             self.assertIsNotNone(self.problem(15, "candidate", micro=0, serial=3))
         with patch.object(policy, "_jammy_python", return_value=False):
-            self.assertIn("upstream EOL", self.problem(10))
+            self.assertIn("nicht mehr unterstützt", self.problem(10))
 
     def test_jammy_exception_expires_without_implicit_esm_extension(self):
         end = datetime.date(2027, 5, 31)
         expired = datetime.date(2027, 6, 1)
         with patch.object(policy, "_jammy_python", return_value=True), patch.object(policy.datetime, "date") as date:
             date.today.return_value = end
-            self.assertIsNone(self.problem(10))
+            self.assertIn("nicht mehr unterstützt", self.problem(10))
             date.today.return_value = expired
-            self.assertIn("upstream EOL", self.problem(10))
+            self.assertIn("nicht mehr unterstützt", self.problem(10))
 
     def apt_policies(self, version="3.10.12-1~22.04.13", candidate=None, source="http://azure.archive.ubuntu.com/ubuntu", release=None):
         candidate = candidate or version
@@ -230,7 +230,7 @@ class RuntimeSupportTests(unittest.TestCase):
         classifiers = ast.literal_eval(re.search(r"(?ms)^classifiers = (\[.*?\])", modern).group(1))
         self.assertEqual(dependencies, legacy["install_requires"])
         self.assertEqual(classifiers, legacy["classifiers"])
-        self.assertEqual(">=3.10", legacy["python_requires"])
+        self.assertEqual(">=3.11", legacy["python_requires"])
 
     def test_standalone_option_keeps_system_python_and_default_venv_untouched(self):
         starter = (ROOT / "start.sh").read_text()
