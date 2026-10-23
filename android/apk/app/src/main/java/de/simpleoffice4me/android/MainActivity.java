@@ -651,12 +651,18 @@ public class MainActivity extends Activity {
                     return;
                 }
                 try {
-                    AndroidFolderImportGrantStore.record(this, treeUri);
+                    // Only record a grant after Android has actually persisted it.
+                    // Otherwise a failed permission request leaves a phantom
+                    // grant in the cleanup registry.
                     getContentResolver().takePersistableUriPermission(treeUri, grantFlags);
+                    if (!hasPersistedReadGrant(treeUri)) {
+                        throw new SecurityException("Persisted SAF read grant was not confirmed");
+                    }
+                    AndroidFolderImportGrantStore.record(this, treeUri);
                 } catch (IllegalStateException | SecurityException error) {
                     AndroidFolderImportGrantStore.forget(this, treeUri);
                     clearPendingFolderImportSelection();
-                    dispatchFolderQueueError("Android konnte die Ordnerfreigabe nicht speichern.");
+                    dispatchFolderQueueError("Android konnte die Ordnerfreigabe nicht speichern. Bitte Ordner erneut auswählen und Zugriff erlauben.");
                     return;
                 }
             }
