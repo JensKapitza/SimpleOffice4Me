@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import threading
 import unittest
@@ -64,6 +65,14 @@ class FolderImportBrowserTests(unittest.TestCase):
             paths,
         )
 
+    def _save_html5_snapshot(self, page):
+        output = os.environ.get("SIMPLEOFFICE_HTML5_SNAPSHOT", "").strip()
+        if not output:
+            return
+        snapshot = Path(output)
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_text(page.content(), encoding="utf-8")
+
     def test_manifest_and_upload_controls_switch_with_selected_source(self):
         from playwright.sync_api import sync_playwright
 
@@ -78,6 +87,8 @@ class FolderImportBrowserTests(unittest.TestCase):
             try:
                 page = context.new_page()
                 page.goto(f"{self.base_url}/documents/")
+                self._save_html5_snapshot(page)
+                self.assertIsNone(page.locator("#document-folder").get_attribute("webkitdirectory"))
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_disabled())
                 supported = page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input")
                 if not supported:
@@ -122,6 +133,54 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertTrue(page.locator("#document-folder-path-manifest").is_disabled())
                 self.assertTrue(page.locator("#archive").is_enabled())
                 self.assertEqual("files", page.locator("#document-files").get_attribute("name"))
+            finally:
+                context.close()
+                browser.close()
+
+    def test_webkitdirectory_attribute_exists_only_during_picker_activation(self):
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            context = browser.new_context(viewport={"width": 390, "height": 844})
+            context.add_cookies([{
+                "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                "value": self.cookie,
+                "url": self.base_url,
+            }])
+            try:
+                page = context.new_page()
+                page.goto(f"{self.base_url}/documents/")
+                folder = page.locator("#document-folder")
+                if not folder.evaluate("input => 'webkitdirectory' in input"):
+                    self.skipTest("Chromium on this host does not expose webkitdirectory")
+                self.assertIsNone(folder.get_attribute("webkitdirectory"))
+                page.evaluate("""() => {
+                  window.folderModeAtClick = false;
+                  const nativeClick = HTMLInputElement.prototype.click;
+                  HTMLInputElement.prototype.click = function() {
+                    if (this.id === 'document-folder') {
+                      window.folderModeAtClick = this.hasAttribute('webkitdirectory');
+                    }
+                    return nativeClick.call(this);
+                  };
+                }""")
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "root"
+                    nested = root / "nested"
+                    nested.mkdir(parents=True)
+                    (root / "a.txt").write_text("root file", encoding="utf-8")
+                    (nested / "b.txt").write_text("nested file", encoding="utf-8")
+                    with page.expect_file_chooser() as chooser:
+                        page.locator("#pick-document-folder").click()
+                    chooser.value.set_files(str(root))
+                self.assertTrue(page.evaluate("window.folderModeAtClick"))
+                self.assertIsNone(folder.get_attribute("webkitdirectory"))
+                self.assertEqual(
+                    ["root/a.txt", "root/nested/b.txt"],
+                    folder.evaluate("input => Array.from(input.files, file => file.webkitRelativePath)"),
+                )
+                self.assertEqual("1", page.locator("#document-folder-import").input_value())
             finally:
                 context.close()
                 browser.close()
