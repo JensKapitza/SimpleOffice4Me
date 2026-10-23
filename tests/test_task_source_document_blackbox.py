@@ -51,6 +51,29 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
                 detail = self.client.get(links[0]["href"])
                 self.assertEqual(200, detail.status_code)
 
+    def test_generic_board_cannot_forge_source_provenance(self):
+        response = self.client.post(
+            "/tasks/", data={"title": "Forged task", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        task = next(row for row in TodoStore(self.root).items("jens") if row["title"] == "Forged task")
+        self.assertFalse(task.get("source_document_id"))
+
+    def test_board_update_cannot_replace_source_provenance(self):
+        document_id = self._create_document_task()
+        task = next(
+            row for row in TodoStore(self.root).items("jens")
+            if row.get("source_document_id") == document_id
+        )
+        response = self.client.post(
+            f"/tasks/{task['id']}/update",
+            data={"title": "Updated task", "source_document_id": "forged-document"},
+        )
+        self.assertEqual(302, response.status_code)
+        updated = next(row for row in TodoStore(self.root).items("jens") if row["id"] == task["id"])
+        self.assertEqual(document_id, updated.get("source_document_id"))
+        self._source_link("/tasks/", document_id)
+
     def test_legacy_task_without_source_still_renders(self):
         created = self.client.post("/documents/todo", data={"title": "Legacy task"})
         self.assertEqual(302, created.status_code)
