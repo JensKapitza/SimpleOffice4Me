@@ -237,7 +237,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
     def test_detail_media_types_use_native_players_and_safe_download_fallback(self):
         fixtures = (
             ("voice.m4a", b"audio-placeholder", "<audio", "audio/mp4"),
-            ("scan.pdf", b"%PDF-1.7-placeholder", "<iframe", "application/pdf"),
+            ("scan.pdf", b"%PDF-1.7-placeholder", "<iframe", "PDF herunterladen"),
             ("unknown.bin", b"unknown", "fa-file", "download=1"),
         )
         for filename, payload, expected_markup, expected_link in fixtures:
@@ -303,8 +303,9 @@ class VideoPreviewHttpTests(unittest.TestCase):
         self.assertIn("/thumbnail", ready_html)
 
     def test_long_nested_document_paths_are_rendered_as_wrapping_breadcrumbs(self):
-        folder = "imported-folder-with-a-long-name-" * 12
-        path = self.root / "imports" / folder / "subfolder" / "preview.mp4"
+        folder = "imported-folder-with-a-long-name-" * 6
+        nested_folder = "nested-folder-with-a-long-name-" * 4
+        path = self.root / "imports" / folder / nested_folder / "preview.mp4"
         path.parent.mkdir(parents=True)
         path.write_bytes(self.payload)
         self.store._scan_file(path, force_hash=True)
@@ -315,6 +316,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('aria-label="Dokumentpfad"', html)
         self.assertIn(folder, html)
+        self.assertIn(nested_folder, html)
         self.assertIn('title="imports/', html)
 
     def test_thumbnail_route_does_not_return_non_image_originals(self):

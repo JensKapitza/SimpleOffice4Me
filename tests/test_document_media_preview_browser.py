@@ -145,8 +145,9 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             image_document = self.documents["image"]
             page.goto(f"{self.base_url}/documents/{image_document['document_id']}")
             image = page.locator("#document-preview img")
-            self.assertTrue(image.is_visible())
+            image.scroll_into_view_if_needed()
             image.evaluate("node => node.decode()")
+            self.assertTrue(image.is_visible())
             self.assertGreater(image.evaluate("node => node.naturalWidth"), 0)
 
             unknown_document = self.documents["unknown"]
