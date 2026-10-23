@@ -81,6 +81,8 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("runs-on: macos-14", smoke)
         self.assertIn("name: simpleoffice4me-android-installable", smoke)
         self.assertIn("arch: arm64-v8a", smoke)
+        self.assertIn("emulator-options: -accel off", smoke)
+        self.assertIn("emulator-boot-timeout: 1200", smoke)
         self.assertIn("smoke_android_python_runtime.py", smoke)
 
 
