@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
+from werkzeug.datastructures import MultiDict
 
 from app import app
 from app.attachment_security import ScanResult
@@ -13,7 +14,7 @@ from app.db import ensure_auth_database
 from app.document_store import DocumentStore
 from app.contact_store import ContactStore
 from app.object_store import ObjectStore
-from app.v2.contracts import LogicalObjectId, OperationResult, StorageLocation, StoredObject
+from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 
 
 class DocumentQuickActionsTest(unittest.TestCase):
@@ -128,6 +129,96 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(1, len(calls))
         self.assertEqual(("stream.txt", b"stream me", True), calls[0][:3])
         self.assertEqual(app.config["MAX_CONTENT_LENGTH"], calls[0][3])
+
+    def test_folder_upload_preserves_multiple_roots_and_reports_partial_failures(self):
+        imported = []
+        failed = []
+        completed = []
+
+        class FakeStorage:
+            def import_stream_at(self, location, stream, *, max_bytes):
+                content = stream.read()
+                imported.append((location.relative_path, content, max_bytes))
+                if content == b"reject me":
+                    return OperationResult.failure(ErrorCode.STORAGE_UNAVAILABLE, "simulated failure")
+                return OperationResult.success(StoredObject(
+                    object_id=LogicalObjectId("folder-uploaded-object"),
+                    version="folder-version",
+                    size=len(content),
+                    location=location,
+                ))
+
+        class FakeStore:
+            @staticmethod
+            def get_document(document_id):
+                return {"document_id": document_id}
+
+        class FakeSettings:
+            @staticmethod
+            def settings():
+                return {"documents": {"default_tags": [], "default_state": "new"}}
+
+        def complete_inbox_upload(*args, **details):
+            completed.append((args, details))
+
+        def fail_inbox_upload(*details):
+            failed.append(details)
+
+        form = MultiDict([
+            ("folder_import", "1"),
+            ("relative_paths", json.dumps([
+                "selected-root/level-one/good.txt",
+                "second-root/level-one/rejected.txt",
+            ])),
+            ("files", (io.BytesIO(b"keep me"), "good.txt")),
+            ("files", (io.BytesIO(b"reject me"), "rejected.txt")),
+        ])
+        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), \
+             patch("app.documents_routes_workflows._settings", return_value=FakeSettings()), \
+             patch("app.documents_routes_workflows._store", return_value=FakeStore()), \
+             patch("app.documents_routes_workflows.begin_web_inbox_upload", return_value={"error": "", "item": {}}), \
+             patch("app.documents_routes_workflows.complete_web_inbox_upload", side_effect=complete_inbox_upload), \
+             patch("app.documents_routes_workflows.fail_web_inbox_upload", side_effect=fail_inbox_upload):
+            response = self.client.post("/documents/upload", data=form, content_type="multipart/form-data")
+
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(imported[0][0].startswith("imports/"))
+        self.assertTrue(imported[0][0].endswith("/selected-root/level-one/good.txt"))
+        self.assertEqual(b"keep me", imported[0][1])
+        self.assertEqual(2, len(imported))
+        self.assertEqual(1, len(completed))
+        self.assertEqual(1, len(failed))
+        with self.client.session_transaction() as session:
+            messages = [message for _category, message in session.get("_flashes", [])]
+        self.assertTrue(any("simulated failure" in message for message in messages))
+        self.assertTrue(any("1 Datei(en) vollständig" in message for message in messages))
+
+    def test_folder_upload_persists_nested_file_in_storageport(self):
+        form = MultiDict([
+            ("folder_import", "1"),
+            ("relative_paths", json.dumps(["selected-root/nested/actual.txt"])),
+            ("files", (io.BytesIO(b"persisted folder content"), "actual.txt")),
+        ])
+
+        # Test the real StoragePort path without depending on optional scanner availability.
+        with patch(
+            "app.documents_routes_workflows.begin_web_inbox_upload",
+            return_value={"item": None, "malware_status": "not_configured", "error": ""},
+        ), patch("app.documents_routes_workflows.complete_web_inbox_upload"):
+            response = self.client.post(
+                "/documents/upload",
+                data=form,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("1 Datei(en) vollständig", response.get_data(as_text=True))
+        document = DocumentStore(self.root).get_document(
+            next(path.relative_to(self.root).as_posix() for path in self.root.rglob("actual.txt"))
+        )
+        self.assertTrue(document["last_path"].endswith("/selected-root/nested/actual.txt"))
+        self.assertEqual(b"persisted folder content", (self.root / document["last_path"]).read_bytes())
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")
