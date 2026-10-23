@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Any
 
 from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
 
@@ -367,12 +368,20 @@ def _balance_challenge_response(mapping, connection_id: str, token: str, challen
 @login_required
 def sync_bank_connection(connection_id: str):
     actor = _actor()
+    store = _store()
     pin = request.form.get("pin", "")
     try:
-        result = FinTSSyncService(_store()).sync_connection(connection_id, pin, actor)
-        return render_template("finance/sync_report.html", result=result)
+        result = FinTSSyncService(store).sync_connection(connection_id, pin, actor)
+        return _sync_report_response(result)
     except FinTSAuthenticationRequired as exc:
-        _store().update_bank_connection_status(connection_id, actor, "authentication_required", error=str(exc))
+        store.update_bank_connection_status(connection_id, actor, "authentication_required", error=str(exc))
+        if exc.challenge_state:
+            try:
+                token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
+            except ValueError:
+                flash("Die TAN-Freigabe konnte nicht sicher vorbereitet werden. Bereits abgeschlossene Konten bleiben importiert.")
+                return redirect(url_for(".index"))
+            return _transaction_sync_challenge_response(connection_id, token, exc.challenge_state)
         flash(str(exc))
     except (FinTSUnavailable, ValueError) as exc:
         flash(f"Bankabruf nicht möglich: {exc}")
@@ -383,6 +392,79 @@ def sync_bank_connection(connection_id: str):
     finally:
         pin = ""
     return redirect(url_for(".index"))
+
+
+@bp.post("/bank-connections/<connection_id>/sync/challenge")
+@login_required
+def continue_bank_connection_sync(connection_id: str):
+    actor = _actor()
+    store = _store()
+    pin = request.form.get("pin", "")
+    tan = request.form.get("tan", "")
+    try:
+        challenge_state = store.consume_fints_challenge(
+            request.form.get("challenge_token", ""), connection_id, actor,
+        )
+        if challenge_state.get("operation") != "transactions":
+            raise ValueError("Diese TAN-Freigabe ist kein Umsatzabruf")
+        result = FinTSSyncService(store).sync_connection(
+            connection_id, pin, actor, challenge_state=challenge_state, tan=tan,
+        )
+        return _sync_report_response(result)
+    except FinTSAuthenticationRequired as exc:
+        if exc.challenge_state:
+            try:
+                token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
+            except ValueError:
+                flash("Die TAN-Freigabe ist abgelaufen oder konnte nicht sicher erneuert werden. Bitte den Abruf neu starten.")
+                return redirect(url_for(".index"))
+            return _transaction_sync_challenge_response(connection_id, token, exc.challenge_state)
+        flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte den Bankabruf neu starten.")
+        return redirect(url_for(".index"))
+    except (ValueError, FinTSUnavailable):
+        flash("TAN-Freigabe fehlgeschlagen oder abgelaufen. Bitte den Bankabruf neu starten.")
+        return redirect(url_for(".index"))
+    except Exception as exc:
+        current_app.logger.warning("FinTS transaction continuation failed: %s", type(exc).__name__)
+        flash("TAN-Freigabe konnte nicht sicher fortgesetzt werden. Bereits importierte Umsätze bleiben erhalten.")
+        return redirect(url_for(".index"))
+    finally:
+        pin = ""
+        tan = ""
+
+
+def _private_finance_response(response):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _sync_report_response(result: dict[str, Any]):
+    return _private_finance_response(make_response(render_template("finance/sync_report.html", result=result)))
+
+
+def _transaction_sync_challenge_response(connection_id: str, token: str, challenge_state: dict[str, Any]):
+    store = _store()
+    try:
+        connection = store.bank_connection(connection_id, _actor())
+        mappings = store.bank_account_mappings(connection_id, _actor())
+    except ValueError:
+        abort(404)
+    mapping = next((item for item in mappings if item["remote_account_id"] == challenge_state["remote_account_id"]), None)
+    if mapping is None or mapping["account_id"] != challenge_state["local_account_id"]:
+        abort(404)
+    response = make_response(render_template(
+        "finance/sync_challenge.html",
+        connection=connection,
+        mapping=mapping,
+        connection_id=connection_id,
+        challenge_token=token,
+        challenge_text=challenge_state["challenge_text"],
+        decoupled=challenge_state["decoupled"],
+        completed_count=len(challenge_state["completed_mappings"]),
+    ))
+    return _private_finance_response(response)
 
 
 @bp.get("/transactions/<transaction_id>/matches")

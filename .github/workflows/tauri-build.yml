@@ -24,6 +24,11 @@ jobs:
         working-directory: desktop/tauri
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.14'
+      - name: Install pinned SBOM packaging helper
+        run: python -m pip install 'packaging==26.3'
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
@@ -33,6 +38,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf webkit2gtk-driver xvfb xdotool dbus-x11
       - run: npm ci --no-audit --no-fund
       - run: npm audit --audit-level=high
+      - name: Generate locked npm dependency SBOM
+        working-directory: .
+        run: |
+          python tools/generate_sbom.py --npm-lock desktop/tauri/package-lock.json \
+            --npm-os linux --npm-cpu x64 --npm-libc gnu --output artifacts/tauri-npm-sbom.cdx.json \
+            --xml-output artifacts/tauri-npm-sbom.cdx.xml
       - run: npm run prepare:client
       - run: npx tauri icon ../../docs/assets/simpleoffice-documentation-logo.png
       - run: npm run build -- -- --locked
@@ -40,11 +51,41 @@ jobs:
         working-directory: .
         run: |
           cargo metadata --locked --format-version 1 --manifest-path desktop/tauri/src-tauri/Cargo.toml > "$RUNNER_TEMP/tauri-cargo-metadata.json"
-          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" --output artifacts/tauri-rust-sbom.cdx.json
+          python tools/generate_sbom.py --cargo-metadata "$RUNNER_TEMP/tauri-cargo-metadata.json" --output artifacts/tauri-rust-sbom.cdx.json --xml-output artifacts/tauri-rust-sbom.cdx.xml
+      - name: Install pinned CycloneDX CLI validator
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          "$validator" validate --input-file artifacts/tauri-rust-sbom.cdx.json \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file artifacts/tauri-rust-sbom.cdx.xml \
+            --input-format xml --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file artifacts/tauri-npm-sbom.cdx.json \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file artifacts/tauri-npm-sbom.cdx.xml \
+            --input-format xml --input-version v1_6 --fail-on-errors
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tauri-npm-sbom
+          path: |
+            artifacts/tauri-npm-sbom.cdx.json
+            artifacts/tauri-npm-sbom.cdx.xml
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: tauri-rust-sbom
-          path: artifacts/tauri-rust-sbom.cdx.json
+          path: |
+            artifacts/tauri-rust-sbom.cdx.json
+            artifacts/tauri-rust-sbom.cdx.xml
           if-no-files-found: error
       - name: Audit locked Rust dependencies
         run: |

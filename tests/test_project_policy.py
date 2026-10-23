@@ -19,9 +19,7 @@ SBOM
 """
 
 VALID_CI = """
-python-version: ["3.10", "3.11", "3.14"]
-jammy-system
-ubuntu-22.04
+python-version: ["3.11", "3.14", "3.15"]
 python simpleoffice_runtime_support.py
 python tools/check_project_policy.py .
 python tools/check_file_size.py . --limit 1000
@@ -46,7 +44,7 @@ class ProjectPolicyTest(unittest.TestCase):
         )
         (root / ".github" / "workflows" / "ci.yml").write_text(VALID_CI, encoding="utf-8")
         (root / "pyproject.toml").write_text(
-            '[project]\nrequires-python = ">=3.10"\n', encoding="utf-8"
+            '[project]\nrequires-python = ">=3.11"\n', encoding="utf-8"
         )
         return root
 
@@ -71,7 +69,7 @@ class ProjectPolicyTest(unittest.TestCase):
 
         errors = policy_errors(root)
 
-        self.assertTrue(any("Python >=3.10" in error for error in errors), errors)
+        self.assertTrue(any("Python >=3.11" in error for error in errors), errors)
 
 if __name__ == "__main__":
     unittest.main()

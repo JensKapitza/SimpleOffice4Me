@@ -26,6 +26,9 @@ CHECKSUM_FILE = TARGET.with_suffix(".jar.sha256")
 MAVEN_HOST = "repo1.maven.org"
 MAX_JAR_BYTES = 128 * 1024 * 1024
 MAX_CHECKSUM_BYTES = 4096
+UPSTREAM_SHA256 = "d68b9fd6a9948a0964b7c93ed06b7e903a6dbafcd0df581e992e3178bf016701"
+UPSTREAM_URL = f"https://github.com/ZUGFeRD/mustangproject/releases/download/core-{VERSION}/{FILENAME}"
+UPSTREAM_REDIRECT_HOSTS = {"release-assets.githubusercontent.com", "objects.githubusercontent.com"}
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -34,6 +37,17 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 _OPENER = urllib.request.build_opener(_NoRedirectHandler())
+
+
+class _GitHubAssetRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urlsplit(newurl)
+        if parsed.scheme != "https" or parsed.hostname not in UPSTREAM_REDIRECT_HOSTS:
+            raise RuntimeError("validator release redirected outside the GitHub asset hosts")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_GITHUB_ASSET_OPENER = urllib.request.build_opener(_GitHubAssetRedirectHandler())
 
 
 def _download(url: str, *, max_bytes: int) -> bytes:
@@ -66,22 +80,26 @@ def _download(url: str, *, max_bytes: int) -> bytes:
 
 
 def _published_checksum() -> str:
-    """Return the SHA-256 checksum published for the pinned artifact.
+    """Return the SHA-256 published for the pinned upstream release asset."""
+    return UPSTREAM_SHA256
 
-    Installation fails closed when Maven Central does not provide a SHA-256
-    sidecar. Weak digest algorithms are not accepted for executable artifacts.
-    """
-    try:
-        value = _download(f"{BASE_URL}/{FILENAME}.sha256", max_bytes=MAX_CHECKSUM_BYTES).decode("ascii").split()[0].lower()
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            raise RuntimeError("Maven Central did not publish a SHA-256 checksum for the validator") from exc
-        raise
-    except FileNotFoundError as exc:
-        raise RuntimeError("Maven Central did not publish a SHA-256 checksum for the validator") from exc
-    if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
-        raise RuntimeError("Maven Central returned an invalid SHA-256 checksum")
-    return value
+
+def _download_upstream_release() -> bytes:
+    request = urllib.request.Request(UPSTREAM_URL, headers={"User-Agent": "SimpleOffice4Me validator bootstrap"})
+    with _GITHUB_ASSET_OPENER.open(request, timeout=90) as response:
+        if urlsplit(response.geturl()).hostname not in UPSTREAM_REDIRECT_HOSTS:
+            raise RuntimeError("validator release resolved outside the GitHub asset hosts")
+        declared = response.headers.get("Content-Length")
+        if declared:
+            try:
+                if int(declared) > MAX_JAR_BYTES:
+                    raise RuntimeError("validator download exceeds size limit")
+            except ValueError as exc:
+                raise RuntimeError("validator download returned invalid Content-Length") from exc
+        payload = response.read(MAX_JAR_BYTES + 1)
+    if len(payload) > MAX_JAR_BYTES:
+        raise RuntimeError("validator download exceeds size limit")
+    return payload
 
 
 def install() -> Path | None:
@@ -97,7 +115,7 @@ def install() -> Path | None:
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     print(f"Installiere EN16931-Standardvalidator Mustang {VERSION} …")
     checksum = _published_checksum()
-    payload = _download(f"{BASE_URL}/{FILENAME}", max_bytes=MAX_JAR_BYTES)
+    payload = _download_upstream_release()
     if hashlib.sha256(payload).hexdigest() != checksum:
         raise RuntimeError("downloaded EN16931 validator SHA-256 checksum does not match")
     local_sha256 = hashlib.sha256(payload).hexdigest()

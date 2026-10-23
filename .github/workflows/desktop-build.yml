@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'desktop/**'
+      - 'tools/generate_sbom.py'
       - '.github/workflows/desktop-build.yml'
 
 permissions:
@@ -54,6 +55,15 @@ jobs:
           --fetch-retry-factor=2
           --fetch-retry-mintimeout=5000
           --fetch-retry-maxtimeout=60000
+      - name: Install pinned SBOM packaging helper
+        run: python -m pip install 'packaging==26.3'
+      - name: Generate resolved Electron npm SBOM
+        working-directory: .
+        shell: bash
+        run: |
+          python tools/generate_sbom.py --npm-lock desktop/electron/package-lock.json \
+            --output "artifacts/desktop/${{ matrix.artifact }}-npm.cdx.json" \
+            --xml-output "artifacts/desktop/${{ matrix.artifact }}-npm.cdx.xml"
       - name: Synchronize desktop version
         working-directory: desktop/electron
         run: npm run sync:version
@@ -95,6 +105,59 @@ jobs:
               raise SystemExit(f'Missing bundled backend {binary} in {root}')
           print('Packaged backends:', *candidates, sep='\n')
           PY
+      - name: Install pinned CycloneDX CLI and validate the npm SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS/$RUNNER_ARCH" in
+            Linux/X64)
+              asset=cyclonedx-linux-x64
+              digest=bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746
+              ;;
+            Windows/X64)
+              asset=cyclonedx-win-x64.exe
+              digest=9b360974c41a5d612eb026fb5e3bb1fa28e08865f7a4f915665b8bc94bd3bc31
+              ;;
+            macOS/X64)
+              asset=cyclonedx-osx-x64
+              digest=0ea92306fc6ea1a3f6598d8e0257d52903341d0df21a325fb1510aee7c6b30dd
+              ;;
+            macOS/ARM64)
+              asset=cyclonedx-osx-arm64
+              digest=750c148780154833f6401f9067d08c5a4c31567b6ee3c26c062c3a95c62d741c
+              ;;
+            *)
+              printf 'Unsupported validator host: %s/%s\n' "$RUNNER_OS" "$RUNNER_ARCH" >&2
+              exit 1
+              ;;
+          esac
+          validator="$RUNNER_TEMP/$asset"
+          curl --fail --location --retry 3 \
+            "https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/$asset" \
+            --output "$validator"
+          python - "$validator" "$digest" <<'PY'
+          import hashlib
+          from pathlib import Path
+          import sys
+
+          path = Path(sys.argv[1])
+          digest = hashlib.sha256()
+          with path.open("rb") as source:
+              for block in iter(lambda: source.read(1024 * 1024), b""):
+                  digest.update(block)
+          if digest.hexdigest() != sys.argv[2]:
+              raise SystemExit(f"CycloneDX CLI checksum mismatch for {path.name}")
+          PY
+          chmod 0755 "$validator"
+          "$validator" validate --input-file "artifacts/desktop/${{ matrix.artifact }}-npm.cdx.json" \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$validator" validate --input-file "artifacts/desktop/${{ matrix.artifact }}-npm.cdx.xml" \
+            --input-format xml --input-version v1_6 --fail-on-errors
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: electron-npm-sbom-${{ matrix.artifact }}
+          path: artifacts/desktop/${{ matrix.artifact }}-npm.cdx.*
+          if-no-files-found: error
       - name: Prepare installable Linux AppImage
         if: matrix.artifact == 'linux'
         shell: bash

@@ -5,6 +5,8 @@ those values. The adapter is deliberately read-only: no transfer methods exist.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
@@ -33,6 +35,43 @@ class FinTSAuthenticationRequired(RuntimeError):
         self.challenge_response = challenge_response
         self.challenge_text = text(challenge_text, 2000)
         self.decoupled = decoupled is True
+
+
+_MAX_SCA_STATE_BYTES = 120 * 1024
+
+
+def _encode_sca_state(value: bytes) -> str:
+    if not isinstance(value, bytes) or not value or len(value) > _MAX_SCA_STATE_BYTES:
+        raise ValueError("FinTS-SCA-Zustand ist ungültig oder zu groß")
+    return base64.b64encode(value).decode("ascii")
+
+
+def _decode_sca_state(value: Any) -> bytes:
+    if not isinstance(value, str) or not value or len(value) > _MAX_SCA_STATE_BYTES * 2:
+        raise ValueError("FinTS-SCA-Sitzung ist ungültig; bitte erneut starten")
+    try:
+        decoded = base64.b64decode(value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("FinTS-SCA-Sitzung ist ungültig; bitte erneut starten") from exc
+    if not decoded or len(decoded) > _MAX_SCA_STATE_BYTES:
+        raise ValueError("FinTS-SCA-Sitzung ist ungültig; bitte erneut starten")
+    return decoded
+
+
+def _restore_sca_retry_response(challenge_data: str, *, decoupled: bool):
+    if not isinstance(decoupled, bool):
+        raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen TAN-Modus")
+    try:
+        from fints.client import NeedRetryResponse
+    except ImportError as exc:
+        raise ValueError("FinTS-SCA-Sitzung kann mit der installierten Bibliothek nicht fortgesetzt werden") from exc
+    response = NeedRetryResponse.from_data(_decode_sca_state(challenge_data))
+    if not is_tan_response(response):
+        raise ValueError("FinTS-SCA-Sitzung enthält keine TAN-Herausforderung")
+    # python-fints omits this flag from retry serialization; restore only from
+    # the authenticated, encrypted server-side challenge state.
+    response.decoupled = decoupled
+    return response
 
 
 @dataclass(frozen=True)
@@ -273,30 +312,133 @@ def fetch_transactions(
     *,
     start_date: date,
     end_date: date,
+    challenge_state: dict[str, Any] | None = None,
+    tan: str = "",
 ) -> list[dict[str, Any]]:
-    """Read booked transactions for one mapped account.
-
-    Some banks/python-fints versions can return an interactive TAN response for
-    protected operations. We refuse to persist dialog state or TAN material and
-    report that interactive authentication is required instead.
-    """
+    """Read one bounded booked-transaction window or resume its read-only SCA."""
     if end_date < start_date:
         raise ValueError("Abrufende liegt vor Abrufbeginn")
     if (end_date - start_date).days > 370:
         raise ValueError("Ein einzelner FinTS-Abruf ist auf 370 Tage begrenzt")
-    client = _client(connection, pin)
-    try:
-        account = _find_remote_account(client, remote_account_id)
-        result = client.get_transactions(account, start_date, end_date)
-        if hasattr(result, "challenge") or result.__class__.__name__.casefold().startswith("needtan"):
-            raise FinTSAuthenticationRequired("Die Bank verlangt für diesen Abruf eine TAN/App-Freigabe.")
-        if result is None:
-            return []
-        if not isinstance(result, Iterable) or isinstance(result, (str, bytes, dict)):
-            raise ValueError("FinTS lieferte ein unbekanntes Umsatzformat")
-        return [normalize_transaction(item) for item in result]
-    finally:
+    if len(str(tan or "")) > 256 or "\x00" in str(tan or ""):
+        raise ValueError("TAN-Eingabe ist ungültig")
+    if challenge_state is None:
+        client = _client(connection, pin)
+        try:
+            retry_response = None
+            step = "transactions"
+            account = None
+            try:
+                account = _find_remote_account(client, remote_account_id)
+            except FinTSAuthenticationRequired as exc:
+                retry_response = exc.challenge_response
+                step = "accounts"
+            if retry_response is None:
+                result = client.get_transactions(account, start_date, end_date)
+                if is_tan_response(result):
+                    retry_response = result
+            if retry_response is not None:
+                raise _transaction_challenge_error(
+                    client, retry_response, remote_account_id, start_date, end_date,
+                    step=step, account=account,
+                )
+            return _normalize_transactions(result)
+        finally:
+            del client
+
+    if (
+        challenge_state.get("operation") != "transactions"
+        or challenge_state.get("remote_account_id") != remote_account_id
+        or challenge_state.get("start_date") != start_date.isoformat()
+        or challenge_state.get("end_date") != end_date.isoformat()
+        or challenge_state.get("step") not in {"accounts", "transactions"}
+    ):
+        raise ValueError("FinTS-SCA-Sitzung passt nicht zu diesem Abruf; bitte erneut starten")
+    retry_response = _restore_sca_retry_response(
+        challenge_state.get("challenge_data"), decoupled=challenge_state.get("decoupled"),
+    )
+    if not retry_response.decoupled and not str(tan or ""):
+        raise ValueError("Die Bank verlangt eine TAN")
+    client = _client(connection, pin, from_data=_decode_sca_state(challenge_state.get("client_data")))
+    next_retry = None
+    next_step = str(challenge_state["step"])
+    next_account = None
+    result = None
+    with client.resume_dialog(_decode_sca_state(challenge_state.get("dialog_data"))):
+        result = client.send_tan(retry_response, "" if retry_response.decoupled else str(tan))
+        if is_tan_response(result):
+            next_retry = result
+        elif next_step == "accounts":
+            if not isinstance(result, Iterable) or isinstance(result, (str, bytes, dict)):
+                raise ValueError("FinTS lieferte ein unbekanntes Kontenformat")
+            next_account = next(
+                (item for item in result if _remote_id(item) == remote_account_id), None,
+            )
+            if next_account is None:
+                raise ValueError("Das zugeordnete Bankkonto wurde beim FinTS-Abruf nicht gefunden")
+            result = client.get_transactions(next_account, start_date, end_date)
+            if is_tan_response(result):
+                next_retry = result
+                next_step = "transactions"
+        if next_retry is not None:
+            dialog_data = client.pause_dialog()
+    if next_retry is not None:
+        error = _transaction_challenge_error(
+            client, next_retry, remote_account_id, start_date, end_date,
+            step=next_step, account=next_account,
+            completed_mappings=challenge_state.get("completed_mappings", []),
+            dialog_data=dialog_data,
+        )
         del client
+        raise error
+    del client
+    return _normalize_transactions(result)
+
+
+def _normalize_transactions(result: Any) -> list[dict[str, Any]]:
+    if result is None:
+        return []
+    if is_tan_response(result) or not isinstance(result, Iterable) or isinstance(result, (str, bytes, dict)):
+        raise ValueError("FinTS lieferte ein unbekanntes Umsatzformat")
+    return [normalize_transaction(item) for item in result]
+
+
+def _transaction_challenge_error(
+    client: Any,
+    retry_response: Any,
+    remote_account_id: str,
+    start_date: date,
+    end_date: date,
+    *,
+    step: str,
+    account: Any = None,
+    completed_mappings: list[dict[str, str]] | None = None,
+    dialog_data: bytes | None = None,
+) -> FinTSAuthenticationRequired:
+    if not is_tan_response(retry_response):
+        raise ValueError("FinTS lieferte eine unbekannte TAN-Herausforderung")
+    state = {
+        "version": 1,
+        "operation": "transactions",
+        "step": step,
+        "client_data": _encode_sca_state(client.deconstruct()),
+        "dialog_data": _encode_sca_state(dialog_data if dialog_data is not None else client.pause_dialog()),
+        "challenge_data": _encode_sca_state(retry_response.get_data()),
+        "remote_account_id": remote_account_id,
+        "account_currency": text(getattr(account, "currency", "EUR"), 3).upper() or "EUR",
+        "challenge_text": text(getattr(retry_response, "challenge", ""), 2000),
+        "decoupled": getattr(retry_response, "decoupled", False) is True,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "local_account_id": "",
+        "completed_mappings": list(completed_mappings or []),
+    }
+    return FinTSAuthenticationRequired(
+        "Die Bank verlangt eine TAN/App-Freigabe für den Umsatzabruf.",
+        challenge_state=state,
+        challenge_text=state["challenge_text"],
+        decoupled=state["decoupled"],
+    )
 
 
 def default_fetch_window(last_booking_date: str | None, *, today: date | None = None, lookback_days: int = 7) -> tuple[date, date]:

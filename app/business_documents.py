@@ -6,6 +6,7 @@ compatible.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 
 from flask import Blueprint
@@ -315,10 +316,61 @@ def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dic
         return inspect_zugferd_pdf(path)
 
 
+def _parse_free_text_invoice_address(value: object, default_country: str = "DE") -> dict[str, str]:
+    """Turn the explicit street / postal-city / ISO-country lines into a CII address."""
+    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
+    if len(raw) > 1000 or not 2 <= len(lines) <= 4 or any(len(line) > 250 for line in lines):
+        raise ValueError("Freitextadresse: Straße, PLZ/Ort und optional ISO-Land eingeben (maximal 1000 Zeichen).")
+    has_country = len(lines) >= 3 and bool(re.fullmatch(r"[A-Za-z]{2}", lines[-1]))
+    postal_city = lines[-2] if has_country else lines[-1]
+    street_lines = lines[:-2] if has_country else lines[:-1]
+    postal_city_parts = postal_city.split(maxsplit=1)
+    if not street_lines or len(postal_city_parts) != 2:
+        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort, z. B. ‚10115, Berlin‘.")
+    postal = postal_city_parts[0].rstrip(",")
+    city = postal_city_parts[1].strip()
+    country = (lines[-1] if has_country else str(default_country or "DE")).upper()
+    if not postal or not city or not re.fullmatch(r"[A-Z]{2}", country):
+        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort; das Land muss ein ISO-Code sein.")
+    street = " ".join(street_lines)
+    return {
+        "id": "", "label": "\n".join(lines), "street": street,
+        "postal": postal, "city": city, "country": country,
+    }
+
+
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    address_mode = str(form.get("address_mode", "existing")).strip()
+    if address_mode not in {"existing", "manual", "free_text"}:
+        raise ValueError("Ungültiger Rechnungsadressmodus.")
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage_contact(contact,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
+    if address_mode == "manual":
+        street = str(form.get("billing_street", "")).strip()
+        postal = str(form.get("billing_postal", "")).strip()
+        city = str(form.get("billing_city", "")).strip()
+        country = str(form.get("billing_country", "DE")).strip().upper() or "DE"
+        if not street or not postal or not city:
+            raise ValueError("Für eine manuelle Rechnungsadresse sind Straße, PLZ und Ort erforderlich.")
+        if not re.fullmatch(r"[A-Z]{2}", country):
+            raise ValueError("Das Land muss als zweistelliger ISO-Code angegeben werden.")
+        if any(len(value) > 250 for value in (street, postal, city)):
+            raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
+        label = "\n".join((street, f"{postal} {city}", country))
+        candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
+    if address_mode == "free_text":
+        candidate = _parse_free_text_invoice_address(
+            form.get("billing_free_text", ""),
+            default_country=str((candidate or {}).get("country", "DE")),
+        )
+        label = candidate["label"]
+    if address_mode == "existing":
+        candidate = next((item for item in candidates if item["id"] == selected), None)
+        if candidate is None:
+            raise ValueError("Bitte eine gültige gespeicherte Rechnungsadresse auswählen.")
+        label = candidate["label"]
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
@@ -363,7 +415,29 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
             raise Conflict(description="This invoice draft changed in another session. Reload it before saving.")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
-    DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"reference_invoice_id":row.get("reference_invoice_id", ""),"totals":row["totals"]})
+        address_mode = str(form.get("address_mode", "")).strip()
+        if address_mode == "manual" and form.get("save_billing_address") == "1":
+            buyer = row["buyer"]
+            components = {key: buyer[key] for key in ("street", "postal", "city", "country")}
+            try:
+                contacts = ContactStore(root)
+                contact = contacts.get(contact_id, actor)
+                matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
+                if not matching:
+                    contacts.add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
+            except (OSError, ValueError) as exc:
+                logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
+    DocumentStore(root).history.record(
+        "invoice_draft_saved",
+        actor,
+        "invoice",
+        row["invoice_id"],
+        {
+            "contact_id": contact_id,
+            "reference_invoice_id": row.get("reference_invoice_id", ""),
+            "totals": row["totals"],
+        },
+    )
     return row
 
 
@@ -394,6 +468,9 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+        buyer = row.get("buyer") or {}
+        if not all(str(buyer.get(key, "")).strip() for key in ("street", "postal", "city", "country")):
+            raise ValueError("Für die elektronische Rechnung fehlen strukturierte Adressdaten (Straße, PLZ, Ort oder Land). Bitte den Entwurf mit einer strukturierten Rechnungsadresse bearbeiten.")
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
         reference_id, reference_number = timed(
             "reference_invoice_validate",

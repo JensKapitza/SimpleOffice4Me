@@ -195,6 +195,57 @@ class FinTSBalanceHttpTests(unittest.TestCase):
                     token, self.connection["connection_id"], "balance-user",
                 )
 
+    def test_account_discovery_tan_challenge_can_be_resumed_once(self):
+        challenge_state = {
+            "version": 1,
+            "operation": "balance",
+            "step": "accounts",
+            "client_data": base64.b64encode(b"client-state").decode("ascii"),
+            "dialog_data": base64.b64encode(b"dialog-state").decode("ascii"),
+            "challenge_data": base64.b64encode(b"retry-state").decode("ascii"),
+            "remote_account_id": self.mapping["remote_account_id"],
+            "account_currency": "EUR",
+            "challenge_text": "Freigabe zur Kontenauswahl",
+            "decoupled": False,
+        }
+        challenge_error = FinTSAuthenticationRequired(
+            "Account list requires TAN", challenge_state=challenge_state,
+            challenge_text=challenge_state["challenge_text"],
+        )
+        with patch("app.finance_web.fetch_balance", side_effect=challenge_error):
+            challenge_response = self.post_balance()
+
+        self.assertEqual(200, challenge_response.status_code)
+        self.assertIn("Freigabe zur Kontenauswahl", challenge_response.get_data(as_text=True))
+        token_match = re.search(
+            r'name="challenge_token" value="([A-Za-z0-9_-]{43})"',
+            challenge_response.get_data(as_text=True),
+        )
+        self.assertIsNotNone(token_match)
+        token = token_match.group(1)
+
+        with patch(
+            "app.finance_web.fetch_balance",
+            return_value={
+                "remote_account_id": self.mapping["remote_account_id"],
+                "booked_balance": "19.75", "currency": "EUR",
+                "available_balance": "", "available_currency": "",
+            },
+        ) as resume:
+            response = self.client.post(
+                self.url + "/challenge",
+                data={"challenge_token": token, "pin": "temporary-pin", "tan": "654321"},
+                headers={"X-CSRF-Token": "f" * 40},
+            )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("19.75 EUR", response.get_data(as_text=True))
+        resume.assert_called_once_with(
+            self.connection, self.mapping["remote_account_id"], "temporary-pin",
+            challenge_state=challenge_state, tan="654321",
+        )
+        self.assertEqual([], self.store.bank_transactions(self.account["account_id"], "balance-user"))
+
     def test_missing_fints_product_registration_is_explained_instead_of_swallowed(self):
         with patch(
             "app.finance_web.fetch_balance",

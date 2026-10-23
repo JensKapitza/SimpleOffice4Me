@@ -14,6 +14,7 @@ from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
+from app.business_document_generation import _cii_xml, _invoice_content_pdf
 
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
@@ -25,6 +26,8 @@ from app.business_documents import (
     _draft_invoice_number,
     _draft_watermark,
     _build_invoice_lines,
+    _parse_free_text_invoice_address,
+    _invoice_row_from_form,
     _invoice_task,
     save_invoice_draft,
     _pdfa3_convert,
@@ -74,6 +77,97 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_invoice_rejects_unknown_address_mode_before_contact_access(self):
+        with tempfile.TemporaryDirectory() as temp:
+            form = MultiDict([("address_mode", "unexpected")])
+            with mock.patch("app.business_documents.ContactStore") as contacts:
+                with self.assertRaisesRegex(ValueError, "Ungültiger Rechnungsadressmodus"):
+                    _invoice_row_from_form(Path(temp), "contact-1", form, "tester")
+                contacts.assert_not_called()
+
+    def test_cii_payment_means_precedes_header_vat_tax(self):
+        from xml.etree import ElementTree as ET
+
+        xml = _cii_xml({
+            "invoice_number": "RE-2026-1", "issue_date": "2026-10-22", "service_date": "2026-10-22",
+            "due_date": "2026-11-05", "currency": "EUR", "seller": {
+                "name": "Seller", "street": "Seller St 1", "postal": "10117", "city": "Berlin",
+                "country": "DE", "iban": "DE89370400440532013000",
+            }, "buyer": {"name": "Buyer", "street": "Buyer St 2", "postal": "10115", "city": "Berlin", "country": "DE"}, "lines": [], "totals": {
+                "net": "10.00", "tax": "1.90", "gross": "11.90", "due": "11.90",
+                "vat_groups": {"19": {"basis": "10.00", "tax": "1.90"}},
+            },
+        })
+        root = ET.fromstring(xml)
+        settlement = root.find(".//{*}ApplicableHeaderTradeSettlement")
+        child_names = [element.tag.rsplit("}", 1)[-1] for element in settlement]
+        self.assertLess(child_names.index("SpecifiedTradeSettlementPaymentMeans"), child_names.index("ApplicableTradeTax"))
+
+    def test_saved_invoice_address_rejects_missing_or_stale_selection(self):
+        from app.business_documents import _invoice_row_from_form
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact = ContactStore(root).upsert({"display_name": "Customer"}, "tester")
+            ContactStore(root).add_address(
+                contact["contact_id"], "Rechnungsadresse", "First Street 1", "tester",
+                components={"street": "First Street 1", "postal": "10115", "city": "Berlin", "country": "DE"},
+            )
+            for selected in ("", "contact-99", "crm-99"):
+                with self.subTest(selected=selected), self.assertRaisesRegex(ValueError, "gespeicherte Rechnungsadresse"):
+                    _invoice_row_from_form(root, contact["contact_id"], MultiDict([
+                        ("address_mode", "existing"), ("address", selected),
+                    ]), "tester")
+
+    def test_invoice_address_modes_save_edit_and_preserve_pdf_snapshot(self):
+        from app.business_documents import invoice
+
+        for mode in ("existing", "manual", "free_text"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp)
+                contact = ContactStore(root).upsert({"display_name": "Customer"}, "tester")
+                components = {"street": "Original Street 1", "postal": "10115", "city": "Berlin", "country": "DE"}
+                if mode == "existing":
+                    ContactStore(root).add_address(
+                        contact["contact_id"], "Rechnungsadresse", "Original Street 1\n10115 Berlin", "tester",
+                        components=components,
+                    )
+                form = MultiDict([
+                    ("address_mode", f" {mode} "), ("address", "contact-0"),
+                    ("billing_street", components["street"]), ("billing_postal", "10115"),
+                    ("billing_city", "Berlin"), ("billing_country", "DE"),
+                    ("billing_free_text", "Original Street 1\n10115 Berlin\nDE"),
+                    ("save_billing_address", "1"), ("recipient_type", "private"),
+                    ("recipient_contact", "Customer"), ("line_description", "Consulting"),
+                    ("line_quantity", "1"), ("line_net_price", "10"), ("line_vat_rate", "19"),
+                ])
+                with mock.patch("app.business_documents.business_settings", return_value={
+                    "seller_name": "Seller", "seller_street": "Seller Street 2",
+                    "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
+                }), mock.patch("app.business_documents.active_template", return_value={"template_id": "test"}):
+                    row = save_invoice_draft(root, contact["contact_id"], form, "tester")
+                    self.assertEqual(components, {key: row["buyer"][key] for key in components})
+                    self.assertEqual(0 if mode == "free_text" else 1,
+                                     len(ContactStore(root).get(contact["contact_id"], "tester")["addresses"]))
+                    form["draft_updated_at"] = row["updated_at"]
+                    form["line_quantity"] = "2"
+                    edited = save_invoice_draft(root, contact["contact_id"], form, "tester", row["invoice_id"])
+                    self.assertEqual(row["invoice_id"], edited["invoice_id"])
+                    self.assertEqual("23.80", edited["totals"]["gross"])
+                    self.assertEqual(row["buyer"], edited["buyer"])
+                    self.assertEqual(0 if mode == "free_text" else 1,
+                                     len(ContactStore(root).get(contact["contact_id"], "tester")["addresses"]))
+                ContactStore(root).add_address(
+                    contact["contact_id"], "Another address", "Changed Street 9", "tester",
+                    components={**components, "street": "Changed Street 9"},
+                )
+                persisted = invoice(root, row["invoice_id"])
+                self.assertEqual(row["buyer"], persisted["buyer"])
+                pdf_text = "\n".join(page.extract_text() or "" for page in
+                                     PdfReader(io.BytesIO(_invoice_content_pdf(persisted))).pages)
+                self.assertIn("Original Street 1", pdf_text)
+                self.assertNotIn("Changed Street 9", pdf_text)
+
     def test_invoice_draft_rejects_stale_parallel_editor_without_overwriting(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -93,6 +187,161 @@ class BusinessDocumentTests(unittest.TestCase):
                 with self.assertRaises(Conflict):
                     save_invoice_draft(root, "contact-1", form, "tester", "draft-1")
             self.assertEqual(current, json.loads(path.read_text(encoding="utf-8")))
+
+    def test_contact_address_not_added_when_draft_validation_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            with mock.patch("app.business_documents._invoice_row_from_form", side_effect=ValueError("invalid invoice")), \
+                 mock.patch.object(ContactStore, "add_address") as add_address:
+                with self.assertRaisesRegex(ValueError, "invalid invoice"):
+                    save_invoice_draft(root, "contact-1", form, "tester")
+                add_address.assert_not_called()
+
+    def test_contact_address_saved_only_after_invoice_draft_is_persisted(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\\n12345 Teststadt", "street": "Teststr. 1", "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            contact = {"addresses": []}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", return_value=contact), \
+                 mock.patch.object(ContactStore, "add_address") as add_address, \
+                 mock.patch("app.business_documents.DocumentStore"):
+                save_invoice_draft(root, "contact-1", form, "tester")
+                self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+                add_address.assert_called_once()
+                self.assertEqual("12345", add_address.call_args.kwargs["components"]["postal"])
+
+    def test_invoice_draft_survives_optional_contact_address_lookup_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\n12345 Teststadt", "street": "Teststr. 1",
+                     "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", side_effect=ValueError("contact lookup unavailable")), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                saved = save_invoice_draft(root, "contact-1", form, "tester")
+            self.assertEqual("draft-test", saved["invoice_id"])
+            self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+
+    def test_invoice_draft_survives_optional_contact_address_write_error(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            form = MultiDict([("address_mode", "manual"), ("save_billing_address", "1")])
+            buyer = {"label": "Teststr. 1\n12345 Teststadt", "street": "Teststr. 1",
+                     "postal": "12345", "city": "Teststadt", "country": "DE"}
+            row = {"invoice_id": "draft-test", "contact_id": "contact-1", "buyer": buyer, "totals": {}}
+            with mock.patch("app.business_documents._invoice_row_from_form", return_value=row), \
+                 mock.patch.object(ContactStore, "get", return_value={"addresses": []}), \
+                 mock.patch.object(ContactStore, "add_address", side_effect=OSError("contact write unavailable")), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                saved = save_invoice_draft(root, "contact-1", form, "tester")
+            self.assertEqual("draft-test", saved["invoice_id"])
+            self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
+
+    def test_free_text_invoice_cannot_finalize_without_structured_address(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            invoice_id = "draft-free-text"
+            directory = root / CONTROL_DIR / "invoices"
+            directory.mkdir(parents=True)
+            row = {"invoice_id": invoice_id, "contact_id": "contact-1", "status": "draft",
+                   "buyer": {"street": "Teststr. 1", "postal": "", "city": "", "country": "DE"}}
+            (directory / (invoice_id + ".json")).write_text(json.dumps(row), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "strukturierte Adressdaten"):
+                finalize_invoice(root, invoice_id, "tester")
+
+    def test_free_text_invoice_address_is_parsed_into_structured_fields(self):
+        address = _parse_free_text_invoice_address("Musterstraße 1\r\n10115, Berlin\r\nde")
+
+        self.assertEqual("Musterstraße 1", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("DE", address["country"])
+        self.assertEqual("Musterstraße 1\n10115, Berlin\nde", address["label"])
+
+    def test_free_text_invoice_address_allows_two_street_lines_without_country(self):
+        address = _parse_free_text_invoice_address("Musterstraße 1\nHinterhaus\n10115 Berlin")
+        self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("DE", address["country"])
+
+    def test_free_text_invoice_address_accepts_multiline_street_and_country(self):
+        address = _parse_free_text_invoice_address(
+            "Musterstraße 1\nHinterhaus\n10115 Berlin\nAT"
+        )
+        self.assertEqual("Musterstraße 1 Hinterhaus", address["street"])
+        self.assertEqual("10115", address["postal"])
+        self.assertEqual("Berlin", address["city"])
+        self.assertEqual("AT", address["country"])
+
+    def test_free_text_invoice_address_rejects_missing_fields_and_invalid_country(self):
+        for value in ("Musterstraße 1", "Musterstraße 1\nBerlin", "Musterstraße 1\n10115 Berlin\nGermany"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                _parse_free_text_invoice_address(value)
+
+    def test_free_text_invoice_address_is_saved_as_a_structured_draft_snapshot(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact = ContactStore(root).upsert({"display_name": "Max Muster"}, "tester")
+            form = MultiDict([
+                ("address_mode", "free_text"),
+                ("billing_free_text", "Musterstraße 1\n10115, Berlin\nDE"),
+                ("recipient_type", "private"), ("recipient_contact", "Max Muster"),
+                ("issue_date", "2026-10-22"), ("service_date", "2026-10-22"),
+                ("payment_days", "14"), ("currency", "EUR"),
+            ])
+            with mock.patch("app.business_documents.business_settings", return_value={
+                "seller_name": "Muster GmbH", "seller_street": "Hauptstraße 1",
+                "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
+            }), mock.patch("app.business_documents._build_invoice_lines", return_value=[]), \
+                 mock.patch("app.business_documents._invoice_totals", return_value={
+                     "net": "0.00", "tax": "0.00", "gross": "0.00", "vat_groups": {},
+                 }), \
+                 mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-2026-0001"), \
+                 mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                row = save_invoice_draft(root, contact["contact_id"], form, "tester")
+
+            self.assertEqual({
+                "street": "Musterstraße 1", "postal": "10115", "city": "Berlin", "country": "DE",
+            }, {key: row["buyer"][key] for key in ("street", "postal", "city", "country")})
+            self.assertEqual("Max Muster\nMusterstraße 1\n10115, Berlin\nDE", row["buyer"]["label"])
+            self.assertEqual([], ContactStore(root).get(contact["contact_id"], "tester")["addresses"])
+            pdf = _invoice_content_pdf(row)
+            pdf_text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(pdf)).pages)
+            for address_part in ("Musterstraße 1", "10115", "Berlin", "DE"):
+                self.assertIn(address_part, pdf_text)
+
+            with mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
+                 mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_documents._validate_project_sources"), \
+                 mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"), \
+                 mock.patch("app.business_documents._pdfa3_convert_detailed", return_value=(b"pdfa", {"status": "pdfa3_created"})), \
+                 mock.patch("app.business_documents._cii_xml", return_value=b"<Invoice />"), \
+                 mock.patch("app.business_documents.embed_invoice_xml", return_value=b"hybrid"), \
+                 mock.patch("app.business_documents._validate_hybrid", return_value={"validated": True, "details": []}), \
+                 mock.patch("app.business_documents._store_generated_pdf", return_value={"document_id": "stored-pdf-1"}), \
+                 mock.patch("app.business_documents.DocumentStore"):
+                finalized, document = finalize_invoice(root, row["invoice_id"], "tester")
+
+            self.assertEqual("stored-pdf-1", document["document_id"])
+            self.assertEqual("open", finalized["status"])
+            self.assertEqual("validated", finalized["zugferd"]["status"])
+            ContactStore(root).add_address(
+                contact["contact_id"], "Neue Kontaktadresse", "Andere Straße 5", "tester",
+                components={"street": "Andere Straße 5", "postal": "20095", "city": "Hamburg", "country": "DE"},
+            )
+            self.assertEqual("Musterstraße 1", finalized["buyer"]["street"])
+            finalized_pdf = _invoice_content_pdf(finalized)
+            finalized_text = "\n".join(page.extract_text() or "" for page in PdfReader(io.BytesIO(finalized_pdf)).pages)
+            self.assertIn("Musterstraße 1", finalized_text)
+            self.assertNotIn("Andere Straße 5", finalized_text)
 
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
@@ -491,7 +740,11 @@ class BusinessDocumentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); directory = root / CONTROL_DIR / "invoices"; directory.mkdir(parents=True)
             path = directory / "draft-1.json"
-            original = {"invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001", "status": "draft", "template_id": "tpl", "history": []}
+            original = {
+                "invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001",
+                "status": "draft", "template_id": "tpl", "history": [],
+                "buyer": {"street": "Musterstraße 1", "postal": "10115", "city": "Berlin", "country": "DE"},
+            }
             path.write_text(json.dumps(original), encoding="utf-8")
             with mock.patch("app.business_documents.business_settings", return_value={}), \
                  mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \

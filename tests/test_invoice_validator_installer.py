@@ -2,7 +2,6 @@ import hashlib
 import importlib.util
 import tempfile
 import unittest
-import urllib.error
 from pathlib import Path
 from unittest import mock
 
@@ -15,23 +14,17 @@ SPEC.loader.exec_module(installer)
 
 
 class InvoiceValidatorInstallerTests(unittest.TestCase):
-    def test_missing_sha256_sidecar_fails_closed(self):
+    def test_upstream_release_checksum_is_pinned_and_payload_is_verified(self):
         payload = b"executable validator jar"
-
-        def download(url, *, max_bytes):
-            self.assertGreater(max_bytes, 0)
-            if url.endswith(".sha256"):
-                raise urllib.error.HTTPError(url, 404, "Not Found", hdrs=None, fp=None)
-            return payload
 
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / installer.FILENAME
             checksum_file = target.with_suffix(".jar.sha256")
             with mock.patch.object(installer, "TARGET", target), \
                  mock.patch.object(installer, "CHECKSUM_FILE", checksum_file), \
-                 mock.patch.object(installer, "_download", side_effect=download), \
+                 mock.patch.object(installer, "_download_upstream_release", return_value=payload), \
                  mock.patch.object(installer.shutil, "which", return_value="/usr/bin/java"):
-                with self.assertRaisesRegex(RuntimeError, "SHA-256 checksum"):
+                with self.assertRaisesRegex(RuntimeError, "checksum does not match"):
                     installer.install()
 
             self.assertFalse(target.exists())
@@ -46,7 +39,8 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
             checksum_file = target.with_suffix(".jar.sha256")
             with mock.patch.object(installer, "TARGET", target), \
                  mock.patch.object(installer, "CHECKSUM_FILE", checksum_file), \
-                 mock.patch.object(installer, "_download", side_effect=[checksum, payload]), \
+                 mock.patch.object(installer, "_published_checksum", return_value=checksum.decode()), \
+                 mock.patch.object(installer, "_download_upstream_release", return_value=payload), \
                  mock.patch.object(installer.shutil, "which", return_value="/usr/bin/java"):
                 installed = installer.install()
 
@@ -59,7 +53,7 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
             target = Path(temp) / installer.FILENAME
             with mock.patch.object(installer, "TARGET", target), \
                  mock.patch.object(installer, "CHECKSUM_FILE", target.with_suffix(".jar.sha256")), \
-                 mock.patch.object(installer, "_download", side_effect=[b"0" * 64, b"payload"]), \
+                 mock.patch.object(installer, "_download_upstream_release", return_value=b"payload"), \
                  mock.patch.object(installer.shutil, "which", return_value="/usr/bin/java"):
                 with self.assertRaisesRegex(RuntimeError, "checksum does not match"):
                     installer.install()
@@ -78,6 +72,12 @@ class InvoiceValidatorInstallerTests(unittest.TestCase):
                 with self.subTest(url=url), self.assertRaises(RuntimeError):
                     installer._download(url, max_bytes=1024)
             opener.assert_not_called()
+
+    def test_github_release_redirect_rejects_untrusted_hosts(self):
+        handler = installer._GitHubAssetRedirectHandler()
+        for url in ("http://release-assets.githubusercontent.com/file", "https://evil.invalid/file"):
+            with self.subTest(url=url), self.assertRaises(RuntimeError):
+                handler.redirect_request(mock.Mock(), None, 302, "Found", {}, url)
 
 
 if __name__ == "__main__":

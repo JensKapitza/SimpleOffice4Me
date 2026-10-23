@@ -1,6 +1,7 @@
 """Web UI and federation bridge for auditable rental settlements."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, send_file, url_for
@@ -14,11 +15,11 @@ from .federation_store import FederationStore
 from .federation_worker import push_blob_to_peer
 from .object_store import ObjectStore
 from .rental_billing import ALLOCATION_METHODS, LEDGER_KINDS, METRIC_TYPES, RentalBillingStore
-from .safe_paths import resolve_file_under
 from .v2.materialize import materialize_verified_object
 from .v2.storage_runtime import import_document
 
 bp = Blueprint("rentals", __name__, url_prefix="/rentals")
+logger = logging.getLogger(__name__)
 
 
 def _root() -> Path:
@@ -326,8 +327,11 @@ def approve(settlement_id: str):
     try:
         result = _store().approve(settlement_id, _actor())
         flash(f"Abrechnung freigegeben. Snapshot SHA-256: {result['settlement']['snapshot_sha256']}")
+    except ValueError as exc:
+        flash(str(exc))
     except Exception as exc:
-        flash(f"Freigabe fehlgeschlagen: {exc}")
+        logger.warning("Rental settlement approval failed (%s)", type(exc).__name__)
+        flash("Freigabe fehlgeschlagen. Bitte versuchen Sie es später erneut.")
     return _back("rentals.settlement_detail", settlement_id=settlement_id)
 
 
@@ -347,14 +351,22 @@ def correction(settlement_id: str):
 @login_required
 def approval_file(settlement_id: str, name: str):
     _require_admin()
-    store = _store(); settlement = store.settlement(settlement_id)
-    if settlement["status"] not in {"approved", "sent", "corrected", "void"}: abort(403)
+    store = _store()
     try:
-        path = resolve_file_under(store.approval_directory(settlement_id), name)
-    except (OSError, ValueError):
+        settlement = store.settlement(settlement_id)
+    except ValueError:
+        abort(404)
+    if settlement["status"] not in {"approved", "sent", "corrected", "void"}:
+        abort(403)
+    try:
+        path = store.verified_approval_file(settlement_id, name)
+    except (OSError, ValueError) as exc:
+        logger.warning("Rental approval artifact rejected (%s)", type(exc).__name__)
         abort(404)
     if path.suffix.casefold() not in {".pdf", ".json", ".zip"}: abort(404)
-    return send_file(path, as_attachment=True, download_name=path.name)
+    response = send_file(path, as_attachment=True, download_name=path.name)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @bp.get("/settlements/<settlement_id>/tenant/<contact_id>/package")
@@ -364,9 +376,14 @@ def tenant_package(settlement_id: str, contact_id: str):
     try:
         path = _store().tenant_package(settlement_id, contact_id)
         _store().record_export(settlement_id, contact_id, "zip_download", path, _actor())
-        return send_file(path, as_attachment=True, download_name=path.name)
+        response = send_file(path, as_attachment=True, download_name=path.name)
+        response.headers["Cache-Control"] = "private, no-store"
+        return response
     except ValueError as exc:
         flash(str(exc)); return _back("rentals.settlement_detail", settlement_id=settlement_id)
+    except (OSError, RuntimeError) as exc:
+        logger.warning("Rental tenant package download failed (%s)", type(exc).__name__)
+        abort(503, description="Mieterpaket momentan nicht verfügbar.")
 
 
 def _default_peer_for_tenant(store: RentalBillingStore, settlement_id: str, contact_id: str) -> str:
