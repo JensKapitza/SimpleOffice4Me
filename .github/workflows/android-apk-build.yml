@@ -216,6 +216,49 @@ jobs:
           python -m json.tool artifacts/android/gradle-runtime.cdx.json > /dev/null
           python tools/check_gradle_sbom.py artifacts/android/gradle-runtime.cdx.json
 
+      - name: Diagnose cryptography Android ELF symbol linkage
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/android/elf-diagnostics
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          import subprocess
+
+          apk = Path("android/apk/app/build/outputs/apk/debug/app-debug.apk")
+          output = Path("artifacts/android/elf-diagnostics")
+          found = False
+          with ZipFile(apk) as archive:
+              for name in archive.namelist():
+                  if not name.endswith(".so") or not (
+                      "_rust.abi3.so" in name or "libpython3.15" in name
+                  ):
+                      continue
+                  found = True
+                  target = output / Path(name).name
+                  target.write_bytes(archive.read(name))
+                  for flag, suffix in (("-d", "dynamic"), ("-Ws", "symbols")):
+                      result = subprocess.run(
+                          ["readelf", flag, str(target)],
+                          capture_output=True, text=True, check=True,
+                      )
+                      (output / (target.name + "." + suffix + ".txt")).write_text(
+                          result.stdout, encoding="utf-8"
+                      )
+                  print("ELF inspected:", name)
+          if not found:
+              raise SystemExit("No Python/cryptography ELF found in APK")
+          PY
+
+      - name: Upload Android ELF linkage diagnostics
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-elf-linkage-${{ matrix.abi }}
+          path: artifacts/android/elf-diagnostics/*.txt
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Inventory APK Python wheels
         run: |
           python tools/android_apk_python_sbom.py \
