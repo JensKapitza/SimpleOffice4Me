@@ -5,10 +5,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from flask import Flask
+from flask import Flask, g
 from bs4 import BeautifulSoup
 
-from app import app as flask_app
+from app import app as flask_app, site_visits
 from app.db import ensure_auth_database, get_db
 from app.password_security import hash_password
 from app.site_visit_report import build_visit_report
@@ -121,6 +121,45 @@ class SiteVisitStoreTests(unittest.TestCase):
         self.assertFalse(rows[0]["include_in_report"])
         self.assertEqual(1, len(rows[0]["history"]))
 
+    def test_unassigned_finding_can_be_assigned_later_and_reassignment_is_validated(self):
+        room = self.store.add_room(self.visit["visit_id"], "alice", {"name": "Büro 1"})
+        self.store.add_asset(self.visit["visit_id"], "alice", {"name": "Switch", "room_id": room["room_id"]})
+        asset = self.store.get(self.visit["visit_id"], "alice")["assets"][0]
+        self.store.add_finding(self.visit["visit_id"], "alice", {"title": "Unbekannte Dose"})
+        finding = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual("", finding["room_id"])
+        self.assertEqual("", finding["asset_id"])
+
+        self.store.update_finding(
+            self.visit["visit_id"], "alice", finding["finding_id"],
+            {"room_id": room["room_id"], "asset_id": asset["asset_id"]},
+        )
+        assigned = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual(room["room_id"], assigned["room_id"])
+        self.assertEqual(asset["asset_id"], assigned["asset_id"])
+
+        with self.assertRaisesRegex(ValueError, "Unbekannter Raum"):
+            self.store.update_finding(
+                self.visit["visit_id"], "alice", finding["finding_id"],
+                {"room_id": "00000000-0000-0000-0000-000000000000"},
+            )
+        with self.assertRaisesRegex(ValueError, "Unbekanntes Gerät"):
+            self.store.update_finding(
+                self.visit["visit_id"], "alice", finding["finding_id"],
+                {"asset_id": "00000000-0000-0000-0000-000000000000"},
+            )
+        unchanged = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual(room["room_id"], unchanged["room_id"])
+        self.assertEqual(asset["asset_id"], unchanged["asset_id"])
+
+        self.store.update_finding(
+            self.visit["visit_id"], "alice", finding["finding_id"],
+            {"room_id": "", "asset_id": ""},
+        )
+        cleared = self.store.get(self.visit["visit_id"], "alice")["findings"][0]
+        self.assertEqual("", cleared["room_id"])
+        self.assertEqual("", cleared["asset_id"])
+
     def test_scan_merges_ports_into_existing_manual_device_atomically(self):
         self.store.add_asset(self.visit["visit_id"], "alice", {"name": "Gateway", "ip": "192.168.1.1", "ports": "22,443"})
         scan = {"cidr": "192.168.1.0/30", "ports": [80], "probed_hosts": 2, "device_count": 1, "scanned_at": "2026-09-28T00:00:00Z", "scanner": "tcp-connect", "limitations": "TCP only", "devices": [{"ip": "192.168.1.1", "ports": [{"port": 80, "protocol": "tcp", "state": "open", "source": "scan", "observed_at": "2026-09-28T00:00:00Z"}]}]}
@@ -160,6 +199,44 @@ class SiteVisitStoreTests(unittest.TestCase):
             self.store.get(self.visit["visit_id"], "bob")
         with self.assertRaisesRegex(ValueError, "Dateityp"):
             self.store.add_attachment(self.visit["visit_id"], "alice", "x.html", "text/html", b"<script>", "visit", self.visit["visit_id"])
+
+
+class SiteVisitFindingAssignmentRouteTests(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(__name__)
+        self.visit_id = "visit-1"
+        self.record = {
+            "visit_id": self.visit_id,
+            "findings": [
+                {"finding_id": "free", "room_id": "", "asset_id": ""},
+                {"finding_id": "assigned-room", "room_id": "room-1", "asset_id": ""},
+                {"finding_id": "assigned-asset", "room_id": "", "asset_id": "asset-1"},
+            ],
+            "rooms": [],
+            "assets": [],
+        }
+
+    def _render(self, path):
+        with self.app.test_request_context(path):
+            g.user = {"username": "alice", "is_admin": False}
+            with patch("app.site_visits._visit", return_value=self.record):
+                with patch("app.site_visits.render_template", side_effect=lambda name, **context: (name, context)):
+                    return site_visits.finding_assignments(visit_id=self.visit_id)
+
+    def test_unassigned_filter_only_lists_findings_without_room_or_asset(self):
+        template, context = self._render(
+            f"/site-visits/{self.visit_id}/findings/assignments?scope=unassigned"
+        )
+
+        self.assertEqual("site_visits/unassigned_findings.html", template)
+        self.assertEqual(["free"], [finding["finding_id"] for finding in context["findings"]])
+        self.assertEqual(1, context["unassigned_finding_count"])
+
+    def test_all_filter_keeps_partially_assigned_findings_available_for_reassignment(self):
+        _, context = self._render(f"/site-visits/{self.visit_id}/findings/assignments?scope=all")
+
+        self.assertEqual(3, len(context["findings"]))
+        self.assertEqual("all", context["finding_scope"])
 
 
 class SiteVisitScanTests(unittest.TestCase):
@@ -218,7 +295,7 @@ class SiteVisitScanTests(unittest.TestCase):
         self.assertEqual("TCP connect (-T3)", result["scanner"])
 
 
-class SiteVisitReportRouteTests(unittest.TestCase):
+class SiteVisitHttpRouteTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name) / "documents"
@@ -249,6 +326,83 @@ class SiteVisitReportRouteTests(unittest.TestCase):
             row["finding_id"] for row in finding["findings"]
             if row["title"] == "Validated observation"
         )
+
+    def test_unassigned_findings_can_be_assigned_and_reassigned_through_http(self):
+        room = self.store.add_room(self.visit["visit_id"], "report-owner", {"name": "Büro 1"})
+        self.store.add_asset(
+            self.visit["visit_id"], "report-owner",
+            {"name": "Switch", "room_id": room["room_id"]},
+        )
+        asset = self.store.get(self.visit["visit_id"], "report-owner")["assets"][0]
+        unassigned = self.store.add_finding(
+            self.visit["visit_id"], "report-owner", {"title": "Freier Befund"}
+        )["findings"][-1]
+        self.store.add_finding(
+            self.visit["visit_id"], "report-owner",
+            {"title": "Befund mit Gerät", "asset_id": asset["asset_id"]},
+        )
+
+        url = f"/site-visits/{self.visit['visit_id']}/findings/assignments"
+        response = self.client.get(url)
+        self.assertEqual(200, response.status_code)
+        page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        self.assertIn("Freier Befund", page.get_text())
+        self.assertNotIn("Befund mit Gerät", page.get_text())
+        room_select = page.find("select", id=f"room-{unassigned['finding_id']}")
+        form = room_select.find_parent("form") if room_select else None
+        self.assertIsNotNone(
+            form,
+            f"Room selector was not rendered for {unassigned['finding_id']}; "
+            f"available selectors: {[item.get('id') for item in page.select('select[id^=room-]')]}",
+        )
+        action = form["action"]
+        csrf = form.find("input", {"name": "_csrf_token"})["value"]
+
+        invalid = self.client.post(
+            action,
+            data={
+                "_csrf_token": csrf, "room_id": "unknown-room",
+                "asset_id": asset["asset_id"], "status": "confirmed",
+                "return_to": "assignment", "scope": "unassigned",
+            },
+        )
+        self.assertEqual(302, invalid.status_code)
+        invalid_page = self.client.get(invalid.location)
+        self.assertIn("Unbekannter Raum", invalid_page.get_data(as_text=True))
+        unchanged = next(
+            row for row in self.store.get(self.visit["visit_id"], "report-owner")["findings"]
+            if row["finding_id"] == unassigned["finding_id"]
+        )
+        self.assertEqual("", unchanged["room_id"])
+        self.assertEqual("", unchanged["asset_id"])
+        self.assertEqual("unreviewed", unchanged["status"])
+
+        saved = self.client.post(
+            action,
+            data={
+                "_csrf_token": csrf, "room_id": room["room_id"],
+                "asset_id": asset["asset_id"], "status": "rejected",
+                "return_to": "assignment", "scope": "unassigned",
+            },
+        )
+        self.assertEqual(302, saved.status_code)
+        self.assertIn("scope=unassigned", saved.location)
+        saved_page = self.client.get(saved.location)
+        self.assertIn("Befundzuordnung gespeichert", saved_page.get_data(as_text=True))
+        assigned = next(
+            row for row in self.store.get(self.visit["visit_id"], "report-owner")["findings"]
+            if row["finding_id"] == unassigned["finding_id"]
+        )
+        self.assertEqual(room["room_id"], assigned["room_id"])
+        self.assertEqual(asset["asset_id"], assigned["asset_id"])
+        self.assertEqual("unreviewed", assigned["status"])
+        self.assertEqual(room["room_id"], assigned["history"][-1]["after"]["room_id"])
+        self.assertNotIn("status", assigned["history"][-1]["after"])
+
+        all_findings = self.client.get(f"{url}?scope=all")
+        all_page = BeautifulSoup(all_findings.get_data(as_text=True), "html.parser")
+        self.assertIn("Befund mit Gerät", all_page.get_text())
+        self.assertEqual(400, self.client.get(f"{url}?scope=invalid").status_code)
 
     def tearDown(self):
         flask_app.config.update(self.previous)
