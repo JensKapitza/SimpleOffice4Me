@@ -392,7 +392,10 @@ def register(bp) -> None:
         for row in rows:
             fields = row["contact"].get("fields", {}); crm = row["crm"]
             writer.writerow((_crm_csv_safe(fields.get("display_name", "")), _crm_csv_safe(fields.get("company", "")), _crm_csv_safe(fields.get("email", "")), _crm_csv_safe(fields.get("phone", "")), _crm_csv_safe(crm.get("status", "active")), _crm_csv_safe(", ".join(crm.get("roles", []))), _crm_csv_safe(crm.get("customer_number", "")), _crm_csv_safe(crm.get("supplier_number", "")), row["last_activity"], row["activity_count"]))
-        return Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=crm-kontakte.csv"})
+        response = Response("\ufeff" + output.getvalue(), content_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=crm-kontakte.csv"})
+        response.headers["Cache-Control"] = "private, no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @bp.get("/documents/contacts/address-search.json", endpoint="crm_address_search")
     @login_required
