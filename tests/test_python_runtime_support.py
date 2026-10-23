@@ -92,6 +92,8 @@ class RuntimeSupportTests(unittest.TestCase):
         self.assertEqual(dependencies, legacy["install_requires"])
         self.assertEqual(classifiers, legacy["classifiers"])
         self.assertEqual(">=3.11", legacy["python_requires"])
+        self.assertEqual(["packaging>=26.3,<27"], legacy["extras_require"]["sbom"])
+        self.assertIn('sbom = [\n  "packaging>=26.3,<27",\n]', modern)
 
     def test_standalone_option_keeps_system_python_and_default_venv_untouched(self):
         starter = (ROOT / "start.sh").read_text()
