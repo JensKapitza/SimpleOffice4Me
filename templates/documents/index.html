@@ -37,11 +37,16 @@
   const startFolderImport = document.getElementById('start-folder-import');
   const cancelFolderImport = document.getElementById('cancel-folder-import');
   let nativeFolderImport = window.SimpleOfficeFolderImport || null;
+  const androidWebView = /SimpleOffice4Me-Android\//i.test(navigator.userAgent);
   const refreshFolderPicker = () => {
     nativeFolderImport = window.SimpleOfficeFolderImport || nativeFolderImport;
-    folderButton.disabled = !('webkitdirectory' in folder) && !nativeFolderImport;
+    folderButton.disabled = androidWebView
+      ? !nativeFolderImport
+      : !('webkitdirectory' in folder) && !nativeFolderImport;
     if (folderButton.disabled) {
-      folderButton.title = 'Ordnerauswahl wird von diesem Browser nicht unterstützt';
+      folderButton.title = androidWebView
+        ? 'Android-Ordnerauswahl nicht verbunden. Seite neu laden.'
+        : 'Ordnerauswahl wird von diesem Browser nicht unterstützt';
       folderButton.setAttribute('aria-describedby', 'document-selection');
     } else {
       folderButton.removeAttribute('title');
@@ -89,6 +94,10 @@
       }
       return;
     }
+    if (androidWebView) {
+      status.textContent = 'Android-Ordnerauswahl nicht verbunden. Bitte Seite neu laden; keine einzelne Datei als Ordner übernehmen.';
+      return;
+    }
     if ('webkitdirectory' in folder) folder.click();
   });
   startFolderImport.addEventListener('click', () => {
@@ -124,7 +133,9 @@
     startFolderImport.hidden = !queued && !preview;
     startFolderImport.disabled = active || (queued && folderButton.disabled);
     startFolderImport.textContent = preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
-    folderButton.disabled = active || (!('webkitdirectory' in folder) && !nativeFolderImport);
+    folderButton.disabled = active || (androidWebView
+      ? !nativeFolderImport
+      : !('webkitdirectory' in folder) && !nativeFolderImport);
     if (preview) folderButton.disabled = true;
     folderButton.textContent = queued ? 'Weiteren Ordner hinzufügen' : 'Ordner importieren';
     if (detail.message) status.textContent = detail.message;
