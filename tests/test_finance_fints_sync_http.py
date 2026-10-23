@@ -80,7 +80,10 @@ class FinTSTransactionSyncHTTPTests(unittest.TestCase):
             initial = self.client.post(
                 self.url, data={"pin": "temporary-pin"}, headers={"X-CSRF-Token": "f" * 40},
             )
-        self.assertEqual(200, initial.status_code)
+        self.assertEqual(
+            200, initial.status_code,
+            f"location={initial.headers.get('Location')}; body={initial.get_data(as_text=True)[:1000]}",
+        )
         self.assertEqual("no-store", initial.headers["Cache-Control"])
         self.assertIn("Freigabe für Umsatzabruf", initial.get_data(as_text=True))
         token_match = re.search(
@@ -109,7 +112,10 @@ class FinTSTransactionSyncHTTPTests(unittest.TestCase):
                 data={"challenge_token": token, "pin": "temporary-pin", "tan": "123456"},
                 headers={"X-CSRF-Token": "f" * 40},
             )
-        self.assertEqual(200, response.status_code)
+        self.assertEqual(
+            200, response.status_code,
+            f"location={response.headers.get('Location')}; body={response.get_data(as_text=True)[:1000]}",
+        )
         self.assertEqual("no-store", response.headers["Cache-Control"])
         self.assertNotIn("123456", response.get_data(as_text=True))
         resume.assert_called_once_with(
