@@ -44,10 +44,11 @@ Migrationspfad und keine Unterstützung für alte Python-Umgebungen.
 Die Android-App wird als installierbare APK über GitHub Actions
 `Android APK build` bereitgestellt. Die Python-Runtime wird in der APK
 gebündelt; Nutzer installieren **kein** separates Python auf Android.
-Die bisherigen Android-Build-Abhängigkeiten müssen vor einer
-Sicherheitsfreigabe noch auf eine nicht betroffene Pillow-Version
-aktualisiert und auf den unterstützten ABIs gebaut werden.
-Ein erfolgreicher Desktop-Python-Build allein ist keine Android-Freigabe.
+Der geprüfte ARM64-Build verwendet Pillow 13.0.0 und hash-verifizierte native
+Wheels für Pillow, cryptography, cffi und argon2-cffi-bindings. CI baut die APK,
+vergleicht die tatsächlich enthaltenen Python-Pakete mit den Gradle-Pins und
+validiert die Android-SBOMs. ARM32 wird mangels verifizierter Pillow-13-Wheels
+nicht angeboten. Der CI-Nachweis ersetzt keinen Laufzeit-/Gerätetest.
 
 ## Prüfung
 

@@ -415,7 +415,7 @@ requirements = {
     "argon2-cffi": ">=23.1,<26",
     "beautifulsoup4": ">=4.12,<5",
     "defusedxml": ">=0.7,<1",
-    "Pillow": ">=12.2,<13",
+    "Pillow": ">=13.0.0,<14",
     "reportlab": ">=4.0,<6",
     "pypdf": ">=5.0,<7",
     "waitress": ">=3.0,<4",
@@ -463,7 +463,7 @@ except ImportError:
 
 requirements = {
     "cryptography": (">=48.0.1,<51", "cryptography"),
-    "Pillow": (">=12.2,<13", "PIL"),
+    "Pillow": (">=13.0.0,<14", "PIL"),
 }
 problems = []
 for distribution, (specifier, module) in requirements.items():

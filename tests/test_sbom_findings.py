@@ -21,6 +21,14 @@ PILLOW_AUDIT_FINDINGS = {
     "CVE-2026-112895", "CVE-2026-112400", "CVE-2026-112397", "CVE-2026-112896",
     "CVE-2026-112897", "CVE-2026-112395", "CVE-2026-112404", "CVE-2026-112899",
 }
+PILLOW_FINDING_TARGETS = {
+    identifier: {"Ubuntu 22.04 Python 3.10 runtime", "Android ARM64 installable APK",
+                 "Termux ARM64 native Python runtime"}
+    for identifier in PILLOW_AUDIT_FINDINGS - {"CVE-2026-112899"}
+}
+PILLOW_FINDING_TARGETS["CVE-2026-112899"] = {
+    "Ubuntu 22.04 Python 3.10 runtime", "Termux ARM64 native Python runtime",
+}
 
 
 class SbomFindingRegisterTests(unittest.TestCase):
@@ -40,6 +48,10 @@ class SbomFindingRegisterTests(unittest.TestCase):
             self.assertTrue(finding["platforms"])
             self.assertTrue(self._is_url(finding["advisory"]))
             self.assertTrue(self._is_url(finding["severity_source"]))
+            self.assertEqual(
+                PILLOW_FINDING_TARGETS[finding["id"]],
+                {target["name"] for target in finding["platforms"]},
+            )
 
             for platform in finding["platforms"]:
                 self.assertTrue(REQUIRED_PLATFORM_FIELDS <= platform.keys())

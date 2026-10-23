@@ -21,6 +21,7 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn('PIP_ONLY_BINARY="cryptography"', script)
         self.assertIn("--only-binary=:all:", script)
         self.assertIn("termux_native_dependencies_ok", script)
+        self.assertIn('"Pillow": (">=13.0.0,<14", "PIL")', script)
         self.assertIn("pip check", script)
 
     def test_optional_sftp_starter_uses_termux_pkg_for_native_crypto_and_is_standalone(self):
