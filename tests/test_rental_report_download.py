@@ -95,7 +95,10 @@ class RentalReportDownloadTests(unittest.TestCase):
         package = self.directory / "Mieterpaket-tenant-1.zip"
         original_package = package.read_bytes()
         package.write_bytes(b"tampered package")
-        self.assertEqual(404, self.request_with_store("get", self.package_url).status_code)
+        response = self.request_with_store("get", self.package_url, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Freigegebene Abrechnungsdatei ist beschädigt", response.get_data(as_text=True))
+        self.assertNotIn(b"tampered package", response.data)
         package.write_bytes(original_package)
 
     def test_modified_manifest_or_snapshot_blocks_report_download(self):
