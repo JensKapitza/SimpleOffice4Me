@@ -18,6 +18,8 @@ class FpmPackagingTests(unittest.TestCase):
         self.assertIn("--config-files \"/etc/simpleoffice4me/simpleoffice.env\"", script)
         self.assertIn("--exclude='./instance'", script)
         self.assertIn("--exclude='./database/*.sqlite'", script)
+        self.assertNotIn("python3.10", script)
+        self.assertNotIn("--deb-interest-noawait", script)
 
     def test_build_dep_installs_complete_debian_build_environment(self):
         script = (ROOT / "build-dep.sh").read_text(encoding="utf-8")
@@ -41,7 +43,9 @@ class FpmPackagingTests(unittest.TestCase):
             self.assertIn(package, script)
         self.assertIn("gem install --no-document fpm", script)
         self.assertIn('python3 "$ROOT/simpleoffice_runtime_support.py"', script)
-        self.assertIn("Ubuntu-22.04-System-Python 3.10", script)
+        self.assertIn("CPython 3.11–3.15 final", script)
+        self.assertLess(script.index('python3 "$ROOT/simpleoffice_runtime_support.py"'),
+                        script.index("run_root apt-get update"))
 
     def test_postinst_installs_without_pypi_and_preserves_state(self):
         postinst = (ROOT / "packaging" / "postinst.sh").read_text(encoding="utf-8")
@@ -49,8 +53,16 @@ class FpmPackagingTests(unittest.TestCase):
         self.assertIn("--find-links", postinst)
         self.assertIn("/var/lib/simpleoffice4me", postinst)
         self.assertIn("ln -s \"$INSTANCE_DIR\" \"$APP_DIR/instance\"", postinst)
+        self.assertNotIn("python3.10", postinst)
+        self.assertNotIn("runtime-proof", postinst)
+        self.assertFalse((ROOT / "packaging" / "postinst-runtime-proof.sh").exists())
         postrm = (ROOT / "packaging" / "postrm.sh").read_text(encoding="utf-8")
         self.assertNotIn("rm -rf /var/lib/simpleoffice4me", postrm)
+
+    def test_no_jammy_python_runtime_proof_or_fpm_trigger_remains(self):
+        for path in ("start.sh", "start-sftp.sh", "build-dep.sh", "simpleoffice_runtime_support.py"):
+            with self.subTest(path=path):
+                self.assertNotIn("jammy-python310", (ROOT / path).read_text(encoding="utf-8"))
 
     def test_systemd_service_is_non_root_and_hardened(self):
         service = (ROOT / "packaging" / "simpleoffice4me.service").read_text(encoding="utf-8")

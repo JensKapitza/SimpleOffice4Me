@@ -44,6 +44,18 @@ if ! command -v apt-get >/dev/null 2>&1; then
   exit 2
 fi
 
+if command -v python3 >/dev/null 2>&1 && ! python3 "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
+  echo "Vorhandenes python3 ist nicht freigegeben. Installiere CPython 3.11–3.15 final, bevor Build-Abhaengigkeiten installiert werden." >&2
+  exit 2
+fi
+if [ -r /etc/os-release ] \
+  && [ "$(. /etc/os-release; printf '%s' "${ID:-}")" = "ubuntu" ] \
+  && [ "$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")" = "22.04" ] \
+  && ! command -v python3 >/dev/null 2>&1; then
+  echo "Ubuntu 22.04 liefert kein unterstuetztes System-Python; installiere CPython 3.11–3.15 final vor diesem Build." >&2
+  exit 2
+fi
+
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
     "$@"
@@ -84,16 +96,8 @@ echo "SimpleOffice4Me: installiere Build-Abhaengigkeiten ..."
 run_root apt-get update
 run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 
-if [ -r /etc/os-release ] \
-  && [ "$(. /etc/os-release; printf '%s' "${ID:-}")" = "ubuntu" ] \
-  && [ "$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")" = "22.04" ] \
-  && [ "$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')" = "3.10" ]; then
-  run_root env SIMPLEOFFICE_RUNTIME_PROOF_DIR=/var/cache/simpleoffice4me/runtime-proof \
-    python3 "$ROOT/simpleoffice_runtime_support.py" --write-proof
-fi
-
 if ! python3 "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
-  echo "CPython 3.11–3.15 oder Ubuntu-22.04-System-Python 3.10 wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
+  echo "CPython 3.11–3.15 final wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
   exit 2
 fi
 

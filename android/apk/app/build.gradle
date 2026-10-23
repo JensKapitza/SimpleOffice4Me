@@ -1,6 +1,7 @@
 plugins {
     id 'com.android.application'
     id 'com.chaquo.python'
+    id 'org.cyclonedx.bom'
 }
 
 def errorReportUrl = (System.getenv('SIMPLEOFFICE_ERROR_REPORT_URL') ?: '').trim()
@@ -10,12 +11,46 @@ if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
 def escapedErrorReportUrl = errorReportUrl.replace('\\', '\\\\').replace('"', '\\"')
 
 def androidAbi = (System.getenv('SIMPLEOFFICE_ANDROID_ABI') ?: 'arm64-v8a').trim()
-def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.13').trim()
+def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.15').trim()
 def androidRuntimeProfiles = [
-    'arm64-v8a': '3.13',
-    'armeabi-v7a': '3.11',
+    'arm64-v8a': '3.15',
 ]
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
+def androidWheelDirectory = (System.getenv('SIMPLEOFFICE_ANDROID_WHEEL_DIR') ?: '').trim()
+def localCffiWheel = null
+def localArgon2BindingsWheel = null
+def localPillowWheel = null
+def localCryptographyWheel = null
+def localReportlabWheel = null
+if (androidWheelDirectory) {
+    def wheelDirectory = file(androidWheelDirectory)
+    if (!wheelDirectory.isDirectory()) {
+        throw new GradleException("Android wheel directory does not exist: ${wheelDirectory}")
+    }
+    def cffiWheels = fileTree(dir: wheelDirectory).matching { include 'cffi-2.0.0-*.whl' }.files
+    def argon2BindingsWheels = fileTree(dir: wheelDirectory).matching { include 'argon2_cffi_bindings-21.2.0-*.whl' }.files
+    def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'pillow-13.0.0-*.whl' }.files
+    def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-48.0.1-*.whl' }.files
+    def reportlabWheels = fileTree(dir: wheelDirectory).matching { include 'reportlab-4.2.5-py3-none-any.whl' }.files
+    if (cffiWheels.size() != 1 || argon2BindingsWheels.size() != 1 || pillowWheels.size() != 1 || cryptographyWheels.size() != 1 || reportlabWheels.size() != 1) {
+        def wheelNames = (wheelDirectory.listFiles() ?: [])
+            .findAll { it.isFile() && it.name.endsWith('.whl') }
+            .collect { it.name }
+            .sort()
+        throw new GradleException(
+            'Android wheel directory must contain exactly one verified cffi 2.0.0, '
+            + 'argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel. '
+            + "Match counts: cffi=${cffiWheels.size()}, argon2=${argon2BindingsWheels.size()}, "
+            + "Pillow=${pillowWheels.size()}, cryptography=${cryptographyWheels.size()}, "
+            + "ReportLab=${reportlabWheels.size()}; wheel files: ${wheelNames}"
+        )
+    }
+    localCffiWheel = cffiWheels.first()
+    localArgon2BindingsWheel = argon2BindingsWheels.first()
+    localPillowWheel = pillowWheels.first()
+    localCryptographyWheel = cryptographyWheels.first()
+    localReportlabWheel = reportlabWheels.first()
+}
 
 def projectMetadata = file('../../../pyproject.toml')
 if (!projectMetadata.isFile()) {
@@ -58,6 +93,16 @@ if (calculatedVersionCode <= 0 || calculatedVersionCode > 2_100_000_000L) {
 }
 def appVersionCode = calculatedVersionCode.toInteger()
 def appVersionName = "${versionMajor}.${buildDate}.${buildSequence}"
+
+tasks.named('cyclonedxDirectBom') {
+    projectType = org.cyclonedx.model.Component.Type.APPLICATION
+    componentName = 'SimpleOffice4Me Android'
+    componentVersion = appVersionName
+    includeConfigs = ['debugRuntimeClasspath']
+    includeMetadataResolution = true
+    jsonOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.json')
+    xmlOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.xml')
+}
 
 if (!expectedPythonVersion) {
     throw new GradleException("Unsupported Android ABI: ${androidAbi}")
@@ -123,15 +168,35 @@ chaquopy {
         }
         pip {
             install 'Flask==3.1.3'
-            install 'cffi==1.17.1'
-            install 'argon2-cffi-bindings==21.2.0'
+            if (localCffiWheel) {
+                install localCffiWheel.absolutePath
+            } else {
+                install 'cffi==2.0.0'
+            }
+            if (localArgon2BindingsWheel) {
+                install localArgon2BindingsWheel.absolutePath
+            } else {
+                install 'argon2-cffi-bindings==21.2.0'
+            }
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
             install 'defusedxml==0.7.1'
-            install 'Pillow==11.0.0'
-            install 'reportlab==4.2.5'
+            if (localPillowWheel) {
+                install localPillowWheel.absolutePath
+            } else {
+                install 'Pillow==13.0.0'
+            }
+            if (localReportlabWheel) {
+                install localReportlabWheel.absolutePath
+            } else {
+                install 'reportlab==4.2.5'
+            }
             install 'pypdf==6.1.1'
-            install 'cryptography==42.0.8'
+            if (localCryptographyWheel) {
+                install localCryptographyWheel.absolutePath
+            } else {
+                install 'cryptography==48.0.1'
+            }
             install 'tzdata==2026.2'
         }
     }

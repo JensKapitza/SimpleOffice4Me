@@ -45,7 +45,13 @@ Die SBOM gehört zum jeweiligen Release-Artefakt. Abhängigkeitswarnungen werden
 - Logout änderte den Sitzungszustand per GET; im Produkt ist nur noch POST erlaubt.
 - Der SBOM-Serienwert war statisch; er wird nun eindeutig aus dem tatsächlichen Komponentenbestand abgeleitet.
 
-Am 26.07.2026 wurde nach einem `pip-audit`-Befund die Bildbibliothek von Pillow 11.x auf mindestens 12.3 angehoben. Befunde des isolierten Prüfwerkzeugs (`pip`) gehören zur Build-Umgebung und werden dort separat aktualisiert.
+Am 21.10.2026 meldete `pip-audit` acht Pillow-Advisories für 12.3.0 mit
+13.0.0 als Fix-Version. PR #789 bündelt die Pillow-13.0.0-Aktualisierung für
+die verbleibenden CPython-Runtimes, die Entfernung der Python-3.10-Ausnahme und
+den nachweisbaren Android-ARM64-APK-Build. Alle acht Befunde sind in
+`docs/sbom-vulnerability-findings.json` mit Advisory- und Buildnachweisen
+erfasst. Bis der PR in `main` ist, bleiben sie dort Release-Blocker; `pip-audit`
+wird nicht unterdrückt.
 
 ## Nicht automatisch erfüllbar
 

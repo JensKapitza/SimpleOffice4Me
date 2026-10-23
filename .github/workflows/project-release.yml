@@ -130,9 +130,38 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip
           python -m pip install --editable '.[security]'
-          python tools/generate_sbom.py
+          python tools/generate_sbom.py --xml-output artifacts/sbom.cdx.xml
           python -m json.tool artifacts/sbom.cdx.json > /dev/null
+          test -s artifacts/sbom.cdx.xml
           cp artifacts/sbom.cdx.json release-downloads/SimpleOffice4Me-${{ steps.version.outputs.value }}-sbom.cdx.json
+          cp artifacts/sbom.cdx.xml release-downloads/SimpleOffice4Me-${{ steps.version.outputs.value }}-sbom.cdx.xml
+
+      - name: Validate every CycloneDX inventory collected for the release
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          mapfile -d '' json_boms < <(find release-downloads -type f -name '*.cdx.json' -print0)
+          mapfile -d '' xml_boms < <(find release-downloads -type f -name '*.cdx.xml' -print0)
+          if (( ${#json_boms[@]} == 0 || ${#xml_boms[@]} == 0 )); then
+            echo "Release artifacts must contain CycloneDX JSON and XML inventories" >&2
+            exit 1
+          fi
+          for bom in "${json_boms[@]}"; do
+            "$validator" validate --input-file "$bom" --input-format json \
+              --input-version v1_6 --fail-on-errors
+          done
+          for bom in "${xml_boms[@]}"; do
+            "$validator" validate --input-file "$bom" --input-format xml \
+              --input-version v1_6 --fail-on-errors
+          done
 
       - name: Create checksums and release archive
         env:

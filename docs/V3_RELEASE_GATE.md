@@ -1,5 +1,14 @@
 # SimpleOffice4Me 3.0 release-gate evidence
 
+## Runtime-support change in progress — 2026-10-23
+
+The dated snapshots below preserve the policy and evidence available when they
+were written. Draft PR #789 now removes Python 3.10 from the supported runtime
+set and combines that change with the verified Android Pillow 13 remediation.
+Until that PR is merged, `main` retains the Canonical Ubuntu 22.04 Python 3.10
+exception and its Pillow 12.3.0 exposure; this remains a release blocker, not an
+approved exception. See `docs/PYTHON_RUNTIME_SUPPORT.md` for the proposed policy.
+
 ## Current repository update — 2026-10-16 (main `31e46b4f`)
 
 Implementation basis: `main` at

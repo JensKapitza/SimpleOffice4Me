@@ -77,7 +77,7 @@ command -v fpm >/dev/null 2>&1 || {
 command -v python3 >/dev/null 2>&1 || { echo "python3 fehlt." >&2; exit 2; }
 command -v tar >/dev/null 2>&1 || { echo "tar fehlt." >&2; exit 2; }
 python3 "$ROOT/simpleoffice_runtime_support.py" || {
-  echo "CPython 3.11–3.15 oder Ubuntu-22.04-System-Python 3.10 wird zum Bauen benötigt." >&2
+  echo "CPython 3.11–3.15 final wird zum Bauen benötigt." >&2
   exit 2
 }
 
@@ -216,8 +216,6 @@ fpm \
   "${FPM_RECOMMEND_ARGS[@]}" \
   --config-files "/etc/simpleoffice4me/simpleoffice.env" \
   --after-install "$ROOT/packaging/postinst.sh" \
-  --deb-interest-noawait "/usr/bin/python3.10" \
-  --deb-interest-noawait "/usr/lib/python3.10" \
   --before-remove "$ROOT/packaging/prerm.sh" \
   --after-remove "$ROOT/packaging/postrm.sh" \
   --package "$OUT_DIR/${PACKAGE_NAME}_${VERSION}-${ITERATION}_${ARCH}.deb" \

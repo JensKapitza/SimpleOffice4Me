@@ -1,0 +1,231 @@
+name: Android native wheel build (experimental)
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  native-wheel:
+    name: Android ARM64 Python 3.15 - ${{ matrix.package }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: Pillow
+            version: '13.0.0'
+          - package: cffi
+            version: '2.0.0'
+            sdist_sha256: 44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529
+          - package: argon2-cffi-bindings
+            version: '21.2.0'
+            sdist_sha256: bb89ceffa6c791807d1305ceb77dbfacc5aa499891d2c55661c6459651fc39e3
+          - package: cryptography
+            version: '48.0.1'
+            sdist_sha256: 266f4ee051abb2f725b74ef8072b521ce1feacf685a3364fa6a6b45548db791a
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          # cibuildwheel manages target interpreters; the orchestration host
+          # should use a stable, published CPython release.
+          python-version: '3.13'
+      - name: Install Android NDK and cibuildwheel
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'cibuildwheel==4.3.3' 'packaging==26.3'
+      - name: Verify wheel compatibility tests
+        run: python -m unittest discover -s tests -p test_chaquopy_wheels.py
+      - name: Attempt Android ARM64 wheel build
+        env:
+          CIBW_PLATFORM: android
+          CIBW_BUILD: cp315-android_arm64_v8a
+          CIBW_ARCHS_ANDROID: arm64_v8a
+          CIBW_BUILD_VERBOSITY: '1'
+          CIBW_TEST_SKIP: '*'
+          CIBW_OUTPUT_DIR: wheelhouse
+          PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
+          PACKAGE_NAME: ${{ matrix.package }}
+          SOURCE_SHA256: ${{ matrix.sdist_sha256 }}
+          LIBFFI_SOURCE_COMMIT: 3d0ce1e6fcf19f853894862abcbac0ae78a7be60
+          PILLOW_SOURCE_COMMIT: 293218ad059d994baf1777d882911bed6a49704a
+          PILLOW_DEPENDENCIES_COMMIT: 93950a8f9ada1165a4ab8c719326d5017e3f6c72
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p wheelhouse sources
+          if [[ "$PACKAGE_SPEC" == Pillow==* ]]; then
+            source_dir="$PWD/sources/Pillow"
+            git clone --depth 1 --branch 13.0.0 --recurse-submodules \
+              https://github.com/python-pillow/Pillow.git "$source_dir"
+            actual_commit="$(git -C "$source_dir" rev-parse HEAD)"
+            if [[ "$actual_commit" != "$PILLOW_SOURCE_COMMIT" ]]; then
+              echo "Pillow source tag resolved to unexpected commit: $actual_commit" >&2
+              exit 1
+            fi
+            git -C "$source_dir" submodule update --init --recursive
+            dependencies_dir="$PWD/sources/pillow-dependencies"
+            git clone --filter=blob:none --no-checkout \
+              https://github.com/python-pillow/pillow-depends.git "$dependencies_dir"
+            git -C "$dependencies_dir" checkout --detach "$PILLOW_DEPENDENCIES_COMMIT"
+            actual_dependencies_commit="$(git -C "$dependencies_dir" rev-parse HEAD)"
+            if [[ "$actual_dependencies_commit" != "$PILLOW_DEPENDENCIES_COMMIT" ]]; then
+              echo "Pillow dependency sources resolved to unexpected commit: $actual_dependencies_commit" >&2
+              exit 1
+            fi
+            git -C "$dependencies_dir" archive --format=zip \
+              --prefix=pillow-depends-main/ "$PILLOW_DEPENDENCIES_COMMIT" \
+              > "$source_dir/pillow-depends-main.zip"
+          else
+            printf '%s --hash=sha256:%s\n' "$PACKAGE_SPEC" "$SOURCE_SHA256" > sources/requirements.txt
+            python -m pip download --require-hashes --no-deps --no-binary :all: \
+              --dest sources --requirement sources/requirements.txt
+            archive="$(find sources -maxdepth 1 -type f ! -name requirements.txt -print -quit)"
+            test -n "$archive"
+            mkdir -p unpacked
+            case "$archive" in
+              *.zip) python -m zipfile -e "$archive" unpacked ;;
+              *) tar -xf "$archive" -C unpacked ;;
+            esac
+            source_dir="$(find unpacked -mindepth 1 -maxdepth 1 -type d -print -quit)"
+            test -n "$source_dir"
+          fi
+          if [[ ! -f "$source_dir/pyproject.toml" && ! -f "$source_dir/setup.py" ]]; then
+            echo "Source archive has no Python build metadata: $source_dir" >&2
+            exit 1
+          fi
+          # Pillow upstream enables its manylinux dependency hook via
+          # pyproject.toml. Override it explicitly: on Android it attempts
+          # host installs under /usr/local and cannot build NDK libraries.
+          (
+            cd "$source_dir"
+            if [[ "$PACKAGE_NAME" == cffi ]]; then
+              # cffi needs target libffi, not the runner's Linux libffi.
+              ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/27.3.13750724}}"
+              toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64"
+              ffi_source="$GITHUB_WORKSPACE/sources/libffi"
+              git clone --depth 1 --branch v3.4.6 \
+                https://github.com/libffi/libffi.git "$ffi_source"
+              actual_ffi_commit="$(git -C "$ffi_source" rev-parse HEAD)"
+              if [[ "$actual_ffi_commit" != "$LIBFFI_SOURCE_COMMIT" ]]; then
+                echo "libffi v3.4.6 resolved to unexpected commit: $actual_ffi_commit" >&2
+                exit 1
+              fi
+              python "$GITHUB_WORKSPACE/tools/prepare_android_libffi.py" "$ffi_source"
+              ffi_prefix="$GITHUB_WORKSPACE/sources/android-libffi-prefix"
+              (
+                cd "$ffi_source"
+                ./autogen.sh
+                env CC="$toolchain/bin/aarch64-linux-android24-clang" \
+                  AR="$toolchain/bin/llvm-ar" RANLIB="$toolchain/bin/llvm-ranlib" \
+                  ./configure --host=aarch64-linux-android \
+                    --prefix="$ffi_prefix" --disable-shared --enable-static
+                make -j2
+                make install
+              )
+              test -f "$ffi_prefix/include/ffi.h"
+              test -f "$ffi_prefix/lib/libffi.a"
+              export CIBW_ENVIRONMENT_ANDROID="PKG_CONFIG_PATH=$ffi_prefix/lib/pkgconfig CFLAGS=-I$ffi_prefix/include LDFLAGS=-L$ffi_prefix/lib"
+            fi
+            if [[ "$PACKAGE_NAME" == argon2-cffi-bindings ]]; then
+              # The wheel is cross-built from an x86_64 runner; do not enable
+              # its host-SSE2 heuristic for the Android ARM64 target.
+              export CIBW_ENVIRONMENT_ANDROID="ARGON2_CFFI_USE_SSE2=0"
+            fi
+            if [[ "$PACKAGE_NAME" == Pillow ]]; then
+              export CIBW_BEFORE_ALL_ANDROID="true"
+              # Upstream forces raqm=enable for its release wheels, but the
+              # Android target has no libraqm/HarfBuzz/FriBidi toolchain yet.
+              # Keep FreeType text rendering; disable only complex shaping.
+              export CIBW_CONFIG_SETTINGS_ANDROID="raqm=disable"
+              # Pillow guesses Linux host include/library directories even
+              # when building with Android clang. Disable only that guess.
+              python -c 'from pathlib import Path; p=Path("setup.py"); s=p.read_text(); old="if not self.disable_platform_guessing:"; assert s.count(old)==1, "Unexpected Pillow setup.py layout"; p.write_text(s.replace(old, "if False:  # Android: skip Linux host paths", 1))'
+              # The Android NDK sysroot provides zlib for API 24. Explicitly
+              # point Pillow at the target sysroot rather than host /usr/lib.
+              ndk="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/27.3.13750724}}"
+              sysroot="$ndk/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+              test -f "$sysroot/usr/include/zlib.h"
+              test -f "$sysroot/usr/lib/aarch64-linux-android/24/libz.so" || test -f "$sysroot/usr/lib/aarch64-linux-android/libz.so"
+              # Pillow's setup.py probes ZLIB_ROOT/include and ZLIB_ROOT/lib.
+              # NDK stores Android libraries under the target API directory,
+              # so stage a target-only prefix with the expected layout.
+              zlib_prefix="$GITHUB_WORKSPACE/sources/android-zlib-prefix"
+              mkdir -p "$zlib_prefix/include" "$zlib_prefix/lib"
+              ln -sf "$sysroot/usr/include/zlib.h" "$zlib_prefix/include/zlib.h"
+              ln -sf "$sysroot/usr/include/zconf.h" "$zlib_prefix/include/zconf.h"
+              zlib_lib="$sysroot/usr/lib/aarch64-linux-android/24/libz.so"
+              if [[ ! -f "$zlib_lib" ]]; then
+                zlib_lib="$sysroot/usr/lib/aarch64-linux-android/libz.so"
+              fi
+              test -f "$zlib_lib"
+              ln -sf "$zlib_lib" "$zlib_prefix/lib/libz.so"
+              # Build JPEG for the target ABI; host libjpeg cannot be linked
+              # into an Android wheel. Keep the install under the workspace.
+              jpeg_source="$GITHUB_WORKSPACE/sources/libjpeg-turbo"
+              git clone --depth 1 --branch 3.1.2 \
+                https://github.com/libjpeg-turbo/libjpeg-turbo.git "$jpeg_source"
+              jpeg_prefix="$GITHUB_WORKSPACE/sources/android-jpeg-prefix"
+              cmake -S "$jpeg_source" -B "$jpeg_source/build-android" \
+                -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+                -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+                -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$jpeg_prefix" \
+                -DENABLE_SHARED=OFF -DENABLE_STATIC=ON -DWITH_SIMD=OFF \
+                -DWITH_JAVA=OFF -DWITH_TURBOJPEG=OFF
+              cmake --build "$jpeg_source/build-android" --parallel 2
+              cmake --install "$jpeg_source/build-android"
+              test -f "$jpeg_prefix/include/jpeglib.h"
+              test -f "$jpeg_prefix/lib/libjpeg.a"
+              # Pillow requires FreeType for ImageFont; cross-compile it
+              # rather than disabling text rendering or linking host libs.
+              freetype_source="$GITHUB_WORKSPACE/sources/freetype"
+              git clone --depth 1 --branch VER-2-13-3 \
+                https://github.com/freetype/freetype.git "$freetype_source"
+              freetype_prefix="$GITHUB_WORKSPACE/sources/android-freetype-prefix"
+              cmake -S "$freetype_source" -B "$freetype_source/build-android" \
+                -DCMAKE_TOOLCHAIN_FILE="$ndk/build/cmake/android.toolchain.cmake" \
+                -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-24 \
+                -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$freetype_prefix" \
+                -DBUILD_SHARED_LIBS=OFF -DFT_DISABLE_ZLIB=ON \
+                -DFT_DISABLE_BZIP2=ON -DFT_DISABLE_PNG=ON \
+                -DFT_DISABLE_HARFBUZZ=ON -DFT_DISABLE_BROTLI=ON
+              cmake --build "$freetype_source/build-android" --parallel 2
+              cmake --install "$freetype_source/build-android"
+              test -f "$freetype_prefix/include/freetype2/ft2build.h"
+              test -f "$freetype_prefix/lib/libfreetype.a"
+              export CIBW_ENVIRONMENT_ANDROID="ZLIB_ROOT=$zlib_prefix JPEG_ROOT=$jpeg_prefix FREETYPE_ROOT=$freetype_prefix CFLAGS=\"-I$zlib_prefix/include -I$jpeg_prefix/include -I$freetype_prefix/include/freetype2\" LDFLAGS=\"-L$zlib_prefix/lib -L$jpeg_prefix/lib -L$freetype_prefix/lib\""
+              echo "Pillow zlib prefix: $zlib_prefix"
+              ls -l "$zlib_prefix/include" "$zlib_prefix/lib"
+            fi
+            python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
+          )
+      - name: Verify resulting Android wheels
+        env:
+          PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
+          PACKAGE_NAME: ${{ matrix.package }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find wheelhouse -name '*.whl' -print -quit)"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from tools.check_chaquopy_wheels import compatible_wheels
+          package, version = os.environ["PACKAGE_SPEC"].split("==", 1)
+          html = "".join(f'<a href="{wheel.name}">wheel</a>' for wheel in Path("wheelhouse").glob("*.whl"))
+          if not compatible_wheels(html, package, version, "3.15", "arm64-v8a"):
+              raise SystemExit(f"No compatible Android ARM64 Python 3.15 wheel built for {package}=={version}")
+          PY
+          (cd wheelhouse && sha256sum *.whl > "${PACKAGE_NAME}-SHA256SUMS")
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-cp315-arm64-${{ matrix.package }}-wheel
+          path: |
+            wheelhouse/*.whl
+            wheelhouse/${{ matrix.package }}-SHA256SUMS
+          if-no-files-found: ignore
+          retention-days: 7

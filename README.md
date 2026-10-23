@@ -307,12 +307,10 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 ## Voraussetzungen
 
-- **CPython 3.11–3.15** für Produktion. Begrenzte Ausnahme: Canonicals
-  unverändertes System-Python 3.10 auf Ubuntu 22.04 bis **31.05.2027**, auch in
-  daraus erzeugten venvs, mit aktivierten und installierten Sicherheitsupdates.
-  Upstream-/PPA-/selbst gebautes Python 3.10 ist nicht unterstützt. Die
-  [Runtime-Policy](docs/PYTHON_RUNTIME_SUPPORT.md) erklärt Metadaten und Prüfungen.
-  Python 3.15 final wird in einer eigenen vollständigen CI-Abnahme geprüft.
+- **CPython 3.11–3.15 final** für Produktion. Python 3.10 und ältere Versionen,
+  einschließlich Ubuntu 22.04-System-Python, sind nicht unterstützt. Die
+  [Runtime-Policy](docs/PYTHON_RUNTIME_SUPPORT.md) erklärt Mindestversion,
+  saubere Neuinstallation und vorhandene Standalone-Installation.
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
 - Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
   Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert
