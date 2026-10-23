@@ -46,7 +46,7 @@ def _iter_relevant_elfs(
             )
 
 
-def extract_linkage_diagnostics(apk: Path, output: Path) -> list[Path]:
+def extract_linkage_diagnostics(apk: Path, output: Path, *, require_python_dependency: bool = False) -> list[Path]:
     """Write readelf dynamic and symbol tables for cryptography and libpython."""
     output.mkdir(parents=True, exist_ok=True)
     found: dict[str, Path] = {}
@@ -74,6 +74,13 @@ def extract_linkage_diagnostics(apk: Path, output: Path) -> list[Path]:
             report = output / f"{target.name}.{suffix}.txt"
             report.write_text(result.stdout, encoding="utf-8")
             reports.append(report)
+    if require_python_dependency:
+        rust_dynamic = (output / "_rust.abi3.so.dynamic.txt").read_text(encoding="utf-8")
+        if "Shared library: [libpython3.15.so]" not in rust_dynamic:
+            raise ValueError(
+                "Android cryptography _rust.abi3.so has no DT_NEEDED for "
+                "libpython3.15.so; known PyLong_Type startup failure (#811)"
+            )
     return reports
 
 
@@ -81,8 +88,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--require-python-dependency", action="store_true")
     args = parser.parse_args()
-    extract_linkage_diagnostics(args.apk, args.output)
+    extract_linkage_diagnostics(
+        args.apk, args.output, require_python_dependency=args.require_python_dependency
+    )
     return 0
 
 
