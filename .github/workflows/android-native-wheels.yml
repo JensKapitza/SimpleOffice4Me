@@ -202,6 +202,27 @@ jobs:
             fi
             python -m cibuildwheel . --platform android --output-dir "$GITHUB_WORKSPACE/wheelhouse"
           )
+      - name: Link cryptography extension to Android libpython
+        if: matrix.package == 'cryptography'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends patchelf
+          python -m pip install 'wheel==0.46.3'
+          mkdir -p unpacked-wheel
+          wheel_file="$(find wheelhouse -maxdepth 1 -name 'cryptography-*.whl' -print -quit)"
+          test -n "$wheel_file"
+          python -m wheel unpack "$wheel_file" --dest unpacked-wheel
+          extension="$(find unpacked-wheel -type f -path '*/cryptography/hazmat/bindings/_rust.abi3.so' -print -quit)"
+          test -n "$extension"
+          patchelf --add-needed libpython3.15.so "$extension"
+          readelf -d "$extension" | grep -F 'Shared library: [libpython3.15.so]'
+          rm "$wheel_file"
+          wheel_root="$(find unpacked-wheel -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          python -m wheel pack "$wheel_root" --dest-dir wheelhouse
+          test -n "$(find wheelhouse -name 'cryptography-*.whl' -print -quit)"
+
       - name: Verify resulting Android wheels
         env:
           PACKAGE_SPEC: ${{ matrix.package }}==${{ matrix.version }}
