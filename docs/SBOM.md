@@ -21,16 +21,30 @@ CycloneDX CLI release and checked against a pinned SHA-256 digest before use.
 - The published multi-platform Docker image also enables BuildKit's SBOM
   attestation for image-level packages. Per-architecture CycloneDX XML and JSON
   artifacts inventory the Python application environment from the built image.
+  The container build also generates a combined image inventory so OS packages
+  and Python packages from the same built image are represented together.
 
 Artifacts are retained by CI for 14 days. Release workflows remain responsible
 for attaching the final release SBOMs. Missing or unresolved inventory records
 fail closed rather than being represented as a complete SBOM.
 
+## Vulnerability follow-up mapping
+
+`docs/sbom-vulnerability-findings.json` records verified findings with their
+component purl, affected versions/platforms, advisory severity source, fixed
+version, blocker, follow-up issue and PR, relevant build, and last-reviewed
+commit. A finding remains open until its fix is merged and verified in the
+released platform artifact; a green PR build alone is recorded as
+`remediated_pending_merge` rather than as a released fix. OSV severity is not
+invented when the advisory supplies only a CVSS vector.
+
 ## Current Android constraint
 
-The Android APK profile targets ARM64/Python 3.13. ARM32 is not offered because
-the patched Pillow 13 baseline has no verified wheel for that ABI. The APK job
-checks the actual Chaquopy wheel index before Gradle runs and rejects APKs whose
-bundled Pillow is below the patched baseline. The ARM64 APK remains blocked
-until source-built Pillow 13 and cryptography 48 wheels are installed into and
-verified in a real APK; a successful standalone wheel build is not sufficient.
+The installable APK profile targets ARM64/Python 3.15. ARM32 is not offered
+because the patched Pillow 13 baseline has no verified wheel for that ABI. CI
+builds hash-verified ARM64 wheels for Pillow 13.0.0, cryptography 48.0.1, cffi
+2.0.0, and argon2-cffi-bindings 21.2.0, installs them into the APK, then checks
+that the APK metadata matches every direct Gradle pin and validates its
+CycloneDX JSON/XML inventories. The Pillow 13.0.0 baseline is enforced against
+the actual APK. This is a CI build/inventory acceptance; it does not claim
+physical-device SAF or runtime acceptance.

@@ -12,7 +12,9 @@ on:
       - 'Dockerfile'
       - 'pyproject.toml'
       - 'tools/generate_sbom.py'
+      - 'tools/check_container_image_sbom.py'
       - 'tests/test_sbom_xml.py'
+      - 'tests/test_container_image_sbom.py'
       - '.github/workflows/docker-build.yml'
 
 permissions:
@@ -143,6 +145,23 @@ jobs:
             --xml-output "artifacts/container/${{ matrix.arch }}-python.cdx.xml"
           python -m json.tool "artifacts/container/${{ matrix.arch }}-python.cdx.json" > /dev/null
 
+          syft_archive="$RUNNER_TEMP/syft.tar.gz"
+          syft_directory="$RUNNER_TEMP/syft"
+          mkdir -p "$syft_directory"
+          curl --fail --location --retry 3 \
+            https://github.com/anchore/syft/releases/download/v1.55.0/syft_1.55.0_linux_amd64.tar.gz \
+            --output "$syft_archive"
+          printf '%s  %s\n' \
+            'bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d' \
+            "$syft_archive" | sha256sum --check --status
+          tar -xzf "$syft_archive" -C "$syft_directory" syft
+          "$syft_directory/syft" "$image" \
+            -o "cyclonedx-json=artifacts/container/${{ matrix.arch }}-image.cdx.json" \
+            -o "cyclonedx-xml=artifacts/container/${{ matrix.arch }}-image.cdx.xml"
+          python tools/check_container_image_sbom.py \
+            --python-sbom "artifacts/container/${{ matrix.arch }}-python.cdx.json" \
+            --image-sbom "artifacts/container/${{ matrix.arch }}-image.cdx.json"
+
           validator="$RUNNER_TEMP/cyclonedx"
           curl --fail --location --retry 3 \
             https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
@@ -151,10 +170,13 @@ jobs:
             'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
             "$validator" | sha256sum --check --status
           chmod 0755 "$validator"
-          for format in json xml; do
-            "$validator" validate \
-              --input-file "artifacts/container/${{ matrix.arch }}-python.cdx.$format" \
-              --input-format "$format" --input-version v1_6 --fail-on-errors
+          for bom in artifacts/container/${{ matrix.arch }}-python.cdx.json artifacts/container/${{ matrix.arch }}-image.cdx.json; do
+            "$validator" validate --input-file "$bom" \
+              --input-format json --input-version v1_6 --fail-on-errors
+          done
+          for bom in artifacts/container/${{ matrix.arch }}-python.cdx.xml artifacts/container/${{ matrix.arch }}-image.cdx.xml; do
+            "$validator" validate --input-file "$bom" \
+              --input-format xml --input-version v1_6 --fail-on-errors
           done
 
       - uses: actions/upload-artifact@v7
@@ -163,6 +185,8 @@ jobs:
           path: |
             artifacts/container/${{ matrix.arch }}-python.cdx.json
             artifacts/container/${{ matrix.arch }}-python.cdx.xml
+            artifacts/container/${{ matrix.arch }}-image.cdx.json
+            artifacts/container/${{ matrix.arch }}-image.cdx.xml
           if-no-files-found: error
           retention-days: 14
 
