@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import base64
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 
 from app import app
+from app.document_store import CONTROL_DIR
 from app.finance_store import (
     FINTS_CHALLENGE_TTL_SECONDS,
     FinanceStore,
@@ -135,6 +137,90 @@ class FinTSChallengeStoreTests(unittest.TestCase):
                         self.store.create_fints_challenge(
                             self.connection["connection_id"], payload, "challenge-user",
                         )
+
+    def test_transaction_challenge_binds_dates_and_local_mapping(self):
+        mapping = self.store.bank_account_mappings(
+            self.connection["connection_id"], "challenge-user",
+        )[0]
+        payload = self.state(
+            operation="transactions",
+            step="transactions",
+            start_date="2026-10-01",
+            end_date="2026-10-31",
+            local_account_id=mapping["account_id"],
+            completed_mappings=[],
+        )
+        with app.app_context():
+            token = self.store.create_fints_challenge(
+                self.connection["connection_id"], payload, "challenge-user",
+            )
+            with self.store._db() as db:
+                row = db.execute(
+                    "SELECT operation,payload FROM finance_fints_challenge",
+                ).fetchone()
+            self.assertEqual("transactions", row["operation"])
+            self.assertTrue(row["payload"].startswith("enc:v1:"))
+            restored = self.store.consume_fints_challenge(
+                token, self.connection["connection_id"], "challenge-user",
+            )
+        self.assertEqual(payload, restored)
+
+    def test_transaction_challenge_rejects_invalid_windows_and_mapping_changes(self):
+        mapping = self.store.bank_account_mappings(
+            self.connection["connection_id"], "challenge-user",
+        )[0]
+        payload = self.state(
+            operation="transactions",
+            step="transactions",
+            start_date="2026-10-31",
+            end_date="2026-10-01",
+            local_account_id=mapping["account_id"],
+            completed_mappings=[],
+        )
+        with app.app_context(), self.assertRaisesRegex(ValueError, "Zeitraum"):
+            self.store.create_fints_challenge(
+                self.connection["connection_id"], payload, "challenge-user",
+            )
+
+        payload["start_date"] = "2026-10-01"
+        with app.app_context():
+            token = self.store.create_fints_challenge(
+                self.connection["connection_id"], payload, "challenge-user",
+            )
+            other = self.store.create_account({"name": "Other read-only test"}, "challenge-user")
+            self.store.map_remote_account(
+                self.connection["connection_id"], "iban:DE02120300000000202051",
+                other["account_id"], "DE02120300000000202051", "challenge-user",
+            )
+            with self.assertRaisesRegex(ValueError, "Kontozuordnung"):
+                self.store.consume_fints_challenge(
+                    token, self.connection["connection_id"], "challenge-user",
+                )
+
+    def test_existing_challenge_rows_migrate_without_losing_payloads(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            control = root / CONTROL_DIR
+            control.mkdir(parents=True)
+            database_path = control / "finance.sqlite3"
+            with sqlite3.connect(database_path) as database:
+                database.execute(
+                    "CREATE TABLE finance_fints_challenge("
+                    "token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, connection_id TEXT NOT NULL,"
+                    "payload TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)"
+                )
+                database.execute(
+                    "INSERT INTO finance_fints_challenge VALUES(?,?,?,?,?,?)",
+                    ("a" * 64, "legacy-user", "legacy-connection", "enc:v1:legacy", 100, 200),
+                )
+
+            FinanceStore(root)
+            with sqlite3.connect(database_path) as database:
+                row = database.execute(
+                    "SELECT operation,payload FROM finance_fints_challenge WHERE token_hash=?",
+                    ("a" * 64,),
+                ).fetchone()
+            self.assertEqual(("balance", "enc:v1:legacy"), row)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,12 @@
     <strong>Vollständigkeit nicht verifiziert.</strong> Die Bank kann den abrufbaren Zeitraum begrenzen oder Buchungen verzögert bereitstellen.
     Der Bericht enthält nur die tatsächlich in diesem Abruf zurückgegebenen Umsätze.
   </div>
+  {% if result.previously_synced_accounts %}
+  <div class="alert alert-info" role="status">
+    Bereits vor der TAN-Freigabe synchronisierte Konten wurden nicht erneut abgerufen:
+    {{ result.previously_synced_accounts|join(", ") }}.
+  </div>
+  {% endif %}
   <p>Abgerufen: <strong>{{ result.fetched }}</strong> · Neu: <strong>{{ result.created }}</strong> · Bereits vorhanden: <strong>{{ result.existing }}</strong> · Mögliche Dubletten: <strong>{{ result.possible_duplicates }}</strong></p>
   {% for account in result.accounts %}
   <section class="card mb-4">

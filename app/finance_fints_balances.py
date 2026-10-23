@@ -1,8 +1,6 @@
 """Read-only FinTS balance adapter with short-lived TAN challenge support."""
 from __future__ import annotations
 
-import base64
-import binascii
 from contextlib import nullcontext
 from decimal import Decimal, InvalidOperation
 from types import SimpleNamespace
@@ -12,12 +10,12 @@ from .finance_schema import currency as _currency, text
 from .finance_fints import (
     FinTSAuthenticationRequired,
     _client,
+    _decode_sca_state as _decode_state,
+    _encode_sca_state as _encode_state,
     _find_remote_account,
+    _restore_sca_retry_response as _restore_retry_response,
     is_tan_response,
 )
-
-_MAX_STATE_BYTES = 120 * 1024
-
 
 def _client_context(client: Any):
     return client if callable(getattr(client, "__enter__", None)) else nullcontext(client)
@@ -37,24 +35,6 @@ def _decimal_amount(value: Any) -> str:
         return str(amount.quantize(Decimal("0.01")))
     except InvalidOperation as exc:
         raise ValueError("FinTS lieferte einen ungültigen Kontostand") from exc
-
-
-def _encode_state(value: bytes) -> str:
-    if not isinstance(value, bytes) or not value or len(value) > _MAX_STATE_BYTES:
-        raise ValueError("FinTS-SCA-Zustand ist ungültig oder zu groß")
-    return base64.b64encode(value).decode("ascii")
-
-
-def _decode_state(value: Any) -> bytes:
-    if not isinstance(value, str) or not value or len(value) > _MAX_STATE_BYTES * 2:
-        raise ValueError("FinTS-SCA-Sitzung ist ungültig; bitte erneut starten")
-    try:
-        decoded = base64.b64decode(value, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise ValueError("FinTS-SCA-Sitzung ist ungültig; bitte erneut starten") from exc
-    if not decoded or len(decoded) > _MAX_STATE_BYTES:
-        raise ValueError("FinTS-SCA-Sitzung ist ungültig; bitte erneut starten")
-    return decoded
 
 
 def _challenge_error(
@@ -117,22 +97,6 @@ def _normalize_balance(result: Any, remote_account_id: str, account: Any) -> dic
         if available is not None else ""
     )
     return balance
-
-
-def _restore_retry_response(challenge_data: str, *, decoupled: bool):
-    if not isinstance(decoupled, bool):
-        raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen TAN-Modus")
-    try:
-        from fints.client import NeedRetryResponse
-    except ImportError as exc:
-        raise ValueError("FinTS-SCA-Sitzung kann mit der installierten Bibliothek nicht fortgesetzt werden") from exc
-    response = NeedRetryResponse.from_data(_decode_state(challenge_data))
-    if not is_tan_response(response):
-        raise ValueError("FinTS-SCA-Sitzung enthält keine TAN-Herausforderung")
-    # python-fints NeedTANResponse serialization omits this mode flag, so restore
-    # it only from the authenticated, encrypted server-side challenge payload.
-    response.decoupled = decoupled
-    return response
 
 
 def fetch_balance(
