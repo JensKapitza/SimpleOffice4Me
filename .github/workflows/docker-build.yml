@@ -156,8 +156,8 @@ jobs:
             "$syft_archive" | sha256sum --check --status
           tar -xzf "$syft_archive" -C "$syft_directory" syft
           "$syft_directory/syft" "$image" \
-            -o "cyclonedx-json=artifacts/container/${{ matrix.arch }}-image.cdx.json" \
-            -o "cyclonedx-xml=artifacts/container/${{ matrix.arch }}-image.cdx.xml"
+            -o "cyclonedx-json@1.6=artifacts/container/${{ matrix.arch }}-image.cdx.json" \
+            -o "cyclonedx-xml@1.6=artifacts/container/${{ matrix.arch }}-image.cdx.xml"
           python tools/check_container_image_sbom.py \
             --python-sbom "artifacts/container/${{ matrix.arch }}-python.cdx.json" \
             --image-sbom "artifacts/container/${{ matrix.arch }}-image.cdx.json"
