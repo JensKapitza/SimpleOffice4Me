@@ -18,7 +18,7 @@ Vor Updates die bestehenden Sicherungsverfahren für das Dokumentenverzeichnis v
 Bei Schreib- oder Dateiberechtigungsfehlern müssen die Zugriffsrechte des ausführenden
 SimpleOffice-Benutzers geprüft werden.
 
-## FinTS-Kontostände
+## FinTS-Kontostände und Umsatzabruf
 
 Nach Konfiguration einer FinTS-Bankverbindung, dem Kontenabruf und der manuellen
 Zuordnung eines Bankkontos zu einem lokalen Konto kann die Finance-Oberfläche einen
@@ -35,25 +35,32 @@ Laufzeitkonfiguration des Dienstes hinterlegt werden. Sie ist eine Produktkennun
 keine Benutzer-PIN oder TAN. Ohne gültige Produkt-ID starten FinTS-Abrufe nicht und
 zeigen eine entsprechende Konfigurationsmeldung.
 
-Fordert die Bank für einen ausdrücklich gestarteten Saldoabruf eine TAN oder App-Freigabe,
-kann dieser einzelne lesende Vorgang fortgesetzt werden. Der kurzlebige python-fints-Client-,
-Dialog- und Retry-Zustand wird mit `SECRET_KEY` serverseitig verschlüsselt gespeichert,
-an den angemeldeten Benutzer, die Bankverbindung und das zugeordnete Konto gebunden und
-nach fünf Minuten gelöscht. Der decoupled App-Freigabemodus wird dabei separat im selben
-authentifizierten Payload festgehalten, da python-fints ihn nicht im Retry-Blob serialisiert.
-Der zufällige Fortsetzungstoken wird nur gehasht gespeichert
-und kann einmalig verwendet werden. Je Benutzer sind höchstens drei und insgesamt höchstens
-100 Freigaben offen. Der Token wird nur als CSRF-geschütztes Formularfeld übertragen. Für
-die Fortsetzung müssen PIN und gegebenenfalls TAN erneut eingegeben werden; beide bleiben
-request-lokal und werden weder im Zustand noch in der Datenbank gespeichert. App-Freigaben
-übermitteln keine TAN. Der gelesene Saldo bleibt flüchtig und erzeugt keine Buchung.
+Fordert die Bank für einen ausdrücklich gestarteten Saldo- oder Umsatzabruf eine TAN oder
+App-Freigabe, kann der einzelne lesende Vorgang fortgesetzt werden. Das umfasst auch eine
+TAN-Herausforderung beim Abruf der Kontenliste. Der kurzlebige python-fints-Client-, Dialog-
+und Retry-Zustand wird mit `SECRET_KEY` serverseitig verschlüsselt gespeichert und an den
+angemeldeten Benutzer, die Bankverbindung und die aktuelle lokale/entfernte Kontozuordnung
+gebunden. Transaktionsfreigaben binden außerdem den ursprünglichen Abrufzeitraum sowie die
+bereits erfolgreich synchronisierten Konten, damit ein Resume keine Kontoänderung übernimmt
+und diese Konten nicht erneut abruft. Der unveränderte Umsatzzeitraum ist auf höchstens 370
+Tage begrenzt.
 
-Dieser SCA-Resume gilt ausschließlich für den manuellen Kontostandsabruf, einschließlich
-einer eventuell dafür benötigten Kontodiscovery. SCA-Anforderungen bei Dialoginitialisierung,
-Umsatzimport oder anderen FinTS-Vorgängen werden nicht umgangen und bleiben fail-closed.
-Deaktivierte Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder
+Herausforderungen verfallen nach fünf Minuten. Der decoupled App-Freigabemodus wird separat
+im authentifizierten Payload gehalten, da python-fints ihn nicht im Retry-Blob serialisiert.
+Der zufällige Fortsetzungstoken wird nur gehasht gespeichert und kann einmalig verwendet
+werden. Je Benutzer sind höchstens drei und insgesamt höchstens 100 Freigaben offen. Der
+Token wird ausschließlich als CSRF-geschütztes Formularfeld übertragen. Für die Fortsetzung
+müssen PIN und gegebenenfalls TAN erneut eingegeben werden; beide bleiben request-lokal und
+werden weder im Zustand noch in der Datenbank gespeichert. App-Freigaben übermitteln keine
+TAN. Umsatzdaten werden erst nach vollständiger Rückgabe und Normalisierung für das jeweilige
+Konto importiert; davor erfolgreich abgeschlossene Konten bleiben erhalten und werden beim
+Resume übersprungen.
+
+Andere FinTS-Operationen bleiben fail-closed; insbesondere werden keine Zahlungsaufträge
+ausgeführt. Deaktivierte Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder
 Umsatzabrufe starten. Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940
-importiert werden.
+importiert werden. Das additive Datenbankschema migriert bestehende SCA-Challenge-Zeilen beim
+regulären Öffnen, ohne gespeicherte Challenges zu verwerfen.
 
 Regressionstests für Neuinstallation, additive Aktualisierung, erneutes Öffnen,
 Mandantentrennung und Wiederholbarkeit:
