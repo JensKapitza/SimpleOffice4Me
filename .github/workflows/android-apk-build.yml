@@ -308,7 +308,7 @@ jobs:
     name: Android ARM64 Python runtime smoke
     needs: apk
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -317,9 +317,6 @@ jobs:
           name: simpleoffice4me-android-installable
           path: artifacts/android
 
-      - name: Enable runner access to hardware acceleration
-        run: sudo setfacl -m "u:$(id -un):rw" /dev/kvm
-
       - name: Install and exercise ARM64 APK Python runtime
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
         with:
@@ -327,4 +324,5 @@ jobs:
           arch: arm64-v8a
           target: google_apis
           disable-animations: true
+          emulator-options: -accel off
           script: python .github/scripts/smoke_android_python_runtime.py "$(find artifacts/android -type f -name '*.apk' -print -quit)"
