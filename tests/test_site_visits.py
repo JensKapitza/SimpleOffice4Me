@@ -295,7 +295,7 @@ class SiteVisitScanTests(unittest.TestCase):
         self.assertEqual("TCP connect (-T3)", result["scanner"])
 
 
-class SiteVisitReportRouteTests(unittest.TestCase):
+class SiteVisitHttpRouteTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name) / "documents"
@@ -326,6 +326,70 @@ class SiteVisitReportRouteTests(unittest.TestCase):
             row["finding_id"] for row in finding["findings"]
             if row["title"] == "Validated observation"
         )
+
+    def test_unassigned_findings_can_be_assigned_and_reassigned_through_http(self):
+        room = self.store.add_room(self.visit["visit_id"], "report-owner", {"name": "Büro 1"})
+        self.store.add_asset(
+            self.visit["visit_id"], "report-owner",
+            {"name": "Switch", "room_id": room["room_id"]},
+        )
+        asset = self.store.get(self.visit["visit_id"], "report-owner")["assets"][0]
+        unassigned = self.store.add_finding(
+            self.visit["visit_id"], "report-owner", {"title": "Freier Befund"}
+        )["findings"][-1]
+        self.store.add_finding(
+            self.visit["visit_id"], "report-owner",
+            {"title": "Befund mit Gerät", "asset_id": asset["asset_id"]},
+        )
+
+        url = f"/site-visits/{self.visit['visit_id']}/findings/assignments"
+        response = self.client.get(url)
+        self.assertEqual(200, response.status_code)
+        page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
+        self.assertIn("Freier Befund", page.get_text())
+        self.assertNotIn("Befund mit Gerät", page.get_text())
+        form = page.find("form", action=f"{url}/{unassigned['finding_id']}")
+        self.assertIsNotNone(form)
+        csrf = form.find("input", {"name": "_csrf_token"})["value"]
+
+        invalid = self.client.post(
+            f"{url}/{unassigned['finding_id']}",
+            data={
+                "_csrf_token": csrf, "room_id": "unknown-room",
+                "asset_id": asset["asset_id"], "status": "unreviewed",
+                "return_to": "assignment", "scope": "unassigned",
+            },
+        )
+        self.assertEqual(302, invalid.status_code)
+        unchanged = next(
+            row for row in self.store.get(self.visit["visit_id"], "report-owner")["findings"]
+            if row["finding_id"] == unassigned["finding_id"]
+        )
+        self.assertEqual("", unchanged["room_id"])
+        self.assertEqual("", unchanged["asset_id"])
+
+        saved = self.client.post(
+            f"{url}/{unassigned['finding_id']}",
+            data={
+                "_csrf_token": csrf, "room_id": room["room_id"],
+                "asset_id": asset["asset_id"], "status": "unreviewed",
+                "return_to": "assignment", "scope": "unassigned",
+            },
+        )
+        self.assertEqual(302, saved.status_code)
+        self.assertIn("scope=unassigned", saved.location)
+        assigned = next(
+            row for row in self.store.get(self.visit["visit_id"], "report-owner")["findings"]
+            if row["finding_id"] == unassigned["finding_id"]
+        )
+        self.assertEqual(room["room_id"], assigned["room_id"])
+        self.assertEqual(asset["asset_id"], assigned["asset_id"])
+        self.assertEqual(room["room_id"], assigned["history"][-1]["after"]["room_id"])
+
+        all_findings = self.client.get(f"{url}?scope=all")
+        all_page = BeautifulSoup(all_findings.get_data(as_text=True), "html.parser")
+        self.assertIn("Befund mit Gerät", all_page.get_text())
+        self.assertEqual(400, self.client.get(f"{url}?scope=invalid").status_code)
 
     def tearDown(self):
         flask_app.config.update(self.previous)
