@@ -10,7 +10,7 @@
     <strong>{{ connection.institution }} · {{ mapping.name }}</strong>.
   </p>
   {% if completed_count %}
-  <div class="alert alert-info" role="status">
+  <div class="alert alert-info" role="status" aria-live="polite">
     Bereits erfolgreich synchronisierte Konten: {{ completed_count }}. Sie werden bei der Fortsetzung nicht erneut abgerufen.
   </div>
   {% endif %}
