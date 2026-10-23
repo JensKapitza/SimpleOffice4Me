@@ -9,7 +9,12 @@ from .v3_inbox import InboxStore, record_completed_best_effort
 
 def begin_web_inbox_upload(config: Mapping[str, object], item, actor: str, source_key: str) -> dict[str, object]:
     """Create/scan an optional inbox item without changing the legacy upload contract."""
-    result: dict[str, object] = {"item": None, "malware_status": "not_configured", "error": ""}
+    result: dict[str, object] = {
+        "item": None,
+        "malware_status": "not_configured",
+        "error": "",
+        "error_status": 400,
+    }
     if not v3_capability_enabled("v3.inbox"):
         return result
 
@@ -44,6 +49,7 @@ def begin_web_inbox_upload(config: Mapping[str, object], item, actor: str, sourc
             error="scan quarantine full",
         )
         result["error"] = "Scan-Quarantäne ist voll."
+        result["error_status"] = 503
         return result
     except (OSError, RuntimeError, ValueError):
         store.transition(
@@ -53,6 +59,7 @@ def begin_web_inbox_upload(config: Mapping[str, object], item, actor: str, sourc
             error="scanner unavailable",
         )
         result["error"] = "Malware-Scanner nicht verfügbar."
+        result["error_status"] = 503
         return result
 
     item.stream.seek(0)
