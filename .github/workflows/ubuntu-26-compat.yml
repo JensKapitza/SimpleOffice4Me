@@ -105,11 +105,19 @@ jobs:
         with:
           name: android-cp315-arm64-cryptography-wheel
           path: android/apk/app/wheelhouse
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-cp315-arm64-cffi-wheel
+          path: android/apk/app/wheelhouse
+      - uses: actions/download-artifact@v7
+        with:
+          name: android-cp315-arm64-argon2-cffi-bindings-wheel
+          path: android/apk/app/wheelhouse
       - name: Verify native wheel artifacts
         shell: bash
         run: |
           cd android/apk/app/wheelhouse
-          sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS
+          sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
