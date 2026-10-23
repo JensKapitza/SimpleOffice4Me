@@ -22,6 +22,9 @@ class InvoiceIconTests(unittest.TestCase):
         self.assertIn("aria-label=\"{{ 'Actions' if g.language == 'en' else 'Aktionen' }}\"", overview)
         self.assertIn('fa-file-invoice me-2" aria-hidden="true"></i>{{ tr(\'invoice.title\') }}', detail)
         self.assertIn('fa-chart-column me-1" aria-hidden="true"></i>EÜR', detail)
+        self.assertIn('fa-link me-2" aria-hidden="true"></i>{{ \'Related invoices\' if g.language', detail)
+        self.assertIn('fa-link me-1" aria-hidden="true"></i>{{ \'Link\' if g.language', detail)
+        self.assertIn('fa-file-invoice me-1" aria-hidden="true"></i>{{ relation.invoice.invoice_number }}', detail)
         self.assertIn("fa-file-pen' if draft else 'fa-file-circle-plus", draft)
 
     def test_related_invoice_actions_use_the_shared_fontawesome_assets(self):
