@@ -12,6 +12,10 @@
     <a class="btn btn-outline-primary" href="{{ url_for('site_visits.detail', visit_id=visit.visit_id) }}#findings">Zur Befundliste</a>
   </header>
 
+  {% for category, message in get_flashed_messages(with_categories=true) %}
+    <div class="alert alert-{{ category }} mb-3" role="status" aria-live="polite">{{ message }}</div>
+  {% endfor %}
+
   <form method="get" class="row g-2 align-items-end mb-3">
     <div class="col-sm-6 col-md-4">
       <label class="form-label" for="finding-scope">Anzeige</label>
@@ -34,7 +38,6 @@
               <p class="small mb-3">{{ {'unreviewed':'Ungeprüft','confirmed':'Bestätigt','corrected':'Behoben','not_assessable':'Nicht bewertbar','rejected':'Verworfen'}.get(finding.status, finding.status) }} · Erfasst {{ finding.created_at[:16] }}</p>
               <form method="post" action="{{ url_for('site_visits.update_finding', visit_id=visit.visit_id, finding_id=finding.finding_id) }}" class="row g-2 align-items-end">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <input type="hidden" name="status" value="{{ finding.status }}">
                 <input type="hidden" name="return_to" value="assignment">
                 <input type="hidden" name="scope" value="{{ finding_scope }}">
                 <div class="col-md-5">

@@ -356,35 +356,42 @@ class SiteVisitHttpRouteTests(unittest.TestCase):
             f"{url}/{unassigned['finding_id']}",
             data={
                 "_csrf_token": csrf, "room_id": "unknown-room",
-                "asset_id": asset["asset_id"], "status": "unreviewed",
+                "asset_id": asset["asset_id"], "status": "confirmed",
                 "return_to": "assignment", "scope": "unassigned",
             },
         )
         self.assertEqual(302, invalid.status_code)
+        invalid_page = self.client.get(invalid.location)
+        self.assertIn("Unbekannter Raum", invalid_page.get_data(as_text=True))
         unchanged = next(
             row for row in self.store.get(self.visit["visit_id"], "report-owner")["findings"]
             if row["finding_id"] == unassigned["finding_id"]
         )
         self.assertEqual("", unchanged["room_id"])
         self.assertEqual("", unchanged["asset_id"])
+        self.assertEqual("unreviewed", unchanged["status"])
 
         saved = self.client.post(
             f"{url}/{unassigned['finding_id']}",
             data={
                 "_csrf_token": csrf, "room_id": room["room_id"],
-                "asset_id": asset["asset_id"], "status": "unreviewed",
+                "asset_id": asset["asset_id"], "status": "rejected",
                 "return_to": "assignment", "scope": "unassigned",
             },
         )
         self.assertEqual(302, saved.status_code)
         self.assertIn("scope=unassigned", saved.location)
+        saved_page = self.client.get(saved.location)
+        self.assertIn("Befundzuordnung gespeichert", saved_page.get_data(as_text=True))
         assigned = next(
             row for row in self.store.get(self.visit["visit_id"], "report-owner")["findings"]
             if row["finding_id"] == unassigned["finding_id"]
         )
         self.assertEqual(room["room_id"], assigned["room_id"])
         self.assertEqual(asset["asset_id"], assigned["asset_id"])
+        self.assertEqual("unreviewed", assigned["status"])
         self.assertEqual(room["room_id"], assigned["history"][-1]["after"]["room_id"])
+        self.assertNotIn("status", assigned["history"][-1]["after"])
 
         all_findings = self.client.get(f"{url}?scope=all")
         all_page = BeautifulSoup(all_findings.get_data(as_text=True), "html.parser")

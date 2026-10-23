@@ -248,8 +248,11 @@ def finding_assignments(visit_id: str):
 def update_finding(visit_id: str, finding_id: str):
     _visit(visit_id)
     is_assignment = request.form.get("return_to") == "assignment"
+    values = _form_values()
+    if is_assignment:
+        values = {key: values[key] for key in ("room_id", "asset_id") if key in values}
     try:
-        _store().update_finding(visit_id, _actor(), finding_id, _form_values())
+        _store().update_finding(visit_id, _actor(), finding_id, values)
         flash("Befundzuordnung gespeichert." if is_assignment else "Befundbewertung gespeichert.", "success")
     except ValueError as exc:
         flash(str(exc), "danger")
