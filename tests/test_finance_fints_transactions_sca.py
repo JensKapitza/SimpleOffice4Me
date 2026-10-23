@@ -1,6 +1,7 @@
 """Read-only FinTS transaction retrieval retains secure SCA continuations."""
 from __future__ import annotations
 
+import unittest
 from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal

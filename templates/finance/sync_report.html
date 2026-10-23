@@ -11,7 +11,7 @@
     Der Bericht enthält nur die tatsächlich in diesem Abruf zurückgegebenen Umsätze.
   </div>
   {% if result.previously_synced_accounts %}
-  <div class="alert alert-info" role="status">
+  <div class="alert alert-info" role="status" aria-live="polite">
     Bereits vor der TAN-Freigabe synchronisierte Konten wurden nicht erneut abgerufen:
     {{ result.previously_synced_accounts|join(", ") }}.
   </div>

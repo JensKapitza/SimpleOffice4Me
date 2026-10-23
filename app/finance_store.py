@@ -43,6 +43,12 @@ _FINTS_CHALLENGE_FIELDS = {
 _FINTS_TRANSACTION_CHALLENGE_FIELDS = _FINTS_CHALLENGE_FIELDS | {
     "start_date", "end_date", "local_account_id", "completed_mappings",
 }
+_SENSITIVE_CREDENTIAL_KEY_TOKENS = frozenset({
+    "pin", "tan", "password", "passwd", "passcode", "secret", "secrets",
+    "credential", "credentials", "pincode", "pinvalue", "pinnumber", "pinsecret",
+    "pinhash", "tancode", "tanvalue", "tannumber", "tansecret", "tanhash",
+    "passwordhash", "secretkey",
+})
 
 
 def _validated_fints_challenge_payload(payload: Any) -> dict[str, Any]:
@@ -71,8 +77,9 @@ def _validated_fints_challenge_payload(payload: Any) -> dict[str, Any]:
     def contains_credential_key(value: Any) -> bool:
         if isinstance(value, dict):
             for key, nested in value.items():
-                normalized_key = re.sub(r"[^a-z]", "", str(key).casefold())
-                if any(term in normalized_key for term in ("pin", "tan", "password", "secret")):
+                split_camel_case = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(key))
+                key_tokens = set(re.findall(r"[a-z0-9]+", split_camel_case.casefold()))
+                if key_tokens.intersection(_SENSITIVE_CREDENTIAL_KEY_TOKENS):
                     return True
                 if contains_credential_key(nested):
                     return True
