@@ -34,7 +34,7 @@ class PhotoSnapshotTest(unittest.TestCase):
                     "batch_count": 1,
                     "user_agent": "Snapshot Browser",
                 },
-            )
+            ).document
             upload = document["attributes"]["photo_upload"]
             rich = document["attributes"]["photo_metadata"]["derived"]
             self.assertEqual("camera/direct", upload["client_relative_path"])
