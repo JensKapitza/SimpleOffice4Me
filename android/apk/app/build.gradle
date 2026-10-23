@@ -26,7 +26,7 @@ if (androidWheelDirectory) {
     if (!wheelDirectory.isDirectory()) {
         throw new GradleException("Android wheel directory does not exist: ${wheelDirectory}")
     }
-    def cffiWheels = fileTree(dir: wheelDirectory).matching { include 'cffi-1.17.1-*.whl' }.files
+    def cffiWheels = fileTree(dir: wheelDirectory).matching { include 'cffi-2.0.0-*.whl' }.files
     def argon2BindingsWheels = fileTree(dir: wheelDirectory).matching { include 'argon2_cffi_bindings-21.2.0-*.whl' }.files
     def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'pillow-13.0.0-*.whl' }.files
     def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-48.0.1-*.whl' }.files
@@ -37,7 +37,7 @@ if (androidWheelDirectory) {
             .collect { it.name }
             .sort()
         throw new GradleException(
-            'Android wheel directory must contain exactly one verified cffi 1.17.1, '
+            'Android wheel directory must contain exactly one verified cffi 2.0.0, '
             + 'argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel. '
             + "Match counts: cffi=${cffiWheels.size()}, argon2=${argon2BindingsWheels.size()}, "
             + "Pillow=${pillowWheels.size()}, cryptography=${cryptographyWheels.size()}, "
@@ -160,7 +160,7 @@ chaquopy {
             if (localCffiWheel) {
                 install localCffiWheel.absolutePath
             } else {
-                install 'cffi==1.17.1'
+                install 'cffi==2.0.0'
             }
             if (localArgon2BindingsWheel) {
                 install localArgon2BindingsWheel.absolutePath

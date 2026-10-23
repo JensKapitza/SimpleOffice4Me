@@ -19,6 +19,9 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertIn("cibuildwheel==4.3.3", workflow)
         self.assertIn("CIBW_BUILD: cp315-android_arm64_v8a", workflow)
         self.assertIn("CIBW_ARCHS_ANDROID: arm64_v8a", workflow)
+        self.assertIn("package: cffi", workflow)
+        self.assertIn("version: '2.0.0'", workflow)
+        self.assertIn("44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529", workflow)
         self.assertIn("PILLOW_SOURCE_COMMIT: 293218ad059d994baf1777d882911bed6a49704a", workflow)
         self.assertIn("PILLOW_DEPENDENCIES_COMMIT: 93950a8f9ada1165a4ab8c719326d5017e3f6c72", workflow)
         self.assertIn('! -name requirements.txt', workflow)
@@ -65,10 +68,10 @@ class ChaquopyWheelsTests(unittest.TestCase):
                 patch_android_libffi(Path(temporary_directory))
 
     def test_exact_python_abi_and_version(self):
-        index = '<a href="cffi-1.17.1-1-cp313-cp313-android_24_arm64_v8a.whl">wheel</a>'
-        self.assertTrue(compatible_wheels(index, "cffi", "1.17.1", "3.13", "arm64-v8a"))
-        self.assertFalse(compatible_wheels(index, "cffi", "1.17.1", "3.15", "arm64-v8a"))
-        self.assertFalse(compatible_wheels(index, "cffi", "1.17.1", "3.13", "armeabi-v7a"))
+        index = '<a href="cffi-2.0.0-1-cp313-cp313-android_24_arm64_v8a.whl">wheel</a>'
+        self.assertTrue(compatible_wheels(index, "cffi", "2.0.0", "3.13", "arm64-v8a"))
+        self.assertFalse(compatible_wheels(index, "cffi", "2.0.0", "3.15", "arm64-v8a"))
+        self.assertFalse(compatible_wheels(index, "cffi", "2.0.0", "3.13", "armeabi-v7a"))
 
     def test_abi3_from_older_python_is_compatible(self):
         index = '<a href="cryptography-48.0.1-cp313-abi3-android_24_arm64_v8a.whl#sha256=123">wheel</a>'
@@ -93,8 +96,8 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertFalse(compatible_wheels(index, "cryptography", "48.0.1", "3.14", "arm64-v8a"))
 
     def test_linux_wheel_cannot_satisfy_android(self):
-        index = '<a href="cffi-1.17.1-cp315-cp315-manylinux_2_17_aarch64.whl">wheel</a>'
-        self.assertFalse(compatible_wheels(index, "cffi", "1.17.1", "3.15", "arm64-v8a"))
+        index = '<a href="cffi-2.0.0-cp315-cp315-manylinux_2_17_aarch64.whl">wheel</a>'
+        self.assertFalse(compatible_wheels(index, "cffi", "2.0.0", "3.15", "arm64-v8a"))
 
     def test_hash_verified_pypi_universal_wheel_satisfies_pure_package(self):
         payload = {
@@ -198,11 +201,13 @@ class ChaquopyWheelsTests(unittest.TestCase):
                 "pillow": "13.0.0",
                 "argon2-cffi-bindings": "21.2.0",
                 "cryptography": "48.0.1",
+                "cffi": "2.0.0",
             },
             pinned_versions(
                 "install 'Pillow==13.0.0'\n"
                 "install 'argon2-cffi-bindings==21.2.0'\n"
-                "install 'cryptography==48.0.1'"
+                "install 'cryptography==48.0.1'\n"
+                "install 'cffi==2.0.0'"
             ),
         )
 

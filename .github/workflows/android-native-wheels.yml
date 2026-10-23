@@ -18,8 +18,8 @@ jobs:
           - package: Pillow
             version: '13.0.0'
           - package: cffi
-            version: '1.17.1'
-            sdist_sha256: 1c39c6016c32bc48dd54561950ebd6836e1670f2ae46128f67cf49e789c52824
+            version: '2.0.0'
+            sdist_sha256: 44d1b5909021139fe36001ae048dbdde8214afa20200eda0f64c068cac5d5529
           - package: argon2-cffi-bindings
             version: '21.2.0'
             sdist_sha256: bb89ceffa6c791807d1305ceb77dbfacc5aa499891d2c55661c6459651fc39e3

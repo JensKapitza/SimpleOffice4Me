@@ -20,6 +20,7 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         gradle = GRADLE.read_text(encoding="utf-8")
         self.assertIn("'arm64-v8a': '3.15'", gradle)
         self.assertIn("pythonRuntimeVersion != expectedPythonVersion", gradle)
+        self.assertIn("cffi-2.0.0-*.whl", gradle)
         self.assertIn("pillow-13.0.0-*.whl", gradle)
         self.assertIn("cryptography-48.0.1-*.whl", gradle)
         self.assertIn("argon2_cffi_bindings-21.2.0-*.whl", gradle)
