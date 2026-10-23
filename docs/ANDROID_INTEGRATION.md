@@ -108,6 +108,40 @@ Import beendet.
 - liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
   abgebrochen, statt eine unbeschränkte Anfrage zu starten.
 
+### Geräteabnahme für den rekursiven SAF-Import (PR #802)
+
+Diese Prüfung muss auf einem echten Android-Gerät oder einem Emulator mit
+funktionsfähigem SAF-Dokumentanbieter durchgeführt und im PR mit Gerät,
+Android-Version, Anbieter, APK-Commit und Ergebnis dokumentiert werden.
+Ein erfolgreicher APK-Build oder Java-Quelltexttest ersetzt sie nicht.
+
+1. **Mehrere Wurzeln:** Zwei unterschiedliche Ordner mit verschachtelten
+   Unterordnern und gleichnamigen Dateien auswählen, Vorschau kontrollieren,
+   Import bestätigen und alle Dateien am korrekten relativen Ziel öffnen.
+2. **Abbruch:** Einen großen Import während der Übertragung abbrechen;
+   anschließend kontrollieren, dass keine unvollständige Datei als erfolgreicher
+   Dokumentimport erscheint und ein neuer Import möglich ist.
+3. **Berechtigungswiderruf:** Nach der Auswahl die SAF-Freigabe in den
+   Android-Einstellungen entziehen; erneuten Import versuchen und eine
+   verständliche Fehlermeldung statt Absturz oder Hängenbleiben prüfen.
+4. **Neustart:** Einen Import vorbereiten, die App beenden und neu starten;
+   verwaiste temporäre SAF-Berechtigungen und Warteschlangeneinträge dürfen
+   nicht unbemerkt weiterverwendet werden. Dauerhaft registrierte lokale
+   Ordner dürfen dabei nicht versehentlich ihre Berechtigung verlieren.
+5. **Große Dateien und Limits:** Eine Datei nahe der konfigurierten
+   Uploadgrenze sowie einen Ordner mit mehr als 1000 Dateien testen.
+   Erwartet werden eine begrenzte Übertragung beziehungsweise eine
+   verständliche Ablehnung, ohne unkontrollierten Speicherverbrauch.
+6. **Dokumentanbieter:** Mindestens den Android-Systemdateianbieter und,
+   sofern vorhanden, einen weiteren SAF-Anbieter prüfen. Anbieter ohne
+   persistierbare Leseberechtigung müssen kontrolliert abgelehnt werden.
+7. **Sitzungswechsel:** Während eine Auswahl offen ist, abmelden oder die
+   Sitzung wechseln; kein Upload darf unter einer anderen Sitzung erfolgen.
+
+**Abnahmebedingung:** Jeder Fall erhält ein protokolliertes PASS/FAIL mit
+reproduzierbaren Schritten. Bei FAIL bleibt PR #802 Draft und der Fehler wird
+vor dem Merge behoben. Ohne Geräteergebnis bleibt die Android-Abnahme offen.
+
 ## Deep Links
 
 Für gezielte Navigation gibt es ausschließlich das Schema `simpleoffice4me://open`.
