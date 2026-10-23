@@ -16,6 +16,7 @@ PERSISTENCE_COVERAGE = {
     "project_store": "provider:projects",
     "todo_store": "provider:tasks",
     "business_document_generation": "provider:invoices",
+    "invoice_relations": "excluded:internal annotations and relation audit require contact-scoped authorization outside generic S3 projections",
     # User data requiring a separate, explicitly permissioned projection.
     "customer_credit": "pending-provider:financial credit ledger requires a dedicated role",
     "euer_store": "pending-provider:tax records require a dedicated finance role",

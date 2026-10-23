@@ -440,6 +440,9 @@ def _epc_qr_drawing(payload: str, size: float = 32 * mm) -> Drawing:
 
 
 def _invoice_store_path(root: Path, invoice_id: str) -> Path:
+    invoice_id = str(invoice_id or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", invoice_id):
+        raise ValueError("invalid invoice identifier")
     path = root / CONTROL_DIR / INVOICE_DIR; path.mkdir(parents=True, exist_ok=True); return path / f"{invoice_id}.json"
 
 
@@ -447,6 +450,25 @@ def invoice(root: Path, invoice_id: str) -> dict[str, Any]:
     row = _read_json(_invoice_store_path(root, invoice_id), {})
     if not isinstance(row, dict) or row.get("invoice_id") != invoice_id: raise ValueError("invoice not found")
     return row
+
+
+def validated_invoice_reference(root: Path, contact_id: str, reference_invoice_id: str) -> tuple[str, str]:
+    reference_id = str(reference_invoice_id or "").strip()
+    if not reference_id:
+        return "", ""
+    contact_id = str(contact_id or "").strip()
+    if not contact_id:
+        raise ValueError("selected reference invoice is not available")
+    try:
+        reference = invoice(root, reference_id)
+    except ValueError as exc:
+        raise ValueError("selected reference invoice is not available") from exc
+    if reference.get("contact_id") != contact_id or reference.get("status") in {"draft", "finalizing"}:
+        raise ValueError("selected reference invoice is not available")
+    number = str(reference.get("invoice_number", ""))
+    if not number or number.startswith("DRAFT-"):
+        raise ValueError("selected reference invoice is not available")
+    return reference_id, number
 
 
 def invoice_state(row: dict[str, Any], today: date | None = None) -> dict[str, Any]:
@@ -709,6 +731,11 @@ def _invoice_content_pdf(row: dict[str, Any]) -> bytes:
     buyer = row["buyer"]; seller = row["seller"]
     header = [[Paragraph("<b>Rechnung an</b><br/>" + "<br/>".join(html.escape(x) for x in buyer["label"].splitlines()), normal), Paragraph(f"<b>Rechnungsnummer:</b> {html.escape(row['invoice_number'])}<br/><b>Rechnungsdatum:</b> {html.escape(row['issue_date'])}<br/><b>Leistungsdatum:</b> {html.escape(row['service_date'])}<br/><b>Fällig:</b> {html.escape(row['due_date'])}", normal)]]
     table = Table(header, colWidths=[95 * mm, 75 * mm]); table.setStyle(TableStyle([("VALIGN", (0,0), (-1,-1), "TOP"), ("BOTTOMPADDING", (0,0), (-1,-1), 6)])); flow += [table, Spacer(1, 5 * mm)]
+    if row.get("reference_invoice_number"):
+        flow += [
+            Paragraph(f"<b>Bezug:</b> Rechnung {html.escape(str(row['reference_invoice_number']))}", normal),
+            Spacer(1, 3 * mm),
+        ]
     rows = [["Pos.", "Beschreibung", "Menge", "Einheit", "Netto", "MwSt.", "Gesamt"]]
     for line in row["lines"]:
         description=(f"<b>{html.escape(line['category'])}</b><br/>" if line.get("category") else "")+html.escape(line["description"])
@@ -784,6 +811,11 @@ def _cii_xml(row: dict[str, Any]) -> bytes:
     def q(prefix: str, name: str) -> str: return f"{{{ns[prefix]}}}{name}"
     root = ET.Element(q("rsm","CrossIndustryInvoice")); context = ET.SubElement(root,q("rsm","ExchangedDocumentContext")); parameter=ET.SubElement(context,q("ram","GuidelineSpecifiedDocumentContextParameter")); ET.SubElement(parameter,q("ram","ID")).text="urn:cen.eu:en16931:2017"
     doc=ET.SubElement(root,q("rsm","ExchangedDocument")); ET.SubElement(doc,q("ram","ID")).text=row["invoice_number"]; ET.SubElement(doc,q("ram","TypeCode")).text="380"; issue=ET.SubElement(doc,q("ram","IssueDateTime")); date_string=ET.SubElement(issue,q("udt","DateTimeString"),{"format":"102"}); date_string.text=row["issue_date"].replace("-","")
+    if row.get("reference_invoice_number"):
+        note = ET.SubElement(doc, q("ram", "IncludedNote"))
+        ET.SubElement(note, q("ram", "Content")).text = (
+            f"Bezug zu Rechnung {row['reference_invoice_number']}"
+        )
     trans=ET.SubElement(root,q("rsm","SupplyChainTradeTransaction"))
     for line in row["lines"]:
         li=ET.SubElement(trans,q("ram","IncludedSupplyChainTradeLineItem")); assoc=ET.SubElement(li,q("ram","AssociatedDocumentLineDocument")); ET.SubElement(assoc,q("ram","LineID")).text=str(line["line_id"]); product=ET.SubElement(li,q("ram","SpecifiedTradeProduct")); ET.SubElement(product,q("ram","Name")).text=line.get("object_name") or line["description"]; ET.SubElement(product,q("ram","Description")).text=line["description"]

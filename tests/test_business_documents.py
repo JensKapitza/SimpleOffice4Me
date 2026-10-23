@@ -2,6 +2,7 @@ import io
 import json
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from datetime import date
 from pathlib import Path
 from unittest import mock
@@ -13,8 +14,6 @@ from reportlab.pdfgen import canvas
 from werkzeug.datastructures import MultiDict
 from werkzeug.exceptions import Conflict, NotFound
 from app.document_store import CONTROL_DIR, DocumentStore
-from app.business_document_generation import _cii_xml, _invoice_content_pdf
-
 from app.business_documents import (
     DIN_BOTTOM_RESERVED,
     PAGE_NUMBER_CLEAR_BOTTOM,
@@ -44,10 +43,17 @@ from app.business_documents import (
     embed_invoice_xml,
     finalize_invoice,
     inspect_zugferd_pdf,
+    invoice,
     invoice_state,
     record_invoice_payment,
     render_business_pdf,
     write_off_invoice,
+)
+from app.business_document_generation import (
+    _cii_xml,
+    _invoice_content_pdf,
+    _invoice_store_path,
+    validated_invoice_reference,
 )
 from app.customer_credit import CustomerCreditLedger
 from app.calendar_store import CalendarStore
@@ -346,6 +352,86 @@ class BusinessDocumentTests(unittest.TestCase):
             todo_store.return_value.items.return_value = []
             with self.assertRaises(NotFound):
                 _invoice_task(Path("."), "task-1", "tester", "contact-1")
+
+    def test_reference_invoice_requires_a_finalized_same_customer_invoice(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            directory = root / CONTROL_DIR / "invoices"
+            directory.mkdir(parents=True)
+            finalized = {"invoice_id": "invoice-1", "invoice_number": "2026-0001", "contact_id": "customer-1", "status": "open"}
+            draft = {"invoice_id": "invoice-2", "invoice_number": "DRAFT-2026-0002", "contact_id": "customer-1", "status": "draft"}
+            (directory / "invoice-1.json").write_text(json.dumps(finalized), encoding="utf-8")
+            (directory / "invoice-2.json").write_text(json.dumps(draft), encoding="utf-8")
+
+            self.assertEqual(("invoice-1", "2026-0001"), validated_invoice_reference(root, "customer-1", "invoice-1"))
+            self.assertEqual(("", ""), validated_invoice_reference(root, "customer-1", ""))
+            with self.assertRaisesRegex(ValueError, "not available"):
+                validated_invoice_reference(root, "customer-2", "invoice-1")
+            with self.assertRaisesRegex(ValueError, "not available"):
+                validated_invoice_reference(root, "customer-1", "invoice-2")
+
+    def test_finalization_revalidates_reference_before_consuming_invoice_number(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            directory = root / CONTROL_DIR / "invoices"
+            directory.mkdir(parents=True)
+            draft = {
+                "invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001",
+                "contact_id": "customer-1", "status": "draft",
+                "reference_invoice_id": "reference-1", "history": [],
+                "buyer": {"street": "Customer Street 1", "postal": "12345", "city": "Berlin", "country": "DE"},
+            }
+            reference = {
+                "invoice_id": "reference-1", "invoice_number": "DRAFT-2026-0002",
+                "contact_id": "customer-1", "status": "draft",
+            }
+            (directory / "draft-1.json").write_text(json.dumps(draft), encoding="utf-8")
+            (directory / "reference-1.json").write_text(json.dumps(reference), encoding="utf-8")
+
+            with mock.patch("app.business_documents.ContactStore.get", return_value={"contact_id": "customer-1"}), \
+                 mock.patch("app.business_documents._invoice_number") as sequence:
+                with self.assertRaisesRegex(ValueError, "not available"):
+                    finalize_invoice(root, "draft-1", "tester")
+
+            sequence.assert_not_called()
+            persisted = json.loads((directory / "draft-1.json").read_text(encoding="utf-8"))
+            self.assertEqual("draft", persisted["status"])
+
+    def test_invoice_ids_cannot_escape_the_invoice_store_directory(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with self.assertRaisesRegex(ValueError, "invalid invoice identifier"):
+                _invoice_store_path(root, "../../outside")
+            with self.assertRaisesRegex(ValueError, "invalid invoice identifier"):
+                invoice(root, "../../outside")
+            self.assertEqual(
+                root / CONTROL_DIR / "invoices" / "invoice-1.json",
+                _invoice_store_path(root, "invoice-1"),
+            )
+
+    def test_pre_finalization_reference_is_in_pdf_and_structured_invoice_note(self):
+        row = {
+            "invoice_number": "2026-0002",
+            "issue_date": "2026-10-20",
+            "service_date": "2026-10-20",
+            "due_date": "2026-11-03",
+            "payment_terms": "14 Tage",
+            "currency": "EUR",
+            "seller": {"name": "Example Ltd", "street": "Seller Street 1", "postal": "12345", "city": "Berlin", "country": "DE", "iban": ""},
+            "buyer": {"name": "Customer", "label": "Customer\nBuyer Street 1", "street": "Buyer Street 1", "postal": "54321", "city": "Hamburg", "country": "DE"},
+            "lines": [],
+            "totals": {"net": "0.00", "tax": "0.00", "gross": "0.00", "due": "0.00", "vat_groups": {}},
+            "reference_invoice_id": "invoice-1",
+            "reference_invoice_number": "2026-0001",
+        }
+
+        pdf = _invoice_content_pdf(row)
+        xml = _cii_xml(row)
+
+        self.assertIn("2026-0001", PdfReader(io.BytesIO(pdf)).pages[0].extract_text())
+        root = ET.fromstring(xml)
+        notes = root.findall(".//{*}IncludedNote/{*}Content")
+        self.assertEqual(["Bezug zu Rechnung 2026-0001"], [item.text for item in notes])
 
     def test_generated_pdf_indexes_only_new_file_and_batches_metadata(self):
         with tempfile.TemporaryDirectory() as temp:
