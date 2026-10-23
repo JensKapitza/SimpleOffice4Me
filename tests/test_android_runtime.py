@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -62,6 +63,45 @@ class AndroidRuntimeTests(unittest.TestCase):
         self.assertIn('from app import android_auth', source)
         self.assertIn('app.register_blueprint(android_auth.bp)', source)
         self.assertIn('timedelta(days=365)', source)
+
+    def test_embedded_python_symbols_are_global_before_app_native_extensions_import(self):
+        source = RUNTIME.read_text(encoding="utf-8")
+        self.assertLess(
+            source.index("    _promote_android_python_symbols()"),
+            source.index("from app import app"),
+        )
+        self.assertLess(
+            source.index("    _verify_android_cryptography_extension()"),
+            source.index("from app import app"),
+        )
+        spec = importlib.util.spec_from_file_location("android_runtime_symbols_test", RUNTIME)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+
+        with mock.patch("ctypes.CDLL") as load_library:
+            runtime._promote_android_python_symbols()
+
+        import ctypes
+        import os
+
+        load_library.assert_called_once_with(
+            f"libpython{sys.version_info.major}.{sys.version_info.minor}.so",
+            mode=ctypes.RTLD_GLOBAL | os.RTLD_NOW,
+        )
+
+    def test_cryptography_rust_extension_preflight_uses_the_expected_module(self):
+        spec = importlib.util.spec_from_file_location("android_runtime_crypto_test", RUNTIME)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        runtime = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runtime)
+
+        with mock.patch("importlib.import_module") as import_module:
+            runtime._verify_android_cryptography_extension()
+
+        import_module.assert_called_once_with("cryptography.hazmat.bindings._rust")
 
     def test_warm_runtime_refreshes_native_token_without_navigation_clearing_it(self):
         spec = importlib.util.spec_from_file_location("android_runtime_warm_start_test", RUNTIME)

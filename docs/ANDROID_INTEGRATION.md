@@ -6,12 +6,24 @@ Die Android-App soll sich wie eine normale Android-Anwendung verhalten, ohne den
 
 ## Unterstützte Android-Versionen
 
-Beide APK-Varianten haben `minSdk 24` und unterstützen damit Android 7.0 oder neuer.
+Die unterstützte APK hat `minSdk 24` und unterstützt damit Android 7.0 oder neuer.
 
-- `arm64-v8a`: Python 3.13 für moderne 64-Bit-Geräte.
-- `armeabi-v7a`: Python 3.11 für 32-Bit-Geräte und ältere Tablets.
+- `arm64-v8a`: Python 3.15.
+- `armeabi-v7a` wird derzeit nicht gebaut oder als unterstütztes APK-Profil angeboten.
 
 Die native Integration verwendet nur APIs, die ab API 24 vorhanden sind. Safe Browsing bleibt weiterhin erst ab Android 8 aktiviert.
+
+### Native Python-Erweiterungen
+
+Vor dem Import der Anwendung macht `android_runtime` die eingebetteten
+CPython-Symbole für native Erweiterungen global sichtbar und lädt
+`cryptography.hazmat.bindings._rust` explizit vor. Der Android-Wheel-ELF
+referenziert CPython-Datensymbole wie `PyLong_Type` ohne direkten
+`DT_NEEDED`-Verweis auf `libpython`; deshalb reicht ein erfolgreicher APK-Build
+als Kompatibilitätsnachweis nicht aus. Die Android-APK-CI installiert den
+ARM64-Build zusätzlich in einem ARM64-Emulator und verlangt eine HTTP-Antwort
+des lokalen Python-/Flask-Backends. Der vollständige SAF-Dokumentanbieter-Test
+bleibt separat eine Geräteabnahme.
 
 ## Dateien mit Android teilen oder öffnen
 
