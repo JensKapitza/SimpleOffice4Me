@@ -179,6 +179,7 @@
 <script src="{{ url_for('static', filename='js/library_safe_dom.js') }}"></script>
 <script src="{{ url_for('static', filename='js/library_scan_session.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/jsqr/jsQR.js') }}"></script>
+<script src="{{ url_for('static', filename='js/camera_capture.js') }}"></script>
 <script>
 (() => {
   const csrf = {{ csrf_token()|tojson }};
