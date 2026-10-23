@@ -21,7 +21,9 @@ class CaptureFirstNavigationTests(unittest.TestCase):
         snapshot = Path("templates/documents/_photo_snapshot.html").read_text(encoding="utf-8")
 
         self.assertIn('capture="environment"', snapshot)
-        self.assertIn('id="capture-files" type="file" name="files" multiple required', documents)
+        self.assertIn('id="document-files" type="file" name="files" multiple required', documents)
+        self.assertIn('id="pick-document-folder"', documents)
+        self.assertIn('id="capture-first"', documents)
         self.assertIn("url_for('documents.upload')", documents)
         self.assertIn("payload.duplicate", images)
         self.assertIn("identischer Inhalt bereits vorhanden", images)
