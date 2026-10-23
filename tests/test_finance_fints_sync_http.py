@@ -28,7 +28,7 @@ class FinTSTransactionSyncHTTPTests(unittest.TestCase):
             DOCUMENT_ROOT=str(self.root),
             SECRET_KEY="fints-transaction-sync-test",
             TESTING=True,
-            TEST_CSRF_PROTECTION=True,
+            TEST_CSRF_PROTECTION=False,
         )
         with app.app_context():
             db.ensure_auth_database()
@@ -53,6 +53,7 @@ class FinTSTransactionSyncHTTPTests(unittest.TestCase):
         self.client.post("/auth/login", data={"username": "sync-user", "password": "synthetic-sync-password"})
         with self.client.session_transaction() as session:
             session["_csrf_token"] = "f" * 40
+        app.config["TEST_CSRF_PROTECTION"] = True
         self.url = f"/documents/business/bookkeeping/finances/bank-connections/{self.connection['connection_id']}/sync"
         self.challenge_state = {
             "version": 1,
