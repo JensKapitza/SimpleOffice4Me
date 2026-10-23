@@ -15,7 +15,7 @@ def validate_combined_sbom(python_sbom: dict, image_sbom: dict) -> None:
         if not isinstance(document.get("components"), list):
             raise ValueError("container inventory has no component list")
 
-    python_purls = _component_purls(python_sbom)
+    python_purls = _component_purls(python_sbom, require_purl=True)
     image_purls = _component_purls(image_sbom)
     missing = python_purls - image_purls
     if missing:
@@ -26,12 +26,17 @@ def validate_combined_sbom(python_sbom: dict, image_sbom: dict) -> None:
         raise ValueError("combined image SBOM contains no Python packages")
 
 
-def _component_purls(document: dict) -> set[str]:
+def _component_purls(document: dict, *, require_purl: bool = False) -> set[str]:
     purls = set()
     for component in document["components"]:
-        if not isinstance(component, dict) or not isinstance(component.get("purl"), str):
+        if not isinstance(component, dict):
+            raise ValueError("container inventory contains an invalid component")
+        purl = component.get("purl")
+        if purl is None and not require_purl:
+            continue
+        if not isinstance(purl, str) or not purl:
             raise ValueError("container inventory contains a component without a package URL")
-        purls.add(component["purl"])
+        purls.add(purl)
     return purls
 
 

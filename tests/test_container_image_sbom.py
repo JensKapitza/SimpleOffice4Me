@@ -20,11 +20,19 @@ class ContainerImageSbomTests(unittest.TestCase):
             "pkg:pypi/flask@3.1.0", "pkg:pypi/simpleoffice4me@2.0.0",
             "pkg:deb/debian/libc6@2.36-9",
         )
+        image_sbom["components"].append({"name": "unidentified image artifact"})
         validate_combined_sbom(python_sbom, image_sbom)
 
     def test_rejects_omitted_python_component(self):
         with self.assertRaisesRegex(ValueError, "omits Python components"):
             validate_combined_sbom(_sbom("pkg:pypi/flask@3.1.0"), _sbom("pkg:deb/debian/libc6@2.36"))
+
+    def test_rejects_python_inventory_component_without_purl(self):
+        python_sbom = _sbom()
+        python_sbom["components"].append({"name": "missing purl"})
+        image_sbom = _sbom("pkg:pypi/flask@3.1.0", "pkg:deb/debian/libc6@2.36")
+        with self.assertRaisesRegex(ValueError, "without a package URL"):
+            validate_combined_sbom(python_sbom, image_sbom)
 
     def test_rejects_missing_os_inventory(self):
         with self.assertRaisesRegex(ValueError, "no Debian OS packages"):
