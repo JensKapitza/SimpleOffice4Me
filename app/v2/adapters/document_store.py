@@ -249,6 +249,8 @@ class DocumentStoreStorageAdapter:
         max_bytes: int = 512 * 1024 * 1024,
     ) -> OperationResult[StoredObject]:
         try:
+            # Folder imports can be the first document operation in a fresh install.
+            self.store.root.mkdir(parents=True, exist_ok=True)
             target = resolve_under(self.store.root, location.relative_path, strict=False)
             target.parent.mkdir(parents=True, exist_ok=True)
             self.store.ensure_folder_policy(target.parent, self.actor)
