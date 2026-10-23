@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let stream = null;
   let scanning = false;
   let scanTimer = null;
+  let cameraGeneration = 0;
   const scanCanvas = document.createElement('canvas');
   const scanContext = scanCanvas.getContext('2d', {willReadFrequently: true});
 
@@ -44,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopCamera() {
+    cameraGeneration += 1;
     scanning = false;
     if (scanTimer !== null) clearTimeout(scanTimer);
     scanTimer = null;
@@ -67,6 +69,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     cameraButton.disabled = true;
+    const generation = ++cameraGeneration;
+    let requestedStream = null;
     try {
       let detector = null;
       if (typeof window.BarcodeDetector === 'function') {
@@ -76,17 +80,30 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!detector && typeof window.jsQR !== 'function') {
         throw new Error('No QR decoder available');
       }
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: 'environment' } }, audio: false
-      });
+      requestedStream = await window.SimpleOfficeCamera.openCameraStream(
+        navigator.mediaDevices,
+        () => generation === cameraGeneration,
+      );
+      if (!requestedStream) return;
+      if (generation !== cameraGeneration) {
+        requestedStream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      stream = requestedStream;
       preview.srcObject = stream;
       cameraPanel.hidden = false;
       await preview.play();
+      if (generation !== cameraGeneration) {
+        requestedStream.getTracks().forEach(track => track.stop());
+        if (stream === requestedStream) stream = null;
+        if (preview.srcObject === requestedStream) preview.srcObject = null;
+        return;
+      }
       scanning = true;
       status.textContent = 'Kamera aktiv. Connect QR-Code vor die Kamera halten.';
 
       const scan = async () => {
-        if (!scanning) return;
+        if (!scanning || generation !== cameraGeneration) return;
         try {
           let value = '';
           if (detector) {
@@ -97,6 +114,7 @@ document.addEventListener('DOMContentLoaded', () => {
               // Browser-native detection can fail; try the local decoder.
             }
           }
+          if (generation !== cameraGeneration) return;
           if (!value) value = decodePixels(preview).trim();
           if (value && acceptPayload(value)) {
             stopCamera();
@@ -109,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
       };
       scanTimer = setTimeout(scan, 250);
     } catch (error) {
+      if (generation !== cameraGeneration) return;
       stopCamera();
       status.textContent = error?.name === 'NotAllowedError'
         ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
