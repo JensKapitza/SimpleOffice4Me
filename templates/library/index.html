@@ -178,6 +178,8 @@
 </main>
 <script src="{{ url_for('static', filename='js/library_safe_dom.js') }}"></script>
 <script src="{{ url_for('static', filename='js/library_scan_session.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/jsqr/jsQR.js') }}"></script>
+<script src="{{ url_for('static', filename='js/camera_capture.js') }}"></script>
 <script>
 (() => {
   const csrf = {{ csrf_token()|tojson }};
@@ -495,33 +497,116 @@
   document.getElementById('bulk-scan-book')?.addEventListener('click', assignBook);
   bookInput?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); assignBook(); } });
 
-  let stream = null, scanTimer = null, scanTarget = null;
+  let stream = null, scanTimer = null, scanTarget = null, scanGeneration = 0;
   const modalElement = document.getElementById('scanner-modal');
   let modal = null;
   const getModal = () => {
     if (!modal && modalElement && window.bootstrap?.Modal) modal = new window.bootstrap.Modal(modalElement);
     return modal;
   };
-  const stopCamera = () => { if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; };
+  const stopCamera = () => { scanGeneration += 1; if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; const video = document.getElementById('library-camera'); if (video) video.srcObject = null; };
   modalElement?.addEventListener('hidden.bs.modal', stopCamera);
   document.querySelectorAll('[data-scan-target]').forEach(button => button.addEventListener('click', async () => {
     scanTarget = document.getElementById(button.dataset.scanTarget); if (!scanTarget) return;
+    stopCamera();
+    const generation = scanGeneration;
     getModal()?.show(); const status = document.getElementById('scanner-status');
-    if (!('BarcodeDetector' in window)) { status.textContent = 'Dieser Browser unterstützt den Kamerascanner nicht. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
-    if (!navigator.mediaDevices?.getUserMedia) { status.textContent = 'Kamerazugriff fehlt oder benötigt HTTPS. Den Code kannst du weiterhin manuell eingeben.'; return; }
+    if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { status.textContent = 'Kein Scanner verfügbar. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
+    if (!navigator.mediaDevices?.getUserMedia) { status.textContent = 'Kamera nicht verfügbar. HTTPS oder Browserberechtigung prüfen; alternativ manuell eingeben.'; return; }
     try {
-      const formats = scanTarget.id === 'label-barcode' ? ['ean_13','ean_8','code_128','code_39'] : ['ean_13','ean_8','code_128','code_39','qr_code'];
-      if (typeof BarcodeDetector.getSupportedFormats === 'function') {
-        const supported = await BarcodeDetector.getSupportedFormats();
-        const available = formats.filter(format => supported.includes(format));
-        if (!available.length) { status.textContent = 'Keine unterstützte Barcode-Art verfügbar. Code bitte manuell eingeben.'; return; }
-        formats.splice(0, formats.length, ...available);
+      const isLabelScanner = scanTarget.id === 'label-barcode';
+      let formats = isLabelScanner
+        ? ['ean_13', 'ean_8', 'code_128', 'code_39']
+        : ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'];
+      if (typeof window.BarcodeDetector === 'function'
+          && typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+        try {
+          const supported = await window.BarcodeDetector.getSupportedFormats();
+          formats = formats.filter(format => supported.includes(format));
+        } catch (_) {
+          // Constructor validation remains the fallback if format discovery is unavailable.
+        }
       }
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false}); document.getElementById('library-camera').srcObject = stream;
-      const detector = new BarcodeDetector({formats}); status.textContent = 'Barcode vor die Kamera halten.';
-      scanTimer = setInterval(async () => { try { const found = await detector.detect(document.getElementById('library-camera')); if (!found.length) return; scanTarget.value = found[0].rawValue || ''; scanTarget.dispatchEvent(new Event('change', {bubbles:true})); if (scanTarget.id === 'label-barcode') document.getElementById('label-barcode-scan-status').textContent = 'Code erkannt. Vorschau prüfen und Etikett drucken.'; stopCamera(); getModal()?.hide(); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
-    } catch (error) { status.textContent = error?.name === 'NotAllowedError' ? 'Kamerazugriff verweigert. Berechtigung freigeben oder Code manuell eingeben.' : 'Kamera konnte nicht geöffnet werden. Code bitte manuell eingeben.'; }
+      let detector = null;
+      if (typeof window.BarcodeDetector === 'function' && formats.length) {
+        try { detector = new window.BarcodeDetector({formats}); } catch (_) { detector = null; }
+      }
+      const canDecodeQr = !isLabelScanner && typeof window.jsQR === 'function';
+      if (!detector && !canDecodeQr) {
+        status.textContent = isLabelScanner
+          ? 'Dieser Browser kann diese Barcode-Art nicht scannen. Code bitte manuell eingeben.'
+          : 'Kein unterstützter Scanner verfügbar. Code bitte manuell eingeben.';
+        return;
+      }
+      const cameraVideo = document.getElementById('library-camera');
+      const requestedStream = await window.SimpleOfficeCamera.openCameraStream(
+        navigator.mediaDevices,
+        () => generation === scanGeneration,
+      );
+      if (!requestedStream) return;
+      stream = requestedStream;
+      cameraVideo.srcObject = stream;
+      await cameraVideo.play();
+      if (generation !== scanGeneration) return;
+      status.textContent = detector
+        ? 'Barcode vor die Kamera halten.'
+        : 'QR-Code vor die Kamera halten (andere Codes manuell eingeben).';
+      let detectionPending = false;
+      scanTimer = setInterval(async () => {
+        if (generation !== scanGeneration || detectionPending) return;
+        detectionPending = true;
+        try {
+          let found = [];
+          if (detector) {
+            try { found = await detector.detect(cameraVideo); } catch (_) { /* QR fallback below. */ }
+          }
+          if (!found.length && canDecodeQr) {
+            const width = cameraVideo.videoWidth;
+            const height = cameraVideo.videoHeight;
+            if (width && height) {
+              const canvas = document.createElement('canvas');
+              const scale = Math.min(1, 1200 / Math.max(width, height));
+              canvas.width = Math.max(1, Math.round(width * scale));
+              canvas.height = Math.max(1, Math.round(height * scale));
+              const context = canvas.getContext('2d', {willReadFrequently: true});
+              if (context) {
+                context.drawImage(cameraVideo, 0, 0, canvas.width, canvas.height);
+                const image = context.getImageData(0, 0, canvas.width, canvas.height);
+                const result = window.jsQR(
+                  image.data, image.width, image.height, {inversionAttempts: 'attemptBoth'},
+                );
+                if (result) found = [{rawValue: result.data}];
+              }
+            }
+          }
+          if (generation !== scanGeneration || !found.length) return;
+          scanTarget.value = found[0].rawValue || '';
+          scanTarget.dispatchEvent(new Event('change', {bubbles: true}));
+          if (isLabelScanner) {
+            document.getElementById('label-barcode-scan-status').textContent =
+              'Code erkannt. Vorschau prüfen und Etikett drucken.';
+          }
+          stopCamera();
+          getModal()?.hide();
+          if (scanTarget.id === 'bulk-book-code') assignBook();
+          if (scanTarget.id === 'library-find') findForm.requestSubmit();
+        } catch (_) {
+          if (generation === scanGeneration) {
+            status.textContent = 'Kamerabild konnte nicht ausgewertet werden. Code bitte manuell eingeben.';
+          }
+        } finally {
+          detectionPending = false;
+        }
+      }, 350);
+    } catch (error) {
+      if (generation !== scanGeneration) return;
+      stopCamera();
+      status.textContent = error?.name === 'NotAllowedError'
+        ? 'Kamerazugriff verweigert. Berechtigung im Browser prüfen.'
+        : 'Kamera konnte nicht geöffnet werden. Berechtigung oder Kamerabelegung prüfen; alternativ manuell eingeben.';
+    }
   }));
+  window.addEventListener('pagehide', stopCamera);
 
   let ocrRevision = 0;
   const clearOcrResult = () => {

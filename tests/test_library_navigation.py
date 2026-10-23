@@ -27,8 +27,9 @@ class LibraryNavigationTests(unittest.TestCase):
         self.assertIn('id="label-barcode-scan"', library)
         self.assertIn('data-scan-target="label-barcode"', library)
         self.assertIn('name="copies" type="number" min="1" max="100"', library)
-        self.assertIn("scanTarget.id === 'label-barcode' ? ['ean_13','ean_8','code_128','code_39']", library)
-        self.assertIn("Den Code kannst du weiterhin manuell eingeben.", library)
+        self.assertIn("const isLabelScanner = scanTarget.id === 'label-barcode'", library)
+        self.assertIn("['ean_13', 'ean_8', 'code_128', 'code_39']", library)
+        self.assertIn("Code bitte manuell eingeben.", library)
 
 
 if __name__ == "__main__":
