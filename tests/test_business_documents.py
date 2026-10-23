@@ -379,6 +379,7 @@ class BusinessDocumentTests(unittest.TestCase):
                 "invoice_id": "draft-1", "invoice_number": "DRAFT-2026-0001",
                 "contact_id": "customer-1", "status": "draft",
                 "reference_invoice_id": "reference-1", "history": [],
+                "buyer": {"street": "Customer Street 1", "postal": "12345", "city": "Berlin", "country": "DE"},
             }
             reference = {
                 "invoice_id": "reference-1", "invoice_number": "DRAFT-2026-0002",
