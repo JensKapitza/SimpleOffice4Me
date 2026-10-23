@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import tempfile
 import threading
 import unittest
@@ -64,6 +65,14 @@ class FolderImportBrowserTests(unittest.TestCase):
             paths,
         )
 
+    def _save_html5_snapshot(self, page):
+        output = os.environ.get("SIMPLEOFFICE_HTML5_SNAPSHOT", "").strip()
+        if not output:
+            return
+        snapshot = Path(output)
+        snapshot.parent.mkdir(parents=True, exist_ok=True)
+        snapshot.write_text(page.content(), encoding="utf-8")
+
     def test_manifest_and_upload_controls_switch_with_selected_source(self):
         from playwright.sync_api import sync_playwright
 
@@ -78,6 +87,7 @@ class FolderImportBrowserTests(unittest.TestCase):
             try:
                 page = context.new_page()
                 page.goto(f"{self.base_url}/documents/")
+                self._save_html5_snapshot(page)
                 self.assertIsNone(page.locator("#document-folder").get_attribute("webkitdirectory"))
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_disabled())
                 supported = page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input")

@@ -95,7 +95,19 @@ jobs:
       - name: Install Chromium and WebKit browsers
         run: python -m playwright install --with-deps chromium webkit
       - name: Test desktop/mobile search and invoice icons in dark mode
+        env:
+          SIMPLEOFFICE_HTML5_SNAPSHOT: ${{ runner.temp }}/documents-folder-picker.html
         run: python -m unittest tests.test_contact_company_search_browser tests.test_invoice_icons_browser tests.test_folder_import_browser -v
+      - name: Validate rendered folder-picker HTML5
+        shell: bash
+        run: |
+          set -euo pipefail
+          snapshot="$RUNNER_TEMP/documents-folder-picker.html"
+          test -s "$snapshot"
+          docker run --rm --network none \
+            -v "$snapshot:/data/documents-folder-picker.html:ro" \
+            ghcr.io/validator/validator@sha256:8f21030474e68e06905cfa801b37376e99c0e37867c653c5b6cd7e2dcaf3f503 \
+            vnu --errors-only --skip-non-html /data/documents-folder-picker.html
 
   python315-pr:
     name: Python 3.15 final acceptance
