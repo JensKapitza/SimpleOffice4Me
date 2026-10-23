@@ -17,6 +17,7 @@ def androidRuntimeProfiles = [
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
 def androidWheelDirectory = (System.getenv('SIMPLEOFFICE_ANDROID_WHEEL_DIR') ?: '').trim()
 def localCffiWheel = null
+def localArgon2BindingsWheel = null
 def localPillowWheel = null
 def localCryptographyWheel = null
 def localReportlabWheel = null
@@ -26,13 +27,15 @@ if (androidWheelDirectory) {
         throw new GradleException("Android wheel directory does not exist: ${wheelDirectory}")
     }
     def cffiWheels = fileTree(dir: wheelDirectory).matching { include 'cffi-1.17.1-*.whl' }.files
+    def argon2BindingsWheels = fileTree(dir: wheelDirectory).matching { include 'argon2_cffi_bindings-21.2.0-*.whl' }.files
     def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'Pillow-13.0.0-*.whl' }.files
     def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-48.0.1-*.whl' }.files
     def reportlabWheels = fileTree(dir: wheelDirectory).matching { include 'reportlab-4.2.5-py3-none-any.whl' }.files
-    if (cffiWheels.size() != 1 || pillowWheels.size() != 1 || cryptographyWheels.size() != 1 || reportlabWheels.size() != 1) {
-        throw new GradleException('Android wheel directory must contain exactly one verified cffi 1.17.1, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel')
+    if (cffiWheels.size() != 1 || argon2BindingsWheels.size() != 1 || pillowWheels.size() != 1 || cryptographyWheels.size() != 1 || reportlabWheels.size() != 1) {
+        throw new GradleException('Android wheel directory must contain exactly one verified cffi 1.17.1, argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel')
     }
     localCffiWheel = cffiWheels.first()
+    localArgon2BindingsWheel = argon2BindingsWheels.first()
     localPillowWheel = pillowWheels.first()
     localCryptographyWheel = cryptographyWheels.first()
     localReportlabWheel = reportlabWheels.first()
@@ -149,7 +152,11 @@ chaquopy {
             } else {
                 install 'cffi==1.17.1'
             }
-            install 'argon2-cffi-bindings==21.2.0'
+            if (localArgon2BindingsWheel) {
+                install localArgon2BindingsWheel.absolutePath
+            } else {
+                install 'argon2-cffi-bindings==21.2.0'
+            }
             install 'argon2-cffi==23.1.0'
             install 'beautifulsoup4==4.14.2'
             install 'defusedxml==0.7.1'

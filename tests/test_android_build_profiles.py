@@ -22,6 +22,8 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("pythonRuntimeVersion != expectedPythonVersion", gradle)
         self.assertIn("Pillow-13.0.0-*.whl", gradle)
         self.assertIn("cryptography-48.0.1-*.whl", gradle)
+        self.assertIn("argon2_cffi_bindings-21.2.0-*.whl", gradle)
+        self.assertIn("localArgon2BindingsWheel.absolutePath", gradle)
         self.assertIn("reportlab-4.2.5-py3-none-any.whl", gradle)
         self.assertIn("localReportlabWheel.absolutePath", gradle)
 
@@ -29,7 +31,9 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("android-cp315-arm64-Pillow-wheel", workflow)
         self.assertIn("android-cp315-arm64-cryptography-wheel", workflow)
-        self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS", workflow)
+        self.assertIn("android-cp315-arm64-argon2-cffi-bindings-wheel", workflow)
+        self.assertIn("android-cp315-arm64-cffi-wheel", workflow)
+        self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
 
     def test_ubuntu_26_android_job_uses_the_same_verified_wheel_artifacts(self):
@@ -39,7 +43,9 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("SIMPLEOFFICE_ANDROID_WHEEL_DIR:", workflow)
         self.assertIn("android-cp315-arm64-Pillow-wheel", workflow)
         self.assertIn("android-cp315-arm64-cryptography-wheel", workflow)
-        self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS", workflow)
+        self.assertIn("android-cp315-arm64-argon2-cffi-bindings-wheel", workflow)
+        self.assertIn("android-cp315-arm64-cffi-wheel", workflow)
+        self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
 
     def test_security_gate_precedes_artifact_upload(self):
