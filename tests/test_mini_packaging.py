@@ -55,7 +55,7 @@ class MiniPackagingTests(unittest.TestCase):
         setup = next(node for node in ast.walk(tree) if isinstance(node, ast.Call)
                      and isinstance(node.func, ast.Name) and node.func.id == "setup")
         legacy = ast.literal_eval(next(key.value for key in setup.keywords if key.arg == "py_modules"))
-        # The metadata uses only a literal string array: no TOML dependency on Python 3.10.
+        # The metadata uses a literal string array, so this test needs no TOML parser.
         modern = ast.literal_eval(re.search(r"(?ms)^py-modules\s*=\s*(\[.*?\])", (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1))
         required = {path.stem for path in ROOT.glob("simpleoffice_*.py")}
         for label, modules in (("modern", modern), ("legacy", legacy)):

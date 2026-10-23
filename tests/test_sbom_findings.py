@@ -17,6 +17,10 @@ REQUIRED_PLATFORM_FIELDS = {
     "follow_up_pr", "build",
 }
 TRACKED_STATUSES = {"open", "remediated_pending_merge", "resolved"}
+PILLOW_AUDIT_FINDINGS = {
+    "CVE-2026-112895", "CVE-2026-112400", "CVE-2026-112397", "CVE-2026-112896",
+    "CVE-2026-112897", "CVE-2026-112395", "CVE-2026-112404", "CVE-2026-112899",
+}
 
 
 class SbomFindingRegisterTests(unittest.TestCase):
@@ -42,6 +46,8 @@ class SbomFindingRegisterTests(unittest.TestCase):
                 self.assertIn(platform["status"], TRACKED_STATUSES)
                 for field in ("follow_up_issue", "follow_up_pr", "build"):
                     self.assertTrue(self._is_url(platform[field]), field)
+
+        self.assertTrue(PILLOW_AUDIT_FINDINGS <= identifiers)
 
     @staticmethod
     def _is_url(value: str) -> bool:

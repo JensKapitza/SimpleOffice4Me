@@ -6,8 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "simpleoffice4me"
 version = "2.0.0"
 description = "Self-hosted, file-based document management"
-# Syntax floor for the Ubuntu 22.04 vendor exception, not upstream 3.10 support.
-# Production policy is enforced by simpleoffice_runtime_support.py.
+# Minimum supported CPython version; production policy is enforced by
+# simpleoffice_runtime_support.py.
 requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3.11",

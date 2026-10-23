@@ -233,8 +233,8 @@ Abnahme sowie Zitavi-Roundtrip-Importtests bleiben offen und werden durch diese
 Exportformate nicht als abgenommen markiert.
 
 NUL-Zeichen werden nur im CSV-Ausgabewert entfernt; gespeicherte Metadaten
-bleiben unverändert. Das ermöglicht den Export auch mit dem unterstützten
-Ubuntu-22.04-System-Python 3.10. Die Formelabsicherung greift danach weiterhin.
+bleiben unverändert. Die Formelabsicherung greift auf den bereinigten
+Ausgabewert weiterhin vor dem CSV-Schreiben.
 
 
 ## Metadatenquellen und Konflikte
