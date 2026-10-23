@@ -28,11 +28,21 @@ if (androidWheelDirectory) {
     }
     def cffiWheels = fileTree(dir: wheelDirectory).matching { include 'cffi-1.17.1-*.whl' }.files
     def argon2BindingsWheels = fileTree(dir: wheelDirectory).matching { include 'argon2_cffi_bindings-21.2.0-*.whl' }.files
-    def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'Pillow-13.0.0-*.whl' }.files
+    def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'pillow-13.0.0-*.whl' }.files
     def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-48.0.1-*.whl' }.files
     def reportlabWheels = fileTree(dir: wheelDirectory).matching { include 'reportlab-4.2.5-py3-none-any.whl' }.files
     if (cffiWheels.size() != 1 || argon2BindingsWheels.size() != 1 || pillowWheels.size() != 1 || cryptographyWheels.size() != 1 || reportlabWheels.size() != 1) {
-        throw new GradleException('Android wheel directory must contain exactly one verified cffi 1.17.1, argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel')
+        def wheelNames = (wheelDirectory.listFiles() ?: [])
+            .findAll { it.isFile() && it.name.endsWith('.whl') }
+            .collect { it.name }
+            .sort()
+        throw new GradleException(
+            'Android wheel directory must contain exactly one verified cffi 1.17.1, '
+            + 'argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel. '
+            + "Match counts: cffi=${cffiWheels.size()}, argon2=${argon2BindingsWheels.size()}, "
+            + "Pillow=${pillowWheels.size()}, cryptography=${cryptographyWheels.size()}, "
+            + "ReportLab=${reportlabWheels.size()}; wheel files: ${wheelNames}"
+        )
     }
     localCffiWheel = cffiWheels.first()
     localArgon2BindingsWheel = argon2BindingsWheels.first()
