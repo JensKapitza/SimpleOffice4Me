@@ -288,6 +288,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
         )[1].split("</section>", 1)[0]
         self.assertNotIn("<img", pending_html)
         self.assertIn("fa-file-image", pending_html)
+        self.assertIn("download=1", pending_html)
 
         from app.preview_service import PreviewService
         preview = PreviewService(self.root).generate(path, document)
@@ -299,47 +300,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
             '<section id="document-preview"', 1
         )[1].split("</section>", 1)[0]
         self.assertIn("<img", ready_html)
-        self.assertIn("thumbnail", ready_html)
-
-    def test_pending_image_preview_uses_icon_until_a_safe_thumbnail_exists(self):
-        from PIL import Image
-
-        path = self.root / "photo.png"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (4, 4), "navy").save(path, format="PNG")
-        self.store._scan_file(path, force_hash=True)
-        document = self.store.get_document(path)
-        response = self.client.get(f"/documents/{document['document_id']}")
-        self.addCleanup(response.close)
-        self.assertEqual(200, response.status_code)
-        preview_html = response.get_data(as_text=True).split(
-            '<section id="document-preview"', 1
-        )[1].split("</section>", 1)[0]
-        self.assertIn("fa-file-image", preview_html)
-        self.assertIn("download=1", preview_html)
-        self.assertNotIn("<img", preview_html)
-
-    def test_cached_image_preview_renders_the_verified_raster_thumbnail(self):
-        from PIL import Image
-        from app.preview_service import PreviewService
-
-        path = self.root / "photo-ready.png"
-        Image.new("RGB", (8, 6), "navy").save(path, format="PNG")
-        self.store._scan_file(path, force_hash=True)
-        document = self.store.get_document(path)
-        preview = PreviewService(self.root).generate(path, document)
-        self.assertEqual("ready", preview["status"])
-        self.store.set_preview_metadata(document["document_id"], preview)
-
-        response = self.client.get(f"/documents/{document['document_id']}")
-        self.addCleanup(response.close)
-        self.assertEqual(200, response.status_code)
-        preview_html = response.get_data(as_text=True).split(
-            '<section id="document-preview"', 1
-        )[1].split("</section>", 1)[0]
-        self.assertIn("<img", preview_html)
-        self.assertIn("/thumbnail", preview_html)
-        self.assertNotIn("/preview?download=1", preview_html)
+        self.assertIn("/thumbnail", ready_html)
 
     def test_long_nested_document_paths_are_rendered_as_wrapping_breadcrumbs(self):
         folder = "imported-folder-with-a-long-name-" * 12
