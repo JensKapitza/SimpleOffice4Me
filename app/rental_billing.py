@@ -18,6 +18,7 @@ from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, 
 
 from .file_lock import exclusive_file_lock
 from .rental_calc import RentalCalculationStore
+from .safe_paths import resolve_file_under
 from .v2.materialize import materialize_verified_object
 from .rental_types import (
     ALLOCATION_METHODS, CALCULATION_VERSION, LEDGER_KINDS, METRIC_TYPES, MONEY,
@@ -145,9 +146,47 @@ class RentalBillingStore(RentalCalculationStore):
     def tenant_package(self, settlement_id: str, contact_id: str) -> Path:
         settlement=self.settlement(settlement_id)
         if settlement["status"] not in {"approved","sent","corrected"}: raise ValueError("Mieterpakete dürfen erst nach Freigabe ausgegeben werden")
-        path=self.approval_directory(settlement_id)/f"Mieterpaket-{safe_name(contact_id)}.zip"
-        if not path.is_file(): raise ValueError("Freigegebenes Mieterpaket fehlt")
-        return path
+        return self.verified_approval_file(settlement_id, f"Mieterpaket-{safe_name(contact_id)}.zip")
+
+    def verified_approval_file(self, settlement_id: str, name: str) -> Path:
+        """Return an approved artifact only when its snapshot and manifest verify."""
+        settlement = self.settlement(settlement_id)
+        if settlement["status"] not in {"approved", "sent", "corrected", "void"}:
+            raise ValueError("Freigegebene Abrechnungsdatei ist nicht verfügbar")
+        directory = self.approval_directory(settlement_id).resolve(strict=True)
+        target = resolve_file_under(directory, name)
+        relative = target.relative_to(directory).as_posix()
+        manifest_path = resolve_file_under(directory, "approval-manifest.json")
+        snapshot_path = resolve_file_under(directory, "snapshot.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        expected_snapshot = str(settlement.get("snapshot_sha256") or "")
+        if (
+            not isinstance(manifest, dict)
+            or manifest.get("schema") != "simpleoffice-rental-approval-manifest-v1"
+            or manifest.get("settlement_id") != settlement_id
+            or manifest.get("version") != settlement.get("version")
+            or manifest.get("snapshot_sha256") != expected_snapshot
+            or self._sha256_file(snapshot_path) != expected_snapshot
+        ):
+            raise ValueError("Freigabenachweis ist ungültig")
+        artifacts = manifest.get("artifacts")
+        if not isinstance(artifacts, list):
+            raise ValueError("Freigabenachweis ist ungültig")
+        entry = next(
+            (item for item in artifacts if isinstance(item, dict) and item.get("path") == relative),
+            None,
+        )
+        if (
+            entry is None
+            or not isinstance(entry.get("sha256"), str)
+            or len(entry["sha256"]) != 64
+            or not isinstance(entry.get("size"), int)
+            or entry["size"] < 0
+            or target.stat().st_size != entry["size"]
+            or self._sha256_file(target) != entry["sha256"]
+        ):
+            raise ValueError("Freigegebene Abrechnungsdatei ist beschädigt")
+        return target
 
     def _snapshot_documents(self, snapshot: dict[str,Any]) -> dict[str,dict[str,Any]]:
         documents={}
