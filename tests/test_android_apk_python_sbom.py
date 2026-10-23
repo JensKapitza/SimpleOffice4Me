@@ -5,7 +5,11 @@ from tempfile import TemporaryDirectory
 import unittest
 import zipfile
 
-from tools.android_apk_python_sbom import packaged_distributions, enforce_android_pillow_policy
+from tools.android_apk_python_sbom import (
+    enforce_android_pillow_policy,
+    enforce_gradle_package_pins,
+    packaged_distributions,
+)
 from tools.generate_sbom import build_sbom
 
 
@@ -19,6 +23,26 @@ def make_apk(path: Path, metadata: bytes | None, archive_name="assets/chaquopy/r
 
 
 class AndroidApkPythonSbomTests(unittest.TestCase):
+    def test_apk_inventory_requires_every_gradle_pin_at_the_exact_version(self):
+        from types import SimpleNamespace
+
+        with TemporaryDirectory() as tmp:
+            gradle = Path(tmp) / "build.gradle"
+            gradle.write_text(
+                "install 'Pillow==13.0.0'\ninstall 'cffi==2.0.0'\n",
+                encoding="utf-8",
+            )
+            packages = [
+                SimpleNamespace(metadata={"Name": "Pillow"}, version="13.0.0"),
+                SimpleNamespace(metadata={"Name": "cffi"}, version="2.0.0"),
+            ]
+            enforce_gradle_package_pins(packages, gradle)
+            with self.assertRaisesRegex(ValueError, "missing=cffi"):
+                enforce_gradle_package_pins(packages[:1], gradle)
+            packages[1] = SimpleNamespace(metadata={"Name": "cffi"}, version="1.17.1")
+            with self.assertRaisesRegex(ValueError, "version_mismatch=cffi==2.0.0"):
+                enforce_gradle_package_pins(packages, gradle)
+
     def test_security_gate_rejects_bundled_pillow_11(self):
         with TemporaryDirectory() as tmp:
             apk = Path(tmp) / "app.apk"
@@ -73,7 +97,7 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no dist-info"):
                 packaged_distributions(apk)
 
-    def test_incomplete_second_requirements_archive_fails_closed(self):
+    def test_empty_abi_archive_is_allowed_when_common_archive_has_metadata(self):
         with TemporaryDirectory() as tmp:
             apk = Path(tmp) / "app.apk"
             nested = BytesIO()
@@ -86,8 +110,8 @@ class AndroidApkPythonSbomTests(unittest.TestCase):
             with zipfile.ZipFile(apk, "w") as output:
                 output.writestr("assets/chaquopy/requirements-common.imy", nested.getvalue())
                 output.writestr("assets/chaquopy/requirements-arm64-v8a.imy", empty.getvalue())
-            with self.assertRaisesRegex(ValueError, "archive has no dist-info METADATA"):
-                packaged_distributions(apk)
+            packages = packaged_distributions(apk)
+        self.assertEqual([("Pillow", "12.2.0")], [(p.metadata["Name"], p.version) for p in packages])
 
     def test_no_chaquopy_requirements_archive_fails(self):
         with TemporaryDirectory() as tmp:

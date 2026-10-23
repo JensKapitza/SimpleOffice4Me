@@ -2,7 +2,8 @@
 """Inventory Python wheels actually embedded in a Chaquopy Android APK.
 
 Only dist-info METADATA found in APK-contained Chaquopy requirements archives
-is trusted. Fail closed when packaging changes; never substitute build-host pip.
+is trusted. Aggregate metadata across common and ABI archives because the latter
+may contain native payloads without metadata. Never substitute build-host pip.
 """
 from __future__ import annotations
 
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from tools.check_chaquopy_wheels import pinned_versions  # noqa: E402
 from tools.generate_sbom import build_sbom, write_xml_sbom  # noqa: E402
 
 
@@ -40,12 +42,10 @@ def packaged_distributions(apk_path: Path) -> list:
         if not archives:
             raise ValueError("APK has no Chaquopy requirements archives")
         for archive in archives:
-            metadata_count = 0
             with zipfile.ZipFile(BytesIO(apk.read(archive))) as wheels:
                 for path in wheels.namelist():
                     if not path.endswith(".dist-info/METADATA"):
                         continue
-                    metadata_count += 1
                     metadata = BytesParser(policy=default).parsebytes(wheels.read(path))
                     name, version = metadata.get("Name"), metadata.get("Version")
                     if not name or not version:
@@ -58,8 +58,6 @@ def packaged_distributions(apk_path: Path) -> list:
                     ):
                         raise ValueError(f"conflicting bundled package metadata for {name}")
                     found[key] = record
-            if metadata_count == 0:
-                raise ValueError(f"Chaquopy requirements archive has no dist-info METADATA: {archive}")
     if not found:
         raise ValueError("APK requirements archives contain no dist-info METADATA")
     return list(found.values())
@@ -79,15 +77,41 @@ def enforce_android_pillow_policy(distributions: list) -> None:
         )
 
 
+def enforce_gradle_package_pins(distributions: list, gradle_path: Path) -> None:
+    """Require APK metadata for every directly pinned Chaquopy distribution."""
+    expected = pinned_versions(gradle_path.read_text(encoding="utf-8"))
+    if not expected:
+        raise ValueError("Gradle build has no pinned Python distributions to inventory")
+    actual = {
+        canonicalize_name(distribution.metadata["Name"]): str(distribution.version)
+        for distribution in distributions
+    }
+    missing = sorted(name for name in expected if name not in actual)
+    mismatched = sorted(
+        f"{name}=={expected[name]} (APK has {actual[name]})"
+        for name in expected
+        if name in actual and actual[name] != expected[name]
+    )
+    if missing or mismatched:
+        details = []
+        if missing:
+            details.append("missing=" + ",".join(missing))
+        if mismatched:
+            details.append("version_mismatch=" + ",".join(mismatched))
+        raise ValueError("APK Python SBOM does not match Gradle pins: " + "; ".join(details))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("apk", type=Path)
+    parser.add_argument("--gradle", type=Path, default=Path("android/apk/app/build.gradle"))
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--xml-output", type=Path, required=True)
     parser.add_argument("--enforce-pillow-baseline", action="store_true")
     args = parser.parse_args()
     try:
         distributions = packaged_distributions(args.apk)
+        enforce_gradle_package_pins(distributions, args.gradle)
         if args.enforce_pillow_baseline:
             enforce_android_pillow_policy(distributions)
         document = build_sbom(distributions)

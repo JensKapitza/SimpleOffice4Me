@@ -37,6 +37,7 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("android-cp315-arm64-cffi-wheel", workflow)
         self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
+        self.assertIn("--gradle android/apk/app/build.gradle", workflow)
 
     def test_ubuntu_26_android_job_uses_the_same_verified_wheel_artifacts(self):
         workflow = (ROOT / ".github/workflows/ubuntu-26-compat.yml").read_text(encoding="utf-8")

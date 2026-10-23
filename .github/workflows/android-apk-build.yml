@@ -218,6 +218,7 @@ jobs:
         run: |
           python tools/android_apk_python_sbom.py \
             android/apk/app/build/outputs/apk/debug/app-debug.apk \
+            --gradle android/apk/app/build.gradle \
             --output artifacts/android/chaquopy-python.cdx.json \
             --xml-output artifacts/android/chaquopy-python.cdx.xml
 
@@ -266,6 +267,7 @@ jobs:
         run: |
           python tools/android_apk_python_sbom.py \
             android/apk/app/build/outputs/apk/debug/app-debug.apk \
+            --gradle android/apk/app/build.gradle \
             --output artifacts/android/chaquopy-python.cdx.json \
             --xml-output artifacts/android/chaquopy-python.cdx.xml \
             --enforce-pillow-baseline
