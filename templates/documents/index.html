@@ -66,8 +66,13 @@
   document.addEventListener('simpleoffice:native-ready', refreshFolderPicker);
   document.getElementById('pick-document-files').addEventListener('click', () => files.click());
   folderButton.addEventListener('click', () => {
+    // The Android bridge is injected after WebView onPageFinished. Resolve it
+    // at interaction time as well, so an early tap cannot open the WebView's
+    // file picker instead of the native SAF directory picker.
+    nativeFolderImport = window.SimpleOfficeFolderImport || nativeFolderImport;
     if (nativeFolderImport) {
-      const state = nativeFolderImport.add();
+      const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+      const state = nativeFolderImport.add(csrf);
       if (state === 'pending') {
         status.textContent = 'Android-Ordner auswählen …';
         startFolderImport.disabled = true;
