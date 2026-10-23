@@ -55,9 +55,9 @@
     <iframe class="w-100 border rounded" title="PDF-Vorschau: {{ preview.name }}" src="{{ preview.url }}" loading="lazy" referrerpolicy="no-referrer" style="height:65vh"></iframe>
     <p class="small text-secondary mt-2 mb-0">Wenn der Browser keine PDF-Vorschau unterstützt: <a href="{{ preview.download_url }}" download>PDF herunterladen</a>.</p>
     {% elif preview.kind == 'image' and preview.thumbnail_available %}
-    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Vorschau: {{ preview.name }}" loading="eager" decoding="async" style="max-height:65vh">
+    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Vorschau: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
     {% elif preview.kind == 'document' and preview.thumbnail_available %}
-    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Dokumentvorschau: {{ preview.name }}" loading="eager" decoding="async" style="max-height:65vh">
+    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Dokumentvorschau: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
     {% elif preview.kind == 'text' and preview.text %}
     <pre class="text-start bg-body-tertiary border rounded p-3 mb-0 text-break" style="max-height:55vh;overflow:auto;white-space:pre-wrap">{{ preview.text }}</pre>
     {% else %}
