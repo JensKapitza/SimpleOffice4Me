@@ -131,7 +131,7 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
                 self.assertNotEqual("rgba(0, 0, 0, 0)", icon.evaluate("node => getComputedStyle(node).color"))
                 if url.endswith("/invoice-icon-test"):
                     relationship_panel = page.locator("#invoice-relationships")
-                    relationship_icon = relationship_panel.locator(".card-header .fa-files")
+                    relationship_icon = relationship_panel.locator(".card-header .fa-link")
                     link_button = relationship_panel.get_by_role("button", name="Verknüpfen")
                     self.assertTrue(relationship_icon.is_visible())
                     self.assertEqual("true", relationship_icon.get_attribute("aria-hidden"))
