@@ -155,11 +155,22 @@ class FolderImportBrowserTests(unittest.TestCase):
                     return nativeClick.call(this);
                   };
                 }""")
-                with page.expect_file_chooser() as chooser:
-                    page.locator("#pick-document-folder").click()
-                chooser.value.set_files([])
+                with tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary) / "root"
+                    nested = root / "nested"
+                    nested.mkdir(parents=True)
+                    (root / "a.txt").write_text("root file", encoding="utf-8")
+                    (nested / "b.txt").write_text("nested file", encoding="utf-8")
+                    with page.expect_file_chooser() as chooser:
+                        page.locator("#pick-document-folder").click()
+                    chooser.value.set_files(str(root))
                 self.assertTrue(page.evaluate("window.folderModeAtClick"))
                 self.assertIsNone(folder.get_attribute("webkitdirectory"))
+                self.assertEqual(
+                    ["root/a.txt", "root/nested/b.txt"],
+                    folder.evaluate("input => Array.from(input.files, file => file.webkitRelativePath)"),
+                )
+                self.assertEqual("1", page.locator("#document-folder-import").input_value())
             finally:
                 context.close()
                 browser.close()
