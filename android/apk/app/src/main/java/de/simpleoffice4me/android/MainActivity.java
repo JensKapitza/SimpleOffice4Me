@@ -99,6 +99,8 @@ public class MainActivity extends Activity {
     private NfcAdapter nfcAdapter;
     private boolean nfcScanRequested;
     private volatile boolean localPageVisible;
+    // Written on the WebView UI thread, read by @JavascriptInterface worker threads.
+    private volatile String currentWebViewUrl = "";
     private boolean mainFrameLoadFailed;
     private String pendingBarcodeResult;
     private String pendingBarcodeStatus;
@@ -251,6 +253,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
                 if (offlineWorksetStore != null) offlineWorksetStore.unbindOwner();
                 if (!localPageVisible) {
@@ -265,6 +268,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
                     view.evaluateJavascript(nativeShim(nativeBridgeToken), null);
@@ -1310,7 +1314,9 @@ public class MainActivity extends Activity {
     }
 
     private boolean folderImportBridgeAllowed(String token) {
-        return bridgeAllowed(token) && webView != null && isDocumentsUploadPage(webView.getUrl());
+        // WebView.getUrl() throws on the JavaScript bridge worker thread.
+        // Read the last main-frame URL cached by WebViewClient instead.
+        return bridgeAllowed(token) && webView != null && isDocumentsUploadPage(currentWebViewUrl);
     }
 
     private void dispatchNativeScreenEvent(String state, int width, int height, String data, String message) {
