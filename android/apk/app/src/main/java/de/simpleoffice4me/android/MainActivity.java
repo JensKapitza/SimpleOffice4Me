@@ -403,6 +403,7 @@ public class MainActivity extends Activity {
                   + "preview:()=>String(window.SimpleOfficeAndroid.folderImportPreview(bridgeToken)),"
                   + "start:(csrf,maxBytes)=>String(window.SimpleOfficeAndroid.startFolderImport(bridgeToken,String(csrf||''),String(maxBytes||''))),"
                  + "cancel:()=>String(window.SimpleOfficeAndroid.cancelFolderImport(bridgeToken))};"
+                + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
                 + "const offlineOwner=String(document.documentElement.dataset.v3AndroidOfflineOwner||'').trim();"
                 + "const offlineEnabled=document.documentElement.dataset.v3AndroidOffline==='1'&&offlineOwner!=='';"
                 + "const offlineBound=offlineEnabled&&String(window.SimpleOfficeAndroid.bindOfflineOwner(bridgeToken,offlineOwner))==='ok';"
