@@ -53,7 +53,8 @@ def test_local_qr_fallback_runs_even_when_native_detector_exists():
     inventory = (root / "static/js/inventory.js").read_text()
     library = (root / "templates/library/index.html").read_text()
     assert "if (!codes.length && typeof window.jsQR === 'function')" in inventory
-    assert "if (!found.length && typeof window.jsQR === 'function')" in library
+    assert "const canDecodeQr = !isLabelScanner && typeof window.jsQR === 'function'" in library
+    assert "if (!found.length && canDecodeQr)" in library
     assert "1200 / Math.max(width, height)" in inventory
     assert "1200 / Math.max(width, height)" in library
 
