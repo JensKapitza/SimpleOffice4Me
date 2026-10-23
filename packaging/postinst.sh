@@ -3,21 +3,12 @@ set -eu
 
 APP_DIR=/opt/simpleoffice4me
 if [ "${1:-}" = "triggered" ]; then
-    exec sh "$APP_DIR/packaging/postinst-runtime-proof.sh"
+    exit 0
 fi
 STATE_DIR=/var/lib/simpleoffice4me
 INSTANCE_DIR="$STATE_DIR/instance"
 DOCUMENT_DIR="$STATE_DIR/documents"
 VENV="$APP_DIR/.venv"
-RUNTIME_PROOF_DIR=/var/cache/simpleoffice4me/runtime-proof
-
-# Bootstrap the authenticated local proof before the normal non-network gate
-# when this host uses the supported Ubuntu 22.04 system Python 3.10 exception.
-if [ -x /usr/bin/python3.10 ] && [ "$(readlink -f "$(command -v python3)")" = /usr/bin/python3.10 ]; then
-    install -d -o root -g root -m 0755 "$RUNTIME_PROOF_DIR"
-    SIMPLEOFFICE_RUNTIME_PROOF_DIR="$RUNTIME_PROOF_DIR" /usr/bin/python3.10 "$APP_DIR/simpleoffice_runtime_support.py" --write-proof
-fi
-
 python3 "$APP_DIR/simpleoffice_runtime_support.py"
 
 if ! getent group simpleoffice >/dev/null 2>&1; then
@@ -68,10 +59,6 @@ fi
 chown -R root:root "$APP_DIR"
 chown -R simpleoffice:simpleoffice "$STATE_DIR"
 FIREWALL_STATE_DIR=/var/lib/simpleoffice4me-firewall-agent
-install -d -o root -g root -m 0755 "$RUNTIME_PROOF_DIR"
-if [ -x /usr/bin/python3.10 ] && [ "$(readlink -f "$VENV/bin/python")" = /usr/bin/python3.10 ]; then
-    SIMPLEOFFICE_RUNTIME_PROOF_DIR="$RUNTIME_PROOF_DIR" "$VENV/bin/python" "$APP_DIR/simpleoffice_runtime_support.py" --write-proof
-fi
 if [ -L "$FIREWALL_STATE_DIR" ]; then
     echo "Unsicherer Firewall-Agent-State: $FIREWALL_STATE_DIR ist ein Symlink." >&2
     exit 1

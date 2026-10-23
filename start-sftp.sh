@@ -42,25 +42,11 @@ run_privileged() {
   fi
 }
 
-bootstrap_jammy_runtime_proof() {
-  python="$1"
-  [ -r /etc/os-release ] || return 0
-  (. /etc/os-release; [ "${ID:-}" = ubuntu ] && [ "${VERSION_ID:-}" = 22.04 ]) || return 0
-  [ "$("$python" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null)" = "3.10" ] || return 0
-  proof_dir="${SIMPLEOFFICE_RUNTIME_PROOF_DIR:-/var/cache/simpleoffice4me/runtime-proof}"
-  if [ -f "$proof_dir/jammy-python310.json" ] \
-    && env SIMPLEOFFICE_RUNTIME_PROOF_DIR="$proof_dir" "$python" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
-    return 0
-  fi
-  run_privileged env SIMPLEOFFICE_RUNTIME_PROOF_DIR="$proof_dir" "$python" "$ROOT/simpleoffice_runtime_support.py" --write-proof
-}
-
 check_bootstrap() {
   if ! command -v "$PYTHON_BOOTSTRAP" >/dev/null 2>&1; then
     echo "Python 3 wurde nicht gefunden." >&2
     return 1
   fi
-  bootstrap_jammy_runtime_proof "$PYTHON_BOOTSTRAP" || return 1
   "$PYTHON_BOOTSTRAP" "$ROOT/simpleoffice_runtime_support.py"
 }
 
@@ -92,7 +78,6 @@ PY
 }
 
 if [ -x "$VENV_PYTHON" ]; then
-  bootstrap_jammy_runtime_proof "$VENV_PYTHON"
   "$VENV_PYTHON" "$ROOT/simpleoffice_runtime_support.py"
 fi
 

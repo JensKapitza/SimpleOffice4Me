@@ -612,7 +612,7 @@ def printer_cut():
 
 
 def _csv_cell(value):
-    # NUL is not useful spreadsheet text and breaks the supported Python 3.10 CSV writer.
+    # NUL is not useful spreadsheet text and is rejected by common CSV consumers.
     text = "" if value is None else str(value).replace("\x00", "")
     index = 0
     while index < len(text) and (ord(text[index]) <= 32 or text[index].isspace() or text[index] == "\ufeff"):
@@ -768,9 +768,7 @@ def export_books_calibre():
 
     objects, placements, identifiers, selected, filters_active = _library_export_selection()
     archive_file = tempfile.SpooledTemporaryFile(max_size=1024 * 1024, mode="w+b")
-    # Python 3.10 SpooledTemporaryFile does not provide the complete buffered-I/O
-    # interface required by TextIOWrapper. A disk-backed TemporaryFile keeps the
-    # export bounded-memory while working consistently across supported runtimes.
+    # Stream the export through a disk-backed file to keep peak memory bounded.
     csv_file = tempfile.TemporaryFile(mode="w+b")
     count = 0
     try:

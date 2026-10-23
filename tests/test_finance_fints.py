@@ -1,3 +1,4 @@
+import base64
 import os
 import tempfile
 import unittest
@@ -5,7 +6,8 @@ from datetime import date
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from app.finance_fints import FinTSUnavailable, _client, default_fetch_window, normalize_transaction
+from app import app as flask_app
+from app.finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, _client, default_fetch_window, normalize_transaction
 from app.finance_fints_sync import FinTSSyncService
 from app.finance_store import FinanceStore
 
@@ -13,6 +15,9 @@ from app.finance_store import FinanceStore
 class FinanceFinTSTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
+        self.previous_secret = flask_app.config.get("SECRET_KEY")
+        flask_app.config["SECRET_KEY"] = "finance-fints-sync-sca-test-key"
+        self.addCleanup(lambda: flask_app.config.update(SECRET_KEY=self.previous_secret))
         self.store = FinanceStore(Path(self.temp.name))
         self.account = self.store.create_account(
             {"name": "ING Giro", "institution": "ING", "iban": "DE02120300000000202051"}, "jens"
@@ -134,6 +139,73 @@ class FinanceFinTSTests(unittest.TestCase):
         self.assertEqual(2, second["existing"])
         self.assertTrue(all(tx["state"] == "already_imported" for tx in second["accounts"][0]["transactions"]))
         self.assertEqual(2, len(self.store.bank_transactions(self.account["account_id"], "jens")))
+
+    @patch("app.finance_fints_sync.fetch_transactions")
+    def test_transaction_sca_resumes_without_replaying_completed_mappings(self, fetch):
+        second_account = self.store.create_account({"name": "Zweiter Giro", "kind": "bank"}, "jens")
+        second_remote_id = "iban:DE89370400440532013000"
+        self.store.map_remote_account(
+            self.connection["connection_id"], second_remote_id,
+            second_account["account_id"], "DE89370400440532013000", "jens",
+        )
+        start, end = default_fetch_window(None, today=date(2026, 10, 31))
+        first_mapping = {
+            "booking_date": start.isoformat(), "value_date": start.isoformat(),
+            "amount_cents": -100, "currency": "EUR", "counterparty_name": "First",
+            "counterparty_iban": "", "purpose": "first transaction", "bank_transaction_id": "bank-1",
+            "end_to_end_id": "", "mandate_id": "", "raw": {"source": "fints"},
+        }
+        second_mapping = {
+            **first_mapping, "counterparty_name": "Second", "purpose": "second transaction",
+            "bank_transaction_id": "bank-2",
+        }
+        state = {
+            "version": 1, "operation": "transactions", "step": "transactions",
+            "client_data": base64.b64encode(b"client").decode("ascii"),
+            "dialog_data": base64.b64encode(b"dialog").decode("ascii"),
+            "challenge_data": base64.b64encode(b"challenge").decode("ascii"),
+            "remote_account_id": second_remote_id, "account_currency": "EUR",
+            "challenge_text": "Approve transaction read", "decoupled": False,
+            "start_date": start.isoformat(), "end_date": end.isoformat(),
+            "local_account_id": "", "completed_mappings": [],
+        }
+        fetch.side_effect = [
+            [first_mapping],
+            FinTSAuthenticationRequired("TAN required", challenge_state=state),
+        ]
+        service = FinTSSyncService(self.store)
+        with self.assertRaises(FinTSAuthenticationRequired) as challenge:
+            service.sync_connection(
+                self.connection["connection_id"], "temporary-pin", "jens",
+                today=date(2026, 10, 31),
+            )
+        challenge_state = challenge.exception.challenge_state
+        self.assertEqual(self.account["account_id"], challenge_state["completed_mappings"][0]["account_id"])
+        self.assertEqual(second_account["account_id"], challenge_state["local_account_id"])
+        self.assertEqual(1, len(self.store.bank_transactions(self.account["account_id"], "jens")))
+        self.assertEqual([], self.store.bank_transactions(second_account["account_id"], "jens"))
+
+        with flask_app.app_context():
+            token = self.store.create_fints_challenge(
+                self.connection["connection_id"], challenge_state, "jens",
+            )
+            resumed_state = self.store.consume_fints_challenge(
+                token, self.connection["connection_id"], "jens",
+            )
+        fetch.side_effect = [[second_mapping]]
+        fetch.reset_mock()
+        result = service.sync_connection(
+            self.connection["connection_id"], "temporary-pin", "jens",
+            challenge_state=resumed_state, tan="123456",
+        )
+
+        self.assertEqual(["ING Giro"], result["previously_synced_accounts"])
+        self.assertEqual(1, result["created"])
+        self.assertEqual(1, len(result["accounts"]))
+        self.assertEqual(second_account["account_id"], result["accounts"][0]["account_id"])
+        self.assertEqual(1, fetch.call_count)
+        self.assertEqual(1, len(self.store.bank_transactions(self.account["account_id"], "jens")))
+        self.assertEqual(1, len(self.store.bank_transactions(second_account["account_id"], "jens")))
 
 
 if __name__ == "__main__":

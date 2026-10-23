@@ -51,6 +51,7 @@ jobs:
           python -m unittest discover -s tests -p 'test_python_runtime_support.py' -v
           python -m unittest discover -s tests -p 'test_start_script.py' -v
           python -m unittest discover -s tests -p 'test_android_apk_build_matrix.py' -v
+          python -m unittest tests.test_finance_fints_sync_http -v
       - name: Validate policy and compilation
         run: |
           python tools/check_project_policy.py .
@@ -80,7 +81,7 @@ jobs:
     name: Company search desktop and mobile browser flows
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -114,7 +115,7 @@ jobs:
       - name: Install application and audit dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --editable ".[security]"
+          python -m pip install --editable ".[security,sbom]"
           python -m pip_audit
       - name: Run policy, compile and complete unit-test gates
         run: |
@@ -133,36 +134,23 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {python-version: "3.10", os: ubuntu-22.04, runtime: jammy-system}
           - {python-version: "3.11", os: ubuntu-24.04, runtime: stable}
           - {python-version: "3.14", os: ubuntu-24.04, runtime: stable}
           - {python-version: "3.15", os: ubuntu-24.04, runtime: stable}
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Canonical Jammy Python (no setup-python upstream 3.10)
-        if: matrix.runtime == 'jammy-system'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --only-upgrade python3.10 python3.10-minimal libpython3.10-stdlib libpython3.10-minimal
-          sudo apt-get install -y python3.10-venv
-          /usr/bin/python3.10 -m venv "$RUNNER_TEMP/jammy-python"
-          echo "$RUNNER_TEMP/jammy-python/bin" >> "$GITHUB_PATH"
       - name: Set up Python
-        if: matrix.runtime != 'jammy-system'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - name: Create authenticated Jammy runtime proof
-        if: matrix.runtime == 'jammy-system'
-        run: sudo /usr/bin/python3.10 simpleoffice_runtime_support.py --write-proof
       - name: Check runtime support contract
         run: python simpleoffice_runtime_support.py
       - name: Install project
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --editable ".[security]"
+          python -m pip install --editable ".[security,sbom]"
       - name: Install existing optional SFTP extra for transport coverage
         if: matrix.python-version == '3.14'
         run: python -m pip install --editable ".[sftp]"
@@ -290,12 +278,40 @@ jobs:
       - name: Install project and auditor
         run: |
           python -m pip install --upgrade pip
-          python -m pip install --editable ".[security]"
+          python -m pip install --editable ".[security,sbom]"
       - name: Check known dependency vulnerabilities
         run: python -m pip_audit
       - name: Verify CRA security evidence
         run: python tools/cra_check.py
       - name: Generate release SBOM
         run: |
-          python tools/generate_sbom.py
+          python tools/generate_sbom.py --xml-output artifacts/sbom.cdx.xml
           python -m json.tool artifacts/sbom.cdx.json > /dev/null
+          python -m unittest discover -s tests -p test_sbom_xml.py
+      - name: Install pinned CycloneDX CLI validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          validator="$RUNNER_TEMP/cyclonedx"
+          curl --fail --location --retry 3 \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.33.1/cyclonedx-linux-x64 \
+            --output "$validator"
+          printf '%s  %s\n' \
+            'bfc8b2538da86fe239bc53658bbb63c1c8c510a293c1e6891aa5bea5d3c58746' \
+            "$validator" | sha256sum --check --status
+          chmod 0755 "$validator"
+          echo "CYCLONEDX_VALIDATOR=$validator" >> "$GITHUB_ENV"
+      - name: Validate generated CycloneDX 1.6 JSON and XML against the official schema
+        run: |
+          "$CYCLONEDX_VALIDATOR" validate --input-file artifacts/sbom.cdx.json \
+            --input-format json --input-version v1_6 --fail-on-errors
+          "$CYCLONEDX_VALIDATOR" validate --input-file artifacts/sbom.cdx.xml \
+            --input-format xml --input-version v1_6 --fail-on-errors
+      - name: Upload Python CycloneDX SBOM artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: python-cyclonedx-sbom
+          path: |
+            artifacts/sbom.cdx.json
+            artifacts/sbom.cdx.xml
+          if-no-files-found: error

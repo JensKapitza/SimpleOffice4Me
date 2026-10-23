@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS finance_bank_connection_account(
 );
 CREATE TABLE IF NOT EXISTS finance_fints_challenge(
     token_hash TEXT PRIMARY KEY, owner TEXT NOT NULL, connection_id TEXT NOT NULL,
-    payload TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+    operation TEXT NOT NULL DEFAULT 'balance', payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
     FOREIGN KEY(connection_id) REFERENCES finance_bank_connection(connection_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS finance_fints_challenge_owner_expiry_idx

@@ -320,27 +320,8 @@ termux_build_packages() {
   printf '%s\n' "clang make pkg-config libffi openssl argon2"
 }
 
-bootstrap_jammy_runtime_proof() {
-  [ -r /etc/os-release ] || return 0
-  os_id="$(. /etc/os-release; printf '%s' "${ID:-}")"
-  os_version="$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")"
-  [ "$os_id" = "ubuntu" ] && [ "$os_version" = "22.04" ] || return 0
-  command -v "$PYTHON" >/dev/null 2>&1 || return 0
-  [ "$("$PYTHON" -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")' 2>/dev/null)" = "3.10" ] || return 0
-  proof_dir="${SIMPLEOFFICE_RUNTIME_PROOF_DIR:-/var/cache/simpleoffice4me/runtime-proof}"
-  if [ -f "$proof_dir/jammy-python310.json" ] \
-    && env SIMPLEOFFICE_RUNTIME_PROOF_DIR="$proof_dir" "$PYTHON" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
-    return 0
-  fi
-  echo "Ubuntu 22.04: verifiziere Canonical-Python für die lokale Runtime-Freigabe ..."
-  run_privileged env SIMPLEOFFICE_RUNTIME_PROOF_DIR="$proof_dir" "$PYTHON" "$ROOT/simpleoffice_runtime_support.py" --write-proof
-}
-
 python_is_compatible() {
   command -v "$PYTHON" >/dev/null 2>&1 || return 1
-  if [ "$CHECK_SYSTEM" -eq 0 ]; then
-    bootstrap_jammy_runtime_proof || return 1
-  fi
   "$PYTHON" "$ROOT/simpleoffice_runtime_support.py"
 }
 
@@ -348,13 +329,9 @@ ensure_python_runtime() {
   if python_is_compatible; then
     return 0
   fi
-  if bootstrap_jammy_runtime_proof && python_is_compatible; then
-    return 0
-  fi
-
   if command -v "$PYTHON" >/dev/null 2>&1; then
     current_version="$($PYTHON -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || printf 'unbekannt')"
-    echo "Vorhandenes $PYTHON ($current_version) ist nicht freigegeben; benötigt wird CPython 3.11–3.15 oder die begrenzte Ubuntu-22.04-Ausnahme." >&2
+    echo "Vorhandenes $PYTHON ($current_version) ist nicht freigegeben; benötigt wird CPython 3.11–3.15 final." >&2
   else
     echo "Python 3 wurde nicht gefunden; prüfe native Pakete für $DISTRO_NAME ..."
   fi
@@ -438,7 +415,7 @@ requirements = {
     "argon2-cffi": ">=23.1,<26",
     "beautifulsoup4": ">=4.12,<5",
     "defusedxml": ">=0.7,<1",
-    "Pillow": ">=12.2,<13",
+    "Pillow": ">=13.0.0,<14",
     "reportlab": ">=4.0,<6",
     "pypdf": ">=5.0,<7",
     "waitress": ">=3.0,<4",
@@ -486,7 +463,7 @@ except ImportError:
 
 requirements = {
     "cryptography": (">=48.0.1,<51", "cryptography"),
-    "Pillow": (">=12.2,<13", "PIL"),
+    "Pillow": (">=13.0.0,<14", "PIL"),
 }
 problems = []
 for distribution, (specifier, module) in requirements.items():
@@ -574,17 +551,16 @@ RUNTIME_PYTHON="$PYTHON"
 if [ -x "$VENV/bin/python" ]; then
   if [ "$CHECK_SYSTEM" -eq 0 ]; then
     PYTHON="$VENV/bin/python"
-    bootstrap_jammy_runtime_proof
   fi
   "$VENV/bin/python" "$ROOT/simpleoffice_runtime_support.py"
   RUNTIME_PYTHON="$VENV/bin/python"
 elif [ "$CHECK_SYSTEM" -eq 1 ]; then
   if ! python_is_compatible; then
-    echo "--check-system verändert das System nicht. Für die Prüfung wird CPython 3.11–3.15 oder die begrenzte Ubuntu-22.04-Ausnahme benötigt." >&2
+    echo "--check-system verändert das System nicht. Für die Prüfung wird CPython 3.11–3.15 final benötigt." >&2
     exit 1
   fi
 elif ! ensure_python_runtime; then
-  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird CPython 3.11–3.15 oder die begrenzte Ubuntu-22.04-Ausnahme." >&2
+  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird CPython 3.11–3.15 final." >&2
   if [ -n "$NATIVE_PM" ]; then
     echo "Erkannter Paketmanager: $NATIVE_PM ($DISTRO_NAME)." >&2
   fi

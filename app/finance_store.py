@@ -11,6 +11,7 @@ import json
 import re
 import secrets
 import sqlite3
+from datetime import date
 from .sqlite_utils import connect as sqlite_connect
 import time
 from contextlib import contextmanager
@@ -34,18 +35,33 @@ MAX_ACTIVE_FINTS_CHALLENGES_PER_USER = 3
 MAX_ACTIVE_FINTS_CHALLENGES = 100
 MAX_FINTS_CHALLENGE_PAYLOAD_BYTES = 512 * 1024
 FINTS_CHALLENGE_PURPOSE = "finance_fints_challenge"
+MAX_COMPLETED_FINTS_MAPPINGS = 100
 _FINTS_CHALLENGE_FIELDS = {
     "version", "operation", "step", "client_data", "dialog_data", "challenge_data",
     "remote_account_id", "account_currency", "challenge_text", "decoupled",
 }
+_FINTS_TRANSACTION_CHALLENGE_FIELDS = _FINTS_CHALLENGE_FIELDS | {
+    "start_date", "end_date", "local_account_id", "completed_mappings",
+}
+_SENSITIVE_CREDENTIAL_KEY_TOKENS = frozenset({
+    "pin", "tan", "password", "passwd", "passcode", "secret", "secrets",
+    "credential", "credentials", "pincode", "pinvalue", "pinnumber", "pinsecret",
+    "pinhash", "tancode", "tanvalue", "tannumber", "tansecret", "tanhash",
+    "passwordhash", "secretkey",
+})
 
 
 def _validated_fints_challenge_payload(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("FinTS-SCA-Zustand hat ein ungültiges Format")
-    if payload.get("version") != 1 or payload.get("operation") != "balance":
+    operation = payload.get("operation")
+    if type(payload.get("version")) is not int or payload["version"] != 1:
+        raise ValueError("FinTS-SCA-Zustand hat eine ungültige Version")
+    if not isinstance(operation, str) or operation not in {"balance", "transactions"}:
         raise ValueError("FinTS-SCA-Vorgang wird nicht unterstützt")
-    if payload.get("step") not in {"accounts", "balance"}:
+    allowed_steps = {"accounts", "balance"} if operation == "balance" else {"accounts", "transactions"}
+    expected_fields = _FINTS_CHALLENGE_FIELDS if operation == "balance" else _FINTS_TRANSACTION_CHALLENGE_FIELDS
+    if not isinstance(payload.get("step"), str) or payload["step"] not in allowed_steps:
         raise ValueError("FinTS-SCA-Schritt wird nicht unterstützt")
     if not isinstance(payload.get("decoupled"), bool):
         raise ValueError("FinTS-SCA-Methode ist ungültig")
@@ -61,8 +77,9 @@ def _validated_fints_challenge_payload(payload: Any) -> dict[str, Any]:
     def contains_credential_key(value: Any) -> bool:
         if isinstance(value, dict):
             for key, nested in value.items():
-                normalized_key = re.sub(r"[^a-z]", "", str(key).casefold())
-                if any(term in normalized_key for term in ("pin", "tan", "password", "secret")):
+                split_camel_case = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(key))
+                key_tokens = set(re.findall(r"[a-z0-9]+", split_camel_case.casefold()))
+                if key_tokens.intersection(_SENSITIVE_CREDENTIAL_KEY_TOKENS):
                     return True
                 if contains_credential_key(nested):
                     return True
@@ -72,13 +89,65 @@ def _validated_fints_challenge_payload(payload: Any) -> dict[str, Any]:
 
     if contains_credential_key(payload):
         raise ValueError("PIN und TAN dürfen nicht im SCA-Zustand gespeichert werden")
-    if set(payload) != _FINTS_CHALLENGE_FIELDS:
+    if set(payload) != expected_fields:
         raise ValueError("FinTS-SCA-Zustand hat ein ungültiges Format")
     if not all(isinstance(payload[key], str) for key in ("client_data", "dialog_data", "challenge_data")):
         raise ValueError("FinTS-SCA-Zustand enthält ungültige Dialogdaten")
     if any(not re.fullmatch(r"[A-Za-z0-9_+/=-]+", payload[key]) for key in ("client_data", "dialog_data", "challenge_data")):
         raise ValueError("FinTS-SCA-Zustand enthält ungültige Dialogdaten")
+    if operation == "transactions":
+        if not isinstance(payload.get("local_account_id"), str) or not 1 <= len(payload["local_account_id"]) <= 100:
+            raise ValueError("FinTS-SCA-Kontozuordnung ist ungültig")
+        try:
+            start_date = date.fromisoformat(payload.get("start_date", ""))
+            end_date = date.fromisoformat(payload.get("end_date", ""))
+        except (TypeError, ValueError) as exc:
+            raise ValueError("FinTS-SCA-Zeitraum ist ungültig") from exc
+        if (start_date.isoformat() != payload["start_date"] or end_date.isoformat() != payload["end_date"]
+                or end_date < start_date or (end_date - start_date).days > 370):
+            raise ValueError("FinTS-SCA-Zeitraum ist ungültig")
+        completed = payload.get("completed_mappings")
+        if not isinstance(completed, list) or len(completed) > MAX_COMPLETED_FINTS_MAPPINGS:
+            raise ValueError("FinTS-SCA-Fortschritt ist ungültig")
+        completed_ids: set[str] = set()
+        for mapping in completed:
+            if (
+                not isinstance(mapping, dict)
+                or set(mapping) != {"remote_account_id", "account_id"}
+                or not isinstance(mapping.get("remote_account_id"), str)
+                or not 1 <= len(mapping["remote_account_id"]) <= 200
+                or not isinstance(mapping.get("account_id"), str)
+                or not 1 <= len(mapping["account_id"]) <= 100
+                or mapping["remote_account_id"] in completed_ids
+                or mapping["remote_account_id"] == payload["remote_account_id"]
+            ):
+                raise ValueError("FinTS-SCA-Fortschritt ist ungültig")
+            completed_ids.add(mapping["remote_account_id"])
     return payload
+
+
+def _fints_challenge_mapping_bindings_match(
+    db: sqlite3.Connection, connection_id: str, payload: dict[str, Any],
+) -> bool:
+    current = db.execute(
+        "SELECT account_id FROM finance_bank_connection_account "
+        "WHERE connection_id=? AND remote_account_id=?",
+        (connection_id, payload["remote_account_id"]),
+    ).fetchone()
+    if current is None:
+        return False
+    if payload["operation"] == "transactions":
+        if str(current["account_id"]) != payload["local_account_id"]:
+            return False
+        for completed in payload["completed_mappings"]:
+            row = db.execute(
+                "SELECT account_id FROM finance_bank_connection_account "
+                "WHERE connection_id=? AND remote_account_id=?",
+                (connection_id, completed["remote_account_id"]),
+            ).fetchone()
+            if row is None or str(row["account_id"]) != completed["account_id"]:
+                return False
+    return True
 
 
 class FinanceStore:
@@ -115,6 +184,9 @@ class FinanceStore:
             match_columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_transaction_match)").fetchall()}
             if match_columns and "allocated_cents" not in match_columns:
                 db.execute("ALTER TABLE finance_transaction_match ADD COLUMN allocated_cents INTEGER NOT NULL DEFAULT 0")
+            challenge_columns = {str(row["name"]) for row in db.execute("PRAGMA table_info(finance_fints_challenge)").fetchall()}
+            if challenge_columns and "operation" not in challenge_columns:
+                db.execute("ALTER TABLE finance_fints_challenge ADD COLUMN operation TEXT NOT NULL DEFAULT 'balance'")
 
     @staticmethod
     def _actor(value: Any) -> str:
@@ -272,35 +344,31 @@ class FinanceStore:
                 failure = "Bankverbindung ist keine FinTS-Verbindung"
             elif str(connection["status"]).casefold() == "disabled":
                 failure = "Bankverbindung ist deaktiviert"
+            elif not _fints_challenge_mapping_bindings_match(db, connection_id, payload):
+                failure = "FinTS-Kontozuordnung wurde nicht gefunden oder geändert"
             else:
-                mapping = db.execute(
-                    "SELECT 1 FROM finance_bank_connection_account WHERE connection_id=? AND remote_account_id=?",
-                    (connection_id, payload["remote_account_id"]),
+                owner_count = db.execute(
+                    "SELECT COUNT(*) AS count FROM finance_fints_challenge WHERE owner=?",
+                    (actor,),
                 ).fetchone()
-                if not mapping:
-                    failure = "FinTS-Kontozuordnung wurde nicht gefunden"
+                total_count = db.execute(
+                    "SELECT COUNT(*) AS count FROM finance_fints_challenge",
+                ).fetchone()
+                if int(owner_count["count"]) >= MAX_ACTIVE_FINTS_CHALLENGES_PER_USER:
+                    failure = "Zu viele offene FinTS-Freigaben; bitte eine bestehende Sitzung abschließen"
+                elif int(total_count["count"]) >= MAX_ACTIVE_FINTS_CHALLENGES:
+                    failure = "FinTS-Freigabe-Warteschlange ist ausgelastet; bitte später erneut versuchen"
                 else:
-                    owner_count = db.execute(
-                        "SELECT COUNT(*) AS count FROM finance_fints_challenge WHERE owner=?",
-                        (actor,),
-                    ).fetchone()
-                    total_count = db.execute(
-                        "SELECT COUNT(*) AS count FROM finance_fints_challenge",
-                    ).fetchone()
-                    if int(owner_count["count"]) >= MAX_ACTIVE_FINTS_CHALLENGES_PER_USER:
-                        failure = "Zu viele offene FinTS-Freigaben; bitte eine bestehende Sitzung abschließen"
-                    elif int(total_count["count"]) >= MAX_ACTIVE_FINTS_CHALLENGES:
-                        failure = "FinTS-Freigabe-Warteschlange ist ausgelastet; bitte später erneut versuchen"
-                    else:
-                        db.execute(
-                            "INSERT INTO finance_fints_challenge "
-                            "(token_hash,owner,connection_id,payload,created_at,expires_at) VALUES(?,?,?,?,?,?)",
-                            (token_hash, actor, connection_id, encrypted_payload, timestamp, expires_at),
-                        )
-                        self._audit(
-                            db, actor, "fints_challenge_created", "fints_challenge", connection_id,
-                            {"operation": "balance", "expires_at": expires_at},
-                        )
+                    db.execute(
+                        "INSERT INTO finance_fints_challenge "
+                        "(token_hash,owner,connection_id,operation,payload,created_at,expires_at) "
+                        "VALUES(?,?,?,?,?,?,?)",
+                        (token_hash, actor, connection_id, payload["operation"], encrypted_payload, timestamp, expires_at),
+                    )
+                    self._audit(
+                        db, actor, "fints_challenge_created", "fints_challenge", connection_id,
+                        {"operation": payload["operation"], "expires_at": expires_at},
+                    )
         if failure:
             raise ValueError(failure)
         return token
@@ -322,11 +390,12 @@ class FinanceStore:
         token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
         timestamp = int(time.time() if now is None else now)
         encrypted_payload = ""
+        stored_operation = ""
         missing = expired = False
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute(
-                "SELECT payload,expires_at FROM finance_fints_challenge "
+                "SELECT operation,payload,expires_at FROM finance_fints_challenge "
                 "WHERE token_hash=? AND owner=? AND connection_id=?",
                 (token_hash, actor, connection_id),
             ).fetchone()
@@ -348,11 +417,12 @@ class FinanceStore:
                     db.execute("DELETE FROM finance_fints_challenge WHERE token_hash=?", (token_hash,))
                     missing = True
                 else:
+                    stored_operation = str(row["operation"])
                     encrypted_payload = str(row["payload"])
                     db.execute("DELETE FROM finance_fints_challenge WHERE token_hash=?", (token_hash,))
                     self._audit(
                         db, actor, "fints_challenge_consumed", "fints_challenge", connection_id,
-                        {"operation": "balance"},
+                        {"operation": str(row["operation"])},
                     )
         if missing or expired:
             raise ValueError("FinTS-SCA-Sitzung ist ungültig oder abgelaufen; bitte erneut starten")
@@ -368,14 +438,11 @@ class FinanceStore:
             payload = _validated_fints_challenge_payload(payload)
         except ValueError as exc:
             raise ValueError("FinTS-SCA-Sitzung enthält ungültige Daten; bitte erneut starten") from exc
+        if payload["operation"] != stored_operation:
+            raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen Vorgang; bitte erneut starten")
         with self._db() as db:
-            mapping = db.execute(
-                "SELECT 1 FROM finance_bank_connection_account "
-                "WHERE connection_id=? AND remote_account_id=?",
-                (connection_id, payload["remote_account_id"]),
-            ).fetchone()
-        if not mapping:
-            raise ValueError("FinTS-SCA-Sitzung enthält eine ungültige Kontozuordnung; bitte erneut starten")
+            if not _fints_challenge_mapping_bindings_match(db, connection_id, payload):
+                raise ValueError("FinTS-SCA-Sitzung enthält eine ungültige Kontozuordnung; bitte erneut starten")
         return payload
 
     def bank_transaction(self, transaction_id: str, actor: str) -> dict[str, Any]:

@@ -39,6 +39,7 @@ class DeploymentAssetsTest(unittest.TestCase):
             "!.github/workflows/android-apk-build.yml",
             "!.github/workflows/desktop-build.yml",
             "!.github/workflows/server-deb-build.yml",
+            "!.github/workflows/project-release.yml",
             "!.github/workflows/ubuntu-26-compat.yml",
             ".git",
             ".venv",

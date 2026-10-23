@@ -21,6 +21,7 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
         self.assertIn('PIP_ONLY_BINARY="cryptography"', script)
         self.assertIn("--only-binary=:all:", script)
         self.assertIn("termux_native_dependencies_ok", script)
+        self.assertIn('"Pillow": (">=13.0.0,<14", "PIL")', script)
         self.assertIn("pip check", script)
 
     def test_optional_sftp_starter_uses_termux_pkg_for_native_crypto_and_is_standalone(self):
@@ -80,8 +81,8 @@ class TermuxDependencyPolicyTests(unittest.TestCase):
 
     def test_android_apk_runtime_keeps_pillow_for_image_features(self):
         gradle = (ROOT / "android" / "apk" / "app" / "build.gradle").read_text(encoding="utf-8")
-        self.assertIn("install 'Pillow==11.0.0'", gradle)
-        self.assertEqual(gradle.count("install 'Pillow==11.0.0'"), 1)
+        self.assertIn("install 'Pillow==13.0.0'", gradle)
+        self.assertEqual(gradle.count("install 'Pillow==13.0.0'"), 1)
 
     def test_project_declares_python_tzdata_fallback(self):
         pyproject = (ROOT / "pyproject.toml").read_text(encoding="utf-8")

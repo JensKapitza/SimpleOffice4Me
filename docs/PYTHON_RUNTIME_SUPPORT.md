@@ -1,93 +1,60 @@
-# Python-Runtime-Support
+# Python-Runtime-Support und Neuinstallation
 
-Stand: 14. Oktober 2026. Ubuntu 22.04 bleibt ein offizielles, begrenztes Ziel:
-`setup.py` erhält dessen Legacy-Editable-Pfad; die CI prüft jetzt ausdrücklich
-Canonicals Systeminterpreter auf `ubuntu-22.04` statt Upstream-3.10 auf 24.04.
+Stand: 21. Oktober 2026.
 
-| Runtime | Vertrag |
-| --- | --- |
-| CPython 3.11–3.15 final | Produktionsbetrieb; aktuelle Sicherheits-Patchversion verwenden. CI: 3.11, 3.14 und 3.15. |
-| CPython 3.10 auf Ubuntu 22.04 | Ausschließlich unverändertes Canonical-Paket `python3.10-minimal`, einschließlich daraus erzeugter venvs, bis einschließlich 31.05.2027. Sicherheitsquellen müssen aktiviert und Updates installiert sein. |
-| Upstream-/PPA-/selbst gebautes 3.10, andere Distributionen | Nicht unterstützt; Installation aus Source und Anwendung/Starter brechen mit Diagnose ab. |
-| Python-Vorabversionen | Nicht unterstützt; auch ein gesetzter historischer Testschalter erteilt keine Freigabe. |
+**Unterstützt: CPython 3.11 bis 3.15 (jeweils finale, aktuelle Patchversion).**
+Python 3.10 und ältere Versionen werden nicht mehr unterstützt. Das gilt auch
+für Ubuntu 22.04 mit dessen System-Python 3.10. Es gibt keine Legacy-Ausnahme,
+keine Sicherheitsfreigabe für ältere Pillow-Versionen und keine Migration.
 
-Python 3.10.22 war am 1. Oktober 2026 die letzte Upstream-Version:
-[Python.org](https://www.python.org/downloads/release/python-31022/).
-Canonicals [Release-Zyklus](https://ubuntu.com/about/release-cycle) weist für
-22.04 Standard-Sicherheitswartung bis Mai 2027 aus. Unsere Ausnahme endet daher
-am 31. Mai; Ubuntu Pro/ESM verlängert diesen Projektvertrag nicht automatisch.
-Die [Ubuntu-Sicherheitsquellen](https://documentation.ubuntu.com/security/security-updates/)
-und aktuelle Pakete sind Betreiberpflicht. Backports ändern nicht zwingend die
-Upstream-Patchnummer: `3.10.22` ist deshalb keine sinnvolle Jammy-Mindestprüfung.
+## Installation unter Linux
 
-## Technische Durchsetzung
-
-`simpleoffice_runtime_support.py` ist die gemeinsame, unabhängige Prüfung für
-Source-/Editable-Builds (`setup.py`, auch PEP 517), Web-/SFTP-Starter,
-Systempaket-Build/-Installation und den Import der Anwendung. Direkte Starts
-von Netzwerk-Worker, Firewall-Agent und HTTPS-CONNECT-Tunnel sowie der
-Launcher prüfen dieselbe Policy vor Listenern oder Konfigurationsänderungen.
-Stop/Status und Firewall-Rollback bleiben zur Wiederherstellung zugänglich. Eine vorhandene
-venv hat beim Start und bei `--check-system` Vorrang; der Bootstrap-Interpreter
-wird nur für eine neue bzw. bewusst neu erzeugte Umgebung benötigt. Eine
-abgewiesene venv wird bei einer Supportverletzung nicht gelöscht, auch unter
-Termux. `--check-system` bleibt ohne Systemänderungen.
-Die 3.10-Erkennung prüft Ubuntu-ID/Version, den aufgelösten Basisinterpreter
-`/usr/bin/python3.10`, Paketbesitz sowie Provenienz, aktuellen APT-Kandidaten und `dpkg --verify` für
-`python3.10-minimal`, `python3.10`, `libpython3.10-minimal` und
-`libpython3.10-stdlib`. Fehlende oder fehlerhafte Nachweise werden abgewiesen.
-Die lokalen APT-Indizes müssen vorhanden sein und die installierte Version
-mit Release-Origin/Label `Ubuntu`, Codename `jammy`, Komponente `main` und
-Suite `jammy`, `jammy-updates` oder `jammy-security` führen. Offizielle und
-interne Mirrors einschließlich `mirror+file:` werden über diese Release-
-Metadaten erkannt. Beide Update-Suites `jammy-updates` und `jammy-security` müssen in den lokalen
-Indizes vorhanden sein; jedes installierte Runtime-Paket muss dem aktuellen
-APT-Kandidaten entsprechen. Zusätzlich darf keine neuere offizielle Version
-in den Indizes verfügbar sein, auch wenn APT-Pinning den Kandidaten festhält;
-der Vergleich verwendet Debians Versionssemantik (`dpkg --compare-versions`).
-Veraltete Pakete, PPA-Origin oder gelöschte Indizes
-werden abgewiesen, ebenso identische Versionen aus zusätzlichen Fremdquellen.
-Vor Installation bzw. nach Updates `sudo apt-get update` und
-die verfügbaren Runtime-Updates installieren. Zusätzlich lädt die Laufzeitprüfung die ausgewählte, über APT authentisierte
-Canonical-Paketdatei in ein temporäres Verzeichnis und vergleicht deren
-Dateiinhalte und Symlink-Ziele mit der installierten Runtime. Damit reicht ein
-identischer Versionsstring eines früher installierten Fremdpakets nicht aus.
-Für die Jammy-Ausnahme muss der konfigurierte Ubuntu-Mirror daher während der
-Prüfung erreichbar sein; schlägt der Nachweis fehl, wird 3.10 fail-closed
-abgewiesen. Das prüft Paketidentität, Integrität und den lokalen Update-Stand;
-die Aktualität der APT-Indizes bleibt Betreiberpflicht.
-
-`requires-python >=3.10` in beiden Metadaten bleibt die **Syntaxgrenze** für
-die Jammy-Ausnahme. Python-Paketmarker können weder Distribution,
-Paketprovenienz noch Wartungsdatum ausdrücken. Die Produktionsfreigabe steht
-daher in dieser Policy und der gemeinsamen Laufzeitprüfung. Die Classifier
-nennen nur 3.11–3.15. Eine fertige Wheel-Datei kann technisch unter anderen
-Interpretern installiert werden; die Anwendung verweigert trotzdem den Start.
+Die Anwendung verwendet eine eigene virtuelle Umgebung. Python 3.12 ist eine
+praktische Wahl; jede freigegebene Version 3.11–3.15 ist möglich.
 
 ```bash
-python simpleoffice_runtime_support.py
+git clone https://github.com/JensKapitza/SimpleOffice4Me.git
+cd SimpleOffice4Me
+PYTHON=python3.12 ./start.sh --check-system
+PYTHON=python3.12 ./start.sh
+```
+
+Ist kein geeignetes System-Python vorhanden, bietet der vorhandene Starter
+einen Standalone-Installer für Python 3.12:
+
+```bash
+./start.sh --standalone
+```
+
+Dieser Installer lädt die Runtime unabhängig vom System-Python herunter.
+Vor dem produktiven Einsatz die vom Starter angezeigten Abhängigkeiten und
+Systemvoraussetzungen prüfen. Auf Ubuntu 22.04 **nicht** auf das dortige
+Python 3.10 zurückfallen.
+
+## Neuinstallation statt Migration
+
+Alte Python-3.10-Umgebungen werden nicht übernommen. Bei einer bestehenden
+Installation eine Datensicherung anlegen, eine frische Installation mit
+unterstützter Runtime durchführen und nur benötigte Dokumente und Daten
+anschließend gesondert einrichten. Es gibt keinen automatischen
+Migrationspfad und keine Unterstützung für alte Python-Umgebungen.
+
+## Android
+
+Die Android-App wird als installierbare APK über GitHub Actions
+`Android APK build` bereitgestellt. Die Python-Runtime wird in der APK
+gebündelt; Nutzer installieren **kein** separates Python auf Android.
+Der geprüfte ARM64-Build verwendet Pillow 13.0.0 und hash-verifizierte native
+Wheels für Pillow, cryptography, cffi und argon2-cffi-bindings. CI baut die APK,
+vergleicht die tatsächlich enthaltenen Python-Pakete mit den Gradle-Pins und
+validiert die Android-SBOMs. ARM32 wird mangels verifizierter Pillow-13-Wheels
+nicht angeboten. Der CI-Nachweis ersetzt keinen Laufzeit-/Gerätetest.
+
+## Prüfung
+
+```bash
+python3.12 simpleoffice_runtime_support.py
 ./start.sh --check-system
 ```
 
-Außerhalb der Ausnahme eine freigegebene Runtime auswählen, zum Beispiel
-`PYTHON=python3.12 ./start.sh`. Eine bestehende venv mit nicht mehr unterstütztem
-Interpreter nach Sicherung durch eine venv der freigegebenen Runtime ersetzen;
-Dokumente, `instance` und Datenbanken dabei erhalten. Die Starter installieren
-keine Fremd-PPA und ersetzen keine System-Runtime durch ungewartetes 3.10.
-
-## Python 3.15
-
-[Python 3.15.0 final wurde am 9. Oktober 2026 veröffentlicht](https://www.python.org/downloads/release/python-3150/).
-Die Produktionsfreigabe ist nicht allein aus dem Kalender abgeleitet: Die
-Repository-Policy erkennt ausschließlich finale 3.15-Versionen an, Metadaten und
-Legacy-Installer führen den 3.15-Classifier, und die CI installiert das
-veröffentlichte Final-Release. Pull Requests führen auf 3.15 Policy-, Install-,
-Compile-, Größen-, Dependency-/Security- und vollständige Unittest-Gates aus;
-der Hauptbranch behält 3.15 zusätzlich in seiner vollständigen Runtime-Matrix.
-
-Die frühere RC3-Ausnahme und `SIMPLEOFFICE_ALLOW_PRERELEASE=1` erteilen keine
-Freigabe mehr. Alpha-, Beta- und RC-Versionen bleiben auch mit gesetzter
-Umgebungsvariable gesperrt. Die operative Ubuntu-22.04-Ausnahme für Canonicals
-3.10-Pakete bleibt davon unverändert. Der fortlaufende
-[#474](https://github.com/JensKapitza/SimpleOffice4Me/issues/474)-Tracker bleibt
-für spätere Runtime- und Standardänderungen offen.
+Nur finale CPython-Versionen 3.11–3.15 sind freigegeben.

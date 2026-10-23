@@ -2,6 +2,13 @@ name: Release security, protocols and performance
 on:
   push:
     branches: [main]
+  pull_request:
+    paths:
+      - 'pyproject.toml'
+      - 'setup.py'
+      - 'tools/generate_sbom.py'
+      - 'tests/test_security_baseline.py'
+      - '.github/workflows/release-security-protocol-performance.yml'
   workflow_dispatch:
   schedule:
     - cron: '17 3 * * 1'
@@ -21,7 +28,7 @@ jobs:
           python-version: '3.12'
           cache: pip
       - name: Install application
-        run: python -m pip install -e .
+        run: python -m pip install -e '.[sbom]'
       - name: Security and protocol regression suites
         run: |
           set -euo pipefail

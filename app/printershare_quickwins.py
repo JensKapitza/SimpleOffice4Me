@@ -36,6 +36,7 @@ MAX_API_OFFSET = 5000
 ORPHAN_GRACE_SECONDS = 24 * 60 * 60
 TEMP_GRACE_SECONDS = 60 * 60
 REQUEST_ID_RE = re.compile(r"[^A-Za-z0-9._:-]+")
+CSV_LEADING_WHITESPACE_RE = re.compile(r"^[\s\ufeff]*")
 JOB_COUNT_SQL = """
 SELECT COUNT(*) FROM print_job
  WHERE (?=1 OR (source='web' AND source_peer=?))
@@ -442,6 +443,16 @@ def api_job(job_id: str):
     return jsonify({"schema": 1, "job": _safe_job(value, admin=admin)})
 
 
+def _csv_safe_text(value: Any) -> str:
+    """Protect untrusted print-job metadata from spreadsheet formula execution."""
+    text = "" if value is None else str(value)
+    prefix = CSV_LEADING_WHITESPACE_RE.match(text).group(0)
+    content = text[len(prefix):]
+    if content.startswith(("=", "+", "-", "@")) or any(character in "\t\r\n" for character in prefix):
+        return "'" + text
+    return text
+
+
 @bp.get("/api/jobs.csv")
 @login_required
 def api_jobs_csv():
@@ -452,8 +463,8 @@ def api_jobs_csv():
     writer.writerow(["job_id", "created_at", "printer", "source", "source_peer", "status", "retention", "retained", "size", "sha256"])
     for job in jobs:
         writer.writerow([
-            job["job_id"], job["created_at"], job["printer_name"], job["source"], job["source_peer"],
-            job["status"], job["retention"], int(job["retained"]), job["payload_size"], job["payload_sha256"],
+            _csv_safe_text(job["job_id"]), job["created_at"], _csv_safe_text(job["printer_name"]), _csv_safe_text(job["source"]), _csv_safe_text(job["source_peer"]),
+            _csv_safe_text(job["status"]), _csv_safe_text(job["retention"]), int(job["retained"]), job["payload_size"], job["payload_sha256"],
         ])
     response = Response(output.getvalue(), mimetype="text/csv; charset=utf-8")
     response.headers["Content-Disposition"] = "attachment; filename=printershare-jobs.csv"

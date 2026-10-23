@@ -6,17 +6,58 @@ compatible.
 """
 from __future__ import annotations
 
+import re
+import sqlite3
+
 from flask import Blueprint
 from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
+from .invoice_relations import (
+    INVOICE_RELATION_TYPES,
+    INVOICE_RELATION_TYPES_EN,
+    invoice_overview_data,
+    invoice_reference_candidates,
+    invoice_relationship_context,
+)
+from .invoice_relation_routes import (
+    add_invoice_annotation,
+    add_invoice_relationship,
+    register_invoice_relation_routes,
+    remove_invoice_relationship,
+    revise_invoice_annotation,
+)
 from .safe_paths import resolve_file_under
 from .v2.materialize import materialize_verified_object
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
+register_invoice_relation_routes(bp)
+
+
+def _managed_invoice(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
+    try:
+        row = invoice(root, invoice_id)
+        contacts = ContactStore(root)
+        contact = contacts.get(str(row.get("contact_id", "")), actor)
+    except ValueError:
+        abort(404)
+    if not contacts.can_manage_contact(contact, actor):
+        abort(403)
+    return row
+
+
+def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
+    try:
+        DocumentStore(root).history.record(action, actor, "invoice", invoice_id, details)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        current_app.logger.warning(
+            "Invoice sidecar audit mirror failed for %s (%s)", action, type(exc).__name__
+        )
+        return False
+    return True
 
 def _v3_finance_enabled() -> bool:
     from .v3_capabilities import enabled
@@ -275,10 +316,61 @@ def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dic
         return inspect_zugferd_pdf(path)
 
 
+def _parse_free_text_invoice_address(value: object, default_country: str = "DE") -> dict[str, str]:
+    """Turn the explicit street / postal-city / ISO-country lines into a CII address."""
+    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
+    if len(raw) > 1000 or not 2 <= len(lines) <= 4 or any(len(line) > 250 for line in lines):
+        raise ValueError("Freitextadresse: Straße, PLZ/Ort und optional ISO-Land eingeben (maximal 1000 Zeichen).")
+    has_country = len(lines) >= 3 and bool(re.fullmatch(r"[A-Za-z]{2}", lines[-1]))
+    postal_city = lines[-2] if has_country else lines[-1]
+    street_lines = lines[:-2] if has_country else lines[:-1]
+    postal_city_parts = postal_city.split(maxsplit=1)
+    if not street_lines or len(postal_city_parts) != 2:
+        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort, z. B. ‚10115, Berlin‘.")
+    postal = postal_city_parts[0].rstrip(",")
+    city = postal_city_parts[1].strip()
+    country = (lines[-1] if has_country else str(default_country or "DE")).upper()
+    if not postal or not city or not re.fullmatch(r"[A-Z]{2}", country):
+        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort; das Land muss ein ISO-Code sein.")
+    street = " ".join(street_lines)
+    return {
+        "id": "", "label": "\n".join(lines), "street": street,
+        "postal": postal, "city": city, "country": country,
+    }
+
+
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    address_mode = str(form.get("address_mode", "existing")).strip()
+    if address_mode not in {"existing", "manual", "free_text"}:
+        raise ValueError("Ungültiger Rechnungsadressmodus.")
     contacts=ContactStore(root); contact=contacts.get(contact_id,actor)
     if not contacts.can_manage_contact(contact,actor):raise PermissionError
     crm=ContactCRMStore(root).record(contact_id); selected=form.get("address",""); label,candidates=address_labels(contact,crm,selected); candidate=next((item for item in candidates if item["label"]==label),None)
+    if address_mode == "manual":
+        street = str(form.get("billing_street", "")).strip()
+        postal = str(form.get("billing_postal", "")).strip()
+        city = str(form.get("billing_city", "")).strip()
+        country = str(form.get("billing_country", "DE")).strip().upper() or "DE"
+        if not street or not postal or not city:
+            raise ValueError("Für eine manuelle Rechnungsadresse sind Straße, PLZ und Ort erforderlich.")
+        if not re.fullmatch(r"[A-Z]{2}", country):
+            raise ValueError("Das Land muss als zweistelliger ISO-Code angegeben werden.")
+        if any(len(value) > 250 for value in (street, postal, city)):
+            raise ValueError("Die Rechnungsadresse enthält zu lange Felder.")
+        label = "\n".join((street, f"{postal} {city}", country))
+        candidate = {"id": "", "label": label, "street": street, "postal": postal, "city": city, "country": country}
+    if address_mode == "free_text":
+        candidate = _parse_free_text_invoice_address(
+            form.get("billing_free_text", ""),
+            default_country=str((candidate or {}).get("country", "DE")),
+        )
+        label = candidate["label"]
+    if address_mode == "existing":
+        candidate = next((item for item in candidates if item["id"] == selected), None)
+        if candidate is None:
+            raise ValueError("Bitte eine gültige gespeicherte Rechnungsadresse auswählen.")
+        label = candidate["label"]
     if not candidate:raise ValueError("billing address is required")
     settings=business_settings(root)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
@@ -299,6 +391,11 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     recipient_lines=[person] if recipient_type == "private" else [company,*([person] if person else [])]
     buyer_label="\n".join(recipient_lines+address_lines); buyer_name=person if recipient_type == "private" else company
     now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":buyer_label,"recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
+    reference_invoice_id, reference_invoice_number = validated_invoice_reference(
+        root, contact_id, form.get("reference_invoice_id", ""),
+    )
+    row["reference_invoice_id"] = reference_invoice_id
+    row["reference_invoice_number"] = reference_invoice_number
     row["task_id"] = str(form.get("task_id", "")).strip()
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
@@ -318,7 +415,29 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
             raise Conflict(description="This invoice draft changed in another session. Reload it before saving.")
         row = _invoice_row_from_form(root, contact_id, form, actor, existing)
         atomic_json_write(_invoice_store_path(root,row["invoice_id"]),row)
-    DocumentStore(root).history.record("invoice_draft_saved",actor,"invoice",row["invoice_id"],{"contact_id":contact_id,"totals":row["totals"]})
+        address_mode = str(form.get("address_mode", "")).strip()
+        if address_mode == "manual" and form.get("save_billing_address") == "1":
+            buyer = row["buyer"]
+            components = {key: buyer[key] for key in ("street", "postal", "city", "country")}
+            try:
+                contacts = ContactStore(root)
+                contact = contacts.get(contact_id, actor)
+                matching = any(item.get("components", {}) == components for item in contact.get("addresses", []))
+                if not matching:
+                    contacts.add_address(contact_id, "Rechnungsadresse", buyer["label"], actor, components=components)
+            except (OSError, ValueError) as exc:
+                logger.warning("Invoice draft saved but contact address could not be linked: %s", type(exc).__name__)
+    DocumentStore(root).history.record(
+        "invoice_draft_saved",
+        actor,
+        "invoice",
+        row["invoice_id"],
+        {
+            "contact_id": contact_id,
+            "reference_invoice_id": row.get("reference_invoice_id", ""),
+            "totals": row["totals"],
+        },
+    )
     return row
 
 
@@ -349,7 +468,19 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+        buyer = row.get("buyer") or {}
+        if not all(str(buyer.get(key, "")).strip() for key in ("street", "postal", "city", "country")):
+            raise ValueError("Für die elektronische Rechnung fehlen strukturierte Adressdaten (Straße, PLZ, Ort oder Land). Bitte den Entwurf mit einer strukturierten Rechnungsadresse bearbeiten.")
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
+        reference_id, reference_number = timed(
+            "reference_invoice_validate",
+            lambda: validated_invoice_reference(
+                root, str(row.get("contact_id", "")),
+                str(row.get("reference_invoice_id", "")),
+            ),
+        )
+        row["reference_invoice_id"] = reference_id
+        row["reference_invoice_number"] = reference_number
         timed("project_positions_load", lambda: _validate_project_sources(root, row, actor))
         timed("business_settings_load", lambda: business_settings(root))
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
@@ -521,7 +652,26 @@ def contact_invoice(contact_id:str):
     fields=contact.get("fields",{}); default_names=_recipient_names(contact); default_company=str(fields.get("company","")).strip(); default_person=next((name for name in default_names if name.casefold()!=default_company.casefold()),"")
     recipient={"type":draft.get("buyer",{}).get("recipient_type") if draft else ("company" if default_company else "private"),"company":draft.get("buyer",{}).get("company","") if draft else default_company,"contact":draft.get("buyer",{}).get("contact_name","") if draft else (default_person or str(fields.get("display_name","")).strip())}
     if request.method=="POST":recipient={"type":request.form.get("recipient_type","private"),"company":request.form.get("recipient_company",""),"contact":request.form.get("recipient_contact","")}
-    payment_days=str((date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days) if draft else str(crm.get("payment_days") or settings.get("default_payment_days") or "14");return render_template("documents/contact_invoice.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),business=settings,payment_days=payment_days,issue_date=draft.get("issue_date",date.today().isoformat()) if draft else date.today().isoformat(),service_date=draft.get("service_date",date.today().isoformat()) if draft else date.today().isoformat(),links=contact_links(root,contact_id),draft=draft,recipient=recipient,linked_task=linked_task)
+    selected_reference_invoice_id = (
+        request.form.get("reference_invoice_id", "").strip() if request.method == "POST" else
+        str((draft or {}).get("reference_invoice_id", ""))
+    )
+    reference_invoices = invoice_reference_candidates(invoices(root), contact_id, draft_id)
+    payment_days = str(
+        (date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days
+        if draft else crm.get("payment_days") or settings.get("default_payment_days") or "14"
+    )
+    return render_template(
+        "documents/contact_invoice.html", contact=contact, crm=crm, address=address,
+        addresses=addresses, templates=templates(root), business=settings,
+        payment_days=payment_days,
+        issue_date=draft.get("issue_date", date.today().isoformat()) if draft else date.today().isoformat(),
+        service_date=draft.get("service_date", date.today().isoformat()) if draft else date.today().isoformat(),
+        links=contact_links(root, contact_id), draft=draft, recipient=recipient,
+        reference_invoices=reference_invoices,
+        selected_reference_invoice_id=selected_reference_invoice_id,
+        linked_task=linked_task,
+    )
 
 @bp.get("/invoices/<invoice_id>/draft.pdf")
 @login_required
@@ -662,16 +812,23 @@ def customer_document_archive_download(contact_id: str):
 @bp.get("/invoices")
 @login_required
 def invoice_overview():
-    root,actor=_root(),_actor();contacts=ContactStore(root);query=request.args.get("q","").strip().casefold();selected_status=request.args.get("status","").strip(); contact_map={item["contact_id"]:item for item in contacts.contacts(actor) if contacts.can_manage_contact(item,actor)}; rows=[]
-    for row in invoices(root):
-        contact=contact_map.get(row.get("contact_id"))
-        if contact is None:continue
-        state=row["payment_state"]["status"]
-        if selected_status and state!=selected_status:continue
-        searchable=f"{row.get('invoice_number','')} {row.get('buyer',{}).get('name','')} {contact.get('fields',{}).get('display_name','')}"
-        if query and query not in searchable.casefold():continue
-        rows.append({**row,"contact":contact})
-    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}; return render_template("documents/invoice_overview.html",rows=rows,stats=stats,query=request.args.get("q","").strip(),selected_status=selected_status)
+    root, actor = _root(), _actor()
+    query = request.args.get("q", "").strip()
+    selected_status = request.args.get("status", "").strip()
+    selected_project_id = request.args.get("project_id", "").strip()
+    selected_related_invoice_id = request.args.get("related_invoice_id", "").strip()
+    rows, project_options, related_options, relation_error = invoice_overview_data(
+        root, actor, query, selected_status, selected_project_id,
+        selected_related_invoice_id,
+    )
+    stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}
+    return render_template(
+        "documents/invoice_overview.html", rows=rows, stats=stats, query=query,
+        selected_status=selected_status, project_options=project_options,
+        selected_project_id=selected_project_id, related_options=related_options,
+        selected_related_invoice_id=selected_related_invoice_id,
+        relation_error=relation_error,
+    )
 
 @bp.route("/invoices/new", methods=("GET", "POST"))
 @login_required
@@ -730,8 +887,30 @@ def invoice_detail(invoice_id:str):
     except ValueError:abort(404)
     contacts=ContactStore(root);contact=contacts.get(row["contact_id"],actor)
     if not contacts.can_manage_contact(contact,actor):abort(403)
-    linked_task = _invoice_task(root, str(row.get("task_id", "")), actor, row["contact_id"], required=False) if row.get("task_id") else None
-    return render_template("documents/invoice_detail.html",invoice={**row,"payment_state":invoice_state(row)},contact=contact,linked_task=linked_task,today=date.today().isoformat(),credit=CustomerCreditLedger(root).account(row["contact_id"],row.get("currency","EUR")),write_off_reasons=sorted(WRITE_OFF_REASONS))
+    try:
+        related, candidates, annotations = invoice_relationship_context(root, row, actor)
+        relation_error = False
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning(
+            "Invoice sidecar read failed for %s (%s)", invoice_id, type(exc).__name__
+        )
+        related, candidates, annotations = [], [], []
+        relation_error = True
+    return render_template(
+        "documents/invoice_detail.html",
+        invoice={**row,"payment_state":invoice_state(row)}, contact=contact,
+        related_invoices=related, related_invoice_candidates=candidates,
+        invoice_relationship_types=(INVOICE_RELATION_TYPES_EN if g.language == "en" else INVOICE_RELATION_TYPES),
+        annotations=annotations,
+        linked_task=_invoice_task(
+            root, str(row.get("task_id", "")), actor, row["contact_id"], required=False,
+        ) if row.get("task_id") else None,
+        relation_error=relation_error,
+        today=date.today().isoformat(),
+        credit=CustomerCreditLedger(root).account(row["contact_id"],row.get("currency","EUR")),
+        write_off_reasons=sorted(WRITE_OFF_REASONS),
+    )
+
 
 @bp.post("/invoices/<invoice_id>/payments")
 @login_required

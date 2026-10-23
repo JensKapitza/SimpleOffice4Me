@@ -29,7 +29,7 @@ def _positive_int(value: object) -> int:
 
 
 def _project_version(root: Path) -> str:
-    """Read the source version without requiring tomllib on Python 3.10."""
+    """Read the source version without importing optional application packages."""
     try:
         lines = (root / "pyproject.toml").read_text(encoding="utf-8").splitlines()
     except OSError:
