@@ -40,8 +40,10 @@
   const androidWebView = /SimpleOffice4Me-Android\//i.test(navigator.userAgent);
   const refreshFolderPicker = () => {
     nativeFolderImport = window.SimpleOfficeFolderImport || nativeFolderImport;
+    // Never disable the Android entry point just because the WebView bridge
+    // has not arrived yet. A disabled button cannot explain the missing bridge.
     folderButton.disabled = androidWebView
-      ? !nativeFolderImport
+      ? false
       : !('webkitdirectory' in folder) && !nativeFolderImport;
     if (folderButton.disabled) {
       folderButton.title = androidWebView
@@ -95,7 +97,8 @@
       return;
     }
     if (androidWebView) {
-      status.textContent = 'Android-Ordnerauswahl nicht verbunden. Bitte Seite neu laden; keine einzelne Datei als Ordner übernehmen.';
+      status.textContent = 'Android-Ordnerauswahl nicht verbunden. Bitte App neu starten. Falls das Problem bleibt, die App-Version und diese Meldung melden.';
+      status.setAttribute('role', 'alert');
       return;
     }
     if ('webkitdirectory' in folder) folder.click();
@@ -133,9 +136,7 @@
     startFolderImport.hidden = !queued && !preview;
     startFolderImport.disabled = active || (queued && folderButton.disabled);
     startFolderImport.textContent = preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
-    folderButton.disabled = active || (androidWebView
-      ? !nativeFolderImport
-      : !('webkitdirectory' in folder) && !nativeFolderImport);
+    folderButton.disabled = active || (!androidWebView && !('webkitdirectory' in folder) && !nativeFolderImport);
     if (preview) folderButton.disabled = true;
     folderButton.textContent = queued ? 'Weiteren Ordner hinzufügen' : 'Ordner importieren';
     if (detail.message) status.textContent = detail.message;
