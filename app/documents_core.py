@@ -35,7 +35,7 @@ from .project_store import ProjectStore
 from .replication_store import CATEGORIES, ReplicationStore
 from .object_store import ObjectStore
 from .attachment_security import AttachmentSecurity, ClamAV
-from .preview_service import PreviewService
+from .preview_service import AUDIO_SUFFIXES, IMAGE_SUFFIXES, VIDEO_SUFFIXES, PreviewService, media_mimetype
 from .db import get_db
 from .setup_store import SetupStore
 from .mail_client import MailStore, SmtpSubmission
@@ -286,16 +286,37 @@ def _document_or_404(document_id: str) -> dict:
 
 
 def _preview_data(document: dict) -> dict[str, str]:
-    suffix = Path(str(document.get("last_path", ""))).suffix.lower()
-    if suffix in {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}: kind, icon = "image", "fa-file-image"
+    filename = str(document.get("last_path", ""))
+    suffix = Path(filename).suffix.lower()
+    if suffix in IMAGE_SUFFIXES: kind, icon = "image", "fa-file-image"
     elif suffix == ".pdf": kind, icon = "pdf", "fa-file-pdf"
-    elif suffix in {".mp3", ".wav", ".ogg", ".m4a", ".flac"}: kind, icon = "audio", "fa-file-audio"
-    elif suffix in {".mp4", ".mkv", ".mov", ".avi", ".webm"}: kind, icon = "video", "fa-file-video"
+    elif suffix in AUDIO_SUFFIXES: kind, icon = "audio", "fa-file-audio"
+    elif suffix in VIDEO_SUFFIXES: kind, icon = "video", "fa-file-video"
     elif document.get("extracted_text") or document.get("ocr_text"): kind, icon = "text", "fa-file-lines"
     elif suffix in {".doc", ".docx", ".odt", ".rtf"}: kind, icon = "document", "fa-file-word"
     elif suffix in {".xls", ".xlsx", ".ods", ".csv"}: kind, icon = "document", "fa-file-excel"
     else: kind, icon = "file", "fa-file"
-    return {"kind": kind, "icon": icon, "mime": mimetypes.guess_type(str(document.get("last_path", "")))[0] or "application/octet-stream"}
+    mime = media_mimetype(filename) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    return {"kind": kind, "icon": icon, "mime": mime}
+
+
+def _document_detail_preview_context(document: dict) -> dict[str, Any]:
+    document_id = str(document["document_id"])
+    preview_service = PreviewService(current_app.config["DOCUMENT_ROOT"])
+    return {
+        "preview": {
+            **_preview_data(document),
+            "url": url_for("documents.image_preview", document_id=document_id),
+            "media_url": url_for("documents.image_preview", document_id=document_id, raw=1),
+            "download_url": url_for("documents.image_preview", document_id=document_id, download=1),
+            "thumbnail_url": url_for("documents.document_thumbnail", document_id=document_id),
+            "thumbnail_available": preview_service.cached_path(document, "thumbnail") is not None,
+            "preview_status": document.get("preview", {}).get("status", "pending"),
+            "name": str(document.get("last_path", "")).rsplit("/", 1)[-1],
+            "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000],
+        },
+        "document_path_parts": [part for part in str(document.get("last_path", "")).split("/") if part],
+    }
 
 
 def _is_unprocessed(document: dict) -> bool:

@@ -66,12 +66,11 @@ class UntrustedPreviewSecurityTests(unittest.TestCase):
                     self._assert_sandboxed(response)
                     response.close()
 
-    def test_thumbnail_fallback_isolates_original_html(self):
+    def test_thumbnail_route_fails_closed_for_html_without_an_image_preview(self):
         document = self._document("no-thumbnail.html", HTML)
         response = self.client.get(f"/documents/{document['document_id']}/thumbnail")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(HTML, response.data)
-        self._assert_sandboxed(response)
+        self.assertEqual(404, response.status_code)
+        self.assertNotIn(HTML, response.data)
         response.close()
 
     def test_uploaded_chat_svg_preview_isolates_active_content(self):

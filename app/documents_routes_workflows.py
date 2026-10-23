@@ -132,7 +132,7 @@ def detail(document_id: str):
         retention=store.retention_status(document_id),
         link_query=query,
         link_matches=[item for item in store.search(query, limit=10) if item["document_id"] != document_id] if query else [],
-        preview={**_preview_data(document), "url": url_for("documents.image_preview", document_id=document_id), "thumbnail_url": url_for("documents.document_thumbnail", document_id=document_id), "collage_url": url_for("documents.document_collage", document_id=document_id) if document.get("preview", {}).get("collage") else "", "preview_status": document.get("preview", {}).get("status", "pending"), "name": document.get("last_path", "").rsplit("/", 1)[-1], "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000]},
+        **_document_detail_preview_context(document),
         defaults=_settings().settings(),
         document_tasks=[
             row for row in _todos().items(str(g.user["username"]))

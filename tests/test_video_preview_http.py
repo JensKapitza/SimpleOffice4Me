@@ -183,6 +183,186 @@ class VideoPreviewHttpTests(unittest.TestCase):
         self.assertEqual(404, response.status_code)
         self.assertNotEqual(b"2345", response.data)
 
+    def test_audio_and_pdf_support_verified_byte_ranges(self):
+        for filename, payload, expected_mimetype in (
+            ("voice.m4a", b"audio-payload", "audio/mp4"),
+            ("scanned.pdf", b"%PDF-1.7-pdf-payload", "application/pdf"),
+        ):
+            with self.subTest(filename=filename):
+                created = storage_for(self.root, "tester").create_bytes(
+                    StorageLocation(filename), payload
+                )
+                self.assertTrue(created.ok, created.error)
+                if self.mode in {"v2", "encrypted"}:
+                    (self.root / filename).unlink()
+                document = self.store.get_document(created.value.object_id.value)
+                response = self.client.get(
+                    f"/documents/{document['document_id']}/preview?raw=1",
+                    headers={"Range": "bytes=2-5"},
+                )
+                self.addCleanup(response.close)
+                self.assertEqual(206, response.status_code)
+                self.assertEqual(payload[2:6], response.data)
+                self.assertEqual(f"bytes 2-5/{len(payload)}", response.headers["Content-Range"])
+                self.assertEqual(expected_mimetype, response.mimetype)
+                self.assertEqual("bytes", response.headers["Accept-Ranges"])
+
+    def test_original_download_is_an_attachment_and_keeps_video_bytes(self):
+        response = self.client.get(
+            f"/documents/{self.document['document_id']}/preview?download=1",
+            headers={"Range": "bytes=2-5"},
+        )
+        self.addCleanup(response.close)
+        self.assertEqual(206, response.status_code)
+        self.assertEqual(b"2345", response.data)
+        self.assertTrue(response.headers["Content-Disposition"].startswith("attachment;"))
+
+    def test_detail_renders_video_player_and_never_uses_video_as_thumbnail(self):
+        response = self.client.get(f"/documents/{self.document['document_id']}")
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        html = response.get_data(as_text=True)
+        preview_html = html.split('<section id="document-preview"', 1)[1].split("</section>", 1)[0]
+        self.assertIn("<video", preview_html)
+        self.assertIn('controls playsinline preload="metadata"', preview_html)
+        self.assertIn(f"/documents/{self.document['document_id']}/preview?raw=1", preview_html)
+        self.assertIn("Originaldatei herunterladen", preview_html)
+        self.assertNotIn("<img", preview_html)
+        thumbnail = self.client.get(
+            f"/documents/{self.document['document_id']}/thumbnail"
+        )
+        self.addCleanup(thumbnail.close)
+        self.assertEqual(404, thumbnail.status_code)
+
+    def test_detail_media_types_use_native_players_and_safe_download_fallback(self):
+        fixtures = (
+            ("voice.m4a", b"audio-placeholder", "<audio", "audio/mp4"),
+            ("scan.pdf", b"%PDF-1.7-placeholder", "<iframe", "application/pdf"),
+            ("unknown.bin", b"unknown", "fa-file", "download=1"),
+        )
+        for filename, payload, expected_markup, expected_link in fixtures:
+            with self.subTest(filename=filename):
+                path = self.root / filename
+                path.write_bytes(payload)
+                self.store._scan_file(path, force_hash=True)
+                document = self.store.get_document(path)
+                response = self.client.get(f"/documents/{document['document_id']}")
+                self.addCleanup(response.close)
+                self.assertEqual(200, response.status_code)
+                preview_html = response.get_data(as_text=True).split(
+                    '<section id="document-preview"', 1
+                )[1].split("</section>", 1)[0]
+                self.assertIn(expected_markup, preview_html)
+                self.assertIn(expected_link, preview_html)
+                self.assertNotIn("<img", preview_html)
+
+    def test_detail_path_is_rendered_as_wrapping_breadcrumb(self):
+        long_folder = "repeated-folder-name-" * 8
+        path = self.root / "imports" / long_folder / "nested" / "clip.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"nested-video")
+        self.store._scan_file(path, force_hash=True)
+        document = self.store.get_document(path)
+
+        response = self.client.get(f"/documents/{document['document_id']}")
+        self.addCleanup(response.close)
+        html = response.get_data(as_text=True)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn('aria-label="Dokumentpfad"', html)
+        self.assertIn(long_folder, html)
+        self.assertIn('title="imports/', html)
+
+    def test_detail_renders_cached_image_preview_without_using_original_for_pending_preview(self):
+        from PIL import Image
+
+        path = self.root / "nested" / "photo.png"
+        path.parent.mkdir(parents=True)
+        Image.new("RGB", (4, 4), "navy").save(path, format="PNG")
+        self.store._scan_file(path, force_hash=True)
+        document = self.store.get_document(path)
+        pending = self.client.get(f"/documents/{document['document_id']}")
+        self.addCleanup(pending.close)
+        pending_html = pending.get_data(as_text=True).split(
+            '<section id="document-preview"', 1
+        )[1].split("</section>", 1)[0]
+        self.assertNotIn("<img", pending_html)
+        self.assertIn("fa-file-image", pending_html)
+
+        from app.preview_service import PreviewService
+        preview = PreviewService(self.root).generate(path, document)
+        self.assertEqual("ready", preview["status"])
+        self.store.set_preview_metadata(document["document_id"], preview)
+        ready = self.client.get(f"/documents/{document['document_id']}")
+        self.addCleanup(ready.close)
+        ready_html = ready.get_data(as_text=True).split(
+            '<section id="document-preview"', 1
+        )[1].split("</section>", 1)[0]
+        self.assertIn("<img", ready_html)
+        self.assertIn("thumbnail", ready_html)
+
+    def test_pending_image_preview_uses_icon_until_a_safe_thumbnail_exists(self):
+        from PIL import Image
+
+        path = self.root / "photo.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (4, 4), "navy").save(path, format="PNG")
+        self.store._scan_file(path, force_hash=True)
+        document = self.store.get_document(path)
+        response = self.client.get(f"/documents/{document['document_id']}")
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        preview_html = response.get_data(as_text=True).split(
+            '<section id="document-preview"', 1
+        )[1].split("</section>", 1)[0]
+        self.assertIn("fa-file-image", preview_html)
+        self.assertIn("download=1", preview_html)
+        self.assertNotIn("<img", preview_html)
+
+    def test_cached_image_preview_renders_the_verified_raster_thumbnail(self):
+        from PIL import Image
+        from app.preview_service import PreviewService
+
+        path = self.root / "photo-ready.png"
+        Image.new("RGB", (8, 6), "navy").save(path, format="PNG")
+        self.store._scan_file(path, force_hash=True)
+        document = self.store.get_document(path)
+        preview = PreviewService(self.root).generate(path, document)
+        self.assertEqual("ready", preview["status"])
+        self.store.set_preview_metadata(document["document_id"], preview)
+
+        response = self.client.get(f"/documents/{document['document_id']}")
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        preview_html = response.get_data(as_text=True).split(
+            '<section id="document-preview"', 1
+        )[1].split("</section>", 1)[0]
+        self.assertIn("<img", preview_html)
+        self.assertIn("/thumbnail", preview_html)
+        self.assertNotIn("/preview?download=1", preview_html)
+
+    def test_long_nested_document_paths_are_rendered_as_wrapping_breadcrumbs(self):
+        folder = "imported-folder-with-a-long-name-" * 12
+        path = self.root / "imports" / folder / "subfolder" / "preview.mp4"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(self.payload)
+        self.store._scan_file(path, force_hash=True)
+        document = self.store.get_document(path)
+        response = self.client.get(f"/documents/{document['document_id']}")
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        html = response.get_data(as_text=True)
+        self.assertIn('aria-label="Dokumentpfad"', html)
+        self.assertIn(folder, html)
+        self.assertIn('title="imports/', html)
+
+    def test_thumbnail_route_does_not_return_non_image_originals(self):
+        response = self.client.get(
+            f"/documents/{self.document['document_id']}/thumbnail"
+        )
+        self.addCleanup(response.close)
+        self.assertEqual(404, response.status_code)
+
 
 class ShadowVideoPreviewHttpTests(VideoPreviewHttpTests):
     mode = "shadow"

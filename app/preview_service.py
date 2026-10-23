@@ -21,9 +21,39 @@ from .settings_store import SettingsStore
 CACHE_DIR = ".webcache"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp", ".avif", ".heic", ".heif"}
 OFFICE_SUFFIXES = {".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
-VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
+VIDEO_MIME_TYPES = {
+    ".3gp": "video/3gpp",
+    ".avi": "video/x-msvideo",
+    ".m4v": "video/mp4",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".ogv": "video/ogg",
+    ".webm": "video/webm",
+}
+AUDIO_MIME_TYPES = {
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".mp3": "audio/mpeg",
+    ".oga": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".wma": "audio/x-ms-wma",
+}
+VIDEO_SUFFIXES = set(VIDEO_MIME_TYPES)
+AUDIO_SUFFIXES = set(AUDIO_MIME_TYPES)
 SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | {".pdf"}
 VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
+
+
+def media_mimetype(filename: str) -> str:
+    """Use a stable media type for browser playback and byte-range responses."""
+    suffix = Path(str(filename)).suffix.casefold()
+    return VIDEO_MIME_TYPES.get(suffix) or AUDIO_MIME_TYPES.get(suffix) or ""
 
 
 def utc_now() -> str:
