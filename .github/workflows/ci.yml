@@ -95,7 +95,7 @@ jobs:
       - name: Install Chromium and WebKit browsers
         run: python -m playwright install --with-deps chromium webkit
       - name: Test desktop/mobile search and invoice icons in dark mode
-        run: python -m unittest tests.test_contact_company_search_browser tests.test_invoice_icons_browser -v
+        run: python -m unittest tests.test_contact_company_search_browser tests.test_invoice_icons_browser tests.test_folder_import_browser -v
 
   python315-pr:
     name: Python 3.15 final acceptance

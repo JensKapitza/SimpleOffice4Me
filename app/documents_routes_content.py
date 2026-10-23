@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import tempfile
+from flask import current_app
 
 from .documents_core import *  # noqa: F401,F403
 from .preview_service import VIDEO_SUFFIXES
@@ -184,6 +185,7 @@ def index():
         quick_query=quick_query,
         quick_results=quick_results,
         quick_error=quick_error,
+        max_upload_bytes=current_app.config["MAX_CONTENT_LENGTH"],
         **result,
     )
 

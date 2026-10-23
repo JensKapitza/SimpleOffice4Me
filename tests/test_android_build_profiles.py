@@ -74,6 +74,5 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertLess(sbom_upload, gate)
         self.assertLess(gate, apk_upload)
 
-
 if __name__ == "__main__":
     unittest.main()

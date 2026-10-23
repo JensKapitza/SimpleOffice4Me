@@ -6,12 +6,27 @@ Die Android-App soll sich wie eine normale Android-Anwendung verhalten, ohne den
 
 ## Unterstützte Android-Versionen
 
-Beide APK-Varianten haben `minSdk 24` und unterstützen damit Android 7.0 oder neuer.
+Die unterstützte APK hat `minSdk 24` und unterstützt damit Android 7.0 oder neuer.
 
-- `arm64-v8a`: Python 3.13 für moderne 64-Bit-Geräte.
-- `armeabi-v7a`: Python 3.11 für 32-Bit-Geräte und ältere Tablets.
+- `arm64-v8a`: Python 3.15.
+- `armeabi-v7a` wird derzeit nicht gebaut oder als unterstütztes APK-Profil angeboten.
 
 Die native Integration verwendet nur APIs, die ab API 24 vorhanden sind. Safe Browsing bleibt weiterhin erst ab Android 8 aktiviert.
+
+### Native Python-Erweiterungen
+
+Vor dem Import der Anwendung macht `android_runtime` die eingebetteten
+CPython-Symbole für native Erweiterungen global sichtbar und lädt
+`cryptography.hazmat.bindings._rust` explizit vor. Der Android-Wheel-ELF
+referenziert CPython-Datensymbole wie `PyLong_Type` ohne direkten
+`DT_NEEDED`-Verweis auf `libpython`; deshalb reicht ein erfolgreicher APK-Build
+als Kompatibilitätsnachweis nicht aus. Die Android-APK-CI sammelt deshalb die
+ELF-Dynamik- und Symboltabellen des Wheels und der eingebetteten Python-Laufzeit.
+Das liefert keinen Laufzeitnachweis: Die derzeitigen GitHub-gehosteten Linux-
+und macOS-ARM-Runner konnten den ARM64-Emulator mangels Android-Emulatorpaket
+beziehungsweise nutzbarer Nested-Virtualisierung nicht starten. Vor Freigabe
+muss der App-Start einschließlich `_rust`-Import auf einem ARM64-Gerät oder
+einem Emulator mit funktionierender Hardwarevirtualisierung nachgewiesen werden.
 
 ## Dateien mit Android teilen oder öffnen
 
@@ -70,6 +85,77 @@ SAF-Berechtigung gerätegebunden ist.
   Wenn der Benutzer Dateien auswählt und ausdrücklich importiert, werden nur die
   Dateiinhalte als Kopien über den bestehenden Upload-/Importpfad übernommen;
   der Ordner-URI bleibt in der nativen Android-Schicht.
+
+### Ordner rekursiv importieren
+
+Auf der Dokumentseite öffnet **Ordner importieren** unter Android den
+Systemdialog `ACTION_OPEN_DOCUMENT_TREE`. Der native Importer liest die
+Unterordner über `DocumentsContract`, prüft Dateinamen, Tiefe, Dateianzahl,
+Pfadlänge und gemeldete Dateigrößen und streamt anschließend die ausgewählten
+Dateien als einen CSRF- und Session-gebundenen Multipart-Upload an den lokalen
+Flask-Endpunkt. Der Server validiert weiterhin alle relativen Pfade und führt
+den normalen hashbasierten Import einschließlich Inbox-/Auditpfad aus. Die
+SAF-URI wird nicht an Flask übertragen. Ein kleiner Abbruchknopf trennt einen
+laufenden Transfer; ein unterbrochener Multipart-Request wird nicht als
+vollständiger Import verarbeitet. Vor der Bestätigung zeigt die APK Dateianzahl,
+Gesamtgröße und das Ziel eines neuen eindeutigen Importordners. Sobald alle
+Bytes übertragen wurden, wird der Abbruch deaktiviert, während der Server den
+Import beendet.
+
+- pro Upload höchstens 1000 Dateien und maximal 64 Verzeichnisebenen;
+- bis zu 20 SAF-Wurzeln in einer Importwarteschlange und höchstens 10000
+  Einträge insgesamt, damit sehr große Verzeichnislisten begrenzt bleiben;
+- die relative Pfadliste ist auf 400000 UTF-8-Bytes begrenzt und als einzelnes
+  Formularfeld kodiert; nur der Dokument-Upload erhält das eng begrenzte
+  Multipart-Teilelimit von 1010, andere Endpunkte behalten ihren Standardwert;
+- Dateiinhalte werden mit begrenztem Puffer übertragen und die gesamte Anfrage
+  bleibt an das konfigurierte Upload-Limit gebunden;
+- ein Anbieter, der keinen dauerhaft widerrufbaren SAF-Lesezugriff gewährt,
+  wird vor dem Einreihen abgelehnt;
+- temporäre Importberechtigungen werden privat nachgehalten, bei Abbruch oder
+  Abschluss freigegeben und bei einem Neustart als verwaiste Rechte bereinigt;
+  diese Marker werden nicht in Cloud-Backup oder Geräteübertragung aufgenommen;
+- bereits in **Einstellungen → Lokale Ordner** gespeicherte Berechtigungen werden
+  wiederverwendet und nach dem Import nicht durch die Importwarteschlange widerrufen;
+- leere Verzeichnisse werden nicht importiert; zwei ausgewählte Wurzeln mit
+  gleichem Namen werden abgelehnt, damit sich Zielpfade nicht überschreiben;
+  stattdessen kann der gemeinsame übergeordnete Ordner gewählt werden;
+- liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
+  abgebrochen, statt eine unbeschränkte Anfrage zu starten.
+
+### Geräteabnahme für den rekursiven SAF-Import (PR #802)
+
+Diese Prüfung muss auf einem echten Android-Gerät oder einem Emulator mit
+funktionsfähigem SAF-Dokumentanbieter durchgeführt und im PR mit Gerät,
+Android-Version, Anbieter, APK-Commit und Ergebnis dokumentiert werden.
+Ein erfolgreicher APK-Build oder Java-Quelltexttest ersetzt sie nicht.
+
+1. **Mehrere Wurzeln:** Zwei unterschiedliche Ordner mit verschachtelten
+   Unterordnern und gleichnamigen Dateien auswählen, Vorschau kontrollieren,
+   Import bestätigen und alle Dateien am korrekten relativen Ziel öffnen.
+2. **Abbruch:** Einen großen Import während der Übertragung abbrechen;
+   anschließend kontrollieren, dass keine unvollständige Datei als erfolgreicher
+   Dokumentimport erscheint und ein neuer Import möglich ist.
+3. **Berechtigungswiderruf:** Nach der Auswahl die SAF-Freigabe in den
+   Android-Einstellungen entziehen; erneuten Import versuchen und eine
+   verständliche Fehlermeldung statt Absturz oder Hängenbleiben prüfen.
+4. **Neustart:** Einen Import vorbereiten, die App beenden und neu starten;
+   verwaiste temporäre SAF-Berechtigungen und Warteschlangeneinträge dürfen
+   nicht unbemerkt weiterverwendet werden. Dauerhaft registrierte lokale
+   Ordner dürfen dabei nicht versehentlich ihre Berechtigung verlieren.
+5. **Große Dateien und Limits:** Eine Datei nahe der konfigurierten
+   Uploadgrenze sowie einen Ordner mit mehr als 1000 Dateien testen.
+   Erwartet werden eine begrenzte Übertragung beziehungsweise eine
+   verständliche Ablehnung, ohne unkontrollierten Speicherverbrauch.
+6. **Dokumentanbieter:** Mindestens den Android-Systemdateianbieter und,
+   sofern vorhanden, einen weiteren SAF-Anbieter prüfen. Anbieter ohne
+   persistierbare Leseberechtigung müssen kontrolliert abgelehnt werden.
+7. **Sitzungswechsel:** Während eine Auswahl offen ist, abmelden oder die
+   Sitzung wechseln; kein Upload darf unter einer anderen Sitzung erfolgen.
+
+**Abnahmebedingung:** Jeder Fall erhält ein protokolliertes PASS/FAIL mit
+reproduzierbaren Schritten. Bei FAIL bleibt PR #802 Draft und der Fehler wird
+vor dem Merge behoben. Ohne Geräteergebnis bleibt die Android-Abnahme offen.
 
 ## Deep Links
 

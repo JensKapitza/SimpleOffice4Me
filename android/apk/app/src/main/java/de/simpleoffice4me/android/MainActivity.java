@@ -49,6 +49,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -64,6 +68,7 @@ public class MainActivity extends Activity {
     private static final int AUDIO_PERMISSION_REQUEST = 703;
     private static final int SCREEN_CAPTURE_REQUEST = 704;
     private static final int LOCAL_FOLDER_REQUEST = 705;
+    private static final int FOLDER_IMPORT_REQUEST = 706;
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Semaphore pdfRenderSlots = new Semaphore(2);
@@ -85,9 +90,17 @@ public class MainActivity extends Activity {
     private volatile String pendingLocalFolderResult = "";
     private volatile boolean localFolderSelectionPending;
     private volatile Uri pendingLocalFolderImportUri;
+    private volatile boolean folderImportSelectionPending;
+    private volatile String pendingFolderImportCsrf = "";
+    private volatile String queuedFolderImportCsrf = "";
+    private volatile AndroidFolderImportTask folderImportTask;
+    private final List<Uri> queuedFolderImportUris = new ArrayList<>();
+    private final List<Uri> queuedFolderImportOwnedGrants = new ArrayList<>();
     private NfcAdapter nfcAdapter;
     private boolean nfcScanRequested;
     private volatile boolean localPageVisible;
+    // Written on the WebView UI thread, read by @JavascriptInterface worker threads.
+    private volatile String currentWebViewUrl = "";
     private boolean mainFrameLoadFailed;
     private String pendingBarcodeResult;
     private String pendingBarcodeStatus;
@@ -105,6 +118,7 @@ public class MainActivity extends Activity {
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
         offlineWorksetStore = new AndroidOfflineWorksetStore(this);
         localFolderRegistry = new AndroidLocalFolderRegistry(this);
+        AndroidFolderImportGrantStore.cleanupAbandoned(this);
         ScreenCaptureService.setListener(this::dispatchNativeScreenEvent);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
@@ -239,6 +253,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(view, url, favicon);
+                currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
                 if (offlineWorksetStore != null) offlineWorksetStore.unbindOwner();
                 if (!localPageVisible) {
@@ -253,6 +268,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                currentWebViewUrl = url == null ? "" : url;
                 localPageVisible = isLocalUrl(url);
                 if (localPageVisible) {
                     view.evaluateJavascript(nativeShim(nativeBridgeToken), null);
@@ -345,6 +361,13 @@ public class MainActivity extends Activity {
         return "/documents".equals(trimTrailingSlash(path == null ? "" : path));
     }
 
+    private static boolean isDocumentsUploadPage(String value) {
+        if (!isLocalUrl(value)) return false;
+        String path = Uri.parse(value).getPath();
+        String normalized = trimTrailingSlash(path == null ? "" : path);
+        return "/documents".equals(normalized) || "/documents/inbox".equals(normalized);
+    }
+
     private void injectPendingShareUi(WebView view, String url) {
         if (!intentRouter.hasPendingSharedFiles() || !isLocalUrl(url)) return;
         String path = Uri.parse(url).getPath();
@@ -377,6 +400,14 @@ public class MainActivity extends Activity {
         return "(function(){"
                 + "if(!window.SimpleOfficeAndroid)return;"
                 + "const bridgeToken=" + quotedToken + ";"
+                 + "window.SimpleOfficeFolderImport={"
+                  + "add:csrf=>String(window.SimpleOfficeAndroid.addFolderToImportQueue(bridgeToken,String(csrf||''))),"
+                  + "count:()=>Number(window.SimpleOfficeAndroid.queuedFolderImportCount(bridgeToken)),"
+                  + "prepared:()=>Boolean(window.SimpleOfficeAndroid.folderImportPrepared(bridgeToken)),"
+                  + "preview:()=>String(window.SimpleOfficeAndroid.folderImportPreview(bridgeToken)),"
+                  + "start:(csrf,maxBytes)=>String(window.SimpleOfficeAndroid.startFolderImport(bridgeToken,String(csrf||''),String(maxBytes||''))),"
+                 + "cancel:()=>String(window.SimpleOfficeAndroid.cancelFolderImport(bridgeToken))};"
+                + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
                 + "const offlineOwner=String(document.documentElement.dataset.v3AndroidOfflineOwner||'').trim();"
                 + "const offlineEnabled=document.documentElement.dataset.v3AndroidOffline==='1'&&offlineOwner!=='';"
                 + "const offlineBound=offlineEnabled&&String(window.SimpleOfficeAndroid.bindOfflineOwner(bridgeToken,offlineOwner))==='ok';"
@@ -397,9 +428,9 @@ public class MainActivity extends Activity {
                 + "choose:(id)=>String(window.SimpleOfficeAndroid.chooseLocalFolder(bridgeToken,String(id||''))),"
                 + "rename:(id,name,description)=>JSON.parse(String(window.SimpleOfficeAndroid.renameLocalFolder(bridgeToken,String(id||''),String(name||''),String(description||'')))),"
                 + "remove:(id)=>String(window.SimpleOfficeAndroid.removeLocalFolder(bridgeToken,String(id||''))),"
-                + "check:(id)=>JSON.parse(String(window.SimpleOfficeAndroid.checkLocalFolder(bridgeToken,String(id||'')))),"
-                + "prepareImport:(id)=>String(window.SimpleOfficeAndroid.prepareLocalFolderImport(bridgeToken,String(id||'')))};"
-                + "window.SimpleOfficePdf=(function(){const pending=new Map();"
+                 + "check:(id)=>JSON.parse(String(window.SimpleOfficeAndroid.checkLocalFolder(bridgeToken,String(id||'')))),"
+                 + "prepareImport:(id)=>String(window.SimpleOfficeAndroid.prepareLocalFolderImport(bridgeToken,String(id||'')))};"
+                  + "window.SimpleOfficePdf=(function(){const pending=new Map();"
                 + "window.addEventListener('simpleoffice:pdf-render',event=>{const detail=event.detail||{};const item=pending.get(String(detail.requestId||''));if(!item)return;pending.delete(String(detail.requestId||''));if(detail.ok)item.resolve(detail.result||{});else item.reject(new Error(detail.error||'PDF konnte nicht gerendert werden.'));});"
                 + "return {render:(url,page,width)=>new Promise((resolve,reject)=>{const id=(globalThis.crypto&&crypto.randomUUID)?crypto.randomUUID():('pdf-'+Date.now()+'-'+Math.random().toString(16).slice(2));pending.set(id,{resolve,reject});const state=String(window.SimpleOfficeAndroid.requestPdfRender(bridgeToken,id,String(url||''),Number(page||0),Number(width||1024)));if(state!=='ok'){pending.delete(id);reject(new Error(state));}})};})();"
                 + "window.dispatchEvent(new Event('simpleoffice:native-ready'));"
@@ -579,6 +610,79 @@ public class MainActivity extends Activity {
             }
             return;
         }
+        if (requestCode == FOLDER_IMPORT_REQUEST) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+                clearPendingFolderImportSelection();
+                int queuedCount = queuedFolderImportCount();
+                dispatchFolderImportUpdate(queuedCount > 0 ? "queued" : "cancelled",
+                        queuedCount, AndroidFolderImportTask.MAX_TREES,
+                        queuedCount > 0 ? queuedFolderMessage(queuedCount) : "Ordnerauswahl abgebrochen.");
+                return;
+            }
+            Uri treeUri = data.getData();
+            int grantFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+            if (!"content".equalsIgnoreCase(treeUri.getScheme()) || grantFlags == 0) {
+                clearPendingFolderImportSelection();
+                dispatchFolderQueueError("Android hat keinen Lesezugriff auf den Ordner erteilt.");
+                return;
+            }
+            synchronized (queuedFolderImportUris) {
+                if (queuedFolderImportUris.contains(treeUri)) {
+                    clearPendingFolderImportSelection();
+                    dispatchFolderImportUpdate("queued", queuedFolderImportUris.size(),
+                            AndroidFolderImportTask.MAX_TREES, queuedFolderMessage(queuedFolderImportUris.size()));
+                    return;
+                }
+                if (queuedFolderImportUris.size() >= AndroidFolderImportTask.MAX_TREES) {
+                    clearPendingFolderImportSelection();
+                    dispatchFolderQueueError("Höchstens 20 Ordner pro Import auswählen.");
+                    return;
+                }
+                if (!queuedFolderImportUris.isEmpty()
+                        && !sameCsrfToken(queuedFolderImportCsrf, pendingFolderImportCsrf)) {
+                    clearPendingFolderImportSelection();
+                    List<Uri> staleGrants = clearQueuedFolderImports();
+                    releaseFolderImportGrants(staleGrants);
+                    dispatchFolderImportUpdate("cancelled", 0, 0,
+                            "Sitzung gewechselt; vorgemerkte Ordner wurden entfernt.");
+                    return;
+                }
+            }
+            boolean alreadyPersisted = hasPersistedReadGrant(treeUri);
+            if (!alreadyPersisted) {
+                if ((data.getFlags() & Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) == 0) {
+                    clearPendingFolderImportSelection();
+                    dispatchFolderQueueError("Dieser Ordneranbieter erlaubt keine wartende Ordnerauswahl.");
+                    return;
+                }
+                try {
+                    // Only record a grant after Android has actually persisted it.
+                    // Otherwise a failed permission request leaves a phantom
+                    // grant in the cleanup registry.
+                    getContentResolver().takePersistableUriPermission(treeUri, grantFlags);
+                    if (!hasPersistedReadGrant(treeUri)) {
+                        throw new SecurityException("Persisted SAF read grant was not confirmed");
+                    }
+                    AndroidFolderImportGrantStore.record(this, treeUri);
+                } catch (IllegalStateException | SecurityException error) {
+                    AndroidFolderImportGrantStore.forget(this, treeUri);
+                    clearPendingFolderImportSelection();
+                    dispatchFolderQueueError("Android konnte die Ordnerfreigabe nicht speichern. Bitte Ordner erneut auswählen und Zugriff erlauben.");
+                    return;
+                }
+            }
+            synchronized (queuedFolderImportUris) {
+                if (queuedFolderImportUris.isEmpty()) queuedFolderImportCsrf = pendingFolderImportCsrf;
+                queuedFolderImportUris.add(treeUri);
+                if (!alreadyPersisted) queuedFolderImportOwnedGrants.add(treeUri);
+                pendingFolderImportCsrf = "";
+                folderImportSelectionPending = false;
+            }
+            int queuedCount = queuedFolderImportCount();
+            dispatchFolderImportUpdate("queued", queuedCount, AndroidFolderImportTask.MAX_TREES,
+                    queuedFolderMessage(queuedCount));
+            return;
+        }
         if (requestCode == SCREEN_CAPTURE_REQUEST) {
             screenCapturePermissionPending = false;
             if (resultCode != RESULT_OK || data == null) {
@@ -629,6 +733,93 @@ public class MainActivity extends Activity {
         }
         pendingLocalFolderResult = detail.toString();
         flushPendingLocalFolderResult();
+    }
+
+    private void dispatchFolderImportUpdate(String state, int completed, int total, String message) {
+        mainHandler.post(() -> {
+            boolean finished = "done".equals(state) || "error".equals(state) || "cancelled".equals(state);
+            if (finished) {
+                folderImportTask = null;
+                folderImportSelectionPending = false;
+            }
+            if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
+            String detail = "{state:" + JSONObject.quote(state == null ? "error" : state)
+                    + ",completed:" + Math.max(0, completed)
+                    + ",total:" + Math.max(0, total)
+                    + ",message:" + JSONObject.quote(message == null ? "" : message) + "}";
+            webView.evaluateJavascript(
+                    "window.dispatchEvent(new CustomEvent('simpleoffice:folder-import',{detail:" + detail + "}));",
+                    null);
+            if ("done".equals(state)) {
+                mainHandler.postDelayed(() -> {
+                    if (webView != null && isDocumentsUploadPage(webView.getUrl())) {
+                        webView.loadUrl(localUrl("/documents"));
+                    }
+                }, 700);
+            }
+        });
+    }
+
+    private int queuedFolderImportCount() {
+        AndroidFolderImportTask task = folderImportTask;
+        if (task != null && task.isPrepared()) return task.getTreeCount();
+        synchronized (queuedFolderImportUris) {
+            return queuedFolderImportUris.size();
+        }
+    }
+
+    private static boolean sameCsrfToken(String left, String right) {
+        if (left == null || right == null) return false;
+        return MessageDigest.isEqual(
+                left.getBytes(StandardCharsets.UTF_8), right.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private List<Uri> clearQueuedFolderImports() {
+        synchronized (queuedFolderImportUris) {
+            List<Uri> owned = new ArrayList<>(queuedFolderImportOwnedGrants);
+            queuedFolderImportUris.clear();
+            queuedFolderImportOwnedGrants.clear();
+            queuedFolderImportCsrf = "";
+            return owned;
+        }
+    }
+
+    private String queuedFolderMessage(int count) {
+        return count + " Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.";
+    }
+
+    private void clearPendingFolderImportSelection() {
+        synchronized (queuedFolderImportUris) {
+            folderImportSelectionPending = false;
+            pendingFolderImportCsrf = "";
+        }
+    }
+
+    private void dispatchFolderQueueError(String message) {
+        int count = queuedFolderImportCount();
+        dispatchFolderImportUpdate(count > 0 ? "queued" : "error", count,
+                AndroidFolderImportTask.MAX_TREES,
+                count > 0 ? message + " " + queuedFolderMessage(count) : message);
+    }
+
+    private void releaseFolderImportGrants(List<Uri> uris) {
+        for (Uri uri : uris) {
+            try {
+                getContentResolver().releasePersistableUriPermission(
+                        uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (SecurityException ignored) {
+                // A provider may already have revoked this grant.
+            } finally {
+                AndroidFolderImportGrantStore.forget(this, uri);
+            }
+        }
+    }
+
+    private boolean hasPersistedReadGrant(Uri uri) {
+        for (android.content.UriPermission permission : getContentResolver().getPersistedUriPermissions()) {
+            if (uri.equals(permission.getUri()) && permission.isReadPermission()) return true;
+        }
+        return false;
     }
 
     private void flushPendingLocalFolderResult() {
@@ -800,6 +991,158 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String addFolderToImportQueue(String token, String csrfToken) {
+            if (!folderImportBridgeAllowed(token)) return "blocked";
+            String csrf = csrfToken == null ? "" : csrfToken.trim();
+            if (csrf.length() < 32 || csrf.length() > 256) return "invalid";
+            AndroidFolderImportTask activeTask = folderImportTask;
+            if (activeTask != null) {
+                if (activeTask.matchesCsrf(csrf)) return "busy";
+                return activeTask.cancel() ? "session-changed" : "finishing";
+            }
+            List<Uri> staleGrants = null;
+            synchronized (queuedFolderImportUris) {
+                if (folderImportSelectionPending || folderImportTask != null) return "busy";
+                if (!queuedFolderImportUris.isEmpty()
+                        && !sameCsrfToken(queuedFolderImportCsrf, csrf)) {
+                    staleGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
+                    queuedFolderImportUris.clear();
+                    queuedFolderImportOwnedGrants.clear();
+                    queuedFolderImportCsrf = "";
+                } else {
+                    if (MainActivity.this.queuedFolderImportCount() >= AndroidFolderImportTask.MAX_TREES) return "limit";
+                    pendingFolderImportCsrf = csrf;
+                    folderImportSelectionPending = true;
+                }
+            }
+            if (staleGrants != null) {
+                releaseFolderImportGrants(staleGrants);
+                dispatchFolderImportUpdate("cancelled", 0, 0,
+                        "Sitzung gewechselt; vorgemerkte Ordner wurden entfernt.");
+                return "session-changed";
+            }
+            mainHandler.post(() -> {
+                Intent picker = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                                | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                try {
+                    startActivityForResult(picker, FOLDER_IMPORT_REQUEST);
+                } catch (ActivityNotFoundException | SecurityException error) {
+                    clearPendingFolderImportSelection();
+                    dispatchFolderQueueError("Android-Ordnerauswahl ist nicht verfügbar.");
+                }
+            });
+            return "pending";
+        }
+
+        @JavascriptInterface
+        public int queuedFolderImportCount(String token) {
+            return folderImportBridgeAllowed(token) ? MainActivity.this.queuedFolderImportCount() : 0;
+        }
+
+        @JavascriptInterface
+        public boolean folderImportPrepared(String token) {
+            AndroidFolderImportTask task = folderImportTask;
+            return folderImportBridgeAllowed(token) && task != null && task.isPrepared();
+        }
+
+        @JavascriptInterface
+        public String folderImportPreview(String token) {
+            AndroidFolderImportTask task = folderImportTask;
+            return folderImportBridgeAllowed(token) && task != null ? task.getPreviewMessage() : "";
+        }
+
+        @JavascriptInterface
+        public String startFolderImport(String token, String csrfToken, String maxBytesValue) {
+            if (!folderImportBridgeAllowed(token)) return "blocked";
+            String csrf = csrfToken == null ? "" : csrfToken.trim();
+            if (csrf.length() < 32 || csrf.length() > 256) return "invalid";
+            long maxBytes;
+            try {
+                maxBytes = Long.parseLong(maxBytesValue == null ? "" : maxBytesValue);
+            } catch (NumberFormatException error) {
+                return "invalid";
+            }
+            if (maxBytes <= 0 || maxBytes > 4L * 1024 * 1024 * 1024) return "invalid";
+            AndroidFolderImportTask preparedTask = folderImportTask;
+            if (preparedTask != null) {
+                if (!preparedTask.matchesCsrf(csrf)) {
+                    return preparedTask.cancel() ? "session-changed" : "finishing";
+                }
+                if (!preparedTask.confirm()) return "busy";
+                try {
+                    executor.execute(preparedTask);
+                    return "pending";
+                } catch (RuntimeException error) {
+                    preparedTask.cancel();
+                    return "unavailable";
+                }
+            }
+            List<Uri> staleGrants = null;
+            AndroidFolderImportTask task = null;
+            synchronized (queuedFolderImportUris) {
+                if (folderImportSelectionPending || folderImportTask != null) return "busy";
+                if (queuedFolderImportUris.isEmpty()) return "empty";
+                if (!sameCsrfToken(queuedFolderImportCsrf, csrf)) {
+                    staleGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
+                    queuedFolderImportUris.clear();
+                    queuedFolderImportOwnedGrants.clear();
+                    queuedFolderImportCsrf = "";
+                } else {
+                    List<Uri> trees = new ArrayList<>(queuedFolderImportUris);
+                    List<Uri> ownedGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
+                    queuedFolderImportUris.clear();
+                    queuedFolderImportOwnedGrants.clear();
+                    queuedFolderImportCsrf = "";
+                    task = new AndroidFolderImportTask(
+                            MainActivity.this, trees, ownedGrants, csrf, maxBytes,
+                            MainActivity.this::dispatchFolderImportUpdate);
+                    folderImportTask = task;
+                }
+            }
+            if (staleGrants != null) {
+                releaseFolderImportGrants(staleGrants);
+                dispatchFolderImportUpdate("cancelled", 0, 0,
+                        "Sitzung gewechselt; vorgemerkte Ordner wurden entfernt.");
+                return "session-changed";
+            }
+            if (task == null) return "empty";
+            try {
+                executor.execute(task);
+            } catch (RuntimeException error) {
+                synchronized (queuedFolderImportUris) {
+                    if (folderImportTask == task) folderImportTask = null;
+                }
+                task.cancel();
+                releaseFolderImportGrants(task.getOwnedGrantUris());
+                dispatchFolderImportUpdate("error", 0, 0, "Ordnerimport konnte nicht gestartet werden.");
+                return "unavailable";
+            }
+            return "pending";
+        }
+
+        @JavascriptInterface
+        public String cancelFolderImport(String token) {
+            if (!folderImportBridgeAllowed(token)) return "blocked";
+            AndroidFolderImportTask task = folderImportTask;
+            if (task != null) {
+                return task.cancel() ? "ok" : "finishing";
+            }
+            if (folderImportSelectionPending) return "busy";
+            List<Uri> ownedGrants;
+            synchronized (queuedFolderImportUris) {
+                if (queuedFolderImportUris.isEmpty()) return "idle";
+                queuedFolderImportUris.clear();
+                ownedGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
+                queuedFolderImportOwnedGrants.clear();
+            }
+            releaseFolderImportGrants(ownedGrants);
+            dispatchFolderImportUpdate("cancelled", 0, 0, "Vorgemerkte Ordner wurden entfernt.");
+            return "ok";
+        }
+
+        @JavascriptInterface
         public String authorizeGoogleDrive(String token, String action, String csrfToken) {
             if (!bridgeAllowed(token)) return "blocked";
             String normalizedAction = action == null ? "" : action.trim().toLowerCase(Locale.ROOT);
@@ -968,6 +1311,12 @@ public class MainActivity extends Activity {
 
     private boolean bridgeAllowed(String token) {
         return nativeBridgeToken.equals(token) && localPageVisible;
+    }
+
+    private boolean folderImportBridgeAllowed(String token) {
+        // WebView.getUrl() throws on the JavaScript bridge worker thread.
+        // Read the last main-frame URL cached by WebViewClient instead.
+        return bridgeAllowed(token) && webView != null && isDocumentsUploadPage(currentWebViewUrl);
     }
 
     private void dispatchNativeScreenEvent(String state, int width, int height, String data, String message) {
@@ -1298,6 +1647,18 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        AndroidFolderImportTask activeFolderImport = folderImportTask;
+        boolean canStopExecutorImmediately = activeFolderImport == null || activeFolderImport.cancel();
+        List<Uri> queuedGrants;
+        synchronized (queuedFolderImportUris) {
+            queuedGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
+            queuedFolderImportUris.clear();
+            queuedFolderImportOwnedGrants.clear();
+            queuedFolderImportCsrf = "";
+            pendingFolderImportCsrf = "";
+            folderImportSelectionPending = false;
+        }
+        releaseFolderImportGrants(queuedGrants);
         ScreenCaptureService.setListener(null);
         localPageVisible = false;
         stopNfcReader();
@@ -1325,7 +1686,8 @@ public class MainActivity extends Activity {
             webView.destroy();
             webView = null;
         }
-        executor.shutdownNow();
+        if (canStopExecutorImmediately) executor.shutdownNow();
+        else executor.shutdown();
         super.onDestroy();
     }
 }

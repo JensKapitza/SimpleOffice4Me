@@ -1,6 +1,7 @@
 """Start the SimpleOffice4Me Flask app inside the Android process."""
 from __future__ import annotations
 
+import importlib
 import os
 import sys
 import threading
@@ -11,6 +12,7 @@ from wsgiref.simple_server import make_server, WSGIServer, WSGIRequestHandler
 
 _SERVER = None
 _THREAD = None
+_PYTHON_SYMBOL_LIBRARY = None
 MAX_SERVER_WORKERS = 6
 MAX_PENDING_REQUESTS = 12
 
@@ -115,6 +117,31 @@ def _configure_environment(
         os.environ.pop("SIMPLEOFFICE_ERROR_REPORT_URL", None)
 
 
+def _promote_android_python_symbols() -> None:
+    """Expose the embedded CPython ABI symbols to native extension modules."""
+    global _PYTHON_SYMBOL_LIBRARY
+    if _PYTHON_SYMBOL_LIBRARY is not None:
+        return
+
+    import ctypes
+
+    soname = f"libpython{sys.version_info.major}.{sys.version_info.minor}.so"
+    try:
+        _PYTHON_SYMBOL_LIBRARY = ctypes.CDLL(
+            soname,
+            mode=ctypes.RTLD_GLOBAL | os.RTLD_NOW,
+        )
+    except OSError as exc:
+        raise RuntimeError(
+            "Android Python symbols could not be exposed to native extensions"
+        ) from exc
+
+
+def _verify_android_cryptography_extension() -> None:
+    """Load cryptography's Rust module before application startup imports it indirectly."""
+    importlib.import_module("cryptography.hazmat.bindings._rust")
+
+
 def _serve() -> None:
     assert _SERVER is not None
     _SERVER.serve_forever(poll_interval=0.25)
@@ -167,6 +194,8 @@ def start(
     _configure_environment(
         root, error_report_url, account_email, bootstrap_token, lan_addresses
     )
+    _promote_android_python_symbols()
+    _verify_android_cryptography_extension()
 
     try:
         from app import app

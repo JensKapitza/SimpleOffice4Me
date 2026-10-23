@@ -12,6 +12,8 @@ class GlobalQuickWinsTests(unittest.TestCase):
         for marker in ("given-name", "family-name", "postal-code", "so-length-counter", "so-required-marker", "aria-current", "scope"):
             self.assertIn(marker, script)
         self.assertIn("MutationObserver", script)
+        self.assertIn('attributeFilter: ["disabled"]', script)
+        self.assertIn("syncDisabledState", script)
 
 
 if __name__ == "__main__":

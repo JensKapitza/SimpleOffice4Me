@@ -414,6 +414,15 @@ def restrict_error_relay_role():
 
 
 @app.before_request
+def bound_document_upload_form_parts():
+    """Allow a 1000-file upload plus metadata without relaxing other routes."""
+    if request.endpoint == "documents.upload" and request.method == "POST":
+        # 1000 file parts + one path manifest + folder flag + CSRF field, with
+        # a small bounded margin for future upload form fields.
+        request.max_form_parts = 1010
+
+
+@app.before_request
 def verify_browser_request():
     protect_browser_mutation()
 
