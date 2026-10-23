@@ -178,6 +178,7 @@
 </main>
 <script src="{{ url_for('static', filename='js/library_safe_dom.js') }}"></script>
 <script src="{{ url_for('static', filename='js/library_scan_session.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/jsqr/jsQR.js') }}"></script>
 <script>
 (() => {
   const csrf = {{ csrf_token()|tojson }};
@@ -495,25 +496,30 @@
   document.getElementById('bulk-scan-book')?.addEventListener('click', assignBook);
   bookInput?.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); assignBook(); } });
 
-  let stream = null, scanTimer = null, scanTarget = null;
+  let stream = null, scanTimer = null, scanTarget = null, scanGeneration = 0;
   const modalElement = document.getElementById('scanner-modal');
   let modal = null;
   const getModal = () => {
     if (!modal && modalElement && window.bootstrap?.Modal) modal = new window.bootstrap.Modal(modalElement);
     return modal;
   };
-  const stopCamera = () => { if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; };
+  const stopCamera = () => { scanGeneration += 1; if (scanTimer) clearInterval(scanTimer); scanTimer = null; if (stream) stream.getTracks().forEach(track => track.stop()); stream = null; const video = document.getElementById('library-camera'); if (video) video.srcObject = null; };
   modalElement?.addEventListener('hidden.bs.modal', stopCamera);
   document.querySelectorAll('[data-scan-target]').forEach(button => button.addEventListener('click', async () => {
     scanTarget = document.getElementById(button.dataset.scanTarget); if (!scanTarget) return;
+    stopCamera();
+    const generation = scanGeneration;
     getModal()?.show(); const status = document.getElementById('scanner-status');
-    if (!('BarcodeDetector' in window)) { status.textContent = 'Dieser Browser unterstützt BarcodeDetector nicht. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
+    if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { status.textContent = 'Kein Scanner verfügbar. Externen Scanner oder manuelle Eingabe verwenden.'; return; }
+    if (!navigator.mediaDevices?.getUserMedia) { status.textContent = 'Kamera nicht verfügbar. HTTPS oder Browserberechtigung prüfen; alternativ manuell eingeben.'; return; }
     try {
-      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false}); document.getElementById('library-camera').srcObject = stream;
-      const detector = new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']}); status.textContent = 'Barcode vor die Kamera halten.';
-      scanTimer = setInterval(async () => { try { const found = await detector.detect(document.getElementById('library-camera')); if (!found.length) return; scanTarget.value = found[0].rawValue || ''; stopCamera(); getModal()?.hide(); scanTarget.dispatchEvent(new Event('change')); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
-    } catch (error) { status.textContent = 'Kamera konnte nicht geöffnet werden: ' + error; }
+      const requestedStream = await window.SimpleOfficeCamera.openCameraStream(navigator.mediaDevices, () => generation === scanGeneration); if (!requestedStream) return; if (generation !== scanGeneration) { requestedStream.getTracks().forEach(track => track.stop()); return; } stream = requestedStream; const cameraVideo = document.getElementById('library-camera'); cameraVideo.srcObject = stream;
+      await cameraVideo.play(); if (generation !== scanGeneration) return;
+      let detector = null; try { if (typeof window.BarcodeDetector === 'function') detector = new BarcodeDetector({formats:['ean_13','ean_8','code_128','code_39','qr_code']}); } catch (_) { detector = null; } if (!detector && typeof window.jsQR !== 'function') { stopCamera(); status.textContent = 'Kein unterstützter QR-Decoder verfügbar. Bitte manuell eingeben.'; return; } status.textContent = detector ? 'Barcode vor die Kamera halten.' : 'QR-Code vor die Kamera halten (andere Codes manuell eingeben).';
+      scanTimer = setInterval(async () => { if (generation !== scanGeneration) return; try { const video = document.getElementById('library-camera'); let found = []; if (detector) { try { found = await detector.detect(video); } catch (_) { /* Use local QR decoder. */ } } if (!found.length && typeof window.jsQR === 'function') { const width = video.videoWidth, height = video.videoHeight; if (width && height) { const canvas = document.createElement('canvas'); const scale = Math.min(1, 1200 / Math.max(width, height)); canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale)); const context = canvas.getContext('2d', {willReadFrequently: true}); if (context) { context.drawImage(video, 0, 0, canvas.width, canvas.height); const image = context.getImageData(0, 0, canvas.width, canvas.height); const result = window.jsQR(image.data, image.width, image.height, {inversionAttempts:'attemptBoth'}); if (result) found = [{rawValue:result.data}]; } } } if (generation !== scanGeneration || !found.length) return; scanTarget.value = found[0].rawValue || ''; stopCamera(); getModal()?.hide(); scanTarget.dispatchEvent(new Event('change')); if (scanTarget.id === 'bulk-book-code') assignBook(); if (scanTarget.id === 'library-find') findForm.requestSubmit(); } catch (_) {} }, 350);
+    } catch (error) { if (generation !== scanGeneration) return; stopCamera(); status.textContent = error?.name === 'NotAllowedError' ? 'Kamerazugriff verweigert. Berechtigung im Browser prüfen.' : 'Kamera konnte nicht geöffnet werden. Berechtigung oder Kamerabelegung prüfen; alternativ manuell eingeben.'; }
   }));
+  window.addEventListener('pagehide', stopCamera);
 
   let ocrRevision = 0;
   const clearOcrResult = () => {
