@@ -200,9 +200,20 @@ class DocumentQuickActionsTest(unittest.TestCase):
             ("files", (io.BytesIO(b"persisted folder content"), "actual.txt")),
         ])
 
-        response = self.client.post("/documents/upload", data=form, content_type="multipart/form-data")
+        # Test the real StoragePort path without depending on optional scanner availability.
+        with patch(
+            "app.documents_routes_workflows.begin_web_inbox_upload",
+            return_value={"item": None, "malware_status": "not_configured", "error": ""},
+        ), patch("app.documents_routes_workflows.complete_web_inbox_upload"):
+            response = self.client.post(
+                "/documents/upload",
+                data=form,
+                content_type="multipart/form-data",
+                follow_redirects=True,
+            )
 
-        self.assertEqual(302, response.status_code)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("1 Datei(en) vollständig", response.get_data(as_text=True))
         document = DocumentStore(self.root).get_document(
             next(path.relative_to(self.root).as_posix() for path in self.root.rglob("actual.txt"))
         )
