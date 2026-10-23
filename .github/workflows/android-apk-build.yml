@@ -7,9 +7,11 @@ on:
       - 'android/apk/**'
       - 'tools/android_apk_python_sbom.py'
       - 'tools/check_chaquopy_wheels.py'
+      - 'tools/check_gradle_sbom.py'
       - 'tools/generate_sbom.py'
       - 'tests/test_android_apk_python_sbom.py'
       - 'tests/test_android_build_profiles.py'
+      - 'tests/test_gradle_sbom.py'
       - 'tests/test_chaquopy_wheels.py'
       - 'tests/test_android_apk_build_matrix.py'
       - 'tests/test_android_native_integration.py'
@@ -199,20 +201,20 @@ jobs:
           cp "$APK" "artifacts/android/${VERSIONED_OUTPUT}"
           sha256sum "artifacts/android/${VERSIONED_OUTPUT}" > "artifacts/android/${VERSIONED_OUTPUT}.sha256"
 
-      - name: Generate resolved Android JVM dependency SBOM
+      - name: Generate CycloneDX SBOM from resolved Android JVM dependencies
         working-directory: android/apk
-        run: gradle --no-daemon :app:exportResolvedAndroidDependencies
+        run: gradle --no-daemon :app:cyclonedxDirectBom
 
-      - name: Convert Android JVM inventory to CycloneDX XML and JSON
+      - name: Collect Android JVM SBOM and run inventory regressions
         run: |
           python -m pip install 'packaging==26.3'
-          python -m unittest discover -s tests -p test_android_apk_python_sbom.py
           python -m unittest discover -s tests -p test_android_build_profiles.py
-          python tools/generate_sbom.py \
-            --gradle-resolution android/apk/app/build/reports/sbom/gradle-runtime.json \
-            --output artifacts/android/gradle-runtime.cdx.json \
-            --xml-output artifacts/android/gradle-runtime.cdx.xml
+          python -m unittest tests.test_gradle_sbom -v
+          mkdir -p artifacts/android
+          cp android/apk/app/build/reports/sbom/gradle-runtime.cdx.json artifacts/android/gradle-runtime.cdx.json
+          cp android/apk/app/build/reports/sbom/gradle-runtime.cdx.xml artifacts/android/gradle-runtime.cdx.xml
           python -m json.tool artifacts/android/gradle-runtime.cdx.json > /dev/null
+          python tools/check_gradle_sbom.py artifacts/android/gradle-runtime.cdx.json
 
       - name: Inventory APK Python wheels
         run: |

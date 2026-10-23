@@ -5,6 +5,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/android-apk-build.yml"
 GRADLE = ROOT / "android/apk/app/build.gradle"
+ROOT_GRADLE = ROOT / "android/apk/build.gradle"
 
 
 class AndroidBuildProfilesTests(unittest.TestCase):
@@ -38,6 +39,18 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
         self.assertIn("--gradle android/apk/app/build.gradle", workflow)
+
+    def test_android_gradle_sbom_resolves_runtime_graph_and_license_metadata(self):
+        root_gradle = ROOT_GRADLE.read_text(encoding="utf-8")
+        gradle = GRADLE.read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("org.cyclonedx.bom' version '3.5.1' apply false", root_gradle)
+        self.assertIn("id 'org.cyclonedx.bom'", gradle)
+        self.assertIn("includeConfigs = ['debugRuntimeClasspath']", gradle)
+        self.assertIn("includeMetadataResolution = true", gradle)
+        self.assertIn(":app:cyclonedxDirectBom", workflow)
+        self.assertIn("gradle-runtime.cdx.json", workflow)
+        self.assertIn("gradle-runtime.cdx.xml", workflow)
 
     def test_ubuntu_26_android_job_uses_the_same_verified_wheel_artifacts(self):
         workflow = (ROOT / ".github/workflows/ubuntu-26-compat.yml").read_text(encoding="utf-8")

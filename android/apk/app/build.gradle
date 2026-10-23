@@ -1,6 +1,14 @@
 plugins {
     id 'com.android.application'
     id 'com.chaquo.python'
+    id 'org.cyclonedx.bom'
+}
+
+tasks.named('cyclonedxDirectBom') {
+    includeConfigs = ['debugRuntimeClasspath']
+    includeMetadataResolution = true
+    jsonOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.json')
+    xmlOutput = layout.buildDirectory.file('reports/sbom/gradle-runtime.cdx.xml')
 }
 
 def errorReportUrl = (System.getenv('SIMPLEOFFICE_ERROR_REPORT_URL') ?: '').trim()
@@ -259,52 +267,3 @@ tasks.register('generateSimpleOfficeLauncherIcons') {
     }
 }
 preBuild.dependsOn generateSimpleOfficeLauncherIcons
-
-
-// Export the actual resolved Gradle runtime graph, not merely declared dependencies.
-// Chaquopy pip wheels are separate and must be inventoried from the packaged APK.
-tasks.register('exportResolvedAndroidDependencies') {
-    def outputFile = layout.buildDirectory.file('reports/sbom/gradle-runtime.json')
-    outputs.file(outputFile)
-    doLast {
-        def configuration = configurations.getByName('debugRuntimeClasspath')
-        def resolution = configuration.incoming.resolutionResult
-        def components = [:]
-        def edges = [:]
-        def rootDependencies = []
-        resolution.root.dependencies.each { dependency ->
-            if (dependency instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult) {
-                def selected = dependency.selected.moduleVersion
-                if (selected != null) {
-                    rootDependencies.add("${selected.group}:${selected.name}:${selected.version}")
-                }
-            }
-        }
-        resolution.allComponents.each { component ->
-            def module = component.moduleVersion
-            if (module == null) return
-            def key = "${module.group}:${module.name}:${module.version}"
-            components[key] = [group: module.group, name: module.name, version: module.version]
-            def dependencies = []
-            component.dependencies.each { dependency ->
-                if (dependency instanceof org.gradle.api.artifacts.result.ResolvedDependencyResult) {
-                    def selected = dependency.selected.moduleVersion
-                    if (selected != null) {
-                        dependencies.add("${selected.group}:${selected.name}:${selected.version}")
-                    }
-                }
-            }
-            edges[key] = dependencies.unique().sort()
-        }
-        def result = [components: components.values().toList().sort { a, b ->
-            "${a.group}:${a.name}:${a.version}" <=> "${b.group}:${b.name}:${b.version}"
-        }, dependencies: edges, application: [
-            name: 'SimpleOffice4Me Android',
-            version: appVersionName,
-            bomRef: "urn:simpleoffice4me:android:${androidAbi}:python-${pythonRuntimeVersion}",
-        ], rootDependencies: rootDependencies.unique().sort()]
-        def output = outputFile.get().asFile
-        output.parentFile.mkdirs()
-        output.text = groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(result))
-    }
-}

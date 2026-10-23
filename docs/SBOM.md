@@ -13,9 +13,11 @@ CycloneDX CLI release and checked against a pinned SHA-256 digest before use.
   from the built image itself, so architecture- and Python-version-specific
   edges are resolved for the target container rather than the runner. The
   container inventory includes the `ocr` extra used by the image.
-- Android records the resolved Gradle runtime graph and reads the Chaquopy wheel
-  metadata from the completed APK. Android SBOMs are uploaded before the Pillow
-  security gate so a blocked APK still has a reviewable package inventory.
+- Android uses the pinned CycloneDX Gradle plugin on the resolved runtime
+  configuration, including available Maven license metadata, and separately
+  reads Chaquopy wheel metadata from the completed APK. Android SBOMs are
+  uploaded before the Pillow security gate so a blocked APK still has a
+  reviewable package inventory.
 - Tauri inventories locked Cargo metadata and the platform-filtered npm lock;
   Electron inventories its npm lock for Linux, Windows, and macOS.
 - The published multi-platform Docker image also enables BuildKit's SBOM
