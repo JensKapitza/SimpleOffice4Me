@@ -51,6 +51,7 @@
             {{ tr('documents') }}
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-documents">
+            <li><a class="dropdown-item fw-semibold" href="{{ url_for('documents.images', _anchor='capture-first') }}">Erfassen</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.index') }}">{{ tr('documents') }}</a></li>
             {% if v3_inbox_enabled %}<li><a class="dropdown-item" href="{{ url_for('v3_inbox.index') }}">Inbox 3.0</a></li>{% endif %}
             <li><a class="dropdown-item" href="{{ url_for('documents.document_search') }}">Suchen</a></li>
