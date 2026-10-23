@@ -19,8 +19,8 @@
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
 <a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">Beleg buchen</a>
 <form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}">
-<input type="hidden" name="title" value="{{ 'Review: ' if g.language == 'en' else 'Prüfen: ' }}{{ document.last_path }}">
-<input type="hidden" name="description" value="{{ ('Review the document, perform the required work and record the result in this task: ' if g.language == 'en' else 'Dokument prüfen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren: ') }}{{ document.last_path }}">
+<input type="hidden" name="title" value="{{ 'Review document' if g.language == 'en' else 'Dokument prüfen' }}">
+<input type="hidden" name="description" value="{{ 'Open the linked source document, perform the required work, and record the result here.' if g.language == 'en' else 'Quelldokument öffnen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren.' }}">
 <button type="submit" class="btn btn-outline-primary">
 {{ 'As task' if g.language == 'en' else 'Als Aufgabe' }}</button>
 </form>{% if document.last_path.lower().endswith('.eml') %}<a class="btn btn-warning" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">

@@ -8,7 +8,7 @@ from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
-from app.printershare_quickwins import _clamp_int, _parse_bool, _safe_job, run_maintenance
+from app.printershare_quickwins import _clamp_int, _csv_safe_text, _parse_bool, _safe_job, run_maintenance
 from app.printershare_store import PrinterShareStore
 
 
@@ -164,6 +164,28 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
         self.assertIn("alice-ok", body)
         self.assertNotIn("bob-ok", body)
         self.assertIn("attachment", response.headers["Content-Disposition"])
+
+    def test_csv_export_escapes_untrusted_printer_name(self):
+        with sqlite_connect(self.store.jobs_path) as db:
+            db.execute("UPDATE print_job SET printer_name = ? WHERE job_id = ?", ("=HYPERLINK(1)", "alice-ok"))
+        response = self.alice.get("/printershare/api/jobs.csv")
+        self.assertEqual(200, response.status_code)
+        self.assertIn("'=HYPERLINK(1)", response.get_data(as_text=True))
+        self.assertNotIn("bob-ok", response.get_data(as_text=True))
+
+    def test_csv_safe_text_preserves_normal_values(self):
+        self.assertEqual("Office Printer", _csv_safe_text("Office Printer"))
+        self.assertEqual("'@cmd", _csv_safe_text("@cmd"))
+        self.assertEqual("'  =1+1", _csv_safe_text("  =1+1"))
+        self.assertEqual("'\t=1+1", _csv_safe_text("\t=1+1"))
+        self.assertEqual("'\u00a0=1+1", _csv_safe_text("\u00a0=1+1"))
+        self.assertEqual("'\u2003@SUM(1)", _csv_safe_text("\u2003@SUM(1)"))
+        self.assertEqual("'\u2009=1+1", _csv_safe_text("\u2009=1+1"))
+        self.assertEqual("'\ufeff\t=1+1", _csv_safe_text("\ufeff\t=1+1"))
+        self.assertEqual("'+123", _csv_safe_text("+123"))
+        self.assertEqual("'\ufeff=1+1", _csv_safe_text("\ufeff=1+1"))
+        self.assertEqual("'\ufeff  @SUM(1)", _csv_safe_text("\ufeff  @SUM(1)"))
+        self.assertEqual("'-123", _csv_safe_text("-123"))
 
     def test_settings_api_does_not_return_secrets(self):
         data = self.alice.get("/printershare/api/settings").get_json()

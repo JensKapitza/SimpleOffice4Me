@@ -109,6 +109,18 @@ class EuerStoreTests(unittest.TestCase):
         self.assertTrue(exported.startswith("\ufeffBuchungs-ID;"))
         self.assertIn(";reversed;Korrektur\n", exported)
 
+    def test_csv_export_escapes_formula_like_booking_text(self):
+        booking = self.store.add({
+            "direction": "income", "category": "other_income", "description": "=HYPERLINK(\"https://example.test\")",
+            "gross": "20", "booking_date": "2026-08-01", "document_date": "2026-08-01",
+            "tax_mode": "exempt",
+        }, "jens")
+        self.store.reverse(booking["booking_id"], "@cmd", "jens")
+        exported = self.store.csv_export(2026, actor="jens")
+        self.assertIn("'=HYPERLINK", exported)
+        self.assertIn("'@cmd", exported)
+        self.assertTrue(exported.startswith("\ufeffBuchungs-ID;"))
+
     def test_ledger_reads_exports_and_reversals_are_owner_scoped(self):
         jens = self.store.add({
             "direction": "income", "category": "other_income", "description": "Jens intern",

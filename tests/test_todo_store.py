@@ -35,6 +35,48 @@ class TodoStoreTest(unittest.TestCase):
         self.assertEqual(50, updated["percent_complete"])
         self.assertEqual("in-process", updated["status"])
 
+    def test_source_document_id_survives_updates_and_legacy_tasks(self):
+        task = self.store.add("Review source", "admin", {
+            "source_document_id": "stable-doc-123",
+            "document_ids": ["stable-doc-123", "related-doc-456"],
+        })
+        self.assertEqual("stable-doc-123", task["source_document_id"])
+        self.assertEqual(["related-doc-456"], task["document_ids"])
+        self.assertEqual("stable-doc-123", self.store.items("admin")[0]["source_document_id"])
+        updated = self.store.update(task["id"], {"title": "Review renamed source"}, "admin")
+        self.assertEqual("stable-doc-123", updated["source_document_id"])
+        self.assertEqual(["related-doc-456"], updated["document_ids"])
+        legacy = self.store.add("No source", "admin")
+        self.assertEqual("", legacy["source_document_id"])
+
+    def test_source_document_id_remains_stable_when_other_task_fields_change(self):
+        task = self.store.add("Document task", "admin", {"source_document_id": "doc-1"})
+        updated = self.store.update(task["id"], {"due": "2026-11-01", "status": "in-process"}, "admin")
+        self.assertEqual("doc-1", updated["source_document_id"])
+
+    def test_source_document_id_rejects_path_like_values(self):
+        with self.assertRaisesRegex(ValueError, "invalid source document identifier"):
+            self.store.add("Document task", "admin", {"source_document_id": "../private/file.pdf"})
+
+    def test_caldav_partial_put_preserves_source_and_related_document_ids(self):
+        task = self.store.add("Source document", "admin", {
+            "uid": "source-document@example.test",
+            "source_document_id": "source-1",
+            "document_ids": ["source-1", "related-1"],
+            "email_document_id": "email-1",
+        })
+        changed, created = self.store.put_resource(
+            self.store.resource(task),
+            {"uid": task["uid"], "title": "Review the source", "status": "in-process"},
+            "admin",
+            expected_etag=self.store.etag(task),
+        )
+
+        self.assertFalse(created)
+        self.assertEqual("source-1", changed["source_document_id"])
+        self.assertEqual(["related-1"], changed["document_ids"])
+        self.assertEqual("email-1", changed["email_document_id"])
+
     def test_resource_etag_sync_and_tombstone(self):
         values = {"uid": "task-1@example.test", "title": "CalDAV", "status": "needs-action", "due": "2026-09-02"}
         item, created = self.store.put_resource("task.ics", values, "admin", create_only=True)
@@ -48,6 +90,30 @@ class TodoStoreTest(unittest.TestCase):
         deleted, new_token = self.store.sync_changes("admin", token)
         self.assertTrue(deleted[0]["deleted"])
         self.assertTrue(new_token.endswith(":2"))
+
+    def test_caldav_put_preserves_document_links_when_client_omits_extension_fields(self):
+        item = self.store.add(
+            "Dokument prüfen",
+            "admin",
+            {
+                "document_ids": ["source-document"],
+                "email_document_id": "source-email",
+                "uid": "document-task@example.test",
+            },
+        )
+        values = {
+            "uid": item["uid"],
+            "title": "Dokument weiter prüfen",
+            "status": "in-process",
+        }
+
+        updated, created = self.store.put_resource(
+            self.store.resource(item), values, "admin", self.store.etag(item)
+        )
+
+        self.assertFalse(created)
+        self.assertEqual(["source-document"], updated["document_ids"])
+        self.assertEqual("source-email", updated["email_document_id"])
 
     def test_offline_task_status_is_idempotent_and_atomic(self):
         task = self.store.add("Offline", "admin", {"status": "needs-action"})

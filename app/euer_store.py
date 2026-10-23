@@ -354,10 +354,18 @@ class EuerStore:
             ],
         }
 
+    @staticmethod
+    def _csv_safe_text(value: Any) -> str:
+        """Escape untrusted text that spreadsheet apps might evaluate as formulas."""
+        text = str(value or "")
+        if text.lstrip().startswith(("=", "+", "-", "@")) or text.startswith(("\\t", "\\r", "\\n")):
+            return "'" + text
+        return text
+
     def csv_export(self, year: int, *, actor: str, is_admin: bool = False) -> str:
         output = io.StringIO()
         writer = csv.writer(output, delimiter=";", lineterminator="\n")
         writer.writerow(("Buchungs-ID", "Zahlungsdatum", "Belegdatum", "Art", "Kennzahl", "Kategorie", "Beschreibung", "Brutto EUR", "Netto EUR", "Steuer EUR", "Steuersatz %", "Betrieblicher Anteil %", "EÜR-Betrag EUR", "Beleg-ID", "Rechnungs-ID", "Referenz", "Status", "Stornogrund"))
         for row in self.bookings(year, actor=actor, is_admin=is_admin, include_reversed=True):
-            writer.writerow((row.get("booking_id"), row.get("booking_date"), row.get("document_date"), row.get("direction"), row.get("category_code"), row.get("category_label"), row.get("description"), row.get("gross"), row.get("net"), row.get("tax"), row.get("tax_rate"), row.get("business_share"), row.get("euer_amount"), row.get("document_id"), row.get("invoice_id"), row.get("reference"), row.get("status"), row.get("reversal_reason", "")))
+            writer.writerow((row.get("booking_id"), row.get("booking_date"), row.get("document_date"), row.get("direction"), row.get("category_code"), self._csv_safe_text(row.get("category_label")), self._csv_safe_text(row.get("description")), row.get("gross"), row.get("net"), row.get("tax"), row.get("tax_rate"), row.get("business_share"), row.get("euer_amount"), row.get("document_id"), row.get("invoice_id"), self._csv_safe_text(row.get("reference")), row.get("status"), self._csv_safe_text(row.get("reversal_reason", ""))))
         return "\ufeff" + output.getvalue()

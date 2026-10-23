@@ -120,6 +120,69 @@ class WebExportTests(unittest.TestCase):
                     download()
             temporary_file.assert_not_called()
 
+    def test_worker_launch_failure_cleans_up_temp_export(self):
+        from pathlib import Path
+        from flask import g
+        from werkzeug.exceptions import ServiceUnavailable
+        from app.web_export import download
+        from tempfile import NamedTemporaryFile
+
+        generated = []
+
+        def create_temp(**kwargs):
+            kwargs["dir"] = self.tmp.name
+            result = NamedTemporaryFile(**kwargs)
+            generated.append(Path(result.name))
+            return result
+
+        with app.test_request_context(
+            "/web-export/download", method="POST",
+            data={"target": "/", "format": "pdf", "media": "print"},
+            base_url="http://127.0.0.1:8080",
+        ):
+            g.user = {"id": 1}
+            with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
+                with patch("app.web_export.web_export_availability", return_value=(True, "")):
+                    with patch("app.web_export.importlib.util.find_spec", return_value=object()):
+                        with patch("app.web_export._renderer_token", return_value="fake-token"):
+                            with patch("app.web_export.tempfile.NamedTemporaryFile", side_effect=create_temp):
+                                with patch("app.web_export.subprocess.run", side_effect=OSError("worker unavailable")):
+                                    with self.assertRaises(ServiceUnavailable):
+                                        download()
+        self.assertEqual(1, len(generated))
+        self.assertFalse(generated[0].exists())
+
+    def test_renderer_token_failure_cleans_up_temp_export(self):
+        from pathlib import Path
+        from flask import g
+        from werkzeug.exceptions import ServiceUnavailable
+        from app.web_export import download
+        from tempfile import NamedTemporaryFile
+
+        generated = []
+
+        def create_temp(**kwargs):
+            kwargs["dir"] = self.tmp.name
+            result = NamedTemporaryFile(**kwargs)
+            generated.append(Path(result.name))
+            return result
+
+        with app.test_request_context(
+            "/web-export/download", method="POST",
+            data={"target": "/", "format": "pdf", "media": "print"},
+            base_url="http://127.0.0.1:8080",
+        ):
+            g.user = {"id": 1}
+            with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
+                with patch("app.web_export.web_export_availability", return_value=(True, "")):
+                    with patch("app.web_export.importlib.util.find_spec", return_value=object()):
+                        with patch("app.web_export.tempfile.NamedTemporaryFile", side_effect=create_temp):
+                            with patch("app.web_export._renderer_token", side_effect=OSError("token store unavailable")):
+                                with self.assertRaises(ServiceUnavailable):
+                                    download()
+        self.assertEqual(1, len(generated))
+        self.assertFalse(generated[0].exists())
+
     def test_export_token_concurrent_consumption_allows_only_one(self):
         secret = "so_export_" + "g" * 40
         with app.app_context():
