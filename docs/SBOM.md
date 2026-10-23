@@ -27,8 +27,11 @@ CycloneDX CLI release and checked against a pinned SHA-256 digest before use.
   and Python packages from the same built image are represented together.
 
 Artifacts are retained by CI for 14 days. Release workflows remain responsible
-for attaching the final release SBOMs. Missing or unresolved inventory records
-fail closed rather than being represented as a complete SBOM.
+for attaching the final release SBOMs. Before checksumming and publishing, the
+project release workflow validates every collected CycloneDX JSON/XML artifact
+against the pinned 1.6 validator and requires both formats. Missing or
+unresolved inventory records fail closed rather than being represented as a
+complete SBOM.
 
 ## Vulnerability follow-up mapping
 
