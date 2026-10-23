@@ -37,7 +37,15 @@
   const startFolderImport = document.getElementById('start-folder-import');
   const cancelFolderImport = document.getElementById('cancel-folder-import');
   let nativeFolderImport = window.SimpleOfficeFolderImport || null;
+  let folderPickerFocusHandler = null;
   const androidWebView = /SimpleOffice4Me-Android\//i.test(navigator.userAgent);
+  const clearWebkitDirectoryMode = () => {
+    folder.removeAttribute('webkitdirectory');
+    if (folderPickerFocusHandler) {
+      window.removeEventListener('focus', folderPickerFocusHandler);
+      folderPickerFocusHandler = null;
+    }
+  };
   const refreshFolderPicker = () => {
     nativeFolderImport = window.SimpleOfficeFolderImport || nativeFolderImport;
     // Never disable the Android entry point just because the WebView bridge
@@ -115,12 +123,16 @@
     }
     if ('webkitdirectory' in folder) {
       // Keep the vendor-specific attribute out of persistent HTML while still
-      // setting the folder mode before the browser opens its native picker.
+      // setting the folder mode while the native picker is active.
       folder.setAttribute('webkitdirectory', '');
+      folderPickerFocusHandler = clearWebkitDirectoryMode;
+      window.addEventListener('focus', folderPickerFocusHandler, {once: true});
       try {
         folder.click();
-      } finally {
-        folder.removeAttribute('webkitdirectory');
+      } catch (error) {
+        clearWebkitDirectoryMode();
+        status.textContent = 'Ordnerauswahl konnte nicht gestartet werden: ' + String(error && error.message || error);
+        status.setAttribute('role', 'alert');
       }
     }
   });
@@ -209,7 +221,11 @@
       (source === folder ? ' (inklusive Unterordner)' : '');
   };
   files.addEventListener('change', () => update(files));
-  folder.addEventListener('change', () => update(folder));
+  folder.addEventListener('change', () => {
+    clearWebkitDirectoryMode();
+    update(folder);
+  });
+  folder.addEventListener('cancel', clearWebkitDirectoryMode);
 })();
 document.querySelectorAll('[data-tree-action]').forEach((button) => button.addEventListener('click', () => {
   const open = button.dataset.treeAction === 'open';
