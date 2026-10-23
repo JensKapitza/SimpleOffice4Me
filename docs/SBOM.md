@@ -3,6 +3,8 @@
 CI generates CycloneDX 1.6 JSON and XML inventories from resolved build inputs
 and installed runtime environments. Validators are downloaded from a pinned
 CycloneDX CLI release and checked against a pinned SHA-256 digest before use.
+Install the optional `sbom` extra (`python -m pip install -e '.[sbom]'`) before
+running `tools/generate_sbom.py` outside the pinned CI environments.
 
 ## Platform inventories
 

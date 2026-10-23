@@ -41,6 +41,9 @@ ocr = [
 security = [
   "pip-audit>=2.7,<3",
 ]
+sbom = [
+  "packaging>=26.3,<27",
+]
 quality = [
   "ruff==0.17.1",
 ]
