@@ -348,12 +348,18 @@ class SiteVisitHttpRouteTests(unittest.TestCase):
         page = BeautifulSoup(response.get_data(as_text=True), "html.parser")
         self.assertIn("Freier Befund", page.get_text())
         self.assertNotIn("Befund mit Gerät", page.get_text())
-        form = page.find("form", action=f"{url}/{unassigned['finding_id']}")
-        self.assertIsNotNone(form)
+        room_select = page.find("select", id=f"room-{unassigned['finding_id']}")
+        form = room_select.find_parent("form") if room_select else None
+        self.assertIsNotNone(
+            form,
+            f"Room selector was not rendered for {unassigned['finding_id']}; "
+            f"available selectors: {[item.get('id') for item in page.select('select[id^=room-]')]}",
+        )
+        action = form["action"]
         csrf = form.find("input", {"name": "_csrf_token"})["value"]
 
         invalid = self.client.post(
-            f"{url}/{unassigned['finding_id']}",
+            action,
             data={
                 "_csrf_token": csrf, "room_id": "unknown-room",
                 "asset_id": asset["asset_id"], "status": "confirmed",
@@ -372,7 +378,7 @@ class SiteVisitHttpRouteTests(unittest.TestCase):
         self.assertEqual("unreviewed", unchanged["status"])
 
         saved = self.client.post(
-            f"{url}/{unassigned['finding_id']}",
+            action,
             data={
                 "_csrf_token": csrf, "room_id": room["room_id"],
                 "asset_id": asset["asset_id"], "status": "rejected",
