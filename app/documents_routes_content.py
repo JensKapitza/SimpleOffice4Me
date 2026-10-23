@@ -726,7 +726,7 @@ def tasks():
     for document_id in document_ids:
         try:
             document = _store().get_document(document_id)
-        except ValueError:
+        except (ValueError, OSError):
             continue
         if not document.get("last_path") or document.get("system_state") == "webdav_deleted":
             continue
