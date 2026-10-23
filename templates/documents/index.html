@@ -79,7 +79,14 @@
     nativeFolderImport = window.SimpleOfficeFolderImport || nativeFolderImport;
     if (nativeFolderImport) {
       const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
-      const state = nativeFolderImport.add(csrf);
+      let state;
+      try {
+        state = nativeFolderImport.add(csrf);
+      } catch (error) {
+        status.textContent = 'Android-Ordnerdialog konnte nicht gestartet werden: ' + String(error && error.message || error);
+        status.setAttribute('role', 'alert');
+        return;
+      }
       if (state === 'pending') {
         status.textContent = 'Android-Ordner auswählen …';
         startFolderImport.disabled = true;
@@ -92,8 +99,13 @@
             ? 'Dateien sind übertragen; der Server schließt den Import ab.'
           : state === 'session-changed'
             ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
-            : 'Android-Ordnerauswahl ist nicht verfügbar. Bitte Seite neu laden.';
+            : state === 'blocked'
+              ? 'Android hat den Ordnerzugriff blockiert (Seiten- oder Sitzungsprüfung).'
+              : state === 'invalid'
+                ? 'Sicherheits-Token für den Ordnerimport fehlt oder ist ungültig. Bitte neu anmelden.'
+                : 'Android-Ordnerauswahl nicht gestartet (Status: ' + state + ').';
       }
+      status.setAttribute('role', 'alert');
       return;
     }
     if (androidWebView) {
