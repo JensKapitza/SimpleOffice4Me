@@ -323,7 +323,12 @@ def create_subtask(item_id: str):
             "assigned_to": parent.get("assigned_to", []),
             "due": request.form.get("due", "") or parent.get("due", ""),
         }
-        _store().add(title, actor, values)
+        _store().add(
+            title,
+            actor,
+            values,
+            smart_folder_id=str(parent.get("smart_folder_id", "")),
+        )
         flash("Unteraufgabe angelegt.")
     except ValueError as exc:
         flash(str(exc))

@@ -58,6 +58,35 @@ class TodoStoreTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid source document identifier"):
             self.store.add("Document task", "admin", {"source_document_id": "../private/file.pdf"})
 
+    def test_smart_folder_task_link_requires_authorized_creation_and_survives_updates(self):
+        folder_id = "a" * 32
+        task = self.store.add(
+            "Prüfung Sammelordner",
+            "admin",
+            {"description": "Ordnerbelege prüfen"},
+            smart_folder_id=folder_id,
+        )
+        self.assertEqual(folder_id, task["smart_folder_id"])
+        self.assertEqual(folder_id, self.store.items("admin")[0]["smart_folder_id"])
+
+        updated = self.store.update(task["id"], {"status": "in-process"}, "admin")
+        self.assertEqual(folder_id, updated["smart_folder_id"])
+        changed, created = self.store.put_resource(
+            self.store.resource(updated),
+            {"uid": updated["uid"], "title": "Weiter prüfen", "status": "in-process"},
+            "admin",
+            expected_etag=self.store.etag(updated),
+        )
+        self.assertFalse(created)
+        self.assertEqual(folder_id, changed["smart_folder_id"])
+
+        untrusted = self.store.add("Nicht autorisiert", "admin", {"smart_folder_id": folder_id})
+        self.assertEqual("", untrusted["smart_folder_id"])
+        unchanged = self.store.update(task["id"], {"smart_folder_id": "b" * 32}, "admin")
+        self.assertEqual(folder_id, unchanged["smart_folder_id"])
+        with self.assertRaisesRegex(ValueError, "invalid smart folder identifier"):
+            self.store.add("Ungültige ID", "admin", smart_folder_id="../private")
+
     def test_caldav_partial_put_preserves_source_and_related_document_ids(self):
         task = self.store.add("Source document", "admin", {
             "uid": "source-document@example.test",

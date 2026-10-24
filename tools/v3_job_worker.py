@@ -19,7 +19,12 @@ def main() -> int:
         print("v3.jobs is disabled; worker exits without changing jobs")
         return 0
     worker_id=f"{socket.gethostname()}:{os.getpid()}"
-    worker=JobWorker(JobStore(args.root),default_handlers(args.root),worker_id)
+    job_store=JobStore(args.root)
+    worker=JobWorker(
+        job_store,
+        default_handlers(args.root,job_store,worker_id),
+        worker_id,
+    )
     if args.once:
         worker.run_once()
         return 0
