@@ -22,13 +22,26 @@ from tools import sftp_setup
 DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
 MIN_MAX_UPLOAD_BYTES = 1
 MAX_MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024
+DEFAULT_MAX_CLIENTS = 32
+MIN_MAX_CLIENTS = 1
+MAX_MAX_CLIENTS = 512
 DEFAULTS = {"mode": "integrated", "enabled": False, "autostart": False,
             "bind": "127.0.0.1", "port": 2222, "system_port": 22,
-            "rsync_enabled": False, "max_bytes": DEFAULT_MAX_UPLOAD_BYTES}
+            "rsync_enabled": False, "max_bytes": DEFAULT_MAX_UPLOAD_BYTES,
+            "max_clients": DEFAULT_MAX_CLIENTS}
 
 
 def settings_path():
     return default_config_path().parent / "sftp-service.json"
+
+
+def _legacy_environment_integer(name: str, default: int, minimum: int, maximum: int) -> int:
+    """Match the direct SFTP server's bounded legacy environment behavior."""
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError, OverflowError):
+        return default
+    return max(minimum, min(value, maximum))
 
 
 def validate(value):
@@ -52,6 +65,11 @@ def validate(value):
     result["max_bytes"] = int(result["max_bytes"])
     if not MIN_MAX_UPLOAD_BYTES <= result["max_bytes"] <= MAX_MAX_UPLOAD_BYTES:
         raise ValueError("Maximale Uploadgröße muss zwischen 1 Byte und 8 GiB liegen.")
+    if type(result["max_clients"]) not in (int, str):
+        raise ValueError("Maximale Clientanzahl muss eine ganze Zahl sein.")
+    result["max_clients"] = int(result["max_clients"])
+    if not MIN_MAX_CLIENTS <= result["max_clients"] <= MAX_MAX_CLIENTS:
+        raise ValueError("Maximal 1 bis 512 gleichzeitige SFTP-Clients zulässig.")
     return {key: result[key] for key in DEFAULTS}
 
 
@@ -62,12 +80,27 @@ def settings():
         return validate({**DEFAULTS, "bind": os.environ.get("SIMPLEOFFICE_SFTP_BIND", DEFAULTS["bind"]),
                          "port": os.environ.get("SIMPLEOFFICE_SFTP_PORT", DEFAULTS["port"]),
                          "rsync_enabled": legacy_rsync,
-                         "max_bytes": os.environ.get("SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULTS["max_bytes"])})
+                         "max_bytes": _legacy_environment_integer(
+                             "SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULT_MAX_UPLOAD_BYTES,
+                             MIN_MAX_UPLOAD_BYTES, MAX_MAX_UPLOAD_BYTES,
+                         ),
+                         "max_clients": _legacy_environment_integer(
+                             "SIMPLEOFFICE_SFTP_MAX_CLIENTS", DEFAULT_MAX_CLIENTS,
+                             MIN_MAX_CLIENTS, MAX_MAX_CLIENTS,
+                         )})
     value = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(value, dict) and "rsync_enabled" not in value:
         value["rsync_enabled"] = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
     if isinstance(value, dict) and "max_bytes" not in value:
-        value["max_bytes"] = os.environ.get("SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULTS["max_bytes"])
+        value["max_bytes"] = _legacy_environment_integer(
+            "SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULT_MAX_UPLOAD_BYTES,
+            MIN_MAX_UPLOAD_BYTES, MAX_MAX_UPLOAD_BYTES,
+        )
+    if isinstance(value, dict) and "max_clients" not in value:
+        value["max_clients"] = _legacy_environment_integer(
+            "SIMPLEOFFICE_SFTP_MAX_CLIENTS", DEFAULT_MAX_CLIENTS,
+            MIN_MAX_CLIENTS, MAX_MAX_CLIENTS,
+        )
     return validate(value)
 
 
@@ -184,6 +217,7 @@ def _start(config, document_root):
     environment.update(SIMPLEOFFICE_SFTP_BIND=config["bind"], SIMPLEOFFICE_SFTP_PORT=str(config["port"]),
                        SIMPLEOFFICE_RSYNC_ENABLED="true" if config["rsync_enabled"] else "false",
                        SIMPLEOFFICE_SFTP_MAX_BYTES=str(config["max_bytes"]),
+                       SIMPLEOFFICE_SFTP_MAX_CLIENTS=str(config["max_clients"]),
                        SIMPLEOFFICE_DOCUMENT_ROOT=str(document_root), SIMPLEOFFICE_SFTP_HOST_KEY=str(sftp_setup.key_path()))
     options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     service_control.RUN_DIR.mkdir(parents=True, exist_ok=True)

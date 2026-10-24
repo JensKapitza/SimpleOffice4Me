@@ -169,7 +169,7 @@ def _sftp_action(action):
             if action == "scan":
                 _store().scan("sftp", result)
     except (ValueError, TypeError):
-        return jsonify(error="SFTP-Einstellungen prüfen: Betriebsart, IP-Adresse, Ports, Aktivierung, rsync-Freigabe und Uploadgröße."), 400
+        return jsonify(error="SFTP-Einstellungen prüfen: Betriebsart, IP-Adresse, Ports, Aktivierung, rsync-Freigabe, Uploadgröße und Clientlimit."), 400
     except (RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
         current_app.logger.warning("SFTP action %s failed (%s)", action, type(exc).__name__)
         return jsonify(error="SFTP-Aktion fehlgeschlagen. Paramiko, Portbelegung, Schlüssel und Dienstrechte prüfen."), 503
