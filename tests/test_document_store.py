@@ -445,7 +445,7 @@ class DocumentStoreTest(unittest.TestCase):
             share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
             self.assertEqual("aktiv", store.share_status(share["share_id"])["status"])
             store.open_share(share["share_id"], "sicheres-passwort")
-            store.move_document(document["document_id"], "archiv/angebot.txt", "admin")
+            store.move_document(document["document_id"], "archiv", "admin")
             self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
             with self.assertRaisesRegex(ValueError, "abgelaufen"):
                 store.open_share(share["share_id"], "sicheres-passwort")
