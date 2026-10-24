@@ -19,13 +19,30 @@ def upload():
     if not files:
         flash("Bitte mindestens eine Datei auswählen.")
         return redirect(url_for("documents.index"))
-    from .folder_import_validation import decode_relative_path_manifest, validate_upload_batch
+    from .folder_import_validation import (
+        decode_relative_path_manifest,
+        decode_source_identity_manifest,
+        stable_source_folder_id,
+        validate_source_identity_groups,
+        validate_upload_batch,
+    )
     folder_import = request.form.get("folder_import") == "1"
     relative_paths = []
+    source_identities = [""] * len(files)
     if folder_import:
         relative_paths, error = decode_relative_path_manifest(
             request.form.get("relative_paths", ""), len(files)
         )
+        if error:
+            flash(error)
+            return redirect(url_for("documents.index"))
+        source_identities, error = decode_source_identity_manifest(
+            request.form.get("source_ids", ""), len(files)
+        )
+        if error:
+            flash(error)
+            return redirect(url_for("documents.index"))
+        error = validate_source_identity_groups(relative_paths, source_identities)
         if error:
             flash(error)
             return redirect(url_for("documents.index"))
@@ -97,6 +114,12 @@ def upload():
                         "source_path": source_path,
                         "source_name": relative_source.name,
                     }
+                    source_identity = source_identities[item_index]
+                    if source_identity:
+                        source_origin["source_identity"] = source_identity
+                        source_origin["folder_id"] = stable_source_folder_id(
+                            actor, source_identity, source_path,
+                        )
                     try:
                         _store().update_metadata(
                             document_id,

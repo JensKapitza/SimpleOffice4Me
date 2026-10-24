@@ -291,6 +291,91 @@ class DocumentQuickActionsTest(unittest.TestCase):
             SmartFolderViews(DocumentStore(self.root), "jens").view(origin_view)["count"],
         )
 
+    def test_stable_source_identity_groups_reimports_and_separates_same_named_origins(self):
+        source_a = "a1" * 32
+        source_b = "b2" * 32
+        imports = (
+            (source_a, "first.txt"),
+            (source_a, "second.txt"),
+            (source_b, "other-origin.txt"),
+        )
+        for source_identity, filename in imports:
+            form = MultiDict([
+                ("folder_import", "1"),
+                ("relative_paths", json.dumps([f"Telegram/2026/{filename}"])),
+                ("source_ids", json.dumps([source_identity])),
+                ("files", (io.BytesIO(filename.encode("utf-8")), filename)),
+            ])
+            with patch(
+                "app.documents_routes_workflows.begin_web_inbox_upload",
+                return_value={"item": None, "malware_status": "not_configured", "error": ""},
+            ), patch("app.documents_routes_workflows.complete_web_inbox_upload"):
+                response = self.client.post(
+                    "/documents/upload", data=form, content_type="multipart/form-data",
+                )
+            self.assertEqual(302, response.status_code)
+
+        store = DocumentStore(self.root)
+        imported = [
+            document for document in store.list_documents()
+            if document.get("attributes", {}).get("folder_import_origin", {}).get("source_identity")
+        ]
+        self.assertEqual(3, len(imported))
+        origins = [document["attributes"]["folder_import_origin"] for document in imported]
+        self.assertEqual(3, len({origin["import_id"] for origin in origins}))
+        self.assertEqual(2, len({origin["folder_id"] for origin in origins}))
+        self.assertEqual(
+            1,
+            len({origin["folder_id"] for origin in origins if origin["source_identity"] == source_a}),
+        )
+        self.assertEqual(
+            1,
+            len({origin["folder_id"] for origin in origins if origin["source_identity"] == source_b}),
+        )
+        views = SmartFolderViews(store, "jens")
+        other_user_views = SmartFolderViews(store, "another-user")
+        for identity, expected_count in ((source_a, 2), (source_b, 1)):
+            folder_id = next(
+                origin["folder_id"] for origin in origins
+                if origin["source_identity"] == identity
+            )
+            self.assertEqual(
+                expected_count,
+                views.view(f"imports/{folder_id}/Telegram/2026")["count"],
+            )
+            with self.assertRaisesRegex(ValueError, "nicht gefunden"):
+                other_user_views.view(f"imports/{folder_id}/Telegram/2026")
+        self.assertTrue(all((self.root / document["last_path"]).is_file() for document in imported))
+
+    def test_invalid_source_identity_manifest_is_rejected_before_storage(self):
+        form = MultiDict([
+            ("folder_import", "1"),
+            ("relative_paths", json.dumps(["Telegram/2026/report.txt"])),
+            ("source_ids", json.dumps(["not-a-valid-id"])),
+            ("files", (io.BytesIO(b"report"), "report.txt")),
+        ])
+        with patch("app.documents_routes_workflows._storage") as storage:
+            response = self.client.post(
+                "/documents/upload", data=form, content_type="multipart/form-data",
+            )
+        self.assertEqual(302, response.status_code)
+        storage.assert_not_called()
+
+    def test_conflicting_source_ids_for_one_root_are_rejected_before_storage(self):
+        form = MultiDict([
+            ("folder_import", "1"),
+            ("relative_paths", json.dumps(["Telegram/a.txt", "Telegram/b.txt"])),
+            ("source_ids", json.dumps(["a1" * 32, "b2" * 32])),
+            ("files", (io.BytesIO(b"a"), "a.txt")),
+            ("files", (io.BytesIO(b"b"), "b.txt")),
+        ])
+        with patch("app.documents_routes_workflows._storage") as storage:
+            response = self.client.post(
+                "/documents/upload", data=form, content_type="multipart/form-data",
+            )
+        self.assertEqual(302, response.status_code)
+        storage.assert_not_called()
+
     def test_smart_folder_task_route_links_task_to_activated_folder(self):
         folder = self.root / "imports" / "batch" / "Telegram"
         folder.mkdir(parents=True)

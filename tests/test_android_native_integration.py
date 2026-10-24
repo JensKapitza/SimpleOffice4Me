@@ -333,6 +333,10 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
     def test_native_folder_import_is_scoped_bounded_authenticated_and_cancellable(self):
         activity = self.read(JAVA / "MainActivity.java")
         importer = self.read(JAVA / "AndroidFolderImportTask.java")
+        grant_store = self.read(JAVA / "AndroidFolderImportGrantStore.java")
+        backup_rules = self.read(
+            ROOT / "android" / "apk" / "app" / "src" / "main" / "res" / "xml" / "backup_rules.xml"
+        )
         page = self.read(ROOT / "templates" / "documents" / "index.html")
         request_setup = self.read(ROOT / "app" / "__init__.py")
 
@@ -359,6 +363,15 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn("MAX_FILES = 1000", importer)
         self.assertIn("MAX_DEPTH = 64", importer)
         self.assertIn("MAX_MANIFEST_BYTES = 400000", importer)
+        self.assertIn("MAX_SOURCE_IDS_BYTES = 100000", importer)
+        self.assertIn("stableSourceIdentity(context, treeUri)", importer)
+        self.assertIn("sourceIdentitySalt(context)", importer)
+        self.assertIn("treeUri.toString().getBytes(StandardCharsets.UTF_8)", importer)
+        self.assertIn('MessageDigest.getInstance("SHA-256")', importer)
+        self.assertIn('formField(boundary, "source_ids"', importer)
+        self.assertIn("sourceIdentitySalt(Context context)", grant_store)
+        self.assertIn("source-identity-salt-v1", grant_store)
+        self.assertIn('path="simpleoffice-folder-import-grants.xml"', backup_rules)
         self.assertIn('notifyListener("preview"', importer)
         self.assertIn("previewMessage", importer)
         self.assertIn("totalBytes", importer)
