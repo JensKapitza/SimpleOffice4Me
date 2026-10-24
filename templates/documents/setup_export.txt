@@ -12,6 +12,7 @@ SFTP-Dienst: {{ remote.sftp_state }}
 {{ remote.sftp_message }}
 {% if remote.sftp_mode == 'integrated' %}
 Nautilus SFTP: {{ remote.nautilus_sftp }}
+SFTP-Passwortauthentifizierung: {{ 'aktiviert (WebDAV-App-Passwort nutzbar)' if remote.sftp_password_auth_enabled else 'deaktiviert (registrierter SSH-Public-Key erforderlich)' }}
 SSHFS:
   mkdir -p ~/SimpleOffice
   {{ remote.sshfs_command }}
@@ -33,4 +34,4 @@ Die Datei enthält absichtlich keine Passwörter. App-Passwörter werden im
 Einrichtungsassistenten einmalig angezeigt und können dort widerrufen werden.
 Außerhalb des Servers ausschließlich HTTPS verwenden.
 {% if remote.sftp_mode == 'integrated' %}Der integrierte SFTP-Dienst stellt nur das virtuelle Dateisystem bereit
-und erlaubt keine Shell. Er benötigt kein OpenSSH.{% endif %}
+und erlaubt keine Shell. Er benötigt kein OpenSSH.{% if not remote.sftp_password_auth_enabled %} SFTP-Passwortauthentifizierung ist deaktiviert; registrierte SSH-Public-Keys sind erforderlich.{% endif %}{% endif %}

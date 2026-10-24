@@ -133,6 +133,11 @@ def sftp_save():
         candidate["max_clients"] = request.form.get("max_clients", "")
     if request.form.get("reset_max_clients") == "1":
         candidate["max_clients"] = DEFAULT_MAX_CLIENTS
+    if "password_auth_enabled" in request.form:
+        password_auth = request.form.get("password_auth_enabled", "")
+        candidate["password_auth_enabled"] = (
+            password_auth == "1" if password_auth in {"0", "1"} else password_auth
+        )
     try:
         save_settings(candidate)
     except (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:

@@ -143,6 +143,7 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
         "sftp_port": sftp_port, "sftp_ready": bool(host_key.is_file() and sftp_dependency),
         "sftp_key_ready": bool(host_key.is_file()), "sftp_dependency": sftp_dependency,
         "sftp_running": sftp_status["state"] == "running", "sftp_mode": sftp_settings["mode"],
+        "sftp_password_auth_enabled": sftp_settings["mode"] == "integrated" and sftp_settings["password_auth_enabled"],
         "sftp_state": sftp_status["state"], "sftp_message": sftp_status["health"]["message"],
         "ssh_key_count": len([item for item in keys_for(current_app.config["DOCUMENT_ROOT"], username) if not item["expired"]]),
         "sshfs_command": (

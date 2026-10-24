@@ -91,6 +91,14 @@ Beim integrierten Paramiko-Mini-Service werden Bind-IP, Port, maximale
 Uploadgröße und gleichzeitige Clientanzahl in **Mini Services → SFTP**
 administriert. Änderungen erfordern, dass der Dienst vorher gestoppt und nach
 dem Speichern wieder gestartet wird.
+Die Passwortauthentifizierung ist aus Kompatibilitätsgründen standardmäßig an
+und kann dort deaktiviert werden. Dann
+werden nur registrierte SSH-Public-Keys akzeptiert; vorher sicherstellen, dass
+benötigte Schlüssel vorhanden sind. Das betrifft nicht den OpenSSH-Systemdienst
+und ist über die SimpleOffice-Adminoberfläche rückgängig zu machen. Bestehende
+`SIMPLEOFFICE_SFTP_PASSWORD_AUTH`-Werte werden bis zum ersten Speichern als
+Übergang übernommen. Der Erststart-Assistent weist auf den jeweils benötigten
+Anmeldemodus hin.
 Direkte Starts über `simpleoffice-sftp` können weiterhin die geschützte
 Umgebung verwenden:
 
