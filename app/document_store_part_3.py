@@ -630,6 +630,10 @@ class _DocumentStorePart3:
         }
         moved_documents: list[dict[str, Any]] = []
         from .file_lock import exclusive_file_lock
+        active_share_ids = {
+            document_id: self._active_share_ids_for_move(document_id)
+            for document_id in snapshots
+        }
 
         with exclusive_file_lock(self.control / ".document-content.lock"):
             source.replace(destination)
@@ -641,7 +645,9 @@ class _DocumentStorePart3:
                     target = destination / entry["nested"]
                     relative = self.relative(target)
                     document["last_path"] = relative
+                    document["location_revision"] = self._location_revision(document) + 1
                     document["last_seen_at"] = changed_at
+                    document["location_last_moved_at"] = changed_at
                     document.setdefault("location_history", []).append({
                         "from": previous_path, "to": relative, "at": changed_at, "actor": actor,
                     })
@@ -681,6 +687,13 @@ class _DocumentStorePart3:
                 )
                 raise
         for item in moved_documents:
+            for share_id in active_share_ids.get(item["document"]["document_id"], []):
+                self._event("share_revoked_on_move", {
+                    "share_id": share_id,
+                    "document_id": item["document"]["document_id"],
+                    "from": item["before"], "to": item["after"],
+                    "actor": actor, "reason": "revoked_on_move",
+                })
             details = {
                 "document_id": item["document"]["document_id"], "from": item["before"],
                 "to": item["after"], "actor": actor,
