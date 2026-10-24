@@ -158,7 +158,7 @@ def _remote_setup_context(username: str) -> dict[str, Any]:
             "IdentityFile=~/.ssh/id_ed25519,IdentitiesOnly=yes,reconnect,"
             "ServerAliveInterval=15,ServerAliveCountMax=3"
         ),
-        "rsync_enabled": os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"},
+        "rsync_enabled": sftp_settings["mode"] == "integrated" and sftp_settings["rsync_enabled"],
         "rsync_pull_command": (
             f"rsync -a --delete -e 'ssh -p {sftp_port} -i ~/.ssh/id_ed25519' "
             f"{rsync_source} ./Projekte/"
