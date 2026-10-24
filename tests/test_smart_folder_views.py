@@ -46,6 +46,22 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertTrue(source.exists())
             self.assertEqual("scans/beleg.txt", store.get_document(document_id)["last_path"])
 
+    def test_safe_structured_extraction_and_csv_rules(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "imports" / "Telegram"
+            folder.mkdir(parents=True)
+            (folder / "record.json").write_text('{"invoice": "A-12"}', encoding="utf-8")
+            (folder / "record.csv").write_text("invoice,amount\\nB-22,3\\n", encoding="utf-8")
+            (folder / "record.xml").write_text("<root><invoice>C-32</invoice></root>", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store)
+            views.save_rule("imports/Telegram", "Beleg", "invoice", "admin")
+            rows = views.extract_rows("imports/Telegram")
+            self.assertEqual(3, len(rows))
+            self.assertEqual({"A-12", "B-22"}, {row["Beleg"] for row in rows if row["path"].endswith((".json", ".csv"))})
+
     def test_invalid_folder_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             views = SmartFolderViews(DocumentStore(Path(temp)))
