@@ -94,6 +94,10 @@ Schreibkennwort.
   Benutzerfreigaben und Lock-Tokens ausdrücklich nicht.
 - MOVE erhält stabile IDs, Tags, Dateihistorie und Dead Properties. Jede Datei
   erhält einen feldgenauen Ortsverlauf mit altem und neuem Pfad.
+- Collection-MOVE erhöht die Ortsrevision jedes betroffenen Dokuments und
+  invalidiert vorhandene datei- und notizgebundene Freigaben. Aktive Links
+  werden mit Share-ID, Quell-/Zielpfad und Grund `revoked_on_move` auditiert;
+  bei einem zurückgerollten MOVE bleiben Revisionen und Freigaben erhalten.
 - Inhalte werden nicht an externe Dienste übertragen; es entstehen keine
   zusätzlichen Zugangsdaten oder Hintergrundverbindungen.
 
