@@ -26,6 +26,7 @@ class NetworkSettingsTests(unittest.TestCase):
             self.assertIn("Standardwerte", row["health"]["message"])
             self.assertIn("stop", row["capabilities"])
             form = {"mode": "integrated", "enabled": "1", "autostart": "1",
+                    "rsync_enabled": "1",
                     "bind": "::1", "port": "2233.5", "system_port": "22"}
             self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
             self.assertEqual("2233.5", render.call_args.kwargs["service"]["settings"]["port"])
@@ -38,6 +39,7 @@ class NetworkSettingsTests(unittest.TestCase):
             self.assertEqual(2233, saved["port"])
             self.assertTrue(saved["enabled"])
             self.assertTrue(saved["autostart"])
+            self.assertTrue(saved["rsync_enabled"])
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

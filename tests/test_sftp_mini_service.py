@@ -27,6 +27,7 @@ class SftpMiniServiceTests(unittest.TestCase):
         with patch("tools.sftp_setup.dependency", return_value=object()):
             row = sftp_service.status()
         self.assertEqual("integrated", row["settings"]["mode"])
+        self.assertFalse(row["settings"]["rsync_enabled"])
         self.assertEqual("stopped", row["state"])
         self.assertFalse(row["system_service"]["available"])
         self.assertIn("start", row["capabilities"])
@@ -36,9 +37,44 @@ class SftpMiniServiceTests(unittest.TestCase):
             saved = sftp_service.save_settings({"enabled": True, "autostart": True, "port": 2233})
             self.assertEqual(saved, sftp_service.settings())
             start.assert_not_called()
-        for candidate in ({"enabled": "true"}, {"port": 0}, {"port": True}, {"bind": "host;cmd"}, {"mode": "auto"}, None):
+        invalid_candidates = (
+            {"enabled": "true"}, {"rsync_enabled": "true"}, {"port": 0},
+            {"port": True}, {"bind": "host;cmd"}, {"mode": "auto"}, None,
+        )
+        for candidate in invalid_candidates:
             with self.subTest(candidate=candidate), self.assertRaises((ValueError, TypeError)):
                 sftp_service.save_settings(candidate)
+
+    def test_legacy_rsync_environment_is_migrated_until_explicitly_saved(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_ENABLED": "true"}):
+            self.assertTrue(sftp_service.settings()["rsync_enabled"])
+            legacy_path = self.root / "sftp.json"
+            legacy_path.write_text('{"mode":"integrated"}', encoding="utf-8")
+            self.assertTrue(sftp_service.settings()["rsync_enabled"])
+            saved = sftp_service.save_settings({"rsync_enabled": False})
+            self.assertFalse(saved["rsync_enabled"])
+            self.assertFalse(sftp_service.settings()["rsync_enabled"])
+
+    def test_integrated_child_gets_explicit_rsync_setting(self):
+        for enabled in (True, False):
+            with self.subTest(enabled=enabled), \
+                    patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_ENABLED": "true"}), \
+                    patch("app.sftp_service.service_control.RUN_DIR", self.root), \
+                    patch("app.sftp_service.service_control.read", side_effect=[None, {"pid": 42}]), \
+                    patch("app.sftp_service.service_control.process_matches", return_value=False), \
+                    patch("app.sftp_service.sftp_setup.initialize"), \
+                    patch("app.sftp_service.sftp_setup.key_path", return_value=self.root / "host-key"), \
+                    patch("app.sftp_service.subprocess.Popen") as popen, \
+                    patch("app.sftp_service._ready", return_value=True):
+                popen.return_value.pid = 42
+                popen.return_value.poll.return_value = None
+                sftp_service._start(
+                    {"bind": "127.0.0.1", "port": 2222, "rsync_enabled": enabled}, self.root,
+                )
+            self.assertEqual(
+                "true" if enabled else "false",
+                popen.call_args.kwargs["env"]["SIMPLEOFFICE_RSYNC_ENABLED"],
+            )
 
     def test_system_mode_is_explicit_and_preserves_os_startup_policy(self):
         with self.assertRaises(ValueError):

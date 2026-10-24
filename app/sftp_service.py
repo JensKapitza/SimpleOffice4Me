@@ -20,7 +20,8 @@ from tools import service_control
 from tools import sftp_setup
 
 DEFAULTS = {"mode": "integrated", "enabled": False, "autostart": False,
-            "bind": "127.0.0.1", "port": 2222, "system_port": 22}
+            "bind": "127.0.0.1", "port": 2222, "system_port": 22,
+            "rsync_enabled": False}
 
 
 def settings_path():
@@ -33,9 +34,9 @@ def validate(value):
     result = {**DEFAULTS, **value}
     if not isinstance(result["mode"], str) or result["mode"] not in {"integrated", "system"}:
         raise ValueError("SFTP-Betriebsart prüfen.")
-    for key in ("enabled", "autostart"):
+    for key in ("enabled", "autostart", "rsync_enabled"):
         if type(result[key]) is not bool:
-            raise ValueError("Aktiviert und Autostart müssen boolesche Werte sein.")
+            raise ValueError("Aktivierung, Autostart und rsync-Freigabe müssen boolesch sein.")
     result["bind"] = str(ipaddress.ip_address(str(result["bind"]).strip()))
     for key in ("port", "system_port"):
         if type(result[key]) not in (int, str):
@@ -49,9 +50,14 @@ def validate(value):
 def settings():
     path = settings_path()
     if not path.exists():
+        legacy_rsync = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
         return validate({**DEFAULTS, "bind": os.environ.get("SIMPLEOFFICE_SFTP_BIND", DEFAULTS["bind"]),
-                         "port": os.environ.get("SIMPLEOFFICE_SFTP_PORT", DEFAULTS["port"])})
-    return validate(json.loads(path.read_text(encoding="utf-8")))
+                         "port": os.environ.get("SIMPLEOFFICE_SFTP_PORT", DEFAULTS["port"]),
+                         "rsync_enabled": legacy_rsync})
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(value, dict) and "rsync_enabled" not in value:
+        value["rsync_enabled"] = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+    return validate(value)
 
 
 def system_service():
@@ -165,6 +171,7 @@ def _start(config, document_root):
     sftp_setup.initialize(sftp_setup.key_path())
     environment = os.environ.copy()
     environment.update(SIMPLEOFFICE_SFTP_BIND=config["bind"], SIMPLEOFFICE_SFTP_PORT=str(config["port"]),
+                       SIMPLEOFFICE_RSYNC_ENABLED="true" if config["rsync_enabled"] else "false",
                        SIMPLEOFFICE_DOCUMENT_ROOT=str(document_root), SIMPLEOFFICE_SFTP_HOST_KEY=str(sftp_setup.key_path()))
     options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     service_control.RUN_DIR.mkdir(parents=True, exist_ok=True)
