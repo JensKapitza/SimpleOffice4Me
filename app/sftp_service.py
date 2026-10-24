@@ -19,9 +19,12 @@ from simpleoffice_mini_core import _atomic_write, default_config_path
 from tools import service_control
 from tools import sftp_setup
 
+DEFAULT_MAX_UPLOAD_BYTES = 512 * 1024 * 1024
+MIN_MAX_UPLOAD_BYTES = 1
+MAX_MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULTS = {"mode": "integrated", "enabled": False, "autostart": False,
             "bind": "127.0.0.1", "port": 2222, "system_port": 22,
-            "rsync_enabled": False}
+            "rsync_enabled": False, "max_bytes": DEFAULT_MAX_UPLOAD_BYTES}
 
 
 def settings_path():
@@ -44,6 +47,11 @@ def validate(value):
         result[key] = int(result[key])
         if not 1 <= result[key] <= 65535:
             raise ValueError("SFTP-Port muss zwischen 1 und 65535 liegen.")
+    if type(result["max_bytes"]) not in (int, str):
+        raise ValueError("Maximale Uploadgröße muss eine ganze Bytezahl sein.")
+    result["max_bytes"] = int(result["max_bytes"])
+    if not MIN_MAX_UPLOAD_BYTES <= result["max_bytes"] <= MAX_MAX_UPLOAD_BYTES:
+        raise ValueError("Maximale Uploadgröße muss zwischen 1 Byte und 8 GiB liegen.")
     return {key: result[key] for key in DEFAULTS}
 
 
@@ -53,10 +61,13 @@ def settings():
         legacy_rsync = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
         return validate({**DEFAULTS, "bind": os.environ.get("SIMPLEOFFICE_SFTP_BIND", DEFAULTS["bind"]),
                          "port": os.environ.get("SIMPLEOFFICE_SFTP_PORT", DEFAULTS["port"]),
-                         "rsync_enabled": legacy_rsync})
+                         "rsync_enabled": legacy_rsync,
+                         "max_bytes": os.environ.get("SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULTS["max_bytes"])})
     value = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(value, dict) and "rsync_enabled" not in value:
         value["rsync_enabled"] = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(value, dict) and "max_bytes" not in value:
+        value["max_bytes"] = os.environ.get("SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULTS["max_bytes"])
     return validate(value)
 
 
@@ -172,6 +183,7 @@ def _start(config, document_root):
     environment = os.environ.copy()
     environment.update(SIMPLEOFFICE_SFTP_BIND=config["bind"], SIMPLEOFFICE_SFTP_PORT=str(config["port"]),
                        SIMPLEOFFICE_RSYNC_ENABLED="true" if config["rsync_enabled"] else "false",
+                       SIMPLEOFFICE_SFTP_MAX_BYTES=str(config["max_bytes"]),
                        SIMPLEOFFICE_DOCUMENT_ROOT=str(document_root), SIMPLEOFFICE_SFTP_HOST_KEY=str(sftp_setup.key_path()))
     options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     service_control.RUN_DIR.mkdir(parents=True, exist_ok=True)
