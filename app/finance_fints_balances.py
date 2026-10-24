@@ -9,6 +9,7 @@ from typing import Any
 from .finance_schema import currency as _currency, text
 from .finance_fints import (
     FinTSAuthenticationRequired,
+    _require_read_capability,
     _client,
     _decode_sca_state as _decode_state,
     _encode_sca_state as _encode_state,
@@ -122,6 +123,7 @@ def fetch_balance(
                 retry_response = exc.challenge_response
                 retry_step = "accounts"
             if retry_response is None:
+                _require_read_capability(client, remote_account_id, "balance")
                 result = client.get_balance(account)
                 if is_tan_response(result):
                     retry_response = result
@@ -156,6 +158,8 @@ def fetch_balance(
     next_dialog = None
     result = None
     account = None
+    if challenge_state.get("step") == "balance":
+        _require_read_capability(client, remote_account_id, "balance")
     with client.resume_dialog(dialog_blob):
         result = client.send_tan(retry_response, "" if retry_response.decoupled else str(tan))
         if is_tan_response(result):
@@ -165,6 +169,7 @@ def fetch_balance(
             account = next((item for item in result if _account_id(item) == remote_account_id), None)
             if account is None:
                 raise ValueError("Das zugeordnete Bankkonto wurde beim FinTS-Abruf nicht gefunden")
+            _require_read_capability(client, remote_account_id, "balance")
             result = client.get_balance(account)
             if is_tan_response(result):
                 next_retry = result
