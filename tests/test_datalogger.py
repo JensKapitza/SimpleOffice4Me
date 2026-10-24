@@ -129,7 +129,7 @@ class CollectorTest(unittest.TestCase):
 
 class DataLoggerWebTest(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(); self.saved = {k: app.config.get(k) for k in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
+        self.temp = tempfile.TemporaryDirectory(); self.saved = {k: app.config.get(k) for k in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")}
         app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"), DOCUMENT_ROOT=str(Path(self.temp.name) / "docs"))
         with app.app_context():
             database.ensure_auth_database(); db = database.get_db()
@@ -157,6 +157,33 @@ class DataLoggerWebTest(unittest.TestCase):
         response = self.owner.post("/datalogger/channels", data={"name": "Privat"})
         channel = response.headers["Location"].rsplit("/", 1)[-1]
         self.assertEqual(404, self.reader.get(f"/datalogger/channels/{channel}").status_code)
+
+    def test_poll_interval_settings_are_admin_only_csrf_protected_and_persistent(self):
+        url = "/datalogger/settings"
+        self.assertEqual(200, self.owner.get(url).status_code)
+        self.assertEqual(403, self.reader.get(url).status_code)
+        app.config["TEST_CSRF_PROTECTION"] = True
+        with self.owner.session_transaction() as session:
+            session["_csrf_token"] = "s" * 40
+        self.assertEqual(403, self.owner.post(url, data={"poll_interval_seconds": "12"}).status_code)
+        headers = {"X-CSRF-Token": "s" * 40}
+        self.assertEqual(
+            403,
+            self.reader.post(url, data={"poll_interval_seconds": "12"}, headers=headers).status_code,
+        )
+        self.assertEqual(
+            302,
+            self.owner.post(url, data={"poll_interval_seconds": "12"}, headers=headers).status_code,
+        )
+        store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
+        self.assertEqual(12, store.poll_interval_seconds())
+        self.assertEqual(
+            400,
+            self.owner.post(url, data={"poll_interval_seconds": "61"}, headers=headers).status_code,
+        )
+        self.assertEqual(12, store.poll_interval_seconds())
+        self.assertEqual(302, self.owner.post(url, data={"reset": "1"}, headers=headers).status_code)
+        self.assertEqual(5, store.poll_interval_seconds())
 
 
 if __name__ == "__main__": unittest.main()

@@ -152,7 +152,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_CLAMAV_TIMEOUT` | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CONTAINER_ROLE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DATALOGGER` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
-| `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS` | [datalogger_worker.py](../tools/datalogger_worker.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS` (Legacy-Import) | [datalogger_store.py](../app/datalogger_store.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md); bevorzugt über Datenlogger → Worker-Einstellungen konfigurieren |
 | `SIMPLEOFFICE_DATA_DIR` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DESKTOP` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DOCUMENT_ADMINS` | [virtual_filesystem.py](../app/virtual_filesystem.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |

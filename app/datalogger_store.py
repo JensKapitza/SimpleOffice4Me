@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
+import os
 import sqlite3
-from .sqlite_utils import connect as sqlite_connect
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .sqlite_utils import connect as sqlite_connect
+
 
 KINDS = {"manual", "linux", "file", "http_json", "lm_sensors"}
+DEFAULT_POLL_INTERVAL_SECONDS = 5
+MIN_POLL_INTERVAL_SECONDS = 1
+MAX_POLL_INTERVAL_SECONDS = 60
+_LOGGER = logging.getLogger(__name__)
+_LEGACY_POLL_WARNING_LOCK = threading.Lock()
+_LEGACY_POLL_WARNING_EMITTED = False
 
 
 def utc_now() -> str:
@@ -63,7 +73,66 @@ class DataLoggerStore:
                   outcome TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '{}'
                 );
                 CREATE INDEX IF NOT EXISTS event_target ON metric_event(target_type, target_id, occurred_at DESC);
+                -- Keep these database bounds aligned with the constants above.
+                CREATE TABLE IF NOT EXISTS metric_setting (
+                  setting_id INTEGER PRIMARY KEY CHECK(setting_id=1),
+                  poll_interval_seconds INTEGER NOT NULL CHECK(poll_interval_seconds BETWEEN 1 AND 60),
+                  updated_at TEXT NOT NULL, updated_by TEXT NOT NULL
+                );
             """)
+
+    @staticmethod
+    def _validate_poll_interval(value) -> int:
+        if type(value) not in (int, str):
+            raise ValueError("Das Pollintervall muss eine ganze Zahl sein.")
+        try:
+            seconds = int(value)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("Das Pollintervall muss eine ganze Zahl sein.") from exc
+        if not MIN_POLL_INTERVAL_SECONDS <= seconds <= MAX_POLL_INTERVAL_SECONDS:
+            raise ValueError("Das Pollintervall muss zwischen 1 und 60 Sekunden liegen.")
+        return seconds
+
+    @staticmethod
+    def _legacy_poll_interval() -> int:
+        global _LEGACY_POLL_WARNING_EMITTED
+        try:
+            seconds = int(os.environ.get(
+                "SIMPLEOFFICE_DATALOGGER_TICK_SECONDS", str(DEFAULT_POLL_INTERVAL_SECONDS),
+            ))
+        except (TypeError, ValueError, OverflowError):
+            with _LEGACY_POLL_WARNING_LOCK:
+                if not _LEGACY_POLL_WARNING_EMITTED:
+                    _LOGGER.warning("Invalid legacy datalogger poll interval; using the default")
+                    _LEGACY_POLL_WARNING_EMITTED = True
+            return DEFAULT_POLL_INTERVAL_SECONDS
+        return max(MIN_POLL_INTERVAL_SECONDS, min(seconds, MAX_POLL_INTERVAL_SECONDS))
+
+    def poll_interval_seconds(self) -> int:
+        """Read the saved interval or preserve the legacy worker environment fallback."""
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT poll_interval_seconds FROM metric_setting WHERE setting_id=1",
+            ).fetchone()
+        if row is None:
+            return self._legacy_poll_interval()
+        return self._validate_poll_interval(row["poll_interval_seconds"])
+
+    def update_poll_interval(self, value, actor: str) -> int:
+        seconds = self._validate_poll_interval(value)
+        with self.connect() as db:
+            db.execute(
+                "INSERT INTO metric_setting(setting_id,poll_interval_seconds,updated_at,updated_by) "
+                "VALUES(1,?,?,?) ON CONFLICT(setting_id) DO UPDATE SET "
+                "poll_interval_seconds=excluded.poll_interval_seconds, "
+                "updated_at=excluded.updated_at, updated_by=excluded.updated_by",
+                (seconds, utc_now(), str(actor)),
+            )
+            self._event(
+                db, str(actor), "poll_interval_updated", "setting", "datalogger",
+                detail={"poll_interval_seconds": seconds},
+            )
+        return seconds
 
     @staticmethod
     def _names(value: str) -> set[str]:
