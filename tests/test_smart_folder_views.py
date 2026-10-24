@@ -62,6 +62,40 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual(3, len(rows))
             self.assertEqual({"A-12", "B-22"}, {row["Beleg"] for row in rows if row["path"].endswith((".json", ".csv"))})
 
+    def test_logical_merge_preserves_notes_and_rules_without_moving_files(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("a/Telegram", "b/Telegram"):
+                (root / folder).mkdir(parents=True)
+                (root / folder / "record.json").write_text('{"invoice": "X"}', encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store)
+            views.activate("a/Telegram", "admin", "Notiz aus Quelle")
+            views.save_rule("a/Telegram", "Beleg", "invoice", "admin")
+            result = views.merge_assignments("a/Telegram", "b/Telegram", "admin")
+            self.assertEqual(1, result["documents"])
+            self.assertEqual(2, views.view("b/Telegram")["count"])
+            metadata = views._load()["folders"]["b/Telegram"]
+            self.assertEqual("invoice", metadata["rules"]["Beleg"])
+            self.assertEqual("Notiz aus Quelle", metadata["merged_notes"][0]["text"])
+            self.assertTrue((root / "a/Telegram/record.json").exists())
+
+    def test_conflicting_rules_prevent_merge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("a/Telegram", "b/Telegram"):
+                (root / folder).mkdir(parents=True)
+                (root / folder / "record.json").write_text('{"invoice": "X"}', encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store)
+            views.save_rule("a/Telegram", "Beleg", "invoice", "admin")
+            views.save_rule("b/Telegram", "Beleg", "other", "admin")
+            with self.assertRaisesRegex(ValueError, "Widersprüchliche"):
+                views.merge_assignments("a/Telegram", "b/Telegram", "admin")
+            self.assertEqual(1, views.view("a/Telegram")["count"])
+
     def test_invalid_folder_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             views = SmartFolderViews(DocumentStore(Path(temp)))
