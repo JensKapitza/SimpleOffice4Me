@@ -58,7 +58,7 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 |---|---|---|
 | `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | `5`, effektiv 1–10 | Downloadversuche; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | `8` | Maximaler Quelldownload in GiB; [OSM-Download](../app/osm_address_storage.py) |
-| `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | `300`, mindestens 30 | Lese-Timeout; [OSM-Download](../app/osm_address_storage.py) |
+| `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | `300`, effektiv 30–3600 | Legacy-Timeout bis eine persistierte Admin-Einstellung existiert; danach maßgeblich ist `integrations.osm_download_read_timeout_seconds` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | `21600`, effektiv 3600–86400 | Filter-Timeout in Sekunden; [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Runtime-Autosync; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Poll-Intervall; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
@@ -67,6 +67,12 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 
 Dies sind lokale Verarbeitungslimits, keine Zusage über tatsächliche
 Gesamtlaufzeit, RAM-Verbrauch, Netzleistung oder Mail-/Anhangsfreigabe.
+
+Der OSM-Lese-Timeout ist unter **Admin → Einstellungen → Integrationen &
+Dienste** persistent konfigurierbar. Die gespeicherte Einstellung
+gilt für neu gestartete Downloads und hat Vorrang vor
+`SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`. Der Environment-Wert wird nur
+verwendet, solange noch keine persistierte OSM-Einstellung vorliegt.
 
 ### Zugangsdaten, Geräte und Betriebsmetadaten
 
