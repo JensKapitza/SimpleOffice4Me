@@ -87,9 +87,10 @@ chmod 600 /etc/simpleoffice/sftp_host_ed25519_key
 Für Dauerbetrieb ist weiterhin die mitgelieferte systemd-Beispieldatei unter
 `docs/simpleoffice-sftp.service.example` vorgesehen.
 
-Beim integrierten Paramiko-Mini-Service werden Bind-IP, Port und maximale
-Uploadgröße in **Mini Services → SFTP** administriert. Änderungen erfordern,
-dass der Dienst vorher gestoppt und nach dem Speichern wieder gestartet wird.
+Beim integrierten Paramiko-Mini-Service werden Bind-IP, Port, maximale
+Uploadgröße und gleichzeitige Clientanzahl in **Mini Services → SFTP**
+administriert. Änderungen erfordern, dass der Dienst vorher gestoppt und nach
+dem Speichern wieder gestartet wird.
 Direkte Starts über `simpleoffice-sftp` können weiterhin die geschützte
 Umgebung verwenden:
 
@@ -115,6 +116,12 @@ offenes Schreibhandle unverändert. Nach einer Grenzüberschreitung oder einem
 Puffer-Schreibfehler werden weitere Schreibpakete abgelehnt und der gesamte
 Upload beim Schließen verworfen. Bestehende Dateien bleiben unverändert, neue
 Teildateien werden nicht angelegt. Ein neuer Upload benötigt ein neues Handle.
+
+`SIMPLEOFFICE_SFTP_MAX_CLIENTS` begrenzt die gleichzeitig bedienten Verbindungen
+des integrierten Servers. Der Standard ist 32; zulässig sind 1–512. Beim
+Mini-Service gilt die persistente Einstellung; vorhandene Umgebungswerte werden
+bis zum ersten Speichern übernommen. OpenSSH-Systembetrieb wird damit nicht
+konfiguriert.
 
 Im Append-Modus (`O_APPEND`, etwa `a` oder `a+` im Client) schreibt jedes Paket
 ans aktuelle Dateiende, unabhängig vom mitgesendeten Offset oder vorherigen
