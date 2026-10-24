@@ -33,7 +33,7 @@ def run(root, once=False):
             except Exception:
                 store.finish_source(source["source_id"], "error", "internal_error")
         if once: break
-        time.sleep(max(1, min(int(os.environ.get("SIMPLEOFFICE_DATALOGGER_TICK_SECONDS", "5")), 60)))
+        time.sleep(store.poll_interval_seconds())
 
 
 def acquire_lock(root):
