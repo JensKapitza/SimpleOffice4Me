@@ -155,12 +155,18 @@ sshfs -p 2222 -o IdentityFile=~/.ssh/id_ed25519,IdentitiesOnly=yes,reconnect,Ser
 
 ## rsync über SSH
 
-Der Dienst kann zusätzlich das rsync-Serverprotokoll freigeben. Eine allgemeine
-Shell bleibt gesperrt. Aktivierung:
+Der integrierte Paramiko-Dienst kann zusätzlich das rsync-Serverprotokoll
+freigeben. Eine allgemeine Shell bleibt gesperrt. Administratoren aktivieren
+den Zugang in **Mini Services → SFTP**; der Dienst muss dafür gestoppt sein und
+nach dem Speichern neu gestartet werden. Im OpenSSH-Systemmodus steuert diese
+SimpleOffice-Einstellung rsync nicht. Die Freigabe ist standardmäßig aus.
+
+Bei bestehenden Installationen wird `SIMPLEOFFICE_RSYNC_ENABLED` als
+Übergangswert übernommen, bis die SFTP-Einstellungen erstmals gespeichert
+werden. Die Größen- und Laufzeitgrenzen bleiben Betriebsparameter:
 
 ```bash
 sudo apt install rsync
-export SIMPLEOFFICE_RSYNC_ENABLED=true
 export SIMPLEOFFICE_RSYNC_MAX_BYTES=2147483648
 export SIMPLEOFFICE_RSYNC_MAX_FILES=100000
 export SIMPLEOFFICE_RSYNC_TIMEOUT=3600
