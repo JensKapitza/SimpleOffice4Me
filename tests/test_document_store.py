@@ -472,6 +472,24 @@ class DocumentStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "widerrufen"):
                 store.renew_share(document["document_id"], share["share_id"], "anderes-passwort", 7, "admin")
 
+    def test_new_share_uses_location_revision_not_wall_clock_history(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "angebot.txt"
+            source.parent.mkdir()
+            source.write_text("Vertraulich", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            moved = store.move_document(document["document_id"], "archiv", "admin")
+            moved["location_history"][-1]["at"] = "2999-01-01T00:00:00+00:00"
+            store._save_document(moved)
+
+            share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
+
+            self.assertEqual("aktiv", store.share_status(share["share_id"])["status"])
+            store.open_share(share["share_id"], "sicheres-passwort")
+
     def test_legacy_share_without_path_snapshot_expires_after_move(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

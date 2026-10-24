@@ -449,9 +449,10 @@ class _DocumentStorePart1:
             isinstance(shared_revision, int)
             and not isinstance(shared_revision, bool)
             and shared_revision >= 0
-            and self._location_revision(document) != shared_revision
         ):
-            return True
+            # The monotone revision is authoritative for new shares. Wall-clock
+            # history is only a compatibility fallback for legacy records.
+            return self._location_revision(document) != shared_revision
         created_at = share.get("created_at", "")
         history = document.get("location_history", [])
         if isinstance(created_at, str) and created_at and isinstance(history, list):
