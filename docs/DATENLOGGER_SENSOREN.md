@@ -100,6 +100,16 @@ zu deaktivieren und den Navigationsbereich nicht zu verwenden. Ein konsistentes
 Backup entsteht per SQLite-Backup oder bei gestopptem Dienst durch Kopieren der
 DB samt `-wal`/`-shm`.
 
+Administratoren können das globale Pollintervall unter **Datenlogger →
+Worker-Einstellungen** ändern. Der Standard beträgt 5 Sekunden; zulässig sind
+1–60 Sekunden. Das Intervall bestimmt, wie oft der getrennte Worker nach fälligen
+Quellen sucht; das jeweilige Messintervall der einzelnen Quellen bleibt davon
+unabhängig. Eine Änderung wirkt beim nächsten Worker-Zyklus; ein bereits
+laufender Wartezyklus kann noch bis zu 60 Sekunden dauern. Der Wert wird in der
+Datenlogger-SQLite-Datei gespeichert. `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS`
+bleibt als Übergangswert für vorhandene Installationen und direkte Workerstarts
+wirksam, bis ein Administrator den Wert erstmals speichert.
+
 ## Tests und bekannte Grenzen
 
 Automatisierte Tests decken Persistenz, Audit, manuelle und automatische Werte,
