@@ -32,6 +32,7 @@ class Job:
     idempotency_key: str
     principal: str
     payload: dict
+    progress: dict
     priority: int
     attempt: int
     max_attempts: int
@@ -87,34 +88,88 @@ class JobStore:
                 started_at INTEGER NOT NULL DEFAULT 0,
                 finished_at INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL,
-                last_error TEXT NOT NULL DEFAULT ''
+                last_error TEXT NOT NULL DEFAULT '',
+                progress_json TEXT NOT NULL DEFAULT '{}'
             );
             CREATE INDEX IF NOT EXISTS ix_v3_job_claim
               ON v3_job(state,available_at,priority DESC,created_at);
             CREATE INDEX IF NOT EXISTS ix_v3_job_updated
               ON v3_job(updated_at DESC,job_id);
             """)
+            columns = {str(row[1]) for row in db.execute("PRAGMA table_info(v3_job)")}
+            if "progress_json" not in columns:
+                db.execute("ALTER TABLE v3_job ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}'")
 
     @staticmethod
     def _record(row: sqlite3.Row) -> Job:
         return Job(
             str(row["job_id"]),str(row["kind"]),str(row["state"]),str(row["idempotency_key"]),
-            str(row["principal"]),json.loads(row["payload_json"] or "{}"),int(row["priority"]),
+            str(row["principal"]),json.loads(row["payload_json"] or "{}"),
+            json.loads(row["progress_json"] or "{}"),int(row["priority"]),
             int(row["attempt"]),int(row["max_attempts"]),int(row["available_at"]),
             str(row["lease_owner"]),int(row["lease_until"]),int(row["created_at"]),
             int(row["started_at"]),int(row["finished_at"]),int(row["updated_at"]),str(row["last_error"]),
         )
 
-    def enqueue(self, kind: str, payload: Mapping | None, principal: str, *, idempotency_key: str, priority: int=0, max_attempts: int=3) -> Job:
+    def enqueue(
+        self,
+        kind: str,
+        payload: Mapping | None,
+        principal: str,
+        *,
+        idempotency_key: str,
+        priority: int = 0,
+        max_attempts: int = 3,
+        max_open_per_principal: int = 0,
+        max_open_total: int = 0,
+        max_created_per_principal_window: int = 0,
+        max_created_total_window: int = 0,
+        window_seconds: int = 86_400,
+    ) -> Job:
         kind=str(kind).strip(); principal=str(principal).strip(); key=str(idempotency_key).strip()
         if not kind or not principal or not key:
             raise ValueError("kind, principal and idempotency key are required")
         now=int(time.time()); encoded=_json(payload)
         attempts=max(1,min(20,int(max_attempts))); prio=max(-100,min(100,int(priority)))
         with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
             existing=db.execute("SELECT * FROM v3_job WHERE idempotency_key=?",(key,)).fetchone()
             if existing:
                 return self._record(existing)
+            if max_open_total:
+                db.execute(
+                    "DELETE FROM v3_job WHERE kind=? AND state IN ('succeeded','failed','cancelled') AND updated_at<?",
+                    (kind,now-30*24*60*60),
+                )
+                active_total=int(db.execute(
+                    "SELECT COUNT(*) FROM v3_job WHERE kind=? AND state IN ('queued','retry_scheduled','running')",
+                    (kind,),
+                ).fetchone()[0])
+                if active_total >= max(1,min(5000,int(max_open_total))):
+                    raise ValueError("background job queue is at capacity")
+            if max_open_per_principal:
+                active_principal=int(db.execute(
+                    """SELECT COUNT(*) FROM v3_job
+                       WHERE kind=? AND principal=? AND state IN ('queued','retry_scheduled','running')""",
+                    (kind,principal),
+                ).fetchone()[0])
+                if active_principal >= max(1,min(100,int(max_open_per_principal))):
+                    raise ValueError("too many active jobs for this user")
+            window_start=now-max(60,min(31*24*60*60,int(window_seconds)))
+            if max_created_total_window:
+                total_recent=int(db.execute(
+                    "SELECT COUNT(*) FROM v3_job WHERE kind=? AND created_at>=?",
+                    (kind,window_start),
+                ).fetchone()[0])
+                if total_recent >= max(1,min(100_000,int(max_created_total_window))):
+                    raise ValueError("background job rate limit reached")
+            if max_created_per_principal_window:
+                principal_recent=int(db.execute(
+                    "SELECT COUNT(*) FROM v3_job WHERE kind=? AND principal=? AND created_at>=?",
+                    (kind,principal,window_start),
+                ).fetchone()[0])
+                if principal_recent >= max(1,min(10_000,int(max_created_per_principal_window))):
+                    raise ValueError("background job rate limit reached for this user")
             job_id=uuid.uuid4().hex
             db.execute(
                 """INSERT INTO v3_job(job_id,kind,state,idempotency_key,principal,payload_json,
@@ -129,6 +184,30 @@ class JobStore:
         with self._db() as db:
             row=db.execute("SELECT * FROM v3_job WHERE job_id=?",(str(job_id),)).fetchone()
         return self._record(row) if row else None
+
+    def update_progress(
+        self,
+        job_id: str,
+        worker: str,
+        progress: Mapping | None,
+        *,
+        lease_seconds: int = 300,
+    ) -> Job:
+        """Atomically update bounded progress only for the current lease owner."""
+        encoded = _json(progress)
+        current = int(time.time())
+        with self._db() as db:
+            cursor = db.execute(
+                """UPDATE v3_job SET progress_json=?,updated_at=?,lease_until=?
+                   WHERE job_id=? AND state='running' AND lease_owner=?""",
+                (encoded,current,current+max(5,min(3600,int(lease_seconds))),str(job_id),str(worker)),
+            )
+            if cursor.rowcount != 1:
+                raise ValueError("job progress update requires the active worker lease")
+        result = self.get(job_id)
+        if result is None:
+            raise LookupError("unknown job")
+        return result
 
     def claim(self, worker: str, *, lease_seconds: int=60, now: int | None=None) -> Job | None:
         owner=str(worker).strip()
@@ -241,13 +320,21 @@ Handler=Callable[[Job],None]
 
 
 class JobWorker:
-    def __init__(self, store: JobStore, handlers: Mapping[str,Handler], worker_id: str):
+    def __init__(
+        self,
+        store: JobStore,
+        handlers: Mapping[str,Handler],
+        worker_id: str,
+        *,
+        lease_seconds: int = 300,
+    ):
         self.store=store; self.handlers=dict(handlers); self.worker_id=str(worker_id).strip()
         if not self.worker_id:
             raise ValueError("worker id is required")
+        self.lease_seconds=max(5,min(3600,int(lease_seconds)))
 
     def run_once(self) -> Job | None:
-        job=self.store.claim(self.worker_id)
+        job=self.store.claim(self.worker_id,lease_seconds=self.lease_seconds)
         if job is None:
             return None
         handler=self.handlers.get(job.kind)
@@ -278,5 +365,15 @@ def document_reindex_handler(root: str | Path) -> Handler:
     return run
 
 
-def default_handlers(root: str | Path) -> dict[str,Handler]:
-    return {"documents.reindex":document_reindex_handler(root)}
+def default_handlers(
+    root: str | Path,
+    store: JobStore | None = None,
+    worker_id: str = "",
+) -> dict[str,Handler]:
+    jobs = store or JobStore(root)
+    handlers = {"documents.reindex": document_reindex_handler(root)}
+    if worker_id:
+        from .smart_folder_batch_jobs import batch_handler
+
+        handlers["documents.smart_folder_batch"] = batch_handler(root, jobs, worker_id)
+    return handlers

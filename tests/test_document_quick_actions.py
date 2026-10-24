@@ -16,6 +16,7 @@ from app.smart_folder_views import SmartFolderViews
 from app.contact_store import ContactStore
 from app.object_store import ObjectStore
 from app.todo_store import TodoStore
+from app.v3_jobs import JobStore, JobWorker, default_handlers
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 
 
@@ -309,6 +310,46 @@ class DocumentQuickActionsTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("1 Aufgaben aus der Quelle", body)
         self.assertIn("Quellaufgabe", body)
+
+    def test_smart_folder_batch_is_queued_and_status_is_principal_scoped(self):
+        folder = self.root / "imports" / "batch" / "Telegram"
+        folder.mkdir(parents=True)
+        (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        document = store.get_document(folder / "record.txt")
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/batch/Telegram", "jens")
+
+        with patch("app.documents_routes_smart_folders.enabled", return_value=True):
+            response = self.client.post(
+                "/documents/smart-folders/batch",
+                data={
+                    "folder": "imports/batch/Telegram",
+                    "batch_request_id": "a" * 32,
+                    "action": "ocr",
+                    "document_ids": [document["document_id"]],
+                },
+            )
+
+        self.assertEqual(302, response.status_code)
+        job_id = response.location.rsplit("/", 1)[-1]
+        job = JobStore(self.root).get(job_id)
+        self.assertEqual("jens", job.principal)
+        self.assertEqual("documents.smart_folder_batch", job.kind)
+        self.assertEqual([document["document_id"]], job.payload["document_ids"])
+        self.assertEqual(200, self.client.get(response.location).status_code)
+        self.assertNotEqual(200, app.test_client().get(response.location).status_code)
+        worker_id = "smart-folder-test-worker"
+        worker = JobWorker(
+            JobStore(self.root),
+            default_handlers(self.root, JobStore(self.root), worker_id),
+            worker_id,
+        )
+        completed = worker.run_once()
+        self.assertEqual("succeeded", completed.state)
+        self.assertEqual(1, completed.progress["completed"])
+        self.assertEqual(1, completed.progress["total"])
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")

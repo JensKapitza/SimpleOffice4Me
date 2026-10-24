@@ -60,8 +60,19 @@ persistente Vorschauraster-Auswahl markieren. Die Auswahl referenziert nur
 Dokument-IDs; Vorschaudateien bleiben die bestehenden hashgebundenen privaten
 Dokument-Caches. Die Auswahloberfläche zeigt höchstens die ersten 200 Mitglieder.
 
+Für ausgewählte Mitglieder kann die optionale V3-Warteschlange Vorschauen und/
+oder OCR/Texterkennung neu erzeugen. Jobs sind pro Benutzer auf zwei aktive und
+50 neue Aufträge pro Tag, global auf 500 aktive und 1.000 neue Aufträge pro Tag
+begrenzt; pro Auftrag sind höchstens 100 Dateien, 128 MiB je Datei und 512 MiB
+insgesamt zulässig. Der Status zeigt abgeschlossene/gesamte Dateien; fertige
+Jobdatensätze älter als 30 Tage werden bei einer späteren Einreihung bereinigt.
+Der Dienst ist standardmäßig deaktiviert:
+`SIMPLEOFFICE_V3_JOBS_ENABLED=1` setzen und den Worker mit
+`python -m tools.v3_job_worker --root <DOCUMENT_ROOT>` starten.
+
 ## Grenzen dieser Ausbaustufe
 
-Diese Stufe unterstützt keine stapelweisen OCR-/Preview-Jobs oder
-Fortschrittsanzeigen und verschiebt bei logischer Fusion keine Originaldateien.
-Native Geräteabnahme erfolgt separat nach Issue #823.
+Die Fusion ist eine transaktionale **logische** Zuordnung und verschiebt keine
+Originaldateien. Batch-Aktionen verwenden die optionale Hintergrundwarteschlange;
+ohne aktivierten und gestarteten Worker bleiben Aufträge deaktiviert bzw. in der
+Warteschlange. Native Geräteabnahme erfolgt separat nach Issue #823.

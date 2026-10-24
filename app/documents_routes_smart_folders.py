@@ -2,10 +2,24 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
+from pathlib import Path
+import re
+import sqlite3
+from uuid import uuid4
 
 from .documents_core import *  # noqa: F401,F403
+from .smart_folder_batch_jobs import (
+    BATCH_ACTIONS,
+    MAX_BATCH_DOCUMENTS,
+    MAX_BATCH_FILE_BYTES,
+    MAX_BATCH_TOTAL_BYTES,
+)
 from .smart_folder_views import SmartFolderViews
+from .safe_paths import resolve_file_under
+from .v3_capabilities import enabled
+from .v3_jobs import JobStore
 
 
 def _smart_views() -> SmartFolderViews:
@@ -88,6 +102,8 @@ def smart_folder_view():
         rows=rows,
         tasks=tasks,
         assignment_document=assignment_document,
+        batch_jobs_enabled=enabled("v3.jobs"),
+        batch_request_id=uuid4().hex,
     )
 
 
@@ -145,6 +161,90 @@ def create_smart_folder_task():
         current_app.logger.warning("Smart folder task creation failed: %s", type(exc).__name__)
         flash("Aufgabe konnte nicht gespeichert werden.")
     return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
+@bp.post("/smart-folders/batch")
+@login_required
+def enqueue_smart_folder_batch():
+    folder = request.form.get("folder", "")
+    actor = str(g.user["username"])
+    if not enabled("v3.jobs"):
+        flash("Die optionale Hintergrundwarteschlange ist nicht aktiviert.")
+        return redirect(url_for("documents.smart_folder_view", folder=folder))
+    try:
+        views = _smart_views()
+        folder_id = views.folder_task_id(folder, actor)
+        selected = views.view(folder)
+        action = str(request.form.get("action", ""))
+        document_ids = [value.strip() for value in request.form.getlist("document_ids")]
+        if action not in BATCH_ACTIONS:
+            raise ValueError("Ungültige Sammelordner-Aktion")
+        if (
+            not document_ids
+            or len(document_ids) > MAX_BATCH_DOCUMENTS
+            or any(not value for value in document_ids)
+            or len(set(document_ids)) != len(document_ids)
+        ):
+            raise ValueError("Wähle höchstens 100 unterschiedliche Dokumente aus")
+        members = {str(item["document_id"]): item for item in selected["members"]}
+        if any(document_id not in members for document_id in document_ids):
+            raise ValueError("Alle ausgewählten Dokumente müssen zum Sammelordner gehören")
+        total_bytes = 0
+        root = Path(current_app.config["DOCUMENT_ROOT"])
+        for document_id in document_ids:
+            metadata = _store().get_document(document_id)
+            source = resolve_file_under(root, str(metadata.get("last_path", "")))
+            size = source.stat().st_size
+            if size > MAX_BATCH_FILE_BYTES:
+                raise ValueError("Eine Datei überschreitet das Batch-Größenlimit")
+            total_bytes += size
+            if total_bytes > MAX_BATCH_TOTAL_BYTES:
+                raise ValueError("Der Batch überschreitet das Gesamtgrößenlimit")
+        request_id = str(request.form.get("batch_request_id", "")).strip()
+        if not re.fullmatch(r"[0-9a-f]{32}", request_id):
+            raise ValueError("Ungültige Batch-Anforderungs-ID")
+        identity = "\0".join((actor, folder_id, request_id, action, *sorted(document_ids)))
+        key = "smart-folder-batch:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        job = JobStore(root).enqueue(
+            "documents.smart_folder_batch",
+            {
+                "action": action,
+                "folder": folder,
+                "folder_id": folder_id,
+                "document_ids": document_ids,
+            },
+            actor,
+            idempotency_key=key,
+            max_attempts=2,
+            max_open_per_principal=2,
+            max_open_total=500,
+            max_created_per_principal_window=50,
+            max_created_total_window=1000,
+        )
+        return redirect(url_for("documents.smart_folder_batch_job", job_id=job.job_id))
+    except ValueError as exc:
+        flash(str(exc))
+    except (OSError, RuntimeError, sqlite3.Error) as exc:
+        current_app.logger.warning("Smart folder batch could not be queued: %s", type(exc).__name__)
+        flash("Die Sammelordner-Aktion konnte nicht eingereiht werden.")
+    return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
+@bp.get("/smart-folders/jobs/<job_id>")
+@login_required
+def smart_folder_batch_job(job_id: str):
+    try:
+        job = JobStore(current_app.config["DOCUMENT_ROOT"]).get(job_id)
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Smart folder job status unavailable: %s", type(exc).__name__)
+        abort(503)
+    if (
+        job is None
+        or job.principal != str(g.user["username"])
+        or job.kind != "documents.smart_folder_batch"
+    ):
+        abort(404)
+    return render_template("documents/smart_folder_job.html", job=job)
 
 
 @bp.get("/smart-folders/merge-preview")

@@ -64,6 +64,34 @@
         <a class="small d-inline-block mt-2" href="{{ url_for('tasks.board') }}">Aufgaben öffnen und bearbeiten</a>
       </section>
       {% endif %}
+      {% if selected.active %}
+      <details class="mb-3">
+        <summary class="text-primary">Stapelaktion für Vorschau / OCR</summary>
+        {% if batch_jobs_enabled %}
+        <form method="post" action="{{ url_for('documents.enqueue_smart_folder_batch') }}" class="border rounded p-3 mt-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="folder" value="{{ selected.path }}">
+          <input type="hidden" name="batch_request_id" value="{{ batch_request_id }}">
+          <label class="form-label" for="smart-folder-batch-action">Aktion</label>
+          <select class="form-select mb-2" id="smart-folder-batch-action" name="action">
+            <option value="preview">Vorschaubilder neu erzeugen</option>
+            <option value="ocr">OCR / Texterkennung neu ausführen</option>
+            <option value="preview_ocr">Vorschaubilder und OCR erneuern</option>
+          </select>
+          <fieldset>
+            <legend class="form-label">Dokumente auswählen (höchstens 100)</legend>
+            <div class="row g-1">
+              {% for doc in selected.preview_candidates %}<div class="col-12 col-md-6">
+                <label class="form-check text-break"><input class="form-check-input" type="checkbox" name="document_ids" value="{{ doc.document_id }}"><span class="form-check-label">{{ doc.last_path }}</span></label>
+              </div>{% endfor %}
+            </div>
+            {% if selected.preview_candidates_truncated %}<p class="small text-secondary">Auswahl aus den ersten 200 Dokumenten dieses Ordners.</p>{% endif %}
+          </fieldset>
+          <button type="submit" class="btn btn-outline-primary mt-2">Hintergrundaktion einreihen</button>
+        </form>
+        {% else %}<p class="small text-secondary mt-2">Die optionale V3-Hintergrundwarteschlange ist deaktiviert; für Stapelaktionen muss SIMPLEOFFICE_V3_JOBS_ENABLED aktiviert und der V3-Job-Worker gestartet sein.</p>{% endif %}
+      </details>
+      {% endif %}
       {% if selected.preview_members %}
       <section class="mb-3" aria-label="Sammelordner-Vorschau">
         <h3 class="h5">Ausgewählte Vorschau ({{ selected.preview_members|length }})</h3>
