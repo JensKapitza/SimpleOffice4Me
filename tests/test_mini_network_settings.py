@@ -29,6 +29,7 @@ class NetworkSettingsTests(unittest.TestCase):
                     "rsync_enabled": "1",
                     "max_bytes": "1048576",
                     "max_clients": "24",
+                    "password_auth_enabled": "0",
                     "bind": "::1", "port": "2233.5", "system_port": "22"}
             self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
             self.assertEqual("2233.5", render.call_args.kwargs["service"]["settings"]["port"])
@@ -42,6 +43,9 @@ class NetworkSettingsTests(unittest.TestCase):
             self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
             self.assertEqual('{"mode": [], "port": null}', path.read_text(encoding="utf-8"))
             form["max_clients"] = "24"
+            invalid_auth_form = {**form, "password_auth_enabled": "2"}
+            self.assertEqual(400, self.client.post(url, data=invalid_auth_form, headers=self.headers).status_code)
+            self.assertEqual('{"mode": [], "port": null}', path.read_text(encoding="utf-8"))
             self.assertEqual(403, self.client.post(url, data=form).status_code)
             self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
             saved = settings()
@@ -52,12 +56,14 @@ class NetworkSettingsTests(unittest.TestCase):
             self.assertTrue(saved["rsync_enabled"])
             self.assertEqual(1048576, saved["max_bytes"])
             self.assertEqual(24, saved["max_clients"])
+            self.assertFalse(saved["password_auth_enabled"])
             old_form = {key: value for key, value in form.items()
-                        if key not in {"max_bytes", "max_clients"}}
+                        if key not in {"max_bytes", "max_clients", "password_auth_enabled"}}
             old_form["port"] = "2234"
             self.assertEqual(302, self.client.post(url, data=old_form, headers=self.headers).status_code)
             self.assertEqual(1048576, settings()["max_bytes"])
             self.assertEqual(24, settings()["max_clients"])
+            self.assertFalse(settings()["password_auth_enabled"])
             form["max_bytes"] = "2097152"
             self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
             self.assertEqual(2097152, settings()["max_bytes"])

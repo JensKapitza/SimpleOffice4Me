@@ -22,18 +22,22 @@ class SftpMiniServiceTests(unittest.TestCase):
         ):
             context = patch(target, return_value=value)
             context.start(); self.addCleanup(context.stop)
+        run_dir = patch("tools.service_control.RUN_DIR", self.root / "run")
+        run_dir.start(); self.addCleanup(run_dir.stop)
 
     def test_defaults_are_integrated_stopped_and_do_not_require_openssh(self):
         with patch("tools.sftp_setup.dependency", return_value=object()), \
                 patch.dict(os.environ, {
                     "SIMPLEOFFICE_SFTP_MAX_BYTES": str(sftp_service.DEFAULT_MAX_UPLOAD_BYTES),
                     "SIMPLEOFFICE_SFTP_MAX_CLIENTS": str(sftp_service.DEFAULT_MAX_CLIENTS),
+                    "SIMPLEOFFICE_SFTP_PASSWORD_AUTH": "true",
                 }):
             row = sftp_service.status()
         self.assertEqual("integrated", row["settings"]["mode"])
         self.assertFalse(row["settings"]["rsync_enabled"])
         self.assertEqual(512 * 1024 * 1024, row["settings"]["max_bytes"])
         self.assertEqual(32, row["settings"]["max_clients"])
+        self.assertTrue(row["settings"]["password_auth_enabled"])
         self.assertEqual("stopped", row["state"])
         self.assertFalse(row["system_service"]["available"])
         self.assertIn("start", row["capabilities"])
@@ -46,6 +50,7 @@ class SftpMiniServiceTests(unittest.TestCase):
             start.assert_not_called()
         invalid_candidates = (
             {"enabled": "true"}, {"rsync_enabled": "true"}, {"port": 0},
+            {"password_auth_enabled": "true"},
             {"port": True}, {"max_bytes": True}, {"max_bytes": 1.5},
             {"max_bytes": 0}, {"max_bytes": 8 * 1024**3 + 1},
             {"max_clients": True}, {"max_clients": 0}, {"max_clients": 513},
@@ -58,23 +63,28 @@ class SftpMiniServiceTests(unittest.TestCase):
     def test_legacy_environment_settings_are_migrated_until_explicitly_saved(self):
         with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_ENABLED": "true",
                                      "SIMPLEOFFICE_SFTP_MAX_BYTES": "4096",
-                                     "SIMPLEOFFICE_SFTP_MAX_CLIENTS": "64"}):
+                                     "SIMPLEOFFICE_SFTP_MAX_CLIENTS": "64",
+                                     "SIMPLEOFFICE_SFTP_PASSWORD_AUTH": "false"}):
             self.assertTrue(sftp_service.settings()["rsync_enabled"])
             self.assertEqual(4096, sftp_service.settings()["max_bytes"])
             self.assertEqual(64, sftp_service.settings()["max_clients"])
+            self.assertFalse(sftp_service.settings()["password_auth_enabled"])
             legacy_path = self.root / "sftp.json"
             legacy_path.write_text('{"mode":"integrated"}', encoding="utf-8")
             self.assertTrue(sftp_service.settings()["rsync_enabled"])
             self.assertEqual(4096, sftp_service.settings()["max_bytes"])
             self.assertEqual(64, sftp_service.settings()["max_clients"])
+            self.assertFalse(sftp_service.settings()["password_auth_enabled"])
             saved = sftp_service.save_settings({"rsync_enabled": False, "max_bytes": 8192,
-                                                "max_clients": 48})
+                                                "max_clients": 48, "password_auth_enabled": True})
             self.assertFalse(saved["rsync_enabled"])
             self.assertEqual(8192, saved["max_bytes"])
             self.assertEqual(48, saved["max_clients"])
+            self.assertTrue(saved["password_auth_enabled"])
             self.assertFalse(sftp_service.settings()["rsync_enabled"])
             self.assertEqual(8192, sftp_service.settings()["max_bytes"])
             self.assertEqual(48, sftp_service.settings()["max_clients"])
+            self.assertTrue(sftp_service.settings()["password_auth_enabled"])
 
     def test_invalid_legacy_resource_limits_match_direct_server_fallbacks(self):
         with patch.dict(os.environ, {
@@ -94,10 +104,13 @@ class SftpMiniServiceTests(unittest.TestCase):
 
     def test_integrated_child_gets_explicit_rsync_setting(self):
         for enabled in (True, False):
-            with self.subTest(enabled=enabled), \
-                    patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_ENABLED": "true",
-                                            "SIMPLEOFFICE_SFTP_MAX_BYTES": "3",
-                                            "SIMPLEOFFICE_SFTP_MAX_CLIENTS": "3"}), \
+            for password_auth_enabled in (True, False):
+                inherited_auth = "false" if password_auth_enabled else "true"
+                with self.subTest(enabled=enabled, password_auth_enabled=password_auth_enabled), \
+                        patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_ENABLED": "true",
+                                                "SIMPLEOFFICE_SFTP_MAX_BYTES": "3",
+                                                "SIMPLEOFFICE_SFTP_MAX_CLIENTS": "3",
+                                                "SIMPLEOFFICE_SFTP_PASSWORD_AUTH": inherited_auth}), \
                     patch("app.sftp_service.service_control.RUN_DIR", self.root), \
                     patch("app.sftp_service.service_control.read", side_effect=[None, {"pid": 42}]), \
                     patch("app.sftp_service.service_control.process_matches", return_value=False), \
@@ -105,18 +118,23 @@ class SftpMiniServiceTests(unittest.TestCase):
                     patch("app.sftp_service.sftp_setup.key_path", return_value=self.root / "host-key"), \
                     patch("app.sftp_service.subprocess.Popen") as popen, \
                     patch("app.sftp_service._ready", return_value=True):
-                popen.return_value.pid = 42
-                popen.return_value.poll.return_value = None
-                sftp_service._start(
-                    {"bind": "127.0.0.1", "port": 2222, "rsync_enabled": enabled,
-                     "max_bytes": 1048576, "max_clients": 24}, self.root,
+                    popen.return_value.pid = 42
+                    popen.return_value.poll.return_value = None
+                    sftp_service._start(
+                        {"bind": "127.0.0.1", "port": 2222, "rsync_enabled": enabled,
+                         "max_bytes": 1048576, "max_clients": 24,
+                         "password_auth_enabled": password_auth_enabled}, self.root,
+                    )
+                self.assertEqual(
+                    "true" if enabled else "false",
+                    popen.call_args.kwargs["env"]["SIMPLEOFFICE_RSYNC_ENABLED"],
                 )
-            self.assertEqual(
-                "true" if enabled else "false",
-                popen.call_args.kwargs["env"]["SIMPLEOFFICE_RSYNC_ENABLED"],
-            )
-            self.assertEqual("1048576", popen.call_args.kwargs["env"]["SIMPLEOFFICE_SFTP_MAX_BYTES"])
-            self.assertEqual("24", popen.call_args.kwargs["env"]["SIMPLEOFFICE_SFTP_MAX_CLIENTS"])
+                self.assertEqual("1048576", popen.call_args.kwargs["env"]["SIMPLEOFFICE_SFTP_MAX_BYTES"])
+                self.assertEqual("24", popen.call_args.kwargs["env"]["SIMPLEOFFICE_SFTP_MAX_CLIENTS"])
+                self.assertEqual(
+                    "true" if password_auth_enabled else "false",
+                    popen.call_args.kwargs["env"]["SIMPLEOFFICE_SFTP_PASSWORD_AUTH"],
+                )
 
     def test_system_mode_is_explicit_and_preserves_os_startup_policy(self):
         with self.assertRaises(ValueError):
