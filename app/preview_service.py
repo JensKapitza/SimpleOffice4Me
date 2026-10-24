@@ -227,11 +227,11 @@ class PreviewService:
     def _generic_thumbnail(source: Path, destination: Path) -> None:
         """Render an inert file-type card without opening or executing the upload."""
         suffix = source.suffix.lower().lstrip(".")
-        if suffix in AUDIO_SUFFIXES or suffix in {"mp3", "wav"}:
+        if ("." + suffix) in AUDIO_SUFFIXES:
             category, symbol = "AUDIO", "♪"
-        elif suffix in {".pdf".lstrip(".")}:
+        elif suffix == "pdf":
             category, symbol = "PDF", "PDF"
-        elif suffix in {".zip", ".tar", ".gz", ".7z", ".rar"}:
+        elif suffix in {"zip", "tar", "gz", "7z", "rar"}:
             category, symbol = "ARCHIV", "ZIP"
         elif suffix in {"txt", "md", "csv", "tsv", "json", "xml", "log", "py", "js", "html"}:
             category, symbol = "TEXT", "TXT"
