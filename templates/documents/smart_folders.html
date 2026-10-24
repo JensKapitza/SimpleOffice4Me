@@ -33,6 +33,23 @@
         <textarea class="form-control mb-2" id="folder-notes" name="notes" rows="3" maxlength="20000">{{ selected.notes|default('') }}</textarea>
         <button class="btn btn-primary" type="submit">{{ 'Notizen speichern' if selected.active else 'Als Sammelordner aktivieren' }}</button>
       </form>
+      <section class="mb-3">
+        <h3 class="h5">Tabellarische Auswertung</h3>
+        <form method="post" action="{{ url_for('documents.save_smart_folder_rule') }}" class="row g-2">
+          <input type="hidden" name="folder" value="{{ selected.path }}">
+          <div class="col"><input class="form-control" name="name" maxlength="80" placeholder="Spaltenname" required></div>
+          <div class="col"><input class="form-control" name="field" maxlength="120" placeholder="JSON-Schlüssel / CSV-Spalte / XML-Pfad" required></div>
+          <div class="col-auto"><button type="submit" class="btn btn-outline-primary">Regel speichern</button></div>
+        </form>
+        {% if rules %}
+        <p class="small text-secondary mt-2">{% for name, field in rules.items() %}{{ name }}: {{ field }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+        <a href="{{ url_for('documents.export_smart_folder', folder=selected.path) }}">CSV exportieren</a>
+        <div class="table-responsive"><table class="table table-sm">
+          <thead><tr><th>Datei</th>{% for name in rules %}<th>{{ name }}</th>{% endfor %}</tr></thead>
+          <tbody>{% for row in rows %}<tr><td><a href="{{ url_for('documents.detail', document_id=row.document_id) }}">{{ row.path }}</a></td>{% for name in rules %}<td>{{ row.get(name, '') }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+        </table></div>
+        {% endif %}
+      </section>
       <div class="list-group">
         {% for doc in selected.members %}
         <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">{{ doc.last_path }}</a>
