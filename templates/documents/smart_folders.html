@@ -201,6 +201,47 @@
         </table></div>
         {% endif %}
       </section>
+      <form method="post" action="{{ url_for('documents.assign_many_smart_folder') }}" class="border rounded p-3 mb-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="source" value="{{ selected.path }}">
+        <h3 class="h6">Dokumente einer weiteren Smart View zuordnen</h3>
+        <label class="form-label" for="bulk-target">Bestehender Zielordner</label>
+        <select class="form-select mb-2" id="bulk-target" name="target" required>
+          <option value="">Ziel auswählen</option>
+          {% for folder in folders if folder.path != selected.path %}
+          <option value="{{ folder.path }}">{{ folder.path }}</option>
+          {% endfor %}
+        </select>
+        <p class="small text-secondary">Maximal 100 Dokumente auswählen. Die Dateien bleiben am bisherigen Speicherort.</p>
+        <div class="list-group mb-2">
+          {% for doc in selected.members[:100] %}
+          <label class="list-group-item">
+            <input class="form-check-input me-2" type="checkbox" name="document_ids" value="{{ doc.document_id }}">
+            {{ doc.last_path }}
+          </label>
+          {% endfor %}
+        </div>
+        {% if selected.members|length > 100 %}<p class="small">Es werden die ersten 100 Dokumente zur Auswahl angeboten.</p>{% endif %}
+        <button type="submit" class="btn btn-outline-primary">Ausgewählte Dokumente zuordnen</button>
+      </form>
+      <form method="post" action="{{ url_for('documents.unassign_many_smart_folder') }}" class="border rounded p-3 mb-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="folder" value="{{ selected.path }}">
+        <h3 class="h6">Logische Zuordnungen gesammelt entfernen</h3>
+        <p class="small text-secondary">Nur ausdrücklich hinzugefügte Zuordnungen werden entfernt. Physische Ordnerzugehörigkeit und importierte Herkunft bleiben erhalten.</p>
+        <div class="list-group mb-2">
+          {% for doc in selected.explicit_members[:100] %}
+          <label class="list-group-item">
+            <input class="form-check-input me-2" type="checkbox" name="document_ids" value="{{ doc.document_id }}">
+            {{ doc.last_path }}
+          </label>
+          {% endfor %}
+        </div>
+        {% if selected.explicit_members|length > 100 %}<p class="small">Die ersten 100 expliziten Zuordnungen werden angeboten.</p>{% endif %}
+        <label for="bulk-remove-confirm" class="form-label">ENTFERNEN eingeben</label>
+        <input id="bulk-remove-confirm" class="form-control mb-2" name="confirm" required pattern="ENTFERNEN">
+        <button type="submit" class="btn btn-outline-danger" {% if not selected.explicit_members %}disabled{% endif %}>Ausgewählte Zuordnungen entfernen</button>
+      </form>
       <div class="list-group">
         {% for doc in selected.members %}
         <a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
