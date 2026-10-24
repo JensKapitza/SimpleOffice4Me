@@ -1,7 +1,6 @@
 """Video preview, timeline frames and derived playback variants for documents."""
 from __future__ import annotations
 
-import mimetypes
 import subprocess
 from pathlib import Path
 
@@ -9,7 +8,7 @@ from flask import abort, current_app, flash, redirect, render_template, request,
 
 from .access_control import audit, is_admin
 from .documents_core import *  # noqa: F401,F403
-from .preview_service import PreviewService, VIDEO_SUFFIXES, detect_preview_tools
+from .preview_service import PreviewService, VIDEO_SUFFIXES, detect_preview_tools, media_mimetype
 from .v2.materialize import materialize_verified_object
 from .video_settings import save_video_preview_frame_count, video_preview_frame_count
 from .settings_store import DEFAULT_VIDEO_PREVIEW_FRAMES
@@ -30,7 +29,11 @@ def _require_video_admin() -> None:
 @bp.before_request
 def open_video_previews_in_player():
     """Keep the historic preview URL but show a player for videos by default."""
-    if request.endpoint != "documents.image_preview" or request.args.get("raw") == "1":
+    if (
+        request.endpoint != "documents.image_preview"
+        or request.args.get("raw") == "1"
+        or request.args.get("download") == "1"
+    ):
         return None
     if getattr(g, "user", None) is None:
         return None
@@ -69,6 +72,13 @@ def video_player(document_id: str):
             "url": url_for("documents.video_variant", document_id=document_id, variant_id=row["variant_id"]),
         })
     raw_url = url_for("documents.image_preview", document_id=document_id, raw=1)
+    download_url = url_for("documents.image_preview", document_id=document_id, download=1)
+    preview_service = PreviewService(_store().root)
+    thumbnail_url = (
+        url_for("documents.document_thumbnail", document_id=document_id)
+        if preview_service.cached_path(document, "thumbnail") is not None
+        else ""
+    )
     return render_template(
         "documents/video_player.html",
         document=document,
@@ -76,8 +86,9 @@ def video_player(document_id: str):
         frames=frames,
         variants=variants,
         raw_url=raw_url,
-        mime=mimetypes.guess_type(str(document.get("last_path", "")))[0] or "video/mp4",
-        thumbnail_url=url_for("documents.document_thumbnail", document_id=document_id),
+        mime=media_mimetype(str(document.get("last_path", ""))) or "video/mp4",
+        thumbnail_url=thumbnail_url,
+        download_url=download_url,
         ffmpeg_available=bool(detect_preview_tools()["commands"].get("ffmpeg")),
         video_preview_frame_count=video_preview_frame_count(_store().root),
         can_manage_video=is_admin(g.user),

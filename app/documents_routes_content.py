@@ -5,13 +5,14 @@ import tempfile
 from flask import current_app
 
 from .documents_core import *  # noqa: F401,F403
-from .preview_service import VIDEO_SUFFIXES
+from .preview_service import AUDIO_SUFFIXES, IMAGE_SUFFIXES, VIDEO_SUFFIXES, media_mimetype
 from .v2.contracts import LogicalObjectId
 
 def _verified_preview_response(
     document: dict[str, Any],
     *,
     max_age: int = 0,
+    as_attachment: bool = False,
 ):
     spool = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
     result = _storage(str(g.user["username"])).copy_verified_to(
@@ -26,12 +27,13 @@ def _verified_preview_response(
     filename = Path(str(document.get("last_path") or "")).name or (
         str(document["document_id"]) + ".bin"
     )
-    mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    mimetype = media_mimetype(filename) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     try:
         response = send_file(
             spool,
             download_name=filename,
             mimetype=mimetype,
+            as_attachment=as_attachment,
             conditional=False,
             etag=False,
             max_age=max_age,
@@ -77,11 +79,11 @@ def _single_byte_range(value: str, size: int) -> tuple[int, int] | None:
     return start, min(end, size - 1)
 
 
-def _verified_video_response(document: dict[str, Any]):
-    """Serve raw video through StoragePort, including one verified byte range."""
+def _verified_media_response(document: dict[str, Any], *, as_attachment: bool = False):
+    """Serve audio/video/PDF through StoragePort, including one verified byte range."""
     range_header = request.headers.get("Range", "")
     if not range_header or request.method != "GET":
-        response = _verified_preview_response(document)
+        response = _verified_preview_response(document, as_attachment=as_attachment)
         response.headers["Accept-Ranges"] = "bytes"
         return response
     storage = _storage(str(g.user["username"]))
@@ -95,7 +97,7 @@ def _verified_video_response(document: dict[str, Any]):
     # weak validators and stale versions require the complete current object.
     if_range = request.headers.get("If-Range")
     if if_range and (not expected.version or if_range.strip() != f'"{expected.version}"'):
-        response = _verified_preview_response(document)
+        response = _verified_preview_response(document, as_attachment=as_attachment)
         response.headers["Accept-Ranges"] = "bytes"
         return response
     try:
@@ -110,7 +112,7 @@ def _verified_video_response(document: dict[str, Any]):
             },
         )
     if selected is None:
-        response = _verified_preview_response(document)
+        response = _verified_preview_response(document, as_attachment=as_attachment)
         response.headers["Accept-Ranges"] = "bytes"
         return response
 
@@ -134,12 +136,13 @@ def _verified_video_response(document: dict[str, Any]):
     filename = Path(str(document.get("last_path") or "")).name or (
         str(document["document_id"]) + ".bin"
     )
-    mimetype = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    mimetype = media_mimetype(filename) or mimetypes.guess_type(filename)[0] or "application/octet-stream"
     try:
         response = send_file(
             spool,
             download_name=filename,
             mimetype=mimetype,
+            as_attachment=as_attachment,
             conditional=False,
             etag=False,
             max_age=0,
@@ -157,6 +160,11 @@ def _verified_video_response(document: dict[str, Any]):
         response.set_etag(version)
     response.call_on_close(spool.close)
     return response
+
+
+def _verified_video_response(document: dict[str, Any]):
+    """Compatibility wrapper retained for internal callers using the old helper name."""
+    return _verified_media_response(document)
 
 
 @bp.route("/")
@@ -877,9 +885,11 @@ def images():
 @login_required
 def image_preview(document_id: str):
     document = _document_or_404(document_id)
-    if Path(str(document.get("last_path") or "")).suffix.lower() in VIDEO_SUFFIXES:
-        return _verified_video_response(document)
-    return _verified_preview_response(document)
+    suffix = Path(str(document.get("last_path") or "")).suffix.lower()
+    as_attachment = request.args.get("download") == "1"
+    if suffix in VIDEO_SUFFIXES | AUDIO_SUFFIXES | {".pdf"}:
+        return _verified_media_response(document, as_attachment=as_attachment)
+    return _verified_preview_response(document, as_attachment=as_attachment)
 
 
 @bp.get("/<document_id>/thumbnail")
@@ -888,6 +898,9 @@ def document_thumbnail(document_id: str):
     document = _document_or_404(document_id)
     path = PreviewService(_store().root).cached_path(document, "thumbnail")
     if path is None:
+        suffix = Path(str(document.get("last_path") or "")).suffix.lower()
+        if suffix not in IMAGE_SUFFIXES:
+            abort(404)
         return _verified_preview_response(document)
     max_age = 31536000
     response = send_file(path, conditional=True, etag=True, max_age=max_age)

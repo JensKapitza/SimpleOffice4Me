@@ -8,17 +8,18 @@
       <h1 class="h3 mt-2 mb-1 text-break">{{ document.last_path.rsplit('/', 1)[-1] }}</h1>
       <p class="text-secondary mb-0">Video-Vorschau und technische Varianten desselben Inhalts.</p>
     </div>
-    <a class="btn btn-outline-primary" href="{{ raw_url }}" target="_blank" rel="noopener noreferrer">Originaldatei öffnen</a>
+    <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-primary" href="{{ raw_url }}" target="_blank" rel="noopener noreferrer">Originaldatei öffnen</a><a class="btn btn-outline-secondary" href="{{ download_url }}" download>Originaldatei herunterladen</a></div>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="card mb-4 shadow-sm">
     <div class="card-body">
-      <video id="video-player" class="w-100 rounded bg-dark" controls playsinline preload="metadata" poster="{{ thumbnail_url }}" style="max-height:70vh">
+      <video id="video-player" class="w-100 rounded bg-dark" controls playsinline preload="metadata"{% if thumbnail_url %} poster="{{ thumbnail_url }}"{% endif %} style="max-height:70vh">
         <source src="{{ raw_url }}" type="{{ mime }}">
-        Dein Browser kann dieses Videoformat nicht direkt abspielen.
+        Dein Browser kann dieses Videoformat nicht direkt abspielen. Lade die Originaldatei herunter.
       </video>
+      <p class="small text-secondary mt-2 mb-0">Falls Codec oder Browser die Wiedergabe nicht unterstützen: <a href="{{ download_url }}" download>Originaldatei herunterladen</a>.</p>
       {% if video %}
       <div class="d-flex flex-wrap gap-2 mt-3 small text-secondary">
         {% if video.duration_seconds %}<span class="badge text-bg-light border">{{ '%.1f'|format(video.duration_seconds) }} s</span>{% endif %}

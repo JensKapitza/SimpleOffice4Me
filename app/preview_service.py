@@ -13,17 +13,48 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 from .settings_store import SettingsStore
 
 
 CACHE_DIR = ".webcache"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp", ".avif", ".heic", ".heif"}
+TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".log", ".ini", ".cfg", ".toml", ".py", ".js", ".ts", ".css", ".sql", ".sh", ".rst"}
 OFFICE_SUFFIXES = {".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
-VIDEO_SUFFIXES = {".mp4", ".mkv", ".mov", ".avi", ".webm"}
-SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | {".pdf"}
+VIDEO_MIME_TYPES = {
+    ".3gp": "video/3gpp",
+    ".avi": "video/x-msvideo",
+    ".m4v": "video/mp4",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".mpeg": "video/mpeg",
+    ".mpg": "video/mpeg",
+    ".ogv": "video/ogg",
+    ".webm": "video/webm",
+}
+AUDIO_MIME_TYPES = {
+    ".aac": "audio/aac",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".mp3": "audio/mpeg",
+    ".oga": "audio/ogg",
+    ".ogg": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".wma": "audio/x-ms-wma",
+}
+VIDEO_SUFFIXES = set(VIDEO_MIME_TYPES)
+AUDIO_SUFFIXES = set(AUDIO_MIME_TYPES)
+SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES | TEXT_SUFFIXES | {".pdf"}
 VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
+
+
+def media_mimetype(filename: str) -> str:
+    """Use a stable media type for browser playback and byte-range responses."""
+    suffix = Path(str(filename)).suffix.casefold()
+    return VIDEO_MIME_TYPES.get(suffix) or AUDIO_MIME_TYPES.get(suffix) or ""
 
 
 def utc_now() -> str:
@@ -97,7 +128,7 @@ class PreviewService:
 
     def supports(self, path: Path) -> bool:
         self._refresh_media_settings()
-        return self.preview_enabled and path.suffix.lower() in SUPPORTED_SUFFIXES
+        return self.preview_enabled and path.is_file()
 
     def is_current(self, metadata: dict[str, Any]) -> bool:
         self._refresh_media_settings()
@@ -119,6 +150,8 @@ class PreviewService:
 
     def generate(self, path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         self._refresh_media_settings()
+        if path.is_symlink():
+            return {"status": "unsupported", "source_sha256": str(metadata.get("sha256", ""))}
         path = path.resolve(strict=True)
         path.relative_to(self.root)
         suffix = path.suffix.lower()
@@ -141,7 +174,8 @@ class PreviewService:
                 conversion = self._convert(path, suffix, temporary)
                 generated_thumbnail = temporary / "thumbnail.webp"
                 if not generated_thumbnail.is_file():
-                    return {"status": "unsupported", "source_sha256": digest}
+                    self._generic_thumbnail(path, generated_thumbnail)
+                    conversion = {"converter": "pillow-filetype-icon"}
                 destination.mkdir(parents=True, exist_ok=True)
                 generated_thumbnail.replace(thumbnail)
                 generated_collage = temporary / "collage.webp"
@@ -164,6 +198,13 @@ class PreviewService:
             return {"status": "failed", "source_sha256": digest, "error": "conversion_failed"}
 
     def _convert(self, source: Path, suffix: str, temporary: Path) -> dict[str, Any]:
+        if suffix in TEXT_SUFFIXES:
+            try:
+                self._text_thumbnail(source, temporary / "thumbnail.webp")
+                return {"converter": "stdlib+pillow"}
+            except (OSError, ValueError):
+                self._generic_thumbnail(source, temporary / "thumbnail.webp")
+                return {"converter": "pillow-filetype-icon"}
         if suffix in IMAGE_SUFFIXES:
             try:
                 self._thumbnail(source, temporary / "thumbnail.webp")
@@ -171,7 +212,8 @@ class PreviewService:
             except (OSError, ValueError):
                 imagemagick = self.tools["paths"].get("imagemagick")
                 if not imagemagick:
-                    raise
+                    self._generic_thumbnail(source, temporary / "thumbnail.webp")
+                    return {"converter": "pillow-filetype-icon"}
                 self._run([imagemagick, str(source), "-auto-orient", "-thumbnail", "1200x1200>", "-quality", "82", str(temporary / "thumbnail.webp")])
                 return {"converter": "imagemagick"}
         if suffix == ".pdf":
@@ -185,7 +227,33 @@ class PreviewService:
             return {"converter": "libreoffice+" + self._pdf(pdfs[0], temporary) if pdfs else "unavailable"}
         if suffix in VIDEO_SUFFIXES:
             return self._video(source, temporary)
-        return {"converter": "unavailable"}
+        self._generic_thumbnail(source, temporary / "thumbnail.webp")
+        return {"converter": "pillow-filetype-icon"}
+
+    @staticmethod
+    def _generic_thumbnail(source: Path, destination: Path) -> None:
+        """Render an inert file-type card without opening or executing the upload."""
+        suffix = source.suffix.lower().lstrip(".")
+        if ("." + suffix) in AUDIO_SUFFIXES:
+            category, symbol = "AUDIO", "♪"
+        elif suffix == "pdf":
+            category, symbol = "PDF", "PDF"
+        elif suffix in {"zip", "tar", "gz", "7z", "rar"}:
+            category, symbol = "ARCHIV", "ZIP"
+        elif suffix in {"txt", "md", "csv", "tsv", "json", "xml", "log", "py", "js", "html"}:
+            category, symbol = "TEXT", "TXT"
+        elif suffix in {name.lstrip(".") for name in OFFICE_SUFFIXES}:
+            category, symbol = "OFFICE", "DOC"
+        else:
+            category, symbol = "DATEI", "FILE"
+        image = Image.new("RGB", (640, 420), "#eef2f7")
+        draw = ImageDraw.Draw(image)
+        draw.rounded_rectangle((180, 52, 460, 360), radius=24, fill="#ffffff", outline="#64748b", width=5)
+        draw.rectangle((218, 112, 422, 222), fill="#e2e8f0")
+        draw.text((232, 150), symbol, fill="#1e293b")
+        draw.text((232, 255), category, fill="#334155")
+        draw.text((232, 289), (suffix[:14] or "unbekannt").upper(), fill="#475569")
+        image.save(destination, "WEBP", quality=82)
 
     def _video(self, source: Path, temporary: Path) -> dict[str, Any]:
         ffmpeg = self.tools.get("paths", {}).get("ffmpeg")
@@ -321,6 +389,24 @@ class PreviewService:
         if len(pages) > 1:
             self._collage(pages, temporary / "collage.webp")
         return "pdftoppm+pillow"
+
+    def _text_thumbnail(self, source: Path, destination: Path) -> None:
+        """Render a bounded, non-executable text excerpt using stdlib and Pillow."""
+        with source.open("rb") as handle:
+            sample = handle.read(16384)
+        if bytes((0,)) in sample:
+            raise ValueError("binary input is not a text preview")
+        text = sample.decode("utf-8-sig", errors="replace")
+        lines = text.expandtabs(4).splitlines()[:38]
+        canvas = Image.new("RGB", (1100, 800), "#ffffff")
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle((0, 0, 1099, 56), fill="#edf2f7")
+        draw.text((24, 20), source.suffix.lower().lstrip(".").upper() + " preview", fill="#172b4d")
+        for index, line in enumerate(lines):
+            # Never interpret markup or execute uploaded source code.
+            excerpt = line[:150].encode("ascii", "replace").decode("ascii")
+            draw.text((24, 75 + index * 18), excerpt, fill="#202938")
+        canvas.save(destination, "WEBP", quality=82)
 
     def _thumbnail(
         self,
