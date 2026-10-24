@@ -21,6 +21,7 @@
     </div>
     <div class="form-check mb-2"><input id="sftp-enabled" name="enabled" value="1" type="checkbox" class="form-check-input" {% if service.settings.enabled %}checked{% endif %}><label for="sftp-enabled" class="form-check-label">Dienst aktiviert</label></div>
     <div class="form-check mb-3"><input id="sftp-autostart" name="autostart" value="1" type="checkbox" class="form-check-input" {% if service.settings.autostart %}checked{% endif %}><label for="sftp-autostart" class="form-check-label">Paramiko beim SimpleOffice-Start automatisch starten</label><p class="form-text">Der Autostart von OpenSSH wird im Betriebssystem verwaltet.</p></div>
+    <div class="form-check mb-3"><input id="sftp-rsync" name="rsync_enabled" value="1" type="checkbox" class="form-check-input" {% if service.settings.rsync_enabled %}checked{% endif %}><label for="sftp-rsync" class="form-check-label">Eingeschränkten rsync-Zugang über den integrierten Paramiko-Dienst aktivieren</label><p class="form-text">Standardmäßig aus. Kein Shellzugang; rsync bleibt auf das SimpleOffice-Dateisystem und dessen Ordnerrechte beschränkt. Diese Einstellung gilt nicht für den OpenSSH-Systemdienst. SFTP vor dem Speichern stoppen und anschließend neu starten.</p></div>
     <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit">Speichern</button><a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a></div>
   </form>
 </main>

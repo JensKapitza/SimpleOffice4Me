@@ -242,7 +242,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` | [resource_commander_access.py](../app/resource_commander_access.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_` | [resource_peer_credentials.py](../app/resource_peer_credentials.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_RESTORE_ROOT` | [replication_store.py](../app/replication_store.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_RSYNC_ENABLED` | [documents_core.py](../app/documents_core.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_RSYNC_ENABLED` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_RSYNC_MAX_BYTES` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_MAX_FILES` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_TIMEOUT` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
