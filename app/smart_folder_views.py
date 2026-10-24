@@ -26,6 +26,8 @@ MAX_EXTRACTED_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_EXTRACTED_RULES = 20
 MAX_EXTRACTED_VALUE_CHARS = 500
 MAX_MERGE_EVENTS = 10_000
+MAX_PREVIEW_SELECTION = 6
+MAX_PREVIEW_CANDIDATES = 200
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -191,6 +193,20 @@ class SmartFolderViews:
             if other["path"] != folder
             and self._normalized_folder_name(other["path"]) == name
         ]
+        folder_info = self._load()["folders"].get(folder, {})
+        selected_ids = folder_info.get("preview_document_ids", [])
+        if not isinstance(selected_ids, list):
+            selected_ids = []
+        members_by_id = {str(doc["document_id"]): doc for doc in item["members"]}
+        item["preview_document_ids"] = [
+            document_id for document_id in selected_ids
+            if isinstance(document_id, str) and document_id in members_by_id
+        ][:MAX_PREVIEW_SELECTION]
+        item["preview_members"] = [
+            members_by_id[document_id] for document_id in item["preview_document_ids"]
+        ]
+        item["preview_candidates"] = item["members"][:MAX_PREVIEW_CANDIDATES]
+        item["preview_candidates_truncated"] = len(item["members"]) > MAX_PREVIEW_CANDIDATES
         return item
 
     def activate(self, folder: str, actor: str, notes: str = "") -> dict:
@@ -218,6 +234,36 @@ class SmartFolderViews:
             paths = data["assignments"].setdefault(document_id, [])
             if folder not in paths:
                 paths.append(folder)
+            self._save(data)
+
+    def set_preview_documents(
+        self,
+        folder: str,
+        document_ids: list[str],
+        actor: str,
+    ) -> None:
+        self._verify_actor(actor)
+        folder = self.normalize(folder)
+        if not isinstance(document_ids, list):
+            raise ValueError("Ungültige Vorschaubildauswahl")
+        selected = [str(document_id).strip() for document_id in document_ids]
+        if len(selected) > MAX_PREVIEW_SELECTION or len(set(selected)) != len(selected):
+            raise ValueError("Wähle höchstens sechs unterschiedliche Dokumente aus")
+        if len(selected) not in {0, 1, 4, 6}:
+            raise ValueError("Wähle 1, 4 oder 6 Vorschaubilder aus oder lösche die Auswahl")
+        self.view(folder)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.path.with_suffix(".lock")):
+            data = self._load()
+            entry = data["folders"].get(folder)
+            if entry is None or self._canonical_path(folder, data["merged_into"]) != folder:
+                raise ValueError("Sammelordner muss vor der Vorschaubildauswahl aktiviert werden")
+            current_ids = {
+                str(document["document_id"]) for document in self.view(folder)["members"]
+            }
+            if any(document_id not in current_ids for document_id in selected):
+                raise ValueError("Vorschaubilder müssen zum ausgewählten Sammelordner gehören")
+            entry["preview_document_ids"] = selected
             self._save(data)
 
     def save_rule(self, folder: str, name: str, field: str, actor: str) -> None:

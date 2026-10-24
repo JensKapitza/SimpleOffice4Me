@@ -50,6 +50,11 @@ Der CSV-Export escaped Formelzellen, wird als `text/csv` mit `nosniff` und
 `Cache-Control: private, no-store` ausgeliefert und enthält nur die
 Dokumente/Ansichten des angemeldeten Benutzers.
 
+Aktivierte Sammelordner können 1, 4 oder 6 vorhandene Dokumente für eine
+persistente Vorschauraster-Auswahl markieren. Die Auswahl referenziert nur
+Dokument-IDs; Vorschaudateien bleiben die bestehenden hashgebundenen privaten
+Dokument-Caches. Die Auswahloberfläche zeigt höchstens die ersten 200 Mitglieder.
+
 ## Grenzen dieser Ausbaustufe
 
 Diese Stufe unterstützt keine stapelweisen OCR-/Preview-Jobs oder

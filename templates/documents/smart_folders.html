@@ -31,6 +31,41 @@
         <button type="submit" class="btn btn-outline-primary">Dokument logisch zuordnen</button>
       </form>
       {% endif %}
+      {% if selected.preview_members %}
+      <section class="mb-3" aria-label="Sammelordner-Vorschau">
+        <h3 class="h5">Ausgewählte Vorschau ({{ selected.preview_members|length }})</h3>
+        <div class="row g-2">
+          {% for doc in selected.preview_members %}<div class="col-6 col-md-4">
+            <a class="d-block border rounded p-2 h-100 text-decoration-none" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
+              {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async">
+              {% else %}<span class="d-block text-secondary py-3" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
+              <span class="small text-break">{{ doc.last_path }}</span>
+            </a>
+          </div>{% endfor %}
+        </div>
+      </section>
+      {% endif %}
+      {% if selected.active %}
+      <details class="mb-3">
+        <summary class="text-primary">Vorschaubilder auswählen (1, 4 oder 6)</summary>
+        <form method="post" action="{{ url_for('documents.set_smart_folder_previews') }}" class="border rounded p-3 mt-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="folder" value="{{ selected.path }}">
+          <div class="row g-2">
+            {% for doc in selected.preview_candidates %}<div class="col-6 col-md-4">
+              <label class="d-block border rounded p-2 h-100">
+                <input class="form-check-input me-1" type="checkbox" name="document_ids" value="{{ doc.document_id }}" {% if doc.document_id in selected.preview_document_ids %}checked{% endif %}>
+                {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid d-block my-2" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="" loading="lazy" decoding="async">
+                {% else %}<span class="d-block text-secondary py-2" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
+                <span class="small text-break">{{ doc.last_path }}</span>
+              </label>
+            </div>{% endfor %}
+          </div>
+          {% if selected.preview_candidates_truncated %}<p class="small text-secondary mt-2">Auswahl aus den ersten 200 Dokumenten dieses Ordners.</p>{% endif %}
+          <button type="submit" class="btn btn-outline-primary mt-2">Vorschau speichern</button>
+        </form>
+      </details>
+      {% endif %}
       {% if selected.same_name %}
       <div class="alert alert-info" role="status" aria-live="polite">Weitere Ordner mit gleichem Namen:
         {% for other in selected.same_name %}

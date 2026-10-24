@@ -86,6 +86,25 @@ def activate_smart_folder():
     return redirect(url_for("documents.smart_folder_view", folder=folder))
 
 
+@bp.post("/smart-folders/previews")
+@login_required
+def set_smart_folder_previews():
+    folder = request.form.get("folder", "")
+    try:
+        _smart_views().set_preview_documents(
+            folder,
+            request.form.getlist("document_ids"),
+            str(g.user["username"]),
+        )
+        flash("Sammelordner-Vorschau gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except (OSError, RuntimeError) as exc:
+        current_app.logger.warning("Smart folder preview selection failed: %s", type(exc).__name__)
+        flash("Sammelordner-Vorschau konnte nicht gespeichert werden.")
+    return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
 @bp.get("/smart-folders/merge-preview")
 @login_required
 def smart_folder_merge_preview():

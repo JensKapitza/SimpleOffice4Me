@@ -214,6 +214,32 @@ class SmartFolderViewsTest(unittest.TestCase):
                 views.merge_assignments("a/Telegram", "b/Telegram", "admin")
             self.assertEqual(1, views.view("a/Telegram")["count"])
 
+    def test_preview_selection_is_limited_to_supported_sizes_and_folder_members(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            folder = root / "imports" / "Telegram"
+            folder.mkdir(parents=True)
+            for index in range(6):
+                (folder / f"photo-{index}.jpg").write_bytes(f"photo-{index}".encode())
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            views.activate("imports/Telegram", "admin")
+            document_ids = [item["document_id"] for item in views.view("imports/Telegram")["members"]]
+
+            views.set_preview_documents("imports/Telegram", document_ids[:4], "admin")
+
+            self.assertEqual(document_ids[:4], views.view("imports/Telegram")["preview_document_ids"])
+            self.assertEqual(4, len(views.view("imports/Telegram")["preview_members"]))
+            with self.assertRaisesRegex(ValueError, "1, 4 oder 6"):
+                views.set_preview_documents("imports/Telegram", document_ids[:2], "admin")
+            with self.assertRaisesRegex(ValueError, "gehören"):
+                views.set_preview_documents(
+                    "imports/Telegram", [*document_ids[:3], "not-a-member"], "admin",
+                )
+            views.set_preview_documents("imports/Telegram", [], "admin")
+            self.assertEqual([], views.view("imports/Telegram")["preview_document_ids"])
+
     def test_invalid_folder_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
             views = SmartFolderViews(DocumentStore(Path(temp)), "admin")
