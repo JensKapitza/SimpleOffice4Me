@@ -27,11 +27,16 @@ class NetworkSettingsTests(unittest.TestCase):
             self.assertIn("stop", row["capabilities"])
             form = {"mode": "integrated", "enabled": "1", "autostart": "1",
                     "rsync_enabled": "1",
+                    "max_bytes": "1048576",
                     "bind": "::1", "port": "2233.5", "system_port": "22"}
             self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
             self.assertEqual("2233.5", render.call_args.kwargs["service"]["settings"]["port"])
             self.assertEqual('{"mode": [], "port": null}', path.read_text(encoding="utf-8"))
             form["port"] = "2233"
+            form["max_bytes"] = "8589934593"
+            self.assertEqual(400, self.client.post(url, data=form, headers=self.headers).status_code)
+            self.assertEqual('{"mode": [], "port": null}', path.read_text(encoding="utf-8"))
+            form["max_bytes"] = "1048576"
             self.assertEqual(403, self.client.post(url, data=form).status_code)
             self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
             saved = settings()
@@ -40,6 +45,17 @@ class NetworkSettingsTests(unittest.TestCase):
             self.assertTrue(saved["enabled"])
             self.assertTrue(saved["autostart"])
             self.assertTrue(saved["rsync_enabled"])
+            self.assertEqual(1048576, saved["max_bytes"])
+            old_form = {key: value for key, value in form.items() if key != "max_bytes"}
+            old_form["port"] = "2234"
+            self.assertEqual(302, self.client.post(url, data=old_form, headers=self.headers).status_code)
+            self.assertEqual(1048576, settings()["max_bytes"])
+            form["max_bytes"] = "2097152"
+            self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
+            self.assertEqual(2097152, settings()["max_bytes"])
+            form["reset_max_bytes"] = "1"
+            self.assertEqual(302, self.client.post(url, data=form, headers=self.headers).status_code)
+            self.assertEqual(512 * 1024 * 1024, settings()["max_bytes"])
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory()

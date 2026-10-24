@@ -117,7 +117,7 @@ def sftp():
 @bp.post("/sftp")
 @admin_required
 def sftp_save():
-    from .sftp_service import save_settings
+    from .sftp_service import DEFAULT_MAX_UPLOAD_BYTES, save_settings
     candidate = {"mode": request.form.get("mode", "integrated"),
                  "enabled": request.form.get("enabled") == "1",
                  "autostart": request.form.get("autostart") == "1",
@@ -125,6 +125,10 @@ def sftp_save():
                  "bind": request.form.get("bind", "127.0.0.1"),
                  "port": request.form.get("port", "2222"),
                  "system_port": request.form.get("system_port", "22")}
+    if "max_bytes" in request.form:
+        candidate["max_bytes"] = request.form.get("max_bytes", "")
+    if request.form.get("reset_max_bytes") == "1":
+        candidate["max_bytes"] = DEFAULT_MAX_UPLOAD_BYTES
     try:
         save_settings(candidate)
     except (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
