@@ -11,7 +11,7 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, db as database
-from app.finance_fints import FinTSAuthenticationRequired, FinTSUnavailable
+from app.finance_fints import FinTSAuthenticationRequired, FinTSFeatureUnavailable, FinTSUnavailable
 from app.finance_store import FinanceStore
 from app.finance_store import FINTS_CHALLENGE_TTL_SECONDS
 
@@ -81,6 +81,34 @@ class FinTSBalanceHttpTests(unittest.TestCase):
             headers=headers,
         )
 
+    def test_account_discovery_displays_read_capabilities_and_tan_methods_without_caching(self):
+        remote = {
+            "remote_account_id": "iban:DE02120300000000202051",
+            "iban": "DE02120300000000202051", "account_number": "202051",
+            "account_type": "Girokonto", "currency": "EUR",
+        }
+        capabilities = {
+            "read": {"balance": True, "transactions": False},
+            "accounts": {remote["remote_account_id"]: {"balance": True, "transactions": False}},
+            "tan_mechanisms": [{"security_function": "942", "name": "pushTAN",
+                                "version": 7, "tan_process": "2"}],
+            "current_tan_mechanism": "942",
+        }
+        url = self.url.rsplit("/", 1)[0] + "/discover"
+        with patch("app.finance_web.discover_accounts_with_capabilities", return_value=([remote], capabilities)) as discover:
+            response = self.client.post(
+                url, data={"pin": "request-pin"}, headers={"X-CSRF-Token": "f" * 40},
+            )
+
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Von der Bank gemeldete Lese- und TAN-Fähigkeiten", body)
+        self.assertIn("pushTAN", body)
+        self.assertIn("nicht unterstützt", body)
+        self.assertNotIn("request-pin", body)
+        self.assertEqual("no-store", response.headers["Cache-Control"])
+        discover.assert_called_once()
+
     def test_mapped_account_has_a_pin_only_read_balance_action(self):
         response = self.client.get("/documents/business/bookkeeping/finances")
         body = response.get_data(as_text=True)
@@ -124,6 +152,19 @@ class FinTSBalanceHttpTests(unittest.TestCase):
             response = self.post_balance()
         self.assertEqual(404, response.status_code)
         fetch.assert_not_called()
+
+    def test_unsupported_bank_balance_is_reported_as_a_capability_not_a_bad_pin(self):
+        with patch(
+            "app.finance_web.fetch_balance",
+            side_effect=FinTSFeatureUnavailable("Die Bank unterstützt den Lesezugriff auf Saldoabfrage für dieses Konto nicht."),
+        ) as fetch:
+            response = self.post_balance()
+        self.assertEqual(302, response.status_code)
+        fetch.assert_called_once()
+        with self.client.session_transaction() as session:
+            message = " ".join(str(item) for item in session.get("_flashes", []))
+        self.assertIn("unterstützt", message)
+        self.assertNotIn("PIN", message)
 
     def test_tan_challenge_is_reported_without_retrying_or_persisting_credentials(self):
         with patch(
