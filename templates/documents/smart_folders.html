@@ -27,6 +27,21 @@
         <p class="mb-0 small">Keine automatische Zusammenführung.</p>
       </div>
       {% endif %}
+      {% if selected.same_name %}
+      <form method="post" action="{{ url_for('documents.merge_smart_folders') }}" class="border rounded p-3 mb-3">
+        <h3 class="h6">Logische Ordnerzuordnungen zusammenführen</h3>
+        <input type="hidden" name="source" value="{{ selected.path }}">
+        <label for="merge-target" class="form-label">Ziel-Sammelordner auswählen</label>
+        <select id="merge-target" class="form-select mb-2" name="target" required>
+          <option value="">Ziel auswählen</option>
+          {% for other in selected.same_name %}<option value="{{ other.path }}">{{ other.path }}</option>{% endfor %}
+        </select>
+        <p class="small">Übernimmt logische Zuordnungen, Notizen und kompatible Extraktionsregeln. Bei Regelkonflikten wird abgebrochen. Originaldateien bleiben an ihrem Speicherort.</p>
+        <label class="form-label" for="merge-confirm">Zur Bestätigung ZUSAMMENFUEHREN eingeben</label>
+        <input id="merge-confirm" class="form-control mb-2" name="confirm" required pattern="ZUSAMMENFUEHREN">
+        <button type="submit" class="btn btn-outline-warning">Logische Fusion durchführen</button>
+      </form>
+      {% endif %}
       <form method="post" action="{{ url_for('documents.activate_smart_folder') }}" class="mb-3">
         <input type="hidden" name="folder" value="{{ selected.path }}">
         <label class="form-label" for="folder-notes">Sammelordner-Notizen</label>
