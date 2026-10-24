@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import csv
+import io
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
 
@@ -94,6 +97,56 @@ class SmartFolderViews:
             if folder not in paths:
                 paths.append(folder)
             self._save(data)
+
+    def save_rule(self, folder: str, name: str, field: str, actor: str) -> None:
+        """Save a bounded field extractor; no arbitrary Python or regex."""
+        folder = self.normalize(folder)
+        if not name.strip() or len(name) > 80 or not field.strip() or len(field) > 120:
+            raise ValueError("Ungültige Extraktionsregel")
+        self.view(folder)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.path.with_suffix(".lock")):
+            data = self._load()
+            entry = data["folders"].setdefault(folder, {"id": uuid4().hex, "created_by": actor})
+            entry.setdefault("rules", {})[name.strip()] = field.strip()
+            self._save(data)
+
+    def extract_rows(self, folder: str, *, max_files: int = 250, max_bytes: int = 1024 * 1024) -> list[dict]:
+        """Extract simple JSON keys, CSV columns and XML tags from local documents."""
+        folder = self.normalize(folder)
+        rules = self._load()["folders"].get(folder, {}).get("rules", {})
+        rows = []
+        for doc in self.view(folder)["members"][:max_files]:
+            path = str(doc.get("last_path") or "")
+            if path.startswith("[external]"):
+                continue
+            try:
+                from .safe_paths import resolve_file_under
+                source = resolve_file_under(self.store.root, path)
+                if source.stat().st_size > max_bytes:
+                    continue
+                content = source.read_text(encoding="utf-8-sig")
+                suffix = source.suffix.casefold()
+                if suffix == ".json":
+                    parsed = json.loads(content)
+                elif suffix == ".csv":
+                    parsed = next(iter(csv.DictReader(io.StringIO(content))), {})
+                elif suffix == ".xml":
+                    parsed = ET.fromstring(content)
+                else:
+                    continue
+                row = {"document_id": doc["document_id"], "path": path}
+                for name, field in rules.items():
+                    if suffix == ".xml":
+                        element = parsed.find(field) if field != "." else parsed
+                        value = element.text if element is not None else None
+                    else:
+                        value = parsed.get(field) if isinstance(parsed, dict) else None
+                    row[name] = str(value)[:2000] if value is not None else ""
+                rows.append(row)
+            except (OSError, ValueError, UnicodeError, ET.ParseError, json.JSONDecodeError, StopIteration):
+                continue
+        return rows
 
     def assigned_to(self, document_id: str) -> list[str]:
         return list(self._load()["assignments"].get(document_id, []))
