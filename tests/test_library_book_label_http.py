@@ -5,7 +5,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from flask import Flask, g, session
 
@@ -112,6 +112,55 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertTrue(response.json["found"])
         self.assertEqual(self.book_a["object_id"], response.json["item"]["object_id"])
+
+    def test_manual_barcode_prints_the_requested_bounded_number_of_copies(self):
+        library = Mock()
+        library.printer_settings.return_value = {"label": "62", "uri": "test://printer"}
+        with patch("app.library.printer_routes._store", return_value=library), \
+             patch("app.library.printer_routes.render_barcode", return_value=object()) as render, \
+             patch("app.library.printer_routes.print_image", return_value=128) as print_label:
+            response = self.client.post(
+                "/library/printer/print/barcode",
+                data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931", "copies": "3"},
+            )
+
+        self.assertEqual(302, response.status_code)
+        render.assert_called_once()
+        self.assertTrue(render.call_args.kwargs["scan_optimized"])
+        self.assertEqual(3, print_label.call_count)
+        self.assertEqual(3, library.record_print.call_count)
+
+    def test_manual_barcode_copy_count_outside_limit_never_reaches_printer(self):
+        library = Mock()
+        with patch("app.library.printer_routes._store", return_value=library), \
+             patch("app.library.printer_routes.render_barcode") as render, \
+             patch("app.library.printer_routes.print_image") as print_label:
+            response = self.client.post(
+                "/library/printer/print/barcode",
+                data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931", "copies": "101"},
+            )
+
+        self.assertEqual(302, response.status_code)
+        render.assert_not_called()
+        print_label.assert_not_called()
+        self.assertEqual(1, library.record_print.call_count)
+
+    def test_partial_barcode_copy_failure_reports_how_many_were_sent(self):
+        library = Mock()
+        library.printer_settings.return_value = {"label": "62", "uri": "test://printer"}
+        with patch("app.library.printer_routes._store", return_value=library), \
+             patch("app.library.printer_routes.render_barcode", return_value=object()), \
+             patch("app.library.printer_routes.print_image", side_effect=[128, OSError("printer unavailable")]) as print_label:
+            response = self.client.post(
+                "/library/printer/print/barcode",
+                data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931", "copies": "3"},
+            )
+
+        self.assertEqual(302, response.status_code)
+        self.assertEqual(2, print_label.call_count)
+        self.assertEqual(2, library.record_print.call_count)
+        with self.client.session_transaction() as state:
+            self.assertIn("1 von 3 Etiketten wurden bereits gesendet", state["_flashes"][-1][1])
 
     def test_non_book_selection_is_rejected_without_printer_output(self):
         response = self._post([self.device["object_id"]])

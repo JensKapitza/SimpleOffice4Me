@@ -1,9 +1,13 @@
 from __future__ import annotations
+import io
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
+from app.attachment_security import QuarantineCapacityError
 from app.v3_inbox import InboxStore
+from app.v3_inbox_web import begin_web_inbox_upload
 
 
 class V3InboxTests(unittest.TestCase):
@@ -49,6 +53,32 @@ class V3InboxTests(unittest.TestCase):
         self.store.begin("web","1","a.txt","alice")
         self.store.begin("s3","2","b.txt","alice")
         self.assertEqual(1,len(self.store.list(source="s3",limit=9999)))
+
+    def test_web_upload_scan_failures_report_service_unavailable(self):
+        class Uploaded:
+            filename = "photo.jpg"
+            mimetype = "image/jpeg"
+
+            def __init__(self):
+                self.stream = io.BytesIO(b"image bytes")
+
+        for failure in (QuarantineCapacityError(), OSError("scanner unavailable")):
+            with self.subTest(failure=type(failure).__name__), patch(
+                "app.v3_inbox_web.v3_capability_enabled", return_value=True
+            ), patch(
+                "app.attachment_security.AttachmentSecurity.scan_webdav_upload",
+                side_effect=failure,
+            ):
+                result = begin_web_inbox_upload({
+                    "DOCUMENT_ROOT": str(self.root),
+                    "WEBDAV_UPLOAD_SCAN": True,
+                    "WEBDAV_QUARANTINE_BYTES": 1024,
+                }, Uploaded(), "alice", f"photo-{type(failure).__name__}")
+
+                self.assertEqual(503, result["error_status"])
+                self.assertTrue(result["error"])
+                saved = self.store.get(result["item"].item_id)
+                self.assertEqual("failed", saved.status)
 
 
 if __name__=="__main__":
