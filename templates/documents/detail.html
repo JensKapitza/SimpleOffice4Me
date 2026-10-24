@@ -61,6 +61,9 @@
     <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Dokumentvorschau: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
     {% elif preview.kind == 'text' and preview.text %}
     <pre class="text-start bg-body-tertiary border rounded p-3 mb-0 text-break" style="max-height:55vh;overflow:auto;white-space:pre-wrap">{{ preview.text }}</pre>
+    {% if preview.text_truncated %}<p class="small text-secondary mt-2 mb-0">Die Vorschau ist aus Sicherheitsgründen auf 300 Zeilen und 12.000 Zeichen begrenzt. Das Original bleibt vollständig verfügbar.</p>{% endif %}
+    {% elif preview.kind == 'text' %}
+    <p class="text-secondary mb-0" role="status">{% if preview.text_status == 'too_large' %}Die Textdatei überschreitet das Vorschau-Limit von 256 KiB.{% elif preview.text_status in ['binary', 'encoding'] %}Die Datei ist kein unterstützter UTF-8-Text und wird nicht inline dargestellt.{% elif preview.text_status == 'empty' %}Die Textdatei ist leer.{% else %}Die Textvorschau ist derzeit nicht verfügbar.{% endif %} Das Original kann sicher geöffnet oder heruntergeladen werden.</p>
     {% else %}
     <div class="d-flex align-items-center gap-3 text-secondary" role="status">
       <i class="fas {{ preview.icon }} fa-3x" aria-hidden="true"></i>

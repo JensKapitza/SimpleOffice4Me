@@ -82,7 +82,36 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
         self.assertEqual("ready", preview.get("status"))
         self.store.set_preview_metadata(image["document_id"], preview)
         unknown = self._add_document("imports/archive.unknown", b"opaque payload")
-        return {"video": video, "audio": audio, "pdf": pdf, "image": image, "unknown": unknown}
+        text = self._add_document(
+            "imports/notes.md",
+            b"# Plain text\n<script>window.previewAttack = true</script>",
+        )
+        html = self._add_document(
+            "imports/untrusted.html",
+            b"<script>window.htmlPreviewAttack = true</script><p>Not executable</p>",
+        )
+        svg = self._add_document(
+            "imports/untrusted.svg",
+            b'<svg xmlns="http://www.w3.org/2000/svg"><script>window.svgPreviewAttack = true</script></svg>',
+        )
+        binary_text = self._add_document("imports/binary.txt", b"\x00\xff\x00")
+        invalid_text = self._add_document("imports/invalid-encoding.txt", b"\xff\xfe")
+        large_text = self._add_document("imports/large.json", b"x" * (256 * 1024 + 1))
+        long_text = self._add_document("imports/long.csv", b"row\n" * 301)
+        return {
+            "video": video,
+            "audio": audio,
+            "pdf": pdf,
+            "image": image,
+            "unknown": unknown,
+            "text": text,
+            "html": html,
+            "svg": svg,
+            "binary_text": binary_text,
+            "invalid_text": invalid_text,
+            "large_text": large_text,
+            "long_text": long_text,
+        }
 
     def test_media_preview_controls_fallbacks_and_long_paths_on_desktop_and_mobile(self):
         from playwright.sync_api import sync_playwright
@@ -156,6 +185,48 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             self.assertEqual(0, unknown_panel.locator("img, video, audio, iframe").count())
             self.assertTrue(unknown_panel.locator("i.fa-file").is_visible())
             self.assertTrue(unknown_panel.locator("a[download]").is_visible())
+
+            text_document = self.documents["text"]
+            page.goto(f"{self.base_url}/documents/{text_document['document_id']}")
+            text_panel = page.locator("#document-preview")
+            text_preview = text_panel.locator("pre")
+            self.assertTrue(text_preview.is_visible())
+            self.assertIn("# Plain text", text_preview.inner_text())
+            self.assertIn("<script>window.previewAttack = true</script>", text_preview.inner_text())
+            self.assertEqual(0, text_panel.locator("script").count())
+            self.assertFalse(page.evaluate("window.previewAttack === true"))
+
+            for key, script, global_name in (
+                ("html", "window.htmlPreviewAttack = true", "htmlPreviewAttack"),
+                ("svg", "window.svgPreviewAttack = true", "svgPreviewAttack"),
+            ):
+                active_document = self.documents[key]
+                page.goto(f"{self.base_url}/documents/{active_document['document_id']}")
+                active_panel = page.locator("#document-preview")
+                active_text = active_panel.locator("pre").inner_text()
+                self.assertIn(script, active_text)
+                self.assertEqual(0, active_panel.locator("script, svg").count())
+                self.assertFalse(page.evaluate(f"window.{global_name} === true"))
+
+            binary_document = self.documents["binary_text"]
+            page.goto(f"{self.base_url}/documents/{binary_document['document_id']}")
+            self.assertEqual(0, page.locator("#document-preview pre").count())
+            self.assertIn("kein unterstützter UTF-8-Text", page.locator("#document-preview").inner_text())
+
+            invalid_document = self.documents["invalid_text"]
+            page.goto(f"{self.base_url}/documents/{invalid_document['document_id']}")
+            self.assertEqual(0, page.locator("#document-preview pre").count())
+            self.assertIn("kein unterstützter UTF-8-Text", page.locator("#document-preview").inner_text())
+
+            large_document = self.documents["large_text"]
+            page.goto(f"{self.base_url}/documents/{large_document['document_id']}")
+            self.assertEqual(0, page.locator("#document-preview pre").count())
+            self.assertIn("256 KiB", page.locator("#document-preview").inner_text())
+
+            long_document = self.documents["long_text"]
+            page.goto(f"{self.base_url}/documents/{long_document['document_id']}")
+            self.assertEqual(300, len(page.locator("#document-preview pre").inner_text().splitlines()))
+            self.assertIn("300 Zeilen", page.locator("#document-preview").inner_text())
         finally:
             context.close()
             browser.close()
