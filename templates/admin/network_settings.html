@@ -11,6 +11,7 @@
       <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
       <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
       <a class="nav-link active" href="{{ url_for('admin.network_settings') }}" aria-current="page">Netzwerk &amp; Synchronisation</a>
+      <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">Integrationen &amp; Dienste</a>
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}

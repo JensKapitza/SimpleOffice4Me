@@ -19,6 +19,7 @@ from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .settings_store import (
     DEFAULT_SETTINGS,
+    MAX_OSM_READ_TIMEOUT_SECONDS,
     MAX_PREVIEW_MAX_BYTES,
     MAX_PREVIEW_MAX_PIXELS,
     MAX_PREVIEW_TIMEOUT_SECONDS,
@@ -28,6 +29,7 @@ from .settings_store import (
     MIN_PREVIEW_MAX_PIXELS,
     MIN_PREVIEW_TIMEOUT_SECONDS,
     MIN_VIDEO_PREVIEW_FRAMES,
+    MIN_OSM_READ_TIMEOUT_SECONDS,
     SettingsStore,
 )
 from .system_identity import system_info
@@ -438,8 +440,23 @@ def documents_media_settings():
 @bp.get("/settings/network")
 @admin_required
 def network_settings():
-    network = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["network"]
-    return render_template("admin/network_settings.html", network=network)
+    settings = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()
+    return render_template(
+        "admin/network_settings.html",
+        network=settings["network"],
+    )
+
+
+@bp.get("/settings/integrations")
+@admin_required
+def integration_settings():
+    integrations = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()[
+        "integrations"
+    ]
+    return render_template(
+        "admin/integration_settings.html",
+        integrations=integrations,
+    )
 
 
 @bp.post("/settings/network")
@@ -473,6 +490,46 @@ def save_network_settings():
         current_app.logger.warning("Network settings save failed: %s", type(exc).__name__)
         flash("Netzwerk-Einstellungen konnten nicht gespeichert werden.")
     return redirect(url_for("admin.network_settings"))
+
+
+@bp.post("/settings/integrations/osm")
+@admin_required
+def save_osm_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        raw = str(DEFAULT_SETTINGS["integrations"]["osm_download_read_timeout_seconds"])
+        if not reset_defaults:
+            raw = request.form.get("osm_download_read_timeout_seconds", "")
+        if (
+            not raw.isascii()
+            or not raw.isdigit()
+            or len(raw) > len(str(MAX_OSM_READ_TIMEOUT_SECONDS))
+        ):
+            raise ValueError("Bitte einen ganzzahligen OSM-Lese-Timeout eingeben.")
+        timeout = int(raw)
+        if not MIN_OSM_READ_TIMEOUT_SECONDS <= timeout <= MAX_OSM_READ_TIMEOUT_SECONDS:
+            raise ValueError("Der OSM-Lese-Timeout muss zwischen 30 und 3600 Sekunden liegen.")
+        integrations = {"osm_download_read_timeout_seconds": timeout}
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"integrations": integrations}, str(g.user["username"]),
+        )
+        audit(
+            "osm_download_settings_updated",
+            "settings",
+            "integrations.osm_download_read_timeout_seconds",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "OSM-Download-Einstellungen auf Standard zurückgesetzt."
+            if reset_defaults else "OSM-Download-Einstellungen gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("OSM setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("OSM settings save failed: %s", type(exc).__name__)
+        flash("OSM-Download-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
 
 
 @bp.post("/settings/documents-media")
