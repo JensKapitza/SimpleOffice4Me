@@ -5,9 +5,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from app.osm_address import LocalAddressIndex, _remote_total, field_suggestions, human_bytes, unique_candidate
+from app.settings_store import SettingsStore
 
 
 class _Headers(dict):
@@ -132,6 +133,58 @@ class OsmAddressTests(unittest.TestCase):
             status = index.status()
             self.assertEqual("retrying", status["state"])
             self.assertEqual(50.0, status["progress_percent"])
+
+    def test_legacy_osm_timeout_is_migrated_and_persisted_value_wins(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": "900"}):
+                self.assertEqual(
+                    900,
+                    store.settings()["integrations"]["osm_download_read_timeout_seconds"],
+                )
+                store.save({"network": {"webdav_quota_mib": 0}}, "osm-test-admin")
+
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": "600"}):
+                self.assertEqual(
+                    900,
+                    store.settings()["integrations"]["osm_download_read_timeout_seconds"],
+                )
+
+    def test_legacy_osm_timeout_is_clamped_or_defaults_for_invalid_input(self):
+        expectations = {"10": 30, "7200": 3600, "--5": 300, "invalid": 300, "9" * 13: 300}
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": raw}):
+                    timeout = SettingsStore(root).settings()["integrations"][
+                        "osm_download_read_timeout_seconds"
+                    ]
+                self.assertEqual(expected, timeout)
+
+    def test_download_uses_persisted_osm_read_timeout(self):
+        with tempfile.TemporaryDirectory() as root:
+            timeout = 420
+            SettingsStore(root).save(
+                {"integrations": {"osm_download_read_timeout_seconds": timeout}},
+                "osm-test-admin",
+            )
+            index = LocalAddressIndex(Path(root))
+            response = MagicMock()
+            response.__enter__.return_value = response
+            response.__exit__.return_value = False
+            response.status = 200
+            response.getcode.return_value = 200
+            response.headers = {"Content-Length": "2048"}
+            response.read.side_effect = [b"x" * 2048, b""]
+
+            with patch.object(
+                index, "region_info", return_value={"bytes": 2048, "last_modified": ""},
+            ), patch(
+                "app.osm_address_storage._open_geofabrik", return_value=response,
+            ) as open_source:
+                target = index.download_region("germany")
+
+            self.assertEqual(2048, target.stat().st_size)
+            self.assertEqual(timeout, open_source.call_args.kwargs["timeout"])
 
     def test_existing_download_can_be_reindexed_without_network(self):
         with tempfile.TemporaryDirectory() as root:
