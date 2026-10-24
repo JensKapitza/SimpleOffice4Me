@@ -106,16 +106,29 @@
       {% endif %}
       {% if selected.preview_members %}
       <section class="mb-3" aria-label="Sammelordner-Vorschau">
-        <h3 class="h5">Ausgewählte Vorschau ({{ selected.preview_members|length }})</h3>
-        <div class="row g-2">
-          {% for doc in selected.preview_members %}<div class="col-6 col-md-4">
-            <a class="d-block border rounded p-2 h-100 text-decoration-none" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
-              {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async">
-              {% else %}<span class="d-block text-secondary py-3" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
-              <span class="small text-break">{{ doc.last_path }}</span>
-            </a>
-          </div>{% endfor %}
-        </div>
+        <h3 class="h5">Vorschaunavigation ({{ selected.preview_members|length }} ausgewählt)</h3>
+        {% set current_preview = selected.current_preview %}
+        <a class="d-block border rounded p-3 text-decoration-none" href="{{ url_for('documents.detail', document_id=current_preview.document_id) }}">
+          {% if current_preview.preview and current_preview.preview.status == 'ready' %}<img class="img-fluid d-block mx-auto" src="{{ url_for('documents.document_thumbnail', document_id=current_preview.document_id) }}" alt="Vorschau: {{ current_preview.last_path }}" loading="lazy" decoding="async">
+          {% else %}<span class="d-block text-secondary text-center py-4" aria-hidden="true"><i class="fas fa-file fa-2x"></i></span>{% endif %}
+          <span class="d-block small text-break mt-2">{{ current_preview.last_path }}</span>
+        </a>
+        <nav class="d-flex justify-content-between align-items-center mt-2" aria-label="Vorschaunavigation">
+          {% if selected.preview_index > 0 %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index - 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">Vorheriges Bild</a>{% else %}<span></span>{% endif %}
+          <span class="small">Bild {{ selected.preview_index + 1 }} / {{ selected.preview_members|length }}</span>
+          {% if selected.preview_index + 1 < selected.preview_members|length %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index + 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">Nächstes Bild</a>{% else %}<span></span>{% endif %}
+        </nav>
+        <details class="mt-2"><summary>Alle ausgewählten Vorschaubilder anzeigen</summary>
+          <div class="row g-2 mt-1">
+            {% for doc in selected.preview_members %}<div class="col-6 col-md-4">
+              <a class="d-block border rounded p-2 h-100 text-decoration-none" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=loop.index0, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">
+                {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async">
+                {% else %}<span class="d-block text-secondary py-3" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
+                <span class="small text-break">{{ doc.last_path }}</span>
+              </a>
+            </div>{% endfor %}
+          </div>
+        </details>
       </section>
       {% endif %}
       {% if selected.active %}

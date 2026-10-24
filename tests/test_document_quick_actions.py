@@ -339,6 +339,29 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertIn("1 Aufgaben aus der Quelle", body)
         self.assertIn("Quellaufgabe", body)
 
+    def test_smart_folder_preview_navigation_stays_within_selected_items(self):
+        folder = self.root / "imports" / "batch" / "Telegram"
+        folder.mkdir(parents=True)
+        for index in range(4):
+            (folder / f"record-{index}.txt").write_text(str(index), encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/batch/Telegram", "jens")
+        document_ids = [doc["document_id"] for doc in views.view("imports/batch/Telegram")["members"]]
+        views.set_preview_documents("imports/batch/Telegram", document_ids, "jens")
+
+        response = self.client.get(
+            "/documents/smart-folders/view",
+            query_string={"folder": "imports/batch/Telegram", "preview_index": "2"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Bild 3 / 4", body)
+        self.assertIn("preview_index=1", body)
+        self.assertIn("preview_index=3", body)
+
     def test_smart_folder_batch_is_queued_and_status_is_principal_scoped(self):
         folder = self.root / "imports" / "batch" / "Telegram"
         folder.mkdir(parents=True)

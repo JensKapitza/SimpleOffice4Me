@@ -58,9 +58,11 @@ Der CSV-Export escaped Formelzellen, wird als `text/csv` mit `nosniff` und
 Dokumente/Ansichten des angemeldeten Benutzers.
 
 Aktivierte Sammelordner können 1, 4 oder 6 vorhandene Dokumente für eine
-persistente Vorschauraster-Auswahl markieren. Die Auswahl referenziert nur
-Dokument-IDs; Vorschaudateien bleiben die bestehenden hashgebundenen privaten
-Dokument-Caches. Die Auswahloberfläche zeigt höchstens die ersten 200 Mitglieder.
+persistente Vorschauraster-Auswahl markieren. Eine barrierearme Vor/Zurück-
+Navigation öffnet jedes ausgewählte Dokument; die Rasteransicht bleibt zusätzlich
+verfügbar. Die Auswahl referenziert nur Dokument-IDs; Vorschaudateien bleiben die
+bestehenden hashgebundenen privaten Dokument-Caches. Die Auswahloberfläche zeigt
+höchstens die ersten 200 Mitglieder.
 
 Für ausgewählte Mitglieder kann die optionale V3-Warteschlange Vorschauen und/
 oder OCR/Texterkennung neu erzeugen. Jobs sind pro Benutzer auf zwei aktive und

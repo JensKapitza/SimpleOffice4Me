@@ -89,6 +89,18 @@ def smart_folder_view():
         selected = views.view(folder, folders)
     except ValueError:
         abort(404)
+    try:
+        preview_index = int(request.args.get("preview_index", "0"))
+    except (TypeError, ValueError):
+        preview_index = 0
+    preview_members = selected["preview_members"]
+    selected["preview_index"] = (
+        max(0, min(preview_index, len(preview_members) - 1))
+        if preview_members else 0
+    )
+    selected["current_preview"] = (
+        preview_members[selected["preview_index"]] if preview_members else None
+    )
     rules = views.rules_for(selected["path"])
     try:
         rows = views.extract_rows(selected["path"]) if rules else []
