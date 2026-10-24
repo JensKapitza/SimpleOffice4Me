@@ -73,12 +73,16 @@ class SmartFolderViewsTest(unittest.TestCase):
             views = SmartFolderViews(store)
             views.activate("a/Telegram", "admin", "Notiz aus Quelle")
             views.save_rule("a/Telegram", "Beleg", "invoice", "admin")
+            preview = views.merge_preview("a/Telegram", "b/Telegram")
+            self.assertEqual(["Beleg"], preview["source_rules"])
+            self.assertEqual(1, len(preview["source_paths"]))
             result = views.merge_assignments("a/Telegram", "b/Telegram", "admin")
             self.assertEqual(1, result["documents"])
             self.assertEqual(2, views.view("b/Telegram")["count"])
             metadata = views._load()["folders"]["b/Telegram"]
             self.assertEqual("invoice", metadata["rules"]["Beleg"])
             self.assertEqual("Notiz aus Quelle", metadata["merged_notes"][0]["text"])
+            self.assertTrue(metadata["merged_notes"][0]["at"])
             self.assertTrue((root / "a/Telegram/record.json").exists())
 
     def test_conflicting_rules_prevent_merge(self):
