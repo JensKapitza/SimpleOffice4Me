@@ -87,15 +87,21 @@ class FederationResourceEndpointTest(unittest.TestCase):
 
     def test_task_export_and_import_keep_uid_and_newer_sequence(self):
         store = TodoStore(self.root)
-        created = store.add("Pruefen", "alice", {"uid": "task-1@example.test", "sequence": 1, "description": "alt"})
+        created = store.add(
+            "Pruefen", "alice",
+            {"uid": "task-1@example.test", "sequence": 1, "description": "alt"},
+            smart_folder_id="a" * 32,
+        )
         exported = self.client.get("/federation/v1/resources/tasks/alice/export.json")
         self.assertEqual(200, exported.status_code)
         payload = exported.get_json()
         self.assertEqual("sofp-tasks/v1", payload["schema"])
         self.assertEqual("task-1@example.test", payload["tasks"][0]["uid"])
+        self.assertNotIn("smart_folder_id", payload["tasks"][0])
 
         payload["tasks"][0]["sequence"] = 2
         payload["tasks"][0]["description"] = "neu"
+        payload["tasks"][0]["smart_folder_id"] = "b" * 32
         imported = self.client.post(
             "/federation/v1/resources/tasks/alice/import.json",
             data=json.dumps(payload),
@@ -105,6 +111,7 @@ class FederationResourceEndpointTest(unittest.TestCase):
         self.assertEqual(1, imported.get_json()["updated"])
         current = next(item for item in TodoStore(self.root).items("alice") if item["id"] == created["id"])
         self.assertEqual("neu", current["description"])
+        self.assertEqual("a" * 32, current["smart_folder_id"])
 
     def test_calendar_roundtrip_endpoint(self):
         body = "\r\n".join([

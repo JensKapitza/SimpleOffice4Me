@@ -342,7 +342,11 @@ def export_tasks(owner: str):
     if not owner:
         return jsonify({"error": "owner_required"}), 400
     rows = TodoStore(current_app.config["DOCUMENT_ROOT"]).items(owner)
-    body = json.dumps({"schema": "sofp-tasks/v1", "owner": owner, "tasks": rows}, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    portable_rows = [
+        {key: value for key, value in row.items() if key != "smart_folder_id"}
+        for row in rows
+    ]
+    body = json.dumps({"schema": "sofp-tasks/v1", "owner": owner, "tasks": portable_rows}, ensure_ascii=False, sort_keys=True).encode("utf-8")
     if len(body) > MAX_RESOURCE_BYTES:
         return jsonify({"error": "payload_too_large"}), 413
     return Response(body, 200, {"Content-Type": "application/json; charset=utf-8", "X-Federation-Resource": "tasks"})
@@ -370,6 +374,7 @@ def import_tasks(owner: str):
             current = by_uid.get(uid)
             values = dict(incoming)
             values.pop("id", None)
+            values.pop("smart_folder_id", None)
             values["uid"] = uid
             if current:
                 if int(incoming.get("sequence", 0)) > int(current.get("sequence", 0)):

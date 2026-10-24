@@ -12,8 +12,11 @@ from app import app
 from app.attachment_security import ScanResult
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
+from app.smart_folder_views import SmartFolderViews
 from app.contact_store import ContactStore
 from app.object_store import ObjectStore
+from app.todo_store import TodoStore
+from app.v3_jobs import JobStore, JobWorker, default_handlers
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 
 
@@ -134,6 +137,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
         imported = []
         failed = []
         completed = []
+        provenance = []
 
         class FakeStorage:
             def import_stream_at(self, location, stream, *, max_bytes):
@@ -153,6 +157,10 @@ class DocumentQuickActionsTest(unittest.TestCase):
             def get_document(document_id):
                 return {"document_id": document_id}
 
+            @staticmethod
+            def update_metadata(document_id, *, attributes, author):
+                provenance.append((document_id, attributes, author))
+
         class FakeSettings:
             @staticmethod
             def settings():
@@ -167,10 +175,12 @@ class DocumentQuickActionsTest(unittest.TestCase):
         form = MultiDict([
             ("folder_import", "1"),
             ("relative_paths", json.dumps([
-                "selected-root/level-one/good.txt",
-                "second-root/level-one/rejected.txt",
+                "source-a/Telegram/good.txt",
+                "source-a/Telegram/other.txt",
+                "source-b/Telegram/rejected.txt",
             ])),
             ("files", (io.BytesIO(b"keep me"), "good.txt")),
+            ("files", (io.BytesIO(b"same folder"), "other.txt")),
             ("files", (io.BytesIO(b"reject me"), "rejected.txt")),
         ])
         with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), \
@@ -183,15 +193,22 @@ class DocumentQuickActionsTest(unittest.TestCase):
 
         self.assertEqual(302, response.status_code)
         self.assertTrue(imported[0][0].startswith("imports/"))
-        self.assertTrue(imported[0][0].endswith("/selected-root/level-one/good.txt"))
+        self.assertTrue(imported[0][0].endswith("/source-a/Telegram/good.txt"))
         self.assertEqual(b"keep me", imported[0][1])
-        self.assertEqual(2, len(imported))
-        self.assertEqual(1, len(completed))
+        self.assertEqual(3, len(imported))
+        self.assertEqual(2, len(completed))
         self.assertEqual(1, len(failed))
+        self.assertEqual(2, len(provenance))
+        first_origin = provenance[0][1]["folder_import_origin"]
+        second_origin = provenance[1][1]["folder_import_origin"]
+        self.assertEqual("source-a/Telegram", first_origin["source_path"])
+        self.assertEqual(first_origin["import_id"], second_origin["import_id"])
+        self.assertEqual(first_origin["folder_id"], second_origin["folder_id"])
+        self.assertEqual("jens", provenance[0][2])
         with self.client.session_transaction() as session:
             messages = [message for _category, message in session.get("_flashes", [])]
         self.assertTrue(any("simulated failure" in message for message in messages))
-        self.assertTrue(any("1 Datei(en) vollständig" in message for message in messages))
+        self.assertTrue(any("2 Datei(en) vollständig" in message for message in messages))
 
     def test_folder_upload_persists_nested_file_in_storageport(self):
         form = MultiDict([
@@ -219,6 +236,221 @@ class DocumentQuickActionsTest(unittest.TestCase):
         )
         self.assertTrue(document["last_path"].endswith("/selected-root/nested/actual.txt"))
         self.assertEqual(b"persisted folder content", (self.root / document["last_path"]).read_bytes())
+        origin = document["attributes"]["folder_import_origin"]
+        self.assertEqual("selected-root/nested", origin["source_path"])
+        origin_view = f"imports/{origin['import_id']}/{origin['source_path']}"
+        self.assertEqual(1, SmartFolderViews(DocumentStore(self.root), "jens").view(origin_view)["count"])
+        detail = self.client.get(f"/documents/{document['document_id']}")
+        self.assertEqual(200, detail.status_code)
+        self.assertIn("Ursprungsordner: nested", detail.get_data(as_text=True))
+        self.assertIn("assign_document_id", detail.get_data(as_text=True))
+        self.assertIn("move_document_id", detail.get_data(as_text=True))
+        picker = self.client.get(
+            "/documents/smart-folders",
+            query_string={"assign_document_id": document["document_id"]},
+        )
+        self.assertEqual(200, picker.status_code)
+        view = self.client.get(
+            "/documents/smart-folders/view",
+            query_string={
+                "folder": origin_view,
+                "assign_document_id": document["document_id"],
+            },
+        )
+        self.assertEqual(200, view.status_code)
+        self.assertIn("Dokument logisch zuordnen", view.get_data(as_text=True))
+
+        archive = self.root / "archive"
+        archive.mkdir()
+        (archive / "existing.txt").write_text("existing", encoding="utf-8")
+        DocumentStore(self.root).scan()
+        move_picker = self.client.get(
+            "/documents/smart-folders/view",
+            query_string={
+                "folder": "archive",
+                "move_document_id": document["document_id"],
+            },
+        )
+        self.assertEqual(200, move_picker.status_code)
+        move_text = BeautifulSoup(
+            move_picker.get_data(as_text=True), "html.parser"
+        ).get_text(" ", strip=True)
+        self.assertIn("Physischer Zielpfad:", move_text)
+        self.assertIn("archive/actual.txt", move_text)
+
+        moved = self.client.post(
+            f"/documents/{document['document_id']}/move",
+            data={"destination_folder": "archive"},
+            follow_redirects=True,
+        )
+        self.assertEqual(200, moved.status_code)
+        moved_document = DocumentStore(self.root).get_document(document["document_id"])
+        self.assertEqual("archive/actual.txt", moved_document["last_path"])
+        self.assertEqual(
+            1,
+            SmartFolderViews(DocumentStore(self.root), "jens").view(origin_view)["count"],
+        )
+
+    def test_smart_folder_task_route_links_task_to_activated_folder(self):
+        folder = self.root / "imports" / "batch" / "Telegram"
+        folder.mkdir(parents=True)
+        (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/batch/Telegram", "jens")
+        folder_id = views.folder_task_id("imports/batch/Telegram", "jens")
+
+        response = self.client.post(
+            "/documents/smart-folders/task",
+            data={
+                "folder": "imports/batch/Telegram",
+                "title": "Telegram-Belege prüfen",
+                "description": "Stichprobe kontrollieren",
+            },
+        )
+
+        self.assertEqual(302, response.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("Telegram-Belege prüfen", task["title"])
+        self.assertEqual(folder_id, task["smart_folder_id"])
+
+    def test_smart_folder_merge_preview_includes_source_task_impact(self):
+        for relative in ("imports/source/Telegram", "imports/target/Telegram"):
+            folder = self.root / relative
+            folder.mkdir(parents=True)
+            (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/source/Telegram", "jens", "Quellnotiz behalten")
+        views.activate("imports/target/Telegram", "jens")
+        views.save_rule("imports/source/Telegram", "Kennung", "id", "jens")
+        source_id = views.folder_task_id("imports/source/Telegram", "jens")
+        TodoStore(self.root).add(
+            "Quellaufgabe", "jens", smart_folder_id=source_id,
+        )
+
+        response = self.client.get(
+            "/documents/smart-folders/merge-preview",
+            query_string={
+                "source": "imports/source/Telegram",
+                "target": "imports/target/Telegram",
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("1 Aufgaben aus der Quelle", body)
+        self.assertIn("Quellaufgabe", body)
+        self.assertIn("Quellnotiz behalten", body)
+        self.assertIn("Kennung", body)
+        self.assertIn("nicht auf andere Benutzer erweitert", body)
+
+    def test_smart_folder_merge_requires_fresh_task_impact_confirmation(self):
+        for relative in ("imports/source/Telegram", "imports/target/Telegram"):
+            folder = self.root / relative
+            folder.mkdir(parents=True)
+            (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/source/Telegram", "jens")
+        views.activate("imports/target/Telegram", "jens")
+        source_id = views.folder_task_id("imports/source/Telegram", "jens")
+        TodoStore(self.root).add("Aufgabe vor Vorschau", "jens", smart_folder_id=source_id)
+        preview = self.client.get(
+            "/documents/smart-folders/merge-preview",
+            query_string={
+                "source": "imports/source/Telegram",
+                "target": "imports/target/Telegram",
+            },
+        )
+        self.assertIn("no-store", preview.headers["Cache-Control"])
+        soup = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
+        form = soup.find("form", action="/documents/smart-folders/merge")
+        self.assertIsNotNone(form)
+        values = {
+            field.get("name"): field.get("value", "")
+            for field in form.find_all("input")
+        }
+        values["confirm"] = "ZUSAMMENFUEHREN"
+        TodoStore(self.root).add("Aufgabe nach Vorschau", "jens", smart_folder_id=source_id)
+
+        response = self.client.post("/documents/smart-folders/merge", data=values)
+
+        self.assertEqual(302, response.status_code)
+        self.assertIn("merge-preview", response.headers["Location"])
+        self.assertEqual(1, len(views.view("imports/source/Telegram")["members"]))
+        self.assertEqual(2, len(TodoStore(self.root).items("jens")))
+
+    def test_smart_folder_preview_navigation_stays_within_selected_items(self):
+        folder = self.root / "imports" / "batch" / "Telegram"
+        folder.mkdir(parents=True)
+        for index in range(4):
+            (folder / f"record-{index}.txt").write_text(str(index), encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/batch/Telegram", "jens")
+        document_ids = [doc["document_id"] for doc in views.view("imports/batch/Telegram")["members"]]
+        views.set_preview_documents("imports/batch/Telegram", document_ids, "jens")
+
+        response = self.client.get(
+            "/documents/smart-folders/view",
+            query_string={"folder": "imports/batch/Telegram", "preview_index": "2"},
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Bild 3 / 4", body)
+        self.assertIn("preview_index=1", body)
+        self.assertIn("preview_index=3", body)
+
+    def test_smart_folder_batch_is_queued_and_status_is_principal_scoped(self):
+        folder = self.root / "imports" / "batch" / "Telegram"
+        folder.mkdir(parents=True)
+        (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        document = store.get_document(folder / "record.txt")
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/batch/Telegram", "jens")
+
+        with patch("app.documents_routes_smart_folders.enabled", return_value=True):
+            response = self.client.post(
+                "/documents/smart-folders/batch",
+                data={
+                    "folder": "imports/batch/Telegram",
+                    "batch_request_id": "a" * 32,
+                    "action": "ocr",
+                    "document_ids": [document["document_id"]],
+                },
+            )
+
+        self.assertEqual(302, response.status_code)
+        job_id = response.location.rsplit("/", 1)[-1]
+        job = JobStore(self.root).get(job_id)
+        self.assertEqual("jens", job.principal)
+        self.assertEqual("documents.smart_folder_batch", job.kind)
+        self.assertEqual([document["document_id"]], job.payload["document_ids"])
+        job_status = self.client.get(response.location)
+        self.assertEqual(200, job_status.status_code)
+        self.assertIn("no-store", job_status.headers["Cache-Control"])
+        self.assertNotEqual(200, app.test_client().get(response.location).status_code)
+        worker_id = "smart-folder-test-worker"
+        worker = JobWorker(
+            JobStore(self.root),
+            default_handlers(self.root, JobStore(self.root), worker_id),
+            worker_id,
+        )
+        completed = worker.run_once()
+        self.assertEqual("succeeded", completed.state)
+        self.assertEqual(1, completed.progress["completed"])
+        self.assertEqual(1, completed.progress["total"])
+        refreshed = DocumentStore(self.root).get_document(document["document_id"])
+        self.assertIn("record", refreshed["extracted_text"])
+        self.assertEqual(b"record", (self.root / refreshed["last_path"]).read_bytes())
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")
@@ -342,7 +574,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             }
 
         with patch(
-            "app.documents_routes_workflows.restore_document_v2",
+            "app.documents_routes_recovery.restore_document_v2",
             side_effect=restore,
         ), patch.object(
             DocumentStore,
@@ -401,7 +633,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             }
 
         with patch(
-            "app.documents_routes_workflows.restore_document_content_v2",
+            "app.documents_routes_recovery.restore_document_content_v2",
             side_effect=restore_content,
         ), patch.object(
             DocumentStore,
