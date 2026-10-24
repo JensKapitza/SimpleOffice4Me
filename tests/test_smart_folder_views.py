@@ -67,7 +67,76 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertTrue(source.exists())
             self.assertEqual("scans/beleg.txt", store.get_document(document_id)["last_path"])
 
-    def test_logical_assignment_to_dynamic_folder_does_not_activate_it(self):
+    def test_remove_logical_assignment_preserves_original_and_folder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "scans" / "beleg.txt"
+            target = root / "clients" / "vertrag.txt"
+            source.parent.mkdir()
+            target.parent.mkdir()
+            source.write_text("Beleg", encoding="utf-8")
+            target.write_text("Vertrag", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            document_id = store.get_document(source)["document_id"]
+            views.assign(document_id, "clients")
+            self.assertEqual(2, views.view("clients")["count"])
+            self.assertTrue(views.unassign(document_id, "clients"))
+            self.assertFalse(views.unassign(document_id, "clients"))
+            self.assertEqual([], views.assigned_to(document_id))
+            self.assertEqual(1, views.view("clients")["count"])
+            self.assertTrue(source.exists())
+            self.assertEqual("scans/beleg.txt", store.get_document(document_id)["last_path"])
+
+    def test_bulk_assignment_validates_all_members_before_write(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("scans", "clients"):
+                (root / folder).mkdir()
+            for name in ("a.txt", "b.txt"):
+                (root / "scans" / name).write_text(name, encoding="utf-8")
+            (root / "clients" / "existing.txt").write_text("x", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            ids = [doc["document_id"] for doc in views.view("scans")["members"]]
+            with self.assertRaises(ValueError):
+                views.assign_many([ids[0], "nonexistent-id"], "scans", "clients")
+            self.assertEqual([], views.assigned_to(ids[0]))
+            self.assertEqual(2, views.assign_many(ids, "scans", "clients"))
+            self.assertEqual(3, views.view("clients")["count"])
+            self.assertEqual(2, views.assign_many(ids, "scans", "clients"))
+            self.assertEqual(3, views.view("clients")["count"])
+            self.assertTrue((root / "scans" / "a.txt").exists())
+
+    def test_bulk_unassignment_is_atomic_and_does_not_remove_physical_members(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("scans", "clients"):
+                (root / folder).mkdir()
+            for name in ("a.txt", "b.txt"):
+                (root / "scans" / name).write_text(name, encoding="utf-8")
+            (root / "clients" / "existing.txt").write_text("x", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            ids = [doc["document_id"] for doc in views.view("scans")["members"]]
+            views.assign_many(ids, "scans", "clients")
+            with self.assertRaises(ValueError):
+                views.unassign_many([ids[0], "missing-id"], "clients")
+            self.assertEqual(3, views.view("clients")["count"])
+            self.assertEqual(2, len(views.view("clients")["explicit_members"]))
+            self.assertEqual(2, views.unassign_many(ids, "clients"))
+            self.assertEqual(0, len(views.view("clients")["explicit_members"]))
+            physical_id = store.get_document(root / "clients" / "existing.txt")["document_id"]
+            with self.assertRaisesRegex(ValueError, "ausdrücklich"):
+                views.unassign_many([physical_id], "clients")
+            self.assertEqual(1, views.view("clients")["count"])
+            self.assertEqual(2, views.view("scans")["count"])
+            self.assertTrue((root / "scans" / "a.txt").exists())
+
+
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = root / "scans" / "camera.jpg"
@@ -303,6 +372,13 @@ class SmartFolderViewsTest(unittest.TestCase):
                 )
             views.set_preview_documents("imports/Telegram", [], "admin")
             self.assertEqual([], views.view("imports/Telegram")["preview_document_ids"])
+
+    def test_folder_path_rejects_ambiguous_or_windows_style_inputs(self):
+        for path in ("a//b", " a/b", "a/b ", "C:/Windows", "a/../b", "a/./b", "/tmp", "a/" + chr(0) + "b", "a/" + chr(10) + "b", "a/" + chr(127) + "b"):
+            with self.subTest(path=repr(path)):
+                with self.assertRaises(ValueError):
+                    SmartFolderViews.normalize(path)
+        self.assertEqual("clients/2026", SmartFolderViews.normalize("clients/2026"))
 
     def test_invalid_folder_is_rejected(self):
         with tempfile.TemporaryDirectory() as temp:
