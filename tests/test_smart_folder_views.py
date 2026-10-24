@@ -1,0 +1,58 @@
+"""Black-box coverage for lazy smart folder discovery and activation."""
+import tempfile
+import unittest
+from pathlib import Path
+
+from app.document_store import DocumentStore
+from app.smart_folder_views import SmartFolderViews
+
+
+class SmartFolderViewsTest(unittest.TestCase):
+    def test_discovery_is_lazy_and_same_names_do_not_merge(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("source-a/Telegram", "source-b/Telegram"):
+                (root / folder).mkdir(parents=True)
+                (root / folder / "photo.jpg").write_bytes(b"example")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store)
+            first = views.view("source-a/Telegram")
+            self.assertEqual(1, first["count"])
+            self.assertEqual("source-b/Telegram", first["same_name"][0]["path"])
+            self.assertFalse(first["active"])
+            self.assertFalse(views.path.exists())
+            views.activate("source-a/Telegram", "admin", "Meine Notiz")
+            self.assertTrue(views.view("source-a/Telegram")["active"])
+            self.assertEqual("Meine Notiz", views.view("source-a/Telegram")["notes"])
+            self.assertFalse(views.view("source-b/Telegram")["active"])
+
+    def test_logical_assignment_does_not_move_original(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("scans", "clients"):
+                (root / folder).mkdir()
+            source = root / "scans" / "beleg.txt"
+            source.write_text("Beleg", encoding="utf-8")
+            (root / "clients" / "vertrag.txt").write_text("Vertrag", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store)
+            document_id = store.get_document(source)["document_id"]
+            views.assign(document_id, "clients")
+            views.assign(document_id, "clients")
+            self.assertEqual(["clients"], views.assigned_to(document_id))
+            self.assertEqual(2, views.view("clients")["count"])
+            self.assertTrue(source.exists())
+            self.assertEqual("scans/beleg.txt", store.get_document(document_id)["last_path"])
+
+    def test_invalid_folder_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            views = SmartFolderViews(DocumentStore(Path(temp)))
+            for folder in ("../secret", "/etc", ".simpleoffice-meta"):
+                with self.subTest(folder=folder), self.assertRaises(ValueError):
+                    views.normalize(folder)
+
+
+if __name__ == "__main__":
+    unittest.main()
