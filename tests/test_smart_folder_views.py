@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from uuid import UUID, uuid5
 
 from app.document_store import DocumentStore
@@ -255,6 +256,59 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual(64, len(event["document_ids_sha256"]))
             self.assertEqual(["Beleg"], event["rules"])
             self.assertTrue(event["notes_transferred"])
+
+    def test_logical_merge_write_failure_leaves_state_unchanged(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("a/Telegram", "b/Telegram"):
+                path = root / folder
+                path.mkdir(parents=True)
+                (path / "record.txt").write_text("record", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            views.activate("a/Telegram", "admin", "Quelle")
+            before = views._load()
+            preview = views.merge_preview("a/Telegram", "b/Telegram")
+            with patch.object(views, "_save", side_effect=OSError("disk full")):
+                with self.assertRaisesRegex(OSError, "disk full"):
+                    views.merge_assignments(
+                        "a/Telegram", "b/Telegram", "admin",
+                        expected_fingerprint=preview["fingerprint"],
+                    )
+            self.assertEqual(before, views._load())
+            self.assertEqual(1, views.view("a/Telegram")["count"])
+            self.assertEqual(1, views.view("b/Telegram")["count"])
+            self.assertEqual([], views._load()["merge_events"])
+            views.merge_assignments(
+                "a/Telegram", "b/Telegram", "admin",
+                expected_fingerprint=preview["fingerprint"],
+            )
+            self.assertEqual(2, views.view("b/Telegram")["count"])
+
+    def test_logical_merge_rejects_stale_preview_without_mutation(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("a/Telegram", "b/Telegram"):
+                path = root / folder
+                path.mkdir(parents=True)
+                (path / "record.txt").write_text("record", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            views.activate("a/Telegram", "admin", "Quelle")
+            preview = views.merge_preview("a/Telegram", "b/Telegram")
+            views.activate("b/Telegram", "admin", "Ziel aktualisiert")
+            before = views._load()
+            with self.assertRaisesRegex(ValueError, "Vorschau erneut prüfen"):
+                views.merge_assignments(
+                    "a/Telegram", "b/Telegram", "admin",
+                    expected_fingerprint=preview["fingerprint"],
+                )
+            self.assertEqual(before, views._load())
+            self.assertEqual([], views._load()["merge_events"])
+            self.assertEqual(1, views.view("a/Telegram")["count"])
+            self.assertEqual(1, views.view("b/Telegram")["count"])
 
     def test_logical_merge_keeps_folder_tasks_linked_to_target(self):
         with tempfile.TemporaryDirectory() as temp:
