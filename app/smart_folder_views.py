@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import unicodedata
 from uuid import uuid4
 
 from defusedxml import ElementTree as ET
@@ -24,6 +25,7 @@ MAX_EXTRACTED_FILE_BYTES = 256 * 1024
 MAX_EXTRACTED_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_EXTRACTED_RULES = 20
 MAX_EXTRACTED_VALUE_CHARS = 500
+MAX_MERGE_EVENTS = 10_000
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -53,17 +55,26 @@ class SmartFolderViews:
 
     def _load(self) -> dict:
         if not self.path.exists():
-            return {"folders": {}, "assignments": {}, "merged_into": {}}
+            return {
+                "folders": {}, "assignments": {}, "merged_into": {},
+                "merge_events": [],
+            }
         data = json.loads(self.path.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or any(
             not isinstance(data.get(section, {}), dict)
             for section in ("folders", "assignments", "merged_into")
         ):
             raise ValueError("Ungültige Smart-View-Metadaten")
+        merge_events = data.get("merge_events", [])
+        if not isinstance(merge_events, list) or any(
+            not isinstance(event, dict) for event in merge_events
+        ):
+            raise ValueError("Ungültiges Smart-View-Fusionsprotokoll")
         return {
             "folders": data.get("folders", {}),
             "assignments": data.get("assignments", {}),
             "merged_into": data.get("merged_into", {}),
+            "merge_events": merge_events,
         }
 
     def _save(self, data: dict) -> None:
@@ -79,6 +90,10 @@ class SmartFolderViews:
             seen.add(folder)
             folder = str(merged_into[folder])
         return folder
+
+    @staticmethod
+    def _normalized_folder_name(folder: str) -> str:
+        return unicodedata.normalize("NFC", Path(folder).name.strip()).casefold()
 
     def folders(self) -> list[dict]:
         data = self._load()
@@ -131,8 +146,12 @@ class SmartFolderViews:
         item = next((item for item in folders if item["path"] == folder), None)
         if item is None:
             raise ValueError("Ordner nicht gefunden")
-        name = Path(folder).name.casefold()
-        item["same_name"] = [other for other in folders if other["path"] != folder and Path(other["path"]).name.casefold() == name]
+        name = self._normalized_folder_name(folder)
+        item["same_name"] = [
+            other for other in folders
+            if other["path"] != folder
+            and self._normalized_folder_name(other["path"]) == name
+        ]
         return item
 
     def activate(self, folder: str, actor: str, notes: str = "") -> dict:
@@ -293,6 +312,8 @@ class SmartFolderViews:
         source, target = self.normalize(source), self.normalize(target)
         if source == target:
             raise ValueError("Quelle und Ziel müssen verschieden sein")
+        if self._normalized_folder_name(source) != self._normalized_folder_name(target):
+            raise ValueError("Nur gleichnamige Ordner können fusioniert werden")
         folders = self.folders()
         origin, destination = self.view(source, folders), self.view(target, folders)
         data = self._load()
@@ -324,6 +345,8 @@ class SmartFolderViews:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.path.with_suffix(".lock")):
             data = self._load()
+            if len(data["merge_events"]) >= MAX_MERGE_EVENTS:
+                raise ValueError("Das Fusionsprotokoll hat seine sichere Kapazitätsgrenze erreicht")
             source_info = data["folders"].get(source, {})
             target_info = data["folders"].setdefault(target, {"id": uuid4().hex, "created_by": actor})
             source_rules = source_info.get("rules", {})
@@ -348,6 +371,23 @@ class SmartFolderViews:
             data["merged_into"][source] = target
             if source in data["folders"]:
                 data["folders"].pop(source)
+            document_ids = sorted(
+                str(document["document_id"]) for document in source_documents
+            )
+            data["merge_events"].append({
+                "event_id": uuid4().hex,
+                "action": "smart_folder_merged",
+                "source": source,
+                "target": target,
+                "actor": actor,
+                "at": datetime.now(timezone.utc).isoformat(),
+                "document_count": len(document_ids),
+                "document_ids_sha256": hashlib.sha256(
+                    "\n".join(document_ids).encode("utf-8")
+                ).hexdigest(),
+                "rules": sorted(source_rules),
+                "notes_transferred": bool(source_notes),
+            })
             self._save(data)
         return preview
 

@@ -7,6 +7,8 @@ dynamisch anzeigen. Die Ansicht erzeugt für jeden gefundenen Ordner keinen
 persistenten Sammeldatensatz. Gleichnamige Ordner aus verschiedenen Pfaden
 bleiben getrennt; sie werden nur auf ausdrückliche Bestätigung logisch
 zusammengeführt.
+Namenskollisionen werden serverseitig nach Unicode-NFC-Normalisierung und
+ohne Beachtung der Groß-/Kleinschreibung bestimmt.
 
 Smart-View-Notizen, Zuordnungen und Extraktionsregeln werden pro angemeldetem
 Benutzer unter `.simpleoffice-meta/smart-folder-views/` gespeichert. Ein
@@ -22,7 +24,10 @@ Regeln und Regelkonflikte. Die Aktion verlangt die Eingabe
 Notizen mit Herkunft und kompatible Regeln werden atomar gespeichert;
 konfligierende Regeln blockieren die Fusion. Der bisherige Quellpfad wird als
 Alias auf das Ziel abgebildet, sodass auch später dort abgelegte Dokumente in
-der Zielansicht erscheinen.
+der Zielansicht erscheinen. Das Auditereignis (Benutzer, Quelle, Ziel,
+Dokumentanzahl und SHA-256-Fingerabdruck der Dokument-IDs) wird atomar mit der
+Änderung gespeichert. Das Protokoll ist auf 10.000 Ereignisse begrenzt; danach
+wird eine weitere Fusion sicher abgewiesen, statt ältere Auditdaten zu löschen.
 
 ## Begrenzte strukturierte Auswertung
 

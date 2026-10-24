@@ -28,6 +28,23 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual("Meine Notiz", views.view("source-a/Telegram")["notes"])
             self.assertFalse(views.view("source-b/Telegram")["active"])
 
+    def test_name_collisions_use_unicode_normalization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            composed = root / "source-a" / "Café"
+            decomposed = root / "source-b" / "Cafe\u0301"
+            composed.mkdir(parents=True)
+            decomposed.mkdir(parents=True)
+            (composed / "one.txt").write_text("one", encoding="utf-8")
+            (decomposed / "two.txt").write_text("two", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+
+            matches = views.view("source-a/Café")["same_name"]
+
+            self.assertEqual(["source-b/Cafe\u0301"], [item["path"] for item in matches])
+
     def test_logical_assignment_does_not_move_original(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -100,6 +117,29 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual("Notiz aus Quelle", metadata["merged_notes"][0]["text"])
             self.assertTrue(metadata["merged_notes"][0]["at"])
             self.assertTrue((root / "a/Telegram/record.json").exists())
+            event = views._load()["merge_events"][0]
+            self.assertEqual("smart_folder_merged", event["action"])
+            self.assertEqual("a/Telegram", event["source"])
+            self.assertEqual("b/Telegram", event["target"])
+            self.assertEqual("admin", event["actor"])
+            self.assertEqual(1, event["document_count"])
+            self.assertEqual(64, len(event["document_ids_sha256"]))
+            self.assertEqual(["Beleg"], event["rules"])
+            self.assertTrue(event["notes_transferred"])
+
+    def test_logical_merge_requires_a_normalized_name_collision(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("source/Telegram", "target/Invoices"):
+                path = root / folder
+                path.mkdir(parents=True)
+                (path / "record.txt").write_text("record", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+
+            with self.assertRaisesRegex(ValueError, "gleichnamige"):
+                views.merge_preview("source/Telegram", "target/Invoices")
 
     def test_conflicting_rules_prevent_merge(self):
         with tempfile.TemporaryDirectory() as temp:
