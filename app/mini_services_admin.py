@@ -121,6 +121,7 @@ def sftp_save():
     candidate = {"mode": request.form.get("mode", "integrated"),
                  "enabled": request.form.get("enabled") == "1",
                  "autostart": request.form.get("autostart") == "1",
+                 "rsync_enabled": request.form.get("rsync_enabled") == "1",
                  "bind": request.form.get("bind", "127.0.0.1"),
                  "port": request.form.get("port", "2222"),
                  "system_port": request.form.get("system_port", "22")}
