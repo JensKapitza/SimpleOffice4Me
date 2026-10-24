@@ -452,6 +452,25 @@ class DocumentStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "widerrufen"):
                 store.renew_share(document["document_id"], share["share_id"], "anderes-passwort", 7, "admin")
 
+    def test_legacy_share_without_path_snapshot_expires_after_move(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "brief.txt"
+            source.parent.mkdir()
+            source.write_text("Brief", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
+            payload = store._read_json(store.shares_path, {"shares": []})
+            payload["shares"][0].pop("shared_from_path")
+            store.shares_path.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertEqual("aktiv", store.share_status(share["share_id"])["status"])
+            store.move_document(document["document_id"], "archiv", "admin")
+            self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
+            with self.assertRaisesRegex(ValueError, "abgelaufen"):
+                store.open_share(share["share_id"], "sicheres-passwort")
+
     def test_share_password_requires_at_least_twelve_characters(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "angebot.txt"; source.write_text("Intern", encoding="utf-8")
