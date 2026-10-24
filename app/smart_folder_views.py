@@ -148,5 +148,60 @@ class SmartFolderViews:
                 continue
         return rows
 
+    def merge_preview(self, source: str, target: str) -> dict:
+        """Show consequences before an explicitly confirmed logical merge."""
+        source, target = self.normalize(source), self.normalize(target)
+        if source == target:
+            raise ValueError("Quelle und Ziel müssen verschieden sein")
+        origin, destination = self.view(source), self.view(target)
+        data = self._load()
+        source_meta = data["folders"].get(source, {})
+        target_meta = data["folders"].get(target, {})
+        collisions = [
+            name for name, expression in source_meta.get("rules", {}).items()
+            if name in target_meta.get("rules", {}) and target_meta["rules"][name] != expression
+        ]
+        return {
+            "source": source, "target": target,
+            "documents": len(origin["members"]),
+            "target_documents": len(destination["members"]),
+            "conflicts": collisions,
+            "notes": bool(source_meta.get("notes")),
+        }
+
+    def merge_assignments(self, source: str, target: str, actor: str) -> dict:
+        """Explicit logical fusion; originals stay put and rule conflicts block the merge."""
+        preview = self.merge_preview(source, target)
+        if preview["conflicts"]:
+            raise ValueError("Widersprüchliche Extraktionsregeln: " + ", ".join(preview["conflicts"]))
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.path.with_suffix(".lock")):
+            data = self._load()
+            source_info = data["folders"].get(source, {})
+            target_info = data["folders"].setdefault(target, {"id": uuid4().hex, "created_by": actor})
+            source_rules = source_info.get("rules", {})
+            target_rules = target_info.setdefault("rules", {})
+            if any(name in target_rules and target_rules[name] != expr for name, expr in source_rules.items()):
+                raise ValueError("Extraktionsregeln haben sich inzwischen geändert")
+            source_members = self.view(source)["members"]
+            for document in source_members:
+                document_id = document["document_id"]
+                assignments = data["assignments"].setdefault(document_id, [])
+                if target not in assignments:
+                    assignments.append(target)
+                if source in assignments:
+                    assignments.remove(source)
+            target_rules.update(source_rules)
+            source_notes = source_info.get("notes", "")
+            if source_notes:
+                target_info.setdefault("merged_notes", []).append({
+                    "source": source, "text": source_notes, "actor": actor,
+                })
+            target_info.setdefault("merged_from", []).append(source)
+            if source in data["folders"]:
+                data["folders"].pop(source)
+            self._save(data)
+        return preview
+
     def assigned_to(self, document_id: str) -> list[str]:
         return list(self._load()["assignments"].get(document_id, []))
