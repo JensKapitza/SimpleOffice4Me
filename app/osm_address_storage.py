@@ -25,6 +25,7 @@ from urllib.request import Request, build_opener
 
 from .document_store import CONTROL_DIR, utc_now
 from .file_lock import exclusive_file_lock
+from .settings_store import SettingsStore
 
 
 GEOFABRIK_REGIONS = {
@@ -347,10 +348,12 @@ class LocalAddressIndex:
         legacy_partial = target.with_suffix(".download")
         try:
             max_bytes = int(os.environ.get("SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB", "8")) * 1024**3
-            read_timeout = max(30, int(os.environ.get("SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS", "300")))
             max_attempts = max(1, min(10, int(os.environ.get("SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES", "5"))))
         except ValueError as exc:
             raise ValueError("invalid OSM download configuration") from exc
+        read_timeout = SettingsStore(self.root).settings()["integrations"][
+            "osm_download_read_timeout_seconds"
+        ]
 
         with exclusive_file_lock(self.download_lock):
             if legacy_partial.is_file() and not partial.exists():

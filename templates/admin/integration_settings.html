@@ -1,0 +1,37 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4">
+    <h1 class="h2 mb-1">Integrationen &amp; Dienste</h1>
+    <p class="text-secondary mb-0">Laufzeitwerte für externe Datenquellen und angebundene Dienste.</p>
+  </div>
+  <nav aria-label="Einstellungsbereiche" class="mb-4">
+    <div class="nav nav-tabs">
+      <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
+      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
+      <a class="nav-link active" href="{{ url_for('admin.integration_settings') }}" aria-current="page">Integrationen &amp; Dienste</a>
+    </div>
+  </nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card">
+    <div class="card-header"><strong>OpenStreetMap-Download</strong></div>
+    <div class="card-body">
+      <p>Legt fest, wie lange ein Lesevorgang eines Geofabrik-Downloads ohne Daten warten darf. Der Wert gilt für neu gestartete Downloads. Ein bisheriger Wert aus <code>SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS</code> wird verwendet, solange noch kein persistierter Wert gespeichert wurde.</p>
+      <form method="post" action="{{ url_for('admin.save_osm_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="osm-read-timeout">Lese-Timeout (Sekunden)</label>
+          <input class="form-control" id="osm-read-timeout" type="number" name="osm_download_read_timeout_seconds" value="{{ integrations.osm_download_read_timeout_seconds }}" min="30" max="3600" step="1" required>
+          <div class="form-text">Standard: 300 Sekunden. Zulässig: 30–3600 Sekunden.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

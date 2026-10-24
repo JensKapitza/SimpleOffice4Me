@@ -32,6 +32,9 @@ MAX_PREVIEW_MAX_BYTES = 2 * 1024 * 1024 * 1024
 DEFAULT_PREVIEW_MAX_PIXELS = 80_000_000
 MIN_PREVIEW_MAX_PIXELS = 1_000_000
 MAX_PREVIEW_MAX_PIXELS = 250_000_000
+DEFAULT_OSM_READ_TIMEOUT_SECONDS = 300
+MIN_OSM_READ_TIMEOUT_SECONDS = 30
+MAX_OSM_READ_TIMEOUT_SECONDS = 3600
 
 
 @contextmanager
@@ -74,6 +77,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
         "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
     },
+    "integrations": {"osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS},
 }
 
 TRANSLATIONS = {
@@ -376,6 +380,17 @@ class SettingsStore:
         if not isinstance(stored_network, dict) or "webdav_quota_mib" not in stored_network:
             result["network"]["webdav_quota_mib"] = self._legacy_webdav_quota()
         result["network"] = self._normalize_network_settings(result["network"])
+        stored_integrations = stored.get("integrations") if isinstance(stored, dict) else None
+        if (
+            not isinstance(stored_integrations, dict)
+            or "osm_download_read_timeout_seconds" not in stored_integrations
+        ):
+            result["integrations"]["osm_download_read_timeout_seconds"] = (
+                self._legacy_osm_read_timeout()
+            )
+        result["integrations"] = self._normalize_integration_settings(
+            result["integrations"]
+        )
         return result
 
     @staticmethod
@@ -398,6 +413,40 @@ class SettingsStore:
             _LOGGER.warning("Invalid stored WebDAV quota; using the unlimited default")
             quota = DEFAULT_WEBDAV_QUOTA_MIB
         return {"webdav_quota_mib": quota}
+
+    @staticmethod
+    def _legacy_osm_read_timeout() -> int:
+        """Read and bound the legacy environment value before it is persisted."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS",
+            str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 12 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy OSM read timeout; using the default")
+            return DEFAULT_OSM_READ_TIMEOUT_SECONDS
+        value = int(raw)
+        if not MIN_OSM_READ_TIMEOUT_SECONDS <= value <= MAX_OSM_READ_TIMEOUT_SECONDS:
+            _LOGGER.warning("Legacy OSM read timeout outside range; clamping to supported limits")
+            return max(
+                MIN_OSM_READ_TIMEOUT_SECONDS,
+                min(MAX_OSM_READ_TIMEOUT_SECONDS, value),
+            )
+        return value
+
+    @staticmethod
+    def _normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
+        timeout = integrations.get(
+            "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(timeout, bool)
+            or not isinstance(timeout, int)
+            or not MIN_OSM_READ_TIMEOUT_SECONDS <= timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
+        ):
+            _LOGGER.warning("Invalid stored OSM read timeout; using the default")
+            timeout = DEFAULT_OSM_READ_TIMEOUT_SECONDS
+        return {"osm_download_read_timeout_seconds": timeout}
 
     def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
@@ -481,12 +530,13 @@ class SettingsStore:
                 if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
                     latest["s3"] = {"enabled": True}
             # Ordinary preferences and admin S3 changes share one atomic merge.
-            # Media supports partial writes so older video-setting callers preserve
-            # the newer preview controls in the same section.
+            # Media and integration settings support partial writes so callers
+            # preserve the other controls in the same section.
             merged = {**latest, **settings}
-            media_update = settings.get("media")
-            if isinstance(media_update, dict):
-                merged["media"] = {**latest["media"], **media_update}
+            for section in ("media", "integrations"):
+                section_update = settings.get(section)
+                if isinstance(section_update, dict):
+                    merged[section] = {**latest[section], **section_update}
             normalized = self._validate(merged)
             atomic_json_write(self.path, normalized)
             self.history.record("settings_updated", actor, "settings", "application-defaults", {"updated_at": utc_now(), **normalized})
@@ -505,6 +555,7 @@ class SettingsStore:
         s3 = settings.get("s3", {})
         network = settings.get("network", {})
         media = settings.get("media", {})
+        integrations = settings.get("integrations", {})
         if not isinstance(network, dict):
             raise ValueError("network settings must be an object")
         webdav_quota = network.get("webdav_quota_mib", DEFAULT_WEBDAV_QUOTA_MIB)
@@ -516,6 +567,17 @@ class SettingsStore:
             raise ValueError("WebDAV quota must be 0 or between 1 and 1,048,576 MiB")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
+        if not isinstance(integrations, dict):
+            raise ValueError("integration settings must be an object")
+        osm_read_timeout = integrations.get(
+            "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(osm_read_timeout, bool)
+            or not isinstance(osm_read_timeout, int)
+            or not MIN_OSM_READ_TIMEOUT_SECONDS <= osm_read_timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
+        ):
+            raise ValueError("OSM read timeout must be between 30 and 3600 seconds")
         video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
         if (
             isinstance(video_preview_frames, bool)
@@ -584,5 +646,8 @@ class SettingsStore:
                 "preview_timeout_seconds": preview_timeout,
                 "preview_max_bytes": preview_max_bytes,
                 "preview_max_pixels": preview_max_pixels,
+            },
+            "integrations": {
+                "osm_download_read_timeout_seconds": osm_read_timeout,
             },
         }
