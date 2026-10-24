@@ -28,7 +28,7 @@
       </div>
       {% endif %}
       {% if selected.same_name %}
-      <form method="post" action="{{ url_for('documents.merge_smart_folders') }}" class="border rounded p-3 mb-3">
+      <form method="get" action="{{ url_for('documents.smart_folder_merge_preview') }}" class="border rounded p-3 mb-3">
         <h3 class="h6">Logische Ordnerzuordnungen zusammenführen</h3>
         <input type="hidden" name="source" value="{{ selected.path }}">
         <label for="merge-target" class="form-label">Ziel-Sammelordner auswählen</label>
@@ -37,9 +37,7 @@
           {% for other in selected.same_name %}<option value="{{ other.path }}">{{ other.path }}</option>{% endfor %}
         </select>
         <p class="small">Übernimmt logische Zuordnungen, Notizen und kompatible Extraktionsregeln. Bei Regelkonflikten wird abgebrochen. Originaldateien bleiben an ihrem Speicherort.</p>
-        <label class="form-label" for="merge-confirm">Zur Bestätigung ZUSAMMENFUEHREN eingeben</label>
-        <input id="merge-confirm" class="form-control mb-2" name="confirm" required pattern="ZUSAMMENFUEHREN">
-        <button type="submit" class="btn btn-outline-warning">Logische Fusion durchführen</button>
+        <button type="submit" class="btn btn-outline-warning">Fusion prüfen</button>
       </form>
       {% endif %}
       <form method="post" action="{{ url_for('documents.activate_smart_folder') }}" class="mb-3">
