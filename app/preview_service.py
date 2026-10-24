@@ -47,7 +47,7 @@ AUDIO_MIME_TYPES = {
 }
 VIDEO_SUFFIXES = set(VIDEO_MIME_TYPES)
 AUDIO_SUFFIXES = set(AUDIO_MIME_TYPES)
-SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | TEXT_SUFFIXES | {".pdf"}
+SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES | TEXT_SUFFIXES | {".pdf"}
 VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
 
 
@@ -150,6 +150,8 @@ class PreviewService:
 
     def generate(self, path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
         self._refresh_media_settings()
+        if path.is_symlink():
+            return {"status": "unsupported", "source_sha256": str(metadata.get("sha256", ""))}
         path = path.resolve(strict=True)
         path.relative_to(self.root)
         suffix = path.suffix.lower()
@@ -197,8 +199,12 @@ class PreviewService:
 
     def _convert(self, source: Path, suffix: str, temporary: Path) -> dict[str, Any]:
         if suffix in TEXT_SUFFIXES:
-            self._text_thumbnail(source, temporary / "thumbnail.webp")
-            return {"converter": "stdlib+pillow"}
+            try:
+                self._text_thumbnail(source, temporary / "thumbnail.webp")
+                return {"converter": "stdlib+pillow"}
+            except (OSError, ValueError):
+                self._generic_thumbnail(source, temporary / "thumbnail.webp")
+                return {"converter": "pillow-filetype-icon"}
         if suffix in IMAGE_SUFFIXES:
             try:
                 self._thumbnail(source, temporary / "thumbnail.webp")
@@ -206,7 +212,8 @@ class PreviewService:
             except (OSError, ValueError):
                 imagemagick = self.tools["paths"].get("imagemagick")
                 if not imagemagick:
-                    raise
+                    self._generic_thumbnail(source, temporary / "thumbnail.webp")
+                    return {"converter": "pillow-filetype-icon"}
                 self._run([imagemagick, str(source), "-auto-orient", "-thumbnail", "1200x1200>", "-quality", "82", str(temporary / "thumbnail.webp")])
                 return {"converter": "imagemagick"}
         if suffix == ".pdf":
@@ -387,7 +394,7 @@ class PreviewService:
         """Render a bounded, non-executable text excerpt using stdlib and Pillow."""
         with source.open("rb") as handle:
             sample = handle.read(16384)
-        if b"\\x00" in sample:
+        if bytes((0,)) in sample:
             raise ValueError("binary input is not a text preview")
         text = sample.decode("utf-8-sig", errors="replace")
         lines = text.expandtabs(4).splitlines()[:38]
