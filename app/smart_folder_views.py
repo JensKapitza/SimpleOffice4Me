@@ -23,7 +23,7 @@ class SmartFolderViews:
         parts = Path(value).parts
         if not value or value.startswith("/") or any(part in ("", ".", "..") for part in parts):
             raise ValueError("Ungültiger Ordner")
-        if parts[0].startswith("."):
+        if any(part.startswith(".") for part in parts):
             raise ValueError("Systemordner sind nicht erlaubt")
         return Path(*parts).as_posix()
 
@@ -101,7 +101,7 @@ class SmartFolderViews:
     def save_rule(self, folder: str, name: str, field: str, actor: str) -> None:
         """Save a bounded field extractor; no arbitrary Python or regex."""
         folder = self.normalize(folder)
-        if not name.strip() or len(name) > 80 or not field.strip() or len(field) > 120:
+        if not name.strip() or len(name) > 80 or not field.strip() or len(field) > 120 or field.strip().startswith(("/", "..")):
             raise ValueError("Ungültige Extraktionsregel")
         self.view(folder)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -132,6 +132,8 @@ class SmartFolderViews:
                 elif suffix == ".csv":
                     parsed = next(iter(csv.DictReader(io.StringIO(content))), {})
                 elif suffix == ".xml":
+                    if "<!DOCTYPE" in content.upper() or "<!ENTITY" in content.upper():
+                        continue
                     parsed = ET.fromstring(content)
                 else:
                     continue
