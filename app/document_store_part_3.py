@@ -4,6 +4,7 @@ from __future__ import annotations
 from io import BytesIO
 
 from .document_store_core import *  # noqa: F401,F403
+from .file_lock import exclusive_file_lock
 
 
 class _DocumentStorePart3:
@@ -72,20 +73,38 @@ class _DocumentStorePart3:
             return document
         if destination.exists():
             raise ValueError("a file with the same name already exists in the destination folder")
-        destination_directory.mkdir(parents=True, exist_ok=True)
-        self.ensure_folder_policy(destination_directory)
-        previous_path = str(document.get("last_path", ""))
-        shutil.move(str(source), str(destination))
-        relative_path = self.relative(destination)
-        document["last_path"] = relative_path
-        document["last_seen_at"] = utc_now()
-        document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
-        document["location_history"] = document["location_history"][-200:]
-        self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))
-        self._save_document(document)
-        self._refresh_search_index(document)
-        with self._db() as db:
-            db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+        with exclusive_file_lock(self.shares_path.with_suffix(".lock")):
+            active_share_ids = self._active_share_ids_for_move(document["document_id"])
+            destination_directory.mkdir(parents=True, exist_ok=True)
+            self.ensure_folder_policy(destination_directory)
+            previous_path = str(document.get("last_path", ""))
+            shutil.move(str(source), str(destination))
+            relative_path = self.relative(destination)
+            document["last_path"] = relative_path
+            document["location_revision"] = self._location_revision(document) + 1
+            document["last_seen_at"] = utc_now()
+            document["location_last_moved_at"] = document["last_seen_at"]
+            document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
+            document["location_history"] = document["location_history"][-200:]
+            self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))
+            self._save_document(document)
+            self._refresh_search_index(document)
+            with self._db() as db:
+                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            for share_id in active_share_ids:
+                self._event(
+                    "share_revoked_on_move",
+                    {
+                        "share_id": share_id,
+                        "document_id": document["document_id"],
+                        "from": previous_path,
+                        "to": relative_path,
+                        "actor": actor,
+                        "reason": "revoked_on_move",
+                    },
+                )
+            self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
+            self._record_revision("document_moved", actor, "documents", document["document_id"], document)
         self._scan_file(destination)
         fingerprint_path = self.fingerprints / f"{document.get('sha256', '')}.json"
         fingerprint = self._read_json(fingerprint_path, {})
@@ -93,8 +112,6 @@ class _DocumentStorePart3:
             paths = set(fingerprint.get("paths", [])); paths.discard(previous_path); paths.add(relative_path)
             fingerprint["paths"] = sorted(paths); fingerprint["last_seen_at"] = utc_now()
             atomic_json_write(fingerprint_path, fingerprint)
-        self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
-        self._record_revision("document_moved", actor, "documents", document["document_id"], document)
         return self.get_document(document["document_id"])
 
     def replace_document_via_move(
