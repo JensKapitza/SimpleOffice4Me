@@ -46,6 +46,7 @@
   let stream = null;
   let scanning = false;
   let detector = null;
+  let cameraGeneration = 0;
   let lookupCooldown = null;
   let lookupAbort = null;
   let finderAbort = null;
@@ -129,8 +130,10 @@
     updateMode();
   };
   const stopCamera = () => {
+    cameraGeneration += 1;
     scanning = false;
     if (stream) { stream.getTracks().forEach((track) => track.stop()); stream = null; }
+    const video = $('camera-preview'); if (video) video.srcObject = null;
     const box = $('camera-box'); if (box) box.hidden = true;
   };
   const safeJson = async (response) => { try { return await response.json(); } catch (_error) { return {}; } };
@@ -429,16 +432,46 @@
   amazonButton?.addEventListener('click', () => searchMarketplace('amazon'));
 
   $('start-barcode')?.addEventListener('click', async () => {
-    if (!('BarcodeDetector' in window)) { setStatus('BarcodeDetector fehlt. Kennung kann manuell eingetragen werden.', 'warning'); barcode?.focus(); return; }
+    stopCamera();
+    const generation = cameraGeneration;
+    if (typeof window.BarcodeDetector !== 'function' && typeof window.jsQR !== 'function') { setStatus('Kein Scanner verfügbar. Kennung bitte manuell eingeben.', 'warning'); barcode?.focus(); return; }
     if (!navigator.mediaDevices?.getUserMedia) { setStatus('Kamera-Zugriff nicht verfügbar; HTTPS kann erforderlich sein.', 'warning'); return; }
     try {
-      detector = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] });
-      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-      const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false; scanning = true; setStatus('Barcode vor die Kamera halten …', 'primary');
+      try { detector = typeof window.BarcodeDetector === 'function' ? new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code'] }) : null; } catch (_error) { detector = null; }
+      if (!detector && typeof window.jsQR !== 'function') throw new Error('No available decoder');
+      const requestedStream = await window.SimpleOfficeCamera.openCameraStream(
+        navigator.mediaDevices,
+        () => generation === cameraGeneration,
+      );
+      if (!requestedStream) return;
+      if (generation !== cameraGeneration) { requestedStream.getTracks().forEach(track => track.stop()); return; }
+      stream = requestedStream;
+      const video = $('camera-preview'); video.srcObject = stream; $('camera-box').hidden = false;
+      try { await video.play(); } catch (_error) { throw new Error('Camera preview could not start'); }
+      if (generation !== cameraGeneration) return;
+      scanning = true;
+      setStatus(
+        detector
+          ? 'Barcode vor die Kamera halten …'
+          : 'QR-Code vor die Kamera halten; EAN/Barcodes bitte manuell eingeben.',
+        'primary',
+      );
       const scan = async () => {
-        if (!scanning) return;
+        if (!scanning || generation !== cameraGeneration) return;
         try {
-          const codes = await detector.detect(video);
+          let codes = [];
+          if (detector) { try { codes = await detector.detect(video); } catch (_error) { /* Try local QR decoding below. */ } }
+          if (!codes.length && typeof window.jsQR === 'function') {
+            const canvas = document.createElement('canvas');
+            const width = video.videoWidth, height = video.videoHeight;
+            if (width && height) {
+              const scale = Math.min(1, 1200 / Math.max(width, height));
+              canvas.width = Math.max(1, Math.round(width * scale)); canvas.height = Math.max(1, Math.round(height * scale));
+              const ctx = canvas.getContext('2d', {willReadFrequently: true});
+              if (ctx) { ctx.drawImage(video, 0, 0, canvas.width, canvas.height); const frame = ctx.getImageData(0, 0, canvas.width, canvas.height); const decoded = window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: 'attemptBoth'}); if (decoded) codes = [{rawValue: decoded.data}]; }
+            }
+          }
+          if (generation !== cameraGeneration) return;
           if (codes.length) {
             const value = cleanText(codes[0].rawValue); barcode.value = value; const canonical = normalizeIsbn(value);
             if (canonical) { isbn.value = canonical; type.value = 'book'; objectTypeWasAutoBook = true; updateMode(); updateBookLinks(canonical); setStatus(`ISBN erkannt: ${canonical}. Lade Buchdaten …`, 'success'); stopCamera(); lookup(); return; }
@@ -448,7 +481,7 @@
         requestAnimationFrame(scan);
       };
       requestAnimationFrame(scan);
-    } catch (_error) { stopCamera(); setStatus('Kamera konnte nicht geöffnet werden.', 'danger'); }
+    } catch (error) { if (generation !== cameraGeneration) return; stopCamera(); setStatus(error?.name === 'NotAllowedError' ? 'Kamerazugriff verweigert. Bitte Berechtigung im Browser prüfen.' : 'Kamera konnte nicht geöffnet werden. Bitte Berechtigungen oder Kamera prüfen.', 'danger'); }
   });
 
   $('scan-nfc')?.addEventListener('click', async () => {
