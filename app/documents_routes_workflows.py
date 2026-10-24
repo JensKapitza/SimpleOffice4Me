@@ -131,6 +131,23 @@ def activate_smart_folder():
     return redirect(url_for("documents.smart_folder_view", folder=folder))
 
 
+@bp.post("/smart-folders/merge")
+@login_required
+def merge_smart_folders():
+    source = request.form.get("source", "")
+    target = request.form.get("target", "")
+    if request.form.get("confirm") != "ZUSAMMENFUEHREN":
+        flash("Fusion nicht bestätigt.")
+        return redirect(url_for("documents.smart_folders"))
+    try:
+        SmartFolderViews(_store()).merge_assignments(source, target, str(g.user["username"]))
+        flash("Logische Zuordnungen und Regeln übernommen. Originaldateien wurden nicht verschoben.")
+        return redirect(url_for("documents.smart_folder_view", folder=target))
+    except ValueError as exc:
+        flash(str(exc))
+        return redirect(url_for("documents.smart_folders"))
+
+
 @bp.post("/smart-folders/rule")
 @login_required
 def save_smart_folder_rule():
