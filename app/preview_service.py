@@ -20,7 +20,7 @@ from .settings_store import SettingsStore
 
 CACHE_DIR = ".webcache"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp", ".avif", ".heic", ".heif"}
-TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".log", ".ini", ".cfg", ".toml", ".py", ".js", ".ts", ".css", ".sql", ".sh", ".rst"}
+TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".log", ".ini", ".cfg", ".toml", ".py", ".js", ".ts", ".css", ".sql", ".sh", ".rst", ".htm", ".html", ".xhtml", ".svg"}
 OFFICE_SUFFIXES = {".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
 VIDEO_MIME_TYPES = {
     ".3gp": "video/3gpp",
@@ -240,7 +240,7 @@ class PreviewService:
             category, symbol = "PDF", "PDF"
         elif suffix in {"zip", "tar", "gz", "7z", "rar"}:
             category, symbol = "ARCHIV", "ZIP"
-        elif suffix in {"txt", "md", "csv", "tsv", "json", "xml", "log", "py", "js", "html"}:
+        elif suffix in {"txt", "md", "csv", "tsv", "json", "xml", "log", "py", "js", "htm", "html", "xhtml", "svg"}:
             category, symbol = "TEXT", "TXT"
         elif suffix in {name.lstrip(".") for name in OFFICE_SUFFIXES}:
             category, symbol = "OFFICE", "DOC"

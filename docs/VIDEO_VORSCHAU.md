@@ -83,6 +83,22 @@ Die Dokumentdetailseite rendert Videos und Audio als HTML5-Medienelemente mit St
 
 PDFs werden als PDF im Browser angezeigt und haben einen Download-Fallback. Bilder verwenden nur ein vorhandenes, hashgebundenes Vorschaubild; solange die Vorschau fehlt, erscheint ein Dateityp-Icon und ein Link zum Original statt eines kaputten Bildsymbols. Für Office-Dokumente gilt dieselbe Regel: vorhandene Vorschaubilder verwenden, andernfalls Original öffnen oder herunterladen. Der vollständige Dokumentpfad bleibt als umbrechender Breadcrumb sichtbar.
 
+### Sichere Inline-Textvorschau
+
+TXT-, Markdown-, CSV/TSV-, JSON-, XML-, YAML-, INI-, TOML-, Log-, SQL-, Shell-,
+reStructuredText-, HTML-, SVG- und unterstützte Quelltextdateien können auf der
+Dokumentdetailseite als Klartext erscheinen. Die Bytes werden über den
+verifizierten `StoragePort` gelesen; die Vorschau akzeptiert nur kleine,
+gültige UTF-8-Texte ohne binäre Steuerzeichen. HTML, SVG, Markdown, XML und
+Quelltext werden **nicht interpretiert oder ausgeführt**;
+die Template-Ausgabe bleibt HTML-escaped.
+
+Die Inline-Vorschau liest höchstens 256 KiB. Größere Dateien, ungültiges UTF-8
+und binäre Inhalte werden nicht inline angezeigt. Kleinere Inhalte sind auf
+300 Zeilen und 12.000 Zeichen begrenzt. Das unveränderte Original bleibt über
+die bestehenden authentifizierten Öffnen-/Download-Aktionen verfügbar. Die
+Begrenzung schützt Browser und Server vor großen oder manipulierten Textdateien.
+
 Der separate Video-Player zeigt zusätzlich technische Metadaten und die Vorschaubilder. Ein Klick auf ein Vorschaubild springt im Player an den zugehörigen Zeitpunkt. Die unveränderte Originaldatei bleibt erreichbar.
 
 Audio-, Video- und PDF-Originale unterstützen einzelne HTTP-Bytebereiche für
