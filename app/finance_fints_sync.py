@@ -7,6 +7,7 @@ from typing import Any
 
 from .finance_fints import (
     FinTSAuthenticationRequired,
+    FinTSFeatureUnavailable,
     default_fetch_window,
     fetch_transactions,
     fingerprint_for_account,
@@ -160,6 +161,11 @@ class FinTSSyncService:
                         ]
                     raise
                 results.append(result)
+        except FinTSFeatureUnavailable:
+            # A known unsupported read operation does not mean credentials or
+            # connectivity failed; leave a valid bank connection usable.
+            self.store.update_bank_connection_status(connection_id, actor, "connected")
+            raise
         except Exception as exc:
             # Error text is bounded by the store and must never include the PIN.
             self.store.update_bank_connection_status(connection_id, actor, "error", error=str(exc))

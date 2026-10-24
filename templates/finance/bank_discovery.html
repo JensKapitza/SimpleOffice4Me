@@ -7,12 +7,31 @@
     <h1 class="h2">Gefundene Bankkonten</h1>
     <p class="text-secondary">{{ connection.institution }} · {{ connection.login_id }}. PIN/TAN werden nicht gespeichert.</p>
   </div>
+  <section class="card mb-4" aria-labelledby="fints-capabilities-title">
+    <div class="card-body">
+      <h2 id="fints-capabilities-title" class="h5">Von der Bank gemeldete Lese- und TAN-Fähigkeiten</h2>
+      <p class="text-secondary">Diese Angaben stammen aus den FinTS-Bankparametern und werden nicht dauerhaft gespeichert. SimpleOffice bietet keine Zahlungsaufträge an.</p>
+      <dl class="row mb-2">
+        <dt class="col-sm-4">Kontostand lesen</dt>
+        <dd class="col-sm-8">{% if bank_capabilities.read.balance is sameas true %}Unterstützt{% elif bank_capabilities.read.balance is sameas false %}Nicht unterstützt{% else %}Nicht ermittelt{% endif %}</dd>
+        <dt class="col-sm-4">Umsätze lesen</dt>
+        <dd class="col-sm-8">{% if bank_capabilities.read.transactions is sameas true %}Unterstützt{% elif bank_capabilities.read.transactions is sameas false %}Nicht unterstützt{% else %}Nicht ermittelt{% endif %}</dd>
+        <dt class="col-sm-4">Aktuelles TAN-Verfahren</dt>
+        <dd class="col-sm-8">{{ bank_capabilities.current_tan_mechanism_label or 'Nicht ermittelt' }}</dd>
+      </dl>
+      <h3 class="h6">Unterstützte TAN-Verfahren</h3>
+      {% if bank_capabilities.tan_mechanisms %}
+      <ul class="mb-0">{% for method in bank_capabilities.tan_mechanisms %}<li>{{ method.name or 'Unbenanntes Verfahren' }} ({{ method.security_function }}){% if method.version %} · HKTAN {{ method.version }}{% endif %}{% if method.tan_process %} · Prozess {{ method.tan_process }}{% endif %}</li>{% endfor %}</ul>
+      {% else %}<p class="mb-0">Keine unterstützten TAN-Verfahren ermittelt.</p>{% endif %}
+    </div>
+  </section>
   {% for item in suggestions %}
   <section class="card mb-3"><div class="card-body">
     <div class="row align-items-end g-3">
       <div class="col-lg-5">
         <strong>{{ item.remote.iban or item.remote.account_number }}</strong>
         <div class="small text-secondary">{{ item.remote.account_type or 'Bankkonto' }} · {{ item.remote.currency }}</div>
+        <div class="small mt-2">Saldo: {% if item.capabilities.balance is sameas true %}unterstützt{% elif item.capabilities.balance is sameas false %}nicht unterstützt{% else %}nicht ermittelt{% endif %}; Umsätze: {% if item.capabilities.transactions is sameas true %}unterstützt{% elif item.capabilities.transactions is sameas false %}nicht unterstützt{% else %}nicht ermittelt{% endif %}</div>
       </div>
       <div class="col-lg-7">
         <form method="post" action="{{ url_for('.map_bank_account', connection_id=connection.connection_id) }}" class="row g-2">

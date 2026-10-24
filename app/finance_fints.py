@@ -11,6 +11,7 @@ import os
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+from types import SimpleNamespace
 from typing import Any, Iterable
 
 from .finance_schema import normalize_iban, text, transaction_fingerprint
@@ -37,7 +38,13 @@ class FinTSAuthenticationRequired(RuntimeError):
         self.decoupled = decoupled is True
 
 
+class FinTSFeatureUnavailable(ValueError):
+    """The bank explicitly reports that a supported read operation is unavailable."""
+
+
 _MAX_SCA_STATE_BYTES = 120 * 1024
+_MAX_CAPABILITY_ACCOUNTS = 1000
+_MAX_TAN_MECHANISMS = 100
 
 
 def _encode_sca_state(value: bytes) -> str:
@@ -202,11 +209,156 @@ def _sepa_accounts(client: Any) -> Iterable[Any]:
     return accounts
 
 
+_READ_OPERATION_NAMES = {
+    "balance": ("GET_BALANCE",),
+    "transactions": ("GET_TRANSACTIONS", "GET_TRANSACTIONS_XML"),
+}
+
+
+def _operation_flags(value: Any) -> dict[str, bool]:
+    if not isinstance(value, dict):
+        return {}
+    result = {}
+    for operation, supported in value.items():
+        name = text(getattr(operation, "name", operation), 64).upper()
+        if name and type(supported) is bool:
+            result[name] = supported
+    return result
+
+
+def _operation_status(flags: dict[str, bool], feature: str) -> bool | None:
+    names = _READ_OPERATION_NAMES[feature]
+    values = [flags[name] for name in names if name in flags]
+    if any(values):
+        return True
+    if len(values) == len(names):
+        return False
+    return None
+
+
+def _combine_operation_status(bank: bool | None, account: bool | None) -> bool | None:
+    if bank is False or account is False:
+        return False
+    if bank is True or account is True:
+        return True
+    return None
+
+
+def _information_account_id(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    account = SimpleNamespace(
+        iban=value.get("iban", ""),
+        bank_identifier=value.get("bank_identifier", ""),
+        accountnumber=value.get("account_number", ""),
+        subaccount=value.get("subaccount_number", ""),
+    )
+    try:
+        return _remote_id(account)
+    except ValueError:
+        return ""
+
+
+def _public_capabilities(information: Any) -> dict[str, Any]:
+    """Keep only bounded read capabilities and TAN procedure descriptions."""
+    if not isinstance(information, dict):
+        raise ValueError("FinTS lieferte ein unbekanntes Fähigkeitsformat")
+    bank = information.get("bank")
+    bank_flags = _operation_flags(bank.get("supported_operations") if isinstance(bank, dict) else None)
+    read = {feature: _operation_status(bank_flags, feature) for feature in _READ_OPERATION_NAMES}
+    accounts: dict[str, dict[str, bool | None]] = {}
+    rows = information.get("accounts")
+    if isinstance(rows, Iterable) and not isinstance(rows, (str, bytes, dict)):
+        for index, row in enumerate(rows):
+            if index >= _MAX_CAPABILITY_ACCOUNTS:
+                break
+            remote_id = _information_account_id(row)
+            if not remote_id or remote_id in accounts:
+                continue
+            account_flags = _operation_flags(row.get("supported_operations"))
+            accounts[remote_id] = {
+                feature: _combine_operation_status(
+                    read[feature], _operation_status(account_flags, feature),
+                )
+                for feature in _READ_OPERATION_NAMES
+            }
+
+    auth = information.get("auth")
+    auth = auth if isinstance(auth, dict) else {}
+    raw_methods = auth.get("tan_mechanisms")
+    methods = []
+    if isinstance(raw_methods, dict):
+        for index, (security_function, mechanism) in enumerate(raw_methods.items()):
+            if index >= _MAX_TAN_MECHANISMS:
+                break
+            identifier = text(security_function, 16)
+            if not identifier:
+                continue
+            version = getattr(mechanism, "VERSION", None)
+            methods.append({
+                "security_function": identifier,
+                "name": text(getattr(mechanism, "name", ""), 80),
+                "version": version if type(version) is int and 1 <= version <= 99 else None,
+                "tan_process": text(getattr(mechanism, "tan_process", ""), 8),
+                "challenge_structured": (
+                    getattr(mechanism, "challenge_structured")
+                    if type(getattr(mechanism, "challenge_structured", None)) is bool else None
+                ),
+            })
+    methods.sort(key=lambda item: (item["name"].casefold(), item["security_function"]))
+    current_method = text(auth.get("current_tan_mechanism", ""), 16)
+    method_names = {item["security_function"]: item["name"] for item in methods}
+    if current_method == "999":
+        current_method_label = "Ein-Schritt-Verfahren (PIN)"
+    else:
+        current_method_label = method_names.get(current_method, current_method)
+    return {
+        "read": read,
+        "accounts": accounts,
+        "tan_mechanisms": methods,
+        "current_tan_mechanism": current_method,
+        "current_tan_mechanism_label": current_method_label,
+    }
+
+
+def _capability_profile(client: Any) -> dict[str, Any]:
+    get_information = getattr(client, "get_information", None)
+    if not callable(get_information):
+        return _public_capabilities({})
+    try:
+        information = get_information()
+        return _public_capabilities(information)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("FinTS-Fähigkeitsdaten konnten nicht sicher ausgewertet werden") from exc
+
+
+def _require_read_capability(client: Any, remote_account_id: str, feature: str) -> None:
+    profile = _capability_profile(client)
+    status = profile["accounts"].get(remote_account_id, {}).get(feature)
+    if status is None:
+        status = profile["read"].get(feature)
+    if status is False:
+        label = "Saldoabfrage" if feature == "balance" else "Umsatzabruf"
+        raise FinTSFeatureUnavailable(f"Die Bank unterstützt den Lesezugriff auf {label} für dieses Konto nicht.")
+
+
 def discover_accounts(connection: dict[str, Any], pin: str) -> list[dict[str, str]]:
     client = _client(connection, pin)
     try:
         accounts = _sepa_accounts(client)
         return [normalize_account(account).as_dict() for account in accounts]
+    finally:
+        del client
+
+
+def discover_accounts_with_capabilities(
+    connection: dict[str, Any], pin: str,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
+    """Discover SEPA accounts and safely summarize the bank's read/TAN capabilities."""
+    client = _client(connection, pin)
+    try:
+        accounts = [normalize_account(account).as_dict() for account in _sepa_accounts(client)]
+        return accounts, _capability_profile(client)
     finally:
         del client
 
@@ -334,6 +486,7 @@ def fetch_transactions(
                 retry_response = exc.challenge_response
                 step = "accounts"
             if retry_response is None:
+                _require_read_capability(client, remote_account_id, "transactions")
                 result = client.get_transactions(account, start_date, end_date)
                 if is_tan_response(result):
                     retry_response = result
@@ -364,6 +517,8 @@ def fetch_transactions(
     next_step = str(challenge_state["step"])
     next_account = None
     result = None
+    if next_step == "transactions":
+        _require_read_capability(client, remote_account_id, "transactions")
     with client.resume_dialog(_decode_sca_state(challenge_state.get("dialog_data"))):
         result = client.send_tan(retry_response, "" if retry_response.decoupled else str(tan))
         if is_tan_response(result):
@@ -376,6 +531,7 @@ def fetch_transactions(
             )
             if next_account is None:
                 raise ValueError("Das zugeordnete Bankkonto wurde beim FinTS-Abruf nicht gefunden")
+            _require_read_capability(client, remote_account_id, "transactions")
             result = client.get_transactions(next_account, start_date, end_date)
             if is_tan_response(result):
                 next_retry = result

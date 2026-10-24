@@ -14,7 +14,12 @@ from .auth import login_required
 from .document_store import CONTROL_DIR
 from .finance_statements import FinanceStatementImporter
 from .finance_store import FinanceStore
-from .finance_fints import FinTSAuthenticationRequired, FinTSUnavailable, discover_accounts
+from .finance_fints import (
+    FinTSAuthenticationRequired,
+    FinTSFeatureUnavailable,
+    FinTSUnavailable,
+    discover_accounts_with_capabilities,
+)
 from .finance_fints_balances import fetch_balance
 from .finance_fints_sync import FinTSSyncService
 from .finance_match_adapters import proposals_for_transaction
@@ -208,13 +213,27 @@ def discover_bank_accounts(connection_id: str):
     try:
         store = _store()
         connection = store.bank_connection(connection_id, actor)
-        remote_accounts = discover_accounts(connection, pin)
+        remote_accounts, bank_capabilities = discover_accounts_with_capabilities(connection, pin)
         local_accounts = store.accounts(actor)
         suggestions = []
         for remote in remote_accounts:
             local = store.account_by_iban(remote.get("iban", ""), actor) if remote.get("iban") else None
-            suggestions.append({"remote": remote, "local": local})
-        return render_template("finance/bank_discovery.html", connection=connection, suggestions=suggestions, accounts=local_accounts)
+            account_capabilities = bank_capabilities["accounts"].get(remote["remote_account_id"], {})
+            account_capabilities = {
+                feature: account_capabilities.get(feature)
+                if account_capabilities.get(feature) is not None
+                else bank_capabilities["read"][feature]
+                for feature in ("balance", "transactions")
+            }
+            suggestions.append({"remote": remote, "local": local, "capabilities": account_capabilities})
+        response = make_response(render_template(
+            "finance/bank_discovery.html", connection=connection, suggestions=suggestions,
+            accounts=local_accounts, bank_capabilities=bank_capabilities,
+        ))
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return response
     except FinTSAuthenticationRequired:
         flash("Die Bank verlangt bei der Kontenermittlung eine TAN/App-Freigabe. Dieser Vorgang kann hier nicht fortgesetzt werden.")
         return redirect(url_for(".index"))
@@ -275,6 +294,9 @@ def read_bank_connection_balance(connection_id: str):
     except FinTSUnavailable as exc:
         flash(str(exc))
         return redirect(url_for(".index", account_id=mapping["account_id"]))
+    except FinTSFeatureUnavailable as exc:
+        flash(str(exc))
+        return redirect(url_for(".index", account_id=mapping["account_id"]))
     except ValueError:
         flash("Kontostand konnte nicht abgerufen werden. Bitte Bankverbindung, PIN und Kontozuordnung prüfen.")
         return redirect(url_for(".index", account_id=mapping["account_id"]))
@@ -330,6 +352,9 @@ def continue_bank_connection_balance(connection_id: str):
             return _balance_challenge_response(mapping, connection_id, next_token, exc.challenge_state)
         flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte erneut starten.")
         return redirect(url_for(".index"))
+    except FinTSFeatureUnavailable as exc:
+        flash(str(exc))
+        return redirect(url_for(".index"))
     except (ValueError, FinTSUnavailable):
         flash("TAN-Freigabe fehlgeschlagen oder abgelaufen. Bitte den Saldoabruf neu starten.")
         return redirect(url_for(".index"))
@@ -383,6 +408,9 @@ def sync_bank_connection(connection_id: str):
                 return redirect(url_for(".index"))
             return _transaction_sync_challenge_response(connection_id, token, exc.challenge_state)
         flash(str(exc))
+    except FinTSFeatureUnavailable as exc:
+        flash(str(exc))
+        return redirect(url_for(".index"))
     except (FinTSUnavailable, ValueError) as exc:
         flash(f"Bankabruf nicht möglich: {exc}")
     except Exception:
@@ -420,6 +448,9 @@ def continue_bank_connection_sync(connection_id: str):
                 return redirect(url_for(".index"))
             return _transaction_sync_challenge_response(connection_id, token, exc.challenge_state)
         flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte den Bankabruf neu starten.")
+        return redirect(url_for(".index"))
+    except FinTSFeatureUnavailable as exc:
+        flash(str(exc))
         return redirect(url_for(".index"))
     except (ValueError, FinTSUnavailable):
         flash("TAN-Freigabe fehlgeschlagen oder abgelaufen. Bitte den Bankabruf neu starten.")
