@@ -103,7 +103,7 @@ def save_settings():
     if request.form.get("reset") == "1":
         submitted = DEFAULT_POLL_INTERVAL_SECONDS
     try:
-        tick_seconds = _store().update_poll_interval(submitted, g.user["username"])
+        _store().update_poll_interval(submitted, g.user["username"])
     except ValueError as exc:
         flash(str(exc))
         return render_template(
