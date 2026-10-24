@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from .document_store_core import *  # noqa: F401,F403
+from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_file_under
 from .v3_activity import emit_activity_best_effort
 
@@ -306,6 +307,14 @@ class _DocumentStorePart1:
         self.initialize()
         return sorted(self._read_json(self.archives_path, {"archives": []}).get("archives", []), key=lambda item: item.get("label", ""))
 
+    @staticmethod
+    def _location_revision(document: dict[str, Any]) -> int:
+        revision = document.get("location_revision")
+        if isinstance(revision, int) and not isinstance(revision, bool) and revision >= 0:
+            return revision
+        history = document.get("location_history")
+        return len(history) if isinstance(history, list) else 0
+
     def main_archive(self) -> dict[str, Any]:
         self.initialize()
         policy = self._read_json(self.root / POLICY_FILE, {})
@@ -318,31 +327,34 @@ class _DocumentStorePart1:
             raise ValueError("share password must contain at least 12 characters")
         if not 1 <= expires_days <= 365:
             raise ValueError("share expiry must be between 1 and 365 days")
-        document = self.get_document(reference)
-        self._require_document_editable(document)
-        note = next((item for item in document.get("notes", []) if item.get("id") == note_id), None) if note_id else None
-        if note_id and note is None:
-            raise ValueError("note does not exist on this document")
-        share_id = uuid.uuid4().hex
-        salt = os.urandom(16)
-        expires_at = datetime.now(timezone.utc).replace(microsecond=0).timestamp() + expires_days * 86400
-        share = {
-            "share_id": share_id,
-            "document_id": document["document_id"],
-            "resource_type": "note" if note else "file",
-            "note_id": note_id or None,
-            "created_by": actor,
-            "created_at": utc_now(),
-            "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
-            "password_salt": salt.hex(),
-            "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(),
-            "access_log": [],
-        }
-        payload = self._read_json(self.shares_path, {"shares": []})
-        payload["shares"] = [*payload.get("shares", []), share]
-        atomic_json_write(self.shares_path, payload)
-        self._event("share_created", {"share_id": share_id, "document_id": document["document_id"], "actor": actor})
-        self._record_revision("share_created", actor, "shares", share_id, {key: value for key, value in share.items() if not key.startswith("password_")})
+        with exclusive_file_lock(self.shares_path.with_suffix(".lock")):
+            document = self.get_document(reference)
+            self._require_document_editable(document)
+            note = next((item for item in document.get("notes", []) if item.get("id") == note_id), None) if note_id else None
+            if note_id and note is None:
+                raise ValueError("note does not exist on this document")
+            share_id = uuid.uuid4().hex
+            salt = os.urandom(16)
+            expires_at = datetime.now(timezone.utc).replace(microsecond=0).timestamp() + expires_days * 86400
+            share = {
+                "share_id": share_id,
+                "document_id": document["document_id"],
+                "shared_from_path": str(document.get("last_path", "")),
+                "shared_from_location_revision": self._location_revision(document),
+                "resource_type": "note" if note else "file",
+                "note_id": note_id or None,
+                "created_by": actor,
+                "created_at": utc_now(),
+                "expires_at": datetime.fromtimestamp(expires_at, timezone.utc).isoformat(),
+                "password_salt": salt.hex(),
+                "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(),
+                "access_log": [],
+            }
+            payload = self._read_json(self.shares_path, {"shares": []})
+            payload["shares"] = [*payload.get("shares", []), share]
+            atomic_json_write(self.shares_path, payload)
+            self._event("share_created", {"share_id": share_id, "document_id": document["document_id"], "actor": actor})
+            self._record_revision("share_created", actor, "shares", share_id, {key: value for key, value in share.items() if not key.startswith("password_")})
         return {key: value for key, value in share.items() if not key.startswith("password_")}
 
     def document_shares(self, reference: str | Path) -> list[dict[str, Any]]:
@@ -359,46 +371,52 @@ class _DocumentStorePart1:
         self._require_actor(actor)
         if len(password.strip()) < 12: raise ValueError("share password must contain at least 12 characters")
         if not 1 <= expires_days <= 365: raise ValueError("share expiry must be between 1 and 365 days")
-        document_id = self.get_document(reference)["document_id"]
-        payload = self._read_json(self.shares_path, {"shares": []})
-        share = next((item for item in payload["shares"] if item.get("share_id") == share_id and item.get("document_id") == document_id), None)
-        if share is None: raise ValueError("share does not belong to this document")
-        salt = os.urandom(16)
-        share.update({"password_salt": salt.hex(), "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(), "expires_at": datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + expires_days * 86400, timezone.utc).isoformat(), "reactivated_at": utc_now(), "reactivated_by": actor})
-        atomic_json_write(self.shares_path, payload)
-        self._event("share_reactivated", {"share_id": share_id, "document_id": document_id, "actor": actor})
-        return self._public_share(share, datetime.now(timezone.utc))
+        with exclusive_file_lock(self.shares_path.with_suffix(".lock")):
+            document_id = self.get_document(reference)["document_id"]
+            payload = self._read_json(self.shares_path, {"shares": []})
+            share = next((item for item in payload["shares"] if item.get("share_id") == share_id and item.get("document_id") == document_id), None)
+            if share is None: raise ValueError("share does not belong to this document")
+            salt = os.urandom(16)
+            if self._share_context_changed(share):
+                raise ValueError("Freigabe wurde durch Dokumentverschiebung widerrufen; bitte neu freigeben")
+            # An expired share may be renewed only if it was not invalidated by a move.
+            share.update({"password_salt": salt.hex(), "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(), "expires_at": datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + expires_days * 86400, timezone.utc).isoformat(), "reactivated_at": utc_now(), "reactivated_by": actor})
+            atomic_json_write(self.shares_path, payload)
+            self._event("share_reactivated", {"share_id": share_id, "document_id": document_id, "actor": actor})
+            return self._public_share(share, datetime.now(timezone.utc))
 
     def open_share(self, share_id: str, password: str, remote_addr: str = "") -> dict[str, Any]:
-        payload = self._read_json(self.shares_path, {"shares": []})
-        share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
-        if not share: raise ValueError("Freigabelink ist nicht verfügbar")
-        if self._share_expired(share):
-            self._record_share_access(payload, share, "expired_access", remote_addr)
-            raise ValueError("Freigabelink ist abgelaufen")
-        expected = bytes.fromhex(share["password_hash"])
-        actual = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(share["password_salt"]), n=2**14, r=8, p=1)
-        if not hmac.compare_digest(expected, actual):
-            self._record_share_access(payload, share, "password_rejected", remote_addr)
-            raise ValueError("Passwort ist nicht korrekt")
-        document = self.get_document(share["document_id"])
-        self._record_share_access(payload, share, "opened", remote_addr)
-        result = {"document": document, "share": {key: value for key, value in share.items() if not key.startswith("password_")}}
-        if share.get("resource_type") == "note":
-            note = next((item for item in document.get("notes", []) if item.get("id") == share.get("note_id")), None)
-            if note is None:
-                raise ValueError("the shared note is no longer available")
-            return {**result, "note": note}
-        try:
-            path = resolve_file_under(self.root, str(document.get("last_path", "")))
-        except (OSError, ValueError) as exc:
-            raise ValueError("the shared original is currently unavailable") from exc
-        return {**result, "path": path}
+        with exclusive_file_lock(self.shares_path.with_suffix(".lock")):
+            payload = self._read_json(self.shares_path, {"shares": []})
+            share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
+            if not share: raise ValueError("Freigabelink ist nicht verfügbar")
+            if self._share_expired(share) or self._share_context_changed(share):
+                self._record_share_access(payload, share, "expired_access", remote_addr)
+                raise ValueError("Freigabelink ist abgelaufen")
+            expected = bytes.fromhex(share["password_hash"])
+            actual = hashlib.scrypt(password.encode("utf-8"), salt=bytes.fromhex(share["password_salt"]), n=2**14, r=8, p=1)
+            if not hmac.compare_digest(expected, actual):
+                self._record_share_access(payload, share, "password_rejected", remote_addr)
+                raise ValueError("Passwort ist nicht korrekt")
+            document = self.get_document(share["document_id"])
+            self._record_share_access(payload, share, "opened", remote_addr)
+            result = {"document": document, "share": {key: value for key, value in share.items() if not key.startswith("password_")}}
+            if share.get("resource_type") == "note":
+                note = next((item for item in document.get("notes", []) if item.get("id") == share.get("note_id")), None)
+                if note is None:
+                    raise ValueError("the shared note is no longer available")
+                return {**result, "note": note}
+            try:
+                path = resolve_file_under(self.root, str(document.get("last_path", "")))
+            except (OSError, ValueError) as exc:
+                raise ValueError("the shared original is currently unavailable") from exc
+            return {**result, "path": path}
 
     def record_share_view(self, share_id: str, remote_addr: str = "") -> None:
-        payload = self._read_json(self.shares_path, {"shares": []})
-        share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
-        if share: self._record_share_access(payload, share, "link_viewed", remote_addr)
+        with exclusive_file_lock(self.shares_path.with_suffix(".lock")):
+            payload = self._read_json(self.shares_path, {"shares": []})
+            share = next((item for item in payload["shares"] if item.get("share_id") == share_id), None)
+            if share: self._record_share_access(payload, share, "link_viewed", remote_addr)
 
     def record_access(self, reference: str | Path, actor: str, access_type: str) -> dict[str, Any]:
         self._require_actor(actor)
@@ -420,13 +438,67 @@ class _DocumentStorePart1:
         self._event(f"document_{access_type}", {"document_id": document["document_id"], **access})
         return document
 
+    def _share_context_changed(self, share: dict[str, Any]) -> bool:
+        """A share tied to an original location cannot follow a moved document."""
+        try:
+            document = self.get_document(share["document_id"])
+        except (OSError, ValueError, KeyError):
+            return True
+        shared_revision = share.get("shared_from_location_revision")
+        if (
+            isinstance(shared_revision, int)
+            and not isinstance(shared_revision, bool)
+            and shared_revision >= 0
+        ):
+            # The monotone revision is authoritative for new shares. Wall-clock
+            # history is only a compatibility fallback for legacy records.
+            return self._location_revision(document) != shared_revision
+        created_at = share.get("created_at", "")
+        last_moved_at = document.get("location_last_moved_at", "")
+        if (
+            isinstance(created_at, str)
+            and created_at
+            and isinstance(last_moved_at, str)
+            and last_moved_at
+            and last_moved_at >= created_at
+        ):
+            return True
+        history = document.get("location_history", [])
+        if isinstance(created_at, str) and created_at and isinstance(history, list):
+            for movement in history:
+                moved_at = movement.get("at") if isinstance(movement, dict) else None
+                if isinstance(moved_at, str) and moved_at and moved_at >= created_at:
+                    return True
+        original = share.get("shared_from_path")
+        if original is not None:
+            return str(document.get("last_path", "")) != str(original)
+        return False
+
+    def _active_share_ids_for_move(self, document_id: str) -> list[str]:
+        """Snapshot active links before a move so each invalidation is audited."""
+        payload = self._read_json(self.shares_path, {"shares": []})
+        shares = payload.get("shares", [])
+        if not isinstance(shares, list):
+            return []
+        share_ids = []
+        for share in shares:
+            if not isinstance(share, dict) or share.get("document_id") != document_id:
+                continue
+            try:
+                active = not self._share_expired(share) and not self._share_context_changed(share)
+            except (KeyError, TypeError, ValueError):
+                active = False
+            if active and isinstance(share.get("share_id"), str):
+                share_ids.append(share["share_id"])
+        return sorted(set(share_ids))
+
     @staticmethod
     def _share_expired(share: dict[str, Any]) -> bool:
         return datetime.fromisoformat(share["expires_at"]).astimezone(timezone.utc) < datetime.now(timezone.utc)
 
     def _public_share(self, share: dict[str, Any], now: datetime) -> dict[str, Any]:
         result = {key: value for key, value in share.items() if not key.startswith("password_")}
-        result["status"] = "abgelaufen" if self._share_expired(share) else "aktiv"
+        result["status"] = "abgelaufen" if self._share_expired(share) or self._share_context_changed(share) else "aktiv"
         return result
 
     def _record_share_access(self, payload: dict[str, Any], share: dict[str, Any], action: str, remote_addr: str) -> None:
