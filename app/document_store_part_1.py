@@ -454,6 +454,15 @@ class _DocumentStorePart1:
             # history is only a compatibility fallback for legacy records.
             return self._location_revision(document) != shared_revision
         created_at = share.get("created_at", "")
+        last_moved_at = document.get("location_last_moved_at", "")
+        if (
+            isinstance(created_at, str)
+            and created_at
+            and isinstance(last_moved_at, str)
+            and last_moved_at
+            and last_moved_at >= created_at
+        ):
+            return True
         history = document.get("location_history", [])
         if isinstance(created_at, str) and created_at and isinstance(history, list):
             for movement in history:

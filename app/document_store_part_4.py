@@ -687,6 +687,7 @@ class _DocumentStorePart4:
             if path_moved:
                 shares_to_revoke = self._active_share_ids_for_move(document_id)
                 metadata["location_revision"] = self._location_revision(metadata) + 1
+                metadata["location_last_moved_at"] = now
                 metadata["location_history"] = [*metadata.get("location_history", []), {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"}]
                 with self._db() as db: db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
             metadata.update({"version": 1, "document_id": document_id, "sha256": digest, "first_seen_at": metadata.get("first_seen_at", now), "last_seen_at": now, "last_path": relative_path, "tags": all_tags, "tagged_at": tagged_at, "original_sha256": original_sha256, "content_sha256": digest, "notes": metadata.get("notes", []), "relationships": metadata.get("relationships", []), "state": metadata.get("state", "new"), "state_history": metadata.get("state_history", []), "version_series_id": metadata.get("version_series_id", document_id), "version_number": metadata.get("version_number", 1), "attributes": metadata.get("attributes", {}), "deadlines": metadata.get("deadlines", [])})

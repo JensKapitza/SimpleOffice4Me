@@ -83,6 +83,7 @@ class _DocumentStorePart3:
             document["last_path"] = relative_path
             document["location_revision"] = self._location_revision(document) + 1
             document["last_seen_at"] = utc_now()
+            document["location_last_moved_at"] = document["last_seen_at"]
             document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
             document["location_history"] = document["location_history"][-200:]
             self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))

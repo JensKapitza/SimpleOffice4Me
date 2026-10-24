@@ -510,6 +510,31 @@ class DocumentStoreTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "abgelaufen"):
                 store.open_share(share["share_id"], "sicheres-passwort")
 
+    def test_legacy_share_stays_revoked_after_location_history_is_pruned(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "brief.txt"
+            source.parent.mkdir()
+            source.write_text("Brief", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
+            payload = store._read_json(store.shares_path, {"shares": []})
+            payload["shares"][0].pop("shared_from_path")
+            payload["shares"][0].pop("shared_from_location_revision")
+            store.shares_path.write_text(json.dumps(payload), encoding="utf-8")
+
+            store.move_document(document["document_id"], "archiv", "admin")
+            moved = store.get_document(document["document_id"])
+            self.assertTrue(moved["location_last_moved_at"])
+            moved["location_history"] = []
+            store._save_document(moved)
+
+            self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
+            with self.assertRaisesRegex(ValueError, "abgelaufen"):
+                store.open_share(share["share_id"], "sicheres-passwort")
+
     def test_share_expires_after_filesystem_move_is_discovered_by_scan(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
