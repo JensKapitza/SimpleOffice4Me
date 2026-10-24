@@ -105,7 +105,6 @@ def smart_folder_view():
     move_collision = False
     move_already_in_folder = False
     if move_document:
-        source_name = Path(str(move_document.get("last_path", ""))).name
         move_already_in_folder = (
             Path(str(move_document.get("last_path", ""))).parent.as_posix()
             == selected["path"]
