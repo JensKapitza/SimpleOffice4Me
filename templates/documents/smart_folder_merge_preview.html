@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+<h1 class="h3">Ordnerfusion prüfen</h1>
+<p><strong>Quelle:</strong> {{ impact.source }}</p>
+<p><strong>Ziel:</strong> {{ impact.target }}</p>
+<p>{{ impact.documents }} Quelldokument(e), {{ impact.target_documents }} bereits im Ziel.</p>
+<p>Quellregeln: {{ impact.source_rules|join(', ') if impact.source_rules else 'keine' }}.
+Zielregeln: {{ impact.target_rules|join(', ') if impact.target_rules else 'keine' }}.</p>
+{% if impact.notes %}<p>Notizen aus der Quelle werden mit Herkunft übernommen.</p>{% endif %}
+{% if impact.conflicts %}
+<div class="alert alert-danger">Fusion blockiert: widersprüchliche Regeln {{ impact.conflicts|join(', ') }}.</div>
+{% else %}
+<p class="alert alert-warning">Dies ist eine <strong>logische</strong> Fusion. Originaldateien werden nicht verschoben; bestehende Freigaben bleiben daher unverändert.</p>
+<details class="mb-3"><summary>Betroffene Dokumente anzeigen</summary><ul>
+{% for path in impact.source_paths %}<li class="text-break">{{ path }}</li>{% endfor %}
+</ul></details>
+<form method="post" action="{{ url_for('documents.merge_smart_folders') }}">
+<input type="hidden" name="source" value="{{ impact.source }}">
+<input type="hidden" name="target" value="{{ impact.target }}">
+<label for="merge-confirm" class="form-label">ZUSAMMENFUEHREN zur Bestätigung eingeben</label>
+<input id="merge-confirm" class="form-control mb-2" name="confirm" required pattern="ZUSAMMENFUEHREN">
+<button type="submit" class="btn btn-warning">Fusion bestätigen</button>
+</form>
+{% endif %}
+<a class="d-block mt-3" href="{{ url_for('documents.smart_folder_view', folder=impact.source) }}">Zurück zum Ordner</a>
+</main>
+{% endblock %}
