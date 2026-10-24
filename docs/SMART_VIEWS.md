@@ -63,9 +63,11 @@ Dokument-Caches. Die Auswahloberfläche zeigt höchstens die ersten 200 Mitglied
 Für ausgewählte Mitglieder kann die optionale V3-Warteschlange Vorschauen und/
 oder OCR/Texterkennung neu erzeugen. Jobs sind pro Benutzer auf zwei aktive und
 50 neue Aufträge pro Tag, global auf 500 aktive und 1.000 neue Aufträge pro Tag
-begrenzt; pro Auftrag sind höchstens 100 Dateien, 128 MiB je Datei und 512 MiB
-insgesamt zulässig. Der Status zeigt abgeschlossene/gesamte Dateien; fertige
-Jobdatensätze älter als 30 Tage werden bei einer späteren Einreihung bereinigt.
+begrenzt; Vorschauaufträge umfassen höchstens 100 Dateien, OCR-Aufträge höchstens
+5 Dateien und 10 PDF-Seiten je Datei. In beiden Fällen gelten 128 MiB je Datei
+und 512 MiB insgesamt sowie eine maximale Laufzeit von einer Stunde. Der Status
+zeigt abgeschlossene/gesamte Dateien; fertige Jobdatensätze älter als 30 Tage
+werden bei einer späteren Einreihung bereinigt.
 Der Dienst ist standardmäßig deaktiviert:
 `SIMPLEOFFICE_V3_JOBS_ENABLED=1` setzen und den Worker mit
 `python -m tools.v3_job_worker --root <DOCUMENT_ROOT>` starten.

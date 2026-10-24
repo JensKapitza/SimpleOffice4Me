@@ -191,7 +191,7 @@ class JobStore:
         worker: str,
         progress: Mapping | None,
         *,
-        lease_seconds: int = 300,
+        lease_seconds: int = 900,
     ) -> Job:
         """Atomically update bounded progress only for the current lease owner."""
         encoded = _json(progress)
@@ -326,7 +326,7 @@ class JobWorker:
         handlers: Mapping[str,Handler],
         worker_id: str,
         *,
-        lease_seconds: int = 300,
+        lease_seconds: int = 900,
     ):
         self.store=store; self.handlers=dict(handlers); self.worker_id=str(worker_id).strip()
         if not self.worker_id:

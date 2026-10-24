@@ -2,14 +2,20 @@
 from __future__ import annotations
 
 import hmac
+import logging
 from pathlib import Path
+import time
 
 from .v3_jobs import Job, JobStore, PermanentJobError, RetryableJobError
 
 MAX_BATCH_DOCUMENTS = 100
+MAX_BATCH_OCR_DOCUMENTS = 5
 MAX_BATCH_FILE_BYTES = 128 * 1024 * 1024
 MAX_BATCH_TOTAL_BYTES = 512 * 1024 * 1024
+MAX_BATCH_PDF_PAGES = 10
+MAX_BATCH_RUNTIME_SECONDS = 60 * 60
 BATCH_ACTIONS = {"preview", "ocr", "preview_ocr"}
+_LOGGER = logging.getLogger(__name__)
 
 
 def batch_handler(root: str | Path, jobs: JobStore, worker_id: str):
@@ -26,9 +32,14 @@ def batch_handler(root: str | Path, jobs: JobStore, worker_id: str):
         if action not in BATCH_ACTIONS or not isinstance(document_ids, list):
             raise PermanentJobError("invalid Smart Folder batch request")
         ids = [str(value).strip() for value in document_ids]
+        document_limit = (
+            MAX_BATCH_OCR_DOCUMENTS
+            if action in {"ocr", "preview_ocr"}
+            else MAX_BATCH_DOCUMENTS
+        )
         if (
             not ids
-            or len(ids) > MAX_BATCH_DOCUMENTS
+            or len(ids) > document_limit
             or any(not value for value in ids)
             or len(set(ids)) != len(ids)
         ):
@@ -77,6 +88,20 @@ def batch_handler(root: str | Path, jobs: JobStore, worker_id: str):
                     size = path.stat().st_size
                     if size > MAX_BATCH_FILE_BYTES:
                         raise PermanentJobError("a selected file exceeds the batch size limit")
+                    if action in {"ocr", "preview_ocr"} and path.suffix.casefold() == ".pdf":
+                        try:
+                            from pypdf import PdfReader
+
+                            page_count = len(PdfReader(str(path)).pages)
+                        except Exception as exc:
+                            _LOGGER.warning(
+                                "Smart folder PDF page preflight failed for document %s (%s)",
+                                document_id,
+                                type(exc).__name__,
+                            )
+                            raise PermanentJobError("PDF page count could not be validated") from exc
+                        if page_count > MAX_BATCH_PDF_PAGES:
+                            raise PermanentJobError("PDF OCR batch limit is ten pages per file")
                     total_bytes += size
                     if total_bytes > MAX_BATCH_TOTAL_BYTES:
                         raise PermanentJobError("Smart Folder batch exceeds the total size limit")
@@ -86,7 +111,10 @@ def batch_handler(root: str | Path, jobs: JobStore, worker_id: str):
                 jobs.update_progress(job.job_id, worker_id, {
                     "action": action, "completed": 0, "total": len(documents),
                 })
+                started = time.monotonic()
                 for index, document_id in enumerate(documents, start=1):
+                    if time.monotonic() - started > MAX_BATCH_RUNTIME_SECONDS:
+                        raise PermanentJobError("Smart Folder batch exceeded its one-hour runtime limit")
                     metadata = store.get_document(document_id)
                     path = resolve_file_under(root, str(metadata.get("last_path", "")))
                     if action in {"ocr", "preview_ocr"}:

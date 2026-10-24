@@ -350,6 +350,9 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual("succeeded", completed.state)
         self.assertEqual(1, completed.progress["completed"])
         self.assertEqual(1, completed.progress["total"])
+        refreshed = DocumentStore(self.root).get_document(document["document_id"])
+        self.assertIn("record", refreshed["extracted_text"])
+        self.assertEqual(b"record", (self.root / refreshed["last_path"]).read_bytes())
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")

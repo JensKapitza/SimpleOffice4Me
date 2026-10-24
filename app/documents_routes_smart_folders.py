@@ -13,6 +13,7 @@ from .documents_core import *  # noqa: F401,F403
 from .smart_folder_batch_jobs import (
     BATCH_ACTIONS,
     MAX_BATCH_DOCUMENTS,
+    MAX_BATCH_OCR_DOCUMENTS,
     MAX_BATCH_FILE_BYTES,
     MAX_BATCH_TOTAL_BYTES,
 )
@@ -179,13 +180,20 @@ def enqueue_smart_folder_batch():
         document_ids = [value.strip() for value in request.form.getlist("document_ids")]
         if action not in BATCH_ACTIONS:
             raise ValueError("Ungültige Sammelordner-Aktion")
+        document_limit = (
+            MAX_BATCH_OCR_DOCUMENTS
+            if action in {"ocr", "preview_ocr"}
+            else MAX_BATCH_DOCUMENTS
+        )
         if (
             not document_ids
-            or len(document_ids) > MAX_BATCH_DOCUMENTS
+            or len(document_ids) > document_limit
             or any(not value for value in document_ids)
             or len(set(document_ids)) != len(document_ids)
         ):
-            raise ValueError("Wähle höchstens 100 unterschiedliche Dokumente aus")
+            raise ValueError(
+                f"Wähle höchstens {document_limit} unterschiedliche Dokumente aus"
+            )
         members = {str(item["document_id"]): item for item in selected["members"]}
         if any(document_id not in members for document_id in document_ids):
             raise ValueError("Alle ausgewählten Dokumente müssen zum Sammelordner gehören")
