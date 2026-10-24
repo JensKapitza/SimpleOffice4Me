@@ -10,8 +10,13 @@ from . import documents_routes_contact_capture as _routes_5
 from . import documents_routes_project_tracker as _routes_6
 from . import documents_routes_settings as _routes_7
 from . import documents_routes_task_source as _routes_8
+from . import documents_routes_smart_folders as _routes_9
+from . import documents_routes_recovery as _routes_10
 
-_route_modules = (_routes_1, _routes_2, _routes_3, _routes_4, _routes_5, _routes_6, _routes_7, _routes_8,)
+_route_modules = (
+    _routes_1, _routes_2, _routes_3, _routes_4, _routes_5,
+    _routes_6, _routes_7, _routes_8, _routes_9, _routes_10,
+)
 # Functions keep the globals of their defining route module. Mirror route names
 # between those modules so the rare direct cross-route call remains compatible.
 for _target in _route_modules:

@@ -1,6 +1,9 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
+from pathlib import PurePosixPath
+from uuid import UUID, uuid4, uuid5
 from .documents_core import *  # noqa: F401,F403
+from .smart_folder_views import SmartFolderViews
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
 from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
@@ -31,9 +34,10 @@ def upload():
         flash(error)
         return redirect(url_for("documents.index"))
     import_root = ""
+    import_id = ""
     if folder_import:
-        from uuid import uuid4
-        import_root = "imports/" + uuid4().hex
+        import_id = uuid4().hex
+        import_root = "imports/" + import_id
     stored = 0
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
@@ -81,6 +85,33 @@ def upload():
                 if defaults["default_state"] != "new":
                     _store().set_state(metadata["document_id"], defaults["default_state"], actor)
             document_id = result.value.object_id.value
+            if folder_import:
+                relative_source = PurePosixPath(
+                    relative_paths[item_index].replace(chr(92), "/")
+                ).parent
+                if relative_source.as_posix() != ".":
+                    source_path = relative_source.as_posix()
+                    source_origin = {
+                        "import_id": import_id,
+                        "folder_id": uuid5(UUID(hex=import_id), source_path).hex,
+                        "source_path": source_path,
+                        "source_name": relative_source.name,
+                    }
+                    try:
+                        _store().update_metadata(
+                            document_id,
+                            attributes={"folder_import_origin": source_origin},
+                            author=actor,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        current_app.logger.warning(
+                            "Folder import provenance could not be stored for document %s (%s)",
+                            document_id,
+                            type(exc).__name__,
+                        )
+                        flash(
+                            f"{upload_name}: Datei gespeichert, Herkunftsordner konnte nicht protokolliert werden."
+                        )
             imported_metadata = _store().get_document(document_id)
             complete_web_inbox_upload(
                 current_app.config["DOCUMENT_ROOT"],
@@ -111,6 +142,7 @@ def detail(document_id: str):
     linked_documents = store.relationship_targets(document)
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
     security = _attachment_security()
+    smart_views = SmartFolderViews(store, str(g.user["username"]))
     safe_attachments = _released_eml_attachments(store, document)
     eml_attachments = []
     if Path(str(document.get("last_path", ""))).suffix.casefold() == ".eml":
@@ -124,6 +156,9 @@ def detail(document_id: str):
     return render_template(
         "documents/detail.html",
         document=document,
+        smart_folders=smart_views.activated_folders(),
+        document_smart_folders=smart_views.assigned_to(document_id),
+        import_origin_path=smart_views.import_origin_view_path(document),
         versions=store.versions(document_id),
         content_recovery_versions=store.content_recovery_versions(document_id),
         relationships=relationships,
@@ -143,66 +178,6 @@ def detail(document_id: str):
         safe_attachments=safe_attachments,
         eml_attachments=eml_attachments,
     )
-
-@bp.get("/recovery")
-@login_required
-def document_recovery():
-    actor = str(g.user["username"])
-    return render_template("documents/recovery.html", items=_store().recovery_items(actor))
-
-@bp.post("/recovery/<document_id>/restore")
-@login_required
-def restore_deleted_document(document_id: str):
-    if request.form.get("confirm") != "WIEDERHERSTELLEN":
-        flash("Zur Wiederherstellung muss WIEDERHERSTELLEN bestätigt werden.")
-        return redirect(url_for("documents.document_recovery"))
-    try:
-        actor = str(g.user["username"])
-        document = _store().get_document(document_id)
-        destination = (
-            request.form.get("destination_path", "").strip()
-            or str(document.get("deleted_from") or "")
-        )
-        restored = restore_document_v2(
-            current_app.config["DOCUMENT_ROOT"],
-            actor,
-            document_id,
-            destination,
-            expected_version=request.form.get("expected_sha256", ""),
-        )
-        from .webdav import _record_sync_changes
-        _record_sync_changes(actor, str(restored["last_path"]))
-        flash(f"Dokument wurde ohne Überschreiben nach {restored['last_path']} wiederhergestellt.")
-        return redirect(url_for("documents.detail", document_id=document_id))
-    except PermissionError:
-        abort(404)
-    except (FileExistsError, OSError, ValueError) as exc:
-        flash(f"Wiederherstellung nicht ausgeführt: {exc}")
-        return redirect(url_for("documents.document_recovery"))
-
-@bp.post("/<document_id>/restore-content")
-@login_required
-def restore_document_content(document_id: str):
-    _document_or_404(document_id)
-    if request.form.get("confirm") != "WIEDERHERSTELLEN":
-        flash("Zur Wiederherstellung muss WIEDERHERSTELLEN bestätigt werden.")
-        return redirect(url_for("documents.detail", document_id=document_id))
-    try:
-        actor = str(g.user["username"])
-        restored = restore_document_content_v2(
-            current_app.config["DOCUMENT_ROOT"],
-            actor,
-            document_id,
-            request.form.get("archived_sha256", ""),
-            request.form.get("expected_current_sha256", ""),
-            max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
-        )
-        from .webdav import _record_sync_changes
-        _record_sync_changes(actor, str(restored["last_path"]))
-        flash(f"Inhaltsversion als neue Revision {restored['content_revision']} wiederhergestellt.")
-    except (OSError, RuntimeError, ValueError) as exc:
-        flash(f"Inhaltsversion nicht wiederhergestellt: {exc}")
-    return redirect(url_for("documents.detail", document_id=document_id))
 
 @bp.route("/<document_id>/attachments", methods=["GET", "POST"])
 @login_required

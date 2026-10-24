@@ -16,6 +16,7 @@
 <h1 class="h3 mb-1 text-break" title="{{ document.last_path }}">{{ document_path_parts[-1] if document_path_parts else document.last_path }}</h1>
 <p class="text-secondary mb-0">ID: <code>{{ document.document_id }}</code>
 </p>
+{% if import_origin_path %}<p class="small mb-0"><a href="{{ url_for('documents.smart_folder_view', folder=import_origin_path) }}">Ursprungsordner: {{ import_origin_path.rsplit('/', 1)[-1] }}</a></p>{% endif %}
 </div>
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
 <a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">Beleg buchen</a>
@@ -157,9 +158,17 @@
 <input required class="form-control" name="state" value="{{ document.state }}">
 <button type="submit" class="btn btn-outline-primary">Setzen</button>
 </form>
+<div class="mb-3">
+<a href="{{ url_for('documents.smart_folders') }}">Smart Views / Sammelordner durchsuchen</a>
+{% if document_smart_folders %}<p class="small mb-1">Zugeordnet:
+{% for folder in document_smart_folders %}<a href="{{ url_for('documents.smart_folder_view', folder=folder) }}">{{ folder }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+<a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('documents.smart_folders', assign_document_id=document.document_id) }}">Ordner / Smart View logisch zuordnen (ohne Verschieben)</a>
+<a class="btn btn-sm btn-outline-secondary mt-2" href="{{ url_for('documents.smart_folders', move_document_id=document.document_id) }}">Physisches Verschiebeziel auswählen</a>
+</div>
 <label class="form-label">In Ordner verschieben</label>
 <form method="post" action="{{ url_for('documents.move_document', document_id=document.document_id) }}" class="input-group">
-<input required class="form-control" name="destination_folder" placeholder="z. B. Rechnungen/2026" aria-describedby="move-help">
+<input required class="form-control" name="destination_folder" list="smart-folder-destinations" placeholder="z. B. Rechnungen/2026" aria-describedby="move-help">
+<datalist id="smart-folder-destinations">{% for folder in smart_folders %}<option value="{{ folder.path }}">{% endfor %}</datalist>
 <button type="submit" class="btn btn-outline-primary">Verschieben</button>
 </form>
 <div id="move-help" class="form-text">Relativer Zielordner im Dokumentenspeicher. Die ID und Verknüpfungen bleiben erhalten.</div>

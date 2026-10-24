@@ -1,0 +1,50 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+<h1 class="h3">Ordnerfusion prüfen</h1>
+<p><strong>Quelle:</strong> {{ impact.source }}</p>
+<p><strong>Ziel:</strong> {{ impact.target }}</p>
+<p>{{ impact.documents }} Quelldokument(e), {{ impact.target_documents }} bereits im Ziel.</p>
+<p>{{ impact.source_preview_ids|length }} ausgewählte Quellvorschaubilder, {{ impact.target_preview_ids|length }} im Ziel. Die Quellauswahl bleibt nach der Fusion als eigene Vorschaugruppe erhalten.</p>
+{% if impact.task_preview_available %}
+<p>{{ impact.source_tasks }} Aufgaben aus der Quelle, {{ impact.target_tasks }} bereits im Ziel. Aufgaben bleiben mit ihren Sammelordner-IDs verknüpft und erscheinen nach der logischen Fusion im Ziel.</p>
+{% if impact.source_task_rows or impact.target_task_rows %}<details class="mb-3"><summary>Betroffene Aufgaben anzeigen</summary>
+{% if impact.source_task_rows %}<h2 class="h6 mt-2">Quelle</h2><ul>{% for task in impact.source_task_rows %}<li>{{ task.title }} · {{ task.status }}{% if task.due %} · {{ task.due }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if impact.target_task_rows %}<h2 class="h6 mt-2">Ziel</h2><ul>{% for task in impact.target_task_rows %}<li>{{ task.title }} · {{ task.status }}{% if task.due %} · {{ task.due }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if impact.source_tasks_truncated or impact.target_tasks_truncated %}<p class="small text-secondary">Je Ordner werden höchstens 200 Aufgaben angezeigt.</p>{% endif %}
+</details>{% endif %}
+{% else %}<div class="alert alert-danger" role="alert">Aufgabenfolgen konnten nicht geprüft werden; die Fusion ist vorerst gesperrt.</div>{% endif %}
+<p>Quellregeln: {{ impact.source_rules|join(', ') if impact.source_rules else 'keine' }}.
+Zielregeln: {{ impact.target_rules|join(', ') if impact.target_rules else 'keine' }}.</p>
+{% if impact.source_rule_definitions or impact.target_rule_definitions %}<details class="mb-3"><summary>Regeldefinitionen prüfen</summary>
+{% if impact.source_rule_definitions %}<h2 class="h6 mt-2">Quellregeln</h2><dl>{% for name, definition in impact.source_rule_definitions.items() %}<dt>{{ name }}</dt><dd>{{ definition }}</dd>{% endfor %}</dl>{% endif %}
+{% if impact.target_rule_definitions %}<h2 class="h6 mt-2">Zielregeln</h2><dl>{% for name, definition in impact.target_rule_definitions.items() %}<dt>{{ name }}</dt><dd>{{ definition }}</dd>{% endfor %}</dl>{% endif %}
+</details>{% endif %}
+{% if impact.source_notes or impact.target_notes %}<details class="mb-3"><summary>Notizen prüfen</summary>
+{% if impact.source_notes %}<h2 class="h6 mt-2">Quellnotizen (werden mit Herkunft übernommen)</h2><pre class="text-wrap">{{ impact.source_notes }}</pre>{% endif %}
+{% if impact.target_notes %}<h2 class="h6 mt-2">Zielnotizen (bleiben erhalten)</h2><pre class="text-wrap">{{ impact.target_notes }}</pre>{% endif %}
+</details>{% endif %}
+{% if not impact.task_preview_available %}
+{% elif impact.conflicts %}
+<div class="alert alert-danger" role="alert">Fusion blockiert: widersprüchliche Regeln {{ impact.conflicts|join(', ') }}.</div>
+{% else %}
+<p class="alert alert-warning" role="status">Dies ist eine <strong>logische</strong> Fusion. Originaldateien und ihre Speicherorte werden nicht verändert. Die benutzerbezogene Smart-View-Berechtigung wird nicht auf andere Benutzer erweitert; bestehende Datei-Freigaben bleiben unverändert.</p>
+<details class="mb-3"><summary>Betroffene Dokumente anzeigen</summary><ul>
+{% for path in impact.source_paths %}<li class="text-break">{{ path }}</li>{% endfor %}
+</ul></details>
+{% if impact.source_paths_truncated %}<p class="small text-secondary">Angezeigt werden 200 von {{ impact.documents }} Quelldokumenten.</p>{% endif %}
+<form method="post" action="{{ url_for('documents.merge_smart_folders') }}">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="source" value="{{ impact.source }}">
+<input type="hidden" name="target" value="{{ impact.target }}">
+<input type="hidden" name="preview_fingerprint" value="{{ impact.fingerprint }}">
+<label for="merge-confirm" class="form-label">ZUSAMMENFUEHREN zur Bestätigung eingeben</label>
+<input id="merge-confirm" class="form-control mb-2" name="confirm" required pattern="ZUSAMMENFUEHREN">
+<button type="submit" class="btn btn-warning">Fusion bestätigen</button>
+</form>
+{% endif %}
+<a class="d-block mt-3" href="{{ url_for('documents.smart_folder_view', folder=impact.source) }}">Zurück zum Ordner</a>
+</main>
+{% endblock %}
