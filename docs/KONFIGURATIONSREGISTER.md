@@ -260,7 +260,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SERVER_PUBLIC_URL` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | [SITE_VISITS](SITE_VISITS.md) |
 | `SIMPLEOFFICE_SFTP_BIND` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_SFTP_HOST_KEY` | [documents_core.py](../app/documents_core.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
-| `SIMPLEOFFICE_SFTP_MAX_BYTES` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_SFTP_MAX_BYTES` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_SFTP_MAX_CLIENTS` | [sftp_server.py](../app/sftp_server.py) | [GOODSYNC_FREEFILESYNC](GOODSYNC_FREEFILESYNC.md) |
 | `SIMPLEOFFICE_SFTP_PASSWORD_AUTH` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_SFTP_PORT` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |

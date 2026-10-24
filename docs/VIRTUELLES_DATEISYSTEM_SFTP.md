@@ -87,7 +87,11 @@ chmod 600 /etc/simpleoffice/sftp_host_ed25519_key
 Für Dauerbetrieb ist weiterhin die mitgelieferte systemd-Beispieldatei unter
 `docs/simpleoffice-sftp.service.example` vorgesehen.
 
-Konfiguration über geschützte Umgebung beziehungsweise den Service-Manager:
+Beim integrierten Paramiko-Mini-Service werden Bind-IP, Port und maximale
+Uploadgröße in **Mini Services → SFTP** administriert. Änderungen erfordern,
+dass der Dienst vorher gestoppt und nach dem Speichern wieder gestartet wird.
+Direkte Starts über `simpleoffice-sftp` können weiterhin die geschützte
+Umgebung verwenden:
 
 ```bash
 export SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents
@@ -101,7 +105,10 @@ export SIMPLEOFFICE_SFTP_PASSWORD_AUTH=false
 simpleoffice-sftp
 ```
 
-`SIMPLEOFFICE_SFTP_MAX_BYTES` begrenzt jeden Upload. Der Dienst prüft
+`SIMPLEOFFICE_SFTP_MAX_BYTES` begrenzt jeden Upload. Beim Mini-Service wird
+dieser Wert aus der persistenten SFTP-Einstellung gesetzt; bestehende
+Umgebungswerte werden übernommen, bis die Einstellungen erstmals gespeichert
+werden. Der Dienst prüft
 Schreiboffset und Paketgröße vor dem Vergrößern des Speicherpuffers; auch Lücken
 zwischen Schreibpositionen zählen zur Dateigröße. Die Grenze bleibt für ein
 offenes Schreibhandle unverändert. Nach einer Grenzüberschreitung oder einem
