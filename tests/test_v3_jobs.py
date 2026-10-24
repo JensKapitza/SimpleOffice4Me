@@ -1,10 +1,11 @@
 from __future__ import annotations
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.v3_jobs import JobStore, JobWorker, RetryableJobError
+from app.v3_jobs import JobStore, JobWorker, RetryableJobError, default_handlers
 
 
 class V3JobTests(unittest.TestCase):
@@ -59,6 +60,79 @@ class V3JobTests(unittest.TestCase):
         self.store.enqueue("a",{},"alice",idempotency_key="4")
         metrics=self.store.metrics()
         self.assertEqual(1,metrics["queued"])
+
+    def test_progress_requires_active_worker_lease_and_registers_batch_handler(self):
+        job = self.store.enqueue("documents.smart_folder_batch", {}, "alice", idempotency_key="progress")
+        claimed = self.store.claim("worker-progress")
+        self.assertEqual(job.job_id, claimed.job_id)
+
+        updated = self.store.update_progress(
+            job.job_id,
+            "worker-progress",
+            {"completed": 2, "total": 5, "action": "preview"},
+        )
+
+        self.assertEqual(2, updated.progress["completed"])
+        self.assertEqual(5, updated.progress["total"])
+        with self.assertRaisesRegex(ValueError, "active worker lease"):
+            self.store.update_progress(job.job_id, "other-worker", {"completed": 3, "total": 5})
+        handlers = default_handlers(self.root, self.store, "worker-progress")
+        self.assertIn("documents.smart_folder_batch", handlers)
+
+    def test_batch_queue_limits_active_and_recent_jobs(self):
+        options = {
+            "max_open_per_principal": 1,
+            "max_open_total": 1,
+            "max_created_per_principal_window": 1,
+            "max_created_total_window": 1,
+        }
+        first = self.store.enqueue(
+            "documents.smart_folder_batch", {}, "alice",
+            idempotency_key="batch-1", **options,
+        )
+        replay = self.store.enqueue(
+            "documents.smart_folder_batch", {}, "alice",
+            idempotency_key="batch-1", **options,
+        )
+        self.assertEqual(first.job_id, replay.job_id)
+        with self.assertRaisesRegex(ValueError, "capacity"):
+            self.store.enqueue(
+                "documents.smart_folder_batch", {}, "alice",
+                idempotency_key="batch-2", **options,
+            )
+        self.store.succeed(first.job_id)
+        with self.assertRaisesRegex(ValueError, "rate limit"):
+            self.store.enqueue(
+                "documents.smart_folder_batch", {}, "alice",
+                idempotency_key="batch-3", **options,
+            )
+
+    def test_progress_column_migrates_existing_job_database(self):
+        root = self.root / "legacy"
+        database = root / ".simpleoffice-meta" / "v3-jobs.sqlite3"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as db:
+            db.execute(
+                """CREATE TABLE v3_job(
+                    job_id TEXT PRIMARY KEY,kind TEXT NOT NULL,state TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,principal TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,priority INTEGER NOT NULL DEFAULT 0,
+                    attempt INTEGER NOT NULL DEFAULT 0,max_attempts INTEGER NOT NULL DEFAULT 3,
+                    available_at INTEGER NOT NULL,lease_owner TEXT NOT NULL DEFAULT '',
+                    lease_until INTEGER NOT NULL DEFAULT 0,created_at INTEGER NOT NULL,
+                    started_at INTEGER NOT NULL DEFAULT 0,finished_at INTEGER NOT NULL DEFAULT 0,
+                    updated_at INTEGER NOT NULL,last_error TEXT NOT NULL DEFAULT '')"""
+            )
+            db.execute(
+                """INSERT INTO v3_job(job_id,kind,state,idempotency_key,principal,payload_json,
+                   available_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)""",
+                ("legacy-job", "test", "queued", "legacy-key", "alice", "{}", 0, 1, 1),
+            )
+
+        migrated = JobStore(root).get("legacy-job")
+
+        self.assertIsNotNone(migrated)
+        self.assertEqual({}, migrated.progress)
 
 
     def test_new_worker_instance_recovers_expired_process_lease(self):

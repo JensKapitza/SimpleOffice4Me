@@ -6,8 +6,10 @@ import os
 from .sqlite_utils import connect as sqlite_connect
 
 from .document_store_core import *  # noqa: F401,F403
+from .file_lock import exclusive_file_lock
 
 MAX_EML_INDEX_BYTES = 25 * 1024 * 1024
+MAX_MANUAL_ANALYSIS_BYTES = 128 * 1024 * 1024
 
 
 class _DocumentStorePart5:
@@ -195,6 +197,41 @@ class _DocumentStorePart5:
             analysis["ocr_error"] = str(exc)
         metadata["image_analysis"] = analysis
         metadata["tags"] = sorted({*metadata.get("tags", []), *generated_tags}, key=str.casefold)
+
+    def refresh_document_analysis(
+        self,
+        reference: str | Path,
+        actor: str,
+        *,
+        max_bytes: int = MAX_MANUAL_ANALYSIS_BYTES,
+    ) -> dict[str, Any]:
+        """Refresh bounded OCR/text analysis without changing original bytes."""
+        self._require_actor(actor)
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError("analysis size limit must be a positive byte count")
+        with exclusive_file_lock(self.control / ".document-content.lock"):
+            metadata = self.get_document(reference)
+            self._require_document_editable(metadata)
+            path = resolve_file_under(self.root, str(metadata.get("last_path", "")))
+            if path.stat().st_size > min(max_bytes, MAX_MANUAL_ANALYSIS_BYTES):
+                raise ValueError("document exceeds the manual analysis size limit")
+            expected_digest = str(metadata.get("sha256", ""))
+            if not expected_digest or not hmac.compare_digest(sha256_file(path), expected_digest):
+                raise ValueError("document content changed before analysis")
+            if self._is_image(path):
+                self._apply_image_analysis(path, metadata, force=True)
+            self._apply_document_text_extraction(path, metadata, force=True)
+            if not hmac.compare_digest(sha256_file(path), expected_digest):
+                raise ValueError("document content changed during analysis")
+            self._save_document(metadata)
+            self._refresh_search_index(metadata)
+            details = {"document_id": metadata["document_id"], "actor": actor}
+            self._event("document_analysis_refreshed", details)
+            self._record_revision(
+                "document_analysis_refreshed", actor, "documents",
+                metadata["document_id"], details,
+            )
+            return metadata
 
     @staticmethod
     def _gps_data(value: Any, labels: dict[int, str]) -> dict[str, Any]:
@@ -504,4 +541,3 @@ class _DocumentStorePart5:
         except OSError:
             # FAT, SMB and backup media often do not support xattrs. Sidecars are enough.
             return
-
