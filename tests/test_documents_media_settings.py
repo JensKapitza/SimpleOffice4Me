@@ -12,6 +12,7 @@ from werkzeug.security import generate_password_hash
 
 from app import app, configured_webdav_quota_bytes, db as database
 from app.settings_store import (
+    DEFAULT_OSM_READ_TIMEOUT_SECONDS,
     DEFAULT_WEBDAV_QUOTA_MIB,
     DEFAULT_PREVIEW_MAX_BYTES,
     DEFAULT_PREVIEW_MAX_PIXELS,
@@ -19,6 +20,8 @@ from app.settings_store import (
     DEFAULT_PREVIEW_ENABLED,
     DEFAULT_VIDEO_PREVIEW_FRAMES,
     MAX_WEBDAV_QUOTA_MIB,
+    MAX_OSM_READ_TIMEOUT_SECONDS,
+    MIN_OSM_READ_TIMEOUT_SECONDS,
     SettingsStore,
 )
 
@@ -46,6 +49,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 "SIMPLEOFFICE_PREVIEW_MAX_BYTES": str(DEFAULT_PREVIEW_MAX_BYTES),
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
                 "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": str(DEFAULT_VIDEO_PREVIEW_FRAMES),
+                "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
             },
         )
         self.environment.start()
@@ -117,9 +121,20 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertIn('name="webdav_quota_mib"', html)
         self.assertIn('name="_csrf_token"', html)
         self.assertIn("Neustart erforderlich", html)
+        self.assertIn('href="/admin/settings/integrations"', html)
         self.assertIn("Netzwerk &amp; Synchronisation", html)
         self.assertIn(path, self.admin.get("/documents/settings").get_data(as_text=True))
         self.assertNotIn(path, self.user.get("/documents/settings").get_data(as_text=True))
+
+    def test_integration_settings_page_is_admin_only_and_describes_osm_timeout(self):
+        path = "/admin/settings/integrations"
+        self.assertEqual(403, self.user.get(path).status_code)
+        response = self.admin.get(path)
+        html = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn('name="osm_download_read_timeout_seconds"', html)
+        self.assertIn('action="/admin/settings/integrations/osm"', html)
+        self.assertIn("30–3600 Sekunden", html)
 
     def test_network_quota_requires_admin_and_csrf_then_persists_and_audits(self):
         path = "/admin/settings/network"
@@ -179,6 +194,73 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             self.assertEqual(512 * 1024 * 1024, configured_webdav_quota_bytes(self.root / "legacy"))
         with self.assertRaises(ValueError):
             SettingsStore(self.root / "legacy").save({"network": {"webdav_quota_mib": True}}, "media-admin")
+
+    def test_osm_timeout_requires_admin_and_csrf_then_persists_and_validates(self):
+        response = self.admin.get("/admin/settings/integrations")
+        html = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn('name="osm_download_read_timeout_seconds"', html)
+
+        path = "/admin/settings/integrations/osm"
+        payload = {"osm_download_read_timeout_seconds": "420"}
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        self.assertEqual(
+            403,
+            self.user.post(
+                path, data=payload, headers={"X-CSRF-Token": "u" * 40},
+            ).status_code,
+        )
+        saved = self.admin.post(
+            path, data=payload, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        self.assertEqual(
+            420,
+            SettingsStore(self.root).settings()["integrations"][
+                "osm_download_read_timeout_seconds"
+            ],
+        )
+
+        for invalid in (
+            str(MIN_OSM_READ_TIMEOUT_SECONDS - 1),
+            str(MAX_OSM_READ_TIMEOUT_SECONDS + 1),
+            "1.5",
+            "-1",
+            "9" * 20,
+        ):
+            with self.subTest(invalid=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={"osm_download_read_timeout_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    420,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "osm_download_read_timeout_seconds"
+                    ],
+                )
+
+        reset = self.admin.post(
+            path, data={"reset": "1"}, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        self.assertEqual(
+            DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+            SettingsStore(self.root).settings()["integrations"][
+                "osm_download_read_timeout_seconds"
+            ],
+        )
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("osm_download_settings_updated",),
+            ).fetchone()
+        self.assertEqual("media-admin", row["actor_name"])
+        self.assertEqual("integrations.osm_download_read_timeout_seconds", row["target_id"])
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
     def test_local_folder_settings_page_is_available_to_signed_in_users(self):
         settings = self.user.get("/documents/settings")
