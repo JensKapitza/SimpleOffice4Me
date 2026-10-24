@@ -80,10 +80,10 @@ class TodoStoreTest(unittest.TestCase):
         self.assertFalse(created)
         self.assertEqual(folder_id, changed["smart_folder_id"])
 
-        with self.assertRaisesRegex(ValueError, "authorized folder action"):
-            self.store.add("Nicht autorisiert", "admin", {"smart_folder_id": folder_id})
-        with self.assertRaisesRegex(ValueError, "cannot be changed"):
-            self.store.update(task["id"], {"smart_folder_id": "b" * 32}, "admin")
+        untrusted = self.store.add("Nicht autorisiert", "admin", {"smart_folder_id": folder_id})
+        self.assertEqual("", untrusted["smart_folder_id"])
+        unchanged = self.store.update(task["id"], {"smart_folder_id": "b" * 32}, "admin")
+        self.assertEqual(folder_id, unchanged["smart_folder_id"])
         with self.assertRaisesRegex(ValueError, "invalid smart folder identifier"):
             self.store.add("Ungültige ID", "admin", smart_folder_id="../private")
 

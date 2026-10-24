@@ -97,10 +97,12 @@ class TodoStore:
         *,
         smart_folder_id: str = "",
     ) -> dict[str, Any]:
-        values = values or {}
+        values = dict(values or {})
         if not title.strip() or not actor.strip(): raise ValueError("to-do title and user are required")
-        if "smart_folder_id" in values:
-            raise ValueError("smart-folder task association requires an authorized folder action")
+        # This relation is local-only; federation and other integrations may
+        # round-trip the normalized field, but only the authorized folder
+        # route may set it through the explicit keyword.
+        values.pop("smart_folder_id", None)
         smart_folder_id = self._validated_smart_folder_id(smart_folder_id)
         list_id = str(values.get("list_id", "")).strip() or self.default_list_id(actor)
         now = utc_now(); item_id = str(uuid.uuid4())
@@ -114,8 +116,9 @@ class TodoStore:
         return item
 
     def update(self, item_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
-        if "smart_folder_id" in values:
-            raise ValueError("smart-folder task association cannot be changed through task updates")
+        # Keep the owner-controlled local association stable across generic
+        # updates from web forms, CalDAV/federation adapters and offline sync.
+        values = {key: value for key, value in values.items() if key != "smart_folder_id"}
         with exclusive_file_lock(self.lock):
             data = self._read(); item = self._owned(data, item_id, actor); self._list(data, item.get("list_id") or self.default_list_id(actor), actor, "edit")
             before = self._normalized(item, actor)
