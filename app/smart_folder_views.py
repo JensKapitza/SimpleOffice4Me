@@ -6,6 +6,7 @@ import csv
 import io
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from .document_store_core import CONTROL_DIR, atomic_json_write
@@ -169,6 +170,9 @@ class SmartFolderViews:
             "target_documents": len(destination["members"]),
             "conflicts": collisions,
             "notes": bool(source_meta.get("notes")),
+            "source_rules": sorted(source_meta.get("rules", {})),
+            "target_rules": sorted(target_meta.get("rules", {})),
+            "source_paths": [str(item.get("last_path", "")) for item in origin["members"]],
         }
 
     def merge_assignments(self, source: str, target: str, actor: str) -> dict:
@@ -198,6 +202,7 @@ class SmartFolderViews:
             if source_notes:
                 target_info.setdefault("merged_notes", []).append({
                     "source": source, "text": source_notes, "actor": actor,
+                    "at": datetime.now(timezone.utc).isoformat(),
                 })
             target_info.setdefault("merged_from", []).append(source)
             if source in data["folders"]:
