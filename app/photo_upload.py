@@ -4,21 +4,32 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import sqlite3
 import shutil
 import subprocess
 import uuid
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, request, url_for
+from werkzeug.utils import secure_filename
 
 from .access_control import has_feature
 from .auth import login_required
 from .document_store import DocumentStore, sha256_file, utc_now
+from .file_lock import exclusive_file_lock
+from .safe_paths import resolve_file_under, resolve_for_write_under
 from .settings_store import SettingsStore
 from .v2.materialize import materialize_verified_object
+from .v3_inbox_web import (
+    begin_web_inbox_upload,
+    complete_web_inbox_upload,
+    fail_web_inbox_upload,
+)
 
 
 bp = Blueprint("photo_upload", __name__, url_prefix="/documents/photos")
@@ -334,7 +345,8 @@ def _safe_filename(filename: str) -> str:
     name = Path(original).name.strip().strip(".")
     if not name:
         name = "foto"
-    suffix = Path(name).suffix.lower()
+    name = secure_filename(name).strip(".") or "foto"
+    suffix = Path(name).suffix.lower()[:20]
     stem = Path(name).stem[:180] or "foto"
     return f"{stem}{suffix}"
 
@@ -353,57 +365,128 @@ def _verify_photo(path: Path) -> None:
         raise ValueError(f"Bilddatei konnte nicht sicher gelesen werden: {exc}") from exc
 
 
+@contextmanager
+def _photo_import_locks(control: Path, digest: str, safe_name: str, *, archive: bool):
+    """Serialize same-content and same-target imports with a bounded lock set."""
+    content_key = digest[:2]
+    target_key = hashlib.sha256(
+        f"{int(archive)}:{safe_name.casefold()}".encode("utf-8")
+    ).hexdigest()[:2]
+    paths = sorted((
+        control / "photo-upload-locks" / f"content-{content_key}.lock",
+        control / "photo-upload-locks" / f"target-{target_key}.lock",
+    ))
+    with exclusive_file_lock(paths[0]):
+        with exclusive_file_lock(paths[1]):
+            yield
+
+
+@dataclass(frozen=True)
+class PhotoImportResult:
+    document: dict[str, Any]
+    duplicate: bool = False
+
+
 class PhotoBulkImporter:
     """Import one queue item without triggering a complete archive rescan."""
 
     def __init__(self, root: str | Path):
         self.store = DocumentStore(root)
 
-    def import_photo(self, upload: Any, filename: str, actor: str, *, archive: bool = False, max_bytes: int = 512 * 1024 * 1024, client: dict[str, Any] | None = None, run_ocr: bool = False) -> dict[str, Any]:
-        self.store._require_actor(actor)
-        self.store.initialize()
-        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
-            raise ValueError("upload size limit must be positive")
-        original_filename = _bounded_text(filename, 512)
-        safe_name = _safe_filename(original_filename)
-        if Path(safe_name).suffix.lower() not in PHOTO_EXTENSIONS:
-            raise ValueError("Erlaubt sind JPEG, PNG, GIF und WebP.")
-        received_at = utc_now()
-        source = getattr(upload, "stream", upload)
-        staging = self.store.control / "staging" / f"photo-{uuid.uuid4().hex}-{safe_name}"
-        staging.parent.mkdir(parents=True, exist_ok=True)
-        written = 0
-        digest = ""
-        target: Path | None = None
-        try:
-            with staging.open("xb") as destination:
-                for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                    written += len(chunk)
-                    if written > max_bytes:
-                        raise ValueError(f"Bild überschreitet das Upload-Limit von {max_bytes // (1024 * 1024)} MiB")
-                    destination.write(chunk)
-            if written < 1:
-                raise ValueError("Leere Bilddatei wurde nicht importiert")
-            digest = sha256_file(staging)
-            _verify_photo(staging)
-            destination_dir = self.store.root / (Path("archive") / digest[:2] / digest if archive else Path("inbox"))
-            destination_dir.mkdir(parents=True, exist_ok=True)
-            self.store.ensure_folder_policy(destination_dir, actor)
-            target = destination_dir / safe_name
-            while target.exists():
-                target = destination_dir / f"{Path(safe_name).stem}-{uuid.uuid4().hex[:8]}{Path(safe_name).suffix}"
-            staging.replace(target)
-        finally:
-            staging.unlink(missing_ok=True)
+    def _existing_document_for_digest(self, digest: str, *, archive: bool) -> dict[str, Any] | None:
+        expected_root = (
+            Path("archive") / digest[:2] / digest if archive else Path("inbox")
+        )
+        with self.store._db() as db:
+            rows = db.execute(
+                "SELECT relative_path, document_id FROM scan_file "
+                "WHERE sha256 = ? ORDER BY last_seen_at DESC LIMIT 50",
+                (digest,),
+            ).fetchall()
+        for row in rows:
+            relative = Path(str(row[0] or ""))
+            document_id = str(row[1] or "")
+            if relative.parts[:len(expected_root.parts)] != expected_root.parts:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", document_id):
+                continue
+            try:
+                path = resolve_file_under(self.store.root, relative)
+                if sha256_file(path) != digest:
+                    continue
+            except (OSError, ValueError):
+                continue
+            metadata = self.store._read_json(self.store.documents / f"{document_id}.json", {})
+            if (
+                metadata.get("document_id") == document_id
+                and metadata.get("last_path") == relative.as_posix()
+                and metadata.get("sha256") == digest
+                and self.store._visible_for_request(metadata)
+            ):
+                return metadata
+        return None
+
+    def _existing_document_for_path(self, path: Path, digest: str) -> dict[str, Any] | None:
+        document_id = str(self.store._read_xattrs(path).get("document_id") or "")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}", document_id):
+            return None
+        metadata = self.store._read_json(self.store.documents / f"{document_id}.json", {})
+        relative = self.store.relative(path)
+        if (
+            metadata.get("document_id") == document_id
+            and metadata.get("last_path") == relative
+            and metadata.get("sha256") == digest
+            and self.store._visible_for_request(metadata)
+        ):
+            return metadata
+        return None
+
+    @staticmethod
+    def _photo_metadata_complete(metadata: dict[str, Any], digest: str) -> bool:
+        attributes = metadata.get("attributes")
+        if not isinstance(attributes, dict):
+            return False
+        upload = attributes.get("photo_upload")
+        rich = attributes.get("photo_metadata")
+        return (
+            isinstance(upload, dict)
+            and upload.get("sha256") == digest
+            and isinstance(rich, dict)
+        )
+
+    def _record_photo_duplicate(self, metadata: dict[str, Any], actor: str, digest: str) -> None:
+        self.store._event("photo_upload_duplicate", {
+            "actor": actor,
+            "document_id": metadata["document_id"],
+            "sha256": digest,
+        })
+
+    def _scan_photo_file(self, path: Path, *, run_ocr: bool) -> None:
         restore_ocr = None
         if not run_ocr:
             restore_ocr = self.store._image_ocr
             self.store._image_ocr = lambda _path: ""  # type: ignore[method-assign]
         try:
-            self.store._scan_file(target.resolve(), force_hash=True)
+            safe_path = resolve_file_under(self.store.root, path.relative_to(self.store.root))
+            self.store._scan_file(safe_path, force_hash=True)
         finally:
             if restore_ocr is not None:
                 self.store._image_ocr = restore_ocr  # type: ignore[method-assign]
+
+    def _complete_photo_import(
+        self,
+        target: Path,
+        *,
+        actor: str,
+        original_filename: str,
+        received_at: str,
+        written: int,
+        digest: str,
+        max_bytes: int,
+        client: dict[str, Any] | None,
+        run_ocr: bool,
+    ) -> PhotoImportResult:
+        self._scan_photo_file(target, run_ocr=run_ocr)
         metadata = self.store.get_document(target)
         if not run_ocr:
             analysis = metadata.setdefault("image_analysis", {})
@@ -458,7 +541,122 @@ class PhotoBulkImporter:
             "batch_id": upload_metadata["batch_id"], "batch_index": upload_metadata["batch_index"],
             "batch_count": upload_metadata["batch_count"],
         })
-        return metadata
+        return PhotoImportResult(metadata)
+
+    def import_photo(
+        self,
+        upload: Any,
+        filename: str,
+        actor: str,
+        *,
+        archive: bool = False,
+        max_bytes: int = 512 * 1024 * 1024,
+        client: dict[str, Any] | None = None,
+        run_ocr: bool = False,
+    ) -> PhotoImportResult:
+        self.store._require_actor(actor)
+        self.store.initialize()
+        if isinstance(max_bytes, bool) or not isinstance(max_bytes, int) or max_bytes < 1:
+            raise ValueError("upload size limit must be positive")
+        original_filename = _bounded_text(filename, 512)
+        safe_name = secure_filename(_safe_filename(original_filename)) or "foto"
+        if Path(safe_name).suffix.lower() not in PHOTO_EXTENSIONS:
+            raise ValueError("Erlaubt sind JPEG, PNG, GIF und WebP.")
+        received_at = utc_now()
+        source = getattr(upload, "stream", upload)
+        staging_root = self.store.control / "staging"
+        staging_root.mkdir(parents=True, exist_ok=True)
+        staging = resolve_for_write_under(
+            staging_root, f"photo-{uuid.uuid4().hex}-{safe_name}"
+        )
+        written = 0
+        digest = ""
+        try:
+            with staging.open("xb") as destination:
+                for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                    written += len(chunk)
+                    if written > max_bytes:
+                        raise ValueError(f"Bild überschreitet das Upload-Limit von {max_bytes // (1024 * 1024)} MiB")
+                    destination.write(chunk)
+            if written < 1:
+                raise ValueError("Leere Bilddatei wurde nicht importiert")
+            digest = sha256_file(staging)
+            _verify_photo(staging)
+            with _photo_import_locks(
+                self.store.control, digest, safe_name, archive=archive
+            ):
+                existing = self._existing_document_for_digest(digest, archive=archive)
+                if existing is not None:
+                    if self._photo_metadata_complete(existing, digest):
+                        self._record_photo_duplicate(existing, actor, digest)
+                        return PhotoImportResult(existing, duplicate=True)
+                    existing_path = resolve_file_under(
+                        self.store.root, str(existing.get("last_path") or "")
+                    )
+                    return self._complete_photo_import(
+                        existing_path,
+                        actor=actor,
+                        original_filename=original_filename,
+                        received_at=received_at,
+                        written=written,
+                        digest=digest,
+                        max_bytes=max_bytes,
+                        client=client,
+                        run_ocr=run_ocr,
+                    )
+
+                destination_dir = self.store.root / (
+                    Path("archive") / digest[:2] / digest if archive else Path("inbox")
+                )
+                destination_dir.mkdir(parents=True, exist_ok=True)
+                self.store.ensure_folder_policy(destination_dir, actor)
+                target = resolve_for_write_under(destination_dir, safe_name)
+                target_is_existing = False
+                if target.exists():
+                    if target.is_symlink():
+                        raise ValueError("Symlink am Fotoimport-Ziel wird abgelehnt")
+                    if target.is_file() and sha256_file(target) == digest:
+                        existing = self._existing_document_for_path(target, digest)
+                        if existing is not None:
+                            self._scan_photo_file(target, run_ocr=run_ocr)
+                            existing = self.store.get_document(target)
+                            if self._photo_metadata_complete(existing, digest):
+                                self._record_photo_duplicate(existing, actor, digest)
+                                return PhotoImportResult(existing, duplicate=True)
+                            return self._complete_photo_import(
+                                target,
+                                actor=actor,
+                                original_filename=original_filename,
+                                received_at=received_at,
+                                written=written,
+                                digest=digest,
+                                max_bytes=max_bytes,
+                                client=client,
+                                run_ocr=run_ocr,
+                            )
+                        # Resume an interrupted import without overwriting or
+                        # creating another copy of the same upload.
+                        target_is_existing = True
+                while target.exists():
+                    if target_is_existing:
+                        break
+                    target_name = f"{Path(safe_name).stem}-{uuid.uuid4().hex[:8]}{Path(safe_name).suffix}"
+                    target = resolve_for_write_under(destination_dir, target_name)
+                if not target_is_existing:
+                    staging.replace(target)
+                return self._complete_photo_import(
+                    target,
+                    actor=actor,
+                    original_filename=original_filename,
+                    received_at=received_at,
+                    written=written,
+                    digest=digest,
+                    max_bytes=max_bytes,
+                    client=client,
+                    run_ocr=run_ocr,
+                )
+        finally:
+            staging.unlink(missing_ok=True)
 
 
 def _client_metadata() -> dict[str, Any]:
@@ -482,20 +680,53 @@ def upload_photo():
     uploaded = request.files.get("file")
     if uploaded is None or not uploaded.filename:
         return jsonify({"ok": False, "error": "Keine Bilddatei empfangen."}), 400
+    safe_name = _safe_filename(uploaded.filename)
+    if Path(safe_name).suffix.lower() not in PHOTO_EXTENSIONS:
+        return jsonify({
+            "ok": False,
+            "error": "Dieses Fotoformat wird nicht unterstützt. JPEG, PNG, GIF und WebP funktionieren hier; HEIC kann als normale Datei importiert werden.",
+        }), 415
+    actor = str(g.user["username"])
+    source_key = f"{getattr(g, 'request_id', '') or uuid.uuid4().hex}:photo"
     try:
-        metadata = PhotoBulkImporter(current_app.config["DOCUMENT_ROOT"]).import_photo(
-            uploaded, uploaded.filename, str(g.user["username"]),
+        inbox = begin_web_inbox_upload(current_app.config, uploaded, actor, source_key)
+    except (OSError, RuntimeError, ValueError, sqlite3.Error) as exc:
+        current_app.logger.warning(
+            "Photo inbox initialization failed (%s)", type(exc).__name__
+        )
+        return jsonify({"ok": False, "error": "Fotoeingang ist nicht verfügbar. Bitte erneut versuchen."}), 503
+    if inbox.get("error"):
+        return jsonify({"ok": False, "error": str(inbox["error"])}), int(inbox.get("error_status", 400))
+    try:
+        imported = PhotoBulkImporter(current_app.config["DOCUMENT_ROOT"]).import_photo(
+            uploaded, uploaded.filename, actor,
             archive=request.form.get("archive") == "1",
             max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
             client=_client_metadata(), run_ocr=request.form.get("run_ocr") == "1",
         )
     except (OSError, RuntimeError, ValueError):
+        fail_web_inbox_upload(
+            current_app.config["DOCUMENT_ROOT"], inbox.get("item"), "photo import failed"
+        )
         return jsonify({"ok": False, "error": "Foto konnte nicht verarbeitet werden."}), 400
+    complete_web_inbox_upload(
+        current_app.config["DOCUMENT_ROOT"],
+        inbox,
+        source_key=source_key,
+        original_name=uploaded.filename,
+        actor=actor,
+        document_id=imported.document["document_id"],
+        imported_metadata=imported.document,
+        imported_size=int(imported.document.get("size", 0) or 0),
+        mime_type=uploaded.mimetype or "",
+    )
     return jsonify({
-        "ok": True, "document_id": metadata["document_id"],
-        "path": metadata.get("last_path", ""), "tags": metadata.get("tags", []),
-        "received_at": metadata.get("attributes", {}).get("photo_upload", {}).get("received_at", ""),
-        "detail_url": url_for("documents.detail", document_id=metadata["document_id"]),
+        "ok": True, "document_id": imported.document["document_id"],
+        "duplicate": imported.duplicate,
+        "path": imported.document.get("last_path", ""),
+        "tags": imported.document.get("tags", []),
+        "received_at": imported.document.get("attributes", {}).get("photo_upload", {}).get("received_at", ""),
+        "detail_url": url_for("documents.detail", document_id=imported.document["document_id"]),
     })
 
 

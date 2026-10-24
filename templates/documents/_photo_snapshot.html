@@ -22,7 +22,7 @@
         <div class="col-md-8">
           <label class="form-label fw-semibold" for="photo-snapshot-file">Neues Foto</label>
           <input class="form-control form-control-lg" id="photo-snapshot-file" name="file" type="file" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" required>
-          <div class="form-text">Originaldatei und vorhandene EXIF-/GPS-Daten bleiben erhalten. Zusätzlich werden Uploadzeit, Client-Zeit, Zeitzone und Herkunft gespeichert.</div>
+          <div class="form-text">Originaldatei und vorhandene EXIF-/GPS-Daten bleiben erhalten. Zusätzlich werden Uploadzeit, Client-Zeit, Zeitzone und Herkunft gespeichert. Wird ein HEIC-Foto abgewiesen, kannst du es als normale Datei importieren.</div>
         </div>
         <div class="col-md-4 d-grid">
           <button class="btn btn-primary btn-lg" id="photo-snapshot-submit" type="submit"><i class="fas fa-camera me-1" aria-hidden="true"></i>Aufnehmen &amp; speichern</button>
@@ -61,7 +61,7 @@
       const response = await fetch(form.action, {method: 'POST', body: new FormData(form), credentials: 'same-origin', headers: {'X-CSRF-Token': document.getElementById('photo-snapshot-csrf').value}});
       const payload = await response.json().catch(() => ({}));
       if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-      status.textContent = 'Gespeichert. Bilderübersicht wird aktualisiert …';
+      status.textContent = payload.duplicate ? 'Dieses Foto war bereits gespeichert. Bilderübersicht wird geöffnet …' : 'Gespeichert. Bilderübersicht wird aktualisiert …';
       window.location.href = '{{ url_for("documents.images") }}';
     } catch (error) {
       button.disabled = false;
