@@ -15,8 +15,16 @@ class PersonnelTimeClockTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
-        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
-        app.config.update(TESTING=True, DATABASE=str(root / "users.sqlite"), DOCUMENT_ROOT=str(root / "docs"))
+        self.saved = {
+            key: app.config.get(key)
+            for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")
+        }
+        app.config.update(
+            TESTING=True,
+            TEST_CSRF_PROTECTION=False,
+            DATABASE=str(root / "users.sqlite"),
+            DOCUMENT_ROOT=str(root / "docs"),
+        )
         with app.app_context():
             database.ensure_auth_database()
         self.client = app.test_client()
