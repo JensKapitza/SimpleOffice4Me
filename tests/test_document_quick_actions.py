@@ -342,7 +342,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             }
 
         with patch(
-            "app.documents_routes_workflows.restore_document_v2",
+            "app.documents_routes_recovery.restore_document_v2",
             side_effect=restore,
         ), patch.object(
             DocumentStore,
@@ -401,7 +401,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             }
 
         with patch(
-            "app.documents_routes_workflows.restore_document_content_v2",
+            "app.documents_routes_recovery.restore_document_content_v2",
             side_effect=restore_content,
         ), patch.object(
             DocumentStore,
