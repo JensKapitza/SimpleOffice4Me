@@ -11,6 +11,8 @@
     <div class="d-flex flex-wrap gap-2 align-items-center">
       <span class="badge {{ 'text-bg-success' if settings.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if settings.enabled else 'deaktiviert' }}</span>
       <button class="btn btn-sm btn-outline-secondary" type="button" id="refresh-printershare-status">Status aktualisieren</button>
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('library.index', _anchor='label-barcode-scan') }}"><i class="fa-solid fa-barcode me-1" aria-hidden="true"></i>Barcode scannen</a>
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('library.index', _anchor='printer') }}"><i class="fa-solid fa-print me-1" aria-hidden="true"></i>Barcode-Etiketten drucken</a>
     </div>
   </div>
 
