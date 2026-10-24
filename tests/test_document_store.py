@@ -447,6 +447,26 @@ class DocumentStoreTest(unittest.TestCase):
             store.open_share(share["share_id"], "sicheres-passwort")
             store.move_document(document["document_id"], "archiv", "admin")
             self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
+            events = [
+                json.loads(line)
+                for line in store.events.read_text(encoding="utf-8").splitlines()
+            ]
+            revocations = [event for event in events if event["type"] == "share_revoked_on_move"]
+            self.assertEqual(1, len(revocations))
+            self.assertEqual(share["share_id"], revocations[0]["share_id"])
+            self.assertEqual("revoked_on_move", revocations[0]["reason"])
+            self.assertEqual("inbox/angebot.txt", revocations[0]["from"])
+            self.assertEqual("archiv/angebot.txt", revocations[0]["to"])
+            store.move_document(document["document_id"], "inbox", "admin")
+            self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
+            events = [
+                json.loads(line)
+                for line in store.events.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertEqual(
+                1,
+                sum(event["type"] == "share_revoked_on_move" for event in events),
+            )
             with self.assertRaisesRegex(ValueError, "abgelaufen"):
                 store.open_share(share["share_id"], "sicheres-passwort")
             with self.assertRaisesRegex(ValueError, "widerrufen"):
@@ -464,12 +484,44 @@ class DocumentStoreTest(unittest.TestCase):
             share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
             payload = store._read_json(store.shares_path, {"shares": []})
             payload["shares"][0].pop("shared_from_path")
+            payload["shares"][0].pop("shared_from_location_revision")
             store.shares_path.write_text(json.dumps(payload), encoding="utf-8")
             self.assertEqual("aktiv", store.share_status(share["share_id"])["status"])
             store.move_document(document["document_id"], "archiv", "admin")
             self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
             with self.assertRaisesRegex(ValueError, "abgelaufen"):
                 store.open_share(share["share_id"], "sicheres-passwort")
+
+    def test_share_expires_after_filesystem_move_is_discovered_by_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "scan.txt"
+            source.parent.mkdir()
+            source.write_text("Scan", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
+
+            moved = root / "archiv" / source.name
+            moved.parent.mkdir()
+            source.rename(moved)
+            store.scan()
+
+            self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
+            with self.assertRaisesRegex(ValueError, "abgelaufen"):
+                store.open_share(share["share_id"], "sicheres-passwort")
+            events = [
+                json.loads(line)
+                for line in store.events.read_text(encoding="utf-8").splitlines()
+            ]
+            revocation = next(
+                event for event in events
+                if event["type"] == "share_revoked_on_move"
+            )
+            self.assertEqual(share["share_id"], revocation["share_id"])
+            self.assertEqual("inbox/scan.txt", revocation["from"])
+            self.assertEqual("archiv/scan.txt", revocation["to"])
 
     def test_share_password_requires_at_least_twelve_characters(self):
         with tempfile.TemporaryDirectory() as temp:

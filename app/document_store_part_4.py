@@ -1,15 +1,16 @@
 """DocumentStore implementation part 4 of 5."""
 from __future__ import annotations
 
+from contextlib import nullcontext
+
 from .document_store_core import *  # noqa: F401,F403
+from .file_lock import exclusive_file_lock
 
 
 class _DocumentStorePart4:
     def soft_delete_document(self, reference: str, actor: str, *, expected_sha256: str = "") -> dict[str, Any]:
         """Move a document into a private recovery area and retain its metadata."""
         self._require_actor(actor)
-        from .file_lock import exclusive_file_lock
-
         with exclusive_file_lock(self.control / ".document-content.lock"):
             metadata = self.get_document(reference)
             self._require_document_editable(metadata)
@@ -638,7 +639,7 @@ class _DocumentStorePart4:
                 forced_id = str(uuid.UUID(str(document_id_hint)))
             except (ValueError, AttributeError, TypeError):
                 raise ValueError("document identity hint must be a UUID") from None
-        stat = path.stat(); relative_path = self.relative(path); now = utc_now(); cached: tuple[str, str] | None = None; previous_same_path = None; previous_path = ""
+        stat = path.stat(); relative_path = self.relative(path); now = utc_now(); cached: tuple[str, str] | None = None; previous_same_path = None; previous_path = ""; shares_to_revoke: list[str] = []
         if not force_hash:
             with self._db() as db:
                 previous_same_path = db.execute("SELECT document_id,sha256 FROM scan_file WHERE relative_path=?", (relative_path,)).fetchone()
@@ -677,12 +678,34 @@ class _DocumentStorePart4:
         tagged_at = metadata.get("tagged_at", {})
         if not isinstance(tagged_at, dict): tagged_at = {}
         for tag in all_tags: tagged_at.setdefault(tag, metadata.get("first_seen_at", now))
-        if previous_path and previous_path != relative_path:
-            metadata["location_history"] = [*metadata.get("location_history", []), {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"}]
-            with self._db() as db: db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
-            self._event("file_move_detected", {"document_id": document_id, "from": previous_path, "to": relative_path})
-        metadata.update({"version": 1, "document_id": document_id, "sha256": digest, "first_seen_at": metadata.get("first_seen_at", now), "last_seen_at": now, "last_path": relative_path, "tags": all_tags, "tagged_at": tagged_at, "original_sha256": original_sha256, "content_sha256": digest, "notes": metadata.get("notes", []), "relationships": metadata.get("relationships", []), "state": metadata.get("state", "new"), "state_history": metadata.get("state_history", []), "version_series_id": metadata.get("version_series_id", document_id), "version_number": metadata.get("version_number", 1), "attributes": metadata.get("attributes", {}), "deadlines": metadata.get("deadlines", [])})
-        atomic_json_write(metadata_path, metadata); self._write_xattrs(path, document_id, digest, metadata["tags"])
+        path_moved = bool(previous_path and previous_path != relative_path)
+        share_lock = (
+            exclusive_file_lock(self.shares_path.with_suffix(".lock"))
+            if path_moved else nullcontext()
+        )
+        with share_lock:
+            if path_moved:
+                shares_to_revoke = self._active_share_ids_for_move(document_id)
+                metadata["location_revision"] = self._location_revision(metadata) + 1
+                metadata["location_history"] = [*metadata.get("location_history", []), {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"}]
+                with self._db() as db: db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+            metadata.update({"version": 1, "document_id": document_id, "sha256": digest, "first_seen_at": metadata.get("first_seen_at", now), "last_seen_at": now, "last_path": relative_path, "tags": all_tags, "tagged_at": tagged_at, "original_sha256": original_sha256, "content_sha256": digest, "notes": metadata.get("notes", []), "relationships": metadata.get("relationships", []), "state": metadata.get("state", "new"), "state_history": metadata.get("state_history", []), "version_series_id": metadata.get("version_series_id", document_id), "version_number": metadata.get("version_number", 1), "attributes": metadata.get("attributes", {}), "deadlines": metadata.get("deadlines", [])})
+            atomic_json_write(metadata_path, metadata)
+            if path_moved:
+                self._event("file_move_detected", {"document_id": document_id, "from": previous_path, "to": relative_path})
+                for share_id in shares_to_revoke:
+                    self._event(
+                        "share_revoked_on_move",
+                        {
+                            "share_id": share_id,
+                            "document_id": document_id,
+                            "from": previous_path,
+                            "to": relative_path,
+                            "actor": "system",
+                            "reason": "revoked_on_move",
+                        },
+                    )
+        self._write_xattrs(path, document_id, digest, metadata["tags"])
         fingerprint_path = self.fingerprints / f"{digest}.json"; fingerprint = self._read_json(fingerprint_path, {}); known_paths = set(fingerprint.get("paths", []))
         if previous_path: known_paths.discard(previous_path)
         duplicate = bool(known_paths and relative_path not in known_paths); known_paths.add(relative_path)
