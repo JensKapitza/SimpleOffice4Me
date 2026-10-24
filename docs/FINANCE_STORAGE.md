@@ -35,6 +35,19 @@ Laufzeitkonfiguration des Dienstes hinterlegt werden. Sie ist eine Produktkennun
 keine Benutzer-PIN oder TAN. Ohne gültige Produkt-ID starten FinTS-Abrufe nicht und
 zeigen eine entsprechende Konfigurationsmeldung.
 
+Beim ausdrücklich gestarteten Kontenabruf liest die Oberfläche zusätzlich die von
+python-fints bereitgestellten Bank-/Kontofähigkeiten für Salden und Umsätze sowie die
+unterstützten TAN-Verfahren aus. Angezeigt werden nur diese begrenzten Lesefähigkeiten
+und TAN-Verfahrensnamen/-Kennungen mit Versions-/Prozessangaben. Pro-Konto-Fähigkeiten
+werden nur mit der bereits für den Kontenabruf verwendeten Remote-Konto-ID verbunden;
+Besitzernamen und rohe Konto-/Bankparameter werden nicht in das Fähigkeitsprofil übernommen.
+Das Profil wird nicht persistiert.
+Fehlende Angaben werden als „nicht ermittelt“ angezeigt und nicht als Unterstützung
+ausgegeben. Meldet die Bank für ein Konto eine Leseoperation ausdrücklich als nicht
+unterstützt, wird der Abruf vor dem entsprechenden Bibliotheksaufruf abgelehnt; die
+gültige Bankverbindung bleibt für andere unterstützte Lesezugriffe nutzbar. Die
+Fähigkeitsantwort ist `no-store`.
+
 Fordert die Bank für einen ausdrücklich gestarteten Saldo- oder Umsatzabruf eine TAN oder
 App-Freigabe, kann der einzelne lesende Vorgang fortgesetzt werden. Das umfasst auch eine
 TAN-Herausforderung beim Abruf der Kontenliste. Der kurzlebige python-fints-Client-, Dialog-
