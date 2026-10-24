@@ -433,6 +433,25 @@ class DocumentStoreTest(unittest.TestCase):
             store.open_share(first["share_id"], "neues-passwort", "198.51.100.24")
             self.assertEqual("aktiv", store.share_status(first["share_id"])["status"])
 
+    def test_share_expires_when_document_moves_and_cannot_be_renewed(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "inbox" / "angebot.txt"
+            source.parent.mkdir()
+            source.write_text("Vertraulich", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(source)
+            share = store.create_share(document["document_id"], "sicheres-passwort", 7, "admin")
+            self.assertEqual("aktiv", store.share_status(share["share_id"])["status"])
+            store.open_share(share["share_id"], "sicheres-passwort")
+            store.move_document(document["document_id"], "archiv/angebot.txt", "admin")
+            self.assertEqual("abgelaufen", store.share_status(share["share_id"])["status"])
+            with self.assertRaisesRegex(ValueError, "abgelaufen"):
+                store.open_share(share["share_id"], "sicheres-passwort")
+            with self.assertRaisesRegex(ValueError, "widerrufen"):
+                store.renew_share(document["document_id"], share["share_id"], "anderes-passwort", 7, "admin")
+
     def test_share_password_requires_at_least_twelve_characters(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); source = root / "angebot.txt"; source.write_text("Intern", encoding="utf-8")
