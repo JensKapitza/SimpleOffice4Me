@@ -4,13 +4,19 @@ from __future__ import annotations
 
 import json
 import math
+import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
-from .datalogger_store import DataLoggerStore
+from .datalogger_store import (
+    DEFAULT_POLL_INTERVAL_SECONDS,
+    MAX_POLL_INTERVAL_SECONDS,
+    MIN_POLL_INTERVAL_SECONDS,
+    DataLoggerStore,
+)
 from .db import get_db
 
 bp = Blueprint("datalogger", __name__, url_prefix="/datalogger")
@@ -63,7 +69,60 @@ def index():
     store = _store(); channels = store.channels_for(g.user["username"], is_admin())
     series = [{"id": row["channel_id"], "name": row["name"], "unit": row["unit"], "color": row["color"],
                "samples": [dict(sample) for sample in store.samples(row["channel_id"], 200)]} for row in channels]
-    return render_template("datalogger/index.html", channels=channels, series=series)
+    return render_template(
+        "datalogger/index.html", channels=channels, series=series,
+        can_manage_settings=is_admin(),
+    )
+
+
+@bp.get("/settings")
+@login_required
+def settings():
+    if not is_admin():
+        abort(403)
+    try:
+        tick_seconds = _store().poll_interval_seconds()
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        current_app.logger.warning("Datalogger settings read failed: %s", type(exc).__name__)
+        flash("Datalogger-Einstellung konnte nicht gelesen werden. Datenbankrechte prüfen.")
+        return redirect(url_for("datalogger.index"))
+    return render_template(
+        "datalogger/settings.html", tick_seconds=tick_seconds,
+        default_tick_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
+        min_tick_seconds=MIN_POLL_INTERVAL_SECONDS,
+        max_tick_seconds=MAX_POLL_INTERVAL_SECONDS,
+    )
+
+
+@bp.post("/settings")
+@login_required
+def save_settings():
+    if not is_admin():
+        abort(403)
+    submitted = request.form.get("poll_interval_seconds", "")
+    if request.form.get("reset") == "1":
+        submitted = DEFAULT_POLL_INTERVAL_SECONDS
+    try:
+        _store().update_poll_interval(submitted, g.user["username"])
+    except ValueError as exc:
+        flash(str(exc))
+        return render_template(
+            "datalogger/settings.html", tick_seconds=submitted,
+            default_tick_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
+            min_tick_seconds=MIN_POLL_INTERVAL_SECONDS,
+            max_tick_seconds=MAX_POLL_INTERVAL_SECONDS,
+        ), 400
+    except (OSError, sqlite3.Error) as exc:
+        current_app.logger.warning("Datalogger settings save failed: %s", type(exc).__name__)
+        flash("Datalogger-Einstellung konnte nicht gespeichert werden. Datenbankrechte prüfen.")
+        return render_template(
+            "datalogger/settings.html", tick_seconds=submitted,
+            default_tick_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
+            min_tick_seconds=MIN_POLL_INTERVAL_SECONDS,
+            max_tick_seconds=MAX_POLL_INTERVAL_SECONDS,
+        ), 503
+    flash("Pollintervall gespeichert. Es gilt ab dem nächsten Worker-Zyklus.")
+    return redirect(url_for("datalogger.settings"))
 
 
 @bp.post("/channels")
