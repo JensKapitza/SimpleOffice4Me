@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4">
+  <a class="btn btn-sm btn-outline-secondary mb-3" href="{{ url_for('datalogger.index') }}">← Datenlogger</a>
+  <h1 class="h2">Datenlogger-Worker</h1>
+  <p class="text-secondary">Globale Poll-Einstellung für den getrennten Worker. Die Messintervalle einzelner Quellen bleiben davon unabhängig.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card"><div class="card-body">
+    <form method="post" action="{{ url_for('datalogger.save_settings') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <div class="mb-3">
+        <label class="form-label" for="datalogger-poll-seconds">Worker-Pollintervall (Sekunden)</label>
+        <input class="form-control" id="datalogger-poll-seconds" name="poll_interval_seconds"
+               type="number" min="{{ min_tick_seconds }}" max="{{ max_tick_seconds }}" step="1" value="{{ tick_seconds }}" required>
+        <div class="form-text">Standard: {{ default_tick_seconds }} Sekunden; zulässig: {{ min_tick_seconds }}–{{ max_tick_seconds }} Sekunden. Wirkt ab dem nächsten Worker-Zyklus; ein bereits laufender Wartezyklus kann bis zu {{ max_tick_seconds }} Sekunden dauern. Quellen mit längeren Intervallen werden nicht häufiger gemessen.</div>
+      </div>
+      <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+        <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standard zurücksetzen</button>
+      </div>
+    </form>
+  </div></section>
+</main>
+{% endblock %}
