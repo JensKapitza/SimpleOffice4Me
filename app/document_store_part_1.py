@@ -427,13 +427,20 @@ class _DocumentStorePart1:
     def _share_context_changed(self, share: dict[str, Any]) -> bool:
         """A share tied to an original location cannot follow a moved document."""
         original = share.get("shared_from_path")
-        if original is None:
-            return False  # Historical shares have no location snapshot.
         try:
             document = self.get_document(share["document_id"])
         except (OSError, ValueError, KeyError):
             return True
-        return str(document.get("last_path", "")) != str(original)
+        if original is not None:
+            return str(document.get("last_path", "")) != str(original)
+        # Older shares lack a path snapshot. Use the recorded move history to
+        # invalidate them when a move occurred after the share was created.
+        created_at = share.get("created_at", "")
+        return any(
+            movement.get("at", "") >= created_at
+            for movement in document.get("location_history", [])
+            if movement.get("at") and created_at
+        )
 
     @staticmethod
     def _share_expired(share: dict[str, Any]) -> bool:
