@@ -116,7 +116,7 @@ def smart_folder_view():
         selected = SmartFolderViews(_store()).view(request.args.get("folder", ""))
     except ValueError:
         abort(404)
-    return render_template("documents/smart_folders.html", folders=SmartFolderViews(_store()).folders(), selected=selected)
+    return render_template("documents/smart_folders.html", folders=SmartFolderViews(_store()).folders(), selected=selected, rules=SmartFolderViews(_store())._load()["folders"].get(selected["path"], {}).get("rules", {}), rows=SmartFolderViews(_store()).extract_rows(selected["path"]))
 
 
 @bp.post("/smart-folders/activate")
@@ -129,6 +129,37 @@ def activate_smart_folder():
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
+@bp.post("/smart-folders/rule")
+@login_required
+def save_smart_folder_rule():
+    folder = request.form.get("folder", "")
+    try:
+        SmartFolderViews(_store()).save_rule(folder, request.form.get("name", ""), request.form.get("field", ""), str(g.user["username"]))
+        flash("Extraktionsregel gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
+@bp.get("/smart-folders/export.csv")
+@login_required
+def export_smart_folder():
+    import csv
+    import io
+    folder = request.args.get("folder", "")
+    try:
+        rows = SmartFolderViews(_store()).extract_rows(folder)
+    except ValueError:
+        abort(404)
+    stream = io.StringIO()
+    columns = list(dict.fromkeys(key for row in rows for key in row))
+    writer = csv.DictWriter(stream, fieldnames=columns)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({key: "'" + value if isinstance(value, str) and value[:1] in ("=", "+", "-", "@") else value for key, value in row.items()})
+    return Response(stream.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=smart-folder.csv"})
 
 
 @bp.post("/<document_id>/smart-folder")
