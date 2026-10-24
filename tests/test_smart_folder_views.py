@@ -66,6 +66,28 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertTrue(source.exists())
             self.assertEqual("scans/beleg.txt", store.get_document(document_id)["last_path"])
 
+    def test_logical_assignment_to_dynamic_folder_does_not_activate_it(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            source = root / "scans" / "camera.jpg"
+            target = root / "imports" / "batch" / "Telegram"
+            source.parent.mkdir()
+            target.mkdir(parents=True)
+            source.write_bytes(b"scan")
+            (target / "existing.jpg").write_bytes(b"existing")
+            store = DocumentStore(root)
+            store.scan()
+            document_id = store.get_document(source)["document_id"]
+            views = SmartFolderViews(store, "admin")
+
+            views.assign(document_id, "imports/batch/Telegram")
+
+            view = views.view("imports/batch/Telegram")
+            self.assertEqual(2, view["count"])
+            self.assertFalse(view["active"])
+            self.assertNotIn("imports/batch/Telegram", views._load()["folders"])
+            self.assertTrue(source.exists())
+
     def test_import_origin_view_survives_a_physical_move(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

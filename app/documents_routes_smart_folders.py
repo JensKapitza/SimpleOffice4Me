@@ -22,7 +22,23 @@ def _spreadsheet_safe_cell(value: object) -> str:
 @login_required
 def smart_folders():
     views = _smart_views()
-    return render_template("documents/smart_folders.html", folders=views.folders(), selected=None)
+    assignment_document = _assignment_document(request.args.get("assign_document_id", ""))
+    return render_template(
+        "documents/smart_folders.html",
+        folders=views.folders(),
+        selected=None,
+        assignment_document=assignment_document,
+    )
+
+
+def _assignment_document(document_id: str) -> dict | None:
+    document_id = str(document_id or "").strip()
+    if not document_id:
+        return None
+    try:
+        return _store().get_document(document_id)
+    except ValueError:
+        abort(404)
 
 
 @bp.get("/smart-folders/view")
@@ -32,6 +48,7 @@ def smart_folder_view():
     if not folder:
         return redirect(url_for("documents.smart_folders"))
     views = _smart_views()
+    assignment_document = _assignment_document(request.args.get("assign_document_id", ""))
     try:
         folders = views.folders()
         selected = views.view(folder, folders)
@@ -50,6 +67,7 @@ def smart_folder_view():
         selected=selected,
         rules=rules,
         rows=rows,
+        assignment_document=assignment_document,
     )
 
 

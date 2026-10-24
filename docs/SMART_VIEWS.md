@@ -12,9 +12,11 @@ ohne Beachtung der Groß-/Kleinschreibung bestimmt.
 
 Smart-View-Notizen, Zuordnungen und Extraktionsregeln werden pro angemeldetem
 Benutzer unter `.simpleoffice-meta/smart-folder-views/` gespeichert. Ein
-Ordner muss ausdrücklich aktiviert werden, bevor Notizen oder Regeln dauerhaft
-gespeichert bzw. Dokumente ihm logisch zugeordnet werden. Eine logische
-Zuordnung ändert den Originalpfad und die Dokument-ID nicht.
+Ordner muss ausdrücklich aktiviert werden, bevor eigene Notizen oder Regeln
+dauerhaft gespeichert werden. Dokumente lassen sich auch einer bereits
+entdeckten, noch nicht aktivierten Ansicht logisch zuordnen. Eine logische
+Zuordnung ändert den Originalpfad und die Dokument-ID nicht; physisches
+Verschieben bleibt eine getrennte Aktion.
 
 Beim Web-Ordnerimport erhalten Dateien zusätzlich eine Herkunfts-ID für den
 Import und relativen Quellordner. Die ID bleibt als Dokumentmetadatum erhalten;

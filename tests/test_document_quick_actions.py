@@ -241,7 +241,21 @@ class DocumentQuickActionsTest(unittest.TestCase):
         detail = self.client.get(f"/documents/{document['document_id']}")
         self.assertEqual(200, detail.status_code)
         self.assertIn("Ursprungsordner: nested", detail.get_data(as_text=True))
-        self.assertIn("smart-folders/view", detail.get_data(as_text=True))
+        self.assertIn("assign_document_id", detail.get_data(as_text=True))
+        picker = self.client.get(
+            "/documents/smart-folders",
+            query_string={"assign_document_id": document["document_id"]},
+        )
+        self.assertEqual(200, picker.status_code)
+        view = self.client.get(
+            "/documents/smart-folders/view",
+            query_string={
+                "folder": origin_view,
+                "assign_document_id": document["document_id"],
+            },
+        )
+        self.assertEqual(200, view.status_code)
+        self.assertIn("Dokument logisch zuordnen", view.get_data(as_text=True))
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")

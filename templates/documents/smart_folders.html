@@ -5,11 +5,12 @@
   <h1 class="h3">Smart Views und Sammelordner</h1>
   <p class="text-secondary">Ordner werden bei Bedarf angezeigt. Erst das Aktivieren speichert zusätzliche Ordnerdaten.</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if assignment_document %}<div class="alert alert-info" role="status">Wähle eine Ansicht für <strong>{{ assignment_document.last_path }}</strong>. Die logische Zuordnung verschiebt die Originaldatei nicht.</div>{% endif %}
   <div class="row g-3">
     <nav class="col-lg-4" aria-label="Ordner">
       <div class="list-group">
         {% for folder in folders %}
-        <a class="list-group-item list-group-item-action" href="{{ url_for('documents.smart_folder_view', folder=folder.path) }}">
+        <a class="list-group-item list-group-item-action" href="{{ url_for('documents.smart_folder_view', folder=folder.path, assign_document_id=assignment_document.document_id if assignment_document else none) }}">
           {{ folder.path }} <span class="badge text-bg-secondary">{{ folder.count }}</span>
           {% if folder.active %}<span class="badge text-bg-primary">Aktiv</span>{% endif %}
           {% if folder.source_folder_paths %}<small class="d-block text-secondary">Quelle: {{ folder.source_folder_paths|join(', ') }}</small>{% endif %}
@@ -22,6 +23,14 @@
       <h2 class="h4">{{ selected.path }}</h2>
       <p>{{ selected.count }} Dokument(e)</p>
       {% if selected.source_folder_paths %}<p class="small text-secondary">Quellordner: {{ selected.source_folder_paths|join(', ') }}</p>{% endif %}
+      {% if assignment_document %}
+      <form method="post" action="{{ url_for('documents.assign_smart_folder', document_id=assignment_document.document_id) }}" class="border rounded p-3 mb-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="folder" value="{{ selected.path }}">
+        <p class="mb-2">Ziel: {{ selected.path }}</p>
+        <button type="submit" class="btn btn-outline-primary">Dokument logisch zuordnen</button>
+      </form>
+      {% endif %}
       {% if selected.same_name %}
       <div class="alert alert-info" role="status" aria-live="polite">Weitere Ordner mit gleichem Namen:
         {% for other in selected.same_name %}

@@ -208,11 +208,13 @@ class SmartFolderViews:
     def assign(self, document_id: str, folder: str) -> None:
         folder = self.normalize(folder)
         self.store.get_document(document_id)
+        self.view(folder)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.path.with_suffix(".lock")):
+            self.view(folder)
             data = self._load()
-            if folder not in data["folders"] or self._canonical_path(folder, data["merged_into"]) != folder:
-                raise ValueError("Ziel-Sammelordner muss zuerst aktiviert werden")
+            if self._canonical_path(folder, data["merged_into"]) != folder:
+                raise ValueError("Der Zielordner wurde bereits in einen anderen Ordner fusioniert")
             paths = data["assignments"].setdefault(document_id, [])
             if folder not in paths:
                 paths.append(folder)
