@@ -131,6 +131,18 @@ def activate_smart_folder():
     return redirect(url_for("documents.smart_folder_view", folder=folder))
 
 
+@bp.get("/smart-folders/merge-preview")
+@login_required
+def smart_folder_merge_preview():
+    source = request.args.get("source", "")
+    target = request.args.get("target", "")
+    try:
+        impact = SmartFolderViews(_store()).merge_preview(source, target)
+    except ValueError:
+        abort(404)
+    return render_template("documents/smart_folder_merge_preview.html", impact=impact)
+
+
 @bp.post("/smart-folders/merge")
 @login_required
 def merge_smart_folders():
