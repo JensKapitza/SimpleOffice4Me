@@ -128,10 +128,11 @@
 {% if document_smart_folders %}<p class="small mb-1">Zugeordnet:
 {% for folder in document_smart_folders %}<a href="{{ url_for('documents.smart_folder_view', folder=folder) }}">{{ folder }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 <form method="post" action="{{ url_for('documents.assign_smart_folder', document_id=document.document_id) }}">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 <label for="smart-folder-target" class="form-label">Bestehender Smart View zuordnen (ohne Verschieben)</label>
 <div class="input-group"><select class="form-select" id="smart-folder-target" name="folder" required>
 <option value="">Ziel auswählen</option>
-{% for folder in smart_folders %}<option value="{{ folder.path }}">{{ folder.path }} ({{ folder.count }})</option>{% endfor %}
+{% for folder in smart_folders %}<option value="{{ folder.path }}">{{ folder.path }}</option>{% endfor %}
 </select><button type="submit" class="btn btn-outline-primary">Zuordnen</button></div></form></div>
 <label class="form-label">In Ordner verschieben</label>
 <form method="post" action="{{ url_for('documents.move_document', document_id=document.document_id) }}" class="input-group">

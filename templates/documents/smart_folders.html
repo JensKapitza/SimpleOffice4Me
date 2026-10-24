@@ -4,6 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <h1 class="h3">Smart Views und Sammelordner</h1>
   <p class="text-secondary">Ordner werden bei Bedarf angezeigt. Erst das Aktivieren speichert zusätzliche Ordnerdaten.</p>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div class="row g-3">
     <nav class="col-lg-4" aria-label="Ordner">
       <div class="list-group">
@@ -20,7 +21,7 @@
       <h2 class="h4">{{ selected.path }}</h2>
       <p>{{ selected.count }} Dokument(e)</p>
       {% if selected.same_name %}
-      <div class="alert alert-info">Weitere Ordner mit gleichem Namen:
+      <div class="alert alert-info" role="status" aria-live="polite">Weitere Ordner mit gleichem Namen:
         {% for other in selected.same_name %}
           <a href="{{ url_for('documents.smart_folder_view', folder=other.path) }}">{{ other.path }}</a>{% if not loop.last %}, {% endif %}
         {% endfor %}
@@ -41,6 +42,7 @@
       </form>
       {% endif %}
       <form method="post" action="{{ url_for('documents.activate_smart_folder') }}" class="mb-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="folder" value="{{ selected.path }}">
         <label class="form-label" for="folder-notes">Sammelordner-Notizen</label>
         <textarea class="form-control mb-2" id="folder-notes" name="notes" rows="3" maxlength="20000">{{ selected.notes|default('') }}</textarea>
@@ -48,17 +50,21 @@
       </form>
       <section class="mb-3">
         <h3 class="h5">Tabellarische Auswertung</h3>
+        {% if selected.active %}
         <form method="post" action="{{ url_for('documents.save_smart_folder_rule') }}" class="row g-2">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="folder" value="{{ selected.path }}">
           <div class="col"><input class="form-control" name="name" maxlength="80" placeholder="Spaltenname" required></div>
           <div class="col"><input class="form-control" name="field" maxlength="120" placeholder="JSON-Schlüssel / CSV-Spalte / XML-Pfad" required></div>
           <div class="col-auto"><button type="submit" class="btn btn-outline-primary">Regel speichern</button></div>
         </form>
+        {% else %}<p class="small text-secondary">Aktiviere den Sammelordner, bevor du Extraktionsregeln speicherst.</p>{% endif %}
         {% if rules %}
         <p class="small text-secondary mt-2">{% for name, field in rules.items() %}{{ name }}: {{ field }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
         <a href="{{ url_for('documents.export_smart_folder', folder=selected.path) }}">CSV exportieren</a>
         <div class="table-responsive"><table class="table table-sm">
-          <thead><tr><th>Datei</th>{% for name in rules %}<th>{{ name }}</th>{% endfor %}</tr></thead>
+          <caption>Extrahierte Felder für Dokumente in {{ selected.path }}</caption>
+          <thead><tr><th scope="col">Datei</th>{% for name in rules %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
           <tbody>{% for row in rows %}<tr><td><a href="{{ url_for('documents.detail', document_id=row.document_id) }}">{{ row.path }}</a></td>{% for name in rules %}<td>{{ row.get(name, '') }}</td>{% endfor %}</tr>{% endfor %}</tbody>
         </table></div>
         {% endif %}
@@ -66,7 +72,9 @@
       <div class="list-group">
         {% for doc in selected.members %}
         <a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
-          <img src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="" loading="lazy" width="96" height="72" style="object-fit:contain">
+          {% if doc.preview and doc.preview.status == 'ready' %}
+          <img src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async" width="96" height="72" style="object-fit:contain">
+          {% else %}<i class="fas fa-file text-secondary" aria-hidden="true"></i>{% endif %}
           <span class="text-break">{{ doc.last_path }}</span>
         </a>
         {% endfor %}

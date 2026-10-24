@@ -1,0 +1,44 @@
+# Smart Views und Sammelordner
+
+## Dynamische Ordneransichten
+
+Die Dokumenteinstellungen können Ordner anhand der aktuellen Dokumentpfade
+dynamisch anzeigen. Die Ansicht erzeugt für jeden gefundenen Ordner keinen
+persistenten Sammeldatensatz. Gleichnamige Ordner aus verschiedenen Pfaden
+bleiben getrennt; sie werden nur auf ausdrückliche Bestätigung logisch
+zusammengeführt.
+
+Smart-View-Notizen, Zuordnungen und Extraktionsregeln werden pro angemeldetem
+Benutzer unter `.simpleoffice-meta/smart-folder-views/` gespeichert. Ein
+Ordner muss ausdrücklich aktiviert werden, bevor Notizen oder Regeln dauerhaft
+gespeichert bzw. Dokumente ihm logisch zugeordnet werden. Eine logische
+Zuordnung ändert den Originalpfad und die Dokument-ID nicht.
+
+## Explizite Fusion
+
+Vor einer Fusion zeigt die Vorschau Quell- und Zielpfad, Mitglieder, Notizen,
+Regeln und Regelkonflikte. Die Aktion verlangt die Eingabe
+`ZUSAMMENFUEHREN`. Originaldateien werden dabei nicht verschoben. Zuordnungen,
+Notizen mit Herkunft und kompatible Regeln werden atomar gespeichert;
+konfligierende Regeln blockieren die Fusion. Der bisherige Quellpfad wird als
+Alias auf das Ziel abgebildet, sodass auch später dort abgelegte Dokumente in
+der Zielansicht erscheinen.
+
+## Begrenzte strukturierte Auswertung
+
+Regeln lesen einzelne JSON-Schlüssel, CSV-Spalten oder einfache XML-Elementpfade
+aus verifizierten Dokumenten. Es werden keine Ausdrücke, Skripte oder
+benutzerdefinierten Regex ausgeführt. XML wird mit `defusedxml` geparst;
+DTD-/Entity-Inhalte werden abgewiesen. Die Auswertung begrenzt Eingaben auf
+100 Dateien, 256 KiB je Datei und 8 MiB je Anforderung, höchstens 20 Regeln und
+500 Zeichen je Ergebniszelle.
+
+Der CSV-Export escaped Formelzellen, wird als `text/csv` mit `nosniff` und
+`Cache-Control: private, no-store` ausgeliefert und enthält nur die
+Dokumente/Ansichten des angemeldeten Benutzers.
+
+## Grenzen dieser Ausbaustufe
+
+Diese Stufe unterstützt keine stapelweisen OCR-/Preview-Jobs oder
+Fortschrittsanzeigen und verschiebt bei logischer Fusion keine Originaldateien.
+Native Geräteabnahme erfolgt separat nach Issue #823.

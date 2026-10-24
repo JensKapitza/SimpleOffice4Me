@@ -2,6 +2,7 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
+{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 <h1 class="h3">Ordnerfusion prüfen</h1>
 <p><strong>Quelle:</strong> {{ impact.source }}</p>
 <p><strong>Ziel:</strong> {{ impact.target }}</p>
@@ -10,13 +11,15 @@
 Zielregeln: {{ impact.target_rules|join(', ') if impact.target_rules else 'keine' }}.</p>
 {% if impact.notes %}<p>Notizen aus der Quelle werden mit Herkunft übernommen.</p>{% endif %}
 {% if impact.conflicts %}
-<div class="alert alert-danger">Fusion blockiert: widersprüchliche Regeln {{ impact.conflicts|join(', ') }}.</div>
+<div class="alert alert-danger" role="alert">Fusion blockiert: widersprüchliche Regeln {{ impact.conflicts|join(', ') }}.</div>
 {% else %}
-<p class="alert alert-warning">Dies ist eine <strong>logische</strong> Fusion. Originaldateien werden nicht verschoben; bestehende Freigaben bleiben daher unverändert.</p>
+<p class="alert alert-warning" role="status">Dies ist eine <strong>logische</strong> Fusion. Originaldateien werden nicht verschoben; bestehende Freigaben bleiben daher unverändert.</p>
 <details class="mb-3"><summary>Betroffene Dokumente anzeigen</summary><ul>
 {% for path in impact.source_paths %}<li class="text-break">{{ path }}</li>{% endfor %}
 </ul></details>
+{% if impact.source_paths_truncated %}<p class="small text-secondary">Angezeigt werden 200 von {{ impact.documents }} Quelldokumenten.</p>{% endif %}
 <form method="post" action="{{ url_for('documents.merge_smart_folders') }}">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 <input type="hidden" name="source" value="{{ impact.source }}">
 <input type="hidden" name="target" value="{{ impact.target }}">
 <label for="merge-confirm" class="form-label">ZUSAMMENFUEHREN zur Bestätigung eingeben</label>

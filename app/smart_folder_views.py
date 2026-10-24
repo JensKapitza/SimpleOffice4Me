@@ -1,22 +1,45 @@
 """Lazy document folder smart views, without creating metadata for every folder."""
 from __future__ import annotations
 
-import json
 import csv
+import hashlib
 import io
-import xml.etree.ElementTree as ET
-from pathlib import Path
+import logging
 from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
 from uuid import uuid4
+
+from defusedxml import ElementTree as ET
+from defusedxml.common import DefusedXmlException
 
 from .document_store_core import CONTROL_DIR, atomic_json_write
 from .file_lock import exclusive_file_lock
+from .v2.contracts import LogicalObjectId
+from .v2.storage_runtime import storage_for
+
+MAX_EXTRACTED_FILES = 100
+MAX_EXTRACTED_FILE_BYTES = 256 * 1024
+MAX_EXTRACTED_TOTAL_BYTES = 8 * 1024 * 1024
+MAX_EXTRACTED_RULES = 20
+MAX_EXTRACTED_VALUE_CHARS = 500
+_LOGGER = logging.getLogger(__name__)
 
 
 class SmartFolderViews:
-    def __init__(self, store):
+    def __init__(self, store, actor: str):
+        actor = str(actor or "").strip()
+        if not actor:
+            raise ValueError("a named user is required")
         self.store = store
-        self.path = Path(store.root) / CONTROL_DIR / "smart_folders.json"
+        self.actor = actor
+        actor_key = hashlib.sha256(actor.encode("utf-8")).hexdigest()
+        self.path = Path(store.root) / CONTROL_DIR / "smart-folder-views" / f"{actor_key}.json"
+
+    def _verify_actor(self, actor: str) -> None:
+        if str(actor or "").strip() != self.actor:
+            raise ValueError("Smart-View-Aktion gehört zu einem anderen Benutzer")
 
     @staticmethod
     def normalize(folder: str) -> str:
@@ -30,16 +53,36 @@ class SmartFolderViews:
 
     def _load(self) -> dict:
         if not self.path.exists():
-            return {"folders": {}, "assignments": {}}
+            return {"folders": {}, "assignments": {}, "merged_into": {}}
         data = json.loads(self.path.read_text(encoding="utf-8"))
-        return {"folders": data.get("folders", {}), "assignments": data.get("assignments", {})}
+        if not isinstance(data, dict) or any(
+            not isinstance(data.get(section, {}), dict)
+            for section in ("folders", "assignments", "merged_into")
+        ):
+            raise ValueError("Ungültige Smart-View-Metadaten")
+        return {
+            "folders": data.get("folders", {}),
+            "assignments": data.get("assignments", {}),
+            "merged_into": data.get("merged_into", {}),
+        }
 
     def _save(self, data: dict) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         atomic_json_write(self.path, data)
 
+    @staticmethod
+    def _canonical_path(folder: str, merged_into: dict) -> str:
+        seen = set()
+        while folder in merged_into:
+            if folder in seen:
+                raise ValueError("Zyklische Smart-View-Fusion")
+            seen.add(folder)
+            folder = str(merged_into[folder])
+        return folder
+
     def folders(self) -> list[dict]:
         data = self._load()
+        merged_into = data["merged_into"]
         folders: dict[str, dict] = {}
         for doc in self.store.list_documents():
             path = str(doc.get("last_path") or "")
@@ -48,17 +91,20 @@ class SmartFolderViews:
             parent = Path(path).parent.as_posix()
             if parent == ".":
                 continue
-            folders.setdefault(parent, {"path": parent, "members": []})["members"].append(doc)
+            canonical = self._canonical_path(parent, merged_into)
+            folders.setdefault(canonical, {"path": canonical, "members": []})["members"].append(doc)
         for path, info in data["folders"].items():
-            folders.setdefault(path, {"path": path, "members": []})["active"] = True
-            folders[path]["notes"] = info.get("notes", "")
+            canonical = self._canonical_path(path, merged_into)
+            folders.setdefault(canonical, {"path": canonical, "members": []})["active"] = True
+            folders[canonical]["notes"] = info.get("notes", "")
         for document_id, paths in data["assignments"].items():
             try:
                 doc = self.store.get_document(document_id)
             except (ValueError, OSError):
                 continue
             for path in paths:
-                members = folders.setdefault(path, {"path": path, "members": []})["members"]
+                canonical = self._canonical_path(path, merged_into)
+                members = folders.setdefault(canonical, {"path": canonical, "members": []})["members"]
                 if all(member["document_id"] != document_id for member in members):
                     members.append(doc)
         return sorted(
@@ -66,16 +112,31 @@ class SmartFolderViews:
             key=lambda item: item["path"].casefold(),
         )
 
-    def view(self, folder: str) -> dict:
+    def activated_folders(self) -> list[dict]:
+        """Return persisted assignment targets without scanning document metadata."""
+        data = self._load()
+        return [
+            {"path": path, "active": True}
+            for path in sorted(data["folders"], key=str.casefold)
+            if self._canonical_path(path, data["merged_into"]) == path
+        ]
+
+    def rules_for(self, folder: str) -> dict[str, str]:
         folder = self.normalize(folder)
-        item = next((item for item in self.folders() if item["path"] == folder), None)
+        return dict(self._load()["folders"].get(folder, {}).get("rules", {}))
+
+    def view(self, folder: str, folders: list[dict] | None = None) -> dict:
+        folder = self.normalize(folder)
+        folders = folders if folders is not None else self.folders()
+        item = next((item for item in folders if item["path"] == folder), None)
         if item is None:
             raise ValueError("Ordner nicht gefunden")
         name = Path(folder).name.casefold()
-        item["same_name"] = [other for other in self.folders() if other["path"] != folder and Path(other["path"]).name.casefold() == name]
+        item["same_name"] = [other for other in folders if other["path"] != folder and Path(other["path"]).name.casefold() == name]
         return item
 
     def activate(self, folder: str, actor: str, notes: str = "") -> dict:
+        self._verify_actor(actor)
         folder = self.normalize(folder)
         self.view(folder)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,11 +150,11 @@ class SmartFolderViews:
     def assign(self, document_id: str, folder: str) -> None:
         folder = self.normalize(folder)
         self.store.get_document(document_id)
-        if folder not in {item["path"] for item in self.folders()}:
-            raise ValueError("Zielordner nicht gefunden")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.path.with_suffix(".lock")):
             data = self._load()
+            if folder not in data["folders"] or self._canonical_path(folder, data["merged_into"]) != folder:
+                raise ValueError("Ziel-Sammelordner muss zuerst aktiviert werden")
             paths = data["assignments"].setdefault(document_id, [])
             if folder not in paths:
                 paths.append(folder)
@@ -101,62 +162,139 @@ class SmartFolderViews:
 
     def save_rule(self, folder: str, name: str, field: str, actor: str) -> None:
         """Save a bounded field extractor; no arbitrary Python or regex."""
+        self._verify_actor(actor)
         folder = self.normalize(folder)
-        if not name.strip() or len(name) > 80 or not field.strip() or len(field) > 120 or field.strip().startswith(("/", "..")):
+        name = name.strip()
+        field = field.strip()
+        if (
+            not name
+            or len(name) > 80
+            or not field
+            or len(field) > 120
+            or name[:1] in {"=", "+", "-", "@"}
+        ):
             raise ValueError("Ungültige Extraktionsregel")
         self.view(folder)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.path.with_suffix(".lock")):
             data = self._load()
-            entry = data["folders"].setdefault(folder, {"id": uuid4().hex, "created_by": actor})
-            entry.setdefault("rules", {})[name.strip()] = field.strip()
+            entry = data["folders"].get(folder)
+            if entry is None:
+                raise ValueError("Sammelordner vor dem Speichern von Regeln erst aktivieren")
+            rules = entry.setdefault("rules", {})
+            if name not in rules and len(rules) >= MAX_EXTRACTED_RULES:
+                raise ValueError("Zu viele Extraktionsregeln für diesen Sammelordner")
+            rules[name] = field
             self._save(data)
 
-    def extract_rows(self, folder: str, *, max_files: int = 250, max_bytes: int = 1024 * 1024) -> list[dict]:
-        """Extract simple JSON keys, CSV columns and XML tags from local documents."""
+    def extract_rows(self, folder: str) -> list[dict]:
+        """Extract bounded JSON, CSV and XML fields from integrity-checked objects."""
         folder = self.normalize(folder)
-        rules = self._load()["folders"].get(folder, {}).get("rules", {})
+        rules = self.rules_for(folder)
+        if not rules:
+            return []
+        storage = storage_for(self.store.root, self.actor)
         rows = []
-        for doc in self.view(folder)["members"][:max_files]:
+        total_bytes = 0
+        for doc in self.view(folder)["members"][:MAX_EXTRACTED_FILES]:
             path = str(doc.get("last_path") or "")
             if path.startswith("[external]"):
                 continue
             try:
-                from .safe_paths import resolve_file_under
-                source = resolve_file_under(self.store.root, path)
-                if source.stat().st_size > max_bytes:
+                object_id = LogicalObjectId(str(doc["document_id"]))
+                described = storage.stat(object_id)
+                if not described.ok:
+                    _LOGGER.warning(
+                        "Smart folder extraction cannot read document %s",
+                        object_id.value,
+                    )
                     continue
-                content = source.read_text(encoding="utf-8-sig")
-                suffix = source.suffix.casefold()
+                expected = described.value
+                remaining = min(
+                    MAX_EXTRACTED_FILE_BYTES,
+                    MAX_EXTRACTED_TOTAL_BYTES - total_bytes,
+                )
+                if expected.size > remaining:
+                    continue
+                spool = io.BytesIO()
+                copied = storage.copy_verified_range_to(
+                    object_id,
+                    spool,
+                    start=0,
+                    length=expected.size,
+                )
+                if (
+                    not copied.ok
+                    or copied.value.size != expected.size
+                    or copied.value.version != expected.version
+                ):
+                    _LOGGER.warning(
+                        "Smart folder extraction failed integrity verification for document %s",
+                        object_id.value,
+                    )
+                    continue
+                content_bytes = spool.getvalue()
+                if len(content_bytes) != expected.size:
+                    continue
+                total_bytes += len(content_bytes)
+                if b"\x00" in content_bytes:
+                    continue
+                content = content_bytes.decode("utf-8-sig")
+                suffix = Path(path).suffix.casefold()
                 if suffix == ".json":
                     parsed = json.loads(content)
                 elif suffix == ".csv":
                     parsed = next(iter(csv.DictReader(io.StringIO(content))), {})
                 elif suffix == ".xml":
-                    if "<!DOCTYPE" in content.upper() or "<!ENTITY" in content.upper():
-                        continue
                     parsed = ET.fromstring(content)
                 else:
                     continue
                 row = {"document_id": doc["document_id"], "path": path}
                 for name, field in rules.items():
                     if suffix == ".xml":
-                        element = parsed.find(field) if field != "." else parsed
-                        value = element.text if element is not None else None
+                        value = self._xml_field_value(parsed, field)
                     else:
                         value = parsed.get(field) if isinstance(parsed, dict) else None
-                    row[name] = str(value)[:2000] if value is not None else ""
+                    row[name] = str(value)[:MAX_EXTRACTED_VALUE_CHARS] if value is not None else ""
                 rows.append(row)
-            except (OSError, ValueError, UnicodeError, ET.ParseError, json.JSONDecodeError, StopIteration):
+            except (
+                DefusedXmlException,
+                OSError,
+                StopIteration,
+                SyntaxError,
+                TypeError,
+                UnicodeError,
+                ValueError,
+            ) as exc:
+                _LOGGER.warning(
+                    "Smart folder extraction skipped document %s (%s)",
+                    doc.get("document_id", "unknown"),
+                    type(exc).__name__,
+                )
                 continue
         return rows
+
+    @staticmethod
+    def _xml_field_value(root, field: str) -> str | None:
+        """Support simple tag paths only; reject ElementPath predicates/functions."""
+        if field == ".":
+            return root.text
+        segments = field.removeprefix("./").split("/")
+        if not segments or any(
+            not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.:-]*", segment)
+            for segment in segments
+        ):
+            return None
+        element = root.find(field)
+        return element.text if element is not None else None
 
     def merge_preview(self, source: str, target: str) -> dict:
         """Show consequences before an explicitly confirmed logical merge."""
         source, target = self.normalize(source), self.normalize(target)
         if source == target:
             raise ValueError("Quelle und Ziel müssen verschieden sein")
-        origin, destination = self.view(source), self.view(target)
+        folders = self.folders()
+        origin, destination = self.view(source, folders), self.view(target, folders)
         data = self._load()
         source_meta = data["folders"].get(source, {})
         target_meta = data["folders"].get(target, {})
@@ -172,14 +310,17 @@ class SmartFolderViews:
             "notes": bool(source_meta.get("notes")),
             "source_rules": sorted(source_meta.get("rules", {})),
             "target_rules": sorted(target_meta.get("rules", {})),
-            "source_paths": [str(item.get("last_path", "")) for item in origin["members"]],
+            "source_paths": [str(item.get("last_path", "")) for item in origin["members"][:200]],
+            "source_paths_truncated": len(origin["members"]) > 200,
         }
 
     def merge_assignments(self, source: str, target: str, actor: str) -> dict:
         """Explicit logical fusion; originals stay put and rule conflicts block the merge."""
+        self._verify_actor(actor)
         preview = self.merge_preview(source, target)
         if preview["conflicts"]:
             raise ValueError("Widersprüchliche Extraktionsregeln: " + ", ".join(preview["conflicts"]))
+        source_documents = self.view(source)["members"]
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.path.with_suffix(".lock")):
             data = self._load()
@@ -189,8 +330,7 @@ class SmartFolderViews:
             target_rules = target_info.setdefault("rules", {})
             if any(name in target_rules and target_rules[name] != expr for name, expr in source_rules.items()):
                 raise ValueError("Extraktionsregeln haben sich inzwischen geändert")
-            source_members = self.view(source)["members"]
-            for document in source_members:
+            for document in source_documents:
                 document_id = document["document_id"]
                 assignments = data["assignments"].setdefault(document_id, [])
                 if target not in assignments:
@@ -205,6 +345,7 @@ class SmartFolderViews:
                     "at": datetime.now(timezone.utc).isoformat(),
                 })
             target_info.setdefault("merged_from", []).append(source)
+            data["merged_into"][source] = target
             if source in data["folders"]:
                 data["folders"].pop(source)
             self._save(data)

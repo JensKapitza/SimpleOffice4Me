@@ -102,107 +102,6 @@ def upload():
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
     return redirect(url_for("documents.index"))
 
-@bp.get("/smart-folders")
-@login_required
-def smart_folders():
-    views = SmartFolderViews(_store()).folders()
-    return render_template("documents/smart_folders.html", folders=views, selected=None)
-
-
-@bp.get("/smart-folders/view")
-@login_required
-def smart_folder_view():
-    try:
-        selected = SmartFolderViews(_store()).view(request.args.get("folder", ""))
-    except ValueError:
-        abort(404)
-    return render_template("documents/smart_folders.html", folders=SmartFolderViews(_store()).folders(), selected=selected, rules=SmartFolderViews(_store())._load()["folders"].get(selected["path"], {}).get("rules", {}), rows=SmartFolderViews(_store()).extract_rows(selected["path"]))
-
-
-@bp.post("/smart-folders/activate")
-@login_required
-def activate_smart_folder():
-    folder = request.form.get("folder", "")
-    try:
-        SmartFolderViews(_store()).activate(folder, str(g.user["username"]), request.form.get("notes", ""))
-        flash("Sammelordner aktiviert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.smart_folder_view", folder=folder))
-
-
-@bp.get("/smart-folders/merge-preview")
-@login_required
-def smart_folder_merge_preview():
-    source = request.args.get("source", "")
-    target = request.args.get("target", "")
-    try:
-        impact = SmartFolderViews(_store()).merge_preview(source, target)
-    except ValueError:
-        abort(404)
-    return render_template("documents/smart_folder_merge_preview.html", impact=impact)
-
-
-@bp.post("/smart-folders/merge")
-@login_required
-def merge_smart_folders():
-    source = request.form.get("source", "")
-    target = request.form.get("target", "")
-    if request.form.get("confirm") != "ZUSAMMENFUEHREN":
-        flash("Fusion nicht bestätigt.")
-        return redirect(url_for("documents.smart_folders"))
-    try:
-        SmartFolderViews(_store()).merge_assignments(source, target, str(g.user["username"]))
-        flash("Logische Zuordnungen und Regeln übernommen. Originaldateien wurden nicht verschoben.")
-        return redirect(url_for("documents.smart_folder_view", folder=target))
-    except ValueError as exc:
-        flash(str(exc))
-        return redirect(url_for("documents.smart_folders"))
-
-
-@bp.post("/smart-folders/rule")
-@login_required
-def save_smart_folder_rule():
-    folder = request.form.get("folder", "")
-    try:
-        SmartFolderViews(_store()).save_rule(folder, request.form.get("name", ""), request.form.get("field", ""), str(g.user["username"]))
-        flash("Extraktionsregel gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.smart_folder_view", folder=folder))
-
-
-@bp.get("/smart-folders/export.csv")
-@login_required
-def export_smart_folder():
-    import csv
-    import io
-    folder = request.args.get("folder", "")
-    try:
-        rows = SmartFolderViews(_store()).extract_rows(folder)
-    except ValueError:
-        abort(404)
-    stream = io.StringIO()
-    columns = list(dict.fromkeys(key for row in rows for key in row))
-    writer = csv.DictWriter(stream, fieldnames=columns)
-    writer.writeheader()
-    for row in rows:
-        writer.writerow({key: "'" + value if isinstance(value, str) and value[:1] in ("=", "+", "-", "@") else value for key, value in row.items()})
-    return Response(stream.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=smart-folder.csv"})
-
-
-@bp.post("/<document_id>/smart-folder")
-@login_required
-def assign_smart_folder(document_id: str):
-    folder = request.form.get("folder", "")
-    try:
-        SmartFolderViews(_store()).assign(document_id, folder)
-        flash("Dokument wurde der Smart View zugeordnet. Der Originalspeicherort bleibt erhalten.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("documents.detail", document_id=document_id))
-
-
 @bp.route("/<document_id>")
 @login_required
 def detail(document_id: str):
@@ -213,6 +112,7 @@ def detail(document_id: str):
     linked_documents = store.relationship_targets(document)
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
     security = _attachment_security()
+    smart_views = SmartFolderViews(store, str(g.user["username"]))
     safe_attachments = _released_eml_attachments(store, document)
     eml_attachments = []
     if Path(str(document.get("last_path", ""))).suffix.casefold() == ".eml":
@@ -226,8 +126,8 @@ def detail(document_id: str):
     return render_template(
         "documents/detail.html",
         document=document,
-        smart_folders=SmartFolderViews(store).folders(),
-        document_smart_folders=SmartFolderViews(store).assigned_to(document_id),
+        smart_folders=smart_views.activated_folders(),
+        document_smart_folders=smart_views.assigned_to(document_id),
         versions=store.versions(document_id),
         content_recovery_versions=store.content_recovery_versions(document_id),
         relationships=relationships,
@@ -247,66 +147,6 @@ def detail(document_id: str):
         safe_attachments=safe_attachments,
         eml_attachments=eml_attachments,
     )
-
-@bp.get("/recovery")
-@login_required
-def document_recovery():
-    actor = str(g.user["username"])
-    return render_template("documents/recovery.html", items=_store().recovery_items(actor))
-
-@bp.post("/recovery/<document_id>/restore")
-@login_required
-def restore_deleted_document(document_id: str):
-    if request.form.get("confirm") != "WIEDERHERSTELLEN":
-        flash("Zur Wiederherstellung muss WIEDERHERSTELLEN bestätigt werden.")
-        return redirect(url_for("documents.document_recovery"))
-    try:
-        actor = str(g.user["username"])
-        document = _store().get_document(document_id)
-        destination = (
-            request.form.get("destination_path", "").strip()
-            or str(document.get("deleted_from") or "")
-        )
-        restored = restore_document_v2(
-            current_app.config["DOCUMENT_ROOT"],
-            actor,
-            document_id,
-            destination,
-            expected_version=request.form.get("expected_sha256", ""),
-        )
-        from .webdav import _record_sync_changes
-        _record_sync_changes(actor, str(restored["last_path"]))
-        flash(f"Dokument wurde ohne Überschreiben nach {restored['last_path']} wiederhergestellt.")
-        return redirect(url_for("documents.detail", document_id=document_id))
-    except PermissionError:
-        abort(404)
-    except (FileExistsError, OSError, ValueError) as exc:
-        flash(f"Wiederherstellung nicht ausgeführt: {exc}")
-        return redirect(url_for("documents.document_recovery"))
-
-@bp.post("/<document_id>/restore-content")
-@login_required
-def restore_document_content(document_id: str):
-    _document_or_404(document_id)
-    if request.form.get("confirm") != "WIEDERHERSTELLEN":
-        flash("Zur Wiederherstellung muss WIEDERHERSTELLEN bestätigt werden.")
-        return redirect(url_for("documents.detail", document_id=document_id))
-    try:
-        actor = str(g.user["username"])
-        restored = restore_document_content_v2(
-            current_app.config["DOCUMENT_ROOT"],
-            actor,
-            document_id,
-            request.form.get("archived_sha256", ""),
-            request.form.get("expected_current_sha256", ""),
-            max_bytes=int(current_app.config["MAX_CONTENT_LENGTH"]),
-        )
-        from .webdav import _record_sync_changes
-        _record_sync_changes(actor, str(restored["last_path"]))
-        flash(f"Inhaltsversion als neue Revision {restored['content_revision']} wiederhergestellt.")
-    except (OSError, RuntimeError, ValueError) as exc:
-        flash(f"Inhaltsversion nicht wiederhergestellt: {exc}")
-    return redirect(url_for("documents.detail", document_id=document_id))
 
 @bp.route("/<document_id>/attachments", methods=["GET", "POST"])
 @login_required
