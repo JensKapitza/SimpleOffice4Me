@@ -7,6 +7,7 @@ from uuid import UUID, uuid5
 from app.document_store import DocumentStore
 from app.documents_routes_smart_folders import _spreadsheet_safe_cell
 from app.smart_folder_views import SmartFolderViews
+from app.todo_store import TodoStore
 
 
 class SmartFolderViewsTest(unittest.TestCase):
@@ -182,6 +183,33 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual(64, len(event["document_ids_sha256"]))
             self.assertEqual(["Beleg"], event["rules"])
             self.assertTrue(event["notes_transferred"])
+
+    def test_logical_merge_keeps_folder_tasks_linked_to_target(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("a/Telegram", "b/Telegram"):
+                path = root / folder
+                path.mkdir(parents=True)
+                (path / "record.txt").write_text("record", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            views.activate("a/Telegram", "admin")
+            views.activate("b/Telegram", "admin")
+            source_id = views.folder_task_id("a/Telegram", "admin")
+            target_id = views.folder_task_id("b/Telegram", "admin")
+            task = TodoStore(root).add(
+                "Quellordner prüfen", "admin", smart_folder_id=source_id,
+            )
+
+            views.merge_assignments("a/Telegram", "b/Telegram", "admin")
+
+            self.assertEqual(
+                [target_id, source_id],
+                views.task_folder_ids("b/Telegram", "admin"),
+            )
+            self.assertEqual(source_id, TodoStore(root).items("admin")[0]["smart_folder_id"])
+            self.assertEqual(task["id"], TodoStore(root).items("admin")[0]["id"])
 
     def test_logical_merge_requires_a_normalized_name_collision(self):
         with tempfile.TemporaryDirectory() as temp:

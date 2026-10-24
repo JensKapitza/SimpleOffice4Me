@@ -7,10 +7,20 @@
 <p><strong>Quelle:</strong> {{ impact.source }}</p>
 <p><strong>Ziel:</strong> {{ impact.target }}</p>
 <p>{{ impact.documents }} Quelldokument(e), {{ impact.target_documents }} bereits im Ziel.</p>
+<p>{{ impact.source_preview_ids|length }} ausgewählte Quellvorschaubilder, {{ impact.target_preview_ids|length }} im Ziel. Die Quellauswahl bleibt nach der Fusion als eigene Vorschaugruppe erhalten.</p>
+{% if impact.task_preview_available %}
+<p>{{ impact.source_tasks }} Aufgaben aus der Quelle, {{ impact.target_tasks }} bereits im Ziel. Aufgaben bleiben mit ihren Sammelordner-IDs verknüpft und erscheinen nach der logischen Fusion im Ziel.</p>
+{% if impact.source_task_rows or impact.target_task_rows %}<details class="mb-3"><summary>Betroffene Aufgaben anzeigen</summary>
+{% if impact.source_task_rows %}<h2 class="h6 mt-2">Quelle</h2><ul>{% for task in impact.source_task_rows %}<li>{{ task.title }} · {{ task.status }}{% if task.due %} · {{ task.due }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if impact.target_task_rows %}<h2 class="h6 mt-2">Ziel</h2><ul>{% for task in impact.target_task_rows %}<li>{{ task.title }} · {{ task.status }}{% if task.due %} · {{ task.due }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+{% if impact.source_tasks_truncated or impact.target_tasks_truncated %}<p class="small text-secondary">Je Ordner werden höchstens 200 Aufgaben angezeigt.</p>{% endif %}
+</details>{% endif %}
+{% else %}<div class="alert alert-danger" role="alert">Aufgabenfolgen konnten nicht geprüft werden; die Fusion ist vorerst gesperrt.</div>{% endif %}
 <p>Quellregeln: {{ impact.source_rules|join(', ') if impact.source_rules else 'keine' }}.
 Zielregeln: {{ impact.target_rules|join(', ') if impact.target_rules else 'keine' }}.</p>
 {% if impact.notes %}<p>Notizen aus der Quelle werden mit Herkunft übernommen.</p>{% endif %}
-{% if impact.conflicts %}
+{% if not impact.task_preview_available %}
+{% elif impact.conflicts %}
 <div class="alert alert-danger" role="alert">Fusion blockiert: widersprüchliche Regeln {{ impact.conflicts|join(', ') }}.</div>
 {% else %}
 <p class="alert alert-warning" role="status">Dies ist eine <strong>logische</strong> Fusion. Originaldateien werden nicht verschoben; bestehende Freigaben bleiben daher unverändert.</p>

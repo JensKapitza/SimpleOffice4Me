@@ -5,7 +5,7 @@
   <h1 class="h3">Smart Views und Sammelordner</h1>
   <p class="text-secondary">Ordner werden bei Bedarf angezeigt. Erst das Aktivieren speichert zusätzliche Ordnerdaten.</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
-  {% if assignment_document %}<div class="alert alert-info" role="status">Wähle eine Ansicht für <strong>{{ assignment_document.last_path }}</strong>. Die logische Zuordnung verschiebt die Originaldatei nicht.</div>{% endif %}
+  {% if assignment_document %}<div class="alert alert-info" role="status" aria-live="polite">Wähle eine Ansicht für <strong>{{ assignment_document.last_path }}</strong>. Die logische Zuordnung verschiebt die Originaldatei nicht.</div>{% endif %}
   <div class="row g-3">
     <nav class="col-lg-4" aria-label="Ordner">
       <div class="list-group">
@@ -30,6 +30,39 @@
         <p class="mb-2">Ziel: {{ selected.path }}</p>
         <button type="submit" class="btn btn-outline-primary">Dokument logisch zuordnen</button>
       </form>
+      {% endif %}
+      {% for group in selected.merged_preview_groups %}
+      <section class="mb-3" aria-label="Übernommene Sammelordner-Vorschau">
+        <h3 class="h6">Übernommene Vorschau: {{ group.source }}</h3>
+        <div class="row g-2">
+          {% for doc in group.members %}<div class="col-6 col-md-4">
+            <a class="d-block border rounded p-2 h-100 text-decoration-none" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
+              {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async">
+              {% else %}<span class="d-block text-secondary py-3" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
+              <span class="small text-break">{{ doc.last_path }}</span>
+            </a>
+          </div>{% endfor %}
+        </div>
+      </section>
+      {% endfor %}
+      {% if selected.active %}
+      <section class="border rounded p-3 mb-3" aria-label="Sammelordner-Aufgaben">
+        <h3 class="h5">Aufgaben ({{ tasks|length }})</h3>
+        <form method="post" action="{{ url_for('documents.create_smart_folder_task') }}" class="row g-2 mb-3">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="folder" value="{{ selected.path }}">
+          <div class="col-md-5"><input class="form-control" name="title" maxlength="300" placeholder="Aufgabe" required></div>
+          <div class="col-md-5"><input class="form-control" name="description" maxlength="10000" placeholder="Beschreibung (optional)"></div>
+          <div class="col-md-2"><button type="submit" class="btn btn-outline-primary w-100">Hinzufügen</button></div>
+        </form>
+        <ul class="list-group">
+          {% for task in tasks %}<li class="list-group-item d-flex justify-content-between gap-2">
+            <span class="text-break">{{ task.title }}{% if task.due %}<small class="d-block text-secondary">Fällig: {{ task.due }}</small>{% endif %}</span>
+            <span class="badge text-bg-secondary align-self-start">{{ task.status }}</span>
+          </li>{% else %}<li class="list-group-item text-secondary">Keine Aufgaben verknüpft.</li>{% endfor %}
+        </ul>
+        <a class="small d-inline-block mt-2" href="{{ url_for('tasks.board') }}">Aufgaben öffnen und bearbeiten</a>
+      </section>
       {% endif %}
       {% if selected.preview_members %}
       <section class="mb-3" aria-label="Sammelordner-Vorschau">

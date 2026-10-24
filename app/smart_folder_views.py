@@ -26,6 +26,10 @@ MAX_EXTRACTED_TOTAL_BYTES = 8 * 1024 * 1024
 MAX_EXTRACTED_RULES = 20
 MAX_EXTRACTED_VALUE_CHARS = 500
 MAX_MERGE_EVENTS = 10_000
+MAX_MERGED_FOLDER_TASK_IDS = 10_000
+MAX_MERGED_PREVIEW_GROUPS = 10_000
+MAX_MERGED_NOTES = 500
+MAX_MERGED_SOURCES = 10_000
 MAX_PREVIEW_SELECTION = 6
 MAX_PREVIEW_CANDIDATES = 200
 _LOGGER = logging.getLogger(__name__)
@@ -205,6 +209,24 @@ class SmartFolderViews:
         item["preview_members"] = [
             members_by_id[document_id] for document_id in item["preview_document_ids"]
         ]
+        merged_groups = folder_info.get("merged_preview_selections", [])
+        item["merged_preview_groups"] = []
+        if isinstance(merged_groups, list):
+            for group in merged_groups:
+                if not isinstance(group, dict):
+                    continue
+                selected = group.get("document_ids", [])
+                if not isinstance(selected, list):
+                    continue
+                members = [
+                    members_by_id[document_id] for document_id in selected
+                    if isinstance(document_id, str) and document_id in members_by_id
+                ][:MAX_PREVIEW_SELECTION]
+                if members:
+                    item["merged_preview_groups"].append({
+                        "source": str(group.get("source", "")),
+                        "members": members,
+                    })
         item["preview_candidates"] = item["members"][:MAX_PREVIEW_CANDIDATES]
         item["preview_candidates_truncated"] = len(item["members"]) > MAX_PREVIEW_CANDIDATES
         return item
@@ -406,6 +428,16 @@ class SmartFolderViews:
         data = self._load()
         source_meta = data["folders"].get(source, {})
         target_meta = data["folders"].get(target, {})
+        source_task_folder_ids = self._folder_task_ids(source_meta)
+        target_task_folder_ids = self._folder_task_ids(target_meta)
+        source_preview_ids = source_meta.get("preview_document_ids", [])
+        target_preview_ids = target_meta.get("preview_document_ids", [])
+        source_preview_ids = [
+            value for value in source_preview_ids if isinstance(value, str)
+        ][:MAX_PREVIEW_SELECTION] if isinstance(source_preview_ids, list) else []
+        target_preview_ids = [
+            value for value in target_preview_ids if isinstance(value, str)
+        ][:MAX_PREVIEW_SELECTION] if isinstance(target_preview_ids, list) else []
         collisions = [
             name for name, expression in source_meta.get("rules", {}).items()
             if name in target_meta.get("rules", {}) and target_meta["rules"][name] != expression
@@ -416,6 +448,10 @@ class SmartFolderViews:
             "target_documents": len(destination["members"]),
             "conflicts": collisions,
             "notes": bool(source_meta.get("notes")),
+            "source_task_folder_ids": source_task_folder_ids,
+            "target_task_folder_ids": target_task_folder_ids,
+            "source_preview_ids": list(source_preview_ids),
+            "target_preview_ids": list(target_preview_ids),
             "source_rules": sorted(source_meta.get("rules", {})),
             "target_rules": sorted(target_meta.get("rules", {})),
             "source_paths": [str(item.get("last_path", "")) for item in origin["members"][:200]],
@@ -436,6 +472,55 @@ class SmartFolderViews:
                 raise ValueError("Das Fusionsprotokoll hat seine sichere Kapazitätsgrenze erreicht")
             source_info = data["folders"].get(source, {})
             target_info = data["folders"].setdefault(target, {"id": uuid4().hex, "created_by": actor})
+            source_task_folder_ids = self._folder_task_ids(source_info)
+            target_task_folder_ids = self._folder_task_ids(target_info)
+            raw_preview_ids = source_info.get("preview_document_ids", [])
+            source_preview_ids = [
+                value for value in raw_preview_ids if isinstance(value, str)
+            ][:MAX_PREVIEW_SELECTION] if isinstance(raw_preview_ids, list) else []
+            target_id = str(target_info.get("id", ""))
+            merged_task_ids = (set(target_task_folder_ids[1:]) | set(source_task_folder_ids)) - {target_id}
+            if len(merged_task_ids) > MAX_MERGED_FOLDER_TASK_IDS:
+                raise ValueError("Zu viele übernommene Aufgabenordner-IDs für eine Fusion")
+            target_info["merged_folder_ids"] = sorted(merged_task_ids)
+            target_preview_groups = target_info.get("merged_preview_selections", [])
+            inherited_preview_groups = source_info.get("merged_preview_selections", [])
+            if (
+                not isinstance(target_preview_groups, list)
+                or not isinstance(inherited_preview_groups, list)
+                or any(not isinstance(group, dict) for group in target_preview_groups)
+                or any(not isinstance(group, dict) for group in inherited_preview_groups)
+            ):
+                raise ValueError("Ungültige übernommene Vorschaubildauswahl")
+            merged_preview_groups = [*target_preview_groups, *inherited_preview_groups]
+            if source_preview_ids:
+                merged_preview_groups.append({
+                    "source": source,
+                    "source_folder_id": str(source_info.get("id", "")),
+                    "document_ids": source_preview_ids,
+                })
+            if len(merged_preview_groups) > MAX_MERGED_PREVIEW_GROUPS:
+                raise ValueError("Zu viele übernommene Vorschaubildgruppen für eine Fusion")
+            target_info["merged_preview_selections"] = merged_preview_groups
+            target_notes = target_info.get("merged_notes", [])
+            inherited_notes = source_info.get("merged_notes", [])
+            if (
+                not isinstance(target_notes, list)
+                or not isinstance(inherited_notes, list)
+                or any(not isinstance(note, dict) for note in target_notes)
+                or any(not isinstance(note, dict) for note in inherited_notes)
+            ):
+                raise ValueError("Ungültige übernommene Sammelordner-Notizen")
+            merged_notes = [*target_notes, *inherited_notes]
+            target_sources = target_info.get("merged_from", [])
+            inherited_sources = source_info.get("merged_from", [])
+            if (
+                not isinstance(target_sources, list)
+                or not isinstance(inherited_sources, list)
+                or any(not isinstance(path, str) for path in target_sources)
+                or any(not isinstance(path, str) for path in inherited_sources)
+            ):
+                raise ValueError("Ungültige übernommene Sammelordner-Herkunft")
             source_rules = source_info.get("rules", {})
             target_rules = target_info.setdefault("rules", {})
             if any(name in target_rules and target_rules[name] != expr for name, expr in source_rules.items()):
@@ -450,11 +535,17 @@ class SmartFolderViews:
             target_rules.update(source_rules)
             source_notes = source_info.get("notes", "")
             if source_notes:
-                target_info.setdefault("merged_notes", []).append({
+                merged_notes.append({
                     "source": source, "text": source_notes, "actor": actor,
                     "at": datetime.now(timezone.utc).isoformat(),
                 })
-            target_info.setdefault("merged_from", []).append(source)
+            if len(merged_notes) > MAX_MERGED_NOTES:
+                raise ValueError("Zu viele übernommene Sammelordner-Notizen für eine Fusion")
+            merged_sources = list(dict.fromkeys([*target_sources, *inherited_sources, source]))
+            if len(merged_sources) > MAX_MERGED_SOURCES:
+                raise ValueError("Zu viele Herkunftsordner für eine Fusion")
+            target_info["merged_notes"] = merged_notes
+            target_info["merged_from"] = merged_sources
             data["merged_into"][source] = target
             if source in data["folders"]:
                 data["folders"].pop(source)
@@ -474,9 +565,47 @@ class SmartFolderViews:
                 ).hexdigest(),
                 "rules": sorted(source_rules),
                 "notes_transferred": bool(source_notes),
+                "source_task_folder_ids": source_task_folder_ids,
+                "source_preview_document_ids": source_preview_ids,
             })
             self._save(data)
         return preview
 
     def assigned_to(self, document_id: str) -> list[str]:
         return list(self._load()["assignments"].get(document_id, []))
+
+    @staticmethod
+    def _folder_task_ids(info: dict) -> list[str]:
+        if not isinstance(info, dict):
+            raise ValueError("Ungültige Sammelordner-Metadaten für Aufgaben")
+        primary = info.get("id")
+        if primary is None:
+            return []
+        if not isinstance(primary, str) or not re.fullmatch(r"[0-9a-f]{32}", primary):
+            raise ValueError("Ungültige Sammelordner-ID")
+        merged_ids = info.get("merged_folder_ids", [])
+        if not isinstance(merged_ids, list) or len(merged_ids) > MAX_MERGED_FOLDER_TASK_IDS:
+            raise ValueError("Ungültige übernommene Aufgabenordner-IDs")
+        if any(
+            not isinstance(folder_id, str)
+            or not re.fullmatch(r"[0-9a-f]{32}", folder_id)
+            for folder_id in merged_ids
+        ):
+            raise ValueError("Ungültige übernommene Aufgabenordner-ID")
+        return list(dict.fromkeys([primary, *merged_ids]))
+
+    def task_folder_ids(self, folder: str, actor: str) -> list[str]:
+        self._verify_actor(actor)
+        folder = self.normalize(folder)
+        data = self._load()
+        canonical = self._canonical_path(folder, data["merged_into"])
+        info = data["folders"].get(canonical)
+        if info is None:
+            raise ValueError("Sammelordner muss vor dem Verknüpfen von Aufgaben aktiviert werden")
+        return self._folder_task_ids(info)
+
+    def folder_task_id(self, folder: str, actor: str) -> str:
+        ids = self.task_folder_ids(folder, actor)
+        if not ids:
+            raise ValueError("Sammelordner hat keine gültige Aufgaben-ID")
+        return ids[0]

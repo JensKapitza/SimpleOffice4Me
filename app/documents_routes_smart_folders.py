@@ -41,6 +41,19 @@ def _assignment_document(document_id: str) -> dict | None:
         abort(404)
 
 
+def _folder_tasks(views: SmartFolderViews, folder: str, actor: str) -> list[dict]:
+    try:
+        folder_ids = set(views.task_folder_ids(folder, actor))
+    except ValueError:
+        return []
+    if not folder_ids:
+        return []
+    return [
+        task for task in _todos().items(actor)
+        if task.get("smart_folder_id") in folder_ids
+    ]
+
+
 @bp.get("/smart-folders/view")
 @login_required
 def smart_folder_view():
@@ -61,12 +74,19 @@ def smart_folder_view():
         current_app.logger.warning("Smart folder extraction failed: %s", type(exc).__name__)
         rows = []
         flash("Die tabellarische Auswertung ist derzeit nicht verfügbar.")
+    try:
+        tasks = _folder_tasks(views, selected["path"], str(g.user["username"]))
+    except (OSError, RuntimeError, ValueError) as exc:
+        current_app.logger.warning("Smart folder tasks unavailable: %s", type(exc).__name__)
+        tasks = []
+        flash("Die Sammelordner-Aufgaben sind derzeit nicht verfügbar.")
     return render_template(
         "documents/smart_folders.html",
         folders=folders,
         selected=selected,
         rules=rules,
         rows=rows,
+        tasks=tasks,
         assignment_document=assignment_document,
     )
 
@@ -105,6 +125,28 @@ def set_smart_folder_previews():
     return redirect(url_for("documents.smart_folder_view", folder=folder))
 
 
+@bp.post("/smart-folders/task")
+@login_required
+def create_smart_folder_task():
+    folder = request.form.get("folder", "")
+    actor = str(g.user["username"])
+    try:
+        folder_id = _smart_views().folder_task_id(folder, actor)
+        _todos().add(
+            request.form.get("title", ""),
+            actor,
+            {"description": request.form.get("description", "")},
+            smart_folder_id=folder_id,
+        )
+        flash("Aufgabe mit dem Sammelordner verknüpft.")
+    except ValueError as exc:
+        flash(str(exc))
+    except (OSError, RuntimeError) as exc:
+        current_app.logger.warning("Smart folder task creation failed: %s", type(exc).__name__)
+        flash("Aufgabe konnte nicht gespeichert werden.")
+    return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
 @bp.get("/smart-folders/merge-preview")
 @login_required
 def smart_folder_merge_preview():
@@ -112,10 +154,27 @@ def smart_folder_merge_preview():
     target = request.args.get("target", "").strip()
     if not source or not target:
         return redirect(url_for("documents.smart_folders"))
+    views = _smart_views()
     try:
-        impact = _smart_views().merge_preview(source, target)
+        impact = views.merge_preview(source, target)
     except ValueError:
         abort(404)
+    actor = str(g.user["username"])
+    try:
+        source_tasks = _folder_tasks(views, source, actor)
+        target_tasks = _folder_tasks(views, target, actor)
+        impact["source_tasks"] = len(source_tasks)
+        impact["target_tasks"] = len(target_tasks)
+        impact["source_task_rows"] = source_tasks[:200]
+        impact["target_task_rows"] = target_tasks[:200]
+        impact["source_tasks_truncated"] = len(source_tasks) > 200
+        impact["target_tasks_truncated"] = len(target_tasks) > 200
+        impact["task_preview_available"] = True
+    except (OSError, RuntimeError, ValueError) as exc:
+        current_app.logger.warning("Smart folder task merge preview failed: %s", type(exc).__name__)
+        impact["source_tasks"] = None
+        impact["target_tasks"] = None
+        impact["task_preview_available"] = False
     return render_template("documents/smart_folder_merge_preview.html", impact=impact)
 
 
@@ -128,7 +187,11 @@ def merge_smart_folders():
         flash("Fusion nicht bestätigt.")
         return redirect(url_for("documents.smart_folders"))
     try:
-        _smart_views().merge_assignments(source, target, str(g.user["username"]))
+        views = _smart_views()
+        actor = str(g.user["username"])
+        _folder_tasks(views, source, actor)
+        _folder_tasks(views, target, actor)
+        views.merge_assignments(source, target, actor)
         flash("Logische Zuordnungen und Regeln übernommen. Originaldateien wurden nicht verschoben.")
         return redirect(url_for("documents.smart_folder_view", folder=target))
     except ValueError as exc:

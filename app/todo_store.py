@@ -89,25 +89,39 @@ class TodoStore:
         if not include_deleted: rows = [item for item in rows if not item.get("deleted")]
         return sorted(rows, key=lambda item: (item.get("done", False), item.get("due") or "9999", item.get("priority", 0) or 10, item.get("created_at", "")))
 
-    def add(self, title: str, actor: str, values: dict[str, Any] | None = None) -> dict[str, Any]:
+    def add(
+        self,
+        title: str,
+        actor: str,
+        values: dict[str, Any] | None = None,
+        *,
+        smart_folder_id: str = "",
+    ) -> dict[str, Any]:
         values = values or {}
         if not title.strip() or not actor.strip(): raise ValueError("to-do title and user are required")
+        if "smart_folder_id" in values:
+            raise ValueError("smart-folder task association requires an authorized folder action")
+        smart_folder_id = self._validated_smart_folder_id(smart_folder_id)
         list_id = str(values.get("list_id", "")).strip() or self.default_list_id(actor)
         now = utc_now(); item_id = str(uuid.uuid4())
         with exclusive_file_lock(self.lock):
             data = self._read(); self._ensure_default(data, actor); task_list = self._list(data, list_id, actor, "create")
             item = self._task(item_id, title, str(task_list.get("owner") or actor), {**values, "list_id": list_id}, created_at=now)
+            item["smart_folder_id"] = smart_folder_id
             item["created_by"] = actor; item["updated_by"] = actor
             data["items"].append(item); self._bump(data, actor, self.resource(item), False, list_id); self._write(data)
         self.history.record("todo_created", actor, "todo", item_id, item)
         return item
 
     def update(self, item_id: str, values: dict[str, Any], actor: str) -> dict[str, Any]:
+        if "smart_folder_id" in values:
+            raise ValueError("smart-folder task association cannot be changed through task updates")
         with exclusive_file_lock(self.lock):
             data = self._read(); item = self._owned(data, item_id, actor); self._list(data, item.get("list_id") or self.default_list_id(actor), actor, "edit")
             before = self._normalized(item, actor)
             merged = {**item, **values}; merged["sequence"] = int(item.get("sequence", 0)) + 1; merged["ical_dtstamp"] = self._ical_now(); merged["ical_last_modified"] = merged["ical_dtstamp"]
             updated = self._task(item_id, str(values.get("title", item.get("title", ""))), str(item.get("owner") or actor), merged, created_at=item.get("created_at", ""))
+            updated["smart_folder_id"] = self._validated_smart_folder_id(item.get("smart_folder_id", ""))
             updated.update({"created_by": item.get("created_by", actor), "caldav_resource": item.get("caldav_resource", ""), "uid": item.get("uid") or updated["uid"], "updated_at": utc_now(), "updated_by": actor})
             data["items"] = [updated if row.get("id") == item_id else row for row in data["items"]]
             self._bump(data, actor, self.resource(updated), False, updated["list_id"]); self._write(data)
@@ -204,6 +218,7 @@ class TodoStore:
                 merged,
                 created_at=item.get("created_at", ""),
             )
+            updated["smart_folder_id"] = self._validated_smart_folder_id(item.get("smart_folder_id", ""))
             updated.update({
                 "created_by": item.get("created_by", actor),
                 "caldav_resource": item.get("caldav_resource", ""),
@@ -352,7 +367,13 @@ class TodoStore:
                 for key, default in (("document_ids", []), ("source_document_id", ""), ("email_document_id", "")):
                     if not task_values.get(key):
                         task_values[key] = existing.get(key, default)
+                task_values["smart_folder_id"] = existing.get("smart_folder_id", "")
+            else:
+                task_values.pop("smart_folder_id", None)
             item = self._task(item_id, str(values.get("title", "")), owner, {**task_values, "list_id": list_id}, created_at=existing.get("created_at", "") if existing else utc_now())
+            item["smart_folder_id"] = self._validated_smart_folder_id(
+                existing.get("smart_folder_id", "") if existing else ""
+            )
             item.update({"created_by": existing.get("created_by", actor) if existing else actor, "caldav_resource": resource, "uid": uid, "updated_at": utc_now(), "updated_by": actor})
             data["items"] = [row for row in data["items"] if row.get("id") != item_id] + [item]
             self._bump(data, actor, resource, False, list_id); self._write(data)
@@ -414,6 +435,7 @@ class TodoStore:
     def _normalized(item: dict[str, Any], actor: str = "") -> dict[str, Any]:
         value = dict(item); value.setdefault("owner", actor); value.setdefault("list_id", TodoStore.default_list_id(str(value.get("owner") or actor))); value.setdefault("description", ""); value.setdefault("status", "completed" if value.get("done") else "needs-action"); value.setdefault("percent_complete", 100 if value.get("done") else 0); value.setdefault("priority", 0); value.setdefault("start", ""); value.setdefault("due", ""); value.setdefault("completed_at", ""); value.setdefault("categories", []); value.setdefault("uid", f'{value.get("id", "task")}@simpleoffice.local'); value.setdefault("caldav_resource", ""); value.setdefault("extra_lines", []); value.setdefault("deleted", False)
         for key, default in (("classification", ""), ("url", ""), ("organizer", ""), ("attendees", []), ("related_to", []), ("rrule", ""), ("rdates", []), ("exdates", []), ("sequence", 0), ("calendar_extra_lines", []), ("project_id", ""), ("project_phase", ""), ("activity", ""), ("contact_id", ""), ("document_ids", []), ("source_document_id", ""), ("email_document_id", ""), ("parent_uid", ""), ("assigned_to", []), ("predecessors", []), ("result", ""), ("estimated_minutes", 0), ("time_entries", []), ("comments", []), ("legacy_source", "")): value.setdefault(key, default)
+        value.setdefault("smart_folder_id", "")
         return value
 
     def _owned(self, data: dict[str, Any], item_id: str, actor: str) -> dict[str, Any]:
@@ -433,6 +455,13 @@ class TodoStore:
     def _integer(value: Any, minimum: int, maximum: int) -> int:
         try: return max(minimum, min(maximum, int(value or 0)))
         except (TypeError, ValueError): return minimum
+
+    @staticmethod
+    def _validated_smart_folder_id(value: Any) -> str:
+        folder_id = str(value or "").strip()
+        if folder_id and not re.fullmatch(r"[0-9a-f]{32}", folder_id):
+            raise ValueError("invalid smart folder identifier")
+        return folder_id
 
     @staticmethod
     def _ical_now() -> str:

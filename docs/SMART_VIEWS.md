@@ -24,10 +24,15 @@ die Herkunfts-Smart-View bleibt daher auch nach einem physischen Verschieben
 auffindbar. Unabhängige Importvorgänge bekommen getrennte IDs und werden nicht
 automatisch fusioniert.
 
+Aktivierte Sammelordner können Aufgaben über den bestehenden `TodoStore`
+erhalten. Aufgaben referenzieren die stabile Sammelordner-ID; bei einer
+logischen Fusion bleiben Quell-IDs als Aliase dem Ziel zugeordnet, sodass
+Aufgaben nicht umgeschrieben oder verloren werden.
+
 ## Explizite Fusion
 
 Vor einer Fusion zeigt die Vorschau Quell- und Zielpfad, Mitglieder, Notizen,
-Regeln und Regelkonflikte. Die Aktion verlangt die Eingabe
+Aufgabenzahlen, Regeln und Regelkonflikte. Die Aktion verlangt die Eingabe
 `ZUSAMMENFUEHREN`. Originaldateien werden dabei nicht verschoben. Zuordnungen,
 Notizen mit Herkunft und kompatible Regeln werden atomar gespeichert;
 konfligierende Regeln blockieren die Fusion. Der bisherige Quellpfad wird als

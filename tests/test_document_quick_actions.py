@@ -15,6 +15,7 @@ from app.document_store import DocumentStore
 from app.smart_folder_views import SmartFolderViews
 from app.contact_store import ContactStore
 from app.object_store import ObjectStore
+from app.todo_store import TodoStore
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
 
 
@@ -206,7 +207,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
         with self.client.session_transaction() as session:
             messages = [message for _category, message in session.get("_flashes", [])]
         self.assertTrue(any("simulated failure" in message for message in messages))
-        self.assertTrue(any("1 Datei(en) vollständig" in message for message in messages))
+        self.assertTrue(any("2 Datei(en) vollständig" in message for message in messages))
 
     def test_folder_upload_persists_nested_file_in_storageport(self):
         form = MultiDict([
@@ -256,6 +257,58 @@ class DocumentQuickActionsTest(unittest.TestCase):
         )
         self.assertEqual(200, view.status_code)
         self.assertIn("Dokument logisch zuordnen", view.get_data(as_text=True))
+
+    def test_smart_folder_task_route_links_task_to_activated_folder(self):
+        folder = self.root / "imports" / "batch" / "Telegram"
+        folder.mkdir(parents=True)
+        (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/batch/Telegram", "jens")
+        folder_id = views.folder_task_id("imports/batch/Telegram", "jens")
+
+        response = self.client.post(
+            "/documents/smart-folders/task",
+            data={
+                "folder": "imports/batch/Telegram",
+                "title": "Telegram-Belege prüfen",
+                "description": "Stichprobe kontrollieren",
+            },
+        )
+
+        self.assertEqual(302, response.status_code)
+        task = TodoStore(self.root).items("jens")[0]
+        self.assertEqual("Telegram-Belege prüfen", task["title"])
+        self.assertEqual(folder_id, task["smart_folder_id"])
+
+    def test_smart_folder_merge_preview_includes_source_task_impact(self):
+        for relative in ("imports/source/Telegram", "imports/target/Telegram"):
+            folder = self.root / relative
+            folder.mkdir(parents=True)
+            (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/source/Telegram", "jens")
+        views.activate("imports/target/Telegram", "jens")
+        source_id = views.folder_task_id("imports/source/Telegram", "jens")
+        TodoStore(self.root).add(
+            "Quellaufgabe", "jens", smart_folder_id=source_id,
+        )
+
+        response = self.client.get(
+            "/documents/smart-folders/merge-preview",
+            query_string={
+                "source": "imports/source/Telegram",
+                "target": "imports/target/Telegram",
+            },
+        )
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("1 Aufgaben aus der Quelle", body)
+        self.assertIn("Quellaufgabe", body)
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")
