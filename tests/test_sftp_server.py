@@ -164,6 +164,20 @@ class SftpVirtualFilesystemTest(unittest.TestCase):
         self.assertFalse(server.check_channel_exec_request(None, b"id"))
         self.assertFalse(server.check_port_forward_request("127.0.0.1", 80))
 
+    def test_password_authentication_can_be_disabled_without_blocking_keys(self):
+        from flask import Flask
+        app = Flask(__name__)
+        app.config["DOCUMENT_ROOT"] = str(self.root)
+        server = _AuthenticationServer(app)
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SFTP_PASSWORD_AUTH": "false"}), \
+                patch("app.webdav.authenticate_password") as authenticate:
+            self.assertEqual("publickey", server.get_allowed_auths("editor"))
+            self.assertEqual(
+                paramiko.AUTH_FAILED,
+                server.check_auth_password("editor", "app-password"),
+            )
+        authenticate.assert_not_called()
+
     def test_rsync_command_parser_accepts_protocol_but_rejects_shell(self):
         request = parse_rsync_command(b"rsync --server --sender -logDtpre.iLsfxCIvu . /shared/")
         self.assertTrue(request.sender)

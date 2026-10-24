@@ -25,10 +25,11 @@ MAX_MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULT_MAX_CLIENTS = 32
 MIN_MAX_CLIENTS = 1
 MAX_MAX_CLIENTS = 512
+_TRUE_VALUES = {"1", "true", "yes", "on"}
 DEFAULTS = {"mode": "integrated", "enabled": False, "autostart": False,
             "bind": "127.0.0.1", "port": 2222, "system_port": 22,
             "rsync_enabled": False, "max_bytes": DEFAULT_MAX_UPLOAD_BYTES,
-            "max_clients": DEFAULT_MAX_CLIENTS}
+            "max_clients": DEFAULT_MAX_CLIENTS, "password_auth_enabled": True}
 
 
 def settings_path():
@@ -44,15 +45,20 @@ def _legacy_environment_integer(name: str, default: int, minimum: int, maximum: 
     return max(minimum, min(value, maximum))
 
 
+def _legacy_password_auth_enabled() -> bool:
+    value = os.environ.get("SIMPLEOFFICE_SFTP_PASSWORD_AUTH", "true")
+    return value.strip().lower() in _TRUE_VALUES
+
+
 def validate(value):
     if not isinstance(value, dict):
         raise ValueError("SFTP-Einstellungen müssen ein Objekt sein.")
     result = {**DEFAULTS, **value}
     if not isinstance(result["mode"], str) or result["mode"] not in {"integrated", "system"}:
         raise ValueError("SFTP-Betriebsart prüfen.")
-    for key in ("enabled", "autostart", "rsync_enabled"):
+    for key in ("enabled", "autostart", "rsync_enabled", "password_auth_enabled"):
         if type(result[key]) is not bool:
-            raise ValueError("Aktivierung, Autostart und rsync-Freigabe müssen boolesch sein.")
+            raise ValueError("Aktivierung, Autostart sowie rsync- und Passwortauthentifizierung müssen boolesch sein.")
     result["bind"] = str(ipaddress.ip_address(str(result["bind"]).strip()))
     for key in ("port", "system_port"):
         if type(result[key]) not in (int, str):
@@ -80,6 +86,7 @@ def settings():
         return validate({**DEFAULTS, "bind": os.environ.get("SIMPLEOFFICE_SFTP_BIND", DEFAULTS["bind"]),
                          "port": os.environ.get("SIMPLEOFFICE_SFTP_PORT", DEFAULTS["port"]),
                          "rsync_enabled": legacy_rsync,
+                         "password_auth_enabled": _legacy_password_auth_enabled(),
                          "max_bytes": _legacy_environment_integer(
                              "SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULT_MAX_UPLOAD_BYTES,
                              MIN_MAX_UPLOAD_BYTES, MAX_MAX_UPLOAD_BYTES,
@@ -101,6 +108,8 @@ def settings():
             "SIMPLEOFFICE_SFTP_MAX_CLIENTS", DEFAULT_MAX_CLIENTS,
             MIN_MAX_CLIENTS, MAX_MAX_CLIENTS,
         )
+    if isinstance(value, dict) and "password_auth_enabled" not in value:
+        value["password_auth_enabled"] = _legacy_password_auth_enabled()
     return validate(value)
 
 
@@ -138,7 +147,10 @@ def status():
         message = "Systemdienst: Betriebssystem-Konten und dessen Dateirechte gelten."
         available = system["available"]
     else:
-        message = "Paramiko: SimpleOffice-App-Passwörter, SSH-Schlüssel und Ordnerrechte; keine Shell."
+        if config["password_auth_enabled"]:
+            message = "Paramiko: App-Passwörter und SSH-Schlüssel sowie SimpleOffice-Ordnerrechte; keine Shell."
+        else:
+            message = "Paramiko: nur registrierte SSH-Public-Keys und SimpleOffice-Ordnerrechte; Passwortzugriff deaktiviert, keine Shell."
         try:
             available = sftp_setup.dependency() is not None
         except RuntimeError:
@@ -218,6 +230,7 @@ def _start(config, document_root):
                        SIMPLEOFFICE_RSYNC_ENABLED="true" if config["rsync_enabled"] else "false",
                        SIMPLEOFFICE_SFTP_MAX_BYTES=str(config["max_bytes"]),
                        SIMPLEOFFICE_SFTP_MAX_CLIENTS=str(config["max_clients"]),
+                       SIMPLEOFFICE_SFTP_PASSWORD_AUTH="true" if config["password_auth_enabled"] else "false",
                        SIMPLEOFFICE_DOCUMENT_ROOT=str(document_root), SIMPLEOFFICE_SFTP_HOST_KEY=str(sftp_setup.key_path()))
     options = {"start_new_session": True} if os.name != "nt" else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     service_control.RUN_DIR.mkdir(parents=True, exist_ok=True)
