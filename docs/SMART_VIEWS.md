@@ -16,6 +16,12 @@ Ordner muss ausdrücklich aktiviert werden, bevor Notizen oder Regeln dauerhaft
 gespeichert bzw. Dokumente ihm logisch zugeordnet werden. Eine logische
 Zuordnung ändert den Originalpfad und die Dokument-ID nicht.
 
+Beim Web-Ordnerimport erhalten Dateien zusätzlich eine Herkunfts-ID für den
+Import und relativen Quellordner. Die ID bleibt als Dokumentmetadatum erhalten;
+die Herkunfts-Smart-View bleibt daher auch nach einem physischen Verschieben
+auffindbar. Unabhängige Importvorgänge bekommen getrennte IDs und werden nicht
+automatisch fusioniert.
+
 ## Explizite Fusion
 
 Vor einer Fusion zeigt die Vorschau Quell- und Zielpfad, Mitglieder, Notizen,

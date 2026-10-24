@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 import re
 import unicodedata
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
 from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
@@ -91,6 +91,30 @@ class SmartFolderViews:
             folder = str(merged_into[folder])
         return folder
 
+    def _import_origin(self, document: dict) -> tuple[str, str, str] | None:
+        attributes = document.get("attributes")
+        origin = attributes.get("folder_import_origin") if isinstance(attributes, dict) else None
+        if not isinstance(origin, dict):
+            return None
+        import_id = str(origin.get("import_id", ""))
+        source_path = origin.get("source_path")
+        folder_id = str(origin.get("folder_id", ""))
+        if not re.fullmatch(r"[0-9a-f]{32}", import_id) or not isinstance(source_path, str):
+            return None
+        try:
+            source_path = self.normalize(source_path)
+        except ValueError:
+            return None
+        expected_id = uuid5(UUID(hex=import_id), source_path).hex
+        if folder_id != expected_id:
+            return None
+        return f"imports/{import_id}/{source_path}", folder_id, source_path
+
+    def import_origin_view_path(self, document: dict) -> str:
+        """Return the validated persistent Smart View path for an import origin."""
+        origin = self._import_origin(document)
+        return origin[0] if origin else ""
+
     @staticmethod
     def _normalized_folder_name(folder: str) -> str:
         return unicodedata.normalize("NFC", Path(folder).name.strip()).casefold()
@@ -105,9 +129,20 @@ class SmartFolderViews:
                 continue
             parent = Path(path).parent.as_posix()
             if parent == ".":
-                continue
-            canonical = self._canonical_path(parent, merged_into)
-            folders.setdefault(canonical, {"path": canonical, "members": []})["members"].append(doc)
+                parents = set()
+            else:
+                parents = {parent}
+            origin = self._import_origin(doc)
+            if origin:
+                parents.add(origin[0])
+            for source_parent in parents:
+                canonical = self._canonical_path(source_parent, merged_into)
+                item = folders.setdefault(canonical, {"path": canonical, "members": []})
+                if all(member["document_id"] != doc["document_id"] for member in item["members"]):
+                    item["members"].append(doc)
+                if origin and source_parent == origin[0]:
+                    item.setdefault("source_folder_ids", []).append(origin[1])
+                    item.setdefault("source_folder_paths", []).append(origin[2])
         for path, info in data["folders"].items():
             canonical = self._canonical_path(path, merged_into)
             folders.setdefault(canonical, {"path": canonical, "members": []})["active"] = True
@@ -122,6 +157,10 @@ class SmartFolderViews:
                 members = folders.setdefault(canonical, {"path": canonical, "members": []})["members"]
                 if all(member["document_id"] != document_id for member in members):
                     members.append(doc)
+        for item in folders.values():
+            if "source_folder_ids" in item:
+                item["source_folder_ids"] = sorted(set(item["source_folder_ids"]))
+                item["source_folder_paths"] = sorted(set(item["source_folder_paths"]))
         return sorted(
             (dict(item, count=len(item["members"]), active=item.get("active", False)) for item in folders.values()),
             key=lambda item: item["path"].casefold(),

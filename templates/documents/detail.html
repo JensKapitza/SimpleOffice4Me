@@ -15,6 +15,7 @@
 <h1 class="h3 mb-1 text-break">{{ document.last_path }}</h1>
 <p class="text-secondary mb-0">ID: <code>{{ document.document_id }}</code>
 </p>
+{% if import_origin_path %}<p class="small mb-0"><a href="{{ url_for('documents.smart_folder_view', folder=import_origin_path) }}">Ursprungsordner: {{ import_origin_path.rsplit('/', 1)[-1] }}</a></p>{% endif %}
 </div>
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
 <a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">Beleg buchen</a>

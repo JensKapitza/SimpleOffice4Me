@@ -2,6 +2,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import UUID, uuid5
 
 from app.document_store import DocumentStore
 from app.documents_routes_smart_folders import _spreadsheet_safe_cell
@@ -64,6 +65,39 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual(2, views.view("clients")["count"])
             self.assertTrue(source.exists())
             self.assertEqual("scans/beleg.txt", store.get_document(document_id)["last_path"])
+
+    def test_import_origin_view_survives_a_physical_move(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            import_id = "a" * 32
+            source_path = "selected-root/Telegram"
+            original = root / "imports" / import_id / source_path / "photo.jpg"
+            original.parent.mkdir(parents=True)
+            original.write_bytes(b"photo")
+            store = DocumentStore(root)
+            store.scan()
+            document = store.get_document(original)
+            folder_id = uuid5(UUID(hex=import_id), source_path).hex
+            store.update_metadata(
+                document["document_id"],
+                attributes={
+                    "folder_import_origin": {
+                        "import_id": import_id,
+                        "folder_id": folder_id,
+                        "source_path": source_path,
+                        "source_name": "Telegram",
+                    },
+                },
+                author="admin",
+            )
+
+            store.move_document(document["document_id"], "archive", "admin")
+            views = SmartFolderViews(store, "admin")
+            source_view = views.view(f"imports/{import_id}/{source_path}")
+
+            self.assertEqual(1, source_view["count"])
+            self.assertEqual([folder_id], source_view["source_folder_ids"])
+            self.assertEqual([source_path], source_view["source_folder_paths"])
 
     def test_safe_structured_extraction_and_csv_rules(self):
         with tempfile.TemporaryDirectory() as temp:

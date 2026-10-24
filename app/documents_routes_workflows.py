@@ -1,5 +1,7 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
+from pathlib import PurePosixPath
+from uuid import UUID, uuid4, uuid5
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_views import SmartFolderViews
 from .contact_company_data import company_data_metadata_from_form, company_search_items
@@ -32,9 +34,10 @@ def upload():
         flash(error)
         return redirect(url_for("documents.index"))
     import_root = ""
+    import_id = ""
     if folder_import:
-        from uuid import uuid4
-        import_root = "imports/" + uuid4().hex
+        import_id = uuid4().hex
+        import_root = "imports/" + import_id
     stored = 0
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
@@ -82,6 +85,33 @@ def upload():
                 if defaults["default_state"] != "new":
                     _store().set_state(metadata["document_id"], defaults["default_state"], actor)
             document_id = result.value.object_id.value
+            if folder_import:
+                relative_source = PurePosixPath(
+                    relative_paths[item_index].replace(chr(92), "/")
+                ).parent
+                if relative_source.as_posix() != ".":
+                    source_path = relative_source.as_posix()
+                    source_origin = {
+                        "import_id": import_id,
+                        "folder_id": uuid5(UUID(hex=import_id), source_path).hex,
+                        "source_path": source_path,
+                        "source_name": relative_source.name,
+                    }
+                    try:
+                        _store().update_metadata(
+                            document_id,
+                            attributes={"folder_import_origin": source_origin},
+                            author=actor,
+                        )
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        current_app.logger.warning(
+                            "Folder import provenance could not be stored for document %s (%s)",
+                            document_id,
+                            type(exc).__name__,
+                        )
+                        flash(
+                            f"{upload_name}: Datei gespeichert, Herkunftsordner konnte nicht protokolliert werden."
+                        )
             imported_metadata = _store().get_document(document_id)
             complete_web_inbox_upload(
                 current_app.config["DOCUMENT_ROOT"],
@@ -128,6 +158,7 @@ def detail(document_id: str):
         document=document,
         smart_folders=smart_views.activated_folders(),
         document_smart_folders=smart_views.assigned_to(document_id),
+        import_origin_path=smart_views.import_origin_view_path(document),
         versions=store.versions(document_id),
         content_recovery_versions=store.content_recovery_versions(document_id),
         relationships=relationships,

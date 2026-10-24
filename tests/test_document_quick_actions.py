@@ -12,6 +12,7 @@ from app import app
 from app.attachment_security import ScanResult
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
+from app.smart_folder_views import SmartFolderViews
 from app.contact_store import ContactStore
 from app.object_store import ObjectStore
 from app.v2.contracts import ErrorCode, LogicalObjectId, OperationResult, StorageLocation, StoredObject
@@ -134,6 +135,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
         imported = []
         failed = []
         completed = []
+        provenance = []
 
         class FakeStorage:
             def import_stream_at(self, location, stream, *, max_bytes):
@@ -153,6 +155,10 @@ class DocumentQuickActionsTest(unittest.TestCase):
             def get_document(document_id):
                 return {"document_id": document_id}
 
+            @staticmethod
+            def update_metadata(document_id, *, attributes, author):
+                provenance.append((document_id, attributes, author))
+
         class FakeSettings:
             @staticmethod
             def settings():
@@ -167,10 +173,12 @@ class DocumentQuickActionsTest(unittest.TestCase):
         form = MultiDict([
             ("folder_import", "1"),
             ("relative_paths", json.dumps([
-                "selected-root/level-one/good.txt",
-                "second-root/level-one/rejected.txt",
+                "source-a/Telegram/good.txt",
+                "source-a/Telegram/other.txt",
+                "source-b/Telegram/rejected.txt",
             ])),
             ("files", (io.BytesIO(b"keep me"), "good.txt")),
+            ("files", (io.BytesIO(b"same folder"), "other.txt")),
             ("files", (io.BytesIO(b"reject me"), "rejected.txt")),
         ])
         with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), \
@@ -183,11 +191,18 @@ class DocumentQuickActionsTest(unittest.TestCase):
 
         self.assertEqual(302, response.status_code)
         self.assertTrue(imported[0][0].startswith("imports/"))
-        self.assertTrue(imported[0][0].endswith("/selected-root/level-one/good.txt"))
+        self.assertTrue(imported[0][0].endswith("/source-a/Telegram/good.txt"))
         self.assertEqual(b"keep me", imported[0][1])
-        self.assertEqual(2, len(imported))
-        self.assertEqual(1, len(completed))
+        self.assertEqual(3, len(imported))
+        self.assertEqual(2, len(completed))
         self.assertEqual(1, len(failed))
+        self.assertEqual(2, len(provenance))
+        first_origin = provenance[0][1]["folder_import_origin"]
+        second_origin = provenance[1][1]["folder_import_origin"]
+        self.assertEqual("source-a/Telegram", first_origin["source_path"])
+        self.assertEqual(first_origin["import_id"], second_origin["import_id"])
+        self.assertEqual(first_origin["folder_id"], second_origin["folder_id"])
+        self.assertEqual("jens", provenance[0][2])
         with self.client.session_transaction() as session:
             messages = [message for _category, message in session.get("_flashes", [])]
         self.assertTrue(any("simulated failure" in message for message in messages))
@@ -219,6 +234,14 @@ class DocumentQuickActionsTest(unittest.TestCase):
         )
         self.assertTrue(document["last_path"].endswith("/selected-root/nested/actual.txt"))
         self.assertEqual(b"persisted folder content", (self.root / document["last_path"]).read_bytes())
+        origin = document["attributes"]["folder_import_origin"]
+        self.assertEqual("selected-root/nested", origin["source_path"])
+        origin_view = f"imports/{origin['import_id']}/{origin['source_path']}"
+        self.assertEqual(1, SmartFolderViews(DocumentStore(self.root), "jens").view(origin_view)["count"])
+        detail = self.client.get(f"/documents/{document['document_id']}")
+        self.assertEqual(200, detail.status_code)
+        self.assertIn("Ursprungsordner: nested", detail.get_data(as_text=True))
+        self.assertIn("smart-folders/view", detail.get_data(as_text=True))
 
     def test_document_move_route_uses_v2_storage_boundary_and_preserves_identity(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"move me"), "move-me.txt", "jens")

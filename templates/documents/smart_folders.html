@@ -12,6 +12,7 @@
         <a class="list-group-item list-group-item-action" href="{{ url_for('documents.smart_folder_view', folder=folder.path) }}">
           {{ folder.path }} <span class="badge text-bg-secondary">{{ folder.count }}</span>
           {% if folder.active %}<span class="badge text-bg-primary">Aktiv</span>{% endif %}
+          {% if folder.source_folder_paths %}<small class="d-block text-secondary">Quelle: {{ folder.source_folder_paths|join(', ') }}</small>{% endif %}
         </a>
         {% else %}<p>Keine Ordner mit Dokumenten vorhanden.</p>{% endfor %}
       </div>
@@ -20,6 +21,7 @@
       {% if selected %}
       <h2 class="h4">{{ selected.path }}</h2>
       <p>{{ selected.count }} Dokument(e)</p>
+      {% if selected.source_folder_paths %}<p class="small text-secondary">Quellordner: {{ selected.source_folder_paths|join(', ') }}</p>{% endif %}
       {% if selected.same_name %}
       <div class="alert alert-info" role="status" aria-live="polite">Weitere Ordner mit gleichem Namen:
         {% for other in selected.same_name %}
