@@ -367,6 +367,7 @@ class _DocumentStorePart1:
         salt = os.urandom(16)
         if self._share_context_changed(share):
             raise ValueError("Freigabe wurde durch Dokumentverschiebung widerrufen; bitte neu freigeben")
+        # An expired share may be renewed only if it was not invalidated by a move.
         share.update({"password_salt": salt.hex(), "password_hash": hashlib.scrypt(password.encode("utf-8"), salt=salt, n=2**14, r=8, p=1).hex(), "expires_at": datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() + expires_days * 86400, timezone.utc).isoformat(), "reactivated_at": utc_now(), "reactivated_by": actor})
         atomic_json_write(self.shares_path, payload)
         self._event("share_reactivated", {"share_id": share_id, "document_id": document_id, "actor": actor})
