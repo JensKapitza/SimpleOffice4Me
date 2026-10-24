@@ -98,4 +98,3 @@ Standardwerte zurücksetzen. Importformate bleiben auf CSV, CAMT.052/CAMT.053 un
 beschränkt.
 Login und Bankfreigabe bleiben bei Santander, Cookies und Bankzugangsdaten werden nicht
 dauerhaft gespeichert. Der Download wird vor Vorschau und bestätigtem Import geprüft.
-
