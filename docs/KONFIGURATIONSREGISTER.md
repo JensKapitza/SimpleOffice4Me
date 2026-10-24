@@ -262,7 +262,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SFTP_HOST_KEY` | [documents_core.py](../app/documents_core.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
 | `SIMPLEOFFICE_SFTP_MAX_BYTES` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_SFTP_MAX_CLIENTS` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
-| `SIMPLEOFFICE_SFTP_PASSWORD_AUTH` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_SFTP_PASSWORD_AUTH` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_SFTP_PORT` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_SIP_BIND` | [simpleoffice_sip_runtime.py](../simpleoffice_sip_runtime.py) | [MINI_SERVICES_REVIEW](MINI_SERVICES_REVIEW.md) |
 | `SIMPLEOFFICE_SKIP_INVOICE_VALIDATOR_BOOTSTRAP` | [install_invoice_validator.py](../tools/install_invoice_validator.py) | Quelle und Ergänzungen oben |

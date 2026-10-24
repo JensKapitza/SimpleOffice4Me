@@ -465,6 +465,55 @@ def export_smart_folder():
     return response
 
 
+@bp.post("/smart-folders/unassign-many")
+@login_required
+def unassign_many_smart_folder():
+    folder = request.form.get("folder", "")
+    if request.form.get("confirm") != "ENTFERNEN":
+        flash("Entfernen nicht bestätigt.")
+        return redirect(url_for("documents.smart_folders"))
+    try:
+        count = _smart_views().unassign_many(request.form.getlist("document_ids"), folder)
+        flash(f"{count} explizite Zuordnung(en) entfernt. Originaldateien bleiben unverändert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except (OSError, RuntimeError) as exc:
+        current_app.logger.warning("Smart folder bulk unassignment failed: %s", type(exc).__name__)
+        flash("Mehrfachentfernung fehlgeschlagen.")
+    return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
+@bp.post("/smart-folders/assign-many")
+@login_required
+def assign_many_smart_folder():
+    source = request.form.get("source", "")
+    target = request.form.get("target", "")
+    try:
+        count = _smart_views().assign_many(request.form.getlist("document_ids"), source, target)
+        flash(f"{count} Dokument(e) logisch zugeordnet. Originaldateien bleiben unverändert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except (OSError, RuntimeError) as exc:
+        current_app.logger.warning("Smart folder bulk assignment failed: %s", type(exc).__name__)
+        flash("Mehrfachzuordnung fehlgeschlagen.")
+    return redirect(url_for("documents.smart_folder_view", folder=source))
+
+
+@bp.post("/<document_id>/smart-folder/remove")
+@login_required
+def remove_smart_folder_assignment(document_id: str):
+    folder = request.form.get("folder", "")
+    try:
+        removed = _smart_views().unassign(document_id, folder)
+        flash("Logische Zuordnung entfernt." if removed else "Keine explizite Zuordnung vorhanden.")
+    except ValueError as exc:
+        flash(str(exc))
+    except (OSError, RuntimeError) as exc:
+        current_app.logger.warning("Smart folder unassignment failed: %s", type(exc).__name__)
+        flash("Zuordnung konnte nicht entfernt werden.")
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
 @bp.post("/<document_id>/smart-folder")
 @login_required
 def assign_smart_folder(document_id: str):

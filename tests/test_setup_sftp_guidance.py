@@ -52,3 +52,16 @@ class SetupSftpGuidanceTest(unittest.TestCase):
         self.assertIn('WebDAV-Passwort gilt zugleich', credentials)
         self.assertIn('sshfs -p 2222 jens@office.example:/', exported)
         self.assertIn('erlaubt keine Shell', exported)
+
+    def test_disabled_password_auth_is_explained_in_setup_and_export(self):
+        status = self._status('integrated')
+        status['settings']['password_auth_enabled'] = False
+        with patch('app.sftp_service.safe_status', return_value=status):
+            page = self.client.get('/documents/setup', base_url=self.base_url).get_data(as_text=True)
+            credentials = self.client.post('/documents/setup/access', base_url=self.base_url).get_data(as_text=True)
+            exported = self.client.get('/documents/setup/export.txt', base_url=self.base_url).get_data(as_text=True)
+        self.assertIn('SFTP-Passwortauthentifizierung ist deaktiviert', page)
+        self.assertIn('registrierte SSH-Public-Keys erforderlich', page)
+        self.assertIn('SSH-Public-Key erforderlich', exported)
+        self.assertIn('WebDAV-App-Passwort funktioniert hierfür nicht', page)
+        self.assertIn('SFTP-Passwortauthentifizierung ist deaktiviert', credentials)

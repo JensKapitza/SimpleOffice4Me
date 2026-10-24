@@ -52,13 +52,17 @@ class SmartFolderViews:
 
     @staticmethod
     def normalize(folder: str) -> str:
-        value = folder.strip().replace(chr(92), "/")
-        parts = Path(value).parts
-        if not value or value.startswith("/") or any(part in ("", ".", "..") for part in parts):
+        if not isinstance(folder, str) or not folder or len(folder) > 1024:
+            raise ValueError("Ungültiger Ordner")
+        value = folder.replace(chr(92), "/")
+        if value != value.strip() or value.startswith("/") or "//" in value:
+            raise ValueError("Ungültiger Ordner")
+        parts = value.split("/")
+        if any(part in ("", ".", "..") or ":" in part or any(ord(char) < 32 or ord(char) == 127 for char in part) for part in parts):
             raise ValueError("Ungültiger Ordner")
         if any(part.startswith(".") for part in parts):
             raise ValueError("Systemordner sind nicht erlaubt")
-        return Path(*parts).as_posix()
+        return "/".join(parts)
 
     def _load(self) -> dict:
         if not self.path.exists():
@@ -228,6 +232,15 @@ class SmartFolderViews:
                         "source": str(group.get("source", "")),
                         "members": members,
                     })
+        data = self._load()
+        canonical = self._canonical_path(folder, data["merged_into"])
+        item["explicit_members"] = [
+            doc for doc in item["members"]
+            if any(
+                self._canonical_path(path, data["merged_into"]) == canonical
+                for path in data["assignments"].get(str(doc["document_id"]), [])
+            )
+        ]
         item["preview_candidates"] = item["members"][:MAX_PREVIEW_CANDIDATES]
         item["preview_candidates_truncated"] = len(item["members"]) > MAX_PREVIEW_CANDIDATES
         return item
@@ -258,6 +271,104 @@ class SmartFolderViews:
             if folder not in paths:
                 paths.append(folder)
             self._save(data)
+
+    def assign_many(self, document_ids: list[str], source: str, target: str) -> int:
+        """Atomically add selected source members to an existing logical target."""
+        source, target = self.normalize(source), self.normalize(target)
+        if source == target:
+            raise ValueError("Quelle und Ziel müssen verschieden sein")
+        if not isinstance(document_ids, list) or not 1 <= len(document_ids) <= 100:
+            raise ValueError("Wähle zwischen 1 und 100 Dokumenten")
+        if any(not isinstance(item, str) or not item for item in document_ids):
+            raise ValueError("Ungültige Dokumentauswahl")
+        if len(set(document_ids)) != len(document_ids):
+            raise ValueError("Doppelte Dokumentauswahl")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.path.with_suffix(".lock")):
+            data = self._load()
+            if self._canonical_path(source, data["merged_into"]) != source or self._canonical_path(target, data["merged_into"]) != target:
+                raise ValueError("Ordner wurde inzwischen fusioniert")
+            folders = self.folders()
+            source_view = self.view(source, folders)
+            self.view(target, folders)
+            available = {str(doc["document_id"]) for doc in source_view["members"]}
+            if not set(document_ids).issubset(available):
+                raise ValueError("Dokumentauswahl hat sich geändert")
+            pending = {}
+            for document_id in document_ids:
+                paths = data["assignments"].get(document_id, [])
+                if not isinstance(paths, list) or any(not isinstance(path, str) for path in paths):
+                    raise ValueError("Ungültige Dokumentzuordnungen")
+                pending[document_id] = paths if target in paths else [*paths, target]
+            for document_id, paths in pending.items():
+                data["assignments"][document_id] = paths
+            self._save(data)
+        return len(document_ids)
+
+    def unassign_many(self, document_ids: list[str], folder: str) -> int:
+        """Remove explicit logical assignments in one atomic metadata update."""
+        folder = self.normalize(folder)
+        if not isinstance(document_ids, list) or not 1 <= len(document_ids) <= 100:
+            raise ValueError("Wähle zwischen 1 und 100 Dokumenten")
+        if any(not isinstance(item, str) or not item for item in document_ids):
+            raise ValueError("Ungültige Dokumentauswahl")
+        if len(set(document_ids)) != len(document_ids):
+            raise ValueError("Doppelte Dokumentauswahl")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.path.with_suffix(".lock")):
+            data = self._load()
+            canonical = self._canonical_path(folder, data["merged_into"])
+            current = self.view(canonical)
+            available = {str(doc["document_id"]) for doc in current["members"]}
+            if not set(document_ids).issubset(available):
+                raise ValueError("Dokumentauswahl hat sich geändert")
+            explicit = {str(doc["document_id"]) for doc in current["explicit_members"]}
+            if not set(document_ids).issubset(explicit):
+                raise ValueError("Nur ausdrücklich zugeordnete Dokumente können entfernt werden")
+            removed = 0
+            updated = {}
+            for document_id in document_ids:
+                paths = data["assignments"].get(document_id, [])
+                if not isinstance(paths, list):
+                    raise ValueError("Ungültige Dokumentzuordnungen")
+                remaining = [
+                    item for item in paths
+                    if self._canonical_path(item, data["merged_into"]) != canonical
+                ]
+                updated[document_id] = remaining
+                removed += len(paths) - len(remaining)
+            for document_id, remaining in updated.items():
+                if remaining:
+                    data["assignments"][document_id] = remaining
+                else:
+                    data["assignments"].pop(document_id, None)
+            if removed:
+                self._save(data)
+            return removed
+
+    def unassign(self, document_id: str, folder: str) -> bool:
+        """Remove only an explicit logical membership, never the physical origin."""
+        folder = self.normalize(folder)
+        self.store.get_document(document_id)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with exclusive_file_lock(self.path.with_suffix(".lock")):
+            data = self._load()
+            canonical = self._canonical_path(folder, data["merged_into"])
+            assignments = data["assignments"].get(document_id, [])
+            if not isinstance(assignments, list):
+                raise ValueError("Ungültige Dokumentzuordnungen")
+            remaining = [
+                item for item in assignments
+                if self._canonical_path(item, data["merged_into"]) != canonical
+            ]
+            if len(remaining) == len(assignments):
+                return False
+            if remaining:
+                data["assignments"][document_id] = remaining
+            else:
+                data["assignments"].pop(document_id, None)
+            self._save(data)
+            return True
 
     def set_preview_documents(
         self,

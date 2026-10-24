@@ -161,7 +161,14 @@
 <div class="mb-3">
 <a href="{{ url_for('documents.smart_folders') }}">Smart Views / Sammelordner durchsuchen</a>
 {% if document_smart_folders %}<p class="small mb-1">Zugeordnet:
-{% for folder in document_smart_folders %}<a href="{{ url_for('documents.smart_folder_view', folder=folder) }}">{{ folder }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
+{% for folder in document_smart_folders %}
+<span class="d-inline-flex align-items-center gap-1 me-2">
+<a href="{{ url_for('documents.smart_folder_view', folder=folder) }}">{{ folder }}</a>
+<form method="post" action="{{ url_for('documents.remove_smart_folder_assignment', document_id=document.document_id) }}" class="d-inline">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<input type="hidden" name="folder" value="{{ folder }}">
+<button type="submit" class="btn btn-sm btn-outline-secondary" aria-label="Zuordnung zu {{ folder }} entfernen">Entfernen</button>
+</form></span>{% endfor %}</p>{% endif %}
 <a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('documents.smart_folders', assign_document_id=document.document_id) }}">Ordner / Smart View logisch zuordnen (ohne Verschieben)</a>
 <a class="btn btn-sm btn-outline-secondary mt-2" href="{{ url_for('documents.smart_folders', move_document_id=document.document_id) }}">Physisches Verschiebeziel auswählen</a>
 </div>
