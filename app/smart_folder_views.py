@@ -5,14 +5,14 @@ import json
 from pathlib import Path
 from uuid import uuid4
 
-from .document_store_core import atomic_json_write
+from .document_store_core import CONTROL_DIR, atomic_json_write
 from .file_lock import exclusive_file_lock
 
 
 class SmartFolderViews:
     def __init__(self, store):
         self.store = store
-        self.path = Path(store.root) / ".document-control" / "smart_folders.json"
+        self.path = Path(store.root) / CONTROL_DIR / "smart_folders.json"
 
     @staticmethod
     def normalize(folder: str) -> str:
