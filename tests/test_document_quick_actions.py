@@ -244,6 +244,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(200, detail.status_code)
         self.assertIn("Ursprungsordner: nested", detail.get_data(as_text=True))
         self.assertIn("assign_document_id", detail.get_data(as_text=True))
+        self.assertIn("move_document_id", detail.get_data(as_text=True))
         picker = self.client.get(
             "/documents/smart-folders",
             query_string={"assign_document_id": document["document_id"]},
@@ -258,6 +259,33 @@ class DocumentQuickActionsTest(unittest.TestCase):
         )
         self.assertEqual(200, view.status_code)
         self.assertIn("Dokument logisch zuordnen", view.get_data(as_text=True))
+
+        archive = self.root / "archive"
+        archive.mkdir()
+        (archive / "existing.txt").write_text("existing", encoding="utf-8")
+        DocumentStore(self.root).scan()
+        move_picker = self.client.get(
+            "/documents/smart-folders/view",
+            query_string={
+                "folder": "archive",
+                "move_document_id": document["document_id"],
+            },
+        )
+        self.assertEqual(200, move_picker.status_code)
+        self.assertIn("Physischer Zielpfad: archive/actual.txt", move_picker.get_data(as_text=True))
+
+        moved = self.client.post(
+            f"/documents/{document['document_id']}/move",
+            data={"destination_folder": "archive"},
+            follow_redirects=True,
+        )
+        self.assertEqual(200, moved.status_code)
+        moved_document = DocumentStore(self.root).get_document(document["document_id"])
+        self.assertEqual("archive/actual.txt", moved_document["last_path"])
+        self.assertEqual(
+            1,
+            SmartFolderViews(DocumentStore(self.root), "jens").view(origin_view)["count"],
+        )
 
     def test_smart_folder_task_route_links_task_to_activated_folder(self):
         folder = self.root / "imports" / "batch" / "Telegram"

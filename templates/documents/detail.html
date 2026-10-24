@@ -129,6 +129,7 @@
 {% if document_smart_folders %}<p class="small mb-1">Zugeordnet:
 {% for folder in document_smart_folders %}<a href="{{ url_for('documents.smart_folder_view', folder=folder) }}">{{ folder }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
 <a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('documents.smart_folders', assign_document_id=document.document_id) }}">Ordner / Smart View logisch zuordnen (ohne Verschieben)</a>
+<a class="btn btn-sm btn-outline-secondary mt-2" href="{{ url_for('documents.smart_folders', move_document_id=document.document_id) }}">Physisches Verschiebeziel auswählen</a>
 </div>
 <label class="form-label">In Ordner verschieben</label>
 <form method="post" action="{{ url_for('documents.move_document', document_id=document.document_id) }}" class="input-group">

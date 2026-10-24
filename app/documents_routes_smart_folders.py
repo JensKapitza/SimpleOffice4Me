@@ -18,7 +18,7 @@ from .smart_folder_batch_jobs import (
     MAX_BATCH_TOTAL_BYTES,
 )
 from .smart_folder_views import SmartFolderViews
-from .safe_paths import resolve_file_under
+from .safe_paths import resolve_file_under, resolve_under
 from .v3_capabilities import enabled
 from .v3_jobs import JobStore
 
@@ -38,11 +38,15 @@ def _spreadsheet_safe_cell(value: object) -> str:
 def smart_folders():
     views = _smart_views()
     assignment_document = _assignment_document(request.args.get("assign_document_id", ""))
+    move_document = _assignment_document(request.args.get("move_document_id", ""))
+    if assignment_document and move_document:
+        abort(400)
     return render_template(
         "documents/smart_folders.html",
         folders=views.folders(),
         selected=None,
         assignment_document=assignment_document,
+        move_document=move_document,
     )
 
 
@@ -77,6 +81,9 @@ def smart_folder_view():
         return redirect(url_for("documents.smart_folders"))
     views = _smart_views()
     assignment_document = _assignment_document(request.args.get("assign_document_id", ""))
+    move_document = _assignment_document(request.args.get("move_document_id", ""))
+    if assignment_document and move_document:
+        abort(400)
     try:
         folders = views.folders()
         selected = views.view(folder, folders)
@@ -95,6 +102,20 @@ def smart_folder_view():
         current_app.logger.warning("Smart folder tasks unavailable: %s", type(exc).__name__)
         tasks = []
         flash("Die Sammelordner-Aufgaben sind derzeit nicht verfügbar.")
+    move_collision = False
+    move_already_in_folder = False
+    if move_document:
+        source_name = Path(str(move_document.get("last_path", ""))).name
+        move_already_in_folder = (
+            Path(str(move_document.get("last_path", ""))).parent.as_posix()
+            == selected["path"]
+        )
+        target_path = resolve_under(
+            Path(current_app.config["DOCUMENT_ROOT"]),
+            f"{selected['path']}/{Path(str(move_document.get('last_path', ''))).name}",
+            strict=False,
+        )
+        move_collision = target_path.exists() and not move_already_in_folder
     return render_template(
         "documents/smart_folders.html",
         folders=folders,
@@ -103,6 +124,9 @@ def smart_folder_view():
         rows=rows,
         tasks=tasks,
         assignment_document=assignment_document,
+        move_document=move_document,
+        move_collision=move_collision,
+        move_already_in_folder=move_already_in_folder,
         batch_jobs_enabled=enabled("v3.jobs"),
         batch_request_id=uuid4().hex,
     )

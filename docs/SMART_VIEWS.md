@@ -16,7 +16,9 @@ Ordner muss ausdrücklich aktiviert werden, bevor eigene Notizen oder Regeln
 dauerhaft gespeichert werden. Dokumente lassen sich auch einer bereits
 entdeckten, noch nicht aktivierten Ansicht logisch zuordnen. Eine logische
 Zuordnung ändert den Originalpfad und die Dokument-ID nicht; physisches
-Verschieben bleibt eine getrennte Aktion.
+Verschieben bleibt eine getrennte Aktion. Die Ordnerauswahl aus der
+Dokumentdetailseite zeigt beim physischen Verschieben den vollständigen
+Zielpfad und blockiert bereits belegte Dateinamen.
 
 Beim Web-Ordnerimport erhalten Dateien zusätzlich eine Herkunfts-ID für den
 Import und relativen Quellordner. Die ID bleibt als Dokumentmetadatum erhalten;
