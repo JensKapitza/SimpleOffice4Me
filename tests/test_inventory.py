@@ -272,6 +272,11 @@ class InventoryBookTests(unittest.TestCase):
         self.assertIn("metadata_candidates", script)
         self.assertIn("Konflikt zwischen Quellen", script)
 
+    def test_inventory_explains_qr_only_camera_fallback(self):
+        script = (Path(__file__).parents[1] / "static" / "js" / "inventory.js").read_text(encoding="utf-8")
+        self.assertIn("detector", script)
+        self.assertIn("QR-Code vor die Kamera halten; EAN/Barcodes bitte manuell eingeben.", script)
+
     def test_inventory_detail_contains_inspection_history(self):
         template = (Path(__file__).parents[1] / "templates" / "inventory" / "detail.html").read_text(encoding="utf-8")
         self.assertIn("Prüfhistorie", template)

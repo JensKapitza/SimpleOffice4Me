@@ -111,6 +111,10 @@ def detail(visit_id: str):
     assets_by_room: dict[str, list[dict]] = {}
     for asset in assets:
         assets_by_room.setdefault(asset.get("room_id", ""), []).append(asset)
+    unassigned_finding_count = sum(
+        1 for finding in record.get("findings", [])
+        if not finding.get("room_id") and not finding.get("asset_id")
+    )
     floorplan_url = ""
     attachment_id = record.get("floorplan_attachment_id", "")
     if attachment_id:
@@ -119,6 +123,7 @@ def detail(visit_id: str):
     return render_template(
         "site_visits/detail.html", visit=record, rooms=rooms, assets=assets,
         assets_by_room=assets_by_room, selected_asset=selected, floorplan_url=floorplan_url,
+        unassigned_finding_count=unassigned_finding_count,
         statuses=FINDING_STATES, evidence_classes=EVIDENCE_CLASSES, relations=RELATIONS,
         power_totals=SiteVisitStore.power_totals(record),
     )
@@ -213,15 +218,48 @@ def add_finding(visit_id: str):
     return _redirect(visit_id)
 
 
+@bp.get("/<visit_id>/findings/assignments")
+@login_required
+def finding_assignments(visit_id: str):
+    record = _visit(visit_id)
+    scope = request.args.get("scope", "unassigned")
+    if scope not in {"unassigned", "all"}:
+        abort(400)
+    all_findings = record.get("findings", [])
+    unassigned_findings = [
+        finding for finding in all_findings
+        if not finding.get("room_id") and not finding.get("asset_id")
+    ]
+    findings = all_findings if scope == "all" else unassigned_findings
+    return render_template(
+        "site_visits/unassigned_findings.html",
+        visit=record,
+        findings=findings,
+        finding_scope=scope,
+        total_findings=len(all_findings),
+        unassigned_finding_count=len(unassigned_findings),
+        rooms=record.get("rooms", []),
+        assets=record.get("assets", []),
+    )
+
+
 @bp.post("/<visit_id>/findings/<finding_id>")
 @login_required
 def update_finding(visit_id: str, finding_id: str):
     _visit(visit_id)
+    is_assignment = request.form.get("return_to") == "assignment"
+    values = _form_values()
+    if is_assignment:
+        values = {key: values[key] for key in ("room_id", "asset_id") if key in values}
     try:
-        _store().update_finding(visit_id, _actor(), finding_id, _form_values())
-        flash("Befundbewertung gespeichert.", "success")
+        _store().update_finding(visit_id, _actor(), finding_id, values)
+        flash("Befundzuordnung gespeichert." if is_assignment else "Befundbewertung gespeichert.", "success")
     except ValueError as exc:
         flash(str(exc), "danger")
+    if request.form.get("return_to") == "assignment":
+        scope = request.form.get("scope", "unassigned")
+        if scope in {"unassigned", "all"}:
+            return redirect(url_for("site_visits.finding_assignments", visit_id=visit_id, scope=scope))
     return _redirect(visit_id)
 
 
