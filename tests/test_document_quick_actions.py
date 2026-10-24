@@ -272,7 +272,11 @@ class DocumentQuickActionsTest(unittest.TestCase):
             },
         )
         self.assertEqual(200, move_picker.status_code)
-        self.assertIn("Physischer Zielpfad: archive/actual.txt", move_picker.get_data(as_text=True))
+        move_text = BeautifulSoup(
+            move_picker.get_data(as_text=True), "html.parser"
+        ).get_text(" ", strip=True)
+        self.assertIn("Physischer Zielpfad:", move_text)
+        self.assertIn("archive/actual.txt", move_text)
 
         moved = self.client.post(
             f"/documents/{document['document_id']}/move",
