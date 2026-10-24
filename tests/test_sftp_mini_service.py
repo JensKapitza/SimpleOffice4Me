@@ -18,11 +18,12 @@ class SftpMiniServiceTests(unittest.TestCase):
         for target, value in (
             ("app.sftp_service.settings_path", self.root / "sftp.json"),
             ("app.sftp_service.system_service", {"available": False, "running": False, "unit": ""}),
-            ("tools.service_control.RUN_DIR", self.root / "run"),
             ("tools.service_control.read", None),
         ):
             context = patch(target, return_value=value)
             context.start(); self.addCleanup(context.stop)
+        run_dir = patch("tools.service_control.RUN_DIR", self.root / "run")
+        run_dir.start(); self.addCleanup(run_dir.stop)
 
     def test_defaults_are_integrated_stopped_and_do_not_require_openssh(self):
         with patch("tools.sftp_setup.dependency", return_value=object()), \

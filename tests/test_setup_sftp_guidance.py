@@ -64,4 +64,4 @@ class SetupSftpGuidanceTest(unittest.TestCase):
         self.assertIn('registrierte SSH-Public-Keys erforderlich', page)
         self.assertIn('SSH-Public-Key erforderlich', exported)
         self.assertIn('WebDAV-App-Passwort funktioniert hierfür nicht', page)
-        self.assertIn('WebDAV-Passwort gilt zugleich', credentials)
+        self.assertIn('SFTP-Passwortauthentifizierung ist deaktiviert', credentials)
