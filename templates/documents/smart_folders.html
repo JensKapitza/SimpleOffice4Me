@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h3">Smart Views und Sammelordner</h1>
+  <p class="text-secondary">Ordner werden bei Bedarf angezeigt. Erst das Aktivieren speichert zusätzliche Ordnerdaten.</p>
+  <div class="row g-3">
+    <nav class="col-lg-4" aria-label="Ordner">
+      <div class="list-group">
+        {% for folder in folders %}
+        <a class="list-group-item list-group-item-action" href="{{ url_for('documents.smart_folder_view', folder=folder.path) }}">
+          {{ folder.path }} <span class="badge text-bg-secondary">{{ folder.count }}</span>
+          {% if folder.active %}<span class="badge text-bg-primary">Aktiv</span>{% endif %}
+        </a>
+        {% else %}<p>Keine Ordner mit Dokumenten vorhanden.</p>{% endfor %}
+      </div>
+    </nav>
+    <section class="col-lg-8" aria-label="Ordnerinhalt">
+      {% if selected %}
+      <h2 class="h4">{{ selected.path }}</h2>
+      <p>{{ selected.count }} Dokument(e)</p>
+      {% if selected.same_name %}
+      <div class="alert alert-info">Weitere Ordner mit gleichem Namen:
+        {% for other in selected.same_name %}
+          <a href="{{ url_for('documents.smart_folder_view', folder=other.path) }}">{{ other.path }}</a>{% if not loop.last %}, {% endif %}
+        {% endfor %}
+        <p class="mb-0 small">Keine automatische Zusammenführung.</p>
+      </div>
+      {% endif %}
+      <form method="post" action="{{ url_for('documents.activate_smart_folder') }}" class="mb-3">
+        <input type="hidden" name="folder" value="{{ selected.path }}">
+        <label class="form-label" for="folder-notes">Sammelordner-Notizen</label>
+        <textarea class="form-control mb-2" id="folder-notes" name="notes" rows="3" maxlength="20000">{{ selected.notes|default('') }}</textarea>
+        <button class="btn btn-primary" type="submit">{{ 'Notizen speichern' if selected.active else 'Als Sammelordner aktivieren' }}</button>
+      </form>
+      <div class="list-group">
+        {% for doc in selected.members %}
+        <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">{{ doc.last_path }}</a>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p>Wähle einen Ordner, um seine Dokumente dynamisch anzuzeigen.</p>
+      {% endif %}
+    </section>
+  </div>
+</main>
+{% endblock %}
