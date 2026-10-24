@@ -1,6 +1,7 @@
 """Document HTTP route group extracted from app.documents."""
 from __future__ import annotations
 from .documents_core import *  # noqa: F401,F403
+from .smart_folder_views import SmartFolderViews
 from .contact_company_data import company_data_metadata_from_form, company_search_items
 from .mail_document_access import private_mail_document
 from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
@@ -101,6 +102,47 @@ def upload():
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
     return redirect(url_for("documents.index"))
 
+@bp.get("/smart-folders")
+@login_required
+def smart_folders():
+    views = SmartFolderViews(_store()).folders()
+    return render_template("documents/smart_folders.html", folders=views, selected=None)
+
+
+@bp.get("/smart-folders/view")
+@login_required
+def smart_folder_view():
+    try:
+        selected = SmartFolderViews(_store()).view(request.args.get("folder", ""))
+    except ValueError:
+        abort(404)
+    return render_template("documents/smart_folders.html", folders=SmartFolderViews(_store()).folders(), selected=selected)
+
+
+@bp.post("/smart-folders/activate")
+@login_required
+def activate_smart_folder():
+    folder = request.form.get("folder", "")
+    try:
+        SmartFolderViews(_store()).activate(folder, str(g.user["username"]), request.form.get("notes", ""))
+        flash("Sammelordner aktiviert.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.smart_folder_view", folder=folder))
+
+
+@bp.post("/<document_id>/smart-folder")
+@login_required
+def assign_smart_folder(document_id: str):
+    folder = request.form.get("folder", "")
+    try:
+        SmartFolderViews(_store()).assign(document_id, folder)
+        flash("Dokument wurde der Smart View zugeordnet. Der Originalspeicherort bleibt erhalten.")
+    except ValueError as exc:
+        flash(str(exc))
+    return redirect(url_for("documents.detail", document_id=document_id))
+
+
 @bp.route("/<document_id>")
 @login_required
 def detail(document_id: str):
@@ -124,6 +166,8 @@ def detail(document_id: str):
     return render_template(
         "documents/detail.html",
         document=document,
+        smart_folders=SmartFolderViews(store).folders(),
+        document_smart_folders=SmartFolderViews(store).assigned_to(document_id),
         versions=store.versions(document_id),
         content_recovery_versions=store.content_recovery_versions(document_id),
         relationships=relationships,
