@@ -362,6 +362,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
                 "target": "imports/target/Telegram",
             },
         )
+        self.assertIn("no-store", preview.headers["Cache-Control"])
         soup = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
         form = soup.find("form", action="/documents/smart-folders/merge")
         self.assertIsNotNone(form)
@@ -429,7 +430,9 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual("jens", job.principal)
         self.assertEqual("documents.smart_folder_batch", job.kind)
         self.assertEqual([document["document_id"]], job.payload["document_ids"])
-        self.assertEqual(200, self.client.get(response.location).status_code)
+        job_status = self.client.get(response.location)
+        self.assertEqual(200, job_status.status_code)
+        self.assertIn("no-store", job_status.headers["Cache-Control"])
         self.assertNotEqual(200, app.test_client().get(response.location).status_code)
         worker_id = "smart-folder-test-worker"
         worker = JobWorker(

@@ -30,6 +30,16 @@ def _smart_views() -> SmartFolderViews:
     return SmartFolderViews(_store(), str(g.user["username"]))
 
 
+def _private_html(template: str, **context) -> Response:
+    response = Response(
+        render_template(template, **context),
+        content_type="text/html; charset=utf-8",
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
 def _spreadsheet_safe_cell(value: object) -> str:
     text = "" if value is None else str(value)
     first = text.lstrip(" \t\r\n\x00")[:1]
@@ -44,7 +54,7 @@ def smart_folders():
     move_document = _assignment_document(request.args.get("move_document_id", ""))
     if assignment_document and move_document:
         abort(400)
-    return render_template(
+    return _private_html(
         "documents/smart_folders.html",
         folders=views.folders(),
         selected=None,
@@ -145,7 +155,7 @@ def smart_folder_view():
             strict=False,
         )
         move_collision = target_path.exists() and not move_already_in_folder
-    return render_template(
+    return _private_html(
         "documents/smart_folders.html",
         folders=folders,
         selected=selected,
@@ -305,7 +315,7 @@ def smart_folder_batch_job(job_id: str):
         or job.kind != "documents.smart_folder_batch"
     ):
         abort(404)
-    return render_template("documents/smart_folder_job.html", job=job)
+    return _private_html("documents/smart_folder_job.html", job=job)
 
 
 @bp.get("/smart-folders/merge-preview")
@@ -332,8 +342,8 @@ def smart_folder_merge_preview():
         impact["target_tasks_truncated"] = len(target_tasks) > 200
         impact["task_preview_available"] = True
         session["smart_folder_merge_preview"] = {
-            "source": source,
-            "target": target,
+            "source": impact["source"],
+            "target": impact["target"],
             "fingerprint": impact["fingerprint"],
             "source_tasks": _task_fingerprint(source_tasks),
             "target_tasks": _task_fingerprint(target_tasks),
@@ -345,13 +355,7 @@ def smart_folder_merge_preview():
         impact["source_tasks"] = None
         impact["target_tasks"] = None
         impact["task_preview_available"] = False
-    response = Response(
-        render_template("documents/smart_folder_merge_preview.html", impact=impact),
-        content_type="text/html; charset=utf-8",
-    )
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    return response
+    return _private_html("documents/smart_folder_merge_preview.html", impact=impact)
 
 
 @bp.post("/smart-folders/merge")
