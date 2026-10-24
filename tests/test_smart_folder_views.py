@@ -129,8 +129,9 @@ class SmartFolderViewsTest(unittest.TestCase):
             self.assertEqual(2, len(views.view("clients")["explicit_members"]))
             self.assertEqual(2, views.unassign_many(ids, "clients"))
             self.assertEqual(0, len(views.view("clients")["explicit_members"]))
+            physical_id = store.get_document(root / "clients" / "existing.txt")["document_id"]
             with self.assertRaisesRegex(ValueError, "ausdrücklich"):
-                views.unassign_many(ids, "clients")
+                views.unassign_many([physical_id], "clients")
             self.assertEqual(1, views.view("clients")["count"])
             self.assertEqual(2, views.view("scans")["count"])
             self.assertTrue((root / "scans" / "a.txt").exists())
