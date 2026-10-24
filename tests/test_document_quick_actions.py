@@ -319,8 +319,9 @@ class DocumentQuickActionsTest(unittest.TestCase):
         store = DocumentStore(self.root)
         store.scan()
         views = SmartFolderViews(store, "jens")
-        views.activate("imports/source/Telegram", "jens")
+        views.activate("imports/source/Telegram", "jens", "Quellnotiz behalten")
         views.activate("imports/target/Telegram", "jens")
+        views.save_rule("imports/source/Telegram", "Kennung", "id", "jens")
         source_id = views.folder_task_id("imports/source/Telegram", "jens")
         TodoStore(self.root).add(
             "Quellaufgabe", "jens", smart_folder_id=source_id,
@@ -338,6 +339,45 @@ class DocumentQuickActionsTest(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("1 Aufgaben aus der Quelle", body)
         self.assertIn("Quellaufgabe", body)
+        self.assertIn("Quellnotiz behalten", body)
+        self.assertIn("Kennung", body)
+        self.assertIn("nicht auf andere Benutzer erweitert", body)
+
+    def test_smart_folder_merge_requires_fresh_task_impact_confirmation(self):
+        for relative in ("imports/source/Telegram", "imports/target/Telegram"):
+            folder = self.root / relative
+            folder.mkdir(parents=True)
+            (folder / "record.txt").write_text("record", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        views = SmartFolderViews(store, "jens")
+        views.activate("imports/source/Telegram", "jens")
+        views.activate("imports/target/Telegram", "jens")
+        source_id = views.folder_task_id("imports/source/Telegram", "jens")
+        TodoStore(self.root).add("Aufgabe vor Vorschau", "jens", smart_folder_id=source_id)
+        preview = self.client.get(
+            "/documents/smart-folders/merge-preview",
+            query_string={
+                "source": "imports/source/Telegram",
+                "target": "imports/target/Telegram",
+            },
+        )
+        soup = BeautifulSoup(preview.get_data(as_text=True), "html.parser")
+        form = soup.find("form", action="/documents/smart-folders/merge")
+        self.assertIsNotNone(form)
+        values = {
+            field.get("name"): field.get("value", "")
+            for field in form.find_all("input")
+        }
+        values["confirm"] = "ZUSAMMENFUEHREN"
+        TodoStore(self.root).add("Aufgabe nach Vorschau", "jens", smart_folder_id=source_id)
+
+        response = self.client.post("/documents/smart-folders/merge", data=values)
+
+        self.assertEqual(302, response.status_code)
+        self.assertIn("merge-preview", response.headers["Location"])
+        self.assertEqual(1, len(views.view("imports/source/Telegram")["members"]))
+        self.assertEqual(2, len(TodoStore(self.root).items("jens")))
 
     def test_smart_folder_preview_navigation_stays_within_selected_items(self):
         folder = self.root / "imports" / "batch" / "Telegram"

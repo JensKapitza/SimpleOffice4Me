@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import hmac
 import io
 import logging
 from datetime import datetime, timezone
@@ -416,6 +417,45 @@ class SmartFolderViews:
         element = root.find(field)
         return element.text if element is not None else None
 
+    @staticmethod
+    def _merge_fingerprint(
+        source: str,
+        target: str,
+        source_documents: list[dict],
+        target_documents: list[dict],
+        source_metadata: dict,
+        target_metadata: dict,
+    ) -> str:
+        relevant = (
+            "id", "created_by", "notes", "rules", "preview_document_ids",
+            "merged_notes", "merged_from", "merged_folder_ids",
+            "merged_preview_selections",
+        )
+        payload = {
+            "source": source,
+            "target": target,
+            "source_documents": sorted(
+                (
+                    str(item.get("document_id", "")),
+                    str(item.get("last_path", "")),
+                    str(item.get("sha256", "")),
+                )
+                for item in source_documents
+            ),
+            "target_documents": sorted(
+                (
+                    str(item.get("document_id", "")),
+                    str(item.get("last_path", "")),
+                    str(item.get("sha256", "")),
+                )
+                for item in target_documents
+            ),
+            "source_metadata": {key: source_metadata[key] for key in relevant if key in source_metadata},
+            "target_metadata": {key: target_metadata[key] for key in relevant if key in target_metadata},
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
     def merge_preview(self, source: str, target: str) -> dict:
         """Show consequences before an explicitly confirmed logical merge."""
         source, target = self.normalize(source), self.normalize(target)
@@ -442,31 +482,53 @@ class SmartFolderViews:
             name for name, expression in source_meta.get("rules", {}).items()
             if name in target_meta.get("rules", {}) and target_meta["rules"][name] != expression
         ]
+        fingerprint = self._merge_fingerprint(
+            source, target, origin["members"], destination["members"],
+            source_meta, target_meta,
+        )
         return {
             "source": source, "target": target,
             "documents": len(origin["members"]),
             "target_documents": len(destination["members"]),
             "conflicts": collisions,
             "notes": bool(source_meta.get("notes")),
+            "source_notes": str(source_meta.get("notes", "")),
+            "target_notes": str(target_meta.get("notes", "")),
             "source_task_folder_ids": source_task_folder_ids,
             "target_task_folder_ids": target_task_folder_ids,
             "source_preview_ids": list(source_preview_ids),
             "target_preview_ids": list(target_preview_ids),
             "source_rules": sorted(source_meta.get("rules", {})),
             "target_rules": sorted(target_meta.get("rules", {})),
+            "source_rule_definitions": dict(source_meta.get("rules", {})),
+            "target_rule_definitions": dict(target_meta.get("rules", {})),
             "source_paths": [str(item.get("last_path", "")) for item in origin["members"][:200]],
             "source_paths_truncated": len(origin["members"]) > 200,
+            "source_document_ids": [str(item["document_id"]) for item in origin["members"]],
+            "fingerprint": fingerprint,
         }
 
-    def merge_assignments(self, source: str, target: str, actor: str) -> dict:
+    def merge_assignments(
+        self,
+        source: str,
+        target: str,
+        actor: str,
+        *,
+        expected_fingerprint: str,
+    ) -> dict:
         """Explicit logical fusion; originals stay put and rule conflicts block the merge."""
         self._verify_actor(actor)
-        preview = self.merge_preview(source, target)
-        if preview["conflicts"]:
-            raise ValueError("Widersprüchliche Extraktionsregeln: " + ", ".join(preview["conflicts"]))
-        source_documents = self.view(source)["members"]
+        if not isinstance(expected_fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_fingerprint):
+            raise ValueError("Eine aktuelle Fusionsvorschau ist erforderlich")
+        source, target = self.normalize(source), self.normalize(target)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with exclusive_file_lock(self.path.with_suffix(".lock")):
+            preview = self.merge_preview(source, target)
+            if not hmac.compare_digest(expected_fingerprint, preview["fingerprint"]):
+                raise ValueError("Ordner oder Auswirkungen haben sich geändert; Vorschau erneut prüfen")
+            if preview["conflicts"]:
+                raise ValueError("Widersprüchliche Extraktionsregeln: " + ", ".join(preview["conflicts"]))
+            source_document_ids = preview["source_document_ids"]
             data = self._load()
             if len(data["merge_events"]) >= MAX_MERGE_EVENTS:
                 raise ValueError("Das Fusionsprotokoll hat seine sichere Kapazitätsgrenze erreicht")
@@ -525,8 +587,7 @@ class SmartFolderViews:
             target_rules = target_info.setdefault("rules", {})
             if any(name in target_rules and target_rules[name] != expr for name, expr in source_rules.items()):
                 raise ValueError("Extraktionsregeln haben sich inzwischen geändert")
-            for document in source_documents:
-                document_id = document["document_id"]
+            for document_id in source_document_ids:
                 assignments = data["assignments"].setdefault(document_id, [])
                 if target not in assignments:
                     assignments.append(target)
@@ -549,9 +610,7 @@ class SmartFolderViews:
             data["merged_into"][source] = target
             if source in data["folders"]:
                 data["folders"].pop(source)
-            document_ids = sorted(
-                str(document["document_id"]) for document in source_documents
-            )
+            document_ids = sorted(source_document_ids)
             data["merge_events"].append({
                 "event_id": uuid4().hex,
                 "action": "smart_folder_merged",

@@ -43,6 +43,8 @@ der Zielansicht erscheinen. Das Auditereignis (Benutzer, Quelle, Ziel,
 Dokumentanzahl und SHA-256-Fingerabdruck der Dokument-IDs) wird atomar mit der
 Änderung gespeichert. Das Protokoll ist auf 10.000 Ereignisse begrenzt; danach
 wird eine weitere Fusion sicher abgewiesen, statt ältere Auditdaten zu löschen.
+Die Bestätigung erfordert einen kurzlebigen Session-Preview-Token; geänderte
+Dokumenten- oder Aufgabenfolgen invalidieren ihn und verlangen eine neue Vorschau.
 
 ## Begrenzte strukturierte Auswertung
 

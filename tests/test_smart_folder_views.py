@@ -164,7 +164,10 @@ class SmartFolderViewsTest(unittest.TestCase):
             preview = views.merge_preview("a/Telegram", "b/Telegram")
             self.assertEqual(["Beleg"], preview["source_rules"])
             self.assertEqual(1, len(preview["source_paths"]))
-            result = views.merge_assignments("a/Telegram", "b/Telegram", "admin")
+            result = views.merge_assignments(
+                "a/Telegram", "b/Telegram", "admin",
+                expected_fingerprint=preview["fingerprint"],
+            )
             self.assertEqual(1, result["documents"])
             self.assertEqual(2, views.view("b/Telegram")["count"])
             with self.assertRaisesRegex(ValueError, "Ordner nicht gefunden"):
@@ -202,7 +205,11 @@ class SmartFolderViewsTest(unittest.TestCase):
                 "Quellordner prüfen", "admin", smart_folder_id=source_id,
             )
 
-            views.merge_assignments("a/Telegram", "b/Telegram", "admin")
+            preview = views.merge_preview("a/Telegram", "b/Telegram")
+            views.merge_assignments(
+                "a/Telegram", "b/Telegram", "admin",
+                expected_fingerprint=preview["fingerprint"],
+            )
 
             self.assertEqual(
                 [target_id, source_id],
@@ -225,6 +232,31 @@ class SmartFolderViewsTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "gleichnamige"):
                 views.merge_preview("source/Telegram", "target/Invoices")
 
+    def test_logical_merge_rejects_stale_document_impact_preview(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            for folder in ("a/Telegram", "b/Telegram"):
+                path = root / folder
+                path.mkdir(parents=True)
+                (path / "record.txt").write_text("record", encoding="utf-8")
+            store = DocumentStore(root)
+            store.scan()
+            views = SmartFolderViews(store, "admin")
+            views.activate("a/Telegram", "admin")
+            views.activate("b/Telegram", "admin")
+            preview = views.merge_preview("a/Telegram", "b/Telegram")
+            (root / "a/Telegram/new.txt").write_text("new", encoding="utf-8")
+            store.scan()
+
+            with self.assertRaisesRegex(ValueError, "geändert"):
+                views.merge_assignments(
+                    "a/Telegram", "b/Telegram", "admin",
+                    expected_fingerprint=preview["fingerprint"],
+                )
+
+            self.assertEqual(2, views.view("a/Telegram")["count"])
+            self.assertEqual(1, views.view("b/Telegram")["count"])
+
     def test_conflicting_rules_prevent_merge(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -238,8 +270,12 @@ class SmartFolderViewsTest(unittest.TestCase):
             views.activate("b/Telegram", "admin")
             views.save_rule("a/Telegram", "Beleg", "invoice", "admin")
             views.save_rule("b/Telegram", "Beleg", "other", "admin")
+            preview = views.merge_preview("a/Telegram", "b/Telegram")
             with self.assertRaisesRegex(ValueError, "Widersprüchliche"):
-                views.merge_assignments("a/Telegram", "b/Telegram", "admin")
+                views.merge_assignments(
+                    "a/Telegram", "b/Telegram", "admin",
+                    expected_fingerprint=preview["fingerprint"],
+                )
             self.assertEqual(1, views.view("a/Telegram")["count"])
 
     def test_preview_selection_is_limited_to_supported_sizes_and_folder_members(self):

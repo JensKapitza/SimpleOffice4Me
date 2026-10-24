@@ -4,11 +4,14 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
+import json
 from pathlib import Path
 import re
 import sqlite3
+import time
 from uuid import uuid4
 
+from flask import session
 from .documents_core import *  # noqa: F401,F403
 from .smart_folder_batch_jobs import (
     BATCH_ACTIONS,
@@ -71,6 +74,21 @@ def _folder_tasks(views: SmartFolderViews, folder: str, actor: str) -> list[dict
         task for task in _todos().items(actor)
         if task.get("smart_folder_id") in folder_ids
     ]
+
+
+def _task_fingerprint(tasks: list[dict]) -> str:
+    snapshot = sorted(
+        (
+            str(task.get("id", "")),
+            str(task.get("title", "")),
+            str(task.get("status", "")),
+            str(task.get("due", "")),
+        )
+        for task in tasks
+    )
+    return hashlib.sha256(
+        json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 @bp.get("/smart-folders/view")
@@ -313,12 +331,27 @@ def smart_folder_merge_preview():
         impact["source_tasks_truncated"] = len(source_tasks) > 200
         impact["target_tasks_truncated"] = len(target_tasks) > 200
         impact["task_preview_available"] = True
+        session["smart_folder_merge_preview"] = {
+            "source": source,
+            "target": target,
+            "fingerprint": impact["fingerprint"],
+            "source_tasks": _task_fingerprint(source_tasks),
+            "target_tasks": _task_fingerprint(target_tasks),
+            "expires_at": int(time.time()) + 600,
+        }
     except (OSError, RuntimeError, ValueError) as exc:
         current_app.logger.warning("Smart folder task merge preview failed: %s", type(exc).__name__)
+        session.pop("smart_folder_merge_preview", None)
         impact["source_tasks"] = None
         impact["target_tasks"] = None
         impact["task_preview_available"] = False
-    return render_template("documents/smart_folder_merge_preview.html", impact=impact)
+    response = Response(
+        render_template("documents/smart_folder_merge_preview.html", impact=impact),
+        content_type="text/html; charset=utf-8",
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
 
 
 @bp.post("/smart-folders/merge")
@@ -328,19 +361,47 @@ def merge_smart_folders():
     target = request.form.get("target", "")
     if request.form.get("confirm") != "ZUSAMMENFUEHREN":
         flash("Fusion nicht bestätigt.")
-        return redirect(url_for("documents.smart_folders"))
+        return redirect(url_for("documents.smart_folder_merge_preview", source=source, target=target))
+    preview = session.get("smart_folder_merge_preview")
+    fingerprint = str(request.form.get("preview_fingerprint", ""))
+    if (
+        not isinstance(preview, dict)
+        or preview.get("source") != source
+        or preview.get("target") != target
+        or preview.get("fingerprint") != fingerprint
+        or isinstance(preview.get("expires_at"), bool)
+        or not isinstance(preview.get("expires_at"), int)
+        or preview.get("expires_at", 0) < int(time.time())
+    ):
+        session.pop("smart_folder_merge_preview", None)
+        flash("Die Fusionsvorschau fehlt oder ist abgelaufen. Bitte Auswirkungen erneut prüfen.")
+        return redirect(url_for("documents.smart_folder_view", folder=source))
     try:
         views = _smart_views()
         actor = str(g.user["username"])
-        _folder_tasks(views, source, actor)
-        _folder_tasks(views, target, actor)
-        views.merge_assignments(source, target, actor)
+        source_tasks = _folder_tasks(views, source, actor)
+        target_tasks = _folder_tasks(views, target, actor)
+        if (
+            _task_fingerprint(source_tasks) != preview.get("source_tasks")
+            or _task_fingerprint(target_tasks) != preview.get("target_tasks")
+        ):
+            session.pop("smart_folder_merge_preview", None)
+            flash("Aufgaben haben sich seit der Vorschau geändert. Bitte Auswirkungen erneut prüfen.")
+            return redirect(url_for(
+                "documents.smart_folder_merge_preview", source=source, target=target,
+            ))
+        views.merge_assignments(
+            source, target, actor, expected_fingerprint=fingerprint,
+        )
+        session.pop("smart_folder_merge_preview", None)
         flash("Logische Zuordnungen und Regeln übernommen. Originaldateien wurden nicht verschoben.")
         return redirect(url_for("documents.smart_folder_view", folder=target))
     except ValueError as exc:
+        session.pop("smart_folder_merge_preview", None)
         flash(str(exc))
         return redirect(url_for("documents.smart_folders"))
     except (OSError, RuntimeError) as exc:
+        session.pop("smart_folder_merge_preview", None)
         current_app.logger.warning("Smart folder merge failed: %s", type(exc).__name__)
         flash("Ordner konnten nicht zusammengeführt werden.")
         return redirect(url_for("documents.smart_folders"))
