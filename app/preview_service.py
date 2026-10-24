@@ -13,13 +13,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 from .settings_store import SettingsStore
 
 
 CACHE_DIR = ".webcache"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp", ".avif", ".heic", ".heif"}
+TEXT_SUFFIXES = {".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".xml", ".yaml", ".yml", ".log", ".ini", ".cfg", ".toml", ".py", ".js", ".ts", ".css", ".sql", ".sh", ".rst"}
 OFFICE_SUFFIXES = {".doc", ".docx", ".odt", ".rtf", ".xls", ".xlsx", ".ods", ".ppt", ".pptx", ".odp"}
 VIDEO_MIME_TYPES = {
     ".3gp": "video/3gpp",
@@ -46,7 +47,7 @@ AUDIO_MIME_TYPES = {
 }
 VIDEO_SUFFIXES = set(VIDEO_MIME_TYPES)
 AUDIO_SUFFIXES = set(AUDIO_MIME_TYPES)
-SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | {".pdf"}
+SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | TEXT_SUFFIXES | {".pdf"}
 VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
 
 
@@ -194,6 +195,9 @@ class PreviewService:
             return {"status": "failed", "source_sha256": digest, "error": "conversion_failed"}
 
     def _convert(self, source: Path, suffix: str, temporary: Path) -> dict[str, Any]:
+        if suffix in TEXT_SUFFIXES:
+            self._text_thumbnail(source, temporary / "thumbnail.webp")
+            return {"converter": "stdlib+pillow"}
         if suffix in IMAGE_SUFFIXES:
             try:
                 self._thumbnail(source, temporary / "thumbnail.webp")
@@ -351,6 +355,24 @@ class PreviewService:
         if len(pages) > 1:
             self._collage(pages, temporary / "collage.webp")
         return "pdftoppm+pillow"
+
+    def _text_thumbnail(self, source: Path, destination: Path) -> None:
+        """Render a bounded, non-executable text excerpt using stdlib and Pillow."""
+        with source.open("rb") as handle:
+            sample = handle.read(16384)
+        if b"\\x00" in sample:
+            raise ValueError("binary input is not a text preview")
+        text = sample.decode("utf-8-sig", errors="replace")
+        lines = text.expandtabs(4).splitlines()[:38]
+        canvas = Image.new("RGB", (1100, 800), "#ffffff")
+        draw = ImageDraw.Draw(canvas)
+        draw.rectangle((0, 0, 1099, 56), fill="#edf2f7")
+        draw.text((24, 20), source.suffix.lower().lstrip(".").upper() + " preview", fill="#172b4d")
+        for index, line in enumerate(lines):
+            # Never interpret markup or execute uploaded source code.
+            excerpt = line[:150].encode("ascii", "replace").decode("ascii")
+            draw.text((24, 75 + index * 18), excerpt, fill="#202938")
+        canvas.save(destination, "WEBP", quality=82)
 
     def _thumbnail(
         self,
