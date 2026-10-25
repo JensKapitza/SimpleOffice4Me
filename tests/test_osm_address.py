@@ -8,7 +8,12 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 from app.osm_address import LocalAddressIndex, _remote_total, field_suggestions, human_bytes, unique_candidate
-from app.settings_store import SettingsStore
+from app.settings_store import (
+    DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MIN_OSM_FILTER_TIMEOUT_SECONDS,
+    SettingsStore,
+)
 
 
 class _Headers(dict):
@@ -157,6 +162,35 @@ class OsmAddressTests(unittest.TestCase):
                 with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": raw}):
                     timeout = SettingsStore(root).settings()["integrations"][
                         "osm_download_read_timeout_seconds"
+                    ]
+                self.assertEqual(expected, timeout)
+
+    def test_legacy_osm_filter_timeout_is_migrated_clamped_and_persisted(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "7200"}):
+                self.assertEqual(
+                    7200,
+                    store.settings()["integrations"]["osm_filter_timeout_seconds"],
+                )
+                store.save({"network": {"webdav_quota_mib": 0}}, "osm-test-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "3600"}):
+                self.assertEqual(
+                    7200,
+                    store.settings()["integrations"]["osm_filter_timeout_seconds"],
+                )
+
+        expectations = {
+            "1": MIN_OSM_FILTER_TIMEOUT_SECONDS,
+            "90000": MAX_OSM_FILTER_TIMEOUT_SECONDS,
+            "invalid": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+            "9" * 13: DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+        }
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": raw}):
+                    timeout = SettingsStore(root).settings()["integrations"][
+                        "osm_filter_timeout_seconds"
                     ]
                 self.assertEqual(expected, timeout)
 
@@ -351,12 +385,19 @@ class OsmAddressTests(unittest.TestCase):
             index.data_dir.mkdir(parents=True)
             source = index.data_dir / "test-latest.osm.pbf"
             source.write_bytes(b"extract")
+            SettingsStore(root).save(
+                {"integrations": {"osm_filter_timeout_seconds": 7200}},
+                "osm-test-admin",
+            )
             process = Mock()
             process.stdout = io.StringIO(self._feature(27) + "\n")
             process.wait.return_value = 0
             process.poll.return_value = 0
             process.args = ["osmium", "export"]
-            with patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), patch("app.osm_address.subprocess.run") as run, patch("app.osm_address.subprocess.Popen", return_value=process) as popen:
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "3600"}), \
+                 patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
+                 patch("app.osm_address.subprocess.run") as run, \
+                 patch("app.osm_address.subprocess.Popen", return_value=process) as popen:
                 run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
                 stats = index.build(source)
             self.assertEqual(1, stats["stored"])
@@ -365,6 +406,7 @@ class OsmAddressTests(unittest.TestCase):
             self.assertIn("--attributes=type,id", popen.call_args.args[0])
             self.assertIn("--remove-tags", run.call_args.args[0])
             self.assertEqual("pbf", run.call_args.args[0][run.call_args.args[0].index("-f") + 1])
+            self.assertEqual(7200, run.call_args.kwargs["timeout"])
 
     def test_invalid_export_timeout_does_not_start_osmium_process(self):
         with tempfile.TemporaryDirectory() as root:

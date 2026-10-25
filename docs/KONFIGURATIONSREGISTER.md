@@ -59,7 +59,7 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 | `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | `5`, effektiv 1–10 | Downloadversuche; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | `8` | Maximaler Quelldownload in GiB; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | `300`, effektiv 30–3600 | Legacy-Timeout bis eine persistierte Admin-Einstellung existiert; danach maßgeblich ist `integrations.osm_download_read_timeout_seconds` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
-| `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | `21600`, effektiv 3600–86400 | Filter-Timeout in Sekunden; [OSM-Aufbau](../app/osm_address_build.py) |
+| `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | Legacy-Startwert bis `integrations.osm_filter_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Runtime-Autosync; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Poll-Intervall; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
 | `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Uploadlimit der App, Fallback 512 MiB | Chat-Anhangslimit in Bytes, mindestens 1 und höchstens das App-Uploadlimit; [Chatroute](../app/chat_routes.py) |
@@ -227,7 +227,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_OSM_CITY` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | [osm_address_storage.py](../app/osm_address_storage.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | [osm_address_build.py](../app/osm_address_build.py) | [OSM_INDEX_UND_RECHNUNGSFINALISIERUNG](OSM_INDEX_UND_RECHNUNGSFINALISIERUNG.md) |
-| `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | [osm_address_build.py](../app/osm_address_build.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | Legacy-Startwert bis `integrations.osm_filter_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_OSM_FORCE` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | [osm_address_storage.py](../app/osm_address_storage.py) | Quelle und Ergänzungen oben |

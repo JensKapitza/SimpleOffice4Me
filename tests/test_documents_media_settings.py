@@ -15,6 +15,7 @@ from app.attachment_security import AttachmentSecurity
 from app.settings_store import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
@@ -27,11 +28,13 @@ from app.settings_store import (
     MAX_WEBDAV_QUOTA_MIB,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_RSYNC_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
     MIN_RSYNC_TIMEOUT_SECONDS,
@@ -63,6 +66,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
                 "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": str(DEFAULT_VIDEO_PREVIEW_FRAMES),
                 "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
+                "SIMPLEOFFICE_OSM_FILTER_TIMEOUT": str(DEFAULT_OSM_FILTER_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_CLAMAV_TIMEOUT": str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_RSYNC_TIMEOUT": str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_RSYNC_MAX_BYTES": str(DEFAULT_RSYNC_MAX_BYTES),
@@ -157,10 +161,12 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertEqual(200, response.status_code)
         self.assertIn('name="osm_download_read_timeout_seconds"', html)
+        self.assertIn('name="osm_filter_timeout_seconds"', html)
         self.assertIn('name="clamav_timeout_seconds"', html)
         self.assertIn('action="/admin/settings/integrations/osm"', html)
         self.assertIn('action="/admin/settings/integrations/clamav"', html)
         self.assertIn("30–3600 Sekunden", html)
+        self.assertIn("3.600–86.400 Sekunden", html)
         self.assertIn("5–900 Sekunden", html)
 
     def test_network_quota_requires_admin_and_csrf_then_persists_and_audits(self):
@@ -548,6 +554,108 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("media-admin", row["actor_name"])
         self.assertEqual("integrations.osm_download_read_timeout_seconds", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_osm_filter_timeout_is_admin_only_persistent_and_preserves_read_timeout(self):
+        path = "/admin/settings/integrations/osm"
+        SettingsStore(self.root).save(
+            {"integrations": {"osm_download_read_timeout_seconds": 420}},
+            "media-admin",
+        )
+        payload = {"osm_filter_timeout_seconds": "7200"}
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        self.assertEqual(
+            403,
+            self.user.post(
+                path, data=payload, headers={"X-CSRF-Token": "u" * 40},
+            ).status_code,
+        )
+        saved = self.admin.post(
+            path, data=payload, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(7200, settings["osm_filter_timeout_seconds"])
+        self.assertEqual(420, settings["osm_download_read_timeout_seconds"])
+        with app.app_context():
+            download_audit = database.get_db().execute(
+                "SELECT 1 FROM security_event WHERE action=?",
+                ("osm_download_settings_updated",),
+            ).fetchone()
+        self.assertIsNone(download_audit)
+
+        for invalid in (
+            str(MIN_OSM_FILTER_TIMEOUT_SECONDS - 1),
+            str(MAX_OSM_FILTER_TIMEOUT_SECONDS + 1), "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(invalid=invalid):
+                rejected = self.admin.post(
+                    path, data={"osm_filter_timeout_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    7200,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "osm_filter_timeout_seconds"
+                    ],
+                )
+
+        # A pre-existing single-field form must preserve the new timeout.
+        self.admin.post(
+            path, data={"osm_download_read_timeout_seconds": "600"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(600, settings["osm_download_read_timeout_seconds"])
+        self.assertEqual(7200, settings["osm_filter_timeout_seconds"])
+
+        legacy_reset = self.admin.post(
+            path,
+            data={"reset": "1", "osm_download_read_timeout_seconds": "600"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, legacy_reset.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_OSM_READ_TIMEOUT_SECONDS, settings[
+            "osm_download_read_timeout_seconds"
+        ])
+        self.assertEqual(7200, settings["osm_filter_timeout_seconds"])
+
+        reset = self.admin.post(
+            path,
+            data={
+                "reset": "1",
+                "osm_download_read_timeout_seconds": "600",
+                "osm_filter_timeout_seconds": "7200",
+            },
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(
+            DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+            settings["osm_download_read_timeout_seconds"],
+        )
+        self.assertEqual(
+            DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+            settings["osm_filter_timeout_seconds"],
+        )
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("osm_filter_settings_updated",),
+            ).fetchone()
+        self.assertEqual("media-admin", row["actor_name"])
+        self.assertEqual("integrations.osm_filter_timeout_seconds", row["target_id"])
+        detail = json.loads(row["detail"])
+        self.assertTrue(detail["reset_to_defaults"])
+        self.assertFalse(detail["restart_required"])
+        with self.assertRaises(ValueError):
+            SettingsStore(self.root).save(
+                {"integrations": {"osm_filter_timeout_seconds": True}},
+                "media-admin",
+            )
 
     def test_clamav_timeout_requires_admin_and_csrf_persists_and_applies(self):
         path = "/admin/settings/integrations/clamav"
