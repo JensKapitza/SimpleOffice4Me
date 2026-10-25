@@ -162,6 +162,45 @@ class PrinterShareStoreTest(unittest.TestCase):
         self.assertEqual(second["printer_id"], forced["printer_id"])
         self.assertEqual(second["printer_id"], resolved["printer_id"])
 
+    def test_user_printer_preferences_are_isolated_between_accounts(self):
+        second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
+        with patch(
+            "app.printershare_store.discover_printers",
+            return_value=[dict(TEST_PRINTER), second],
+        ):
+            self.store.set_user_preferences(
+                "alice", standard_printer_id=second["printer_id"],
+            )
+            self.store.set_user_preferences(
+                "bob", standard_printer_id=TEST_PRINTER["printer_id"],
+            )
+            reopened = PrinterShareStore(self.root, self.app.config["SECRET_KEY"])
+            alice = reopened.resolve_user_printer("alice", "standard")
+            bob = reopened.resolve_user_printer("bob", "standard")
+        self.assertEqual(second["printer_id"], alice["printer_id"])
+        self.assertEqual(TEST_PRINTER["printer_id"], bob["printer_id"])
+
+    def test_forced_policy_blocks_preference_change_and_preserves_saved_value(self):
+        second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
+        with patch(
+            "app.printershare_store.discover_printers",
+            return_value=[dict(TEST_PRINTER), second],
+        ):
+            self.store.set_user_preferences(
+                "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+            )
+            self.store.set_user_printer_policies("alice", {
+                "standard": {"mode": "forced", "printer_id": second["printer_id"]},
+                "label": {"mode": "none", "printer_id": ""},
+            })
+            with self.assertRaisesRegex(ValueError, "Administrationsrichtlinie"):
+                self.store.set_user_preferences(
+                    "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+                )
+            context = self.store.user_printer_context("alice")["roles"]["standard"]
+        self.assertEqual(second["printer_id"], context["printer_id"])
+        self.assertEqual(TEST_PRINTER["printer_id"], context["preference_printer_id"])
+
     def test_missing_forced_device_fails_closed_without_fallback(self):
         self.store.set_user_printer_policies("alice", {
             "standard": {"mode": "forced", "printer_id": TEST_PRINTER["printer_id"]},
