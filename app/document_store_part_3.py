@@ -78,31 +78,39 @@ class _DocumentStorePart3:
             destination_directory.mkdir(parents=True, exist_ok=True)
             self.ensure_folder_policy(destination_directory)
             previous_path = str(document.get("last_path", ""))
+            snapshot = json.loads(json.dumps(document))
             shutil.move(str(source), str(destination))
-            relative_path = self.relative(destination)
-            document["last_path"] = relative_path
-            document["location_revision"] = self._location_revision(document) + 1
-            document["last_seen_at"] = utc_now()
-            document["location_last_moved_at"] = document["last_seen_at"]
-            document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
-            document["location_history"] = document["location_history"][-200:]
-            self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))
-            self._save_document(document)
-            self._refresh_search_index(document)
-            with self._db() as db:
-                db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
-            for share_id in active_share_ids:
-                self._event(
-                    "share_revoked_on_move",
-                    {
-                        "share_id": share_id,
-                        "document_id": document["document_id"],
-                        "from": previous_path,
-                        "to": relative_path,
-                        "actor": actor,
-                        "reason": "revoked_on_move",
-                    },
-                )
+            try:
+                relative_path = self.relative(destination)
+                document["last_path"] = relative_path
+                document["location_revision"] = self._location_revision(document) + 1
+                document["last_seen_at"] = utc_now()
+                document["location_last_moved_at"] = document["last_seen_at"]
+                document.setdefault("location_history", []).append({"from": previous_path, "to": relative_path, "at": document["last_seen_at"], "actor": actor})
+                document["location_history"] = document["location_history"][-200:]
+                self._write_xattrs(destination, document["document_id"], document.get("sha256", ""), document.get("tags", []))
+                self._save_document(document)
+                self._refresh_search_index(document)
+                with self._db() as db:
+                    db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
+                for share_id in active_share_ids:
+                    self._event(
+                        "share_revoked_on_move",
+                        {
+                            "share_id": share_id,
+                            "document_id": document["document_id"],
+                            "from": previous_path,
+                            "to": relative_path,
+                            "actor": actor,
+                            "reason": "revoked_on_move",
+                        },
+                    )
+            except Exception:
+                if destination.exists() and not source.exists():
+                    shutil.move(str(destination), str(source))
+                self._save_document(snapshot)
+                self._refresh_search_index(snapshot)
+                raise
             self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
             self._record_revision("document_moved", actor, "documents", document["document_id"], document)
         self._scan_file(destination)
