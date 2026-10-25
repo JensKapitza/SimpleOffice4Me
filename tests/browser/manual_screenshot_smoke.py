@@ -482,11 +482,20 @@ def run_peer_to_peer(
             name="Vollständig importieren",
             exact=True,
         ).click()
-        page_b.wait_for_load_state("domcontentloaded")
-        upload_result = compact(page_b.locator("body").inner_text())
-        if "Datei(en) vollständig und hashbasiert importiert." not in upload_result:
+        page_b.wait_for_function(
+            """() => {
+              const message = document.querySelector('#document-selection')?.textContent || '';
+              return message.includes('Dateiimport abgeschlossen:') ||
+                message.includes('Dateiimport nach ') && message.includes('fehlgeschlagen:');
+            }""",
+            timeout=60_000,
+        )
+        upload_result = compact(
+            page_b.locator("#document-selection").inner_text()
+        )
+        if not upload_result.startswith("Dateiimport abgeschlossen: 1 Datei(en),"):
             raise RuntimeError(
-                "Der Upload auf Peer B wurde nicht erfolgreich bestätigt."
+                f"Der Upload auf Peer B ist fehlgeschlagen: {upload_result}"
             )
         quick_search = page_b.locator("input[name='quick']")
         quick_search.fill(peer_b_filename)
