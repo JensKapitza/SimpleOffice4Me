@@ -46,7 +46,16 @@ def main():
             if match is not None:
                 return match
             time.sleep(0.5)
-        raise AssertionError(f'Expected public Android UI state was not displayed; last accessibility error: {last_error}')
+        visible = []
+        try:
+            visible = [(item.get('class'), item.get('text'), item.get('content-desc'))
+                       for item in nodes() if item.get('text') or item.get('content-desc')]
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError) as error:
+            last_error = error
+        raise AssertionError(
+            f'Expected public Android UI state was not displayed; '
+            f'last accessibility error: {last_error}; visible nodes: {visible[:40]}'
+        )
 
     def has_text(expected):
         return lambda item: expected in (item.get('text', '') + ' ' + item.get('content-desc', ''))
@@ -58,21 +67,30 @@ def main():
         left, top, right, bottom = map(int, bounds.groups())
         adb('shell', 'input', 'tap', str((left + right) // 2), str((top + bottom) // 2))
 
-    try:
-        wait_for(has_text('Mit Server verbinden'))
+    def enter_server_address(address):
+        # The field can retain the previous HTTP attempt after activity restart.
+        # ADB input text inserts at the cursor; select all before replacing it.
         field = wait_for(lambda item: item.get('class') == 'android.widget.EditText')
         tap(field)
-        adb('shell', 'input', 'text', 'http://example.com/')
-        adb('shell', 'input', 'keyevent', '111')  # Hide keyboard without navigating back.
+        # Android WebView may treat CTRL+A as a literal "a" in the emulator.
+        # Move to the end and erase the previous value using Android key events.
+        adb('shell', 'input', 'keyevent', '123')  # KEYCODE_MOVE_END
+        adb('shell', 'input', 'keyevent', *(['67'] * 128))  # KEYCODE_DEL
+        adb('shell', 'input', 'text', address)
+        adb('shell', 'input', 'keyevent', '111')  # Hide keyboard.
+        wait_for(lambda item: item.get('class') == 'android.widget.EditText'
+                 and item.get('text') == address)
+
+    try:
+        wait_for(has_text('Mit Server verbinden'))
+        enter_server_address('http://example.com/')
         tap(wait_for(lambda item: item.get('text') == 'Verbinden'))
         wait_for(has_text('Eine HTTPS-Verbindung wird benötigt.'))
         wait_for(has_text('Mit Server verbinden'))
         # Restart the activity with its still-empty saved preference and use HTTPS.
         adb('shell', 'am', 'force-stop', 'de.simpleoffice4me.tauri')
         adb('shell', 'am', 'start', '-W', '-n', 'de.simpleoffice4me.tauri/.MainActivity')
-        tap(wait_for(lambda item: item.get('class') == 'android.widget.EditText'))
-        adb('shell', 'input', 'text', 'https://example.com/')
-        adb('shell', 'input', 'keyevent', '111')
+        enter_server_address('https://example.com/')
         tap(wait_for(lambda item: item.get('text') == 'Verbinden'))
         wait_for(has_text('Example Domain'))
         # The documented Android recovery path is reopening the app.

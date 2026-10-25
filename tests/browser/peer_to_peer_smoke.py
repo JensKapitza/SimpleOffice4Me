@@ -8,6 +8,8 @@ import os
 import re
 from pathlib import Path
 
+from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+
 from browser_artifacts import make_html_snapshot_writer
 from page_crawl import same_primary_origin
 
@@ -420,25 +422,27 @@ def run_peer_to_peer(
             name="Vollständig importieren",
             exact=True,
         ).click()
-        # Upload is handled asynchronously via fetch; no navigation occurs.
         upload_status = page_b.locator("#document-selection")
         try:
             page_b.wait_for_function(
                 """() => {
                   const node = document.querySelector('#document-selection');
-                  return node && (node.textContent.includes('Dateien importiert.')
-                    || node.getAttribute('role') === 'alert');
+                  return node && (node.textContent.includes('Dateiimport abgeschlossen:')
+                    || node.textContent.includes('Dateiimport nach ')
+                      && node.textContent.includes('fehlgeschlagen:'));
                 }""",
                 timeout=60000,
             )
-        except Exception as exc:
+        except PlaywrightTimeoutError as exc:
             raise RuntimeError(
                 "Peer B upload timed out: " + compact(upload_status.inner_text())
             ) from exc
+        upload_result = compact(upload_status.inner_text())
         if upload_status.get_attribute("role") == "alert":
-            raise RuntimeError(
-                "Peer B upload failed: " + compact(upload_status.inner_text())
-            )
+            raise RuntimeError("Peer B upload failed: " + upload_result)
+        if not upload_result.startswith("Dateiimport abgeschlossen: 1 Datei(en),"):
+            raise RuntimeError("Peer B upload returned an unexpected status: " + upload_result)
+        # The async upload does not refresh the index listing itself.
         page_b.reload(wait_until="domcontentloaded")
         quick_search = page_b.locator("input[name='quick']")
         quick_search.fill(peer_b_filename)
@@ -596,5 +600,3 @@ def run_peer_to_peer(
         )
     finally:
         context_b.close()
-
-

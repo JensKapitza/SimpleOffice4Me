@@ -35,6 +35,7 @@ def test_legacy_setup_has_real_project_metadata_and_runtime_dependencies():
     assert ast.literal_eval(keywords["version"]) == "2.0.0"
     assert "argon2-cffi>=23.1,<26" in dependencies
     assert "Flask>=3.0,<4" in dependencies
-    assert "cryptography>=48.0.1,<51" in dependencies
+    assert "cryptography==48.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'" in dependencies
+    assert "cryptography>=48.0.1,<51; sys_platform != 'darwin' or platform_machine != 'x86_64'" in dependencies
     assert isinstance(keywords["install_requires"], ast.Name)
     assert keywords["install_requires"].id == "RUNTIME_DEPENDENCIES"
