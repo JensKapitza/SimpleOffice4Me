@@ -123,6 +123,10 @@ def configure_peer(
     form.locator("input[name='label']").fill(peer_label)
     form.locator("input[name='base_url']").fill(peer_docker_url)
     form.locator("input[name='token']").fill(peer_token)
+    for field in ("documents_send", "documents_receive", "documents_seed"):
+        control = form.locator(f"input[name='{field}']")
+        if control.is_checked() != allow_documents:
+            control.set_checked(allow_documents)
     advanced_policy = form.locator("details").filter(
         has=page.locator("textarea[name='policy_json']")
     ).first

@@ -227,7 +227,7 @@ Jeder Job besitzt Status, Fortschritt, Bytezaehler, Chunk-Bitmap, Fehlerliste un
 
 ## Metadaten-Synchronisation
 
-Kontakte, Kalender und Aufgaben verwenden weiterhin Manifest-/Cursor-Sync. Dokument-Metadaten und Blob-Transfer sind getrennt. Ein Ziel kann Metadaten annehmen, den Blob ablehnen oder nur bei Zugriff on-demand laden.
+Kontakte, Kalender und Aufgaben verwenden weiterhin Manifest-/Cursor-Sync. Dokument-Metadaten und Blob-Transfer sind getrennt. Ein Ziel kann Metadaten annehmen, den Blob ablehnen oder nur bei Zugriff on-demand laden. Der peergebundene Dokumentkatalog wird nur an aktiv konfigurierte Peers ausgegeben, deren lokale `documents.send`- und `documents.seed`-Policy dies erlaubt; eine explizit verweigerte oder ungültige Policy ergibt HTTP 403. Der identity-neutrale globale Bearer bleibt für Legacy-Clients kompatibel und kann daher keine per-Peer-Policy auswerten.
 
 `GET /federation/v1/changes/{resource}?after=<cursor>&limit=<n>` liefert Delta-Manifeste. `POST /federation/v1/need` beschreibt fehlende Metadaten/Blobs. `POST /federation/v1/ack` bestaetigt verarbeitete Sequenzen.
 

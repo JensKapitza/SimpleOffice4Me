@@ -11,7 +11,11 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore
 from .federation_core import normalize_sha256
-from .federation_peer_auth import authenticate as authenticate_peer
+from .federation_peer_auth import (
+    authenticate as authenticate_peer,
+    authenticated_peer,
+)
+from .federation_store import FederationStore
 from .v2.contracts import ErrorCode, LogicalObjectId
 from .v2.storage_runtime import storage_for
 
@@ -90,6 +94,27 @@ def _catalog_rows() -> list[dict]:
     return rows
 
 
+def _peer_can_receive_catalog(root: str | Path) -> bool:
+    """Apply the configured document-sharing policy to identified peers."""
+    peer_id = authenticated_peer(root, request)
+    if not peer_id:
+        # Identity-neutral legacy bearer access is retained for older peers.
+        return True
+    peer = FederationStore(root).get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        return False
+    policy = peer.get("policy")
+    if not isinstance(policy, dict) or "documents" not in policy:
+        return True
+    document_policy = policy.get("documents")
+    if not isinstance(document_policy, dict):
+        return False
+    return all(
+        document_policy.get(permission, True) is True
+        for permission in ("send", "seed")
+    )
+
+
 def _generation(rows: list[dict]) -> str:
     digest = hashlib.sha256()
     for row in rows:
@@ -104,6 +129,9 @@ def _generation(rows: list[dict]) -> str:
 
 @bp.get("/documents")
 def document_index():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not _peer_can_receive_catalog(root):
+        return jsonify({"error": "catalog_policy_denied"}), 403, {"Cache-Control": "no-store"}
     try:
         rows = _catalog_rows()
     except (OSError, RuntimeError, ValueError):
