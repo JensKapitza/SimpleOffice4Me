@@ -213,6 +213,27 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.assertEqual(403, response.status_code)
         print_label.assert_not_called()
 
+    def test_printer_configuration_exception_is_not_returned_to_client(self):
+        secret = "smb://admin:private-password@print-server/share"
+        with patch("app.library.routes._label_printer_configuration", side_effect=ValueError(secret)):
+            response = self._post([self.book_a["object_id"]])
+        self.assertEqual(503, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Etikettendrucker", response.json["error"])
+
+    def test_printer_transport_exception_is_not_exposed_in_api_or_history(self):
+        secret = "smb://admin:private-password@print-server/share"
+        library = Mock()
+        with patch("app.library.routes._store", return_value=library), \
+             patch("app.library.routes._label_printer_configuration", return_value=(None, {"backend": "brother"}, {"label": "62"})), \
+             patch("app.library.routes.render_barcode", return_value=object()), \
+             patch("app.library.routes._send_label_image", side_effect=OSError(secret)):
+            response = self._post([self.book_a["object_id"]])
+        self.assertEqual(502, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertEqual(1, library.record_print.call_count)
+        self.assertNotIn(secret, str(library.record_print.call_args))
+
     def test_partial_printer_failure_reports_irreversible_progress(self):
         with patch("app.library.routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
              patch("app.library.routes.render_barcode", return_value=object()), \
