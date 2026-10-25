@@ -34,7 +34,7 @@ jobs:
             artifact: linux
           - os: windows-latest
             artifact: windows
-          - os: macos-15-arm64
+          - os: macos-15
             artifact: macos-arm64
           - os: macos-15-intel
             artifact: macos-x64
