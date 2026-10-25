@@ -22,9 +22,11 @@ from .settings_store import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
@@ -40,6 +42,7 @@ from .settings_store import (
     MIN_VIDEO_PREVIEW_FRAMES,
     MIN_OSM_READ_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
+    MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
@@ -476,6 +479,8 @@ def integration_settings():
         integrations=integrations,
         osm_filter_timeout_min=MIN_OSM_FILTER_TIMEOUT_SECONDS,
         osm_filter_timeout_max=MAX_OSM_FILTER_TIMEOUT_SECONDS,
+        osm_export_idle_timeout_min=MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+        osm_export_idle_timeout_max=MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     )
 
 
@@ -655,9 +660,27 @@ def save_osm_settings():
                 raise ValueError(
                     "Der OSM-Filter-Timeout muss zwischen 3600 und 86400 Sekunden liegen."
                 )
+        export_idle_raw = request.form.get("osm_export_idle_timeout_seconds")
+        if reset_defaults and export_idle_raw is not None:
+            export_idle_timeout = DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
+        elif export_idle_raw is None:
+            export_idle_timeout = current["osm_export_idle_timeout_seconds"]
+        else:
+            if (
+                not export_idle_raw.isascii()
+                or not export_idle_raw.isdigit()
+                or len(export_idle_raw) > len(str(MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS))
+            ):
+                raise ValueError("Bitte einen ganzzahligen OSM-Export-Leerlauf-Timeout eingeben.")
+            export_idle_timeout = int(export_idle_raw)
+            if not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS <= export_idle_timeout <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS:
+                raise ValueError(
+                    "Der OSM-Export-Leerlauf-Timeout muss zwischen 300 und 86400 Sekunden liegen."
+                )
         integrations = {
             "osm_download_read_timeout_seconds": timeout,
             "osm_filter_timeout_seconds": filter_timeout,
+            "osm_export_idle_timeout_seconds": export_idle_timeout,
         }
         read_timeout_changed = (
             timeout != current["osm_download_read_timeout_seconds"]
@@ -665,8 +688,11 @@ def save_osm_settings():
         filter_timeout_changed = (
             filter_timeout != current["osm_filter_timeout_seconds"]
         )
+        export_idle_timeout_changed = (
+            export_idle_timeout != current["osm_export_idle_timeout_seconds"]
+        )
         store.save({"integrations": integrations}, str(g.user["username"]))
-        if read_timeout_changed or not filter_timeout_changed:
+        if read_timeout_changed or not (filter_timeout_changed or export_idle_timeout_changed):
             audit(
                 "osm_download_settings_updated",
                 "settings",
@@ -680,6 +706,15 @@ def save_osm_settings():
                 "settings",
                 "integrations.osm_filter_timeout_seconds",
                 detail={"osm_filter_timeout_seconds": filter_timeout,
+                        "reset_to_defaults": reset_defaults,
+                        "restart_required": False},
+            )
+        if export_idle_timeout_changed:
+            audit(
+                "osm_export_idle_timeout_updated",
+                "settings",
+                "integrations.osm_export_idle_timeout_seconds",
+                detail={"osm_export_idle_timeout_seconds": export_idle_timeout,
                         "reset_to_defaults": reset_defaults,
                         "restart_required": False},
             )

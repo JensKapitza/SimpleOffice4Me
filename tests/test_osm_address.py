@@ -10,10 +10,14 @@ from unittest.mock import MagicMock, Mock, patch
 from app.osm_address import LocalAddressIndex, _remote_total, field_suggestions, human_bytes, unique_candidate
 from app.settings_store import (
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
+    MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     SettingsStore,
 )
+from app.osm_address_build import _osm_export_idle_timeout
 
 
 class _Headers(dict):
@@ -184,7 +188,8 @@ class OsmAddressTests(unittest.TestCase):
             "1": MIN_OSM_FILTER_TIMEOUT_SECONDS,
             "90000": MAX_OSM_FILTER_TIMEOUT_SECONDS,
             "invalid": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-            "9" * 13: DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+            "9" * 13: MAX_OSM_FILTER_TIMEOUT_SECONDS,
+            "-" + "9" * 20: MIN_OSM_FILTER_TIMEOUT_SECONDS,
         }
         for raw, expected in expectations.items():
             with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
@@ -192,6 +197,34 @@ class OsmAddressTests(unittest.TestCase):
                     timeout = SettingsStore(root).settings()["integrations"][
                         "osm_filter_timeout_seconds"
                     ]
+                self.assertEqual(expected, timeout)
+
+    def test_legacy_osm_export_idle_timeout_is_migrated_and_bounded(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "2400"}):
+                self.assertEqual(
+                    2400,
+                    store.settings()["integrations"]["osm_export_idle_timeout_seconds"],
+                )
+                store.save({"network": {"webdav_quota_mib": 0}}, "osm-test-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "300"}):
+                self.assertEqual(
+                    2400,
+                    store.settings()["integrations"]["osm_export_idle_timeout_seconds"],
+                )
+
+        expectations = {
+            "1": MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+            "90000": MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+            "invalid": DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+            "9" * 13: MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+            "-" + "9" * 20: MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+        }
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": raw}):
+                    timeout = _osm_export_idle_timeout(root)
                 self.assertEqual(expected, timeout)
 
     def test_download_uses_persisted_osm_read_timeout(self):
@@ -386,7 +419,10 @@ class OsmAddressTests(unittest.TestCase):
             source = index.data_dir / "test-latest.osm.pbf"
             source.write_bytes(b"extract")
             SettingsStore(root).save(
-                {"integrations": {"osm_filter_timeout_seconds": 7200}},
+                {"integrations": {
+                    "osm_filter_timeout_seconds": 7200,
+                    "osm_export_idle_timeout_seconds": 2400,
+                }},
                 "osm-test-admin",
             )
             process = Mock()
@@ -394,7 +430,17 @@ class OsmAddressTests(unittest.TestCase):
             process.wait.return_value = 0
             process.poll.return_value = 0
             process.args = ["osmium", "export"]
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "3600"}), \
+            export_timeouts = []
+            def read_export_timeout(build_root):
+                timeout = _osm_export_idle_timeout(build_root)
+                export_timeouts.append(timeout)
+                return timeout
+
+            with patch.dict(os.environ, {
+                "SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "3600",
+                "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "300",
+            }), \
+                 patch("app.osm_address_build._osm_export_idle_timeout", side_effect=read_export_timeout), \
                  patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
                  patch("app.osm_address.subprocess.run") as run, \
                  patch("app.osm_address.subprocess.Popen", return_value=process) as popen:
@@ -407,21 +453,15 @@ class OsmAddressTests(unittest.TestCase):
             self.assertIn("--remove-tags", run.call_args.args[0])
             self.assertEqual("pbf", run.call_args.args[0][run.call_args.args[0].index("-f") + 1])
             self.assertEqual(7200, run.call_args.kwargs["timeout"])
+            self.assertEqual([2400], export_timeouts)
 
-    def test_invalid_export_timeout_does_not_start_osmium_process(self):
+    def test_invalid_legacy_export_idle_timeout_uses_default(self):
         with tempfile.TemporaryDirectory() as root:
-            index = LocalAddressIndex(Path(root))
-            index.data_dir.mkdir(parents=True)
-            source = index.data_dir / "test-latest.osm.pbf"
-            source.write_bytes(b"extract")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "invalid"}), \
-                 patch("app.osm_address.shutil.which", return_value="/usr/bin/osmium"), \
-                 patch("app.osm_address.subprocess.run") as run, \
-                 patch("app.osm_address.subprocess.Popen") as popen:
-                run.side_effect = lambda command, **_: Path(command[command.index("-o") + 1]).write_bytes(b"filtered")
-                with self.assertRaisesRegex(ValueError, "invalid OSM export idle timeout"):
-                    index.build(source)
-            popen.assert_not_called()
+            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "invalid"}):
+                self.assertEqual(
+                    DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+                    _osm_export_idle_timeout(root),
+                )
 
     def test_city_reindex_filters_and_replaces_only_selected_city(self):
         with tempfile.TemporaryDirectory() as root:

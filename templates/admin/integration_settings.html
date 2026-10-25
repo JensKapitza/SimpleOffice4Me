@@ -31,6 +31,11 @@
           <input class="form-control" id="osm-filter-timeout" type="number" name="osm_filter_timeout_seconds" value="{{ integrations.osm_filter_timeout_seconds }}" min="{{ osm_filter_timeout_min }}" max="{{ osm_filter_timeout_max }}" step="1" required>
           <div class="form-text">Standard: 21.600 Sekunden (6 Stunden). Zulässig: 3.600–86.400 Sekunden. Begrenzt nur <code>osmium tags-filter</code>; bei Timeout bleibt der Index nicht als fertig markiert. Gilt für neue Filterläufe ohne Neustart. <code>SIMPLEOFFICE_OSM_FILTER_TIMEOUT</code> dient bis zum Speichern als Legacy-Startwert.</div>
         </div>
+        <div class="col-md-7">
+          <label class="form-label" for="osm-export-idle-timeout">Export-Leerlauf-Timeout (Sekunden)</label>
+          <input class="form-control" id="osm-export-idle-timeout" type="number" name="osm_export_idle_timeout_seconds" value="{{ integrations.osm_export_idle_timeout_seconds }}" min="{{ osm_export_idle_timeout_min }}" max="{{ osm_export_idle_timeout_max }}" step="1" required>
+          <div class="form-text">Standard: 1.800 Sekunden. Zulässig: 300–86.400 Sekunden. Beendet <code>osmium export</code> erst nach so langer Zeit ohne Ausgabedaten; laufende Daten setzen den Leerlauf zurück. Gilt für neue Exportläufe ohne Neustart. <code>SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT</code> dient bis zum Speichern als Legacy-Startwert.</div>
+        </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">Einstellung speichern</button>
           <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>

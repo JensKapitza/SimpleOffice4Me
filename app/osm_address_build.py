@@ -18,6 +18,14 @@ from typing import Any, Callable
 from .document_store import utc_now
 
 
+def _osm_export_idle_timeout(root: str | Path) -> int:
+    from .settings_store import SettingsStore
+
+    return SettingsStore(root).settings()["integrations"][
+        "osm_export_idle_timeout_seconds"
+    ]
+
+
 def build_index(
     index: Any,
     source: str | Path,
@@ -229,11 +237,7 @@ def build_index(
         with self.export_log_path.open("a+", encoding="utf-8") as stderr_log:
             stderr_log.write(f"\n[{utc_now()}] export start resume_after={resumed_at}\n")
             stderr_log.flush()
-            try:
-                idle_timeout = int(os.environ.get("SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT", "1800"))
-            except ValueError as exc:
-                raise ValueError("invalid OSM export idle timeout") from exc
-            idle_timeout = max(300, min(idle_timeout, 86400))
+            idle_timeout = _osm_export_idle_timeout(self.root)
             process = subprocess.Popen(
                 [osmium, "export", str(filtered), "-f", "geojsonseq", "--attributes=type,id", "--no-progress"],
                 stdout=subprocess.PIPE, stderr=stderr_log, text=True, encoding="utf-8",
