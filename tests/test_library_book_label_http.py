@@ -97,6 +97,18 @@ class BookLabelHttpContractTest(unittest.TestCase):
         self.assertEqual({"ok": True, "printed": 1, "total": 1}, response.json)
         print_label.assert_called_once()
 
+    def test_printer_selection_failure_does_not_expose_exception_details(self):
+        secret = "internal-printer-token-and-device-path"
+        with patch(
+            "app.library.routes._label_printer_configuration",
+            side_effect=ValueError(secret),
+        ):
+            response = self._post([self.book_a["object_id"]])
+        self.assertEqual(503, response.status_code)
+        self.assertFalse(response.json["ok"])
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Druckerrichtlinie", response.json["error"])
+
     def test_qr_label_print_uses_the_selected_book_reference(self):
         with patch("app.library.routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
              patch("app.library.routes.print_image", return_value=128):
