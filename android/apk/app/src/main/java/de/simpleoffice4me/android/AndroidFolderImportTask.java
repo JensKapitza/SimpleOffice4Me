@@ -149,10 +149,7 @@ final class AndroidFolderImportTask implements Runnable {
                 notifyListener("scanning", 0, 0, "Ordner und Dateigrößen werden geprüft …");
                 preparedUpload = prepareUpload();
                 checkCancelled();
-                // Preview is actionable immediately; do not reject a quick confirmation as busy.
-                synchronized (this) { running = false; }
-                notifyListener("preview", preparedUpload.files.size(), preparedUpload.files.size(),
-                        preparedUpload.previewMessage);
+                // Publish the actionable preview only after run() has released its running state.
                 return;
             }
             if (!confirmed) return;
@@ -220,6 +217,10 @@ final class AndroidFolderImportTask implements Runnable {
             HttpURLConnection active = connection;
             if (active != null) active.disconnect();
             if (terminal) releaseOwnedGrants();
+            if (!terminal && preparedUpload != null && !confirmed && !cancelled) {
+                notifyListener("preview", preparedUpload.files.size(), preparedUpload.files.size(),
+                        preparedUpload.previewMessage);
+            }
         }
     }
 
