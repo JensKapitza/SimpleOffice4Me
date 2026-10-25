@@ -47,6 +47,11 @@ privaten WebDAV-Quarantäne. Der Wert wird auf 1 bis 65.536 MiB begrenzt; der
 Standard ist 1.024 MiB. Die normale Upload-Grenze
 `SIMPLEOFFICE_MAX_UPLOAD_MIB` gilt zusätzlich.
 
+Das ClamAV-Zeitlimit lässt sich persistent unter **Admin → Einstellungen →
+Integrationen & Dienste → ClamAV-Sicherheitsprüfung** verwalten. Der hier
+angegebene `SIMPLEOFFICE_CLAMAV_TIMEOUT`-Wert wird als Legacy-Startwert
+übernommen, bis ein Administrator einen persistenten Wert speichert.
+
 `SIMPLEOFFICE_CLAMAV_SCANNER` darf ausschließlich auf einen absoluten Pfad zu
 `clamdscan` oder `clamscan` zeigen. Ohne Vorgabe wird zuerst `clamdscan`, dann
 `clamscan` im `PATH` gesucht. `clamdscan` ist für wiederholte Desktop-Speicher-

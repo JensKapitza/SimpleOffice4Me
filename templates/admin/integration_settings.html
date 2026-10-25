@@ -33,5 +33,23 @@
       </form>
     </div>
   </section>
+  <section class="card mt-3">
+    <div class="card-header"><strong>ClamAV-Sicherheitsprüfung</strong></div>
+    <div class="card-body">
+      <p>Begrenzt die Laufzeit einer einzelnen Virenprüfung bei EML-Anhängen, Mail-Downloads und aktivierter WebDAV-Prüfung. Der Wert gilt für neu gestartete Prüfungen. <code>SIMPLEOFFICE_CLAMAV_TIMEOUT</code> wird nur verwendet, solange noch kein persistierter Wert gespeichert wurde.</p>
+      <form method="post" action="{{ url_for('admin.save_clamav_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="clamav-timeout">Prüfzeitlimit (Sekunden)</label>
+          <input class="form-control" id="clamav-timeout" type="number" name="clamav_timeout_seconds" value="{{ integrations.clamav_timeout_seconds }}" min="5" max="900" step="1" required>
+          <div class="form-text">Standard: 120 Sekunden. Zulässig: 5–900 Sekunden.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
 </main>
 {% endblock %}

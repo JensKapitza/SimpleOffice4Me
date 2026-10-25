@@ -74,6 +74,12 @@ gilt für neu gestartete Downloads und hat Vorrang vor
 `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`. Der Environment-Wert wird nur
 verwendet, solange noch keine persistierte OSM-Einstellung vorliegt.
 
+Das ClamAV-Zeitlimit ist im Administrationsbereich **Integrationen & Dienste**
+unter **ClamAV-Sicherheitsprüfung** persistent konfigurierbar. Der gespeicherte
+Wert gilt für neu gestartete Prüfungen und hat Vorrang vor
+`SIMPLEOFFICE_CLAMAV_TIMEOUT`; der Environment-Wert dient nur der Migration,
+solange keine persistierte Einstellung existiert.
+
 ### Zugangsdaten, Geräte und Betriebsmetadaten
 
 - `SIMPLEOFFICE_ANDROID_ACCOUNT` bezeichnet die lokale Android-Identität.
@@ -149,7 +155,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_BUILD_REVISION` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [chat_routes.py](../app/chat_routes.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_CLAMAV_SCANNER` | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
-| `SIMPLEOFFICE_CLAMAV_TIMEOUT` | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
+| `SIMPLEOFFICE_CLAMAV_TIMEOUT` | `120`, effektiv 5–900 | Legacy-Startwert bis `integrations.clamav_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird; [ClamAV-Anhänge](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CONTAINER_ROLE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DATALOGGER` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS` (Legacy-Import) | [datalogger_store.py](../app/datalogger_store.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md); bevorzugt über Datenlogger → Worker-Einstellungen konfigurieren |

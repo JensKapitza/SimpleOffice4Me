@@ -55,7 +55,9 @@ Administratorrechte.
 
 - `SIMPLEOFFICE_SECURITY_ADMINS=alice,bob`: Benutzer für Serverprüfung und Signaturupdate; ohne Wert gibt es keinen Web-Administrator.
 - `SIMPLEOFFICE_CLAMAV_SCANNER=/usr/bin/clamdscan`: optionaler absoluter Pfad; nur `clamdscan` oder `clamscan` werden akzeptiert.
-- `SIMPLEOFFICE_CLAMAV_TIMEOUT=120`: Zeitlimit, intern auf 5 bis 900 Sekunden begrenzt.
+- `SIMPLEOFFICE_CLAMAV_TIMEOUT=120`: Legacy-Startwert, effektiv 5 bis 900 Sekunden; wird nur verwendet, solange kein persistierter Adminwert existiert.
+
+Das Prüfzeitlimit kann unter **Admin → Einstellungen → Integrationen & Dienste → ClamAV-Sicherheitsprüfung** geändert und zurückgesetzt werden. Änderungen gelten für neu gestartete Prüfungen; ein Dienstneustart ist nicht erforderlich. Der gespeicherte Wert hat Vorrang vor `SIMPLEOFFICE_CLAMAV_TIMEOUT`.
 
 `clamscan` funktioniert ohne Daemon, `clamdscan` ist bei vielen Dateien schneller. Vor `clamd` muss eine Signaturdatenbank vorhanden sein. Der ClamAV-TCP-Socket besitzt keine eigene Authentifizierung und darf nicht ins Internet veröffentlicht werden; ein lokaler Unix-Socket ist vorzuziehen. Programme laufen mit festen Argumentlisten ohne Shell. Der Dienstbenutzer braucht Leserechte auf Dokumente und Schreibrechte auf `.simpleoffice-meta/quarantine`.
 

@@ -35,6 +35,9 @@ MAX_PREVIEW_MAX_PIXELS = 250_000_000
 DEFAULT_OSM_READ_TIMEOUT_SECONDS = 300
 MIN_OSM_READ_TIMEOUT_SECONDS = 30
 MAX_OSM_READ_TIMEOUT_SECONDS = 3600
+DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
+MIN_CLAMAV_TIMEOUT_SECONDS = 5
+MAX_CLAMAV_TIMEOUT_SECONDS = 900
 
 
 @contextmanager
@@ -77,7 +80,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
         "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
     },
-    "integrations": {"osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS},
+    "integrations": {
+        "osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+        "clamav_timeout_seconds": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    },
 }
 
 TRANSLATIONS = {
@@ -388,6 +394,13 @@ class SettingsStore:
             result["integrations"]["osm_download_read_timeout_seconds"] = (
                 self._legacy_osm_read_timeout()
             )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "clamav_timeout_seconds" not in stored_integrations
+        ):
+            result["integrations"]["clamav_timeout_seconds"] = (
+                self._legacy_clamav_timeout()
+            )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
         )
@@ -435,6 +448,25 @@ class SettingsStore:
         return value
 
     @staticmethod
+    def _legacy_clamav_timeout() -> int:
+        """Migrate and bound the former environment-only scanner timeout."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_CLAMAV_TIMEOUT", str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 12 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy ClamAV timeout; using the default")
+            return DEFAULT_CLAMAV_TIMEOUT_SECONDS
+        value = int(raw)
+        if not MIN_CLAMAV_TIMEOUT_SECONDS <= value <= MAX_CLAMAV_TIMEOUT_SECONDS:
+            _LOGGER.warning("Legacy ClamAV timeout outside range; clamping to supported limits")
+            return max(
+                MIN_CLAMAV_TIMEOUT_SECONDS,
+                min(MAX_CLAMAV_TIMEOUT_SECONDS, value),
+            )
+        return value
+
+    @staticmethod
     def _normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
         timeout = integrations.get(
             "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
@@ -446,7 +478,20 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored OSM read timeout; using the default")
             timeout = DEFAULT_OSM_READ_TIMEOUT_SECONDS
-        return {"osm_download_read_timeout_seconds": timeout}
+        clamav_timeout = integrations.get(
+            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(clamav_timeout, bool)
+            or not isinstance(clamav_timeout, int)
+            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
+        ):
+            _LOGGER.warning("Invalid stored ClamAV timeout; using the default")
+            clamav_timeout = DEFAULT_CLAMAV_TIMEOUT_SECONDS
+        return {
+            "osm_download_read_timeout_seconds": timeout,
+            "clamav_timeout_seconds": clamav_timeout,
+        }
 
     def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
@@ -578,6 +623,15 @@ class SettingsStore:
             or not MIN_OSM_READ_TIMEOUT_SECONDS <= osm_read_timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
         ):
             raise ValueError("OSM read timeout must be between 30 and 3600 seconds")
+        clamav_timeout = integrations.get(
+            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(clamav_timeout, bool)
+            or not isinstance(clamav_timeout, int)
+            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
+        ):
+            raise ValueError("ClamAV timeout must be between 5 and 900 seconds")
         video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
         if (
             isinstance(video_preview_frames, bool)
@@ -649,5 +703,6 @@ class SettingsStore:
             },
             "integrations": {
                 "osm_download_read_timeout_seconds": osm_read_timeout,
+                "clamav_timeout_seconds": clamav_timeout,
             },
         }

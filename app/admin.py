@@ -19,7 +19,9 @@ from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .settings_store import (
     DEFAULT_SETTINGS,
+    DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PREVIEW_MAX_BYTES,
     MAX_PREVIEW_MAX_PIXELS,
     MAX_PREVIEW_TIMEOUT_SECONDS,
@@ -30,6 +32,7 @@ from .settings_store import (
     MIN_PREVIEW_TIMEOUT_SECONDS,
     MIN_VIDEO_PREVIEW_FRAMES,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_CLAMAV_TIMEOUT_SECONDS,
     SettingsStore,
 )
 from .system_identity import system_info
@@ -529,6 +532,46 @@ def save_osm_settings():
     except OSError as exc:
         current_app.logger.warning("OSM settings save failed: %s", type(exc).__name__)
         flash("OSM-Download-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/clamav")
+@admin_required
+def save_clamav_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        raw = str(DEFAULT_CLAMAV_TIMEOUT_SECONDS)
+        if not reset_defaults:
+            raw = request.form.get("clamav_timeout_seconds", "")
+        if (
+            not raw.isascii()
+            or not raw.isdigit()
+            or len(raw) > len(str(MAX_CLAMAV_TIMEOUT_SECONDS))
+        ):
+            raise ValueError("Bitte ein ganzzahliges ClamAV-Zeitlimit eingeben.")
+        timeout = int(raw)
+        if not MIN_CLAMAV_TIMEOUT_SECONDS <= timeout <= MAX_CLAMAV_TIMEOUT_SECONDS:
+            raise ValueError("Das ClamAV-Zeitlimit muss zwischen 5 und 900 Sekunden liegen.")
+        integrations = {"clamav_timeout_seconds": timeout}
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"integrations": integrations}, str(g.user["username"]),
+        )
+        audit(
+            "clamav_settings_updated",
+            "settings",
+            "integrations.clamav_timeout_seconds",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "ClamAV-Einstellungen auf Standard zurückgesetzt."
+            if reset_defaults else "ClamAV-Einstellungen gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("ClamAV setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("ClamAV settings save failed: %s", type(exc).__name__)
+        flash("ClamAV-Einstellungen konnten nicht gespeichert werden.")
     return redirect(url_for("admin.integration_settings"))
 
 
