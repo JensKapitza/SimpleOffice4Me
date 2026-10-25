@@ -251,7 +251,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_RSYNC_ENABLED` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_RSYNC_MAX_BYTES` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_MAX_FILES` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
-| `SIMPLEOFFICE_RSYNC_TIMEOUT` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_RSYNC_TIMEOUT` | `3600`, effektiv 30–86400 | Legacy-Startwert bis `network.rsync_timeout_seconds` unter `/admin/settings/network` gespeichert wird; [Rsync-Sitzungen](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RUN_XRECHNUNG_INTEGRATION` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_S3_MAX_STAGING_MIB` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |

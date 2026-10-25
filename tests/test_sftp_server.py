@@ -1,13 +1,16 @@
+import io
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import socket
 import threading
 
 from app.document_store import DocumentStore
+from app.settings_store import SettingsStore
 from app.virtual_filesystem import VirtualFileSystem
 
 try:
@@ -211,6 +214,72 @@ class SftpVirtualFilesystemTest(unittest.TestCase):
             DocumentStore(self.root).get_document(self.root / "shared" / "notes.txt")["document_id"]
         )
         self.assertTrue(versions)
+
+    def test_rsync_session_uses_persisted_timeout_over_legacy_environment(self):
+        from flask import Flask
+
+        SettingsStore(self.root).save(
+            {"network": {"rsync_timeout_seconds": 480}}, "admin",
+        )
+        server = SimpleNamespace(
+            vfs=self.vfs, username="reader", identity={"scope": "read"},
+            app=Flask(__name__),
+        )
+        request = parse_rsync_command(
+            "rsync --server --sender -logDtpre.iLsfxCIvu . /shared/",
+        )
+        with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": "7200"}):
+            session = RestrictedRsyncSession(server, SimpleNamespace(), request)
+        self.assertEqual(480, session.timeout)
+
+    def test_rsync_timeout_terminates_then_kills_child_before_staging_cleanup(self):
+        from flask import Flask
+
+        class TimedOutChild:
+            def __init__(self):
+                self.pid = 12345
+                self.returncode = None
+                self.terminated = False
+                self.killed = False
+                self.stdin = io.BytesIO()
+                self.stdout = io.BytesIO()
+                self.stderr = io.BytesIO()
+
+            def poll(self):
+                return self.returncode
+
+            def wait(self, timeout=None):
+                if self.returncode is None:
+                    raise subprocess.TimeoutExpired(["rsync"], timeout)
+                return self.returncode
+
+            def terminate(self):
+                self.terminated = True
+
+            def kill(self):
+                self.killed = True
+                self.returncode = -9
+
+        server = SimpleNamespace(
+            vfs=self.vfs, username="reader", identity={"scope": "read"},
+            app=Flask(__name__),
+        )
+        request = parse_rsync_command(
+            "rsync --server --sender -logDtpre.iLsfxCIvu . /shared/",
+        )
+        channel = Mock()
+        channel.recv.return_value = b""
+        process = TimedOutChild()
+        session = RestrictedRsyncSession(server, channel, request)
+        with patch.object(session, "_materialize", return_value={}), patch(
+            "app.rsync_server.shutil.which", return_value="/usr/bin/rsync",
+        ), patch("app.rsync_server.subprocess.Popen", return_value=process):
+            session.run()
+
+        self.assertTrue(process.terminated)
+        self.assertTrue(process.killed)
+        channel.send_exit_status.assert_called_once_with(1)
+        channel.close.assert_called_once()
 
     def test_rsync_receiver_is_denied_for_read_only_key(self):
         from flask import Flask
