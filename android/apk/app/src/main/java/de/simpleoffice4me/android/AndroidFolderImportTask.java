@@ -41,9 +41,7 @@ final class AndroidFolderImportTask implements Runnable {
     private static final String LOCAL_URL = "http://127.0.0.1:8765/";
     private static final String UPLOAD_URL = LOCAL_URL + "documents/upload";
     static final int MAX_TREES = 20;
-    private static final int MAX_FILES = 1000;
     private static final int MAX_DEPTH = 64;
-    private static final int MAX_TREE_ENTRIES = 10000;
     private static final int MAX_PATH_BYTES = 4096;
     private static final int MAX_MANIFEST_BYTES = 400000;
     private static final int MAX_SOURCE_IDS_BYTES = 100000;
@@ -308,9 +306,6 @@ final class AndroidFolderImportTask implements Runnable {
             int mimeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);
             int sizeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE);
             while (cursor.moveToNext()) {
-                if (++entryCount[0] > MAX_TREE_ENTRIES) {
-                    throw new ImportFailure("Der Ordner enthält zu viele Einträge.");
-                }
                 String childId = cursor.getString(idColumn);
                 String name = validateSegment(cursor.getString(nameColumn));
                 String mime = cursor.getString(mimeColumn);
@@ -342,9 +337,6 @@ final class AndroidFolderImportTask implements Runnable {
             }
             if (child.size < 0) {
                 throw new ImportFailure("Android kann die Größe einer Datei nicht bestimmen. Bitte einen anderen Ordneranbieter verwenden.");
-            }
-            if (result.size() >= MAX_FILES) {
-                throw new ImportFailure("Maximal 1000 Dateien pro Importvorgang auswählen.");
             }
             result.add(new Entry(
                     DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId),
