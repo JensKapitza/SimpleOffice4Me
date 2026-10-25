@@ -57,7 +57,13 @@ def upload():
         if supplied_import_id and (len(supplied_import_id) != 32 or any(char not in "0123456789abcdef" for char in supplied_import_id)):
             flash("Ungültige Importkennung.")
             return redirect(url_for("documents.index"))
-        import_id = supplied_import_id or uuid4().hex
+        # Bind client batch IDs to the authenticated actor and server secret.
+        # A caller must not be able to select another user's or an old import directory.
+        if supplied_import_id:
+            namespace = uuid5(UUID(int=0), str(current_app.secret_key))
+            import_id = uuid5(namespace, str(g.user["username"]) + ":" + supplied_import_id).hex
+        else:
+            import_id = uuid4().hex
         import_root = "imports/" + import_id
     stored = 0
     actor = str(g.user["username"])
@@ -157,6 +163,10 @@ def upload():
             flash(f"{item.filename}: {exc}")
     if stored:
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
+    if folder_import and request.form.get("import_id"):
+        if stored != len(files):
+            return jsonify({"ok": False, "stored": stored, "expected": len(files)}), 409
+        return jsonify({"ok": True, "stored": stored}), 200
     return redirect(url_for("documents.index"))
 
 @bp.route("/<document_id>")
