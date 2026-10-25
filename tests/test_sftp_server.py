@@ -215,11 +215,30 @@ class SftpVirtualFilesystemTest(unittest.TestCase):
         )
         self.assertTrue(versions)
 
+    def test_rsync_size_limit_checks_entry_size_before_reading_file(self):
+        from flask import Flask
+
+        server = SimpleNamespace(
+            vfs=self.vfs, username="editor", identity={"scope": "read"},
+            app=Flask(__name__),
+        )
+        request = parse_rsync_command(
+            "rsync --server --sender -logDtpre.iLsfxCIvu . /shared/",
+        )
+        session = RestrictedRsyncSession(server, SimpleNamespace(), request)
+        session.max_bytes = 2
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            self.vfs, "read_bytes", wraps=self.vfs.read_bytes,
+        ) as read_bytes:
+            with self.assertRaisesRegex(RuntimeError, "staging limit"):
+                session._materialize("/shared", Path(temporary))
+        read_bytes.assert_not_called()
+
     def test_rsync_session_uses_persisted_timeout_over_legacy_environment(self):
         from flask import Flask
 
         SettingsStore(self.root).save(
-            {"network": {"rsync_timeout_seconds": 480}}, "admin",
+            {"network": {"rsync_timeout_seconds": 480, "rsync_max_bytes": 512 * 1024 * 1024}}, "admin",
         )
         server = SimpleNamespace(
             vfs=self.vfs, username="reader", identity={"scope": "read"},
@@ -228,9 +247,13 @@ class SftpVirtualFilesystemTest(unittest.TestCase):
         request = parse_rsync_command(
             "rsync --server --sender -logDtpre.iLsfxCIvu . /shared/",
         )
-        with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": "7200"}):
+        with patch.dict(os.environ, {
+            "SIMPLEOFFICE_RSYNC_TIMEOUT": "7200",
+            "SIMPLEOFFICE_RSYNC_MAX_BYTES": str(2 * 1024 * 1024 * 1024),
+        }):
             session = RestrictedRsyncSession(server, SimpleNamespace(), request)
         self.assertEqual(480, session.timeout)
+        self.assertEqual(512 * 1024 * 1024, session.max_bytes)
 
     def test_rsync_timeout_terminates_then_kills_child_before_staging_cleanup(self):
         from flask import Flask

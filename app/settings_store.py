@@ -13,7 +13,13 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
-from .settings_limits import DEFAULT_WEBDAV_QUOTA_MIB, MAX_WEBDAV_QUOTA_MIB
+from .settings_limits import (
+    DEFAULT_RSYNC_MAX_BYTES,
+    DEFAULT_WEBDAV_QUOTA_MIB,
+    MAX_RSYNC_MAX_BYTES,
+    MAX_WEBDAV_QUOTA_MIB,
+    MIN_RSYNC_MAX_BYTES,
+)
 
 
 _SETTINGS_LOCK = threading.RLock()
@@ -93,6 +99,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "network": {
         "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
         "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
+        "rsync_max_bytes": DEFAULT_RSYNC_MAX_BYTES,
     },
     "media": {
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
@@ -408,6 +415,8 @@ class SettingsStore:
             result["network"]["webdav_quota_mib"] = self._legacy_webdav_quota()
         if not isinstance(stored_network, dict) or "rsync_timeout_seconds" not in stored_network:
             result["network"]["rsync_timeout_seconds"] = self._legacy_rsync_timeout()
+        if not isinstance(stored_network, dict) or "rsync_max_bytes" not in stored_network:
+            result["network"]["rsync_max_bytes"] = self._legacy_rsync_max_bytes()
         result["network"] = self._normalize_network_settings(result["network"])
         stored_integrations = stored.get("integrations") if isinstance(stored, dict) else None
         if (
@@ -458,9 +467,18 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored rsync timeout; using the default")
             rsync_timeout = DEFAULT_RSYNC_TIMEOUT_SECONDS
+        rsync_max_bytes = network.get("rsync_max_bytes", DEFAULT_RSYNC_MAX_BYTES)
+        if (
+            isinstance(rsync_max_bytes, bool)
+            or not isinstance(rsync_max_bytes, int)
+            or not MIN_RSYNC_MAX_BYTES <= rsync_max_bytes <= MAX_RSYNC_MAX_BYTES
+        ):
+            _LOGGER.warning("Invalid stored rsync size limit; using the default")
+            rsync_max_bytes = DEFAULT_RSYNC_MAX_BYTES
         return {
             "webdav_quota_mib": quota,
             "rsync_timeout_seconds": rsync_timeout,
+            "rsync_max_bytes": rsync_max_bytes,
         }
 
     @staticmethod
@@ -477,6 +495,22 @@ class SettingsStore:
         if not MIN_RSYNC_TIMEOUT_SECONDS <= value <= MAX_RSYNC_TIMEOUT_SECONDS:
             _LOGGER.warning("Legacy rsync timeout outside range; clamping to supported limits")
             return max(MIN_RSYNC_TIMEOUT_SECONDS, min(MAX_RSYNC_TIMEOUT_SECONDS, value))
+        return value
+
+    @staticmethod
+    def _legacy_rsync_max_bytes() -> int:
+        """Read and bound the legacy rsync size limit until it is saved."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_RSYNC_MAX_BYTES", str(DEFAULT_RSYNC_MAX_BYTES),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 20 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy rsync size limit; using the default")
+            return DEFAULT_RSYNC_MAX_BYTES
+        value = int(raw)
+        if not MIN_RSYNC_MAX_BYTES <= value <= MAX_RSYNC_MAX_BYTES:
+            _LOGGER.warning("Legacy rsync size limit outside range; clamping to supported limits")
+            return max(MIN_RSYNC_MAX_BYTES, min(MAX_RSYNC_MAX_BYTES, value))
         return value
 
     @staticmethod
@@ -674,6 +708,13 @@ class SettingsStore:
             or not MIN_RSYNC_TIMEOUT_SECONDS <= rsync_timeout <= MAX_RSYNC_TIMEOUT_SECONDS
         ):
             raise ValueError("rsync timeout must be between 30 and 86,400 seconds")
+        rsync_max_bytes = network.get("rsync_max_bytes", DEFAULT_RSYNC_MAX_BYTES)
+        if (
+            isinstance(rsync_max_bytes, bool)
+            or not isinstance(rsync_max_bytes, int)
+            or not MIN_RSYNC_MAX_BYTES <= rsync_max_bytes <= MAX_RSYNC_MAX_BYTES
+        ):
+            raise ValueError("rsync size limit must be between 1 MiB and 2 GiB")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
@@ -796,6 +837,7 @@ class SettingsStore:
             "network": {
                 "webdav_quota_mib": webdav_quota,
                 "rsync_timeout_seconds": rsync_timeout,
+                "rsync_max_bytes": rsync_max_bytes,
             },
             "media": {
                 "video_preview_frames": video_preview_frames,

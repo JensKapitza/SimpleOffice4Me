@@ -249,7 +249,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_` | [resource_peer_credentials.py](../app/resource_peer_credentials.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_RESTORE_ROOT` | [replication_store.py](../app/replication_store.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_RSYNC_ENABLED` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
-| `SIMPLEOFFICE_RSYNC_MAX_BYTES` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_RSYNC_MAX_BYTES` | Legacy-Startwert bis `network.rsync_max_bytes` unter `/admin/settings/network` gespeichert wird | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_MAX_FILES` | [rsync_server.py](../app/rsync_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_TIMEOUT` | `3600`, effektiv 30–86400 | Legacy-Startwert bis `network.rsync_timeout_seconds` unter `/admin/settings/network` gespeichert wird; [Rsync-Sitzungen](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RUN_XRECHNUNG_INTEGRATION` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
