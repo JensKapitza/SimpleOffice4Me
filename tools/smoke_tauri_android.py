@@ -46,7 +46,16 @@ def main():
             if match is not None:
                 return match
             time.sleep(0.5)
-        raise AssertionError(f'Expected public Android UI state was not displayed; last accessibility error: {last_error}')
+        visible = []
+        try:
+            visible = [(item.get('class'), item.get('text'), item.get('content-desc'))
+                       for item in nodes() if item.get('text') or item.get('content-desc')]
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError) as error:
+            last_error = error
+        raise AssertionError(
+            f'Expected public Android UI state was not displayed; '
+            f'last accessibility error: {last_error}; visible nodes: {visible[:40]}'
+        )
 
     def has_text(expected):
         return lambda item: expected in (item.get('text', '') + ' ' + item.get('content-desc', ''))
