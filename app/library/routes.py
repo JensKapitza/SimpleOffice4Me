@@ -508,8 +508,9 @@ def print_book_labels():
             library.record_print(
                 _actor(), kind="book-label", status="failed",
                 summary=str(item.get("display_id") or item["object_id"]),
-                error=str(exc),
+                error="Etikettendruck fehlgeschlagen; Details im geschützten Serverprotokoll.",
             )
+            logger.exception("Book-label print failed after %d of %d labels", printed, len(items))
             return jsonify({
                 "ok": False,
                 "printed": printed,
