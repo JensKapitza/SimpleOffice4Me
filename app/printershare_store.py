@@ -300,7 +300,6 @@ class PrinterShareStore:
         self.retained = self.control / "printershare-retained"
         self.secret_key = str(secret_key)
         self._initialize()
-        self._migrate_legacy_brother_profile()
 
     def _initialize(self) -> None:
         self.control.mkdir(parents=True, exist_ok=True)
@@ -401,6 +400,7 @@ class PrinterShareStore:
                 atomic_json_write(self.settings_path, data)
 
     def brother_profile(self) -> dict[str, Any]:
+        self._migrate_legacy_brother_profile()
         return dict(self.settings()["brother_profile"])
 
     def set_brother_profile(self, values: dict[str, Any]) -> dict[str, Any]:
