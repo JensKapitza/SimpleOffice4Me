@@ -140,6 +140,51 @@ class FinanceFinTSTests(unittest.TestCase):
         self.assertTrue(all(tx["state"] == "already_imported" for tx in second["accounts"][0]["transactions"]))
         self.assertEqual(2, len(self.store.bank_transactions(self.account["account_id"], "jens")))
 
+    @patch("app.finance_fints_retry.time.sleep")
+    @patch("app.finance_fints_retry.is_retryable_transport_error", return_value=True)
+    @patch("app.finance_fints_sync.fetch_transactions")
+    def test_fresh_read_retries_transient_transport_error_before_import(
+        self, fetch, is_retryable, sleep,
+    ):
+        fetch.side_effect = [ConnectionResetError("temporary disconnect"), []]
+
+        result = FinTSSyncService(self.store).sync_connection(
+            self.connection["connection_id"], "temporary-pin", "jens",
+            today=date(2026, 9, 18),
+        )
+
+        self.assertEqual(2, fetch.call_count)
+        self.assertEqual(1, is_retryable.call_count)
+        sleep.assert_called_once()
+        self.assertEqual(0, result["fetched"])
+        self.assertEqual("connected", self.store.bank_connection(
+            self.connection["connection_id"], "jens",
+        )["status"])
+
+    @patch("app.finance_fints_retry.is_retryable_transport_error", return_value=True)
+    @patch("app.finance_fints_sync.fetch_transactions", side_effect=TimeoutError("lost response"))
+    def test_sca_continuation_is_never_retried(self, fetch, is_retryable):
+        challenge_state = {
+            "operation": "transactions",
+            "remote_account_id": "iban:DE02120300000000202051",
+            "local_account_id": self.account["account_id"],
+            "start_date": "2026-09-01",
+            "end_date": "2026-09-18",
+        }
+
+        with self.assertRaisesRegex(TimeoutError, "lost response"):
+            FinTSSyncService(self.store).sync_mapping(
+                self.connection["connection_id"],
+                {
+                    "account_id": self.account["account_id"],
+                    "remote_account_id": challenge_state["remote_account_id"],
+                },
+                "temporary-pin", "jens", challenge_state=challenge_state, tan="123456",
+            )
+
+        fetch.assert_called_once()
+        is_retryable.assert_not_called()
+
     @patch("app.finance_fints_sync.fetch_transactions")
     def test_transaction_sca_resumes_without_replaying_completed_mappings(self, fetch):
         second_account = self.store.create_account({"name": "Zweiter Giro", "kind": "bank"}, "jens")
