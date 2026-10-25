@@ -24,7 +24,7 @@ from browser_artifacts import make_html_snapshot_writer, slug
 from layout_checks import check_readable_layout
 from mcp_smoke import run_mcp_smoke
 from litellm_smoke import run_litellm_smoke
-from peer_to_peer_smoke import run_peer_to_peer
+from peer_to_peer_smoke import record_p2p_check, run_peer_to_peer
 from page_crawl import (
     CrawlFrontier,
     MAX_QUERY_VARIANTS_PER_PATH,
