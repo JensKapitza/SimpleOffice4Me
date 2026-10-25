@@ -39,7 +39,7 @@ jobs:
             npm_os: darwin
             npm_cpu: x64
             validator: cyclonedx-osx-x64
-            validator_sha256: 0ea92306fc6ea1a3f6598d8e0257d52903341d0df21a325fb1510aee7c6b30dd
+            validator_sha256: 0ea92306fc7d7c30ed112a7463781a200585a3bf1cdaf77229181c5aabd1d4b6
     runs-on: ${{ matrix.os }}
     defaults:
       run:
