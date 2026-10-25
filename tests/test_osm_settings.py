@@ -97,7 +97,6 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="_csrf_token"', html)
 
     def test_download_timeout_retains_existing_admin_and_audit_contract(self):
-        path = "/admin/settings/integrations/osm"
         payload = {"osm_download_read_timeout_seconds": "420"}
         self.assertEqual(403, self.post_osm_settings(self.admin, payload).status_code)
         self.assertEqual(403, self.post_osm_settings(
@@ -143,7 +142,6 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
     def test_filter_timeout_is_persistent_and_old_forms_preserve_it(self):
-        path = "/admin/settings/integrations/osm"
         SettingsStore(self.root).save(
             {"integrations": {"osm_download_read_timeout_seconds": 420}}, "osm-admin",
         )
@@ -184,7 +182,6 @@ class OsmSettingsTests(unittest.TestCase):
         )
 
     def test_export_idle_timeout_is_persistent_bounded_resettable_and_audited(self):
-        path = "/admin/settings/integrations/osm"
         SettingsStore(self.root).save(
             {"integrations": {
                 "osm_download_read_timeout_seconds": 420,
