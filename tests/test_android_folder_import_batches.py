@@ -55,6 +55,24 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         self.assertEqual(1, len(second_paths))
         self.assertEqual(first_paths[0].parents[1], second_paths[0].parents[2])
 
+    def test_more_than_one_thousand_files_import_across_http_batches(self):
+        token = "d" * 32
+        expected = 1201
+        stored = 0
+        for start in range(0, expected, 100):
+            paths = [f"root/nested/file-{index:04d}.txt"
+                     for index in range(start, min(start + 100, expected))]
+            response = self.upload(token, paths)
+            self.assertEqual(200, response.status_code, response.get_data(as_text=True))
+            payload = response.get_json()
+            self.assertEqual({"ok": True, "stored": len(paths)}, payload)
+            stored += payload["stored"]
+
+        self.assertEqual(expected, stored)
+        imported_files = list(self.root.rglob("file-*.txt"))
+        self.assertEqual(expected, len(imported_files))
+        self.assertEqual(expected, len({path.relative_to(self.root) for path in imported_files}))
+
     def test_replayed_path_fails_instead_of_reporting_success(self):
         token = "b" * 32
         self.assertEqual(200, self.upload(token, ["root/same.txt"]).status_code)
