@@ -54,7 +54,7 @@ class GrayscalePdfConversionTests(unittest.TestCase):
             def fake_run(command, **kwargs):
                 if command[0] == "/mock/tesseract":
                     filename = Path(command[1]).name
-                    page = int(filename.removeprefix("render-").split("-", 1)[0])
+                    page = int(filename.split("-")[1].split(".", 1)[0])
                     ocr_pages.append(page)
                     marker = f"HIDDEN OCR PAGE {page}"
                     tsv = (
@@ -64,9 +64,17 @@ class GrayscalePdfConversionTests(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0, tsv, "")
                 return original_run(command, **kwargs)
 
+            unavailable_ml = {
+                "engine": "rapidocr",
+                "status": "unavailable",
+                "text": "",
+                "confidence": None,
+                "blocks": [],
+                "error": "RapidOCR not installed in this regression test",
+            }
             with patch("app.pdf_conversion.shutil.which", side_effect=fake_which), patch(
                 "app.pdf_conversion.subprocess.run", side_effect=fake_run,
-            ):
+            ), patch("app.object_vision.analyze_ocr", return_value=unavailable_ml):
                 result = make_grayscale_searchable_pdf(source)
 
             reader = PdfReader(io.BytesIO(result))

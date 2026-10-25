@@ -11,10 +11,12 @@ from __future__ import annotations
 import shutil
 import subprocess
 import threading
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
 from .document_store_core import ocr_subprocess_environment
+from .ocr_preprocessing import OCR_RENDER_EDGE
 
 
 MAX_OCR_TEXT = 20_000
@@ -31,9 +33,40 @@ def _rapidocr_engine() -> Any:
     global _RAPID_OCR_ENGINE
     with _RAPID_OCR_LOCK:
         if _RAPID_OCR_ENGINE is None:
+            spec = find_spec("rapidocr")
+            if spec is None or not spec.submodule_search_locations:
+                raise ModuleNotFoundError("RapidOCR ist nicht installiert")
+
+            # RapidOCR's defaults can download missing model files during the
+            # first inference. Point it at the model files shipped in the
+            # pinned package and fail closed if they are absent, so OCR never
+            # makes a network request at runtime.
+            model_root = Path(next(iter(spec.submodule_search_locations))) / "models"
+            model_paths = {
+                "Det.model_path": model_root / "PP-OCRv6_det_small.onnx",
+                "Cls.model_path": model_root / "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+                "Rec.model_path": model_root / "PP-OCRv6_rec_small.onnx",
+            }
+            missing_models = [str(path.name) for path in model_paths.values() if not path.is_file()]
+            if missing_models:
+                raise FileNotFoundError(
+                    "RapidOCR model files are missing from the local installation: "
+                    + ", ".join(missing_models)
+                )
+
             from rapidocr import RapidOCR
 
-            _RAPID_OCR_ENGINE = RapidOCR()
+            _RAPID_OCR_ENGINE = RapidOCR(
+                params={
+                    "Global.model_root_dir": str(model_root),
+                    "Global.max_side_len": OCR_RENDER_EDGE,
+                    "Det.lang_type": "german",
+                    "Det.model_path": str(model_paths["Det.model_path"]),
+                    "Cls.model_path": str(model_paths["Cls.model_path"]),
+                    "Rec.lang_type": "german",
+                    "Rec.model_path": str(model_paths["Rec.model_path"]),
+                }
+            )
         return _RAPID_OCR_ENGINE
 
 
@@ -115,9 +148,8 @@ def _run_rapidocr(path: Path) -> dict[str, Any]:
     except (ImportError, ModuleNotFoundError) as exc:
         return _rapidocr_failure(exc, unavailable=True)
     except Exception as exc:
-        # RapidOCR may resolve model assets while the engine is initialized.
-        # Network, cache or read-only filesystem failures must not bypass the
-        # local Tesseract fallback and break the whole object-photo workflow.
+        # A missing or unusable local model must not bypass the Tesseract
+        # fallback and break the whole object-photo workflow.
         return _rapidocr_failure(exc)
     try:
         with _RAPID_OCR_LOCK:
@@ -185,10 +217,12 @@ def _run_tesseract(path: Path, *, timeout: float = 90) -> dict[str, Any]:
     }
 
 
-def analyze_ocr(path: Path) -> dict[str, Any]:
-    """Run local OCR with ML first and Tesseract only as a fallback."""
+def analyze_ocr(path: Path, *, fallback_tesseract: bool = True) -> dict[str, Any]:
+    """Run local ML OCR, optionally falling back to Tesseract."""
     ml_result = _run_rapidocr(path)
     if ml_result["status"] == "completed" and str(ml_result.get("text", "")).strip():
+        return ml_result
+    if not fallback_tesseract:
         return ml_result
 
     fallback = _run_tesseract(path)

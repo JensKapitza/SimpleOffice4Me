@@ -684,9 +684,19 @@ class DocumentStoreTest(unittest.TestCase):
                     return subprocess.CompletedProcess(command, 0, f"ScannedInvoice OCR-REF-{int(page):02d}\n", "")
                 return original_run(command, **kwargs)
 
+            unavailable_ml = {
+                "engine": "rapidocr",
+                "status": "unavailable",
+                "text": "",
+                "confidence": None,
+                "blocks": [],
+                "error": "RapidOCR not installed in this regression test",
+            }
             with patch(
                 "app.document_store.shutil.which", side_effect=fake_which,
-            ), patch("app.document_store.subprocess.run", side_effect=fake_run):
+            ), patch("app.document_store.subprocess.run", side_effect=fake_run), patch(
+                "app.object_vision.analyze_ocr", return_value=unavailable_ml,
+            ):
                 store = DocumentStore(root)
                 store.scan()
 
@@ -695,3 +705,9 @@ class DocumentStoreTest(unittest.TestCase):
                 with self.subTest(page=page):
                     self.assertIn(f"OCR-REF-{page:02d}", document["extracted_text"])
             self.assertEqual(document["document_id"], store.search("OCR-REF-63")[0]["document_id"])
+            ocr = document["text_extraction"]["ocr"]
+            self.assertEqual("completed", ocr["status"])
+            self.assertEqual(63, ocr["pages_total"])
+            self.assertEqual(63, ocr["pages_processed"])
+            self.assertEqual(63, ocr["pages_with_text"])
+            self.assertEqual(["tesseract"], ocr["engines"])
