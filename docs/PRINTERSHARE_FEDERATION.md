@@ -18,6 +18,14 @@ bleiben erhalten; die bisher gespeicherte Brother-Verbindung wird als
 Etikettendrucker in der zentralen Auswahl dargestellt. CUPS-/Windows-Drucker
 werden weiterhin aus dem Betriebssystem erkannt.
 
+Die Administration kann für erkannte Standard-/Etikettendrucker eine
+einseitige PDF-Testseite an den Betriebssystem-Spooler senden; das Test-PDF
+wird nur im Arbeitsspeicher erzeugt und nicht im SimpleOffice-Backlog
+gespeichert. Brother-Geräte erhalten ein einzelnes Testetikett. Generische
+Testseiten sind für `raw`-Drucker gesperrt, weil deren Befehlssprache
+gerätespezifisch ist. Druckerwarteschlangen werden weiterhin im Betriebssystem
+angelegt oder entfernt; SimpleOffice erkennt die dort installierten Geräte.
+
 Standard- und Etikettendruck haben jeweils eine getrennte Richtlinie:
 
 - **Keine Vorgabe:** persoenliche Auswahl, danach System-Fallback;
