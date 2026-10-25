@@ -359,6 +359,10 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual("simpleoffice-druckertest.pdf", spool.call_args.kwargs["filename"])
         page = PdfReader(BytesIO(spool.call_args.args[1])).pages[0]
         self.assertIn("SimpleOffice4Me Druckertest", page.extract_text())
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload", side_effect=subprocess.TimeoutExpired(["lp"], 180)):
+            timed_out = self.admin.post(target, follow_redirects=True)
+        self.assertIn("Testauftrag konnte nicht gedruckt werden", timed_out.get_data(as_text=True))
 
     def test_generic_test_page_rejects_raw_printer_without_spooling(self):
         printer = {

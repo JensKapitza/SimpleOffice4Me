@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import threading
 import time
 import urllib.error
@@ -415,7 +416,7 @@ def retry_job(job_id: str):
     try:
         result = _store().retry(job_id)
         flash(f"Druckauftrag erneut an den Spooler übergeben: {result['job_id']}.")
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         flash(f"Druckauftrag konnte nicht wiederholt werden: {exc}")
     return redirect(url_for("printershare.index"))
 
@@ -537,7 +538,7 @@ def test_printer_device(printer_id: str):
             detail={"kind": printer["kind"], "backend": printer.get("backend", "")},
         )
         flash(f"Testauftrag wurde an {printer['label']} gesendet.")
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         current_app.logger.warning(
             "Printer test failed for %s (%s)", printer_id, type(exc).__name__,
         )
