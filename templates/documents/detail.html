@@ -64,6 +64,37 @@
     {% if preview.text_truncated %}<p class="small text-secondary mt-2 mb-0">Die Vorschau ist aus Sicherheitsgründen auf 300 Zeilen und 12.000 Zeichen begrenzt. Das Original bleibt vollständig verfügbar.</p>{% endif %}
     {% elif preview.kind == 'text' %}
     <p class="text-secondary mb-0" role="status">{% if preview.text_status == 'too_large' %}Die Textdatei überschreitet das Vorschau-Limit von 256 KiB.{% elif preview.text_status in ['binary', 'encoding'] %}Die Datei ist kein unterstützter UTF-8-Text und wird nicht inline dargestellt.{% elif preview.text_status == 'empty' %}Die Textdatei ist leer.{% else %}Die Textvorschau ist derzeit nicht verfügbar.{% endif %} Das Original kann sicher geöffnet oder heruntergeladen werden.</p>
+    {% elif preview.kind == 'archive' %}
+    {% if preview.archive.status == 'ready' %}
+    <div class="d-flex align-items-center gap-3 mb-3">
+      <i class="fas {{ preview.icon }} fa-3x text-secondary" aria-hidden="true"></i>
+      <div>
+        <strong>{{ preview.archive.format }}{% if preview.archive.title %}: {{ preview.archive.title }}{% endif %}</strong>
+        {% if preview.archive.author %}<div class="text-secondary">{{ preview.archive.author }}</div>{% endif %}
+        {% if preview.archive.format == 'EPUB' %}
+        <div class="small text-secondary">{{ preview.archive.chapter_count }} Kapitel · {{ preview.archive.total_uncompressed_bytes }} Bytes entpackter Inhalt</div>
+        {% else %}
+        <div class="small text-secondary">{{ preview.archive.entry_count }} Einträge · {{ preview.archive.file_count }} Dateien · {{ preview.archive.total_uncompressed_bytes }} Bytes entpackter Inhalt</div>
+        {% endif %}
+      </div>
+    </div>
+    <ul class="list-group" aria-label="{{ 'Archive contents' if g.language == 'en' else 'Archivinhalt' }}">
+      {% for item in preview.archive.items %}
+      <li class="list-group-item d-flex justify-content-between gap-3 archive-preview-item">
+        <span class="text-break">{{ item.name }}</span>
+        <small class="text-secondary text-nowrap">{% if item.kind == 'chapter' %}{{ 'Chapter' if g.language == 'en' else 'Kapitel' }} {{ item.index + 1 }}{% elif item.kind == 'folder' %}{{ 'Folder' if g.language == 'en' else 'Ordner' }}{% else %}{{ item.size }} Bytes{% endif %}</small>
+      </li>
+      {% else %}<li class="list-group-item text-secondary">{{ 'No previewable entries.' if g.language == 'en' else 'Keine anzeigbaren Einträge.' }}</li>{% endfor %}
+    </ul>
+    {% if preview.archive.truncated %}<p class="small text-secondary mt-2 mb-0">{{ 'The listing is limited to the first 100 entries.' if g.language == 'en' else 'Die Liste ist auf die ersten 100 Einträge begrenzt.' }}</p>{% endif %}
+    {% if preview.archive.unsafe_entries or preview.archive.symlink_entries or preview.archive.duplicate_entries %}<p class="small text-secondary mt-2 mb-0">{{ 'Unsafe paths, links, and duplicate entries are omitted.' if g.language == 'en' else 'Unsichere Pfade, Links und doppelte Einträge werden ausgelassen.' }}</p>{% endif %}
+    {% elif preview.preview_status in ['pending', 'processing'] %}
+    <p class="text-secondary mb-0" role="status">{{ 'Archive metadata preview is being prepared.' if g.language == 'en' else 'Die Archivmetadaten-Vorschau wird noch erstellt.' }}</p>
+    {% elif preview.archive.status == 'too_large' %}
+    <p class="text-secondary mb-0" role="status">{{ 'This archive exceeds the safe preview limits. The original remains available.' if g.language == 'en' else 'Das Archiv überschreitet die sicheren Vorschaugrenzen. Das Original bleibt verfügbar.' }}</p>
+    {% else %}
+    <p class="text-secondary mb-0" role="status">{{ 'Archive metadata could not be safely read. The original remains available.' if g.language == 'en' else 'Die Archivmetadaten konnten nicht sicher gelesen werden. Das Original bleibt verfügbar.' }}</p>
+    {% endif %}
     {% else %}
     <div class="d-flex align-items-center gap-3 text-secondary" role="status">
       <i class="fas {{ preview.icon }} fa-3x" aria-hidden="true"></i>

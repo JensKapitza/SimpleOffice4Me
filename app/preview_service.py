@@ -15,6 +15,7 @@ from typing import Any
 
 from PIL import Image, ImageDraw, ImageOps
 
+from .archive_preview import ARCHIVE_SUFFIXES, archive_preview
 from .settings_store import SettingsStore
 
 
@@ -47,7 +48,15 @@ AUDIO_MIME_TYPES = {
 }
 VIDEO_SUFFIXES = set(VIDEO_MIME_TYPES)
 AUDIO_SUFFIXES = set(AUDIO_MIME_TYPES)
-SUPPORTED_SUFFIXES = IMAGE_SUFFIXES | OFFICE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES | TEXT_SUFFIXES | {".pdf"}
+SUPPORTED_SUFFIXES = (
+    IMAGE_SUFFIXES
+    | OFFICE_SUFFIXES
+    | VIDEO_SUFFIXES
+    | AUDIO_SUFFIXES
+    | TEXT_SUFFIXES
+    | ARCHIVE_SUFFIXES
+    | {".pdf"}
+)
 VIDEO_TRANSCODE_PROFILES = {"h264-720p"}
 
 
@@ -137,7 +146,18 @@ class PreviewService:
             return False
         if self._safe_cached_relative(str(preview.get("thumbnail", ""))) is None:
             return False
-        if Path(str(metadata.get("last_path", ""))).suffix.lower() not in VIDEO_SUFFIXES:
+        suffix = Path(str(metadata.get("last_path", ""))).suffix.casefold()
+        if suffix in ARCHIVE_SUFFIXES:
+            archive = preview.get("archive")
+            if not isinstance(archive, dict):
+                return False
+            archive_status = archive.get("status")
+            stable_unavailable = archive_status == "unavailable" and archive.get("reason") in {
+                "invalid_archive", "invalid_or_unsupported",
+            }
+            if archive_status not in {"ready", "too_large"} and not stable_unavailable:
+                return False
+        if suffix not in VIDEO_SUFFIXES:
             return True
         video = preview.get("video", {}) if isinstance(preview.get("video"), dict) else {}
         if int(video.get("frame_target_count") or 0) != self.video_frame_count:
@@ -193,11 +213,20 @@ class PreviewService:
                 )
                 if video:
                     result["video"] = video
+                archive = conversion.get("archive")
+                if isinstance(archive, dict):
+                    result["archive"] = archive
                 return result
         except (OSError, ValueError, subprocess.SubprocessError, Image.DecompressionBombError, json.JSONDecodeError):
             return {"status": "failed", "source_sha256": digest, "error": "conversion_failed"}
 
     def _convert(self, source: Path, suffix: str, temporary: Path) -> dict[str, Any]:
+        if suffix in ARCHIVE_SUFFIXES:
+            self._generic_thumbnail(source, temporary / "thumbnail.webp")
+            return {
+                "converter": "zip-metadata+pillow",
+                "archive": archive_preview(source, suffix),
+            }
         if suffix in TEXT_SUFFIXES:
             try:
                 self._text_thumbnail(source, temporary / "thumbnail.webp")
@@ -238,8 +267,8 @@ class PreviewService:
             category, symbol = "AUDIO", "♪"
         elif suffix == "pdf":
             category, symbol = "PDF", "PDF"
-        elif suffix in {"zip", "tar", "gz", "7z", "rar"}:
-            category, symbol = "ARCHIV", "ZIP"
+        elif suffix in {"zip", "epub", "cbz", "tar", "gz", "7z", "rar"}:
+            category, symbol = "ARCHIV", {"epub": "EPUB", "cbz": "CBZ"}.get(suffix, "ZIP")
         elif suffix in {"txt", "md", "csv", "tsv", "json", "xml", "log", "py", "js", "htm", "html", "xhtml", "svg"}:
             category, symbol = "TEXT", "TXT"
         elif suffix in {name.lstrip(".") for name in OFFICE_SUFFIXES}:
