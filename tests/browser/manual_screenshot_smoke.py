@@ -542,45 +542,24 @@ def run_peer_to_peer(
             wait_until="domcontentloaded",
         )
 
-        # No implicit document sharing: chat connectivity alone must not
-        # make Peer B's private document visible to Peer A.
         remote_section = page_a.locator("#remote-files")
         if remote_section.get_by_text(peer_b_filename, exact=False).count():
-            raise RuntimeError(
-                "Peer B document was exposed without explicit document permissions."
-            )
-        record_p2p_check(
-            summary, "unshared_document_not_visible", True, peer_b_filename
-        )
+            raise RuntimeError("Unshared Peer B document is visible on Peer A")
+        record_p2p_check(summary, "unshared_document_not_visible", True, peer_b_filename)
 
-        # Explicitly authorize the document exchange on both peers.
-        configure_peer(
-            page_a,
-            base_url=BASE_URL,
-            peer_id="peer-b",
-            peer_label="Browser Peer B",
-            peer_docker_url=PEER_B_DOCKER_URL,
-            peer_token=PEER_B_TOKEN,
-            allow_documents=True,
-        )
-        configure_peer(
-            page_b,
-            base_url=PEER_BASE_URL,
-            peer_id="peer-a",
-            peer_label="Browser Peer A",
-            peer_docker_url=PEER_A_DOCKER_URL,
-            peer_token=PEER_A_TOKEN,
-            allow_documents=True,
-        )
+        for page, url, peer_id, label, docker_url, token in (
+            (page_a, BASE_URL, "peer-b", "Browser Peer B", PEER_B_DOCKER_URL, PEER_B_TOKEN),
+            (page_b, PEER_BASE_URL, "peer-a", "Browser Peer A", PEER_A_DOCKER_URL, PEER_A_TOKEN),
+        ):
+            configure_peer(
+                page, base_url=url, peer_id=peer_id, peer_label=label,
+                peer_docker_url=docker_url, peer_token=token, allow_documents=True,
+            )
         page_a.locator("tr").filter(has_text="peer-b").first.get_by_role(
             "button", name="Dateiindex holen", exact=True
         ).click()
         page_a.wait_for_load_state("domcontentloaded")
-        page_a.goto(
-            f"{BASE_URL}/admin/federation?view=files",
-            wait_until="domcontentloaded",
-        )
-
+        page_a.goto(f"{BASE_URL}/admin/federation?view=files", wait_until="domcontentloaded")
         remote_section = page_a.locator("#remote-files")
         remote_row = remote_section.locator("tr").filter(
             has_text=peer_b_filename
