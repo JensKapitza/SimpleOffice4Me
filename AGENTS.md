@@ -213,6 +213,18 @@ Regeln:
 - CI muss Python 3.11, 3.14 und 3.15 final abdecken; Ubuntu 22.04 wird nicht als Python-3.10-Runtimeziel verwendet.
 - Dateigrößen- und Funktionsgrößen-Gates nicht umgehen.
 
+### Verbindliche PR-, Test- und Merge-Regeln
+
+- Jeder PR muss die zugehörige Aufgabenbeschreibung und sämtliche Akzeptanzkriterien fachlich korrekt und aus Implementierungssicht vollständig erfüllen. Ein grüner CI-Status allein beweist keine fachliche Vollständigkeit.
+- Vor dem Merge den tatsächlichen Diff, betroffene Aufrufpfade, angrenzende Funktionen und Datenflüsse gegen das Issue prüfen. Offene Sicherheits-, Datenintegritäts-, Fehlerbehandlungs- oder Regressionslücken sind Merge-Blocker.
+- Zu neuer oder geänderter Logik im selben PR geeignete automatisierte Unit-, Integrations- und Regressionstests im Repository erstellen. Fehlende Tests eigenständig ergänzen; nicht nur vorhandene Tests umformulieren.
+- Jeder behobene reproduzierbare Fehler soll möglichst durch einen Regressionstest abgesichert werden, der vor dem Fix fehlschlägt und nach dem Fix besteht. Positiv-, Negativ-, Grenz- und Fehlerpfade berücksichtigen, insbesondere Berechtigungen, Abbruch, Wiederholung, Teilfehler, Datenintegrität und konkurrierende Zugriffe, soweit relevant.
+- Tests nur bei bewusst geänderter Spezifikation anpassen; dabei neue fachliche Erwartung und tatsächliches Verhalten prüfen. Tests weder entfernen noch abschwächen, nur um CI grün zu bekommen.
+- Relevante lokale Tests, Builds, statische Prüfungen und CI vor dem Merge ausführen und Ergebnisse prüfen. Bekannte relevante Fehlschläge beheben oder nachvollziehbar als externen Blocker kennzeichnen; bei offenen Blockern nicht mergen.
+- Main muss stabil bleiben. Keine bekannten Implementierungsfehler, unvollständigen Aufgaben oder fehlenden wesentlichen automatisierten Prüfungen in Main übernehmen.
+- Der manuelle Praxistest auf dem Endgerät erfolgt durch den Repository-Eigentümer **nach dem Merge**. Sein Fehlen ist allein kein Merge-Blocker und ersetzt weder Implementierungsprüfung noch automatisierte Tests.
+- Einen PR erst nach fachlicher und technischer Freigabe mergen; den Status transparent benennen. Keine Behauptung eines erfolgreichen Tests ohne tatsächlichen Testnachweis.
+
 ## 14. Dokumentation
 
 Dokumentation ist Bestandteil der Implementierung.
