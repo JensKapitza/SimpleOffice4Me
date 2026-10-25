@@ -423,6 +423,7 @@ public class MainActivity extends Activity {
                   + "count:()=>Number(window.SimpleOfficeAndroid.queuedFolderImportCount(bridgeToken)),"
                   + "queueMessage:()=>String(window.SimpleOfficeAndroid.folderImportQueueMessage(bridgeToken)),"
                   + "prepared:()=>Boolean(window.SimpleOfficeAndroid.folderImportPrepared(bridgeToken)),"
+                  + "running:()=>Boolean(window.SimpleOfficeAndroid.folderImportRunning(bridgeToken)),"
                   + "preview:()=>String(window.SimpleOfficeAndroid.folderImportPreview(bridgeToken)),"
                   + "start:(csrf,maxBytes)=>String(window.SimpleOfficeAndroid.startFolderImport(bridgeToken,String(csrf||''),String(maxBytes||''))),"
                  + "cancel:()=>String(window.SimpleOfficeAndroid.cancelFolderImport(bridgeToken))};"
@@ -809,7 +810,9 @@ public class MainActivity extends Activity {
 
     private int queuedFolderImportCount() {
         AndroidFolderImportTask task = folderImportTask;
-        if (task != null && task.isPrepared()) return task.getTreeCount();
+        if (task != null && (task.isPrepared() || task.isRunning() || task.isRetryPending())) {
+            return task.getTreeCount();
+        }
         synchronized (queuedFolderImportUris) {
             return queuedFolderImportUris.size();
         }
@@ -1099,6 +1102,11 @@ public class MainActivity extends Activity {
         public String folderImportQueueMessage(String token) {
             if (!folderImportBridgeAllowed(token)) return "";
             int count = MainActivity.this.queuedFolderImportCount();
+            AndroidFolderImportTask task = folderImportTask;
+            if (task != null && task.isRetryPending()) {
+                return "Import unterbrochen. " + task.getCurrentMessage();
+            }
+            if (task != null && task.isRunning()) return task.getCurrentMessage();
             return count > 0 ? MainActivity.this.queuedFolderMessage(count) : "";
         }
 
@@ -1106,6 +1114,12 @@ public class MainActivity extends Activity {
         public boolean folderImportPrepared(String token) {
             AndroidFolderImportTask task = folderImportTask;
             return folderImportBridgeAllowed(token) && task != null && task.isPrepared();
+        }
+
+        @JavascriptInterface
+        public boolean folderImportRunning(String token) {
+            AndroidFolderImportTask task = folderImportTask;
+            return folderImportBridgeAllowed(token) && task != null && task.isRunning();
         }
 
         @JavascriptInterface
@@ -1715,7 +1729,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         AndroidFolderImportTask activeFolderImport = folderImportTask;
-        boolean canStopExecutorImmediately = activeFolderImport == null || activeFolderImport.cancel();
+        boolean canStopExecutorImmediately = activeFolderImport == null
+                || activeFolderImport.pauseForActivityDestroy();
         synchronized (queuedFolderImportUris) {
             queuedFolderImportUris.clear();
             queuedFolderImportOwnedGrants.clear();

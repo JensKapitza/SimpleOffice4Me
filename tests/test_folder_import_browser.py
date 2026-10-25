@@ -352,8 +352,8 @@ class FolderImportBrowserTests(unittest.TestCase):
                     const pathManifest = form.get('relative_paths') || '';
                     const sourceManifest = form.get('source_ids') || '';
                     window.uploadBatches.push({
-                      importId: form.get('import_id'), count: files.length,
-                      folderImport: form.get('folder_import'),
+                      importId: form.get('import_id'),
+                      folderImport: form.get('folder_import'), count: files.length,
                       pathBytes: new TextEncoder().encode(pathManifest).length,
                       sourceBytes: new TextEncoder().encode(sourceManifest).length,
                       paths: pathManifest ? JSON.parse(pathManifest) : [],

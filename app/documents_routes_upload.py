@@ -1,5 +1,6 @@
 """Authenticated file and folder import routes."""
 from __future__ import annotations
+import hashlib
 from uuid import UUID, uuid4, uuid5
 from .documents_core import *  # noqa: F401,F403
 from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
@@ -84,14 +85,34 @@ def upload():
         existing = None
         if resumable_import:
             existing = existing_matching_folder_import(
-                document_store, current_app.config["DOCUMENT_ROOT"],
+                document_store, storage,
                 import_root + "/" + relative_path, relative_path, import_id,
                 actor, source_identities[item_index], item.stream, current_app.logger,
             )
         if existing is not None:
+            source_key = (
+                "folder-import:" + import_id + ":"
+                + hashlib.sha256(relative_path.encode("utf-8")).hexdigest()
+            )
+            complete_web_inbox_upload(
+                current_app.config["DOCUMENT_ROOT"],
+                {"malware_status": ""},
+                source_key=source_key,
+                original_name=item.filename,
+                actor=actor,
+                document_id=existing["document_id"],
+                imported_metadata=existing,
+                imported_size=int(existing.get("size") or 0),
+                mime_type=item.mimetype or "",
+            )
             stored += 1
             continue
-        source_key = f"{getattr(g, 'request_id', 'web')}:{item_index}:{item.filename}"
+        source_key = (
+            "folder-import:" + import_id + ":"
+            + hashlib.sha256(relative_path.encode("utf-8")).hexdigest()
+            if folder_import and resumable_import
+            else f"{getattr(g, 'request_id', 'web')}:{item_index}:{item.filename}"
+        )
         inbox = begin_web_inbox_upload(current_app.config, item, actor, source_key)
         if inbox["error"]:
             message = f"{item.filename}: {inbox['error']}"
@@ -116,7 +137,7 @@ def upload():
                 if result.error.code == ErrorCode.CONFLICT and resumable_import:
                     item.stream.seek(0)
                     existing = existing_matching_folder_import(
-                        document_store, current_app.config["DOCUMENT_ROOT"],
+                        document_store, storage,
                         import_root + "/" + relative_path, relative_path, import_id,
                         actor, source_identities[item_index], item.stream, current_app.logger,
                     )

@@ -3,15 +3,16 @@ from __future__ import annotations
 
 import hashlib
 from pathlib import PurePosixPath
+from tempfile import SpooledTemporaryFile
 from typing import BinaryIO
 from uuid import UUID, uuid5
 
-from .safe_paths import resolve_file_under
+from .v2.contracts import LogicalObjectId
 
 
 def existing_matching_folder_import(
     store,
-    document_root: str,
+    storage,
     relative_path: str,
     source_relative_path: str,
     import_id: str,
@@ -30,10 +31,15 @@ def existing_matching_folder_import(
         metadata = store.get_document(relative_path)
         if metadata.get("last_path") != relative_path:
             return None
-        stored_path = resolve_file_under(document_root, relative_path)
-        with stored_path.open("rb") as stored:
+        with SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b") as stored:
+            copied = storage.copy_verified_to(
+                LogicalObjectId(str(metadata.get("document_id") or "")), stored,
+            )
+            if not copied.ok:
+                return None
+            stored.seek(0)
             stored_digest = _digest(stored)
-    except (OSError, ValueError, AttributeError):
+    except (OSError, RuntimeError, ValueError, AttributeError):
         return None
     incoming_position = content.tell()
     try:

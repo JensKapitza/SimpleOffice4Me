@@ -64,6 +64,10 @@ final class AndroidFolderImportTask implements Runnable {
     private volatile boolean running;
     private volatile boolean confirmed;
     private volatile boolean finished;
+    private volatile boolean preservingForActivityDestroy;
+    private volatile boolean retryPending;
+    private volatile String currentState = "queued";
+    private volatile String currentMessage = "Ordnerimport vorgemerkt.";
     private volatile PreparedUpload preparedUpload;
     private String importId;
     private int completedFiles;
@@ -84,6 +88,24 @@ final class AndroidFolderImportTask implements Runnable {
     synchronized boolean cancel() {
         if (requestBodySent) return false;
         cancelled = true;
+        cancelActiveWork();
+        if (preparedUpload != null && !running && !finished) {
+            finished = true;
+            releaseOwnedGrants();
+            notifyListener("cancelled", 0, 0, "Ordnerimport abgebrochen.");
+        }
+        return true;
+    }
+
+    synchronized boolean pauseForActivityDestroy() {
+        if (finished) return true;
+        preservingForActivityDestroy = true;
+        cancelled = true;
+        cancelActiveWork();
+        return true;
+    }
+
+    private void cancelActiveWork() {
         HttpURLConnection active = connection;
         if (active != null) active.disconnect();
         CancellationSignal query = activeQuery;
@@ -96,12 +118,6 @@ final class AndroidFolderImportTask implements Runnable {
                 // Closing an active SAF stream is best-effort cancellation cleanup.
             }
         }
-        if (preparedUpload != null && !running && !finished) {
-            finished = true;
-            releaseOwnedGrants();
-            notifyListener("cancelled", 0, 0, "Ordnerimport abgebrochen.");
-        }
-        return true;
     }
 
     synchronized boolean confirm() {
@@ -112,6 +128,22 @@ final class AndroidFolderImportTask implements Runnable {
 
     boolean isPrepared() {
         return preparedUpload != null && !finished && !cancelled;
+    }
+
+    boolean isRunning() {
+        return running;
+    }
+
+    boolean isRetryPending() {
+        return retryPending;
+    }
+
+    String getCurrentState() {
+        return currentState;
+    }
+
+    String getCurrentMessage() {
+        return currentMessage;
     }
 
     int getTreeCount() {
@@ -137,9 +169,9 @@ final class AndroidFolderImportTask implements Runnable {
         synchronized (this) {
             if (finished) return;
             running = true;
+            retryPending = false;
         }
         boolean terminal = false;
-        boolean retryPending = false;
         try {
             checkCancelled();
             if (treeUris.isEmpty() || treeUris.size() > MAX_TREES) {
@@ -203,6 +235,7 @@ final class AndroidFolderImportTask implements Runnable {
             terminal = true;
             notifyListener("done", batch.files.size(), batch.files.size(), "Ordnerimport abgeschlossen.");
         } catch (ImportFailure error) {
+            if (preserveForActivityRestart()) return;
             finished = true;
             terminal = true;
             String message = cancelled && completedFiles > 0
@@ -212,19 +245,23 @@ final class AndroidFolderImportTask implements Runnable {
             notifyListener(cancelled ? "cancelled" : "error", completedFiles,
                     preparedUpload == null ? 0 : preparedUpload.files.size(), message);
         } catch (RetryableImportFailure error) {
+            if (preserveForActivityRestart()) return;
             requestBodySent = false;
             confirmed = false;
             retryPending = true;
             notifyListener("retry", completedFiles, preparedUpload.files.size(), error.getMessage());
         } catch (ArithmeticException error) {
+            if (preserveForActivityRestart()) return;
             finished = true;
             terminal = true;
             notifyListener("error", 0, 0, "Der Ordnerstapel überschreitet das zulässige Größenlimit.");
         } catch (SecurityException error) {
+            if (preserveForActivityRestart()) return;
             finished = true;
             terminal = true;
             notifyListener("error", 0, 0, "Der Zugriff auf den ausgewählten Ordner wurde widerrufen.");
         } catch (IOException error) {
+            if (preserveForActivityRestart()) return;
             requestBodySent = false;
             if (cancelled) {
                 finished = true;
@@ -247,6 +284,7 @@ final class AndroidFolderImportTask implements Runnable {
                         "Import unterbrochen. Verbindung prüfen und Import fortsetzen.");
             }
         } catch (RuntimeException error) {
+            if (preserveForActivityRestart()) return;
             finished = true;
             terminal = true;
             Log.e("AndroidFolderImport", "Folder import failed: " + error.getClass().getSimpleName());
@@ -598,6 +636,11 @@ final class AndroidFolderImportTask implements Runnable {
         if (responseCode == 403) {
             throw new ImportFailure("Sitzung oder Sicherheitsprüfung abgelaufen. Bitte die Seite neu laden.");
         }
+        if (responseCode == 408 || responseCode == 429 || responseCode >= 500) {
+            requestBodySent = false;
+            throw new RetryableImportFailure(
+                    "Der Server ist vorübergehend nicht verfügbar. Import kann sicher fortgesetzt werden.");
+        }
         if (responseCode < 200 || responseCode >= 300) {
             throw new ImportFailure("Der Server hat den Ordnerimport abgelehnt (HTTP " + responseCode + ").");
         }
@@ -683,7 +726,20 @@ final class AndroidFolderImportTask implements Runnable {
     }
 
     private void notifyListener(String state, int completed, int total, String message) {
+        currentState = state == null ? "error" : state;
+        currentMessage = message == null ? "" : message;
         if (listener != null) listener.onUpdate(state, completed, total, message);
+    }
+
+    private boolean preserveForActivityRestart() {
+        if (!preservingForActivityDestroy) return false;
+        requestBodySent = false;
+        confirmed = false;
+        retryPending = true;
+        notifyListener("retry", completedFiles,
+                preparedUpload == null ? 0 : preparedUpload.files.size(),
+                "Import nach App-Neustart sicher fortsetzbar.");
+        return true;
     }
 
     private static final class Child {

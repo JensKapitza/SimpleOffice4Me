@@ -72,10 +72,17 @@
     if (nativeFolderImport) {
       const queuedCount = nativeFolderImport.count();
       if (queuedCount > 0) {
+        const running = nativeFolderImport.running && nativeFolderImport.running();
         const prepared = nativeFolderImport.prepared();
         const queueMessage = nativeFolderImport.queueMessage && nativeFolderImport.queueMessage();
-        startFolderImport.hidden = false;
+        startFolderImport.hidden = running;
         cancelFolderImport.hidden = false;
+        if (running) {
+          startFolderImport.disabled = true;
+          folderButton.disabled = true;
+          status.textContent = queueMessage || 'Ordnerimport läuft …';
+          return;
+        }
         startFolderImport.textContent = prepared
           ? 'Import bestätigen'
           : queueMessage && queueMessage.includes('unterbrochen')

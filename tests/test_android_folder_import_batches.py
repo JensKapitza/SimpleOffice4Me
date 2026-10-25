@@ -11,6 +11,7 @@ from unittest.mock import patch
 from app import app
 from app.db import ensure_auth_database
 from app.document_store import DocumentStore
+from app.v3_inbox import InboxStore
 
 
 class AndroidFolderImportBatchTests(unittest.TestCase):
@@ -93,7 +94,7 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         self.assertEqual(b"root/same.txt", next(self.root.rglob("same.txt")).read_bytes())
 
     def test_replayed_path_with_different_source_identity_is_rejected(self):
-        token = "g" * 32
+        token = "e" * 32
         self.assertEqual(
             200, self.upload(token, ["root/same.txt"], ["a" * 64]).status_code
         )
@@ -113,7 +114,7 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
                 return {"error": "temporary inbox failure", "item": None}
             return original_begin(config, item, actor, source_key)
 
-        token = "h" * 32
+        token = "c" * 32
         paths = ["root/first.txt", "root/second.txt"]
         with patch.object(upload_routes, "begin_web_inbox_upload", side_effect=begin_once):
             interrupted = self.upload(token, paths)
@@ -128,6 +129,37 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         self.assertEqual({"ok": True, "stored": 2}, resumed.get_json())
         self.assertEqual(1, len(list(self.root.rglob("first.txt"))))
         self.assertEqual(1, len(list(self.root.rglob("second.txt"))))
+
+    def test_replay_repairs_inbox_after_storage_committed_before_completion(self):
+        import app.documents_routes_upload as upload_routes
+
+        complete = upload_routes.complete_web_inbox_upload
+        fail_once = {True}
+
+        def complete_once(*args, **kwargs):
+            if fail_once:
+                fail_once.clear()
+                raise OSError("simulated interruption after storage commit")
+            return complete(*args, **kwargs)
+
+        token = "9" * 32
+        with patch("app.v3_inbox_web.v3_capability_enabled", return_value=True), \
+             patch("app.v3_inbox.capability_enabled", return_value=True), \
+             patch.object(upload_routes, "complete_web_inbox_upload", side_effect=complete_once):
+            interrupted = self.upload(token, ["root/recovered.txt"])
+        self.assertEqual(409, interrupted.status_code)
+        self.assertTrue(interrupted.get_json()["retryable"])
+
+        with patch("app.v3_inbox_web.v3_capability_enabled", return_value=True), \
+             patch("app.v3_inbox.capability_enabled", return_value=True):
+            resumed = self.upload(token, ["root/recovered.txt"])
+
+        self.assertEqual(200, resumed.status_code, resumed.get_data(as_text=True))
+        inbox_items = InboxStore(self.root).list(source="web")
+        self.assertEqual(1, len(inbox_items))
+        self.assertEqual("accepted", inbox_items[0].status)
+        self.assertEqual("recovered.txt", inbox_items[0].original_name)
+        self.assertEqual(1, len(list(self.root.rglob("recovered.txt"))))
 
     def test_invalid_batch_id_is_rejected(self):
         response = self.upload("../other", ["root/file.txt"])
