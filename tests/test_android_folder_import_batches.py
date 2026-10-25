@@ -6,6 +6,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database
@@ -33,11 +34,11 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         app.config.update(self.saved)
         self.temp.cleanup()
 
-    def upload(self, import_id, paths, source_ids=None):
+    def upload(self, import_id, paths, source_ids=None, contents=None):
         data = {"folder_import": "1", "import_id": import_id,
                 "relative_paths": json.dumps(paths),
-                "files": [(io.BytesIO(path.encode()), path.rsplit("/", 1)[-1])
-                          for path in paths]}
+                "files": [(io.BytesIO((contents or {}).get(path, path.encode())),
+                           path.rsplit("/", 1)[-1]) for path in paths]}
         if source_ids is not None:
             data["source_ids"] = json.dumps(source_ids)
         return self.client.post("/documents/upload", data=data)
@@ -73,16 +74,60 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         self.assertEqual(expected, len(imported_files))
         self.assertEqual(expected, len({path.relative_to(self.root) for path in imported_files}))
 
-    def test_replayed_path_fails_instead_of_reporting_success(self):
+    def test_replayed_matching_path_is_idempotently_accepted(self):
         token = "b" * 32
         self.assertEqual(200, self.upload(token, ["root/same.txt"]).status_code)
         response = self.upload(token, ["root/same.txt"])
+        self.assertEqual(200, response.status_code)
+        self.assertEqual({"ok": True, "stored": 1}, response.get_json())
+        self.assertEqual(1, len(list(self.root.rglob("same.txt"))))
+
+    def test_replayed_path_with_different_content_is_rejected_without_overwrite(self):
+        token = "f" * 32
+        self.assertEqual(200, self.upload(token, ["root/same.txt"]).status_code)
+        response = self.upload(
+            token, ["root/same.txt"], contents={"root/same.txt": b"changed"}
+        )
         self.assertEqual(409, response.status_code)
-        payload = response.get_json()
-        self.assertEqual({"ok": False, "stored": 0, "expected": 1}, {
-            key: payload[key] for key in ("ok", "stored", "expected")
+        self.assertFalse(response.get_json()["retryable"])
+        self.assertEqual(b"root/same.txt", next(self.root.rglob("same.txt")).read_bytes())
+
+    def test_replayed_path_with_different_source_identity_is_rejected(self):
+        token = "g" * 32
+        self.assertEqual(
+            200, self.upload(token, ["root/same.txt"], ["a" * 64]).status_code
+        )
+        response = self.upload(token, ["root/same.txt"], ["b" * 64])
+        self.assertEqual(409, response.status_code)
+        self.assertFalse(response.get_json()["retryable"])
+
+    def test_partially_saved_batch_resumes_without_duplicate_files(self):
+        import app.documents_routes_upload as upload_routes
+
+        original_begin = upload_routes.begin_web_inbox_upload
+        fail_once = {"second.txt"}
+
+        def begin_once(config, item, actor, source_key):
+            if item.filename in fail_once:
+                fail_once.remove(item.filename)
+                return {"error": "temporary inbox failure", "item": None}
+            return original_begin(config, item, actor, source_key)
+
+        token = "h" * 32
+        paths = ["root/first.txt", "root/second.txt"]
+        with patch.object(upload_routes, "begin_web_inbox_upload", side_effect=begin_once):
+            interrupted = self.upload(token, paths)
+            resumed = self.upload(token, paths)
+
+        self.assertEqual(409, interrupted.status_code)
+        self.assertEqual({"ok": False, "stored": 1, "expected": 2}, {
+            key: interrupted.get_json()[key] for key in ("ok", "stored", "expected")
         })
-        self.assertIn("destination resource already exists", payload["errors"][0])
+        self.assertTrue(interrupted.get_json()["retryable"])
+        self.assertEqual(200, resumed.status_code)
+        self.assertEqual({"ok": True, "stored": 2}, resumed.get_json())
+        self.assertEqual(1, len(list(self.root.rglob("first.txt"))))
+        self.assertEqual(1, len(list(self.root.rglob("second.txt"))))
 
     def test_invalid_batch_id_is_rejected(self):
         response = self.upload("../other", ["root/file.txt"])

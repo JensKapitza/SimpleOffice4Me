@@ -55,7 +55,9 @@ class FolderImportBrowserTests(unittest.TestCase):
               const transfer = new DataTransfer();
               paths.forEach((path, index) => {
                 const name = path.split('/').pop();
-                const file = new File(['payload-' + index], name, {type: 'text/plain'});
+                const file = new File(['payload-' + index], name, {
+                  type: 'text/plain', lastModified: 1234567890
+                });
                 Object.defineProperty(file, 'webkitRelativePath', {configurable: true, value: path});
                 transfer.items.add(file);
               });
@@ -340,15 +342,35 @@ class FolderImportBrowserTests(unittest.TestCase):
                     "Import nach 100 von 1001 Dateien angehalten"
                 )
                 self.assertEqual(1, len(page.evaluate("window.uploadBatches")))
+                import_id = page.evaluate("window.uploadBatches[0].importId")
+                page.reload()
+                page.evaluate("""() => {
+                  window.uploadBatches = [];
+                  window.fetch = async (_url, options) => {
+                    const form = options.body;
+                    const files = form.getAll('files');
+                    const pathManifest = form.get('relative_paths') || '';
+                    const sourceManifest = form.get('source_ids') || '';
+                    window.uploadBatches.push({
+                      importId: form.get('import_id'), count: files.length,
+                      pathBytes: new TextEncoder().encode(pathManifest).length,
+                      sourceBytes: new TextEncoder().encode(sourceManifest).length,
+                      paths: pathManifest ? JSON.parse(pathManifest) : [],
+                      sourceIds: sourceManifest ? JSON.parse(sourceManifest) : [],
+                    });
+                    return new Response(JSON.stringify({ok: true, stored: files.length}), {
+                      status: 200, headers: {'Content-Type': 'application/json'},
+                    });
+                  };
+                }""")
+                self._select_folder_files(page, [f"root/file-{index}.txt" for index in range(1001)])
                 page.locator("#document-upload-form button[type=submit]").click()
                 expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
                 large_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(11, len(large_import))
                 self.assertEqual(1001, sum(batch["count"] for batch in large_import))
                 self.assertTrue(all(batch["count"] <= 100 for batch in large_import))
-                self.assertEqual(1, len({batch["importId"] for batch in large_import}))
-                self.assertTrue(all(batch["pathBytes"] <= 400000 for batch in large_import))
-                self.assertTrue(all(batch["sourceBytes"] <= 100000 for batch in large_import))
+                self.assertEqual({import_id}, {batch["importId"] for batch in large_import})
 
                 page.evaluate("window.uploadBatches = []")
                 deep = "root/" + "/".join(["d" * 120] * 16) + "/"

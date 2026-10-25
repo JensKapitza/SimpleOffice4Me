@@ -73,14 +73,18 @@
       const queuedCount = nativeFolderImport.count();
       if (queuedCount > 0) {
         const prepared = nativeFolderImport.prepared();
+        const queueMessage = nativeFolderImport.queueMessage && nativeFolderImport.queueMessage();
         startFolderImport.hidden = false;
         cancelFolderImport.hidden = false;
-        startFolderImport.textContent = prepared ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
+        startFolderImport.textContent = prepared
+          ? 'Import bestätigen'
+          : queueMessage && queueMessage.includes('unterbrochen')
+            ? 'Import fortsetzen' : 'Vorgemerkte Ordner prüfen';
         folderButton.disabled = prepared || folderButton.disabled;
         folderButton.textContent = prepared ? 'Ordner geprüft' : 'Weiteren Ordner hinzufügen';
         status.textContent = prepared
           ? nativeFolderImport.preview()
-          : queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
+          : queueMessage || queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
       }
     }
   };
@@ -182,11 +186,14 @@
     const active = detail.state === 'scanning' || detail.state === 'uploading' || detail.state === 'finishing';
     const cancellable = detail.state === 'scanning' || detail.state === 'uploading';
     const queued = detail.state === 'queued';
-    const preview = detail.state === 'preview';
+    const retryable = detail.state === 'retry';
+    const preview = detail.state === 'preview' || retryable;
     cancelFolderImport.hidden = !cancellable && !queued && !preview;
     startFolderImport.hidden = !queued && !preview;
     startFolderImport.disabled = active || (queued && folderButton.disabled);
-    startFolderImport.textContent = preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
+    startFolderImport.textContent = retryable
+      ? 'Import fortsetzen'
+      : preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
     folderButton.disabled = active || (!androidWebView && !('webkitdirectory' in folder) && !nativeFolderImport);
     if (preview) folderButton.disabled = true;
     folderButton.textContent = queued ? 'Weiteren Ordner hinzufügen' : 'Ordner importieren';
@@ -307,6 +314,19 @@
   };
   const sameSelectedFiles = (left, right) => left.length === right.length &&
     left.every((file, index) => file === right[index]);
+  const persistentImportIdFor = (selected, sourceIdentity) => {
+    const signature = JSON.stringify(selected.map((file) => [
+      file.webkitRelativePath || file.name, file.size, file.lastModified, sourceIdentity,
+    ]));
+    const key = 'simpleoffice.folder-import-resume.v1';
+    const saved = JSON.parse(sessionStorage.getItem(key) || 'null');
+    if (saved && saved.signature === signature && /^[0-9a-f]{32}$/.test(saved.importId)) {
+      return {signature, importId: saved.importId};
+    }
+    const importId = newBrowserImportId();
+    sessionStorage.setItem(key, JSON.stringify({signature, importId}));
+    return {signature, importId};
+  };
   const uploadBrowserSelection = async (selected, isFolder, sourceIdentity) => {
     const maxRequestBytes = Number(form.dataset.maxUploadBytes || 0);
     if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) {
@@ -318,8 +338,10 @@
     if (!checkpoint || checkpoint.isFolder !== isFolder || checkpoint.sourceIdentity !== sourceIdentity ||
         !sameSelectedFiles(checkpoint.files, selected)) {
       try {
+        const persistent = isFolder ? persistentImportIdFor(selected, sourceIdentity) : null;
         checkpoint = {
-          importId: isFolder ? newBrowserImportId() : '',
+          importId: persistent ? persistent.importId : '',
+          signature: persistent ? persistent.signature : '',
           isFolder,
           files: selected.slice(),
           sourceIdentity,
@@ -411,6 +433,10 @@
             : 'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.'));
         }
         if (!response.ok || !payload || payload.ok !== true || payload.stored !== batch.length) {
+          if (payload && payload.retryable === false) {
+            browserFolderImportCheckpoint = null;
+            if (isFolder) sessionStorage.removeItem('simpleoffice.folder-import-resume.v1');
+          }
           const errorDetails = payload && Array.isArray(payload.errors)
             ? payload.errors.filter((message) => typeof message === 'string' && message).join(' · ')
             : '';
@@ -425,6 +451,7 @@
       }
       if (checkpoint.nextIndex >= totalFiles) {
         browserFolderImportCheckpoint = null;
+        if (isFolder) sessionStorage.removeItem('simpleoffice.folder-import-resume.v1');
         status.textContent = importLabel + ' abgeschlossen: ' + totalFiles + ' Datei(en), ' +
           (totalBytes / 1048576).toFixed(1) + ' MiB importiert.';
       } else if (browserFolderImportCancelRequested) {

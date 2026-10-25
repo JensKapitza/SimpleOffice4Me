@@ -1,10 +1,10 @@
 """Authenticated file and folder import routes."""
 from __future__ import annotations
-from pathlib import PurePosixPath
 from uuid import UUID, uuid4, uuid5
 from .documents_core import *  # noqa: F401,F403
 from .v3_inbox_web import begin_web_inbox_upload, complete_web_inbox_upload, fail_web_inbox_upload
-from .v2.contracts import StorageLocation
+from .v2.contracts import ErrorCode, StorageLocation
+from .folder_import_recovery import existing_matching_folder_import, folder_import_origin
 
 
 @bp.post("/upload")
@@ -18,7 +18,8 @@ def upload():
 
     def failure(message: str, status: int = 400):
         if json_response:
-            return jsonify({"ok": False, "stored": 0, "expected": len(files), "error": message}), status
+            return jsonify({"ok": False, "stored": 0, "expected": len(files),
+                            "retryable": False, "error": message}), status
         flash(message)
         return redirect(url_for("documents.index"))
 
@@ -27,7 +28,6 @@ def upload():
     from .folder_import_validation import (
         decode_relative_path_manifest,
         decode_source_identity_manifest,
-        stable_source_folder_id,
         validate_source_identity_groups,
         validate_upload_batch,
     )
@@ -53,6 +53,7 @@ def upload():
         return failure(error)
     import_root = ""
     import_id = ""
+    resumable_import = False
     if folder_import:
         supplied_import_id = request.form.get("import_id", "")
         if supplied_import_id and (len(supplied_import_id) != 32 or any(char not in "0123456789abcdef" for char in supplied_import_id)):
@@ -60,6 +61,7 @@ def upload():
         # Bind client batch IDs to the authenticated actor and server secret.
         # A caller must not be able to select another user's or an old import directory.
         if supplied_import_id:
+            resumable_import = True
             namespace = uuid5(UUID(int=0), str(current_app.secret_key))
             import_id = uuid5(namespace, str(g.user["username"]) + ":" + supplied_import_id).hex
         else:
@@ -67,6 +69,7 @@ def upload():
         import_root = "imports/" + import_id
     stored = 0
     errors = []
+    retryable = True
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
     storage = _storage(actor)
@@ -76,6 +79,17 @@ def upload():
     max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
     for item_index, item in enumerate(files):
         upload_name = item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] if folder_import else item.filename
+        relative_path = relative_paths[item_index].replace(chr(92), "/") if folder_import else ""
+        existing = None
+        if resumable_import:
+            existing = existing_matching_folder_import(
+                _store(), current_app.config["DOCUMENT_ROOT"],
+                import_root + "/" + relative_path, relative_path, import_id,
+                actor, source_identities[item_index], item.stream, current_app.logger,
+            )
+        if existing is not None:
+            stored += 1
+            continue
         source_key = f"{getattr(g, 'request_id', 'web')}:{item_index}:{item.filename}"
         inbox = begin_web_inbox_upload(current_app.config, item, actor, source_key)
         if inbox["error"]:
@@ -86,7 +100,7 @@ def upload():
         try:
             if folder_import:
                 result = storage.import_stream_at(
-                    StorageLocation(import_root + "/" + relative_paths[item_index].replace(chr(92), "/")),
+                    StorageLocation(import_root + "/" + relative_path),
                     item.stream,
                     max_bytes=max_bytes,
                 )
@@ -98,6 +112,25 @@ def upload():
                     max_bytes=max_bytes,
                 )
             if not result.ok:
+                if result.error.code == ErrorCode.CONFLICT and resumable_import:
+                    item.stream.seek(0)
+                    existing = existing_matching_folder_import(
+                        _store(), current_app.config["DOCUMENT_ROOT"],
+                        import_root + "/" + relative_path, relative_path, import_id,
+                        actor, source_identities[item_index], item.stream, current_app.logger,
+                    )
+                    if existing is not None:
+                        complete_web_inbox_upload(
+                            current_app.config["DOCUMENT_ROOT"], inbox,
+                            source_key=source_key, original_name=item.filename,
+                            actor=actor, document_id=existing["document_id"],
+                            imported_metadata=existing, imported_size=int(existing.get("size") or 0),
+                            mime_type=item.mimetype or "",
+                        )
+                        stored += 1
+                        continue
+                if result.error.code == ErrorCode.CONFLICT:
+                    retryable = False
                 fail_web_inbox_upload(
                     current_app.config["DOCUMENT_ROOT"], inbox["item"], result.error.message
                 )
@@ -117,23 +150,10 @@ def upload():
                     _store().set_state(metadata["document_id"], defaults["default_state"], actor)
             document_id = result.value.object_id.value
             if folder_import:
-                relative_source = PurePosixPath(
-                    relative_paths[item_index].replace(chr(92), "/")
-                ).parent
-                if relative_source.as_posix() != ".":
-                    source_path = relative_source.as_posix()
-                    source_origin = {
-                        "import_id": import_id,
-                        "folder_id": uuid5(UUID(hex=import_id), source_path).hex,
-                        "source_path": source_path,
-                        "source_name": relative_source.name,
-                    }
-                    source_identity = source_identities[item_index]
-                    if source_identity:
-                        source_origin["source_identity"] = source_identity
-                        source_origin["folder_id"] = stable_source_folder_id(
-                            actor, source_identity, source_path,
-                        )
+                source_origin = folder_import_origin(
+                    import_id, relative_path, actor, source_identities[item_index],
+                )
+                if source_origin:
                     try:
                         _store().update_metadata(
                             document_id,
@@ -171,6 +191,7 @@ def upload():
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
     if json_response:
         if stored != len(files):
-            return jsonify({"ok": False, "stored": stored, "expected": len(files), "errors": errors}), 409
+            return jsonify({"ok": False, "stored": stored, "expected": len(files),
+                            "retryable": retryable, "errors": errors}), 409
         return jsonify({"ok": True, "stored": stored}), 200
     return redirect(url_for("documents.index"))

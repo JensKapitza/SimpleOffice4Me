@@ -10,6 +10,7 @@ import android.util.Log;
 import android.webkit.CookieManager;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -64,14 +65,18 @@ final class AndroidFolderImportTask implements Runnable {
     private volatile boolean confirmed;
     private volatile boolean finished;
     private volatile PreparedUpload preparedUpload;
+    private String importId;
+    private int completedFiles;
+    private long completedBytes;
     private final AtomicBoolean grantsReleased = new AtomicBoolean();
 
-    AndroidFolderImportTask(Context context, List<Uri> treeUris, List<Uri> ownedGrantUris, String csrfToken,
-            long maxRequestBytes, Listener listener) {
+    AndroidFolderImportTask(Context context, List<Uri> treeUris, List<Uri> ownedGrantUris,
+            String csrfToken, String importId, long maxRequestBytes, Listener listener) {
         this.context = context.getApplicationContext();
         this.treeUris = Collections.unmodifiableList(new ArrayList<>(treeUris));
         this.ownedGrantUris = Collections.unmodifiableList(new ArrayList<>(ownedGrantUris));
         this.csrfToken = csrfToken == null ? "" : csrfToken;
+        this.importId = importId;
         this.maxRequestBytes = maxRequestBytes;
         this.listener = listener;
     }
@@ -134,6 +139,7 @@ final class AndroidFolderImportTask implements Runnable {
             running = true;
         }
         boolean terminal = false;
+        boolean retryPending = false;
         try {
             checkCancelled();
             if (treeUris.isEmpty() || treeUris.size() > MAX_TREES) {
@@ -154,24 +160,25 @@ final class AndroidFolderImportTask implements Runnable {
             }
             if (!confirmed) return;
             PreparedUpload batch = preparedUpload;
-            notifyListener("uploading", 0, batch.files.size(),
-                    String.format(Locale.ROOT, "%d Datei(en), %.1f MiB werden importiert …",
-                            batch.files.size(), batch.totalBytes / 1048576.0));
-            String importId = java.util.UUID.randomUUID().toString().replace("-", "");
-            int completed = 0;
-            long completedBytes = 0;
-            while (completed < batch.files.size()) {
+            notifyListener("uploading", completedFiles, batch.files.size(),
+                    String.format(Locale.ROOT, "%d von %d Dateien, %.1f von %.1f MiB werden importiert …",
+                            completedFiles, batch.files.size(), completedBytes / 1048576.0,
+                            batch.totalBytes / 1048576.0));
+            if (importId == null || importId.isEmpty()) {
+                importId = java.util.UUID.randomUUID().toString().replace("-", "");
+            }
+            while (completedFiles < batch.files.size()) {
                 checkCancelled();
-                int end = completed;
+                int end = completedFiles;
                 long bytes = 0;
                 int pathBytes = 2;
                 while (end < batch.files.size()) {
                     Entry entry = batch.files.get(end);
                     int nextPathBytes = entry.relativePath.getBytes(StandardCharsets.UTF_8).length * 2 + 8;
                     long nextBytes = entry.size + nextPathBytes + 4096;
-                    if (end > completed && (bytes + nextBytes > maxRequestBytes
+                    if (end > completedFiles && (bytes + nextBytes > maxRequestBytes
                             || pathBytes + nextPathBytes > MAX_MANIFEST_BYTES
-                            || end - completed >= 100)) break;
+                            || end - completedFiles >= 100)) break;
                     if (nextBytes > maxRequestBytes || nextPathBytes > MAX_MANIFEST_BYTES) {
                         throw new ImportFailure("Eine einzelne Datei überschreitet das Upload-Limit.");
                     }
@@ -179,17 +186,17 @@ final class AndroidFolderImportTask implements Runnable {
                     pathBytes += nextPathBytes;
                     end++;
                 }
-                PreparedUpload part = prepareUpload(batch.files.subList(completed, end), importId);
+                PreparedUpload part = prepareUpload(batch.files.subList(completedFiles, end), importId);
                 upload(part.boundary, part.files, part.fileHeaders, part.folderField,
                         part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
                 requestBodySent = false;
-                for (int index = completed; index < end; index++) {
+                for (int index = completedFiles; index < end; index++) {
                     completedBytes = Math.addExact(completedBytes, batch.files.get(index).size);
                 }
-                completed = end;
-                notifyListener("uploading", completed, batch.files.size(),
+                completedFiles = end;
+                notifyListener("uploading", completedFiles, batch.files.size(),
                         String.format(Locale.ROOT, "%d von %d Dateien, %.1f von %.1f MiB verarbeitet.",
-                                completed, batch.files.size(), completedBytes / 1048576.0,
+                                completedFiles, batch.files.size(), completedBytes / 1048576.0,
                                 batch.totalBytes / 1048576.0));
             }
             finished = true;
@@ -198,7 +205,17 @@ final class AndroidFolderImportTask implements Runnable {
         } catch (ImportFailure error) {
             finished = true;
             terminal = true;
-            notifyListener(cancelled ? "cancelled" : "error", 0, 0, error.getMessage());
+            String message = cancelled && completedFiles > 0
+                    ? completedFiles + " vollständig importierte Datei(en) bleiben im Importordner. "
+                            + "Der laufende Import wurde abgebrochen."
+                    : error.getMessage();
+            notifyListener(cancelled ? "cancelled" : "error", completedFiles,
+                    preparedUpload == null ? 0 : preparedUpload.files.size(), message);
+        } catch (RetryableImportFailure error) {
+            requestBodySent = false;
+            confirmed = false;
+            retryPending = true;
+            notifyListener("retry", completedFiles, preparedUpload.files.size(), error.getMessage());
         } catch (ArithmeticException error) {
             finished = true;
             terminal = true;
@@ -208,10 +225,27 @@ final class AndroidFolderImportTask implements Runnable {
             terminal = true;
             notifyListener("error", 0, 0, "Der Zugriff auf den ausgewählten Ordner wurde widerrufen.");
         } catch (IOException error) {
-            finished = true;
-            terminal = true;
-            notifyListener(cancelled ? "cancelled" : "error", 0, 0,
-                    cancelled ? "Ordnerimport abgebrochen." : "Ordnerimport fehlgeschlagen. Bitte Verbindung und Ordnerzugriff prüfen.");
+            requestBodySent = false;
+            if (cancelled) {
+                finished = true;
+                terminal = true;
+                notifyListener("cancelled", completedFiles,
+                        preparedUpload == null ? 0 : preparedUpload.files.size(),
+                        completedFiles > 0
+                                ? completedFiles + " vollständig importierte Datei(en) bleiben im Importordner. "
+                                        + "Der laufende Import wurde abgebrochen."
+                                : "Ordnerimport abgebrochen.");
+            } else if (preparedUpload == null) {
+                finished = true;
+                terminal = true;
+                notifyListener("error", 0, 0,
+                        "Ordner konnte nicht geprüft werden. Zugriff und Speicherplatz prüfen.");
+            } else {
+                confirmed = false;
+                retryPending = true;
+                notifyListener("retry", completedFiles, preparedUpload.files.size(),
+                        "Import unterbrochen. Verbindung prüfen und Import fortsetzen.");
+            }
         } catch (RuntimeException error) {
             finished = true;
             terminal = true;
@@ -223,7 +257,7 @@ final class AndroidFolderImportTask implements Runnable {
             HttpURLConnection active = connection;
             if (active != null) active.disconnect();
             if (terminal) releaseOwnedGrants();
-            if (!terminal && preparedUpload != null && !confirmed && !cancelled) {
+            if (!terminal && !retryPending && preparedUpload != null && !confirmed && !cancelled) {
                 notifyListener("preview", preparedUpload.files.size(), preparedUpload.files.size(),
                         preparedUpload.previewMessage);
             }
@@ -524,13 +558,16 @@ final class AndroidFolderImportTask implements Runnable {
                 notifyListener("uploading", index + 1, files.size(),
                         (index + 1) + " von " + files.size() + " Dateien übertragen.");
             }
+            synchronized (this) {
+                if (cancelled) throw new ImportFailure("Ordnerimport abgebrochen.");
+                requestBodySent = true;
+            }
             output.write(closing);
             output.flush();
         } catch (IOException error) {
             if (cancelled) throw new ImportFailure("Ordnerimport abgebrochen.");
             throw error;
         }
-        requestBodySent = true;
         notifyListener("finishing", files.size(), files.size(),
                 "Dateien übertragen; der Server schließt den Import ab …");
         checkCancelled();
@@ -544,7 +581,13 @@ final class AndroidFolderImportTask implements Runnable {
                 || responseCode == HttpURLConnection.HTTP_SEE_OTHER)
                 && isDocumentsRedirect(location)) return;
         if (responseCode == 409) {
-            throw new ImportFailure("Ein Upload-Teilpaket wurde nicht vollständig gespeichert. Import gestoppt.");
+            requestBodySent = false;
+            if (!serverAllowsRetry(request)) {
+                throw new ImportFailure(
+                        "Ein Dateipfad ist bereits mit anderem Inhalt belegt. Der Import wurde ohne Überschreiben beendet.");
+            }
+            throw new RetryableImportFailure(
+                    "Ein Teilpaket wurde teilweise gespeichert. Import kann sicher fortgesetzt werden.");
         }
         if (responseCode == 413) {
             throw new ImportFailure("Der Upload ist größer als das konfigurierte Limit.");
@@ -603,6 +646,21 @@ final class AndroidFolderImportTask implements Runnable {
         CookieManager manager = CookieManager.getInstance();
         for (String cookie : cookies) manager.setCookie(LOCAL_URL, cookie);
         manager.flush();
+    }
+
+    private static boolean serverAllowsRetry(HttpURLConnection request) throws IOException {
+        InputStream error = request.getErrorStream();
+        if (error == null) return true;
+        try (InputStream input = error) {
+            byte[] buffer = new byte[4096];
+            int count = input.read(buffer);
+            if (count <= 0) return true;
+            return new JSONObject(new String(buffer, 0, count, StandardCharsets.UTF_8))
+                    .optBoolean("retryable", true);
+        } catch (org.json.JSONException errorJson) {
+            Log.w("AndroidFolderImport", "Folder-import error response was not valid JSON.");
+            return true;
+        }
     }
 
     private static boolean isLoginRedirect(String location) {
@@ -690,6 +748,12 @@ final class AndroidFolderImportTask implements Runnable {
 
     private static final class ImportFailure extends IOException {
         ImportFailure(String message) {
+            super(message);
+        }
+    }
+
+    private static final class RetryableImportFailure extends IOException {
+        RetryableImportFailure(String message) {
             super(message);
         }
     }
