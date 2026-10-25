@@ -58,21 +58,27 @@ def main():
         left, top, right, bottom = map(int, bounds.groups())
         adb('shell', 'input', 'tap', str((left + right) // 2), str((top + bottom) // 2))
 
-    try:
-        wait_for(has_text('Mit Server verbinden'))
+    def enter_server_address(address):
+        # The field can retain the previous HTTP attempt after activity restart.
+        # ADB input text inserts at the cursor; select all before replacing it.
         field = wait_for(lambda item: item.get('class') == 'android.widget.EditText')
         tap(field)
-        adb('shell', 'input', 'text', 'http://example.com/')
-        adb('shell', 'input', 'keyevent', '111')  # Hide keyboard without navigating back.
+        adb('shell', 'input', 'keyevent', '--meta', '4096', '29')  # CTRL+A
+        adb('shell', 'input', 'text', address)
+        adb('shell', 'input', 'keyevent', '111')  # Hide keyboard.
+        wait_for(lambda item: item.get('class') == 'android.widget.EditText'
+                 and item.get('text') == address)
+
+    try:
+        wait_for(has_text('Mit Server verbinden'))
+        enter_server_address('http://example.com/')
         tap(wait_for(lambda item: item.get('text') == 'Verbinden'))
         wait_for(has_text('Eine HTTPS-Verbindung wird benötigt.'))
         wait_for(has_text('Mit Server verbinden'))
         # Restart the activity with its still-empty saved preference and use HTTPS.
         adb('shell', 'am', 'force-stop', 'de.simpleoffice4me.tauri')
         adb('shell', 'am', 'start', '-W', '-n', 'de.simpleoffice4me.tauri/.MainActivity')
-        tap(wait_for(lambda item: item.get('class') == 'android.widget.EditText'))
-        adb('shell', 'input', 'text', 'https://example.com/')
-        adb('shell', 'input', 'keyevent', '111')
+        enter_server_address('https://example.com/')
         tap(wait_for(lambda item: item.get('text') == 'Verbinden'))
         wait_for(has_text('Example Domain'))
         # The documented Android recovery path is reopening the app.
