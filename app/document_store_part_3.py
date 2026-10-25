@@ -93,24 +93,24 @@ class _DocumentStorePart3:
                 self._refresh_search_index(document)
                 with self._db() as db:
                     db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
-                for share_id in active_share_ids:
-                    self._event(
-                        "share_revoked_on_move",
-                        {
-                            "share_id": share_id,
-                            "document_id": document["document_id"],
-                            "from": previous_path,
-                            "to": relative_path,
-                            "actor": actor,
-                            "reason": "revoked_on_move",
-                        },
-                    )
             except Exception:
                 if destination.exists() and not source.exists():
                     shutil.move(str(destination), str(source))
                 self._save_document(snapshot)
                 self._refresh_search_index(snapshot)
                 raise
+            for share_id in active_share_ids:
+                self._event(
+                    "share_revoked_on_move",
+                    {
+                        "share_id": share_id,
+                        "document_id": document["document_id"],
+                        "from": previous_path,
+                        "to": relative_path,
+                        "actor": actor,
+                        "reason": "revoked_on_move",
+                    },
+                )
             self._event("document_moved", {"document_id": document["document_id"], "from": previous_path, "to": relative_path, "actor": actor})
             self._record_revision("document_moved", actor, "documents", document["document_id"], document)
         self._scan_file(destination)
