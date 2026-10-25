@@ -181,6 +181,7 @@ final class AndroidFolderImportTask implements Runnable {
                 PreparedUpload part = prepareUpload(batch.files.subList(completed, end), importId);
                 upload(part.boundary, part.files, part.fileHeaders, part.folderField,
                         part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
+                        part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
                 requestBodySent = false;
                 completed = end;
                 notifyListener("uploading", completed, batch.files.size(),
