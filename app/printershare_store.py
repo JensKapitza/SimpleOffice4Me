@@ -495,6 +495,7 @@ class PrinterShareStore:
         return data
 
     def set_printer(self, target_id: str, *, kind: str, federation_shared: bool, label: str = "") -> dict[str, Any]:
+        self._migrate_legacy_brother_profile()
         with exclusive_file_lock(self.lock_path):
             data = self.settings()
             available = {item["printer_id"]: item for item in self.printers()}
@@ -625,6 +626,7 @@ class PrinterShareStore:
     ) -> dict[str, str]:
         username = self._safe_username(username)
         requested = {"standard": str(standard_printer_id or ""), "label": str(label_printer_id or "")}
+        self._migrate_legacy_brother_profile()
         with exclusive_file_lock(self.lock_path):
             data = self.settings()
             printers = {printer["printer_id"]: printer for printer in self.printers()}
@@ -652,6 +654,7 @@ class PrinterShareStore:
         username = self._safe_username(username)
         if not isinstance(policies, dict) or set(policies) != set(PRINTER_ROLES):
             raise ValueError("Für Standard- und Etikettendruck muss eine Richtlinie angegeben werden")
+        self._migrate_legacy_brother_profile()
         with exclusive_file_lock(self.lock_path):
             data = self.settings()
             printers = {printer["printer_id"]: printer for printer in self.printers()}

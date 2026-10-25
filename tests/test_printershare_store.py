@@ -1,11 +1,13 @@
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
 
+from app.file_lock import exclusive_file_lock
 from app.printershare_store import PrinterShareStore, effective_retention
 
 
@@ -193,6 +195,40 @@ class PrinterShareStoreTest(unittest.TestCase):
         self.assertEqual("label", label["options"][0]["kind"])
         self.assertEqual("brother", label["options"][0]["backend"])
         self.assertTrue(all("uri" not in printer for printer in context["printers"]))
+
+    def test_first_printer_mutations_migrate_before_taking_write_lock(self):
+        policies = {
+            "standard": {"mode": "recommended", "printer_id": TEST_PRINTER["printer_id"]},
+            "label": {"mode": "none", "printer_id": ""},
+        }
+        mutations = (
+            lambda store: store.set_printer(
+                TEST_PRINTER["printer_id"], kind="normal", federation_shared=False,
+            ),
+            lambda store: store.set_user_preferences(
+                "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+            ),
+            lambda store: store.set_user_printer_policies("alice", policies),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                store = PrinterShareStore(self.root / f"write-lock-{index}", self.app.config["SECRET_KEY"])
+                lock_active = False
+
+                @contextmanager
+                def non_reentrant_lock(path):
+                    nonlocal lock_active
+                    if lock_active:
+                        raise AssertionError("printer settings write lock was re-entered")
+                    with exclusive_file_lock(path):
+                        lock_active = True
+                        try:
+                            yield
+                        finally:
+                            lock_active = False
+
+                with patch("app.printershare_store.exclusive_file_lock", side_effect=non_reentrant_lock):
+                    mutate(store)
 
 
 if __name__ == "__main__":
