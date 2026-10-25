@@ -632,6 +632,8 @@ class _DocumentStorePart4:
         path: Path,
         force_hash: bool = False,
         document_id_hint: str = "",
+        *,
+        track_location_change: bool = True,
     ) -> tuple[bool, bool, bool]:
         forced_id = ""
         if document_id_hint:
@@ -679,20 +681,22 @@ class _DocumentStorePart4:
         if not isinstance(tagged_at, dict): tagged_at = {}
         for tag in all_tags: tagged_at.setdefault(tag, metadata.get("first_seen_at", now))
         path_moved = bool(previous_path and previous_path != relative_path)
+        location_changed = path_moved and track_location_change
         share_lock = (
             exclusive_file_lock(self.shares_path.with_suffix(".lock"))
-            if path_moved else nullcontext()
+            if location_changed else nullcontext()
         )
         with share_lock:
-            if path_moved:
+            if location_changed:
                 shares_to_revoke = self._active_share_ids_for_move(document_id)
                 metadata["location_revision"] = self._location_revision(metadata) + 1
                 metadata["location_last_moved_at"] = now
                 metadata["location_history"] = [*metadata.get("location_history", []), {"from": previous_path, "to": relative_path, "at": now, "reason": "filesystem_scan"}]
+            if path_moved:
                 with self._db() as db: db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
             metadata.update({"version": 1, "document_id": document_id, "sha256": digest, "first_seen_at": metadata.get("first_seen_at", now), "last_seen_at": now, "last_path": relative_path, "tags": all_tags, "tagged_at": tagged_at, "original_sha256": original_sha256, "content_sha256": digest, "notes": metadata.get("notes", []), "relationships": metadata.get("relationships", []), "state": metadata.get("state", "new"), "state_history": metadata.get("state_history", []), "version_series_id": metadata.get("version_series_id", document_id), "version_number": metadata.get("version_number", 1), "attributes": metadata.get("attributes", {}), "deadlines": metadata.get("deadlines", [])})
             atomic_json_write(metadata_path, metadata)
-            if path_moved:
+            if location_changed:
                 self._event("file_move_detected", {"document_id": document_id, "from": previous_path, "to": relative_path})
                 for share_id in shares_to_revoke:
                     self._event(
