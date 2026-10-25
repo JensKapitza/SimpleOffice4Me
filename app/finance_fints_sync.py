@@ -12,6 +12,7 @@ from .finance_fints import (
     fetch_transactions,
     fingerprint_for_account,
 )
+from .finance_fints_retry import run_read_with_bounded_retry
 from .finance_store import FinanceStore
 
 
@@ -55,14 +56,23 @@ class FinTSSyncService:
                 end = date.fromisoformat(str(challenge_state["end_date"]))
             except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError("FinTS-SCA-Sitzung enthält einen ungültigen Abrufzeitraum") from exc
-        fetched = fetch_transactions(
-            connection,
-            str(mapping["remote_account_id"]),
-            pin,
-            start_date=start,
-            end_date=end,
-            challenge_state=challenge_state,
-            tan=tan,
+
+        def fetch() -> list[dict[str, Any]]:
+            return fetch_transactions(
+                connection,
+                str(mapping["remote_account_id"]),
+                pin,
+                start_date=start,
+                end_date=end,
+                challenge_state=challenge_state,
+                tan=tan,
+            )
+
+        # A TAN continuation is stateful and single-use; only a fresh, read-only
+        # fetch may be retried after an explicitly transient transport failure.
+        fetched = (
+            run_read_with_bounded_retry(fetch)
+            if challenge_state is None else fetch()
         )
 
         # Stable bank IDs remain authoritative. For transactions without one,
