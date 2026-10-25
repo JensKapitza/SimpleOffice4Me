@@ -234,11 +234,37 @@ class SftpVirtualFilesystemTest(unittest.TestCase):
                 session._materialize("/shared", Path(temporary))
         read_bytes.assert_not_called()
 
+    def test_rsync_file_count_limit_checks_before_reading_file(self):
+        from flask import Flask
+
+        server = SimpleNamespace(
+            vfs=self.vfs, username="editor", identity={"scope": "read"},
+            app=Flask(__name__),
+        )
+        request = parse_rsync_command(
+            "rsync --server --sender -logDtpre.iLsfxCIvu . /shared/",
+        )
+        session = RestrictedRsyncSession(server, SimpleNamespace(), request)
+        session.max_files = 0
+        with tempfile.TemporaryDirectory() as temporary, patch.object(
+            self.vfs, "read_bytes", wraps=self.vfs.read_bytes,
+        ) as read_bytes:
+            with self.assertRaisesRegex(RuntimeError, "staging limit"):
+                session._materialize("/shared", Path(temporary))
+        read_bytes.assert_not_called()
+
     def test_rsync_session_uses_persisted_timeout_over_legacy_environment(self):
         from flask import Flask
 
         SettingsStore(self.root).save(
-            {"network": {"rsync_timeout_seconds": 480, "rsync_max_bytes": 512 * 1024 * 1024}}, "admin",
+            {
+                "network": {
+                    "rsync_timeout_seconds": 480,
+                    "rsync_max_bytes": 512 * 1024 * 1024,
+                    "rsync_max_files": 400,
+                },
+            },
+            "admin",
         )
         server = SimpleNamespace(
             vfs=self.vfs, username="reader", identity={"scope": "read"},
@@ -250,10 +276,12 @@ class SftpVirtualFilesystemTest(unittest.TestCase):
         with patch.dict(os.environ, {
             "SIMPLEOFFICE_RSYNC_TIMEOUT": "7200",
             "SIMPLEOFFICE_RSYNC_MAX_BYTES": str(2 * 1024 * 1024 * 1024),
+            "SIMPLEOFFICE_RSYNC_MAX_FILES": str(100000),
         }):
             session = RestrictedRsyncSession(server, SimpleNamespace(), request)
         self.assertEqual(480, session.timeout)
         self.assertEqual(512 * 1024 * 1024, session.max_bytes)
+        self.assertEqual(400, session.max_files)
 
     def test_rsync_timeout_terminates_then_kills_child_before_staging_cleanup(self):
         from flask import Flask
