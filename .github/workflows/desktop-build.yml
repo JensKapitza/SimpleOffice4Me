@@ -220,10 +220,11 @@ jobs:
           test "$actual" = "$expected" || { echo "Wrong macOS runner architecture: $actual (expected $expected)" >&2; exit 1; }
           # electron-builder emits a versioned DMG without an architecture suffix.
           # The native runner architecture is checked above; rename the artifact explicitly.
-          mapfile -t dmgs < <(find desktop/electron/dist -maxdepth 1 -type f -name '*.dmg' -print)
-          test "${#dmgs[@]}" -eq 1 || { echo "Expected one macOS DMG, found ${#dmgs[@]}" >&2; exit 1; }
+          set -- desktop/electron/dist/*.dmg
+          test "$#" -eq 1 && test -f "$1" || { echo "Expected exactly one macOS DMG" >&2; exit 1; }
           mkdir -p artifacts/macos
-          cp "${dmgs[0]}" "artifacts/macos/SimpleOffice4Me-macos-$expected.dmg"
+          cp "$1" "artifacts/macos/SimpleOffice4Me-macos-$expected.dmg"
+          printf 'Verified macOS %s DMG size: %s bytes\n' "$expected" "$(stat -f%z "$1")"
           (cd artifacts/macos && shasum -a 256 *.dmg > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: "!startsWith(matrix.artifact, 'macos-')"

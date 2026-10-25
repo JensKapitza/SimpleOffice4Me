@@ -55,6 +55,12 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
                 workflow = (workflows / name).read_text(encoding="utf-8")
                 self.assertIn(release_digest, workflow)
 
+    def test_electron_macos_installer_uses_bash_32_compatible_dmg_discovery(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/desktop-build.yml").read_text(encoding="utf-8")
+        self.assertIn("set -- desktop/electron/dist/*.dmg", workflow)
+        self.assertNotIn("mapfile -t dmgs", workflow)
+        self.assertIn("Verified macOS %s DMG size", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
