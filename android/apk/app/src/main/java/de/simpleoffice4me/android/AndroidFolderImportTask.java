@@ -155,9 +155,11 @@ final class AndroidFolderImportTask implements Runnable {
             if (!confirmed) return;
             PreparedUpload batch = preparedUpload;
             notifyListener("uploading", 0, batch.files.size(),
-                    batch.files.size() + " Datei(en) werden importiert …");
+                    String.format(Locale.ROOT, "%d Datei(en), %.1f MiB werden importiert …",
+                            batch.files.size(), batch.totalBytes / 1048576.0));
             String importId = java.util.UUID.randomUUID().toString().replace("-", "");
             int completed = 0;
+            long completedBytes = 0;
             while (completed < batch.files.size()) {
                 checkCancelled();
                 int end = completed;
@@ -180,11 +182,15 @@ final class AndroidFolderImportTask implements Runnable {
                 PreparedUpload part = prepareUpload(batch.files.subList(completed, end), importId);
                 upload(part.boundary, part.files, part.fileHeaders, part.folderField,
                         part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
-                        part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
                 requestBodySent = false;
+                for (int index = completed; index < end; index++) {
+                    completedBytes = Math.addExact(completedBytes, batch.files.get(index).size);
+                }
                 completed = end;
                 notifyListener("uploading", completed, batch.files.size(),
-                        completed + " von " + batch.files.size() + " Dateien verarbeitet.");
+                        String.format(Locale.ROOT, "%d von %d Dateien, %.1f von %.1f MiB verarbeitet.",
+                                completed, batch.files.size(), completedBytes / 1048576.0,
+                                batch.totalBytes / 1048576.0));
             }
             finished = true;
             terminal = true;
@@ -303,7 +309,6 @@ final class AndroidFolderImportTask implements Runnable {
     private List<Entry> collectFiles() throws ImportFailure, IOException {
         ContentResolver resolver = context.getContentResolver();
         List<Entry> result = new ArrayList<>();
-        int[] entryCount = {0};
         Set<String> rootNames = new HashSet<>();
         for (Uri treeUri : treeUris) {
             checkCancelled();
@@ -316,17 +321,15 @@ final class AndroidFolderImportTask implements Runnable {
             String rootName = validateSegment(queryDisplayName(
                     DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner"));
             String sourceIdentity = stableSourceIdentity(context, treeUri);
-            if (!rootNames.add(rootName.toLowerCase(Locale.ROOT))) {
-                throw new ImportFailure("Mehrere ausgewählte Ordner haben denselben Namen. Bitte gemeinsam über einen übergeordneten Ordner importieren.");
-            }
+            String importRootName = FolderImportRootNames.reserve(rootName, sourceIdentity, rootNames);
             Set<String> visitedDirectories = new HashSet<>();
             visitedDirectories.add(rootId);
-            collectDirectory(resolver, treeUri, rootId, rootName, sourceIdentity, 0,
-                    visitedDirectories, entryCount, result);
+            collectDirectory(resolver, treeUri, rootId, importRootName, sourceIdentity, 0,
+                    visitedDirectories, result);
         }
         Set<String> destinationPaths = new HashSet<>();
         for (Entry entry : result) {
-            if (!destinationPaths.add(entry.relativePath.toLowerCase(Locale.ROOT))) {
+            if (!destinationPaths.add(collisionKey(entry.relativePath))) {
                 throw new ImportFailure("Der Ordner enthält doppelte Dateipfade.");
             }
         }
@@ -334,7 +337,7 @@ final class AndroidFolderImportTask implements Runnable {
     }
 
     private void collectDirectory(ContentResolver resolver, Uri treeUri, String directoryId, String parentPath,
-            String sourceIdentity, int depth, Set<String> visitedDirectories, int[] entryCount, List<Entry> result)
+            String sourceIdentity, int depth, Set<String> visitedDirectories, List<Entry> result)
             throws ImportFailure, IOException {
         checkCancelled();
         if (depth > MAX_DEPTH) throw new ImportFailure("Der Ordner ist zu tief verschachtelt.");
@@ -381,7 +384,7 @@ final class AndroidFolderImportTask implements Runnable {
                     throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
                 }
                 collectDirectory(resolver, treeUri, child.documentId, path, sourceIdentity, depth + 1,
-                        visitedDirectories, entryCount, result);
+                        visitedDirectories, result);
                 continue;
             }
             if (child.size < 0) {

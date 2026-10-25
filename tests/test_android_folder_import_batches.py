@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app import app
 from app.db import ensure_auth_database
+from app.document_store import DocumentStore
 
 
 class AndroidFolderImportBatchTests(unittest.TestCase):
@@ -32,11 +33,13 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         app.config.update(self.saved)
         self.temp.cleanup()
 
-    def upload(self, import_id, paths):
+    def upload(self, import_id, paths, source_ids=None):
         data = {"folder_import": "1", "import_id": import_id,
                 "relative_paths": json.dumps(paths),
                 "files": [(io.BytesIO(path.encode()), path.rsplit("/", 1)[-1])
                           for path in paths]}
+        if source_ids is not None:
+            data["source_ids"] = json.dumps(source_ids)
         return self.client.post("/documents/upload", data=data)
 
     def test_multiple_batches_share_one_import_directory(self):
@@ -63,6 +66,36 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         response = self.upload("../other", ["root/file.txt"])
         self.assertNotEqual(200, response.status_code)
         self.assertEqual([], list(self.root.rglob("file.txt")))
+
+    def test_collision_suffixed_roots_keep_distinct_source_identities(self):
+        token = "c" * 32
+        first_id = "a" * 64
+        second_id = "b" * 64
+        first_path = "Books (aaaaaaaa)/nested/first.txt"
+        second_path = "Books (bbbbbbbb)/nested/second.txt"
+
+        first = self.upload(token, [first_path], [first_id])
+        second = self.upload(token, [second_path], [second_id])
+
+        self.assertEqual(200, first.status_code, first.get_data(as_text=True))
+        self.assertEqual(200, second.status_code, second.get_data(as_text=True))
+        first_file = list(self.root.rglob("first.txt"))
+        second_file = list(self.root.rglob("second.txt"))
+        self.assertEqual(1, len(first_file))
+        self.assertEqual(1, len(second_file))
+        self.assertNotEqual(first_file[0].parents[1], second_file[0].parents[1])
+        store = DocumentStore(self.root)
+        store.initialize()
+        first_document = store.get_document(first_file[0])
+        second_document = store.get_document(second_file[0])
+        self.assertEqual(
+            first_id,
+            first_document["attributes"]["folder_import_origin"]["source_identity"],
+        )
+        self.assertEqual(
+            second_id,
+            second_document["attributes"]["folder_import_origin"]["source_identity"],
+        )
 
 
 if __name__ == "__main__":
