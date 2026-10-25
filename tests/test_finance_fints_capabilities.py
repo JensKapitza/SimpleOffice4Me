@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from app.finance_fints import (
+    FinTSAuthenticationRequired,
     FinTSFeatureUnavailable,
     _require_read_capability,
     discover_accounts,
@@ -110,6 +111,60 @@ class FinTSCapabilityTests(unittest.TestCase):
         with patch("app.finance_fints._client", return_value=client):
             accounts = discover_accounts(self.connection, "request-pin")
         self.assertEqual(self.remote_id, accounts[0]["remote_account_id"])
+
+    def test_fresh_account_discovery_retries_transient_transport_failure(self):
+        failed = FakeClient()
+        failed.get_sepa_accounts = Mock(side_effect=ConnectionResetError("temporary disconnect"))
+        success = FakeClient()
+        with patch("app.finance_fints._client", side_effect=[failed, success]) as make_client, patch(
+            "app.finance_fints_retry.is_retryable_transport_error", return_value=True,
+        ) as is_retryable, patch("app.finance_fints_retry.time.sleep") as sleep:
+            accounts = discover_accounts(self.connection, "request-pin")
+
+        self.assertEqual(2, make_client.call_count)
+        self.assertEqual(1, is_retryable.call_count)
+        failed.get_sepa_accounts.assert_called_once()
+        sleep.assert_called_once()
+        self.assertEqual(self.remote_id, accounts[0]["remote_account_id"])
+
+    def test_fresh_capability_discovery_retries_transient_transport_failure(self):
+        failed = FakeClient(self.information())
+        failed.get_sepa_accounts = Mock(
+            side_effect=ConnectionResetError("temporary disconnect"),
+        )
+        success = FakeClient(self.information())
+        with patch("app.finance_fints._client", side_effect=[failed, success]) as make_client, patch(
+            "app.finance_fints_retry.is_retryable_transport_error", return_value=True,
+        ) as is_retryable, patch("app.finance_fints_retry.time.sleep") as sleep:
+            accounts, profile = discover_accounts_with_capabilities(
+                self.connection, "request-pin",
+            )
+
+        self.assertEqual(2, make_client.call_count)
+        self.assertEqual(1, is_retryable.call_count)
+        failed.get_sepa_accounts.assert_called_once()
+        sleep.assert_called_once()
+        self.assertEqual(self.remote_id, accounts[0]["remote_account_id"])
+        self.assertTrue(profile["read"]["balance"])
+
+    def test_account_discovery_tan_challenge_is_not_retried(self):
+        class NeedTANResponse:
+            challenge = "approve account lookup"
+
+            def get_data(self):
+                return b"retry-state"
+
+        client = FakeClient()
+        client.get_sepa_accounts = Mock(return_value=NeedTANResponse())
+        with patch("app.finance_fints._client", return_value=client) as make_client, patch(
+            "app.finance_fints_retry.time.sleep",
+        ) as sleep:
+            with self.assertRaises(FinTSAuthenticationRequired):
+                discover_accounts(self.connection, "request-pin")
+
+        make_client.assert_called_once()
+        client.get_sepa_accounts.assert_called_once()
+        sleep.assert_not_called()
 
     def test_absent_or_incomplete_bank_information_stays_unknown(self):
         client = FakeClient({"bank": {}, "auth": {}})

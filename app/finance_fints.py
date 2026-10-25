@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any, Iterable
 
 from .finance_schema import normalize_iban, text, transaction_fingerprint
+from .finance_fints_retry import run_read_with_bounded_retry
 
 
 class FinTSUnavailable(RuntimeError):
@@ -343,6 +344,13 @@ def _require_read_capability(client: Any, remote_account_id: str, feature: str) 
 
 
 def discover_accounts(connection: dict[str, Any], pin: str) -> list[dict[str, str]]:
+    """Retry transient transport failures during a fresh, read-only account lookup."""
+    return run_read_with_bounded_retry(
+        lambda: _discover_accounts_once(connection, pin),
+    )
+
+
+def _discover_accounts_once(connection: dict[str, Any], pin: str) -> list[dict[str, str]]:
     client = _client(connection, pin)
     try:
         accounts = _sepa_accounts(client)
@@ -355,6 +363,14 @@ def discover_accounts_with_capabilities(
     connection: dict[str, Any], pin: str,
 ) -> tuple[list[dict[str, str]], dict[str, Any]]:
     """Discover SEPA accounts and safely summarize the bank's read/TAN capabilities."""
+    return run_read_with_bounded_retry(
+        lambda: _discover_accounts_with_capabilities_once(connection, pin),
+    )
+
+
+def _discover_accounts_with_capabilities_once(
+    connection: dict[str, Any], pin: str,
+) -> tuple[list[dict[str, str]], dict[str, Any]]:
     client = _client(connection, pin)
     try:
         accounts = [normalize_account(account).as_dict() for account in _sepa_accounts(client)]
