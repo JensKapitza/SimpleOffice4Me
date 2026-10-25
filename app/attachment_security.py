@@ -121,7 +121,14 @@ class AttachmentSecurity:
         self.quarantine = self.control / "quarantine"
         self.webdav_quarantine = self.control / "webdav-upload-quarantine"
         self.registry = self.control / "malware-scan.json"
-        self.scanner = scanner or ClamAV()
+        if scanner is None:
+            from .settings_store import SettingsStore
+
+            timeout = SettingsStore(self.root).settings()["integrations"][
+                "clamav_timeout_seconds"
+            ]
+            scanner = ClamAV(timeout=timeout)
+        self.scanner = scanner
 
     def scan_webdav_upload(self, payload: bytes | BinaryIO, actor: str, target_path: str,
                            max_quarantine_bytes: int, *, source_type: str = "webdav-put") -> dict[str, Any]:
