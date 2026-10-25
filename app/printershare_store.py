@@ -681,27 +681,17 @@ class PrinterShareStore:
     def set_user_printer_policy(
         self, username: str, role: str, mode: str, printer_id_value: str = "",
     ) -> dict[str, str]:
+        """Update one role without bypassing validation or dropping the other."""
         username = self._safe_username(username)
         if role not in PRINTER_ROLES:
             raise ValueError("Unbekannte Druckerrolle")
-        mode = str(mode or "none").casefold()
-        if mode not in PRINTER_POLICY_MODES:
-            raise ValueError("Unbekannte Druckerrichtlinie")
-        printer_id_value = str(printer_id_value or "")
-        if mode == "none":
-            printer_id_value = ""
-        elif not printer_id_value:
-            raise ValueError("Für eine aktive Druckerrichtlinie muss ein Drucker gewählt werden")
-        else:
-            printer = next((item for item in self.printers() if item["printer_id"] == printer_id_value), None)
-            if printer is None or not self._compatible(printer, role):
-                raise ValueError("Der gewählte Drucker ist für diese Druckart nicht verfügbar")
-        policy = {"mode": mode, "printer_id": printer_id_value}
-        with exclusive_file_lock(self.lock_path):
-            data = self.settings()
-            data["user_printer_policies"].setdefault(username, {})[role] = policy
-            atomic_json_write(self.settings_path, data)
-        return policy
+        current = self.settings()["user_printer_policies"].get(username, {})
+        policies = {
+            item: dict(current.get(item, {"mode": "none", "printer_id": ""}))
+            for item in PRINTER_ROLES
+        }
+        policies[role] = {"mode": mode, "printer_id": printer_id_value}
+        return self.set_user_printer_policies(username, policies)[role]
 
     def resolve_user_printer(self, username: str, role: str, requested_id: str = "") -> dict[str, Any]:
         if role not in PRINTER_ROLES:
