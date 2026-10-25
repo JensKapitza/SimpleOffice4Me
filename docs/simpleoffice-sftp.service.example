@@ -9,6 +9,7 @@ Group=simpleoffice
 WorkingDirectory=/opt/simpleoffice
 EnvironmentFile=/etc/simpleoffice/sftp.env
 Environment=SIMPLEOFFICE_RSYNC_ENABLED=true
+# Legacy rsync startup values; persisted admin network settings take precedence.
 Environment=SIMPLEOFFICE_RSYNC_MAX_BYTES=2147483648
 Environment=SIMPLEOFFICE_RSYNC_MAX_FILES=100000
 Environment=SIMPLEOFFICE_RSYNC_TIMEOUT=3600

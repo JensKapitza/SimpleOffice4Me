@@ -36,6 +36,11 @@
           <input class="form-control" id="rsync-max-bytes" type="number" name="rsync_max_bytes" value="{{ network.rsync_max_bytes }}" min="{{ rsync_max_bytes_min }}" max="{{ rsync_max_bytes_max }}" step="1" required>
           <div class="form-text">Standard und Obergrenze: 2 GiB (2.147.483.648 Bytes). Zulässig: 1 MiB bis 2 GiB. Begrenzt die Gesamtgröße des synchronisierten Bestands je Sitzung; gilt für neue Sitzungen ohne Neustart. Der bisherige Umgebungswert wird bis zum Speichern hier übernommen.</div>
         </div>
+        <div class="col-md-7">
+          <label class="form-label" for="rsync-max-files">Rsync-Dateianzahl-Limit</label>
+          <input class="form-control" id="rsync-max-files" type="number" name="rsync_max_files" value="{{ network.rsync_max_files }}" min="{{ rsync_max_files_min }}" max="{{ rsync_max_files_max }}" step="1" required>
+          <div class="form-text">Standard und Obergrenze: 100.000 Dateien je Sitzung. Zulässig: 0–100.000; 0 erlaubt keine Dateiübertragung, Verzeichnisoperationen bleiben möglich. Gilt für neue Sitzungen ohne Neustart. Der bisherige Umgebungswert wird bis zum Speichern hier übernommen.</div>
+        </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">Einstellungen speichern</button>
           <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>

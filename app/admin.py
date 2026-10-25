@@ -24,6 +24,7 @@ from .settings_store import (
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
+    MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
     MAX_PREVIEW_MAX_BYTES,
     MAX_PREVIEW_MAX_PIXELS,
@@ -38,6 +39,7 @@ from .settings_store import (
     MIN_OSM_READ_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_RSYNC_MAX_BYTES,
+    MIN_RSYNC_MAX_FILES,
     MIN_RSYNC_TIMEOUT_SECONDS,
     SettingsStore,
 )
@@ -455,6 +457,8 @@ def network_settings():
         network=settings["network"],
         rsync_max_bytes_min=MIN_RSYNC_MAX_BYTES,
         rsync_max_bytes_max=MAX_RSYNC_MAX_BYTES,
+        rsync_max_files_min=MIN_RSYNC_MAX_FILES,
+        rsync_max_files_max=MAX_RSYNC_MAX_FILES,
     )
 
 
@@ -489,6 +493,11 @@ def save_network_settings():
                     DEFAULT_SETTINGS["network"]["rsync_max_bytes"]
                     if "rsync_max_bytes" in request.form
                     else current["rsync_max_bytes"]
+                ),
+                "rsync_max_files": (
+                    DEFAULT_SETTINGS["network"]["rsync_max_files"]
+                    if "rsync_max_files" in request.form
+                    else current["rsync_max_files"]
                 ),
             }
         else:
@@ -527,18 +536,33 @@ def save_network_settings():
                 rsync_max_bytes = int(raw_max_bytes)
                 if not MIN_RSYNC_MAX_BYTES <= rsync_max_bytes <= MAX_RSYNC_MAX_BYTES:
                     raise ValueError("Das Rsync-Größenlimit muss zwischen 1 MiB und 2 GiB liegen.")
+            raw_max_files = request.form.get("rsync_max_files")
+            if raw_max_files is None:
+                rsync_max_files = current["rsync_max_files"]
+            else:
+                if (
+                    not raw_max_files.isascii()
+                    or not raw_max_files.isdigit()
+                    or len(raw_max_files) > len(str(MAX_RSYNC_MAX_FILES))
+                ):
+                    raise ValueError("Bitte ein ganzzahliges Rsync-Dateianzahl-Limit eingeben.")
+                rsync_max_files = int(raw_max_files)
+                if not MIN_RSYNC_MAX_FILES <= rsync_max_files <= MAX_RSYNC_MAX_FILES:
+                    raise ValueError("Das Rsync-Dateianzahl-Limit muss zwischen 0 und 100.000 liegen.")
             network = {
                 "webdav_quota_mib": quota,
                 "rsync_timeout_seconds": rsync_timeout,
                 "rsync_max_bytes": rsync_max_bytes,
+                "rsync_max_files": rsync_max_files,
             }
         webdav_changed = network["webdav_quota_mib"] != current["webdav_quota_mib"]
         rsync_changed = network["rsync_timeout_seconds"] != current["rsync_timeout_seconds"]
         rsync_max_changed = network["rsync_max_bytes"] != current["rsync_max_bytes"]
+        rsync_files_changed = network["rsync_max_files"] != current["rsync_max_files"]
         store.save(
             {"network": network}, str(g.user["username"]),
         )
-        if webdav_changed or not (rsync_changed or rsync_max_changed):
+        if webdav_changed or not (rsync_changed or rsync_max_changed or rsync_files_changed):
             audit(
                 "network_settings_updated", "settings", "network.webdav_quota",
                 detail={
@@ -559,6 +583,12 @@ def save_network_settings():
                 detail={"rsync_max_bytes": network["rsync_max_bytes"],
                         "reset_to_defaults": reset_defaults, "restart_required": False},
             )
+        if rsync_files_changed:
+            audit(
+                "rsync_file_count_limit_updated", "settings", "network.rsync_max_files",
+                detail={"rsync_max_files": network["rsync_max_files"],
+                        "reset_to_defaults": reset_defaults, "restart_required": False},
+            )
         notice = (
             "Netzwerk-Einstellungen auf Standard zurückgesetzt."
             if reset_defaults else "Netzwerk-Einstellungen gespeichert."
@@ -569,6 +599,8 @@ def save_network_settings():
             notice += " Das Rsync-Zeitlimit gilt für neue Sitzungen."
         if rsync_max_changed:
             notice += " Das Rsync-Größenlimit gilt für neue Sitzungen."
+        if rsync_files_changed:
+            notice += " Das Rsync-Dateianzahl-Limit gilt für neue Sitzungen."
         flash(notice)
     except ValueError as exc:
         current_app.logger.info("Network setting rejected: %s", type(exc).__name__)
