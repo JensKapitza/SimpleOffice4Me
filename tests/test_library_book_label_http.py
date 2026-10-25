@@ -88,7 +88,8 @@ class BookLabelHttpContractTest(unittest.TestCase):
         return self.client.post("/library/labels/books/print", data=data)
 
     def test_selected_book_prints_to_configured_device_and_reports_success(self):
-        with patch("app.library.routes.render_barcode", return_value=object()), \
+        with patch("app.library.routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
+             patch("app.library.routes.render_barcode", return_value=object()), \
              patch("app.library.routes.print_image", return_value=128) as print_label:
             response = self._post([self.book_a["object_id"]])
 
@@ -97,7 +98,8 @@ class BookLabelHttpContractTest(unittest.TestCase):
         print_label.assert_called_once()
 
     def test_qr_label_print_uses_the_selected_book_reference(self):
-        with patch("app.library.routes.print_image", return_value=128):
+        with patch("app.library.routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
+             patch("app.library.routes.print_image", return_value=128):
             response = self.client.post(
                 "/library/labels/books/print",
                 data={"_csrf_token": "book-label-csrf-token", "barcode_style": "qr_only", "object_id": self.book_a["object_id"]},
@@ -105,6 +107,28 @@ class BookLabelHttpContractTest(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertEqual({"ok": True, "printed": 1, "total": 1}, response.json)
+
+    def test_selected_system_label_printer_uses_no_store_printshare_path(self):
+        from unittest.mock import Mock
+
+        share = Mock()
+        share.submit.return_value = {"payload_size": 3}
+        selected = {
+            "backend": "cups", "printer_id": "a" * 24, "label": "CUPS Etikett",
+        }
+        with patch(
+            "app.library.routes._label_printer_configuration",
+            return_value=(share, selected, {"label": "62"}),
+        ), patch("app.library.routes.render_barcode", return_value=object()), patch(
+            "app.library.routes.preview_png", return_value=b"png",
+        ):
+            response = self._post([self.book_a["object_id"]])
+
+        self.assertEqual(200, response.status_code)
+        share.submit.assert_called_once()
+        self.assertEqual(selected["printer_id"], share.submit.call_args.args[0])
+        self.assertEqual(b"png", share.submit.call_args.args[1])
+        self.assertEqual("no_store", share.submit.call_args.kwargs["retention_ceiling"])
 
     def test_qr_reference_can_be_resolved_by_the_existing_find_api(self):
         response = self.client.get(f"/library/find?q={self.book_a['object_id']}")
@@ -116,7 +140,8 @@ class BookLabelHttpContractTest(unittest.TestCase):
     def test_manual_barcode_prints_the_requested_bounded_number_of_copies(self):
         library = Mock()
         library.printer_settings.return_value = {"label": "62", "uri": "test://printer"}
-        with patch("app.library.printer_routes._store", return_value=library), \
+        with patch("app.library.printer_routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
+             patch("app.library.printer_routes._store", return_value=library), \
              patch("app.library.printer_routes.render_barcode", return_value=object()) as render, \
              patch("app.library.printer_routes.print_image", return_value=128) as print_label:
             response = self.client.post(
@@ -148,7 +173,8 @@ class BookLabelHttpContractTest(unittest.TestCase):
     def test_partial_barcode_copy_failure_reports_how_many_were_sent(self):
         library = Mock()
         library.printer_settings.return_value = {"label": "62", "uri": "test://printer"}
-        with patch("app.library.printer_routes._store", return_value=library), \
+        with patch("app.library.printer_routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
+             patch("app.library.printer_routes._store", return_value=library), \
              patch("app.library.printer_routes.render_barcode", return_value=object()), \
              patch("app.library.printer_routes.print_image", side_effect=[128, OSError("printer unavailable")]) as print_label:
             response = self.client.post(
@@ -176,7 +202,8 @@ class BookLabelHttpContractTest(unittest.TestCase):
         print_label.assert_not_called()
 
     def test_partial_printer_failure_reports_irreversible_progress(self):
-        with patch("app.library.routes.render_barcode", return_value=object()), \
+        with patch("app.library.routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
+             patch("app.library.routes.render_barcode", return_value=object()), \
              patch("app.library.routes.print_image", side_effect=[128, OSError("offline")]) as print_label:
             response = self._post([self.book_a["object_id"], self.book_b["object_id"]])
 

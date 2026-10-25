@@ -483,15 +483,49 @@ def _send_bluetooth(mac: str, channel: int, data: bytes) -> None:
         raise PrinterError(f"Bluetooth-Drucker nicht erreichbar: {exc}") from exc
 
 
+def validate_printer_uri(uri: str) -> str:
+    """Validate a printer transport URI and reject embedded credentials."""
+    target = str(uri or "").strip()[:300]
+    if not target or target == "auto://":
+        return target
+    try:
+        parsed = urlsplit(target)
+        port = parsed.port
+    except ValueError as exc:
+        raise PrinterError("Drucker-Verbindung ist ungültig") from exc
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise PrinterError("Zugangsdaten, Abfrageparameter und Fragmente sind in Drucker-URIs nicht erlaubt")
+    scheme = parsed.scheme.casefold()
+    if scheme in {"tcp", "socket"}:
+        if not parsed.hostname or parsed.path not in {"", "/"}:
+            raise PrinterError("TCP-Drucker benötigt einen Hostnamen ohne Pfad")
+        if port is not None and not 1 <= port <= 65535:
+            raise PrinterError("TCP-Drucker-Port ist ungültig")
+    elif scheme in {"usb", "file", "device"}:
+        path = parsed.path or ("/" + parsed.netloc if parsed.netloc else "")
+        if not re.fullmatch(r"/dev/(?:usb/)?lp\d+", path):
+            raise PrinterError("USB-Druckerpfad muss auf ein erlaubtes /dev/lp-Gerät zeigen")
+    elif scheme in {"bluetooth", "bt"}:
+        mac = parsed.hostname or parsed.netloc.split("/", 1)[0]
+        channel = parsed.path.strip("/") or "1"
+        if not re.fullmatch(r"(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}", mac):
+            raise PrinterError("Bluetooth-Adresse ist ungültig")
+        if not channel.isdigit() or not 1 <= int(channel) <= 30:
+            raise PrinterError("Bluetooth-RFCOMM-Kanal ist ungültig")
+    else:
+        raise PrinterError("Drucker-URI muss tcp://, usb://, bluetooth:// oder auto:// verwenden")
+    return target
+
+
 def send(uri: str, data: bytes) -> None:
-    target = str(uri or "").strip()
+    target = validate_printer_uri(uri)
     if not target:
         raise PrinterError("Kein Drucker konfiguriert")
     if target == "auto://":
         candidates = discover_printers()
         if not candidates:
             raise PrinterError("Kein lokaler Drucker automatisch gefunden")
-        target = candidates[0]["uri"]
+        target = validate_printer_uri(candidates[0]["uri"])
     parsed = urlsplit(target)
     scheme = parsed.scheme.casefold()
     if scheme in {"tcp", "socket"}:

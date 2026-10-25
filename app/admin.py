@@ -176,6 +176,168 @@ def inventory():
     return render_template("admin/inventory.html", inventory=runtime_inventory())
 
 
+@bp.get("/settings/printers")
+@admin_required
+def printer_settings():
+    from .library.printer import LABELS, MODELS
+    from .printershare_store import PrinterShareStore
+
+    store = PrinterShareStore(current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"])
+    printers = store.printers()
+    users = get_db().execute(
+        "SELECT username, is_disabled FROM user ORDER BY username COLLATE NOCASE"
+    ).fetchall()
+    brother = store.brother_profile()
+    needs_review = bool(brother.get("uri_needs_review"))
+    try:
+        brother["uri"] = _validated_brother_uri(brother.get("uri", ""))
+        brother["uri_needs_review"] = needs_review
+    except ValueError:
+        # Never reflect credentials or malformed legacy URI content into HTML.
+        brother["uri"] = ""
+        brother["uri_needs_review"] = True
+    return render_template(
+        "admin/printers.html",
+        printers=printers,
+        standard_printers=[item for item in printers if store._compatible(item, "standard")],
+        label_printers=[item for item in printers if store._compatible(item, "label")],
+        printer_settings=store.settings(),
+        users=users,
+        brother=brother,
+        printer_models=sorted(MODELS),
+        printer_labels=sorted(LABELS, key=lambda value: (len(value), value)),
+    )
+
+
+@bp.post("/settings/printers/<username>")
+@admin_required
+def save_printer_policy(username: str):
+    from .printershare_store import PRINTER_ROLES, PrinterShareStore
+
+    target = get_db().execute(
+        "SELECT username FROM user WHERE username = ?", (username,),
+    ).fetchone()
+    if target is None:
+        abort(404)
+    policies = {
+        role: {
+            "mode": request.form.get(f"{role}_mode", "none"),
+            "printer_id": request.form.get(f"{role}_printer_id", ""),
+        }
+        for role in PRINTER_ROLES
+    }
+    try:
+        saved = PrinterShareStore(
+            current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+        ).set_user_printer_policies(username, policies)
+        audit(
+            "printer_policy_updated", "user", username,
+            detail={
+                role: {"mode": value["mode"], "printer_id": value["printer_id"]}
+                for role, value in saved.items()
+            },
+        )
+        flash(f"Druckerrichtlinien für {username} gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning(
+            "Printer policy update could not be persisted (%s)", type(exc).__name__,
+        )
+        flash("Druckerrichtlinie konnte nicht gespeichert werden. Bitte erneut versuchen.")
+    return redirect(url_for("admin.printer_settings"))
+
+
+@bp.post("/settings/printers/devices/<printer_id>")
+@admin_required
+def save_printer_device(printer_id: str):
+    from .printershare_store import PrinterShareStore
+
+    try:
+        saved = PrinterShareStore(
+            current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+        ).set_printer(
+            printer_id,
+            kind=request.form.get("kind", "auto"),
+            federation_shared=request.form.get("federation_shared") == "1",
+            label=request.form.get("label", ""),
+        )
+        audit(
+            "printer_device_updated", "printer", printer_id,
+            detail={
+                "kind": saved["kind"],
+                "federation_shared": saved["federation_shared"],
+                "label": saved["label"],
+            },
+        )
+        flash("Druckerprofil gespeichert.")
+    except (OSError, ValueError) as exc:
+        flash(str(exc))
+    return redirect(url_for("admin.printer_settings"))
+
+
+def _validated_brother_uri(value: object) -> str:
+    from .library.printer import PrinterError, validate_printer_uri
+
+    try:
+        return validate_printer_uri(str(value or "").strip()[:300])
+    except PrinterError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+@bp.post("/settings/printers/brother")
+@admin_required
+def save_brother_printer_settings():
+    from .library.printer import LABELS, MODELS
+    from .library.store import LibraryStore
+    from .printershare_store import PrinterShareStore
+
+    values = {
+        "uri": request.form.get("uri", ""),
+        "model": request.form.get("model", "").strip().upper(),
+        "label": request.form.get("label", "").strip().lower(),
+        "font_name": request.form.get("font_name", ""),
+        "font_size": request.form.get("font_size", ""),
+        "color": request.form.get("color", "black"),
+        "align": request.form.get("align", "center"),
+        "bold": request.form.get("bold") == "1",
+        "cut": request.form.get("cut") == "1",
+    }
+    try:
+        values["uri"] = _validated_brother_uri(values["uri"])
+        if values["model"] not in MODELS:
+            raise ValueError("Unbekanntes Brother-Druckermodell.")
+        if values["label"] not in LABELS:
+            raise ValueError("Unbekannte Etikettengröße.")
+        store = PrinterShareStore(
+            current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+        )
+        updated = store.set_brother_profile(values)
+        try:
+            # Keep the previous LibraryStore profile synchronized for rollback to older app builds.
+            LibraryStore(current_app.config["DOCUMENT_ROOT"]).update_printer_settings(
+                updated, str(g.user["username"]),
+            )
+        except (OSError, ValueError) as exc:
+            current_app.logger.warning(
+                "Brother printer compatibility profile could not be synchronized (%s)",
+                type(exc).__name__,
+            )
+            flash("Zentrale Druckereinstellung gespeichert; Kompatibilitätskopie konnte nicht aktualisiert werden.")
+        audit(
+            "printer_profile_updated", "printer", "library-brother-label",
+            detail={
+                "model": updated["model"], "label": updated["label"],
+                "uri_configured": bool(updated["uri"]),
+                "font_size": updated["font_size"], "color": updated["color"],
+            },
+        )
+        flash("Brother-Etikettendrucker wurde in der zentralen Druckerverwaltung gespeichert.")
+    except (OSError, ValueError) as exc:
+        flash(f"Brother-Drucker konnte nicht gespeichert werden: {exc}")
+    return redirect(url_for("admin.printer_settings"))
+
+
 @bp.post("/inventory/refresh")
 @admin_required
 def refresh_inventory():

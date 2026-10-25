@@ -18,9 +18,58 @@
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
+  <nav class="nav nav-tabs mb-4" aria-label="Druckerbereiche" role="tablist">
+    <a class="nav-link active" id="my-printers-tab" href="#my-printers" data-bs-toggle="tab" role="tab" aria-controls="my-printers" aria-selected="true">Meine Drucker</a>
+    <a class="nav-link" id="print-jobs-tab" href="#print-jobs" data-bs-toggle="tab" role="tab" aria-controls="print-jobs" aria-selected="false">Druckaufträge / Druckfunktionen</a>
+  </nav>
+
+  <div class="tab-content mb-4">
+  <section class="tab-pane fade show active card" id="my-printers" role="tabpanel" aria-labelledby="my-printers-tab" tabindex="0">
+    <div class="card-header"><h2 class="h5 mb-0">Meine Drucker</h2></div>
+    <div class="card-body">
+      <p class="text-secondary">Ihre Auswahl wird serverseitig gespeichert und bleibt nach Neuanmeldung erhalten. Administratorvorgaben haben Vorrang.</p>
+      <form method="post" action="{{ url_for('printershare.save_printer_preferences') }}" class="row g-3">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        {% for role, label, title in [('standard', 'Standarddrucker', 'Dokumente gehen an'), ('label', 'Etikettendrucker', 'Etiketten gehen an')] %}
+        {% set context = printer_context.roles[role] %}
+        <div class="col-md-6">
+          <label class="form-label" for="my-printer-{{ role }}">{{ label }}</label>
+          <div class="form-text mb-2">{{ title }}:
+            <strong>{{ context.selected_label or 'nicht verfügbar' }}</strong>
+            {% if context.policy == 'forced' and not context.policy_available %}<span class="badge text-bg-danger ms-1">Erzwungener Drucker nicht verfügbar</span>
+            {% elif context.policy == 'forced' %}<span class="badge text-bg-warning ms-1">Durch Administrator festgelegt</span>
+            {% elif context.source == 'personal' %}<span class="badge text-bg-secondary ms-1">Persönliche Auswahl</span>
+            {% elif context.policy == 'recommended' and context.policy_available %}<span class="badge text-bg-info ms-1">Empfohlen – frei änderbar</span>
+            {% elif context.policy == 'recommended' %}<span class="badge text-bg-warning ms-1">Empfehlung nicht verfügbar · System-Fallback</span>
+            {% elif context.source == 'fallback' %}<span class="badge text-bg-secondary ms-1">System-Fallback</span>{% endif %}
+          </div>
+          {% if context.policy == 'forced' %}
+          <input type="hidden" name="{{ role }}_printer_id" value="{{ context.policy_printer_id }}">
+          <input class="form-control" id="my-printer-{{ role }}" value="{{ context.selected_label or 'Erzwungener Drucker ist nicht verfügbar' }}" disabled>
+          {% else %}
+          <select class="form-select" id="my-printer-{{ role }}" name="{{ role }}_printer_id">
+            <option value="" {% if not context.preference_printer_id %}selected{% endif %}>System-Fallback{% if context.policy == 'recommended' %} (Empfehlung){% endif %}</option>
+            {% for printer in context.options %}<option value="{{ printer.printer_id }}" {% if context.preference_printer_id == printer.printer_id %}selected{% endif %}>{{ printer.label }} · {{ 'Etikett' if role == 'label' else 'Standard' }}</option>{% endfor %}
+          </select>
+          {% endif %}
+          {% if not context.available %}<div class="form-text text-danger">Kein passender Drucker ist verfügbar. Druckaufträge bleiben blockiert, bis ein Drucker eingerichtet oder die Richtlinie korrigiert ist.</div>{% endif %}
+        </div>
+        {% endfor %}
+        <div class="col-12 d-flex flex-wrap align-items-center gap-2">
+          <button class="btn btn-primary" type="submit">Auswahl speichern</button>
+          <a class="btn btn-outline-secondary" href="{{ url_for('library.index', _anchor='printer') }}">Etiketten drucken</a>
+          {% if g.user['is_admin'] %}<a class="btn btn-outline-primary" href="{{ url_for('admin.printer_settings') }}">Druckerverwaltung</a>{% endif %}
+        </div>
+      </form>
+    </div>
+  </section>
+
   <div class="alert alert-secondary small">
     <strong>No-Store bedeutet:</strong> SimpleOffice archiviert die Druckdatei nicht dauerhaft. Das Betriebssystem, der Druckertreiber oder der Drucker selbst kann für den eigentlichen Druckvorgang trotzdem temporär spoolen. Federation-No-Store wird vor dem Upload als Richtlinienvertrag geprüft und nach dem Spoolen mit einer authentisierten Bestätigung quittiert.
   </div>
+
+  <section class="tab-pane fade" id="print-jobs" role="tabpanel" aria-labelledby="print-jobs-tab" tabindex="0">
+  <h2 class="h4 mb-3" id="print-jobs-heading">Druckaufträge / Druckfunktionen</h2>
 
   <section class="card mb-4" aria-labelledby="printershare-status-heading">
     <div class="card-body py-3">
@@ -41,10 +90,11 @@
       <div class="card h-100">
         <div class="card-header"><strong>Lokal drucken</strong></div>
         <div class="card-body">
-          {% if printers %}
+          {% if printer_context.roles.standard.available %}
           <form id="local-print-form" method="post" novalidate>
             <div class="mb-3"><label class="form-label" for="local-file">Druckdatei</label><input class="form-control" id="local-file" type="file" required><div class="form-text">Maximal {{ (settings.max_job_bytes / 1048576)|round(1) }} MiB.</div></div>
-            <div class="mb-3"><label class="form-label" for="local-printer">Drucker</label><select class="form-select" id="local-printer" required>{% for printer in printers %}<option value="{{ printer.printer_id }}">{{ printer.label }} · {{ 'Label' if printer.kind in ['label','raw'] else 'Normal' }}{% if printer.is_default %} · Standard{% endif %}</option>{% endfor %}</select></div>
+            <div class="small text-secondary mb-2">Dokumente gehen an: <strong>{{ printer_context.roles.standard.selected_label or 'kein Drucker verfügbar' }}</strong>{% if printer_context.roles.standard.policy == 'forced' %} · Durch Administrator festgelegt{% elif printer_context.roles.standard.policy == 'recommended' %} · Empfohlen, frei änderbar{% elif printer_context.roles.standard.source == 'personal' %} · Persönliche Auswahl{% else %} · System-Fallback{% endif %}</div>
+            <div class="mb-3"><label class="form-label" for="local-printer">Drucker für diesen Auftrag</label><select class="form-select" id="local-printer" required {% if printer_context.roles.standard.policy == 'forced' %}disabled{% endif %}>{% for printer in printer_context.roles.standard.options %}<option value="{{ printer.printer_id }}" {% if printer.printer_id == printer_context.roles.standard.printer_id %}selected{% endif %}>{{ printer.label }} · Standard</option>{% endfor %}</select><div class="form-text" id="local-printer-active">Dokumente gehen an: {{ printer_context.roles.standard.selected_label or 'kein Drucker verfügbar' }}{% if printer_context.roles.standard.policy == 'forced' %} · Durch Administrator festgelegt{% elif printer_context.roles.standard.source == 'personal' %} · Persönliche Auswahl{% endif %}</div></div>
             <div class="mb-3"><label class="form-label" for="local-retention">Maximal erlaubte Aufbewahrung</label><select class="form-select" id="local-retention"><option value="no_store">Nur drucken – nicht archivieren</option><option value="ttl">Zeitlicher Backlog erlaubt</option><option value="permanent">Dauerspeicherung erlaubt</option></select><div class="form-text">Der Server darf immer kürzer speichern, niemals länger als hier ausgewählt.</div></div>
             <button class="btn btn-primary" id="local-submit" type="submit">Jetzt drucken</button>
           </form>
@@ -96,6 +146,8 @@
       </tr>{% else %}<tr><td colspan="7" class="text-secondary">Noch keine Druckaufträge.</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
+  </section>
+  </div>
 
   {% if g.user['is_admin'] %}
   <section class="card mb-4">
@@ -123,17 +175,6 @@
     </div>
   </section>
 
-  <section class="card mb-4">
-    <div class="card-header"><strong>Administration: Druckerfreigaben</strong></div>
-    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th scope="col">Drucker</th><th scope="col">Typ</th><th scope="col">Federation</th><th scope="col">Speichern</th></tr></thead><tbody>
-      {% for printer in printers %}{% set form_id = 'printer-settings-' ~ printer.printer_id %}<tr>
-        <td><input class="form-control form-control-sm" form="{{ form_id }}" name="label" value="{{ printer.label }}" maxlength="160"><small class="text-secondary">{{ printer.name }} · {{ printer.driver }}{% if printer.port %} · {{ printer.port }}{% endif %}</small></td>
-        <td><select class="form-select form-select-sm" form="{{ form_id }}" name="kind"><option value="auto" {% if printer.configured_kind == 'auto' %}selected{% endif %}>Automatisch</option><option value="normal" {% if printer.configured_kind == 'normal' %}selected{% endif %}>Normal</option><option value="label" {% if printer.configured_kind == 'label' %}selected{% endif %}>Label</option><option value="raw" {% if printer.configured_kind == 'raw' %}selected{% endif %}>RAW/Label-Sprache</option></select></td>
-        <td><div class="form-check"><input class="form-check-input" form="{{ form_id }}" type="checkbox" name="federation_shared" value="1" id="share-{{ printer.printer_id }}" {% if printer.federation_shared %}checked{% endif %}><label class="form-check-label" for="share-{{ printer.printer_id }}">für Peers freigeben</label></div></td>
-        <td><form id="{{ form_id }}" method="post" action="{{ url_for('printershare.update_printer', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Speichern</button></form></td>
-      </tr>{% else %}<tr><td colspan="4" class="text-secondary">Keine Systemdrucker gefunden.</td></tr>{% endfor %}
-    </tbody></table></div>
-  </section>
   {% endif %}
 </main>
 
@@ -142,10 +183,16 @@
   const csrf = document.getElementById('printershare-csrf')?.value || '';
   const main = document.getElementById('main-content');
   const maxBytes = Number(main?.dataset.maxJobBytes || 0);
+  const localPrinterSelect = document.getElementById('local-printer');
+  const localPrinterActive = document.getElementById('local-printer-active');
   const asciiName = (name) => String(name || '').replace(/[^\x20-\x7E]/g, '_').slice(0, 200);
   const humanBytes = (value) => { const n = Number(value || 0); if (n < 1024) return `${n} B`; if (n < 1048576) return `${(n / 1024).toFixed(1)} KiB`; return `${(n / 1048576).toFixed(1)} MiB`; };
   const validFile = (file, result) => { if (!file) { result.textContent = 'Bitte eine Druckdatei auswählen.'; return false; } if (maxBytes && file.size > maxBytes) { result.textContent = `Datei zu groß: ${humanBytes(file.size)}; erlaubt sind ${humanBytes(maxBytes)}.`; return false; } return true; };
   const setBusy = (button, busy, text) => { if (!button) return; if (!button.dataset.label) button.dataset.label = button.textContent; button.disabled = busy; button.setAttribute('aria-busy', busy ? 'true' : 'false'); button.textContent = busy ? text : button.dataset.label; };
+  localPrinterSelect?.addEventListener('change', () => {
+    const selected = localPrinterSelect.selectedOptions[0]?.textContent?.split(' · ')[0] || 'kein Drucker verfügbar';
+    if (localPrinterActive) localPrinterActive.textContent = `Dokumente gehen an: ${selected}`;
+  });
 
   async function jsonFetch(url, options = {}) {
     const response = await fetch(url, {credentials: 'same-origin', ...options});
@@ -160,6 +207,7 @@
       headers: {
         'X-CSRF-Token': csrf,
         'X-SimpleOffice-Printer': printer || '',
+        'X-SimpleOffice-Printer-Role': 'standard',
         'X-SimpleOffice-Content-Type': file.type || 'application/octet-stream',
         'X-SimpleOffice-Filename': asciiName(file.name),
         'X-SimpleOffice-Retention-Ceiling': retention

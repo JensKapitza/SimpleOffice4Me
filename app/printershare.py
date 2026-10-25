@@ -14,7 +14,7 @@ from typing import Any
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
-from .access_control import is_admin
+from .access_control import audit, is_admin
 from .auth import login_required
 from .federation_print_auth import PrintRequestProof, new_nonce, sign_request
 from .federation_store import FederationStore
@@ -91,6 +91,7 @@ def admin_required(view):
 def _job_headers() -> dict[str, Any]:
     return {
         "printer_id": request.headers.get("X-SimpleOffice-Printer", "").strip(),
+        "printer_role": request.headers.get("X-SimpleOffice-Printer-Role", "standard").strip().casefold(),
         "content_type": request.headers.get("X-SimpleOffice-Content-Type", request.content_type or "application/octet-stream").split(";", 1)[0].strip(),
         "filename": request.headers.get("X-SimpleOffice-Filename", "").strip()[:240],
         "retention_ceiling": normalize_retention(request.headers.get("X-SimpleOffice-Retention-Ceiling", "permanent"), "permanent"),
@@ -324,6 +325,7 @@ def submit_remote_print(
 def index():
     store = _store()
     settings = store.settings()
+    printer_context = store.user_printer_context(str(g.user["username"]))
     peers = [
         peer for peer in _federation().list_peers()
         if peer.get("enabled") and _may_send_print(peer)
@@ -339,6 +341,7 @@ def index():
     return render_template(
         "printershare/index.html",
         printers=store.printers(),
+        printer_context=printer_context,
         settings=settings,
         jobs=jobs,
         retention_labels=RETENTION_LABELS,
@@ -354,9 +357,16 @@ def submit_local_job():
     settings = store.settings()
     headers = _job_headers()
     try:
+        if headers["printer_role"] != "standard":
+            raise ValueError("Normale Druckaufträge verwenden die Standarddruckerrolle")
+        printer = store.resolve_user_printer(
+            str(g.user["username"]), "standard", headers["printer_id"],
+        )
+        if printer.get("backend") == "brother":
+            raise ValueError("Brother-Etikettendrucker werden über die Bibliotheks-Etikettenaktionen verwendet")
         ttl = int(headers["ttl_ceiling_seconds"] or 0)
         result = store.submit(
-            headers["printer_id"],
+            printer["printer_id"],
             _payload(settings["max_job_bytes"]),
             content_type=headers["content_type"],
             filename=headers["filename"],
@@ -368,6 +378,34 @@ def submit_local_job():
         return jsonify(result), 201
     except (OSError, RuntimeError, ValueError):
         return jsonify({"error": "print_job_rejected"}), 400
+
+
+@bp.post("/preferences")
+@login_required
+def save_printer_preferences():
+    actor = str(g.user["username"])
+    try:
+        preferences = _store().set_user_preferences(
+            actor,
+            standard_printer_id=request.form.get("standard_printer_id", ""),
+            label_printer_id=request.form.get("label_printer_id", ""),
+        )
+        audit(
+            "printer_preferences_updated", "user", actor,
+            detail={
+                "standard_printer_id": preferences["standard"],
+                "label_printer_id": preferences["label"],
+            },
+        )
+        flash("Meine Druckerauswahl wurde gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning(
+            "Printer preference update could not be persisted (%s)", type(exc).__name__,
+        )
+        flash("Druckerauswahl konnte nicht gespeichert werden. Bitte erneut versuchen.")
+    return redirect(url_for("printershare.index"))
 
 
 @bp.post("/jobs/<job_id>/retry")
@@ -446,17 +484,7 @@ def update_settings():
 @bp.post("/admin/printers/<printer_id>")
 @admin_required
 def update_printer(printer_id: str):
-    try:
-        _store().set_printer(
-            printer_id,
-            kind=request.form.get("kind", "auto"),
-            federation_shared=request.form.get("federation_shared") == "1",
-            label=request.form.get("label", ""),
-        )
-        flash("Druckerfreigabe gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("printershare.index"))
+    return redirect(url_for("admin.printer_settings"))
 
 
 def init_app(app) -> None:

@@ -12,6 +12,7 @@ from werkzeug.security import generate_password_hash
 from app import app
 from app import db as database
 from app.applogging import SecretRedactionFilter, redact
+from app.printershare_store import PrinterShareStore
 
 
 class AdminSecurityTest(unittest.TestCase):
@@ -182,7 +183,7 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("Host- und Speicherverwaltung", body)
         with patch("app.admin.clear_runtime_inventory") as clear:
             refreshed = self.admin.post("/admin/inventory/refresh")
-        self.assertEqual(302, refreshed.status_code)
+            self.assertEqual(302, refreshed.status_code)
         clear.assert_called_once_with()
 
     def test_osm_index_service_is_managed_only_in_administration(self):
@@ -267,6 +268,75 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(1, row["is_admin"])
         self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
         self.assertEqual(200, self.worker.get("/admin/users").status_code)
+
+    def test_printer_management_is_admin_only_and_forced_choice_applies_to_print_api(self):
+        standard = {
+            "printer_id": "a" * 24, "name": "Standard", "driver": "Test",
+            "port": "TEST:", "is_default": True, "kind": "normal", "backend": "test",
+        }
+        other = {**standard, "printer_id": "b" * 24, "name": "Other", "is_default": False}
+        with patch("app.printershare_store.discover_printers", return_value=[standard, other]):
+            self.assertEqual(403, self.worker.get("/admin/settings/printers").status_code)
+            self.assertEqual(403, self.worker.get("/library/printer/discover").status_code)
+            self.assertEqual(
+                403,
+                self.worker.post("/library/printer/settings", data={"uri": "tcp://192.168.1.50:9100"}).status_code,
+            )
+            page = self.admin.get("/admin/settings/printers")
+            self.assertEqual(200, page.status_code)
+            self.assertIn("Benutzerzuweisungen".encode("utf-8"), page.data)
+            saved = self.admin.post("/admin/settings/printers/worker", data={
+                "standard_mode": "forced",
+                "standard_printer_id": standard["printer_id"],
+                "label_mode": "none",
+                "label_printer_id": "",
+            })
+            self.assertEqual(302, saved.status_code)
+            store = PrinterShareStore(app.config["DOCUMENT_ROOT"], app.config["SECRET_KEY"])
+            self.assertEqual(
+                standard["printer_id"],
+                store.resolve_user_printer("worker", "standard")["printer_id"],
+            )
+            preference_change = self.worker.post("/printershare/preferences", data={
+                "standard_printer_id": other["printer_id"],
+                "label_printer_id": "",
+            })
+            self.assertEqual(302, preference_change.status_code)
+            self.assertEqual(
+                standard["printer_id"],
+                store.resolve_user_printer("worker", "standard")["printer_id"],
+            )
+            with self.worker.session_transaction() as state:
+                csrf_token = state.get("_csrf_token", "")
+            with patch("app.printershare_store.discover_printers", return_value=[standard, other]), \
+                 patch("app.printershare_store.spool_payload") as spool:
+                response = self.worker.post(
+                    "/printershare/jobs",
+                    data=b"sample print payload",
+                    content_type="application/pdf",
+                    headers={
+                        "X-CSRF-Token": csrf_token,
+                        "X-SimpleOffice-Printer": other["printer_id"],
+                        "X-SimpleOffice-Printer-Role": "standard",
+                    },
+                )
+            self.assertEqual(400, response.status_code)
+            spool.assert_not_called()
+
+    def test_brother_printer_uri_rejects_credentials_and_is_not_reflected(self):
+        response = self.admin.post(
+            "/admin/settings/printers/brother",
+            data={
+                "uri": "tcp://operator:secret@192.168.1.50:9100",
+                "model": "QL-820NWB", "label": "62", "font_name": "DejaVuSans",
+                "font_size": "56", "color": "black", "align": "center",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Zugangsdaten".encode("utf-8"), response.data)
+        self.assertNotIn(b"secret", response.data)
 
     def test_self_lockout_is_rejected_and_audit_is_recorded(self):
         with app.app_context():
