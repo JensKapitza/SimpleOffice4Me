@@ -84,11 +84,16 @@ def build_index(
             # exits immediately with status 2.
             "-f", "pbf", "-o", str(filtered_part), "--overwrite",
         ]
+        from .settings_store import SettingsStore
+
+        filter_timeout = SettingsStore(self.root).settings()["integrations"][
+            "osm_filter_timeout_seconds"
+        ]
         try:
             completed = subprocess.run(
                 filter_command,
                 check=True,
-                timeout=max(3600, min(int(os.environ.get("SIMPLEOFFICE_OSM_FILTER_TIMEOUT", "21600")), 86400)),
+                timeout=filter_timeout,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
                 text=True,

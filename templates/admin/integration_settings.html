@@ -16,15 +16,20 @@
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <section class="card">
-    <div class="card-header"><strong>OpenStreetMap-Download</strong></div>
+    <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
     <div class="card-body">
-      <p>Legt fest, wie lange ein Lesevorgang eines Geofabrik-Downloads ohne Daten warten darf. Der Wert gilt für neu gestartete Downloads. Ein bisheriger Wert aus <code>SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS</code> wird verwendet, solange noch kein persistierter Wert gespeichert wurde.</p>
+      <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Filter-Timeout begrenzt den lokalen <code>osmium tags-filter</code>-Prozess. Beide gelten für neu gestartete Vorgänge. Die bisherigen Environment-Werte werden als Startwerte übernommen, bis eine persistierte Einstellung gespeichert wurde.</p>
       <form method="post" action="{{ url_for('admin.save_osm_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
           <label class="form-label" for="osm-read-timeout">Lese-Timeout (Sekunden)</label>
           <input class="form-control" id="osm-read-timeout" type="number" name="osm_download_read_timeout_seconds" value="{{ integrations.osm_download_read_timeout_seconds }}" min="30" max="3600" step="1" required>
           <div class="form-text">Standard: 300 Sekunden. Zulässig: 30–3600 Sekunden.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="osm-filter-timeout">Filter-Timeout (Sekunden)</label>
+          <input class="form-control" id="osm-filter-timeout" type="number" name="osm_filter_timeout_seconds" value="{{ integrations.osm_filter_timeout_seconds }}" min="{{ osm_filter_timeout_min }}" max="{{ osm_filter_timeout_max }}" step="1" required>
+          <div class="form-text">Standard: 21.600 Sekunden (6 Stunden). Zulässig: 3.600–86.400 Sekunden. Begrenzt nur <code>osmium tags-filter</code>; bei Timeout bleibt der Index nicht als fertig markiert. Gilt für neue Filterläufe ohne Neustart. <code>SIMPLEOFFICE_OSM_FILTER_TIMEOUT</code> dient bis zum Speichern als Legacy-Startwert.</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">Einstellung speichern</button>

@@ -44,6 +44,9 @@ MAX_PREVIEW_MAX_PIXELS = 250_000_000
 DEFAULT_OSM_READ_TIMEOUT_SECONDS = 300
 MIN_OSM_READ_TIMEOUT_SECONDS = 30
 MAX_OSM_READ_TIMEOUT_SECONDS = 3600
+DEFAULT_OSM_FILTER_TIMEOUT_SECONDS = 21600
+MIN_OSM_FILTER_TIMEOUT_SECONDS = 3600
+MAX_OSM_FILTER_TIMEOUT_SECONDS = 86400
 DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
 MIN_CLAMAV_TIMEOUT_SECONDS = 5
 MAX_CLAMAV_TIMEOUT_SECONDS = 900
@@ -99,6 +102,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "integrations": {
         "osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+        "osm_filter_timeout_seconds": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
         "clamav_timeout_seconds": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     },
 }
@@ -417,6 +421,10 @@ class SettingsStore:
             result["integrations"]["osm_download_read_timeout_seconds"] = (
                 self._legacy_osm_read_timeout()
             )
+        if not isinstance(stored_integrations, dict) or "osm_filter_timeout_seconds" not in stored_integrations:
+            result["integrations"]["osm_filter_timeout_seconds"] = (
+                self._legacy_osm_filter_timeout()
+            )
         if (
             not isinstance(stored_integrations, dict)
             or "clamav_timeout_seconds" not in stored_integrations
@@ -550,6 +558,26 @@ class SettingsStore:
         return value
 
     @staticmethod
+    def _legacy_osm_filter_timeout() -> int:
+        """Read and bound the legacy OSM filter timeout until settings are saved."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_OSM_FILTER_TIMEOUT",
+            str(DEFAULT_OSM_FILTER_TIMEOUT_SECONDS),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 12 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy OSM filter timeout; using the default")
+            return DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
+        value = int(raw)
+        if not MIN_OSM_FILTER_TIMEOUT_SECONDS <= value <= MAX_OSM_FILTER_TIMEOUT_SECONDS:
+            _LOGGER.warning("Legacy OSM filter timeout outside range; clamping to supported limits")
+            return max(
+                MIN_OSM_FILTER_TIMEOUT_SECONDS,
+                min(MAX_OSM_FILTER_TIMEOUT_SECONDS, value),
+            )
+        return value
+
+    @staticmethod
     def _legacy_clamav_timeout() -> int:
         """Migrate and bound the former environment-only scanner timeout."""
         raw = os.environ.get(
@@ -580,6 +608,16 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored OSM read timeout; using the default")
             timeout = DEFAULT_OSM_READ_TIMEOUT_SECONDS
+        filter_timeout = integrations.get(
+            "osm_filter_timeout_seconds", DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(filter_timeout, bool)
+            or not isinstance(filter_timeout, int)
+            or not MIN_OSM_FILTER_TIMEOUT_SECONDS <= filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS
+        ):
+            _LOGGER.warning("Invalid stored OSM filter timeout; using the default")
+            filter_timeout = DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
         clamav_timeout = integrations.get(
             "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
         )
@@ -592,6 +630,7 @@ class SettingsStore:
             clamav_timeout = DEFAULT_CLAMAV_TIMEOUT_SECONDS
         return {
             "osm_download_read_timeout_seconds": timeout,
+            "osm_filter_timeout_seconds": filter_timeout,
             "clamav_timeout_seconds": clamav_timeout,
         }
 
@@ -748,6 +787,15 @@ class SettingsStore:
             or not MIN_OSM_READ_TIMEOUT_SECONDS <= osm_read_timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
         ):
             raise ValueError("OSM read timeout must be between 30 and 3600 seconds")
+        osm_filter_timeout = integrations.get(
+            "osm_filter_timeout_seconds", DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(osm_filter_timeout, bool)
+            or not isinstance(osm_filter_timeout, int)
+            or not MIN_OSM_FILTER_TIMEOUT_SECONDS <= osm_filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS
+        ):
+            raise ValueError("OSM filter timeout must be between 3600 and 86,400 seconds")
         clamav_timeout = integrations.get(
             "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
         )
@@ -833,6 +881,7 @@ class SettingsStore:
             },
             "integrations": {
                 "osm_download_read_timeout_seconds": osm_read_timeout,
+                "osm_filter_timeout_seconds": osm_filter_timeout,
                 "clamav_timeout_seconds": clamav_timeout,
             },
         }

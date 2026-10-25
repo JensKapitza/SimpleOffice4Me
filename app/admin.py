@@ -21,8 +21,10 @@ from .settings_store import (
     DEFAULT_SETTINGS,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
+    DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
@@ -37,6 +39,7 @@ from .settings_store import (
     MIN_PREVIEW_TIMEOUT_SECONDS,
     MIN_VIDEO_PREVIEW_FRAMES,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
@@ -471,6 +474,8 @@ def integration_settings():
     return render_template(
         "admin/integration_settings.html",
         integrations=integrations,
+        osm_filter_timeout_min=MIN_OSM_FILTER_TIMEOUT_SECONDS,
+        osm_filter_timeout_max=MAX_OSM_FILTER_TIMEOUT_SECONDS,
     )
 
 
@@ -616,9 +621,14 @@ def save_network_settings():
 def save_osm_settings():
     reset_defaults = request.form.get("reset") == "1"
     try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]
         raw = str(DEFAULT_SETTINGS["integrations"]["osm_download_read_timeout_seconds"])
         if not reset_defaults:
-            raw = request.form.get("osm_download_read_timeout_seconds", "")
+            raw = request.form.get(
+                "osm_download_read_timeout_seconds",
+                str(current["osm_download_read_timeout_seconds"]),
+            )
         if (
             not raw.isascii()
             or not raw.isdigit()
@@ -628,19 +638,54 @@ def save_osm_settings():
         timeout = int(raw)
         if not MIN_OSM_READ_TIMEOUT_SECONDS <= timeout <= MAX_OSM_READ_TIMEOUT_SECONDS:
             raise ValueError("Der OSM-Lese-Timeout muss zwischen 30 und 3600 Sekunden liegen.")
-        integrations = {"osm_download_read_timeout_seconds": timeout}
-        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
-            {"integrations": integrations}, str(g.user["username"]),
+        filter_raw = request.form.get("osm_filter_timeout_seconds")
+        if reset_defaults and filter_raw is not None:
+            filter_timeout = DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
+        elif filter_raw is None:
+            filter_timeout = current["osm_filter_timeout_seconds"]
+        else:
+            if (
+                not filter_raw.isascii()
+                or not filter_raw.isdigit()
+                or len(filter_raw) > len(str(MAX_OSM_FILTER_TIMEOUT_SECONDS))
+            ):
+                raise ValueError("Bitte einen ganzzahligen OSM-Filter-Timeout eingeben.")
+            filter_timeout = int(filter_raw)
+            if not MIN_OSM_FILTER_TIMEOUT_SECONDS <= filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS:
+                raise ValueError(
+                    "Der OSM-Filter-Timeout muss zwischen 3600 und 86400 Sekunden liegen."
+                )
+        integrations = {
+            "osm_download_read_timeout_seconds": timeout,
+            "osm_filter_timeout_seconds": filter_timeout,
+        }
+        read_timeout_changed = (
+            timeout != current["osm_download_read_timeout_seconds"]
         )
-        audit(
-            "osm_download_settings_updated",
-            "settings",
-            "integrations.osm_download_read_timeout_seconds",
-            detail={**integrations, "reset_to_defaults": reset_defaults},
+        filter_timeout_changed = (
+            filter_timeout != current["osm_filter_timeout_seconds"]
         )
+        store.save({"integrations": integrations}, str(g.user["username"]))
+        if read_timeout_changed or not filter_timeout_changed:
+            audit(
+                "osm_download_settings_updated",
+                "settings",
+                "integrations.osm_download_read_timeout_seconds",
+                detail={"osm_download_read_timeout_seconds": timeout,
+                        "reset_to_defaults": reset_defaults},
+            )
+        if filter_timeout_changed:
+            audit(
+                "osm_filter_settings_updated",
+                "settings",
+                "integrations.osm_filter_timeout_seconds",
+                detail={"osm_filter_timeout_seconds": filter_timeout,
+                        "reset_to_defaults": reset_defaults,
+                        "restart_required": False},
+            )
         flash(
-            "OSM-Download-Einstellungen auf Standard zurückgesetzt."
-            if reset_defaults else "OSM-Download-Einstellungen gespeichert."
+            "OSM-Einstellungen auf Standard zurückgesetzt."
+            if reset_defaults else "OSM-Einstellungen gespeichert."
         )
     except ValueError as exc:
         current_app.logger.info("OSM setting rejected: %s", type(exc).__name__)

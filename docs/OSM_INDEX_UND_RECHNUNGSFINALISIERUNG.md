@@ -67,6 +67,15 @@ Der Wert kann über `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` zwischen 300 und
 86.400 Sekunden gesetzt werden. Die nächste Ausführung setzt am letzten
 bestätigten Batch fort.
 
+Der vorherige `osmium tags-filter`-Schritt hat ein separates Prozesszeitlimit.
+Es beträgt standardmäßig sechs Stunden und kann unter **Admin → Einstellungen →
+Integrationen & Dienste** zwischen einer und 24 Stunden gesetzt werden. Das
+Limit beendet nur den Filterprozess; der fehlgeschlagene Filter wird nicht als
+vollständig markiert und kann nach einer Anpassung erneut ausgeführt werden.
+`SIMPLEOFFICE_OSM_FILTER_TIMEOUT` bleibt als begrenzter Startwert erhalten, bis
+eine persistierte Integrations-Einstellung gespeichert wurde. Dieses Timeout
+ist unabhängig vom späteren Export-Leerlauf-Watchdog.
+
 Der Download verwendet eine `.part`-Datei und HTTP-Range-Requests. Ein
 abgebrochener Download wird daher ab dem bestätigten Byte fortgesetzt, sofern
 Geofabrik Range-Requests für die Datei akzeptiert.
