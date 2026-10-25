@@ -152,7 +152,12 @@
           ? 'Dateien sind übertragen; der Server schließt den Import ab.'
         : state === 'session-changed'
           ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
-          : 'Bitte zuerst mindestens einen Ordner auswählen.';
+          : state === 'invalid'
+            ? 'Import konnte nicht starten: Sitzungsdaten oder Upload-Einstellungen sind ungültig. Bitte Seite neu laden.'
+            : state === 'blocked'
+              ? 'Android-Ordnerimport ist auf dieser Seite nicht freigegeben.'
+              : 'Import konnte nicht gestartet werden. Bitte Ordner erneut auswählen.';
+      status.setAttribute('role', 'alert');
     }
   });
   cancelFolderImport.addEventListener('click', () => {
