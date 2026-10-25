@@ -482,12 +482,26 @@ def run_peer_to_peer(
             name="Vollständig importieren",
             exact=True,
         ).click()
-        page_b.wait_for_load_state("domcontentloaded")
-        upload_result = compact(page_b.locator("body").inner_text())
-        if "Datei(en) vollständig und hashbasiert importiert." not in upload_result:
-            raise RuntimeError(
-                "Der Upload auf Peer B wurde nicht erfolgreich bestätigt."
+        # Upload is handled asynchronously via fetch; no navigation occurs.
+        upload_status = page_b.locator("#document-selection")
+        try:
+            page_b.wait_for_function(
+                """() => {
+                  const node = document.querySelector('#document-selection');
+                  return node && (node.textContent.includes('Dateien importiert.')
+                    || node.getAttribute('role') === 'alert');
+                }""",
+                timeout=60000,
             )
+        except Exception as exc:
+            raise RuntimeError(
+                "Peer B upload timed out: " + compact(upload_status.inner_text())
+            ) from exc
+        if upload_status.get_attribute("role") == "alert":
+            raise RuntimeError(
+                "Peer B upload failed: " + compact(upload_status.inner_text())
+            )
+        page_b.reload(wait_until="domcontentloaded")
         quick_search = page_b.locator("input[name='quick']")
         quick_search.fill(peer_b_filename)
         page_b.get_by_role(
