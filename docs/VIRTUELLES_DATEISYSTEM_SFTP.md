@@ -185,7 +185,10 @@ SimpleOffice-Einstellung rsync nicht. Die Freigabe ist standardmäßig aus.
 
 Bei bestehenden Installationen wird `SIMPLEOFFICE_RSYNC_ENABLED` als
 Übergangswert übernommen, bis die SFTP-Einstellungen erstmals gespeichert
-werden. Die Größen- und Laufzeitgrenzen bleiben Betriebsparameter:
+werden. Die Größenlimits bleiben Betriebsparameter; das Prozesszeitlimit kann
+unter **Admin → Einstellungen → Netzwerk & Synchronisation** persistiert
+konfiguriert werden. Der Environment-Wert gilt nur bis zum Speichern des
+Adminwerts; Änderungen gelten für neu gestartete Rsync-Sitzungen.
 
 ```bash
 sudo apt install rsync
@@ -193,6 +196,10 @@ export SIMPLEOFFICE_RSYNC_MAX_BYTES=2147483648
 export SIMPLEOFFICE_RSYNC_MAX_FILES=100000
 export SIMPLEOFFICE_RSYNC_TIMEOUT=3600
 ```
+
+`SIMPLEOFFICE_RSYNC_TIMEOUT` ist ein Legacy-Startwert (Standard 3600 Sekunden,
+zulässig 30–86400 Sekunden). Der Timeout beendet nur den lokalen rsync-Prozess;
+das vorherige Materialisieren und die VFS-Übernahme sind davon nicht begrenzt.
 
 Beispiele für Download und Upload eines freigegebenen Ordners:
 

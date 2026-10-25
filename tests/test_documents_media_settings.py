@@ -11,8 +11,11 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, configured_webdav_quota_bytes, db as database
+from app.attachment_security import AttachmentSecurity
 from app.settings_store import (
+    DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    DEFAULT_RSYNC_TIMEOUT_SECONDS,
     DEFAULT_WEBDAV_QUOTA_MIB,
     DEFAULT_PREVIEW_MAX_BYTES,
     DEFAULT_PREVIEW_MAX_PIXELS,
@@ -20,8 +23,12 @@ from app.settings_store import (
     DEFAULT_PREVIEW_ENABLED,
     DEFAULT_VIDEO_PREVIEW_FRAMES,
     MAX_WEBDAV_QUOTA_MIB,
+    MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_RSYNC_TIMEOUT_SECONDS,
+    MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_RSYNC_TIMEOUT_SECONDS,
     SettingsStore,
 )
 
@@ -50,6 +57,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
                 "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": str(DEFAULT_VIDEO_PREVIEW_FRAMES),
                 "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
+                "SIMPLEOFFICE_CLAMAV_TIMEOUT": str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
+                "SIMPLEOFFICE_RSYNC_TIMEOUT": str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
             },
         )
         self.environment.start()
@@ -119,8 +128,11 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         html = response.get_data(as_text=True)
         self.assertIn('name="webdav_quota_mib"', html)
+        self.assertIn('name="rsync_timeout_seconds"', html)
+        self.assertIn("Rsync-Prozesszeitlimit", html)
         self.assertIn('name="_csrf_token"', html)
         self.assertIn("Neustart erforderlich", html)
+        self.assertIn("30–86400 Sekunden", html)
         self.assertIn('href="/admin/settings/integrations"', html)
         self.assertIn("Netzwerk &amp; Synchronisation", html)
         self.assertIn(path, self.admin.get("/documents/settings").get_data(as_text=True))
@@ -133,8 +145,11 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertEqual(200, response.status_code)
         self.assertIn('name="osm_download_read_timeout_seconds"', html)
+        self.assertIn('name="clamav_timeout_seconds"', html)
         self.assertIn('action="/admin/settings/integrations/osm"', html)
+        self.assertIn('action="/admin/settings/integrations/clamav"', html)
         self.assertIn("30–3600 Sekunden", html)
+        self.assertIn("5–900 Sekunden", html)
 
     def test_network_quota_requires_admin_and_csrf_then_persists_and_audits(self):
         path = "/admin/settings/network"
@@ -184,6 +199,73 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(302, reset.status_code)
         self.assertEqual(DEFAULT_WEBDAV_QUOTA_MIB, SettingsStore(self.root).settings()["network"]["webdav_quota_mib"])
 
+    def test_rsync_timeout_is_admin_only_persistent_validated_and_audited(self):
+        path = "/admin/settings/network"
+        SettingsStore(self.root).save(
+            {"network": {"webdav_quota_mib": 256}}, "media-admin",
+        )
+        payload = {"rsync_timeout_seconds": "7200"}
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        self.assertEqual(
+            403,
+            self.user.post(
+                path, data=payload, headers={"X-CSRF-Token": "u" * 40},
+            ).status_code,
+        )
+        saved = self.admin.post(
+            path, data=payload, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        network = SettingsStore(self.root).settings()["network"]
+        self.assertEqual(7200, network["rsync_timeout_seconds"])
+        self.assertEqual(256, network["webdav_quota_mib"])
+
+        for value in (
+            str(MIN_RSYNC_TIMEOUT_SECONDS - 1),
+            str(MAX_RSYNC_TIMEOUT_SECONDS + 1),
+            "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(value=value):
+                rejected = self.admin.post(
+                    path, data={"rsync_timeout_seconds": value},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    7200, SettingsStore(self.root).settings()["network"]["rsync_timeout_seconds"],
+                )
+                self.assertEqual(
+                    256, SettingsStore(self.root).settings()["network"]["webdav_quota_mib"],
+                )
+
+        legacy_form_save = self.admin.post(
+            path, data={"webdav_quota_mib": "512"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, legacy_form_save.status_code)
+        network = SettingsStore(self.root).settings()["network"]
+        self.assertEqual(7200, network["rsync_timeout_seconds"])
+        self.assertEqual(512, network["webdav_quota_mib"])
+
+        reset = self.admin.post(
+            path,
+            data={"reset": "1", "webdav_quota_mib": "256", "rsync_timeout_seconds": "7200"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        network = SettingsStore(self.root).settings()["network"]
+        self.assertEqual(DEFAULT_RSYNC_TIMEOUT_SECONDS, network["rsync_timeout_seconds"])
+        self.assertEqual(DEFAULT_WEBDAV_QUOTA_MIB, network["webdav_quota_mib"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("rsync_timeout_updated",),
+            ).fetchone()
+        self.assertEqual("media-admin", row["actor_name"])
+        self.assertEqual("network.rsync_timeout_seconds", row["target_id"])
+        self.assertFalse(json.loads(row["detail"])["restart_required"])
+
     def test_legacy_webdav_quota_migrates_once_and_persisted_value_wins(self):
         with patch.dict(os.environ, {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "512"}):
             store = SettingsStore(self.root / "legacy")
@@ -194,6 +276,29 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             self.assertEqual(512 * 1024 * 1024, configured_webdav_quota_bytes(self.root / "legacy"))
         with self.assertRaises(ValueError):
             SettingsStore(self.root / "legacy").save({"network": {"webdav_quota_mib": True}}, "media-admin")
+
+    def test_legacy_rsync_timeout_migrates_once_and_clamps_or_defaults(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": "7200"}):
+                self.assertEqual(7200, store.settings()["network"]["rsync_timeout_seconds"])
+                store.save({"network": {"webdav_quota_mib": 512}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": "360"}):
+                network = store.settings()["network"]
+                self.assertEqual(7200, network["rsync_timeout_seconds"])
+                self.assertEqual(512, network["webdav_quota_mib"])
+
+        expectations = {
+            "1": MIN_RSYNC_TIMEOUT_SECONDS,
+            "90000": MAX_RSYNC_TIMEOUT_SECONDS,
+            "invalid": DEFAULT_RSYNC_TIMEOUT_SECONDS,
+            "9" * 13: DEFAULT_RSYNC_TIMEOUT_SECONDS,
+        }
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": raw}):
+                    timeout = SettingsStore(root).settings()["network"]["rsync_timeout_seconds"]
+                self.assertEqual(expected, timeout)
 
     def test_osm_timeout_requires_admin_and_csrf_then_persists_and_validates(self):
         response = self.admin.get("/admin/settings/integrations")
@@ -261,6 +366,90 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("media-admin", row["actor_name"])
         self.assertEqual("integrations.osm_download_read_timeout_seconds", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_clamav_timeout_requires_admin_and_csrf_persists_and_applies(self):
+        path = "/admin/settings/integrations/clamav"
+        SettingsStore(self.root).save(
+            {"integrations": {"osm_download_read_timeout_seconds": 420}}, "media-admin",
+        )
+        payload = {"clamav_timeout_seconds": "240"}
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        self.assertEqual(
+            403,
+            self.user.post(
+                path, data=payload, headers={"X-CSRF-Token": "u" * 40},
+            ).status_code,
+        )
+        saved = self.admin.post(
+            path, data=payload, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(240, settings["clamav_timeout_seconds"])
+        self.assertEqual(420, settings["osm_download_read_timeout_seconds"])
+        self.assertEqual(240, AttachmentSecurity(self.root).scanner.timeout)
+
+        for invalid in (
+            str(MIN_CLAMAV_TIMEOUT_SECONDS - 1),
+            str(MAX_CLAMAV_TIMEOUT_SECONDS + 1),
+            "1.5",
+            "-1",
+            "9" * 20,
+        ):
+            with self.subTest(invalid=invalid):
+                rejected = self.admin.post(
+                    path, data={"clamav_timeout_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    240,
+                    SettingsStore(self.root).settings()["integrations"]["clamav_timeout_seconds"],
+                )
+
+        reset = self.admin.post(
+            path, data={"reset": "1"}, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_CLAMAV_TIMEOUT_SECONDS, settings["clamav_timeout_seconds"])
+        self.assertEqual(420, settings["osm_download_read_timeout_seconds"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("clamav_settings_updated",),
+            ).fetchone()
+        self.assertEqual("media-admin", row["actor_name"])
+        self.assertEqual("integrations.clamav_timeout_seconds", row["target_id"])
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_legacy_clamav_timeout_migrates_once_and_clamps_or_defaults(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_TIMEOUT": "360"}):
+                self.assertEqual(
+                    360, store.settings()["integrations"]["clamav_timeout_seconds"],
+                )
+                store.save({"network": {"webdav_quota_mib": 0}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_TIMEOUT": "600"}):
+                self.assertEqual(
+                    360, store.settings()["integrations"]["clamav_timeout_seconds"],
+                )
+
+        expectations = {
+            "1": MIN_CLAMAV_TIMEOUT_SECONDS,
+            "1200": MAX_CLAMAV_TIMEOUT_SECONDS,
+            "invalid": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+            "9" * 13: DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+        }
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_TIMEOUT": raw}):
+                    timeout = SettingsStore(root).settings()["integrations"][
+                        "clamav_timeout_seconds"
+                    ]
+                self.assertEqual(expected, timeout)
 
     def test_local_folder_settings_page_is_available_to_signed_in_users(self):
         settings = self.user.get("/documents/settings")

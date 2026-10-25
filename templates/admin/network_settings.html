@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <div class="mb-4">
     <h1 class="h2 mb-1">Netzwerk &amp; Synchronisation</h1>
-    <p class="text-secondary mb-0">Globale Netzwerkgrenzen. Geänderte Werte werden nach einem Neustart von allen WebDAV-Workern übernommen.</p>
+    <p class="text-secondary mb-0">Globale Netzwerkgrenzen. Das WebDAV-Kontingent gilt nach einem Neustart; das Rsync-Zeitlimit gilt für neu gestartete Sitzungen.</p>
   </div>
   <nav aria-label="Einstellungsbereiche" class="mb-4">
     <div class="nav nav-tabs">
@@ -25,6 +25,11 @@
           <label class="form-label" for="webdav-quota">WebDAV-Kontingent (MiB)</label>
           <input class="form-control" id="webdav-quota" type="number" name="webdav_quota_mib" value="{{ network.webdav_quota_mib }}" min="0" max="1048576" step="1" required>
           <div class="form-text">Standard: 0 (unbegrenzt). Zulässig: 0 oder 1–1.048.576 MiB (bis 1 TiB). Neustart erforderlich.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="rsync-timeout">Rsync-Prozesszeitlimit (Sekunden)</label>
+          <input class="form-control" id="rsync-timeout" type="number" name="rsync_timeout_seconds" value="{{ network.rsync_timeout_seconds }}" min="30" max="86400" step="1" required>
+          <div class="form-text">Standard: 3600 Sekunden. Zulässig: 30–86400 Sekunden. Begrenzt nur den lokalen rsync-Prozess; Materialisierung und VFS-Übernahme sind nicht enthalten. Gilt für neue Sitzungen ohne Neustart.</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">Einstellungen speichern</button>

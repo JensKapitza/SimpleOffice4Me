@@ -44,6 +44,12 @@ MAX_PREVIEW_MAX_PIXELS = 250_000_000
 DEFAULT_OSM_READ_TIMEOUT_SECONDS = 300
 MIN_OSM_READ_TIMEOUT_SECONDS = 30
 MAX_OSM_READ_TIMEOUT_SECONDS = 3600
+DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
+MIN_CLAMAV_TIMEOUT_SECONDS = 5
+MAX_CLAMAV_TIMEOUT_SECONDS = 900
+DEFAULT_RSYNC_TIMEOUT_SECONDS = 3600
+MIN_RSYNC_TIMEOUT_SECONDS = 30
+MAX_RSYNC_TIMEOUT_SECONDS = 86400
 
 
 @contextmanager
@@ -84,7 +90,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "statement_import_limit_bytes": DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
         "statement_staging_ttl_seconds": DEFAULT_FINANCE_STAGING_TTL_SECONDS,
     },
-    "network": {"webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB},
+    "network": {
+        "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
+        "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
+    },
     "media": {
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -92,7 +101,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
         "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
     },
-    "integrations": {"osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS},
+    "integrations": {
+        "osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+        "clamav_timeout_seconds": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    },
 }
 
 TRANSLATIONS = {
@@ -394,6 +406,8 @@ class SettingsStore:
         stored_network = stored.get("network") if isinstance(stored, dict) else None
         if not isinstance(stored_network, dict) or "webdav_quota_mib" not in stored_network:
             result["network"]["webdav_quota_mib"] = self._legacy_webdav_quota()
+        if not isinstance(stored_network, dict) or "rsync_timeout_seconds" not in stored_network:
+            result["network"]["rsync_timeout_seconds"] = self._legacy_rsync_timeout()
         result["network"] = self._normalize_network_settings(result["network"])
         stored_integrations = stored.get("integrations") if isinstance(stored, dict) else None
         if (
@@ -402,6 +416,13 @@ class SettingsStore:
         ):
             result["integrations"]["osm_download_read_timeout_seconds"] = (
                 self._legacy_osm_read_timeout()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "clamav_timeout_seconds" not in stored_integrations
+        ):
+            result["integrations"]["clamav_timeout_seconds"] = (
+                self._legacy_clamav_timeout()
             )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
@@ -427,7 +448,36 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored WebDAV quota; using the unlimited default")
             quota = DEFAULT_WEBDAV_QUOTA_MIB
-        return {"webdav_quota_mib": quota}
+        rsync_timeout = network.get(
+            "rsync_timeout_seconds", DEFAULT_RSYNC_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(rsync_timeout, bool)
+            or not isinstance(rsync_timeout, int)
+            or not MIN_RSYNC_TIMEOUT_SECONDS <= rsync_timeout <= MAX_RSYNC_TIMEOUT_SECONDS
+        ):
+            _LOGGER.warning("Invalid stored rsync timeout; using the default")
+            rsync_timeout = DEFAULT_RSYNC_TIMEOUT_SECONDS
+        return {
+            "webdav_quota_mib": quota,
+            "rsync_timeout_seconds": rsync_timeout,
+        }
+
+    @staticmethod
+    def _legacy_rsync_timeout() -> int:
+        """Read and bound the legacy rsync session timeout until it is saved."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_RSYNC_TIMEOUT", str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 12 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy rsync timeout; using the default")
+            return DEFAULT_RSYNC_TIMEOUT_SECONDS
+        value = int(raw)
+        if not MIN_RSYNC_TIMEOUT_SECONDS <= value <= MAX_RSYNC_TIMEOUT_SECONDS:
+            _LOGGER.warning("Legacy rsync timeout outside range; clamping to supported limits")
+            return max(MIN_RSYNC_TIMEOUT_SECONDS, min(MAX_RSYNC_TIMEOUT_SECONDS, value))
+        return value
 
     @staticmethod
     def _legacy_osm_read_timeout() -> int:
@@ -450,6 +500,25 @@ class SettingsStore:
         return value
 
     @staticmethod
+    def _legacy_clamav_timeout() -> int:
+        """Migrate and bound the former environment-only scanner timeout."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_CLAMAV_TIMEOUT", str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 12 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy ClamAV timeout; using the default")
+            return DEFAULT_CLAMAV_TIMEOUT_SECONDS
+        value = int(raw)
+        if not MIN_CLAMAV_TIMEOUT_SECONDS <= value <= MAX_CLAMAV_TIMEOUT_SECONDS:
+            _LOGGER.warning("Legacy ClamAV timeout outside range; clamping to supported limits")
+            return max(
+                MIN_CLAMAV_TIMEOUT_SECONDS,
+                min(MAX_CLAMAV_TIMEOUT_SECONDS, value),
+            )
+        return value
+
+    @staticmethod
     def _normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
         timeout = integrations.get(
             "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
@@ -461,7 +530,20 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored OSM read timeout; using the default")
             timeout = DEFAULT_OSM_READ_TIMEOUT_SECONDS
-        return {"osm_download_read_timeout_seconds": timeout}
+        clamav_timeout = integrations.get(
+            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(clamav_timeout, bool)
+            or not isinstance(clamav_timeout, int)
+            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
+        ):
+            _LOGGER.warning("Invalid stored ClamAV timeout; using the default")
+            clamav_timeout = DEFAULT_CLAMAV_TIMEOUT_SECONDS
+        return {
+            "osm_download_read_timeout_seconds": timeout,
+            "clamav_timeout_seconds": clamav_timeout,
+        }
 
     def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
@@ -546,9 +628,9 @@ class SettingsStore:
                     latest["s3"] = {"enabled": True}
             # Ordinary preferences and admin S3 changes share one atomic merge.
             merged = {**latest, **settings}
-            # Finance migrations and media/integration settings support
-            # partial writes; preserve other controls in each section.
-            for section in ("finance", "media", "integrations"):
+            # Network, media and integration settings support partial writes so callers
+            # preserve controls in the same section across partial form updates.
+            for section in ("finance", "network", "media", "integrations"):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -583,6 +665,15 @@ class SettingsStore:
             or not DEFAULT_WEBDAV_QUOTA_MIB <= webdav_quota <= MAX_WEBDAV_QUOTA_MIB
         ):
             raise ValueError("WebDAV quota must be 0 or between 1 and 1,048,576 MiB")
+        rsync_timeout = network.get(
+            "rsync_timeout_seconds", DEFAULT_RSYNC_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(rsync_timeout, bool)
+            or not isinstance(rsync_timeout, int)
+            or not MIN_RSYNC_TIMEOUT_SECONDS <= rsync_timeout <= MAX_RSYNC_TIMEOUT_SECONDS
+        ):
+            raise ValueError("rsync timeout must be between 30 and 86,400 seconds")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
@@ -596,6 +687,15 @@ class SettingsStore:
             or not MIN_OSM_READ_TIMEOUT_SECONDS <= osm_read_timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
         ):
             raise ValueError("OSM read timeout must be between 30 and 3600 seconds")
+        clamav_timeout = integrations.get(
+            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(clamav_timeout, bool)
+            or not isinstance(clamav_timeout, int)
+            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
+        ):
+            raise ValueError("ClamAV timeout must be between 5 and 900 seconds")
         video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
         if (
             isinstance(video_preview_frames, bool)
@@ -693,7 +793,10 @@ class SettingsStore:
                 "statement_import_limit_bytes": import_limit,
                 "statement_staging_ttl_seconds": staging_ttl,
             },
-            "network": {"webdav_quota_mib": webdav_quota},
+            "network": {
+                "webdav_quota_mib": webdav_quota,
+                "rsync_timeout_seconds": rsync_timeout,
+            },
             "media": {
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
@@ -703,5 +806,6 @@ class SettingsStore:
             },
             "integrations": {
                 "osm_download_read_timeout_seconds": osm_read_timeout,
+                "clamav_timeout_seconds": clamav_timeout,
             },
         }

@@ -17,6 +17,8 @@ from .finance_fints import (
     _restore_sca_retry_response as _restore_retry_response,
     is_tan_response,
 )
+from .finance_fints_retry import run_read_with_bounded_retry
+
 
 def _client_context(client: Any):
     return client if callable(getattr(client, "__enter__", None)) else nullcontext(client)
@@ -108,7 +110,28 @@ def fetch_balance(
     challenge_state: dict[str, Any] | None = None,
     tan: str = "",
 ) -> dict[str, str]:
-    """Read a balance or continue one owner-bound, encrypted SCA operation."""
+    """Retry fresh balance reads; never replay a stateful SCA continuation."""
+    if challenge_state is not None:
+        return _fetch_balance_once(
+            connection, remote_account_id, pin,
+            challenge_state=challenge_state, tan=tan,
+        )
+
+    def read_balance() -> dict[str, str]:
+        return _fetch_balance_once(connection, remote_account_id, pin, tan=tan)
+
+    return run_read_with_bounded_retry(read_balance)
+
+
+def _fetch_balance_once(
+    connection: dict[str, Any],
+    remote_account_id: str,
+    pin: str,
+    *,
+    challenge_state: dict[str, Any] | None = None,
+    tan: str = "",
+) -> dict[str, str]:
+    """Perform one balance read or one owner-bound, encrypted SCA continuation."""
     if challenge_state is None:
         client = _client(connection, pin)
         retry_response = None

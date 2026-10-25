@@ -8,6 +8,7 @@ ACLs, history, recovery and conflict checks remain authoritative.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import shlex
 import shutil
@@ -19,6 +20,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .attachment_security import AttachmentSecurity
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _SHORT_OPTIONS = set("vlogDtpre.iLsfxCIvuHAXSWRKNEOJPBbdhkmnqcF0Tz")
@@ -75,8 +79,55 @@ class RestrictedRsyncSession:
         self.app = server.app
         self.max_bytes = int(os.environ.get("SIMPLEOFFICE_RSYNC_MAX_BYTES", str(2 * 1024**3)))
         self.max_files = int(os.environ.get("SIMPLEOFFICE_RSYNC_MAX_FILES", "100000"))
-        self.timeout = int(os.environ.get("SIMPLEOFFICE_RSYNC_TIMEOUT", "3600"))
+        from .settings_store import SettingsStore
+
+        self.timeout = SettingsStore(self.vfs.root).settings()["network"][
+            "rsync_timeout_seconds"
+        ]
         self.initial_directories: set[str] = set()
+
+    @staticmethod
+    def _stop_child(process: subprocess.Popen[bytes]) -> None:
+        """Terminate then kill the local rsync child before its staging tree is removed."""
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+        except ProcessLookupError:
+            return
+        except OSError as exc:
+            _LOGGER.warning(
+                "Rsync child terminate failed: pid=%s error_type=%s",
+                process.pid, type(exc).__name__,
+            )
+        try:
+            process.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        except OSError as exc:
+            _LOGGER.warning(
+                "Rsync child wait failed: pid=%s error_type=%s",
+                process.pid, type(exc).__name__,
+            )
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            _LOGGER.error(
+                "Rsync child kill failed: pid=%s error_type=%s",
+                process.pid, type(exc).__name__,
+            )
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _LOGGER.error("Rsync child did not stop after kill: pid=%s", process.pid)
+        except OSError as exc:
+            _LOGGER.error(
+                "Rsync child final wait failed: pid=%s error_type=%s",
+                process.pid, type(exc).__name__,
+            )
 
     def start(self) -> None:
         threading.Thread(target=self.run, daemon=True).start()
@@ -190,6 +241,11 @@ class RestrictedRsyncSession:
 
     def run(self) -> None:
         status = 1
+        process: subprocess.Popen[bytes] | None = None
+        input_thread: threading.Thread | None = None
+        output_thread: threading.Thread | None = None
+        error_thread: threading.Thread | None = None
+        started_threads: list[threading.Thread] = []
         try:
             if shutil.which("rsync") is None:
                 raise RuntimeError("server-side rsync is not installed")
@@ -203,6 +259,7 @@ class RestrictedRsyncSession:
                     arguments, cwd=staging, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE, close_fds=True,
                 )
+
                 def inbound():
                     try:
                         while data := self.channel.recv(65536):
@@ -221,17 +278,40 @@ class RestrictedRsyncSession:
                 input_thread = threading.Thread(target=inbound, daemon=True)
                 output_thread = threading.Thread(target=outbound, daemon=True)
                 error_thread = threading.Thread(target=drain_errors, daemon=True)
-                input_thread.start(); output_thread.start(); error_thread.start()
-                status = process.wait(timeout=self.timeout)
-                output_thread.join(5)
-                if status == 0 and not self.request.sender:
-                    self._commit(staging, initial)
-        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
+                try:
+                    for thread in (input_thread, output_thread, error_thread):
+                        thread.start()
+                        started_threads.append(thread)
+                    status = process.wait(timeout=self.timeout)
+                    if status == 0 and not self.request.sender:
+                        self._commit(staging, initial)
+                finally:
+                    # Stop a timed-out or otherwise abandoned child before its
+                    # private staging directory is removed.
+                    self._stop_child(process)
+                    for thread in (output_thread, error_thread):
+                        if thread in started_threads:
+                            thread.join(timeout=5)
+        except subprocess.TimeoutExpired:
+            _LOGGER.warning("Rsync session exceeded its %s-second process timeout", self.timeout)
+            status = 1
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+            _LOGGER.warning("Rsync session failed: error_type=%s", type(exc).__name__)
             status = 1
         finally:
-            try:
-                self.channel.send_exit_status(status)
-                self.channel.shutdown_write()
-                self.channel.close()
-            except OSError:
-                pass
+            for operation, args in (
+                ("send_exit_status", (status,)),
+                ("shutdown_write", ()),
+                ("close", ()),
+            ):
+                try:
+                    getattr(self.channel, operation)(*args)
+                except OSError as exc:
+                    _LOGGER.debug(
+                        "Rsync channel cleanup failed: operation=%s error_type=%s",
+                        operation, type(exc).__name__,
+                    )
+            for thread in started_threads:
+                thread.join(timeout=5)
+                if thread.is_alive():
+                    _LOGGER.warning("Rsync worker thread remained blocked after channel close")

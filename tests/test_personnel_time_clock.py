@@ -8,7 +8,6 @@ from zoneinfo import ZoneInfo
 from app import app
 from app import db as database
 from app.contact_store import ContactStore
-from app.personnel import _local_now
 
 
 class PersonnelTimeClockTest(unittest.TestCase):
@@ -150,11 +149,12 @@ class PersonnelTimeClockTest(unittest.TestCase):
             self.assertEqual(2, sum(row["action"] == "admin_quick_punch" for row in audits))
             self.assertTrue(all(int(row["actor_user_id"]) == user_id for row in audits))
 
-    def test_admin_can_add_and_correct_forgotten_punch_with_reason_and_history(self):
+    @patch("app.personnel._local_now")
+    def test_admin_can_add_and_correct_forgotten_punch_with_reason_and_history(self, local_now):
+        now = datetime(2026, 10, 15, 12, tzinfo=ZoneInfo("Europe/Berlin"))
+        local_now.return_value = now
         self.client.get("/personnel")
         employee_id = self._add_employee("Vergesslicher Mitarbeiter", "vergessen@example.test")
-        with app.app_context():
-            now = _local_now().replace(second=0, microsecond=0)
         start = now - timedelta(hours=2)
         end = now - timedelta(minutes=10)
         response = self.client.post(

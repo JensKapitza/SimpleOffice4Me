@@ -631,7 +631,14 @@ class _DocumentStorePart3:
         moved_documents: list[dict[str, Any]] = []
         from .file_lock import exclusive_file_lock
 
-        with exclusive_file_lock(self.control / ".document-content.lock"):
+        with (
+            exclusive_file_lock(self.control / ".document-content.lock"),
+            exclusive_file_lock(self.shares_path.with_suffix(".lock")),
+        ):
+            active_share_ids = {
+                document_id: self._active_share_ids_for_move(document_id)
+                for document_id in snapshots
+            }
             source.replace(destination)
             try:
                 changed_at = utc_now()
@@ -641,7 +648,9 @@ class _DocumentStorePart3:
                     target = destination / entry["nested"]
                     relative = self.relative(target)
                     document["last_path"] = relative
+                    document["location_revision"] = self._location_revision(document) + 1
                     document["last_seen_at"] = changed_at
+                    document["location_last_moved_at"] = changed_at
                     document.setdefault("location_history", []).append({
                         "from": previous_path, "to": relative, "at": changed_at, "actor": actor,
                     })
@@ -651,7 +660,7 @@ class _DocumentStorePart3:
                     self._refresh_search_index(document)
                     with self._db() as db:
                         db.execute("DELETE FROM scan_file WHERE relative_path = ?", (previous_path,))
-                    self._scan_file(target)
+                    self._scan_file(target, track_location_change=False)
                     moved_documents.append({"before": previous_path, "after": relative, "document": document})
                 for item in moved_documents:
                     fingerprint_path = self.fingerprints / f"{item['document'].get('sha256', '')}.json"
@@ -673,30 +682,37 @@ class _DocumentStorePart3:
                         old_path = resolve_file_under(self.root, snapshot.get("last_path", ""))
                     except (OSError, ValueError):
                         continue
-                    self._scan_file(old_path)
+                    self._scan_file(old_path, track_location_change=False)
                 self._record_revision(
                     "webdav_collection_move_rolled_back", actor, "collections",
                     hashlib.sha256(f"{source_path}:{destination_path}".encode()).hexdigest(),
                     {"source": source_path, "destination": destination_path, "at": utc_now(), "actor": actor},
                 )
                 raise
-        for item in moved_documents:
+            for item in moved_documents:
+                for share_id in active_share_ids.get(item["document"]["document_id"], []):
+                    self._event("share_revoked_on_move", {
+                        "share_id": share_id,
+                        "document_id": item["document"]["document_id"],
+                        "from": item["before"], "to": item["after"],
+                        "actor": actor, "reason": "revoked_on_move",
+                    })
+                details = {
+                    "document_id": item["document"]["document_id"], "from": item["before"],
+                    "to": item["after"], "actor": actor,
+                }
+                self._event("document_moved", details)
+                self._record_revision("document_moved", actor, "documents", item["document"]["document_id"], item["document"])
             details = {
-                "document_id": item["document"]["document_id"], "from": item["before"],
-                "to": item["after"], "actor": actor,
+                "source": manifest["source_relative"], "destination": str(destination_relative),
+                "collections": len(manifest["directories"]), "documents": len(moved_documents),
+                "bytes": manifest["total_bytes"], "actor": actor, "at": utc_now(),
             }
-            self._event("document_moved", details)
-            self._record_revision("document_moved", actor, "documents", item["document"]["document_id"], item["document"])
-        details = {
-            "source": manifest["source_relative"], "destination": str(destination_relative),
-            "collections": len(manifest["directories"]), "documents": len(moved_documents),
-            "bytes": manifest["total_bytes"], "actor": actor, "at": utc_now(),
-        }
-        self._event("webdav_collection_moved", details)
-        self._record_revision(
-            "webdav_collection_moved", actor, "collections",
-            hashlib.sha256(str(destination_relative).encode()).hexdigest(), details,
-        )
+            self._event("webdav_collection_moved", details)
+            self._record_revision(
+                "webdav_collection_moved", actor, "collections",
+                hashlib.sha256(str(destination_relative).encode()).hexdigest(), details,
+            )
         return {**details, "resources": moved_documents, "directories_relative": manifest["directories"]}
 
     def soft_delete_collection(self, source_path: str, actor: str) -> dict[str, Any]:

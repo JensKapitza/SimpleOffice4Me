@@ -69,6 +69,16 @@ TAN. Umsatzdaten werden erst nach vollständiger Rückgabe und Normalisierung f�
 Konto importiert; davor erfolgreich abgeschlossene Konten bleiben erhalten und werden beim
 Resume übersprungen.
 
+Neu gestartete, reine Kontoermittlungs-, Saldo- und Umsatz-Leseabrufe werden
+bei einer von python-fints als vorübergehend gemeldeten
+Transport-Verbindungsunterbrechung höchstens zweimal mit exponentiellem,
+begrenztem Jitter wiederholt.
+TLS-/Proxy-Fehler, Bank-Protokoll-/HTTP-Ablehnungen und fachliche Fehler werden nicht wiederholt.
+Eine TAN-Fortsetzung wird wegen ihres kurzlebigen, einmaligen Dialogzustands nie
+automatisch erneut gesendet. Die Buchungen werden erst nach vollständig
+erfolgreichem Abruf importiert; vorhandene Idempotenzschlüssel schützen weiterhin
+vor doppeltem Import.
+
 Andere FinTS-Operationen bleiben fail-closed; insbesondere werden keine Zahlungsaufträge
 ausgeführt. Deaktivierte Bankverbindungen dürfen keine Kontostands-, Kontoermittlungs- oder
 Umsatzabrufe starten. Kontoauszüge können weiterhin manuell über CSV, CAMT oder MT940
