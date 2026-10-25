@@ -3,6 +3,7 @@
 {% block body %}
 <main id="main-content" class="container-xl py-3 py-md-4">
   <div id="inventory-app" class="d-none" aria-hidden="true"
+       data-library-capture="{{ '1' if capture_context.enabled else '0' }}"
        data-find-url="{{ url_for('inventory.find_item') }}"
        data-lookup-url="{{ url_for('inventory.book_lookup') }}"
        data-amazon-url="{{ url_for('inventory.amazon_search') }}"
@@ -46,6 +47,12 @@
           </div>
         </div>
         <div class="card-body">
+          {% if capture_context.enabled %}
+          <div class="alert alert-primary py-2" role="status">
+            <strong>Buch aus dem Bibliotheksscan übernehmen</strong>
+            <div>Barcode/ISBN und Regal wurden übernommen. Titel und Regal bitte vor dem Speichern prüfen. Metadatenabruf und OCR sind optional; der Titel kann offline manuell eingegeben werden.</div>
+          </div>
+          {% endif %}
           <div class="row g-2 mb-3">
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode">Barcode / ISBN scannen</button></div>
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc">NFC lesen</button></div>
@@ -55,12 +62,20 @@
 
           <form method="post" action="{{ url_for('inventory.create_item') }}" enctype="multipart/form-data" class="row g-3" id="inventory-form">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            {% if capture_context.enabled %}
+            <input type="hidden" name="library_return" value="1">
+            <input type="hidden" name="capture_request_id" value="{{ capture_context.request_id }}">
+            {% endif %}
 
-            <div class="col-md-6"><label class="form-label" for="item-type">Objekttyp</label><input class="form-control form-control-lg" id="item-type" name="item_type" value="object" list="inventory-types"><datalist id="inventory-types"><option value="object"><option value="book"><option value="tool"><option value="electrical-device"><option value="machine"><option value="vehicle"><option value="it-device"><option value="measuring-device"><option value="ladder"><option value="key"><option value="furniture"><option value="document"><option value="spare-part"><option value="consumable"></datalist></div>
-            <div class="col-md-6"><label class="form-label" for="title">Objektname</label><input required class="form-control form-control-lg" id="title" name="title" maxlength="300" placeholder="z. B. Akkuschrauber Werkstatt"></div>
+            <div class="col-md-6"><label class="form-label" for="item-type">Objekttyp</label><input class="form-control form-control-lg" id="item-type" name="item_type" value="{{ 'book' if capture_context.enabled else 'object' }}" list="inventory-types"><datalist id="inventory-types"><option value="object"><option value="book"><option value="tool"><option value="electrical-device"><option value="machine"><option value="vehicle"><option value="it-device"><option value="measuring-device"><option value="ladder"><option value="key"><option value="furniture"><option value="document"><option value="spare-part"><option value="consumable"></datalist></div>
+            <div class="col-md-6"><label class="form-label" for="title">{{ 'Buchtitel (erforderlich)' if capture_context.enabled else 'Objektname' }}</label><input required class="form-control form-control-lg" id="title" name="title" maxlength="300" placeholder="{{ 'Titel manuell eingeben oder Buchdaten laden' if capture_context.enabled else 'z. B. Akkuschrauber Werkstatt' }}"></div>
 
-            <div class="col-md-7"><label class="form-label" for="barcode">Barcode / EAN / Kennung</label><input class="form-control form-control-lg" id="barcode" name="barcode" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
-            <div class="col-md-5"><label class="form-label" for="isbn">ISBN</label><div class="input-group"><input class="form-control form-control-lg" id="isbn" name="isbn" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="978… oder ISBN-10"><button class="btn btn-primary" type="button" id="lookup-book" data-label="Buchdaten laden">Buchdaten laden</button></div><div class="form-text">Immer sichtbar – auch wenn der Objekttyp noch „Gegenstand“ ist.</div></div>
+            {% if capture_context.enabled %}
+            <div class="col-12"><label class="form-label" for="library-location-id">Zuordnung in der Bibliothek (erforderlich)</label><select required class="form-select form-select-lg" id="library-location-id" name="library_location_id">{% for location in library_locations %}<option value="{{ location.location_id }}" {% if location.location_id == capture_context.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select><div class="form-text">Der ausgewählte Regalstandort ist editierbar und wird beim Speichern als Bibliothekszuordnung hinterlegt.</div></div>
+            {% endif %}
+
+            <div class="col-md-7"><label class="form-label" for="barcode">Barcode / EAN / Kennung</label><input class="form-control form-control-lg" id="barcode" name="barcode" value="{{ capture_context.barcode if capture_context.enabled else '' }}" autocomplete="off" autocapitalize="off" spellcheck="false"></div>
+            <div class="col-md-5"><label class="form-label" for="isbn">ISBN</label><div class="input-group"><input class="form-control form-control-lg" id="isbn" name="isbn" value="{{ capture_context.isbn if capture_context.enabled else '' }}" inputmode="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="978… oder ISBN-10"><button class="btn btn-primary" type="button" id="lookup-book" data-label="Buchdaten laden">Buchdaten laden</button></div><div class="form-text">Immer sichtbar – auch wenn der Objekttyp noch „Gegenstand“ ist.</div></div>
 
             <div class="col-12 book-only" hidden>
               <div class="d-flex flex-wrap gap-2 align-items-center">
@@ -76,7 +91,7 @@
             <div class="col-md-4"><label class="form-label" for="model">Modell</label><input class="form-control" id="model" name="model" maxlength="240"></div>
             <div class="col-md-4"><label class="form-label" for="serial-number">Seriennummer</label><input class="form-control" id="serial-number" name="serial_number" maxlength="240" autocapitalize="off" spellcheck="false"></div>
             <div class="col-md-6"><label class="form-label" for="purchase-date">Kaufdatum</label><input class="form-control" id="purchase-date" name="purchase_date" type="date"></div>
-            <div class="col-md-6"><label class="form-label" for="location">Standort</label><div class="input-group"><input class="form-control" id="location" name="location" maxlength="300" placeholder="Regal, Raum, Fahrzeug …"><button class="btn btn-outline-secondary" type="button" id="restore-location" title="Zuletzt verwendeten Standort einsetzen">↶</button></div></div>
+            <div class="col-md-6"><label class="form-label" for="location">Standort</label><div class="input-group"><input class="form-control" id="location" name="location" value="{{ capture_context.location_path if capture_context.enabled else '' }}" maxlength="300" placeholder="Regal, Raum, Fahrzeug …"><button class="btn btn-outline-secondary" type="button" id="restore-location" title="Zuletzt verwendeten Standort einsetzen">↶</button></div></div>
             <div class="col-12"><label class="form-label" for="tags">Tags</label><input class="form-control" id="tags" name="tags" maxlength="500" placeholder="werkstatt, elektro, privat …"></div>
             <div class="col-12"><label class="form-label" for="description">Beschreibung</label><textarea class="form-control" id="description" name="description" rows="3" maxlength="8000"></textarea></div>
 
