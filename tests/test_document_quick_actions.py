@@ -115,8 +115,8 @@ class DocumentQuickActionsTest(unittest.TestCase):
             def settings(self):
                 return {"documents": {"default_tags": [], "default_state": "new"}}
 
-        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), patch(
-            "app.documents_routes_workflows._settings", return_value=FakeSettings()
+        with patch("app.documents_routes_upload._storage", return_value=FakeStorage()), patch(
+            "app.documents_routes_upload._settings", return_value=FakeSettings()
         ), patch.object(
             DocumentStore,
             "import_upload",
@@ -183,12 +183,12 @@ class DocumentQuickActionsTest(unittest.TestCase):
             ("files", (io.BytesIO(b"same folder"), "other.txt")),
             ("files", (io.BytesIO(b"reject me"), "rejected.txt")),
         ])
-        with patch("app.documents_routes_workflows._storage", return_value=FakeStorage()), \
-             patch("app.documents_routes_workflows._settings", return_value=FakeSettings()), \
-             patch("app.documents_routes_workflows._store", return_value=FakeStore()), \
-             patch("app.documents_routes_workflows.begin_web_inbox_upload", return_value={"error": "", "item": {}}), \
-             patch("app.documents_routes_workflows.complete_web_inbox_upload", side_effect=complete_inbox_upload), \
-             patch("app.documents_routes_workflows.fail_web_inbox_upload", side_effect=fail_inbox_upload):
+        with patch("app.documents_routes_upload._storage", return_value=FakeStorage()), \
+             patch("app.documents_routes_upload._settings", return_value=FakeSettings()), \
+             patch("app.documents_routes_upload._store", return_value=FakeStore()), \
+             patch("app.documents_routes_upload.begin_web_inbox_upload", return_value={"error": "", "item": {}}), \
+             patch("app.documents_routes_upload.complete_web_inbox_upload", side_effect=complete_inbox_upload), \
+             patch("app.documents_routes_upload.fail_web_inbox_upload", side_effect=fail_inbox_upload):
             response = self.client.post("/documents/upload", data=form, content_type="multipart/form-data")
 
         self.assertEqual(302, response.status_code)
@@ -219,9 +219,9 @@ class DocumentQuickActionsTest(unittest.TestCase):
 
         # Test the real StoragePort path without depending on optional scanner availability.
         with patch(
-            "app.documents_routes_workflows.begin_web_inbox_upload",
+            "app.documents_routes_upload.begin_web_inbox_upload",
             return_value={"item": None, "malware_status": "not_configured", "error": ""},
-        ), patch("app.documents_routes_workflows.complete_web_inbox_upload"):
+        ), patch("app.documents_routes_upload.complete_web_inbox_upload"):
             response = self.client.post(
                 "/documents/upload",
                 data=form,
@@ -307,9 +307,9 @@ class DocumentQuickActionsTest(unittest.TestCase):
                 ("files", (io.BytesIO(filename.encode("utf-8")), filename)),
             ])
             with patch(
-                "app.documents_routes_workflows.begin_web_inbox_upload",
+                "app.documents_routes_upload.begin_web_inbox_upload",
                 return_value={"item": None, "malware_status": "not_configured", "error": ""},
-            ), patch("app.documents_routes_workflows.complete_web_inbox_upload"):
+            ), patch("app.documents_routes_upload.complete_web_inbox_upload"):
                 response = self.client.post(
                     "/documents/upload", data=form, content_type="multipart/form-data",
                 )
@@ -354,7 +354,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             ("source_ids", json.dumps(["not-a-valid-id"])),
             ("files", (io.BytesIO(b"report"), "report.txt")),
         ])
-        with patch("app.documents_routes_workflows._storage") as storage:
+        with patch("app.documents_routes_upload._storage") as storage:
             response = self.client.post(
                 "/documents/upload", data=form, content_type="multipart/form-data",
             )
@@ -369,7 +369,7 @@ class DocumentQuickActionsTest(unittest.TestCase):
             ("files", (io.BytesIO(b"a"), "a.txt")),
             ("files", (io.BytesIO(b"b"), "b.txt")),
         ])
-        with patch("app.documents_routes_workflows._storage") as storage:
+        with patch("app.documents_routes_upload._storage") as storage:
             response = self.client.post(
                 "/documents/upload", data=form, content_type="multipart/form-data",
             )

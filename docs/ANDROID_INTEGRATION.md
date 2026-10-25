@@ -90,17 +90,18 @@ SAF-Berechtigung gerätegebunden ist.
 
 Auf der Dokumentseite öffnet **Ordner importieren** unter Android den
 Systemdialog `ACTION_OPEN_DOCUMENT_TREE`. Der native Importer liest die
-Unterordner über `DocumentsContract`, prüft Dateinamen, Tiefe, Dateianzahl,
-Pfadlänge und gemeldete Dateigrößen und streamt anschließend die ausgewählten
-Dateien als einen CSRF- und Session-gebundenen Multipart-Upload an den lokalen
-Flask-Endpunkt. Der Server validiert weiterhin alle relativen Pfade und führt
-den normalen hashbasierten Import einschließlich Inbox-/Auditpfad aus. Die
-SAF-URI wird nicht an Flask übertragen. Ein kleiner Abbruchknopf trennt einen
-laufenden Transfer; ein unterbrochener Multipart-Request wird nicht als
-vollständiger Import verarbeitet. Vor der Bestätigung zeigt die APK Dateianzahl,
-Gesamtgröße und das Ziel eines neuen eindeutigen Importordners. Sobald alle
-Bytes übertragen wurden, wird der Abbruch deaktiviert, während der Server den
-Import beendet.
+Unterordner über `DocumentsContract`, prüft Dateinamen, Tiefe, Pfadlänge und
+gemeldete Dateigrößen und streamt die ausgewählten Dateien in Teilpaketen von
+höchstens 100 Dateien an den CSRF- und Session-gebundenen lokalen Flask-Endpunkt.
+Es gibt keine feste Obergrenze für die Dateianzahl eines Importvorgangs. Der
+Server validiert weiterhin jeden relativen Pfad und führt den normalen
+hashbasierten Import einschließlich Inbox-/Auditpfad aus. Die SAF-URI wird
+nicht an Flask übertragen. Ein kleiner Abbruchknopf stoppt zwischen vollständig
+gesendeten Teilpaketen; ein unsicher bestätigtes Paket wird mit derselben
+Importkennung erneut gesendet und bereits gespeicherte identische Dateien werden
+anhand ihres SHA-256 idempotent erkannt. Abweichender Inhalt wird nie
+überschrieben. Vor der Bestätigung zeigt die APK Dateianzahl, Gesamtgröße und
+das Ziel eines neuen eindeutigen Importordners.
 Für die Herkunfts-Smart-View bildet die APK lokal mit einem zufälligen,
 installationsgebundenen Salt einen SHA-256-Fingerabdruck der SAF-Tree-URI und
 sendet nur diesen opaken Wert als Quellkennung. Der Salt liegt in privaten
@@ -111,28 +112,42 @@ Berechtigungs-Token an den Server weiterzugeben. Nach App-Datenlöschung,
 Neuinstallation oder bei wechselnden Provider-Tree-URIs entsteht bewusst eine
 neue Herkunftskennung.
 
-- pro Upload höchstens 1000 Dateien und maximal 64 Verzeichnisebenen;
-- bis zu 20 SAF-Wurzeln in einer Importwarteschlange und höchstens 10000
-  Einträge insgesamt, damit sehr große Verzeichnislisten begrenzt bleiben;
-- die relative Pfadliste ist auf 400000 UTF-8-Bytes begrenzt und als einzelnes
-  Formularfeld kodiert; nur der Dokument-Upload erhält das eng begrenzte
-  Multipart-Teilelimit von 1010, andere Endpunkte behalten ihren Standardwert;
+Browser mit `webkitdirectory` verwenden denselben serverseitigen Importpfad und
+senden höchstens 100 Dateien pro Anfrage. Eine zufällige Importkennung bleibt
+pro Tab in `sessionStorage`; nach Neuladen und erneuter Ordnerauswahl kann ein
+unterbrochener Vorgang damit anhand der Pfade und SHA-256-Werte sicher
+fortgesetzt werden. Die Dateianzahl eines Importvorgangs ist nicht begrenzt.
+
+- höchstens 20 SAF-Wurzeln und maximal 64 Verzeichnisebenen; keine feste
+  Dateianzahlgrenze;
+- Verzeichniswarteschlange, besuchte SAF-Verzeichnisse und Dateimetadaten liegen
+  in einer temporären SQLite-Datei im App-Cache. Im Arbeitsspeicher bleiben nur
+  der aktuelle Ordnercursor und Upload-Teilpakete mit höchstens 100 Dateien;
+  nach Abbruch oder Abschluss wird die Datei gelöscht, verwaiste Dateien älter
+  als sieben Tage werden beim nächsten Import entfernt;
+- pro Anfrage höchstens 100 Dateien; relative Pfad- und Quell-ID-Listen sowie
+  gesamte Anfragegröße sind pro Teilpaket begrenzt;
 - Dateiinhalte werden mit begrenztem Puffer übertragen und die gesamte Anfrage
   bleibt an das konfigurierte Upload-Limit gebunden;
+- Abbruch stoppt zwischen Teilpaketen. Bereits vollständig importierte Dateien
+  bleiben erhalten und werden nicht still gelöscht;
 - ein Anbieter, der keinen dauerhaft widerrufbaren SAF-Lesezugriff gewährt,
   wird vor dem Einreihen abgelehnt;
-- temporäre Importberechtigungen werden privat nachgehalten, bei Abbruch oder
-  Abschluss freigegeben und bei einem Neustart als verwaiste Rechte bereinigt;
+- Importkennung, SAF-Wurzeln, erworbene Rechte und ein Hash des CSRF-Tokens
+  werden privat gespeichert. Nach App-Neustart wird die Warteschlange nur bei
+  gültigen Rechten und derselben Sitzung wiederhergestellt; bereits übertragene
+  Dateien werden nach erneutem Bestätigen idempotent übersprungen;
+- temporäre Importberechtigungen werden nach Abschluss, Abbruch oder
+  Sitzungswechsel freigegeben; nicht gespeicherte verwaiste Rechte werden beim Start bereinigt;
   diese Marker werden nicht in Cloud-Backup oder Geräteübertragung aufgenommen;
 - bereits in **Einstellungen → Lokale Ordner** gespeicherte Berechtigungen werden
   wiederverwendet und nach dem Import nicht durch die Importwarteschlange widerrufen;
-- leere Verzeichnisse werden nicht importiert; zwei ausgewählte Wurzeln mit
-  gleichem Namen werden abgelehnt, damit sich Zielpfade nicht überschreiben;
-  stattdessen kann der gemeinsame übergeordnete Ordner gewählt werden;
+- leere Verzeichnisse werden nicht importiert; gleichnamige ausgewählte Wurzeln
+  erhalten anhand ihrer stabilen Quellkennung kollisionsfreie Zielnamen;
 - liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
   abgebrochen, statt eine unbeschränkte Anfrage zu starten.
 
-### Geräteabnahme für den rekursiven SAF-Import (PR #802)
+### Geräteabnahme für den rekursiven SAF-Import (PR #857 / Issue #801)
 
 Diese Prüfung muss auf einem echten Android-Gerät oder einem Emulator mit
 funktionsfähigem SAF-Dokumentanbieter durchgeführt und im PR mit Gerät,
@@ -148,14 +163,15 @@ Ein erfolgreicher APK-Build oder Java-Quelltexttest ersetzt sie nicht.
 3. **Berechtigungswiderruf:** Nach der Auswahl die SAF-Freigabe in den
    Android-Einstellungen entziehen; erneuten Import versuchen und eine
    verständliche Fehlermeldung statt Absturz oder Hängenbleiben prüfen.
-4. **Neustart:** Einen Import vorbereiten, die App beenden und neu starten;
-   verwaiste temporäre SAF-Berechtigungen und Warteschlangeneinträge dürfen
-   nicht unbemerkt weiterverwendet werden. Dauerhaft registrierte lokale
-   Ordner dürfen dabei nicht versehentlich ihre Berechtigung verlieren.
-5. **Große Dateien und Limits:** Eine Datei nahe der konfigurierten
-   Uploadgrenze sowie einen Ordner mit mehr als 1000 Dateien testen.
-   Erwartet werden eine begrenzte Übertragung beziehungsweise eine
-   verständliche Ablehnung, ohne unkontrollierten Speicherverbrauch.
+4. **Neustart und Wiederaufnahme:** Einen mehrteiligen Import während der
+   Übertragung beenden und neu starten. Der Auftrag muss sichtbar bleiben;
+   nach erneuter Bestätigung werden bereits gespeicherte Dateien übersprungen,
+   fehlende Dateien ergänzt und keine Datei überschrieben. Dauerhaft
+   registrierte lokale Ordner dürfen ihre Berechtigung nicht verlieren.
+5. **Große Dateien und viele Dateien:** Eine Datei nahe der konfigurierten
+   Uploadgrenze sowie Ordner mit 1.000, 1.001 und deutlich mehr Dateien testen.
+   Erwartet werden begrenzte Teilpakete und kein Abbruch allein wegen der
+   Dateianzahl.
 6. **Dokumentanbieter:** Mindestens den Android-Systemdateianbieter und,
    sofern vorhanden, einen weiteren SAF-Anbieter prüfen. Anbieter ohne
    persistierbare Leseberechtigung müssen kontrolliert abgelehnt werden.
@@ -163,7 +179,7 @@ Ein erfolgreicher APK-Build oder Java-Quelltexttest ersetzt sie nicht.
    Sitzung wechseln; kein Upload darf unter einer anderen Sitzung erfolgen.
 
 **Abnahmebedingung:** Jeder Fall erhält ein protokolliertes PASS/FAIL mit
-reproduzierbaren Schritten. Bei FAIL bleibt PR #802 Draft und der Fehler wird
+reproduzierbaren Schritten. Bei FAIL bleibt PR #857 Draft und der Fehler wird
 vor dem Merge behoben. Ohne Geräteergebnis bleibt die Android-Abnahme offen.
 
 ## Deep Links

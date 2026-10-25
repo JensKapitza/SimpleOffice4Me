@@ -37,8 +37,14 @@
   const folderButton = document.getElementById('pick-document-folder');
   const startFolderImport = document.getElementById('start-folder-import');
   const cancelFolderImport = document.getElementById('cancel-folder-import');
+  const maxFolderBatchFiles = 100;
+  const maxFolderPathManifestBytes = 400000;
+  const maxFolderSourceManifestBytes = 100000;
   let nativeFolderImport = window.SimpleOfficeFolderImport || null;
   let folderPickerFocusHandler = null;
+  let browserFolderImportRunning = false;
+  let browserFolderImportCancelRequested = false;
+  let browserFolderImportCheckpoint = null;
   const androidWebView = /SimpleOffice4Me-Android\//i.test(navigator.userAgent);
   const clearWebkitDirectoryMode = () => {
     folder.removeAttribute('webkitdirectory');
@@ -66,15 +72,26 @@
     if (nativeFolderImport) {
       const queuedCount = nativeFolderImport.count();
       if (queuedCount > 0) {
+        const running = nativeFolderImport.running && nativeFolderImport.running();
         const prepared = nativeFolderImport.prepared();
-        startFolderImport.hidden = false;
+        const queueMessage = nativeFolderImport.queueMessage && nativeFolderImport.queueMessage();
+        startFolderImport.hidden = running;
         cancelFolderImport.hidden = false;
-        startFolderImport.textContent = prepared ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
+        if (running) {
+          startFolderImport.disabled = true;
+          folderButton.disabled = true;
+          status.textContent = queueMessage || 'Ordnerimport läuft …';
+          return;
+        }
+        startFolderImport.textContent = prepared
+          ? 'Import bestätigen'
+          : queueMessage && queueMessage.includes('unterbrochen')
+            ? 'Import fortsetzen' : 'Vorgemerkte Ordner prüfen';
         folderButton.disabled = prepared || folderButton.disabled;
         folderButton.textContent = prepared ? 'Ordner geprüft' : 'Weiteren Ordner hinzufügen';
         status.textContent = prepared
           ? nativeFolderImport.preview()
-          : queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
+          : queueMessage || queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
       }
     }
   };
@@ -152,10 +169,21 @@
           ? 'Dateien sind übertragen; der Server schließt den Import ab.'
         : state === 'session-changed'
           ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
-          : 'Bitte zuerst mindestens einen Ordner auswählen.';
+          : state === 'invalid'
+            ? 'Import konnte nicht starten: Sitzungsdaten oder Upload-Einstellungen sind ungültig. Bitte Seite neu laden.'
+            : state === 'blocked'
+              ? 'Android-Ordnerimport ist auf dieser Seite nicht freigegeben.'
+              : 'Import konnte nicht gestartet werden. Bitte Ordner erneut auswählen.';
+      status.setAttribute('role', 'alert');
     }
   });
   cancelFolderImport.addEventListener('click', () => {
+    if (browserFolderImportRunning) {
+      browserFolderImportCancelRequested = true;
+      cancelFolderImport.disabled = true;
+      status.textContent = 'Abbruch vorgemerkt; das aktuelle Teilpaket wird sicher abgeschlossen …';
+      return;
+    }
     if (nativeFolderImport && nativeFolderImport.cancel() === 'finishing') {
       status.textContent = 'Dateien sind übertragen; bitte warten, bis der Server den Import abgeschlossen hat.';
     }
@@ -165,11 +193,14 @@
     const active = detail.state === 'scanning' || detail.state === 'uploading' || detail.state === 'finishing';
     const cancellable = detail.state === 'scanning' || detail.state === 'uploading';
     const queued = detail.state === 'queued';
-    const preview = detail.state === 'preview';
+    const retryable = detail.state === 'retry';
+    const preview = detail.state === 'preview' || retryable;
     cancelFolderImport.hidden = !cancellable && !queued && !preview;
     startFolderImport.hidden = !queued && !preview;
     startFolderImport.disabled = active || (queued && folderButton.disabled);
-    startFolderImport.textContent = preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
+    startFolderImport.textContent = retryable
+      ? 'Import fortsetzen'
+      : preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
     folderButton.disabled = active || (!androidWebView && !('webkitdirectory' in folder) && !nativeFolderImport);
     if (preview) folderButton.disabled = true;
     folderButton.textContent = queued ? 'Weiteren Ordner hinzufügen' : 'Ordner importieren';
@@ -262,21 +293,17 @@
       archive.disabled = isFolder;
       if (isFolder) archive.checked = false;
     }
-    // Keep paths in one bounded JSON field so multipart part counts remain
-    // below Flask's request limit for the full 1000-file batch.
     if (source === folder) {
-      manifest.value = JSON.stringify(selected.map((file) => file.webkitRelativePath || file.name));
-      const manifestBytes = new TextEncoder().encode(manifest.value).length;
-      if (manifestBytes > 400000) {
+      const paths = selected.slice(0, maxFolderBatchFiles)
+        .map((file) => file.webkitRelativePath || file.name);
+      manifest.value = JSON.stringify(paths);
+      const invalidPath = selected.find((file) =>
+        new TextEncoder().encode(file.webkitRelativePath || file.name).length > 4096);
+      if (invalidPath) {
         submit.disabled = true;
-        status.textContent = 'Die Pfadliste ist zu groß. Bitte einen kleineren Ordnerstapel auswählen.';
+        status.textContent = 'Ein relativer Ordnerpfad ist länger als 4096 Byte und kann nicht importiert werden.';
         return;
       }
-    }
-    if (selected.length > 1000) {
-      submit.disabled = true;
-      status.textContent = selected.length + ' Dateien ausgewählt. Maximal 1000 Dateien pro Import zulässig.';
-      return;
     }
     submit.disabled = false;
     const bytes = selected.reduce((sum, file) => sum + file.size, 0);
@@ -284,11 +311,182 @@
       (bytes / 1048576).toFixed(1) + ' MiB ausgewählt' +
       (source === folder ? ' (inklusive Unterordner)' : '');
   };
+  const newBrowserImportId = () => {
+    if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') {
+      throw new Error('Dieser Browser kann keine sichere Importkennung erstellen.');
+    }
+    const bytes = new Uint8Array(16);
+    window.crypto.getRandomValues(bytes);
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  };
+  const sameSelectedFiles = (left, right) => left.length === right.length &&
+    left.every((file, index) => file === right[index]);
+  const persistentImportIdFor = (selected, sourceIdentity) => {
+    const signature = JSON.stringify(selected.map((file) => [
+      file.webkitRelativePath || file.name, file.size, file.lastModified, sourceIdentity,
+    ]));
+    const key = 'simpleoffice.folder-import-resume.v1';
+    const saved = JSON.parse(sessionStorage.getItem(key) || 'null');
+    if (saved && saved.signature === signature && /^[0-9a-f]{32}$/.test(saved.importId)) {
+      return {signature, importId: saved.importId};
+    }
+    const importId = newBrowserImportId();
+    sessionStorage.setItem(key, JSON.stringify({signature, importId}));
+    return {signature, importId};
+  };
+  const uploadBrowserSelection = async (selected, isFolder, sourceIdentity) => {
+    const maxRequestBytes = Number(form.dataset.maxUploadBytes || 0);
+    if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) {
+      status.textContent = 'Das konfigurierte Upload-Limit ist ungültig. Bitte die Seite neu laden.';
+      status.setAttribute('role', 'alert');
+      return;
+    }
+    let checkpoint = browserFolderImportCheckpoint;
+    if (!checkpoint || checkpoint.isFolder !== isFolder || checkpoint.sourceIdentity !== sourceIdentity ||
+        !sameSelectedFiles(checkpoint.files, selected)) {
+      try {
+        const persistent = isFolder ? persistentImportIdFor(selected, sourceIdentity) : null;
+        checkpoint = {
+          importId: persistent ? persistent.importId : '',
+          signature: persistent ? persistent.signature : '',
+          isFolder,
+          files: selected.slice(),
+          sourceIdentity,
+          nextIndex: 0,
+          completedBytes: 0,
+        };
+      } catch (error) {
+        status.textContent = String(error && error.message || 'Importkennung konnte nicht erstellt werden.');
+        status.setAttribute('role', 'alert');
+        return;
+      }
+    }
+    browserFolderImportCheckpoint = checkpoint;
+    browserFolderImportRunning = true;
+    browserFolderImportCancelRequested = false;
+    submit.disabled = true;
+    cancelFolderImport.hidden = false;
+    cancelFolderImport.disabled = false;
+    cancelFolderImport.textContent = isFolder ? 'Ordnerimport abbrechen' : 'Dateiimport abbrechen';
+    folderButton.disabled = true;
+    const totalBytes = selected.reduce((sum, file) => sum + file.size, 0);
+    const totalFiles = selected.length;
+    const importLabel = isFolder ? 'Ordnerimport' : 'Dateiimport';
+    const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    try {
+      while (checkpoint.nextIndex < totalFiles) {
+        if (browserFolderImportCancelRequested) break;
+        const batch = [];
+        const batchPaths = [];
+        let bodyBytes = 2048;
+        let end = checkpoint.nextIndex;
+        while (end < totalFiles && batch.length < maxFolderBatchFiles) {
+          const file = selected[end];
+          const path = isFolder ? file.webkitRelativePath || file.name : '';
+          const pathBytes = isFolder ? new TextEncoder().encode(path).length : 0;
+          const candidatePaths = isFolder ? [...batchPaths, path] : [];
+          const candidatePathBytes = isFolder
+            ? new TextEncoder().encode(JSON.stringify(candidatePaths)).length : 0;
+          const candidateSourceBytes = isFolder ? new TextEncoder().encode(JSON.stringify(
+            Array(candidatePaths.length).fill(sourceIdentity)
+          )).length : 0;
+          const entryBytes = file.size + pathBytes * 2 + 4096;
+          if (batch.length && (bodyBytes + entryBytes > maxRequestBytes ||
+              candidatePathBytes > maxFolderPathManifestBytes ||
+              candidateSourceBytes > maxFolderSourceManifestBytes)) break;
+          if (bodyBytes + entryBytes > maxRequestBytes ||
+              candidatePathBytes > maxFolderPathManifestBytes ||
+              candidateSourceBytes > maxFolderSourceManifestBytes) {
+            throw new Error('Eine einzelne Datei überschreitet das Upload-Limit oder die Pfadgrenze.');
+          }
+          batch.push(file);
+          batchPaths.push(path);
+          bodyBytes += entryBytes;
+          end++;
+        }
+        if (!batch.length) throw new Error('Das nächste Import-Teilpaket enthält keine Datei.');
+        const data = new FormData();
+        for (const field of form.elements) {
+          if (!field.name || field.disabled || field.type === 'file' ||
+              field === manifest || field === sourceIdsManifest) continue;
+          if ((field.type === 'checkbox' || field.type === 'radio') && !field.checked) continue;
+          data.append(field.name, field.value);
+        }
+        data.set('batch_upload', '1');
+        data.set('folder_import', isFolder ? '1' : '0');
+        if (isFolder) {
+          data.set('import_id', checkpoint.importId);
+          data.set('relative_paths', JSON.stringify(batchPaths));
+          data.set('source_ids', JSON.stringify(Array(batch.length).fill(sourceIdentity)));
+        }
+        batch.forEach((file) => data.append('files', file, file.name));
+        status.textContent = importLabel + ' läuft (' + checkpoint.nextIndex + ' von ' + totalFiles +
+          ' Dateien vorbereitet) …';
+        const response = await fetch(form.action, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'X-CSRF-Token': csrf},
+          body: data,
+        });
+        const contentType = response.headers.get('content-type') || '';
+        let payload;
+        if (contentType.includes('application/json')) {
+          payload = await response.json();
+        } else {
+          const responseHtml = new DOMParser().parseFromString(await response.text(), 'text/html');
+          const message = responseHtml.querySelector('[role="alert"], [role="status"]')?.textContent?.trim();
+          throw new Error(message || (response.redirected && /\/auth\//.test(response.url)
+            ? 'Sitzung abgelaufen. Bitte neu anmelden und den Import neu starten.'
+            : 'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.'));
+        }
+        if (!response.ok || !payload || payload.ok !== true || payload.stored !== batch.length) {
+          if (payload && payload.retryable === false) {
+            browserFolderImportCheckpoint = null;
+            if (isFolder) sessionStorage.removeItem('simpleoffice.folder-import-resume.v1');
+          }
+          const errorDetails = payload && Array.isArray(payload.errors)
+            ? payload.errors.filter((message) => typeof message === 'string' && message).join(' · ')
+            : '';
+          throw new Error(payload && (payload.error || payload.message) || errorDetails ||
+            'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.');
+        }
+        checkpoint.nextIndex = end;
+        checkpoint.completedBytes += batch.reduce((sum, file) => sum + file.size, 0);
+        status.textContent = importLabel + ' läuft (' + checkpoint.nextIndex + ' von ' + totalFiles +
+          ' Dateien, ' + (checkpoint.completedBytes / 1048576).toFixed(1) + ' von ' +
+          (totalBytes / 1048576).toFixed(1) + ' MiB abgeschlossen).';
+      }
+      if (checkpoint.nextIndex >= totalFiles) {
+        browserFolderImportCheckpoint = null;
+        if (isFolder) sessionStorage.removeItem('simpleoffice.folder-import-resume.v1');
+        status.textContent = importLabel + ' abgeschlossen: ' + totalFiles + ' Datei(en), ' +
+          (totalBytes / 1048576).toFixed(1) + ' MiB importiert.';
+      } else if (browserFolderImportCancelRequested) {
+        status.textContent = 'Import nach ' + checkpoint.nextIndex + ' von ' + totalFiles +
+          ' Dateien angehalten. Mit denselben ausgewählten Dateien können Sie fortsetzen.';
+      }
+      status.setAttribute('role', 'status');
+    } catch (error) {
+      browserFolderImportCheckpoint = checkpoint;
+      status.textContent = importLabel + ' nach ' + checkpoint.nextIndex + ' von ' + totalFiles +
+        ' Dateien fehlgeschlagen: ' + String(error && error.message || error);
+      status.setAttribute('role', 'alert');
+    } finally {
+      browserFolderImportRunning = false;
+      browserFolderImportCancelRequested = false;
+      cancelFolderImport.hidden = true;
+      cancelFolderImport.textContent = 'Ordnerimport abbrechen';
+      cancelFolderImport.disabled = false;
+      folderButton.disabled = false;
+      submit.disabled = false;
+    }
+  };
   form.addEventListener('submit', (event) => {
-    if (document.getElementById('document-folder-import').value !== '1') return;
-    const selected = Array.from(folder.files || []);
-    const label = sourceProfile.value.trim().normalize('NFC');
-    const identities = selected.map(() => '');
+    event.preventDefault();
+    const isFolder = document.getElementById('document-folder-import').value === '1';
+    const selected = Array.from((isFolder ? folder : files).files || []);
+    const label = isFolder ? sourceProfile.value.trim().normalize('NFC') : '';
+    let sourceIdentity = '';
     if (label) {
       if (label.length > 80 || /[\u0000-\u001f\u007f]/.test(label)) {
         event.preventDefault();
@@ -297,8 +495,7 @@
         return;
       }
       try {
-        const id = sourceIdentityFor(label);
-        identities.fill(id);
+        sourceIdentity = sourceIdentityFor(label);
       } catch (error) {
         event.preventDefault();
         status.setAttribute('role', 'alert');
@@ -306,7 +503,9 @@
         return;
       }
     }
-    sourceIdsManifest.value = JSON.stringify(identities);
+    sourceIdsManifest.value = JSON.stringify(Array(Math.min(selected.length, maxFolderBatchFiles))
+      .fill(sourceIdentity));
+    void uploadBrowserSelection(selected, isFolder, sourceIdentity);
   });
   try { refreshSourceProfileList(); } catch (_error) { /* surfaced on submit; one-off import remains available */ }
   clearSourceProfiles.addEventListener('click', () => {

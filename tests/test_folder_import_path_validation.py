@@ -61,9 +61,9 @@ class FolderImportPathValidationTests(unittest.TestCase):
         files = [SimpleNamespace(filename="photo.jpg")]
         self.assertIsNotNone(validate_upload_batch(files, [], folder_import=True))
 
-    def test_rejects_more_than_one_thousand_files(self):
+    def test_accepts_more_than_one_thousand_files(self):
         files = [SimpleNamespace(filename=f"file-{i}.txt") for i in range(1001)]
-        self.assertIsNotNone(validate_upload_batch(files, [], folder_import=False))
+        self.assertIsNone(validate_upload_batch(files, [], folder_import=False))
 
     def test_accepts_one_thousand_distinct_files(self):
         files = [SimpleNamespace(filename=f"file-{i}.txt") for i in range(1000)]

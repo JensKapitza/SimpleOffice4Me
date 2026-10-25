@@ -133,7 +133,7 @@ jobs:
 
       - name: Build installable Android APK
         working-directory: android/apk
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon testDebugUnitTest assembleDebug
 
       - name: Verify bundled Python runtime assets and ABI
         shell: bash

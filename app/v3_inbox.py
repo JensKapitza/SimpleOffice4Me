@@ -303,12 +303,17 @@ def record_completed_best_effort(
     try:
         store=InboxStore(root)
         item=store.begin(source,source_key,original_name,actor,mime_type=mime_type)
+        effective_malware_status=(
+            str(malware_status).strip()
+            or item.malware_status
+            or "not_configured"
+        )
         return store.complete_import(
             item.item_id,
             document_id=document_id,
             sha256=sha256,
             size=size,
-            malware_status=malware_status,
+            malware_status=effective_malware_status,
         )
     except Exception:
         return None

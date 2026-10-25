@@ -113,6 +113,6 @@ def complete_web_inbox_upload(
         document_id=document_id,
         sha256=str(imported_metadata.get("sha256") or ""),
         size=int(imported_metadata.get("size") or imported_size or 0),
-        malware_status=str(inbox.get("malware_status") or "not_configured"),
+        malware_status=str(inbox.get("malware_status") or ""),
         mime_type=mime_type,
     )

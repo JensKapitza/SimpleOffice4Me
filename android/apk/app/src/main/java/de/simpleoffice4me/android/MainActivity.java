@@ -52,8 +52,10 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -93,6 +95,8 @@ public class MainActivity extends Activity {
     private volatile boolean folderImportSelectionPending;
     private volatile String pendingFolderImportCsrf = "";
     private volatile String queuedFolderImportCsrf = "";
+    private volatile String queuedFolderImportId = "";
+    private volatile boolean queuedFolderImportResumePending;
     private volatile AndroidFolderImportTask folderImportTask;
     private final List<Uri> queuedFolderImportUris = new ArrayList<>();
     private final List<Uri> queuedFolderImportOwnedGrants = new ArrayList<>();
@@ -118,7 +122,21 @@ public class MainActivity extends Activity {
         googleAuthorization = new AndroidGoogleAuthorization(this, this::handleGoogleAuthorizationResult);
         offlineWorksetStore = new AndroidOfflineWorksetStore(this);
         localFolderRegistry = new AndroidLocalFolderRegistry(this);
-        AndroidFolderImportGrantStore.cleanupAbandoned(this);
+        AndroidFolderImportGrantStore.ResumeState resume =
+                AndroidFolderImportGrantStore.restoreResume(this);
+        Set<Uri> retainedGrants = new HashSet<>();
+        if (resume != null && resume.trees.stream().allMatch(this::hasPersistedReadGrant)) {
+            synchronized (queuedFolderImportUris) {
+                queuedFolderImportUris.addAll(resume.trees);
+                queuedFolderImportOwnedGrants.addAll(resume.owned);
+                queuedFolderImportId = resume.importId;
+                queuedFolderImportResumePending = true;
+            }
+            retainedGrants.addAll(resume.owned);
+        } else if (resume != null) {
+            AndroidFolderImportGrantStore.clearResume(this);
+        }
+        AndroidFolderImportGrantStore.cleanupAbandoned(this, retainedGrants);
         ScreenCaptureService.setListener(this::dispatchNativeScreenEvent);
         buildUi();
         executor.execute(this::prepareAndStartBackend);
@@ -403,7 +421,9 @@ public class MainActivity extends Activity {
                  + "window.SimpleOfficeFolderImport={"
                   + "add:csrf=>String(window.SimpleOfficeAndroid.addFolderToImportQueue(bridgeToken,String(csrf||''))),"
                   + "count:()=>Number(window.SimpleOfficeAndroid.queuedFolderImportCount(bridgeToken)),"
+                  + "queueMessage:()=>String(window.SimpleOfficeAndroid.folderImportQueueMessage(bridgeToken)),"
                   + "prepared:()=>Boolean(window.SimpleOfficeAndroid.folderImportPrepared(bridgeToken)),"
+                  + "running:()=>Boolean(window.SimpleOfficeAndroid.folderImportRunning(bridgeToken)),"
                   + "preview:()=>String(window.SimpleOfficeAndroid.folderImportPreview(bridgeToken)),"
                   + "start:(csrf,maxBytes)=>String(window.SimpleOfficeAndroid.startFolderImport(bridgeToken,String(csrf||''),String(maxBytes||''))),"
                  + "cancel:()=>String(window.SimpleOfficeAndroid.cancelFolderImport(bridgeToken))};"
@@ -672,9 +692,34 @@ public class MainActivity extends Activity {
                 }
             }
             synchronized (queuedFolderImportUris) {
-                if (queuedFolderImportUris.isEmpty()) queuedFolderImportCsrf = pendingFolderImportCsrf;
+                if (queuedFolderImportUris.isEmpty()) {
+                    queuedFolderImportCsrf = pendingFolderImportCsrf;
+                    queuedFolderImportId = UUID.randomUUID().toString().replace("-", "");
+                    queuedFolderImportResumePending = false;
+                }
                 queuedFolderImportUris.add(treeUri);
                 if (!alreadyPersisted) queuedFolderImportOwnedGrants.add(treeUri);
+                try {
+                    AndroidFolderImportGrantStore.saveResume(
+                            this, queuedFolderImportUris, queuedFolderImportOwnedGrants,
+                            queuedFolderImportId, queuedFolderImportCsrf);
+                } catch (IllegalArgumentException | IllegalStateException error) {
+                    queuedFolderImportUris.remove(treeUri);
+                    queuedFolderImportOwnedGrants.remove(treeUri);
+                    if (queuedFolderImportUris.isEmpty()) {
+                        queuedFolderImportCsrf = "";
+                        queuedFolderImportId = "";
+                        queuedFolderImportResumePending = false;
+                        AndroidFolderImportGrantStore.clearResume(this);
+                    }
+                    if (!alreadyPersisted) {
+                        releaseFolderImportGrants(java.util.Collections.singletonList(treeUri));
+                    }
+                    pendingFolderImportCsrf = "";
+                    folderImportSelectionPending = false;
+                    dispatchFolderQueueError("Ordnerimport kann nicht für eine sichere Wiederaufnahme gespeichert werden.");
+                    return;
+                }
                 pendingFolderImportCsrf = "";
                 folderImportSelectionPending = false;
             }
@@ -741,6 +786,9 @@ public class MainActivity extends Activity {
             if (finished) {
                 folderImportTask = null;
                 folderImportSelectionPending = false;
+                queuedFolderImportId = "";
+                queuedFolderImportResumePending = false;
+                AndroidFolderImportGrantStore.clearResume(this);
             }
             if (webView == null || !localPageVisible || !isLocalUrl(webView.getUrl())) return;
             String detail = "{state:" + JSONObject.quote(state == null ? "error" : state)
@@ -762,7 +810,9 @@ public class MainActivity extends Activity {
 
     private int queuedFolderImportCount() {
         AndroidFolderImportTask task = folderImportTask;
-        if (task != null && task.isPrepared()) return task.getTreeCount();
+        if (task != null && (task.isPrepared() || task.isRunning() || task.isRetryPending())) {
+            return task.getTreeCount();
+        }
         synchronized (queuedFolderImportUris) {
             return queuedFolderImportUris.size();
         }
@@ -780,11 +830,17 @@ public class MainActivity extends Activity {
             queuedFolderImportUris.clear();
             queuedFolderImportOwnedGrants.clear();
             queuedFolderImportCsrf = "";
+            queuedFolderImportId = "";
+            queuedFolderImportResumePending = false;
+            AndroidFolderImportGrantStore.clearResume(this);
             return owned;
         }
     }
 
     private String queuedFolderMessage(int count) {
+        if (queuedFolderImportResumePending) {
+            return count + " Ordner aus einem unterbrochenen Import wiederhergestellt. Zum sicheren Fortsetzen erneut prüfen.";
+        }
         return count + " Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.";
     }
 
@@ -1003,12 +1059,13 @@ public class MainActivity extends Activity {
             List<Uri> staleGrants = null;
             synchronized (queuedFolderImportUris) {
                 if (folderImportSelectionPending || folderImportTask != null) return "busy";
+                if (!queuedFolderImportUris.isEmpty() && queuedFolderImportCsrf.isEmpty()
+                        && AndroidFolderImportGrantStore.resumeMatchesCsrf(MainActivity.this, csrf)) {
+                    queuedFolderImportCsrf = csrf;
+                }
                 if (!queuedFolderImportUris.isEmpty()
                         && !sameCsrfToken(queuedFolderImportCsrf, csrf)) {
-                    staleGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
-                    queuedFolderImportUris.clear();
-                    queuedFolderImportOwnedGrants.clear();
-                    queuedFolderImportCsrf = "";
+                    staleGrants = clearQueuedFolderImports();
                 } else {
                     if (MainActivity.this.queuedFolderImportCount() >= AndroidFolderImportTask.MAX_TREES) return "limit";
                     pendingFolderImportCsrf = csrf;
@@ -1042,9 +1099,27 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String folderImportQueueMessage(String token) {
+            if (!folderImportBridgeAllowed(token)) return "";
+            int count = MainActivity.this.queuedFolderImportCount();
+            AndroidFolderImportTask task = folderImportTask;
+            if (task != null && task.isRetryPending()) {
+                return "Import unterbrochen. " + task.getCurrentMessage();
+            }
+            if (task != null && task.isRunning()) return task.getCurrentMessage();
+            return count > 0 ? MainActivity.this.queuedFolderMessage(count) : "";
+        }
+
+        @JavascriptInterface
         public boolean folderImportPrepared(String token) {
             AndroidFolderImportTask task = folderImportTask;
             return folderImportBridgeAllowed(token) && task != null && task.isPrepared();
+        }
+
+        @JavascriptInterface
+        public boolean folderImportRunning(String token) {
+            AndroidFolderImportTask task = folderImportTask;
+            return folderImportBridgeAllowed(token) && task != null && task.isRunning();
         }
 
         @JavascriptInterface
@@ -1084,19 +1159,21 @@ public class MainActivity extends Activity {
             synchronized (queuedFolderImportUris) {
                 if (folderImportSelectionPending || folderImportTask != null) return "busy";
                 if (queuedFolderImportUris.isEmpty()) return "empty";
+                if (queuedFolderImportCsrf.isEmpty()
+                        && AndroidFolderImportGrantStore.resumeMatchesCsrf(MainActivity.this, csrf)) {
+                    queuedFolderImportCsrf = csrf;
+                }
                 if (!sameCsrfToken(queuedFolderImportCsrf, csrf)) {
-                    staleGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
-                    queuedFolderImportUris.clear();
-                    queuedFolderImportOwnedGrants.clear();
-                    queuedFolderImportCsrf = "";
+                    staleGrants = clearQueuedFolderImports();
                 } else {
                     List<Uri> trees = new ArrayList<>(queuedFolderImportUris);
                     List<Uri> ownedGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
+                    String importId = queuedFolderImportId;
                     queuedFolderImportUris.clear();
                     queuedFolderImportOwnedGrants.clear();
                     queuedFolderImportCsrf = "";
                     task = new AndroidFolderImportTask(
-                            MainActivity.this, trees, ownedGrants, csrf, maxBytes,
+                            MainActivity.this, trees, ownedGrants, csrf, importId, maxBytes,
                             MainActivity.this::dispatchFolderImportUpdate);
                     folderImportTask = task;
                 }
@@ -1136,6 +1213,10 @@ public class MainActivity extends Activity {
                 queuedFolderImportUris.clear();
                 ownedGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
                 queuedFolderImportOwnedGrants.clear();
+                queuedFolderImportCsrf = "";
+                queuedFolderImportId = "";
+                queuedFolderImportResumePending = false;
+                AndroidFolderImportGrantStore.clearResume(MainActivity.this);
             }
             releaseFolderImportGrants(ownedGrants);
             dispatchFolderImportUpdate("cancelled", 0, 0, "Vorgemerkte Ordner wurden entfernt.");
@@ -1648,17 +1729,17 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         AndroidFolderImportTask activeFolderImport = folderImportTask;
-        boolean canStopExecutorImmediately = activeFolderImport == null || activeFolderImport.cancel();
-        List<Uri> queuedGrants;
+        boolean canStopExecutorImmediately = activeFolderImport == null
+                || activeFolderImport.pauseForActivityDestroy();
         synchronized (queuedFolderImportUris) {
-            queuedGrants = new ArrayList<>(queuedFolderImportOwnedGrants);
             queuedFolderImportUris.clear();
             queuedFolderImportOwnedGrants.clear();
             queuedFolderImportCsrf = "";
+            queuedFolderImportId = "";
+            queuedFolderImportResumePending = false;
             pendingFolderImportCsrf = "";
             folderImportSelectionPending = false;
         }
-        releaseFolderImportGrants(queuedGrants);
         ScreenCaptureService.setListener(null);
         localPageVisible = false;
         stopNfcReader();

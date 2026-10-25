@@ -140,7 +140,7 @@ jobs:
           gradle-version: '8.13'
       - name: Build and verify APK
         working-directory: android/apk
-        run: gradle --no-daemon assembleDebug
+        run: gradle --no-daemon testDebugUnitTest assembleDebug
       - name: Verify APK host tools
         shell: bash
         run: |
