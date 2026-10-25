@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - 'desktop/**'
+      - 'pyproject.toml'
+      - 'tests/test_desktop_ocr_dependencies.py'
       - 'tools/generate_sbom.py'
       - '.github/workflows/desktop-build.yml'
 
@@ -84,6 +86,9 @@ jobs:
             'utf8'
           );
           NODE
+      - name: Verify OCR dependency markers
+        shell: bash
+        run: python -m unittest discover -s tests -p test_desktop_ocr_dependencies.py
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
