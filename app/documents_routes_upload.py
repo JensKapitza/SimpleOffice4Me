@@ -11,9 +11,19 @@ from .v2.contracts import StorageLocation
 @login_required
 def upload():
     files = [item for item in request.files.getlist("files") if item and item.filename]
-    if not files:
-        flash("Bitte mindestens eine Datei auswählen.")
+    batch_upload = request.form.get("batch_upload") == "1"
+    json_response = batch_upload or (
+        request.form.get("folder_import") == "1" and bool(request.form.get("import_id"))
+    )
+
+    def failure(message: str, status: int = 400):
+        if json_response:
+            return jsonify({"ok": False, "stored": 0, "expected": len(files), "error": message}), status
+        flash(message)
         return redirect(url_for("documents.index"))
+
+    if not files:
+        return failure("Bitte mindestens eine Datei auswählen.")
     from .folder_import_validation import (
         decode_relative_path_manifest,
         decode_source_identity_manifest,
@@ -29,29 +39,24 @@ def upload():
             request.form.get("relative_paths", ""), len(files)
         )
         if error:
-            flash(error)
-            return redirect(url_for("documents.index"))
+            return failure(error)
         source_identities, error = decode_source_identity_manifest(
             request.form.get("source_ids", ""), len(files)
         )
         if error:
-            flash(error)
-            return redirect(url_for("documents.index"))
+            return failure(error)
         error = validate_source_identity_groups(relative_paths, source_identities)
         if error:
-            flash(error)
-            return redirect(url_for("documents.index"))
+            return failure(error)
     error = validate_upload_batch(files, relative_paths, folder_import=folder_import)
     if error:
-        flash(error)
-        return redirect(url_for("documents.index"))
+        return failure(error)
     import_root = ""
     import_id = ""
     if folder_import:
         supplied_import_id = request.form.get("import_id", "")
         if supplied_import_id and (len(supplied_import_id) != 32 or any(char not in "0123456789abcdef" for char in supplied_import_id)):
-            flash("Ungültige Importkennung.")
-            return redirect(url_for("documents.index"))
+            return failure("Ungültige Importkennung.")
         # Bind client batch IDs to the authenticated actor and server secret.
         # A caller must not be able to select another user's or an old import directory.
         if supplied_import_id:
@@ -61,20 +66,22 @@ def upload():
             import_id = uuid4().hex
         import_root = "imports/" + import_id
     stored = 0
+    errors = []
     actor = str(g.user["username"])
     defaults = _settings().settings()["documents"]
     storage = _storage(actor)
     archive = request.form.get("archive") == "1"
     if folder_import and archive:
-        flash("Ordnerimport und Archivablage können nicht kombiniert werden.")
-        return redirect(url_for("documents.index"))
+        return failure("Ordnerimport und Archivablage können nicht kombiniert werden.")
     max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
     for item_index, item in enumerate(files):
         upload_name = item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] if folder_import else item.filename
         source_key = f"{getattr(g, 'request_id', 'web')}:{item_index}:{item.filename}"
         inbox = begin_web_inbox_upload(current_app.config, item, actor, source_key)
         if inbox["error"]:
-            flash(f"{item.filename}: {inbox['error']}")
+            message = f"{item.filename}: {inbox['error']}"
+            errors.append(message)
+            flash(message)
             continue
         try:
             if folder_import:
@@ -94,7 +101,9 @@ def upload():
                 fail_web_inbox_upload(
                     current_app.config["DOCUMENT_ROOT"], inbox["item"], result.error.message
                 )
-                flash(f"{item.filename}: {result.error.message}")
+                message = f"{item.filename}: {result.error.message}"
+                errors.append(message)
+                flash(message)
                 continue
             if defaults["default_tags"] or defaults["default_state"] != "new":
                 metadata = _store().get_document(result.value.object_id.value)
@@ -155,11 +164,13 @@ def upload():
             stored += 1
         except (OSError, ValueError) as exc:
             fail_web_inbox_upload(current_app.config["DOCUMENT_ROOT"], inbox["item"], str(exc))
-            flash(f"{item.filename}: {exc}")
+            message = f"{item.filename}: {exc}"
+            errors.append(message)
+            flash(message)
     if stored:
         flash(f"{stored} Datei(en) vollständig und hashbasiert importiert.")
-    if folder_import and request.form.get("import_id"):
+    if json_response:
         if stored != len(files):
-            return jsonify({"ok": False, "stored": stored, "expected": len(files)}), 409
+            return jsonify({"ok": False, "stored": stored, "expected": len(files), "errors": errors}), 409
         return jsonify({"ok": True, "stored": stored}), 200
     return redirect(url_for("documents.index"))

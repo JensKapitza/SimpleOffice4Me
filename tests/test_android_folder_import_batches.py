@@ -60,7 +60,11 @@ class AndroidFolderImportBatchTests(unittest.TestCase):
         self.assertEqual(200, self.upload(token, ["root/same.txt"]).status_code)
         response = self.upload(token, ["root/same.txt"])
         self.assertEqual(409, response.status_code)
-        self.assertEqual({"ok": False, "stored": 0, "expected": 1}, response.get_json())
+        payload = response.get_json()
+        self.assertEqual({"ok": False, "stored": 0, "expected": 1}, {
+            key: payload[key] for key in ("ok", "stored", "expected")
+        })
+        self.assertIn("destination resource already exists", payload["errors"][0])
 
     def test_invalid_batch_id_is_rejected(self):
         response = self.upload("../other", ["root/file.txt"])

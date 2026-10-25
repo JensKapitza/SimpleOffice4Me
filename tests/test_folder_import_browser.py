@@ -73,11 +73,15 @@ class FolderImportBrowserTests(unittest.TestCase):
         snapshot.parent.mkdir(parents=True, exist_ok=True)
         snapshot.write_text(page.content(), encoding="utf-8")
 
+    def _launch_chromium(self, playwright):
+        executable = os.environ.get("SIMPLEOFFICE_CHROMIUM_EXECUTABLE_PATH", "").strip() or None
+        return playwright.chromium.launch(executable_path=executable)
+
     def test_manifest_and_upload_controls_switch_with_selected_source(self):
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import expect, sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            browser = self._launch_chromium(playwright)
             context = browser.new_context(viewport={"width": 360, "height": 800})
             context.add_cookies([{
                 "name": app.config.get("SESSION_COOKIE_NAME", "session"),
@@ -121,6 +125,16 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertTrue(page.locator("#archive").is_disabled())
                 self.assertIn("2 Datei(en)", page.locator("#document-selection").inner_text())
 
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                imported = Path(app.config["DOCUMENT_ROOT"]) / "imports"
+                imported_roots = list(imported.glob("*/root/a.txt"))
+                self.assertEqual(1, len(imported_roots))
+                self.assertEqual("payload-0", imported_roots[0].read_text(encoding="utf-8"))
+                nested_files = list(imported.glob("*/root/nested/b.txt"))
+                self.assertEqual(1, len(nested_files))
+                self.assertEqual("payload-1", nested_files[0].read_text(encoding="utf-8"))
+
                 page.locator("#document-files").evaluate(
                     """input => {
                       const transfer = new DataTransfer();
@@ -133,15 +147,17 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertTrue(page.locator("#document-folder-path-manifest").is_disabled())
                 self.assertTrue(page.locator("#archive").is_enabled())
                 self.assertEqual("files", page.locator("#document-files").get_attribute("name"))
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text("Dateiimport abgeschlossen")
             finally:
                 context.close()
                 browser.close()
 
     def test_browser_source_profile_reuses_opaque_identity_without_uploading_label(self):
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import expect, sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            browser = self._launch_chromium(playwright)
             context = browser.new_context(viewport={"width": 390, "height": 844})
             context.add_cookies([{
                 "name": app.config.get("SESSION_COOKIE_NAME", "session"),
@@ -157,18 +173,20 @@ class FolderImportBrowserTests(unittest.TestCase):
                 def choose_and_capture(profile):
                     self._select_folder_files(page, ["Telegram/nested/a.txt", "Telegram/nested/b.txt"])
                     page.locator("#document-folder-source-profile").fill(profile)
-                    page.evaluate("delete window.capturedSourceIds; delete window.capturedFormKeys;")
-                    page.locator("#document-upload-form").evaluate(
-                        """form => form.addEventListener('submit', event => {
-                          event.preventDefault();
-                          window.capturedSourceIds = JSON.parse(
-                            document.getElementById('document-folder-source-identity-manifest').value
-                          );
-                          window.capturedFormKeys = Array.from(new FormData(form).keys());
-                        }, {once: true})"""
-                    )
+                    page.evaluate("""() => {
+                      delete window.capturedSourceIds;
+                      delete window.capturedFormKeys;
+                      window.fetch = async (_url, options) => {
+                        window.capturedSourceIds = JSON.parse(options.body.get('source_ids'));
+                        window.capturedFormKeys = Array.from(options.body.keys());
+                        return new Response(JSON.stringify({
+                          ok: true,
+                          stored: options.body.getAll('files').length,
+                        }), {status: 200, headers: {'Content-Type': 'application/json'}});
+                      };
+                    }""")
                     page.locator("#document-upload-form button[type=submit]").click()
-                    page.wait_for_function("Array.isArray(window.capturedSourceIds)")
+                    expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
                     return page.evaluate("""() => ({
                       ids: window.capturedSourceIds,
                       keys: window.capturedFormKeys,
@@ -197,7 +215,7 @@ class FolderImportBrowserTests(unittest.TestCase):
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            browser = self._launch_chromium(playwright)
             context = browser.new_context(viewport={"width": 390, "height": 844})
             context.add_cookies([{
                 "name": app.config.get("SESSION_COOKIE_NAME", "session"),
@@ -241,11 +259,11 @@ class FolderImportBrowserTests(unittest.TestCase):
                 context.close()
                 browser.close()
 
-    def test_browser_disables_batches_above_file_and_manifest_limits(self):
-        from playwright.sync_api import sync_playwright
+    def test_browser_import_batches_large_file_counts_and_path_manifests(self):
+        from playwright.sync_api import expect, sync_playwright
 
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
+            browser = self._launch_chromium(playwright)
             context = browser.new_context(viewport={"width": 390, "height": 844})
             context.add_cookies([{
                 "name": app.config.get("SESSION_COOKIE_NAME", "session"),
@@ -258,14 +276,81 @@ class FolderImportBrowserTests(unittest.TestCase):
                 supported = page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input")
                 if not supported:
                     self.skipTest("Chromium on this host does not expose webkitdirectory")
+                page.evaluate("""() => {
+                  window.uploadBatches = [];
+                  window.cancelAfterFirstBatch = true;
+                  window.fetch = async (_url, options) => {
+                    const form = options.body;
+                    const files = form.getAll('files');
+                    const pathManifest = form.get('relative_paths') || '';
+                    const sourceManifest = form.get('source_ids') || '';
+                    window.uploadBatches.push({
+                      count: files.length,
+                      importId: form.get('import_id'),
+                      folderImport: form.get('folder_import'),
+                      pathBytes: new TextEncoder().encode(pathManifest).length,
+                      sourceBytes: new TextEncoder().encode(sourceManifest).length,
+                      paths: pathManifest ? JSON.parse(pathManifest) : [],
+                      sourceIds: sourceManifest ? JSON.parse(sourceManifest) : [],
+                    });
+                    if (window.cancelAfterFirstBatch) {
+                      window.cancelAfterFirstBatch = false;
+                      document.getElementById('cancel-folder-import').click();
+                    }
+                    return new Response(JSON.stringify({ok: true, stored: files.length}), {
+                      status: 200, headers: {'Content-Type': 'application/json'},
+                    });
+                  };
+                }""")
                 self._select_folder_files(page, [f"root/file-{index}.txt" for index in range(1001)])
-                self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_disabled())
-                self.assertIn("Maximal 1000", page.locator("#document-selection").inner_text())
+                self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text(
+                    "Import nach 100 von 1001 Dateien angehalten"
+                )
+                self.assertEqual(1, len(page.evaluate("window.uploadBatches")))
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                large_import = page.evaluate("window.uploadBatches")
+                self.assertEqual(11, len(large_import))
+                self.assertEqual(1001, sum(batch["count"] for batch in large_import))
+                self.assertTrue(all(batch["count"] <= 100 for batch in large_import))
+                self.assertEqual(1, len({batch["importId"] for batch in large_import}))
+                self.assertTrue(all(batch["pathBytes"] <= 400000 for batch in large_import))
+                self.assertTrue(all(batch["sourceBytes"] <= 100000 for batch in large_import))
 
-                deep = "root/" + "/".join(["d"] * 1000) + "/"
+                page.evaluate("window.uploadBatches = []")
+                deep = "root/" + "/".join(["d" * 120] * 16) + "/"
                 self._select_folder_files(page, [deep + f"file-{index}.txt" for index in range(210)])
-                self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_disabled())
-                self.assertIn("Pfadliste ist zu groß", page.locator("#document-selection").inner_text())
+                self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                long_path_import = page.evaluate("window.uploadBatches")
+                self.assertEqual(3, len(long_path_import))
+                self.assertEqual(210, sum(batch["count"] for batch in long_path_import))
+                self.assertTrue(all(batch["pathBytes"] <= 400000 for batch in long_path_import))
+
+                page.evaluate("window.uploadBatches = []")
+                page.locator("#document-files").evaluate(
+                    """input => {
+                      const transfer = new DataTransfer();
+                      for (let index = 0; index < 1001; index++) {
+                        transfer.items.add(new File(['plain-' + index], 'plain-' + index + '.txt', {
+                          type: 'text/plain',
+                        }));
+                      }
+                      input.files = transfer.files;
+                      input.dispatchEvent(new Event('change', {bubbles: true}));
+                    }"""
+                )
+                self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text("Dateiimport abgeschlossen")
+                file_import = page.evaluate("window.uploadBatches")
+                self.assertEqual(11, len(file_import))
+                self.assertEqual(1001, sum(batch["count"] for batch in file_import))
+                self.assertTrue(all(batch["count"] <= 100 for batch in file_import))
+                self.assertTrue(all(batch["folderImport"] == "0" for batch in file_import))
             finally:
                 context.close()
                 browser.close()
