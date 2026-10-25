@@ -8,6 +8,11 @@ on:
     paths:
       - tests/browser/manual_screenshot_smoke.py
       - .github/workflows/manual-browser-screenshots.yml
+      - app/chat*.py
+      - app/documents_routes_upload.py
+      - app/federation*.py
+      - app/v3_inbox*.py
+      - templates/documents/index.html
   workflow_dispatch:
     inputs:
       scope:
