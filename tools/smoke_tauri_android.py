@@ -72,7 +72,10 @@ def main():
         # ADB input text inserts at the cursor; select all before replacing it.
         field = wait_for(lambda item: item.get('class') == 'android.widget.EditText')
         tap(field)
-        adb('shell', 'input', 'keyevent', '--meta', '4096', '29')  # CTRL+A
+        # Android WebView may treat CTRL+A as a literal "a" in the emulator.
+        # Move to the end and erase the previous value using Android key events.
+        adb('shell', 'input', 'keyevent', '123')  # KEYCODE_MOVE_END
+        adb('shell', 'input', 'keyevent', *(['67'] * 128))  # KEYCODE_DEL
         adb('shell', 'input', 'text', address)
         adb('shell', 'input', 'keyevent', '111')  # Hide keyboard.
         wait_for(lambda item: item.get('class') == 'android.widget.EditText'
