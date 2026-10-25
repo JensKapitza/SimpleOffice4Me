@@ -137,6 +137,62 @@ class FolderImportBrowserTests(unittest.TestCase):
                 context.close()
                 browser.close()
 
+    def test_browser_source_profile_reuses_opaque_identity_without_uploading_label(self):
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch()
+            context = browser.new_context(viewport={"width": 390, "height": 844})
+            context.add_cookies([{
+                "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                "value": self.cookie,
+                "url": self.base_url,
+            }])
+            try:
+                page = context.new_page()
+                page.goto(f"{self.base_url}/documents/")
+                if not page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input"):
+                    self.skipTest("Chromium on this host does not expose webkitdirectory")
+
+                def choose_and_capture(profile):
+                    self._select_folder_files(page, ["Telegram/nested/a.txt", "Telegram/nested/b.txt"])
+                    page.locator("#document-folder-source-profile").fill(profile)
+                    page.evaluate("delete window.capturedSourceIds; delete window.capturedFormKeys;")
+                    page.locator("#document-upload-form").evaluate(
+                        """form => form.addEventListener('submit', event => {
+                          event.preventDefault();
+                          window.capturedSourceIds = JSON.parse(
+                            document.getElementById('document-folder-source-identity-manifest').value
+                          );
+                          window.capturedFormKeys = Array.from(new FormData(form).keys());
+                        }, {once: true})"""
+                    )
+                    page.locator("#document-upload-form button[type=submit]").click()
+                    page.wait_for_function("Array.isArray(window.capturedSourceIds)")
+                    return page.evaluate("""() => ({
+                      ids: window.capturedSourceIds,
+                      keys: window.capturedFormKeys,
+                    })""")
+
+                first = choose_and_capture("Telegram privat")
+                self.assertEqual(2, len(first["ids"]))
+                self.assertEqual(first["ids"][0], first["ids"][1])
+                self.assertRegex(first["ids"][0], r"^[0-9a-f]{64}$")
+                self.assertNotIn("document-folder-source-profile", first["keys"])
+                self.assertNotIn("Telegram privat", first["keys"])
+
+                page.reload()
+                repeated = choose_and_capture("Telegram privat")
+                distinct = choose_and_capture("Telegram Arbeit")
+                self.assertEqual(first["ids"], repeated["ids"])
+                self.assertNotEqual(first["ids"], distinct["ids"])
+                page.locator("#clear-document-folder-source-profiles").click()
+                cleared = choose_and_capture("Telegram privat")
+                self.assertNotEqual(first["ids"], cleared["ids"])
+            finally:
+                context.close()
+                browser.close()
+
     def test_webkitdirectory_attribute_exists_only_during_picker_activation(self):
         from playwright.sync_api import sync_playwright
 

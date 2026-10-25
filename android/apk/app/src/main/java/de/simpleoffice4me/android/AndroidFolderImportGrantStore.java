@@ -3,7 +3,9 @@ package de.simpleoffice4me.android;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.util.Base64;
 
+import java.security.SecureRandom;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -11,6 +13,7 @@ import java.util.Set;
 final class AndroidFolderImportGrantStore {
     private static final String PREFS = "simpleoffice-folder-import-grants";
     private static final String KEY = "owned-read-grants";
+    private static final String SOURCE_ID_SALT_KEY = "source-identity-salt-v1";
 
     private AndroidFolderImportGrantStore() {}
 
@@ -21,6 +24,27 @@ final class AndroidFolderImportGrantStore {
         if (!preferences.edit().putStringSet(KEY, entries).commit()) {
             throw new IllegalStateException("Android konnte den Ordner-Importstatus nicht speichern.");
         }
+    }
+
+    static synchronized byte[] sourceIdentitySalt(Context context) {
+        SharedPreferences preferences = preferences(context);
+        String encoded = preferences.getString(SOURCE_ID_SALT_KEY, "");
+        if (encoded != null && !encoded.isEmpty()) {
+            try {
+                byte[] existing = Base64.decode(encoded, Base64.DEFAULT);
+                if (existing.length == 32) return existing;
+            } catch (IllegalArgumentException ignored) {
+                // Replace corrupt app-private identity metadata with a new installation salt.
+            }
+            android.util.Log.w("AndroidFolderImport", "Replacing invalid local folder source-identity salt.");
+        }
+        byte[] generated = new byte[32];
+        new SecureRandom().nextBytes(generated);
+        String serialized = Base64.encodeToString(generated, Base64.NO_WRAP);
+        if (!preferences.edit().putString(SOURCE_ID_SALT_KEY, serialized).commit()) {
+            throw new IllegalStateException("Android konnte die lokale Quellenkennung nicht speichern.");
+        }
+        return generated;
     }
 
     static synchronized void forget(Context context, Uri uri) {

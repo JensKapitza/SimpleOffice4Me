@@ -18,6 +18,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.security.NoSuchAlgorithmException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.text.Normalizer;
@@ -45,6 +46,7 @@ final class AndroidFolderImportTask implements Runnable {
     private static final int MAX_TREE_ENTRIES = 10000;
     private static final int MAX_PATH_BYTES = 4096;
     private static final int MAX_MANIFEST_BYTES = 400000;
+    private static final int MAX_SOURCE_IDS_BYTES = 100000;
     private static final int BUFFER_SIZE = 64 * 1024;
     private static final Pattern RESERVED_NAME = Pattern.compile(
             "^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\..*)?$", Pattern.CASE_INSENSITIVE);
@@ -158,7 +160,7 @@ final class AndroidFolderImportTask implements Runnable {
             notifyListener("uploading", 0, batch.files.size(),
                     batch.files.size() + " Datei(en) werden importiert …");
             upload(batch.boundary, batch.files, batch.fileHeaders, batch.folderField,
-                    batch.manifestField, batch.closing, batch.bodyLength);
+                    batch.manifestField, batch.sourceIdsField, batch.closing, batch.bodyLength);
             finished = true;
             terminal = true;
             notifyListener("done", batch.files.size(), batch.files.size(), "Ordnerimport abgeschlossen.");
@@ -200,11 +202,13 @@ final class AndroidFolderImportTask implements Runnable {
         String boundary = "----SimpleOfficeFolder" + java.util.UUID.randomUUID().toString().replace("-", "");
         byte[] folderField = formField(boundary, "folder_import", "1");
         JSONArray paths = new JSONArray();
+        JSONArray sourceIds = new JSONArray();
         long bodyLength = folderField.length;
         long totalBytes = 0;
         List<byte[]> fileHeaders = new ArrayList<>(files.size());
         for (Entry entry : files) {
             paths.put(entry.relativePath);
+            sourceIds.put(entry.sourceIdentity);
             byte[] header = fileHeader(boundary, entry.fileName());
             fileHeaders.add(header);
             bodyLength = Math.addExact(bodyLength, header.length);
@@ -213,11 +217,16 @@ final class AndroidFolderImportTask implements Runnable {
             totalBytes = Math.addExact(totalBytes, entry.size);
         }
         byte[] manifestField = formField(boundary, "relative_paths", paths.toString());
+        byte[] sourceIdsField = formField(boundary, "source_ids", sourceIds.toString());
         byte[] closing = ascii("--" + boundary + "--\r\n");
         bodyLength = Math.addExact(bodyLength, manifestField.length);
+        bodyLength = Math.addExact(bodyLength, sourceIdsField.length);
         bodyLength = Math.addExact(bodyLength, closing.length);
         if (paths.toString().getBytes(StandardCharsets.UTF_8).length > MAX_MANIFEST_BYTES) {
             throw new ImportFailure("Die Pfadliste ist zu groß. Bitte einen kleineren Ordnerstapel auswählen.");
+        }
+        if (sourceIds.toString().getBytes(StandardCharsets.UTF_8).length > MAX_SOURCE_IDS_BYTES) {
+            throw new ImportFailure("Die Herkunfts-ID-Liste ist zu groß. Bitte einen kleineren Ordnerstapel auswählen.");
         }
         if (maxRequestBytes <= 0 || bodyLength > maxRequestBytes) {
             throw new ImportFailure("Der Ordnerstapel überschreitet das konfigurierte Upload-Limit.");
@@ -227,7 +236,7 @@ final class AndroidFolderImportTask implements Runnable {
                 + " MiB aus " + treeUris.size()
                 + " Ordner(n). Ziel: neuer eindeutiger Importordner. Bitte bestätigen.";
         return new PreparedUpload(boundary, files, fileHeaders, folderField,
-                manifestField, closing, bodyLength, totalBytes, preview);
+                manifestField, sourceIdsField, closing, bodyLength, totalBytes, preview);
     }
 
     private void releaseOwnedGrants() {
@@ -259,12 +268,13 @@ final class AndroidFolderImportTask implements Runnable {
             }
             String rootName = validateSegment(queryDisplayName(
                     DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner"));
+            String sourceIdentity = stableSourceIdentity(context, treeUri);
             if (!rootNames.add(rootName.toLowerCase(Locale.ROOT))) {
                 throw new ImportFailure("Mehrere ausgewählte Ordner haben denselben Namen. Bitte gemeinsam über einen übergeordneten Ordner importieren.");
             }
             Set<String> visitedDirectories = new HashSet<>();
             visitedDirectories.add(rootId);
-            collectDirectory(resolver, treeUri, rootId, rootName, 0,
+            collectDirectory(resolver, treeUri, rootId, rootName, sourceIdentity, 0,
                     visitedDirectories, entryCount, result);
         }
         Set<String> destinationPaths = new HashSet<>();
@@ -277,7 +287,7 @@ final class AndroidFolderImportTask implements Runnable {
     }
 
     private void collectDirectory(ContentResolver resolver, Uri treeUri, String directoryId, String parentPath,
-            int depth, Set<String> visitedDirectories, int[] entryCount, List<Entry> result)
+            String sourceIdentity, int depth, Set<String> visitedDirectories, int[] entryCount, List<Entry> result)
             throws ImportFailure, IOException {
         checkCancelled();
         if (depth > MAX_DEPTH) throw new ImportFailure("Der Ordner ist zu tief verschachtelt.");
@@ -326,7 +336,7 @@ final class AndroidFolderImportTask implements Runnable {
                 if (!visitedDirectories.add(child.documentId)) {
                     throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
                 }
-                collectDirectory(resolver, treeUri, child.documentId, path, depth + 1,
+                collectDirectory(resolver, treeUri, child.documentId, path, sourceIdentity, depth + 1,
                         visitedDirectories, entryCount, result);
                 continue;
             }
@@ -336,7 +346,28 @@ final class AndroidFolderImportTask implements Runnable {
             if (result.size() >= MAX_FILES) {
                 throw new ImportFailure("Maximal 1000 Dateien pro Importvorgang auswählen.");
             }
-            result.add(new Entry(DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId), path, child.size));
+            result.add(new Entry(
+                    DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId),
+                    path, child.size, sourceIdentity
+            ));
+        }
+    }
+
+    private static String stableSourceIdentity(Context context, Uri treeUri) throws ImportFailure {
+        try {
+            MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
+            sha256.update(AndroidFolderImportGrantStore.sourceIdentitySalt(context));
+            sha256.update((byte) 0);
+            byte[] digest = sha256.digest(treeUri.toString().getBytes(StandardCharsets.UTF_8));
+            char[] hex = "0123456789abcdef".toCharArray();
+            StringBuilder result = new StringBuilder(digest.length * 2);
+            for (byte item : digest) {
+                int value = item & 0xff;
+                result.append(hex[value >>> 4]).append(hex[value & 0x0f]);
+            }
+            return result.toString();
+        } catch (NoSuchAlgorithmException error) {
+            throw new ImportFailure("Die Herkunft des Android-Ordners konnte nicht sicher bestimmt werden.");
         }
     }
 
@@ -385,7 +416,8 @@ final class AndroidFolderImportTask implements Runnable {
     }
 
     private void upload(String boundary, List<Entry> files, List<byte[]> headers,
-            byte[] folderField, byte[] manifestField, byte[] closing, long bodyLength)
+            byte[] folderField, byte[] manifestField, byte[] sourceIdsField,
+            byte[] closing, long bodyLength)
             throws IOException, ImportFailure {
         checkCancelled();
         String cookie = CookieManager.getInstance().getCookie(LOCAL_URL);
@@ -407,6 +439,7 @@ final class AndroidFolderImportTask implements Runnable {
         try (OutputStream output = new BufferedOutputStream(request.getOutputStream())) {
             output.write(folderField);
             output.write(manifestField);
+            output.write(sourceIdsField);
             byte[] buffer = new byte[BUFFER_SIZE];
             for (int index = 0; index < files.size(); index++) {
                 checkCancelled();
@@ -563,19 +596,21 @@ final class AndroidFolderImportTask implements Runnable {
         final List<byte[]> fileHeaders;
         final byte[] folderField;
         final byte[] manifestField;
+        final byte[] sourceIdsField;
         final byte[] closing;
         final long bodyLength;
         final long totalBytes;
         final String previewMessage;
 
         PreparedUpload(String boundary, List<Entry> files, List<byte[]> fileHeaders,
-                byte[] folderField, byte[] manifestField, byte[] closing,
+                byte[] folderField, byte[] manifestField, byte[] sourceIdsField, byte[] closing,
                 long bodyLength, long totalBytes, String previewMessage) {
             this.boundary = boundary;
             this.files = files;
             this.fileHeaders = fileHeaders;
             this.folderField = folderField;
             this.manifestField = manifestField;
+            this.sourceIdsField = sourceIdsField;
             this.closing = closing;
             this.bodyLength = bodyLength;
             this.totalBytes = totalBytes;
@@ -587,11 +622,13 @@ final class AndroidFolderImportTask implements Runnable {
         final Uri uri;
         final String relativePath;
         final long size;
+        final String sourceIdentity;
 
-        Entry(Uri uri, String relativePath, long size) {
+        Entry(Uri uri, String relativePath, long size, String sourceIdentity) {
             this.uri = uri;
             this.relativePath = relativePath;
             this.size = size;
+            this.sourceIdentity = sourceIdentity;
         }
 
         String fileName() {

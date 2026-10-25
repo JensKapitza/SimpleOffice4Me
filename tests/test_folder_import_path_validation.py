@@ -9,7 +9,10 @@ from app.folder_import_validation import (
     MAX_FOLDER_IMPORT_DEPTH,
     MAX_RELATIVE_PATH_MANIFEST_BYTES,
     decode_relative_path_manifest,
+    decode_source_identity_manifest,
+    stable_source_folder_id,
     validate_upload_batch,
+    validate_source_identity_groups,
 )
 
 
@@ -72,6 +75,49 @@ class FolderImportPathValidationTests(unittest.TestCase):
         decoded, error = decode_relative_path_manifest(json.dumps(paths), 1000)
         self.assertIsNone(error)
         self.assertEqual(paths, decoded)
+
+    def test_decodes_optional_source_ids_aligned_with_files(self):
+        source_id = "ab" * 32
+        identities, error = decode_source_identity_manifest(
+            json.dumps([source_id, ""]), 2,
+        )
+        self.assertIsNone(error)
+        self.assertEqual([source_id, ""], identities)
+        identities, error = decode_source_identity_manifest("", 2)
+        self.assertIsNone(error)
+        self.assertEqual(["", ""], identities)
+
+    def test_rejects_malformed_or_unbounded_source_id_manifest(self):
+        source_id = "cd" * 32
+        for candidate, count in (
+            (json.dumps([source_id]), 2),
+            (json.dumps(["not-a-source-id"]), 1),
+            (json.dumps(["CD" * 32]), 1),
+            (" " * 100_001, 0),
+            (json.dumps(["\ud800"]), 1),
+        ):
+            with self.subTest(candidate=candidate[:40], count=count):
+                identities, error = decode_source_identity_manifest(candidate, count)
+                self.assertIsNone(identities)
+                self.assertIsNotNone(error)
+
+    def test_source_identity_is_consistent_per_selected_root(self):
+        source_a, source_b = "ab" * 32, "cd" * 32
+        paths = ["Telegram/a.txt", "Telegram/nested/b.txt", "Photos/c.jpg"]
+        self.assertIsNone(validate_source_identity_groups(paths, [source_a, source_a, source_b]))
+        self.assertIn(
+            "widersprüchliche",
+            validate_source_identity_groups(paths, [source_a, source_b, source_b]),
+        )
+        self.assertIsNone(validate_source_identity_groups(paths, ["", "", ""]))
+
+    def test_stable_source_folder_identity_is_per_user_and_requires_opaque_id(self):
+        source_id = "ab" * 32
+        first = stable_source_folder_id("user-a", source_id, "Telegram/2026")
+        self.assertEqual(first, stable_source_folder_id("user-a", source_id, "Telegram/2026"))
+        self.assertNotEqual(first, stable_source_folder_id("user-b", source_id, "Telegram/2026"))
+        with self.assertRaises(ValueError):
+            stable_source_folder_id("user-a", "invalid", "Telegram/2026")
 
     def test_rejects_manifest_over_memory_budget(self):
         decoded, error = decode_relative_path_manifest(
