@@ -223,7 +223,14 @@ final class AndroidFolderImportTask implements Runnable {
     private PreparedUpload prepareUpload() throws ImportFailure, IOException {
         List<Entry> files = collectFiles();
         checkCancelled();
-        return prepareUpload(files, "");
+        long totalBytes = 0;
+        for (Entry entry : files) totalBytes = Math.addExact(totalBytes, entry.size);
+        String preview = files.size() + " Datei(en), "
+                + String.format(Locale.ROOT, "%.1f", totalBytes / 1048576.0)
+                + " MiB aus " + treeUris.size()
+                + " Ordner(n). Import erfolgt in Teilpaketen. Bitte bestätigen.";
+        return new PreparedUpload("", files, Collections.emptyList(), new byte[0],
+                new byte[0], new byte[0], 0, totalBytes, preview);
     }
 
     private PreparedUpload prepareUpload(List<Entry> files, String importId) throws ImportFailure, IOException {
@@ -450,6 +457,7 @@ final class AndroidFolderImportTask implements Runnable {
             byte[] closing, long bodyLength)
             throws IOException, ImportFailure {
         checkCancelled();
+        requestBodySent = false;
         String cookie = CookieManager.getInstance().getCookie(LOCAL_URL);
         if (cookie == null || cookie.trim().isEmpty()) {
             throw new ImportFailure("Sitzung abgelaufen. Bitte die Dokumentseite neu laden.");
