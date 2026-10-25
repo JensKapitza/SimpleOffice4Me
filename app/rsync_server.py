@@ -77,13 +77,12 @@ class RestrictedRsyncSession:
         self.actor = f"rsync:{server.username}"
         self.scope = server.identity.get("scope", "read")
         self.app = server.app
-        self.max_bytes = int(os.environ.get("SIMPLEOFFICE_RSYNC_MAX_BYTES", str(2 * 1024**3)))
         self.max_files = int(os.environ.get("SIMPLEOFFICE_RSYNC_MAX_FILES", "100000"))
         from .settings_store import SettingsStore
 
-        self.timeout = SettingsStore(self.vfs.root).settings()["network"][
-            "rsync_timeout_seconds"
-        ]
+        network_settings = SettingsStore(self.vfs.root).settings()["network"]
+        self.timeout = network_settings["rsync_timeout_seconds"]
+        self.max_bytes = network_settings["rsync_max_bytes"]
         self.initial_directories: set[str] = set()
 
     @staticmethod
@@ -156,11 +155,14 @@ class RestrictedRsyncSession:
                 if entry.collection:
                     pending.append(("/" + entry.path, child_relative))
                 else:
-                    targets.append((child_relative.as_posix(), self.vfs.read_bytes(self.actor, "/" + entry.path)))
+                    if len(targets) >= self.max_files or total + entry.size > self.max_bytes:
+                        raise RuntimeError("rsync staging limit exceeded")
+                    content = self.vfs.read_bytes(self.actor, "/" + entry.path)
+                    total += len(content)
+                    if total > self.max_bytes:
+                        raise RuntimeError("rsync staging limit exceeded")
+                    targets.append((child_relative.as_posix(), content))
         for relative, content in targets:
-            total += len(content)
-            if len(initial) >= self.max_files or total > self.max_bytes:
-                raise RuntimeError("rsync staging limit exceeded")
             target = staging / relative
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(content)
