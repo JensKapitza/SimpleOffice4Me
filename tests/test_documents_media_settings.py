@@ -15,6 +15,7 @@ from app.attachment_security import AttachmentSecurity
 from app.settings_store import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
     DEFAULT_WEBDAV_QUOTA_MIB,
     DEFAULT_PREVIEW_MAX_BYTES,
@@ -26,8 +27,10 @@ from app.settings_store import (
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
     MAX_RSYNC_TIMEOUT_SECONDS,
+    MAX_RSYNC_MAX_BYTES,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_TIMEOUT_SECONDS,
     SettingsStore,
 )
@@ -59,6 +62,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_CLAMAV_TIMEOUT": str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_RSYNC_TIMEOUT": str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
+                "SIMPLEOFFICE_RSYNC_MAX_BYTES": str(DEFAULT_RSYNC_MAX_BYTES),
             },
         )
         self.environment.start()
@@ -129,10 +133,12 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('name="webdav_quota_mib"', html)
         self.assertIn('name="rsync_timeout_seconds"', html)
+        self.assertIn('name="rsync_max_bytes"', html)
         self.assertIn("Rsync-Prozesszeitlimit", html)
         self.assertIn('name="_csrf_token"', html)
         self.assertIn("Neustart erforderlich", html)
         self.assertIn("30–86400 Sekunden", html)
+        self.assertIn("1 MiB bis 2 GiB", html)
         self.assertIn('href="/admin/settings/integrations"', html)
         self.assertIn("Netzwerk &amp; Synchronisation", html)
         self.assertIn(path, self.admin.get("/documents/settings").get_data(as_text=True))
@@ -249,13 +255,17 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
 
         reset = self.admin.post(
             path,
-            data={"reset": "1", "webdav_quota_mib": "256", "rsync_timeout_seconds": "7200"},
+            data={
+                "reset": "1", "webdav_quota_mib": "256",
+                "rsync_timeout_seconds": "7200", "rsync_max_bytes": "104857600",
+            },
             headers={"X-CSRF-Token": "a" * 40},
         )
         self.assertEqual(302, reset.status_code)
         network = SettingsStore(self.root).settings()["network"]
         self.assertEqual(DEFAULT_RSYNC_TIMEOUT_SECONDS, network["rsync_timeout_seconds"])
         self.assertEqual(DEFAULT_WEBDAV_QUOTA_MIB, network["webdav_quota_mib"])
+        self.assertEqual(DEFAULT_RSYNC_MAX_BYTES, network["rsync_max_bytes"])
         with app.app_context():
             row = database.get_db().execute(
                 "SELECT actor_name,target_id,detail FROM security_event "
@@ -264,6 +274,54 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual("media-admin", row["actor_name"])
         self.assertEqual("network.rsync_timeout_seconds", row["target_id"])
+        self.assertFalse(json.loads(row["detail"])["restart_required"])
+
+    def test_rsync_size_limit_is_admin_only_persistent_validated_and_audited(self):
+        path = "/admin/settings/network"
+        value = 512 * 1024 * 1024
+        payload = {"rsync_max_bytes": str(value)}
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        self.assertEqual(
+            403,
+            self.user.post(
+                path, data=payload, headers={"X-CSRF-Token": "u" * 40},
+            ).status_code,
+        )
+        saved = self.admin.post(
+            path, data=payload, headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        network = SettingsStore(self.root).settings()["network"]
+        self.assertEqual(value, network["rsync_max_bytes"])
+
+        for invalid in (
+            str(MIN_RSYNC_MAX_BYTES - 1), str(MAX_RSYNC_MAX_BYTES + 1),
+            "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(value=invalid):
+                rejected = self.admin.post(
+                    path, data={"rsync_max_bytes": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    value, SettingsStore(self.root).settings()["network"]["rsync_max_bytes"],
+                )
+
+        # Forms from older deployed pages do not submit this field; they must
+        # preserve the setting rather than silently replacing it with a default.
+        self.admin.post(
+            path, data={"webdav_quota_mib": "256"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(value, SettingsStore(self.root).settings()["network"]["rsync_max_bytes"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event WHERE action=?",
+                ("rsync_size_limit_updated",),
+            ).fetchone()
+        self.assertEqual("media-admin", row["actor_name"])
+        self.assertEqual("network.rsync_max_bytes", row["target_id"])
         self.assertFalse(json.loads(row["detail"])["restart_required"])
 
     def test_legacy_webdav_quota_migrates_once_and_persisted_value_wins(self):
@@ -299,6 +357,31 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": raw}):
                     timeout = SettingsStore(root).settings()["network"]["rsync_timeout_seconds"]
                 self.assertEqual(expected, timeout)
+
+    def test_legacy_rsync_size_limit_migrates_once_and_clamps_or_defaults(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            legacy_value = 1024 * 1024 * 1024
+            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_BYTES": str(legacy_value)}):
+                self.assertEqual(legacy_value, store.settings()["network"]["rsync_max_bytes"])
+                store.save({"network": {"webdav_quota_mib": 512}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_BYTES": str(DEFAULT_RSYNC_MAX_BYTES)}):
+                self.assertEqual(
+                    legacy_value,
+                    SettingsStore(legacy_root).settings()["network"]["rsync_max_bytes"],
+                )
+
+        expectations = {
+            "1": MIN_RSYNC_MAX_BYTES,
+            str(MAX_RSYNC_MAX_BYTES + 1): MAX_RSYNC_MAX_BYTES,
+            "invalid": DEFAULT_RSYNC_MAX_BYTES,
+            "9" * 21: DEFAULT_RSYNC_MAX_BYTES,
+        }
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_BYTES": raw}):
+                    actual = SettingsStore(root).settings()["network"]["rsync_max_bytes"]
+                self.assertEqual(expected, actual)
 
     def test_osm_timeout_requires_admin_and_csrf_then_persists_and_validates(self):
         response = self.admin.get("/admin/settings/integrations")

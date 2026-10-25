@@ -21,8 +21,9 @@ from .settings_store import (
     DEFAULT_SETTINGS,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
-    MAX_OSM_READ_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
+    MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_TIMEOUT_SECONDS,
     MAX_PREVIEW_MAX_BYTES,
     MAX_PREVIEW_MAX_PIXELS,
@@ -36,6 +37,7 @@ from .settings_store import (
     MIN_VIDEO_PREVIEW_FRAMES,
     MIN_OSM_READ_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
+    MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_TIMEOUT_SECONDS,
     SettingsStore,
 )
@@ -451,6 +453,8 @@ def network_settings():
     return render_template(
         "admin/network_settings.html",
         network=settings["network"],
+        rsync_max_bytes_min=MIN_RSYNC_MAX_BYTES,
+        rsync_max_bytes_max=MAX_RSYNC_MAX_BYTES,
     )
 
 
@@ -481,6 +485,11 @@ def save_network_settings():
                     if "rsync_timeout_seconds" in request.form
                     else current["rsync_timeout_seconds"]
                 ),
+                "rsync_max_bytes": (
+                    DEFAULT_SETTINGS["network"]["rsync_max_bytes"]
+                    if "rsync_max_bytes" in request.form
+                    else current["rsync_max_bytes"]
+                ),
             }
         else:
             raw = request.form.get("webdav_quota_mib")
@@ -505,13 +514,31 @@ def save_network_settings():
                 rsync_timeout = int(raw_timeout)
                 if not MIN_RSYNC_TIMEOUT_SECONDS <= rsync_timeout <= MAX_RSYNC_TIMEOUT_SECONDS:
                     raise ValueError("Das Rsync-Zeitlimit muss zwischen 30 und 86400 Sekunden liegen.")
-            network = {"webdav_quota_mib": quota, "rsync_timeout_seconds": rsync_timeout}
+            raw_max_bytes = request.form.get("rsync_max_bytes")
+            if raw_max_bytes is None:
+                rsync_max_bytes = current["rsync_max_bytes"]
+            else:
+                if (
+                    not raw_max_bytes.isascii()
+                    or not raw_max_bytes.isdigit()
+                    or len(raw_max_bytes) > len(str(MAX_RSYNC_MAX_BYTES))
+                ):
+                    raise ValueError("Bitte ein ganzzahliges Rsync-Größenlimit in Bytes eingeben.")
+                rsync_max_bytes = int(raw_max_bytes)
+                if not MIN_RSYNC_MAX_BYTES <= rsync_max_bytes <= MAX_RSYNC_MAX_BYTES:
+                    raise ValueError("Das Rsync-Größenlimit muss zwischen 1 MiB und 2 GiB liegen.")
+            network = {
+                "webdav_quota_mib": quota,
+                "rsync_timeout_seconds": rsync_timeout,
+                "rsync_max_bytes": rsync_max_bytes,
+            }
         webdav_changed = network["webdav_quota_mib"] != current["webdav_quota_mib"]
         rsync_changed = network["rsync_timeout_seconds"] != current["rsync_timeout_seconds"]
+        rsync_max_changed = network["rsync_max_bytes"] != current["rsync_max_bytes"]
         store.save(
             {"network": network}, str(g.user["username"]),
         )
-        if webdav_changed or not rsync_changed:
+        if webdav_changed or not (rsync_changed or rsync_max_changed):
             audit(
                 "network_settings_updated", "settings", "network.webdav_quota",
                 detail={
@@ -526,6 +553,12 @@ def save_network_settings():
                 detail={"rsync_timeout_seconds": network["rsync_timeout_seconds"],
                         "reset_to_defaults": reset_defaults, "restart_required": False},
             )
+        if rsync_max_changed:
+            audit(
+                "rsync_size_limit_updated", "settings", "network.rsync_max_bytes",
+                detail={"rsync_max_bytes": network["rsync_max_bytes"],
+                        "reset_to_defaults": reset_defaults, "restart_required": False},
+            )
         notice = (
             "Netzwerk-Einstellungen auf Standard zurückgesetzt."
             if reset_defaults else "Netzwerk-Einstellungen gespeichert."
@@ -534,6 +567,8 @@ def save_network_settings():
             notice += " Neustart erforderlich, damit das WebDAV-Kontingent gilt."
         if rsync_changed:
             notice += " Das Rsync-Zeitlimit gilt für neue Sitzungen."
+        if rsync_max_changed:
+            notice += " Das Rsync-Größenlimit gilt für neue Sitzungen."
         flash(notice)
     except ValueError as exc:
         current_app.logger.info("Network setting rejected: %s", type(exc).__name__)
