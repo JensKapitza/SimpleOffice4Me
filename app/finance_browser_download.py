@@ -32,7 +32,26 @@ class CapturedStatement:
 def _allowed_santander_url(url: str) -> bool:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().rstrip(".")
-    return parsed.scheme == "https" and (host == "santander.de" or host.endswith(".santander.de"))
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.username is None
+        and parsed.password is None
+        and port in {None, 443}
+        and (host == "santander.de" or host.endswith(".santander.de"))
+    )
+
+
+def _guard_santander_navigation(route) -> None:
+    """Block top-level and frame navigations away from the verified bank domain."""
+    request = route.request
+    if request.is_navigation_request() and not _allowed_santander_url(request.url):
+        route.abort()
+        return
+    route.continue_()
 
 
 def _checked_download(filename: str, data: bytes) -> CapturedStatement:
@@ -93,6 +112,7 @@ def capture_santander_statement(
                 raise TimeoutError("Zeitlimit beim Start des Santander-Browsers überschritten") from exc
             try:
                 context = browser.new_context(accept_downloads=True)
+                context.route("**/*", _guard_santander_navigation)
                 page = context.new_page()
                 downloads = []
                 context.on("page", lambda popup: popup.on("download", lambda item: downloads.append(item)))

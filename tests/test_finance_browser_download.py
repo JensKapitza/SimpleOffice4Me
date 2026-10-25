@@ -9,6 +9,7 @@ from app.finance_browser_download import (
     MAX_DOWNLOAD_BYTES,
     _allowed_santander_url,
     _checked_download,
+    _guard_santander_navigation,
     capture_santander_statement,
 )
 
@@ -30,6 +31,28 @@ class _FakeDownload:
 
     def cancel(self):
         self.cancelled = True
+
+
+class _FakeRequest:
+    def __init__(self, url, *, navigation=True):
+        self.url = url
+        self.navigation = navigation
+
+    def is_navigation_request(self):
+        return self.navigation
+
+
+class _FakeRoute:
+    def __init__(self, url, *, navigation=True):
+        self.request = _FakeRequest(url, navigation=navigation)
+        self.aborted = False
+        self.continued = False
+
+    def abort(self):
+        self.aborted = True
+
+    def continue_(self):
+        self.continued = True
 
 
 class _FakePage:
@@ -73,6 +96,10 @@ class _FakeContext:
     def on(self, event, callback):
         self.listeners[event] = callback
 
+    def route(self, pattern, callback):
+        self.harness.route_pattern = pattern
+        self.harness.route_handler = callback
+
     def emit_page_download(self, page):
         download = self.harness.make_download(self.downloads_path)
         page.listeners["download"](download)
@@ -112,6 +139,8 @@ class _FakePlaywright:
         self.download_directory = ""
         self.start_url = ""
         self.navigation_timeout_ms = None
+        self.route_pattern = None
+        self.route_handler = None
 
     def sync_playwright(self):
         return self
@@ -155,6 +184,25 @@ class BrowserBankDownloadTests(unittest.TestCase):
         self.assertFalse(_allowed_santander_url("http://www.santander.de/"))
         self.assertFalse(_allowed_santander_url("https://santander.de.attacker.test/"))
         self.assertFalse(_allowed_santander_url("https://not-santander.de/"))
+        self.assertFalse(_allowed_santander_url("https://santander.de:444/"))
+        self.assertFalse(_allowed_santander_url("https://user@santander.de/"))
+        self.assertFalse(_allowed_santander_url("https://santander.de:invalid/"))
+
+    def test_navigation_guard_blocks_external_navigation_but_allows_other_requests(self):
+        external_navigation = _FakeRoute("https://login.attacker.test/", navigation=True)
+        _guard_santander_navigation(external_navigation)
+        self.assertTrue(external_navigation.aborted)
+        self.assertFalse(external_navigation.continued)
+
+        bank_navigation = _FakeRoute("https://online.santander.de/", navigation=True)
+        _guard_santander_navigation(bank_navigation)
+        self.assertFalse(bank_navigation.aborted)
+        self.assertTrue(bank_navigation.continued)
+
+        external_resource = _FakeRoute("https://cdn.example.test/app.js", navigation=False)
+        _guard_santander_navigation(external_resource)
+        self.assertFalse(external_resource.aborted)
+        self.assertTrue(external_resource.continued)
 
     def test_download_checks_format_and_size(self):
         result = _checked_download("umsatz.csv", b"Buchungstag;Betrag\n01.01.2026;1,00\n")
@@ -197,6 +245,10 @@ class BrowserBankDownloadTests(unittest.TestCase):
             launch_options,
         )
         self.assertEqual({"accept_downloads": True}, harness.context_options)
+        self.assertEqual("**/*", harness.route_pattern)
+        blocked_redirect = _FakeRoute("https://login.attacker.test/", navigation=True)
+        harness.route_handler(blocked_redirect)
+        self.assertTrue(blocked_redirect.aborted)
         self.assertTrue(harness.browser.closed)
         self.assertFalse(Path(harness.download_directory).exists())
 
