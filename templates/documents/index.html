@@ -411,7 +411,10 @@
             : 'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.'));
         }
         if (!response.ok || !payload || payload.ok !== true || payload.stored !== batch.length) {
-          throw new Error(payload && (payload.error || payload.message) ||
+          const errorDetails = payload && Array.isArray(payload.errors)
+            ? payload.errors.filter((message) => typeof message === 'string' && message).join(' · ')
+            : '';
+          throw new Error(payload && (payload.error || payload.message) || errorDetails ||
             'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.');
         }
         checkpoint.nextIndex = end;

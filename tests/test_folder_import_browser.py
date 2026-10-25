@@ -153,6 +153,37 @@ class FolderImportBrowserTests(unittest.TestCase):
                 context.close()
                 browser.close()
 
+    def test_browser_batch_upload_displays_server_error_details(self):
+        from playwright.sync_api import expect, sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = self._launch_chromium(playwright)
+            context = browser.new_context(viewport={"width": 390, "height": 844})
+            context.add_cookies([{
+                "name": app.config.get("SESSION_COOKIE_NAME", "session"),
+                "value": self.cookie,
+                "url": self.base_url,
+            }])
+            try:
+                page = context.new_page()
+                page.goto(f"{self.base_url}/documents/")
+                if not page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input"):
+                    self.skipTest("Chromium on this host does not expose webkitdirectory")
+                page.evaluate("""() => {
+                  window.fetch = async () => new Response(JSON.stringify({
+                    ok: false,
+                    stored: 0,
+                    expected: 1,
+                    errors: ['read-only destination'],
+                  }), {status: 409, headers: {'Content-Type': 'application/json'}});
+                }""")
+                self._select_folder_files(page, ["root/locked.txt"])
+                page.locator("#document-upload-form button[type=submit]").click()
+                expect(page.locator("#document-selection")).to_contain_text("read-only destination")
+            finally:
+                context.close()
+                browser.close()
+
     def test_browser_source_profile_reuses_opaque_identity_without_uploading_label(self):
         from playwright.sync_api import expect, sync_playwright
 
