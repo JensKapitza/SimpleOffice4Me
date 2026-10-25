@@ -77,13 +77,14 @@ def upload():
     if folder_import and archive:
         return failure("Ordnerimport und Archivablage können nicht kombiniert werden.")
     max_bytes = int(current_app.config["MAX_CONTENT_LENGTH"])
+    document_store = _store()
     for item_index, item in enumerate(files):
         upload_name = item.filename.replace(chr(92), "/").rsplit("/", 1)[-1] if folder_import else item.filename
         relative_path = relative_paths[item_index].replace(chr(92), "/") if folder_import else ""
         existing = None
         if resumable_import:
             existing = existing_matching_folder_import(
-                _store(), current_app.config["DOCUMENT_ROOT"],
+                document_store, current_app.config["DOCUMENT_ROOT"],
                 import_root + "/" + relative_path, relative_path, import_id,
                 actor, source_identities[item_index], item.stream, current_app.logger,
             )
@@ -115,7 +116,7 @@ def upload():
                 if result.error.code == ErrorCode.CONFLICT and resumable_import:
                     item.stream.seek(0)
                     existing = existing_matching_folder_import(
-                        _store(), current_app.config["DOCUMENT_ROOT"],
+                        document_store, current_app.config["DOCUMENT_ROOT"],
                         import_root + "/" + relative_path, relative_path, import_id,
                         actor, source_identities[item_index], item.stream, current_app.logger,
                     )
@@ -139,15 +140,15 @@ def upload():
                 flash(message)
                 continue
             if defaults["default_tags"] or defaults["default_state"] != "new":
-                metadata = _store().get_document(result.value.object_id.value)
+                metadata = document_store.get_document(result.value.object_id.value)
                 if defaults["default_tags"]:
-                    _store().set_tags(
+                    document_store.set_tags(
                         metadata["document_id"],
                         [*metadata.get("tags", []), *defaults["default_tags"]],
                         actor,
                     )
                 if defaults["default_state"] != "new":
-                    _store().set_state(metadata["document_id"], defaults["default_state"], actor)
+                    document_store.set_state(metadata["document_id"], defaults["default_state"], actor)
             document_id = result.value.object_id.value
             if folder_import:
                 source_origin = folder_import_origin(
@@ -155,7 +156,7 @@ def upload():
                 )
                 if source_origin:
                     try:
-                        _store().update_metadata(
+                        document_store.update_metadata(
                             document_id,
                             attributes={"folder_import_origin": source_origin},
                             author=actor,
@@ -169,7 +170,7 @@ def upload():
                         flash(
                             f"{upload_name}: Datei gespeichert, Herkunftsordner konnte nicht protokolliert werden."
                         )
-            imported_metadata = _store().get_document(document_id)
+            imported_metadata = document_store.get_document(document_id)
             complete_web_inbox_upload(
                 current_app.config["DOCUMENT_ROOT"],
                 inbox,
