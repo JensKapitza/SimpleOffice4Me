@@ -77,14 +77,16 @@ Beispiel:
 }
 ```
 
-## Player
+## Medienvorschau im Dokument
 
-Beim Öffnen der Vorschau eines Videos wird eine eigene Player-Seite angezeigt. Dort sind das Originalvideo, technische Metadaten und die Vorschaubilder sichtbar. Ein Klick auf ein Vorschaubild springt im Player an den zugehörigen Zeitpunkt.
+Die Dokumentdetailseite rendert Videos und Audio als HTML5-Medienelemente mit Steuerelementen und `preload="metadata"`; ein Video wird nicht als Bildvorschau behandelt. MP4, WebM und die übrigen erkannten Container erhalten einen typbasierten `source`. Codec- oder Browser-Inkompatibilität bleibt möglich; die Seite bietet dann einen direkten, authentifizierten Download des unveränderten Originals an. Automatische Transkodierung wird nicht beim Anzeigen gestartet.
 
-Die unveränderte Originaldatei bleibt weiterhin direkt erreichbar. Der Player ist nur eine andere Darstellung desselben Dokumentes.
+PDFs werden als PDF im Browser angezeigt und haben einen Download-Fallback. Bilder verwenden nur ein vorhandenes, hashgebundenes Vorschaubild; solange die Vorschau fehlt, erscheint ein Dateityp-Icon und ein Link zum Original statt eines kaputten Bildsymbols. Für Office-Dokumente gilt dieselbe Regel: vorhandene Vorschaubilder verwenden, andernfalls Original öffnen oder herunterladen. Der vollständige Dokumentpfad bleibt als umbrechender Breadcrumb sichtbar.
 
-Die Originalquelle unterstützt einzelne HTTP-Bytebereiche für Wiedergabe und
-Sprünge. Größe und Version werden über den vorhandenen `StoragePort.stat()`
+Der separate Video-Player zeigt zusätzlich technische Metadaten und die Vorschaubilder. Ein Klick auf ein Vorschaubild springt im Player an den zugehörigen Zeitpunkt. Die unveränderte Originaldatei bleibt erreichbar.
+
+Audio-, Video- und PDF-Originale unterstützen einzelne HTTP-Bytebereiche für
+Wiedergabe und Sprünge. Größe und Version werden über den vorhandenen `StoragePort.stat()`
 ermittelt, nicht aus optionalen Dokument-Metadaten. Im V2-Modus ist dafür der
 aktive Katalog maßgeblich; die Legacy-Datei muss nicht vorhanden sein.
 `copy_verified_range_to()` prüft das vollständige Original und puffert nur den

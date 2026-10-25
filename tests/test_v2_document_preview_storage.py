@@ -72,13 +72,12 @@ class V2DocumentPreviewStorageTests(unittest.TestCase):
         self.assertEqual(str(len(b"authoritative preview")), response.headers["Content-Length"])
         self.assertTrue(response.headers.get("ETag"))
 
-    def test_thumbnail_fallback_uses_verified_storage_not_missing_plaintext_file(self):
+    def test_thumbnail_does_not_serve_non_image_from_verified_storage(self):
         response = self.client.get(
             f"/documents/{self.document['document_id']}/thumbnail"
         )
 
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(b"authoritative preview", response.data)
+        self.assertEqual(404, response.status_code)
 
 
 if __name__ == "__main__":

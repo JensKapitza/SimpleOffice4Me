@@ -42,6 +42,7 @@ class PreviewServiceTest(unittest.TestCase):
             with patch("app.preview_service.time.monotonic", side_effect=(0.0, 0.0, 2.0)):
                 service = PreviewService(root, {"paths": {"ffmpeg": None}})
                 image = root / "image.jpg"
+                image.write_bytes(b"indexed image placeholder")
                 self.assertTrue(service.supports(image))
 
                 SettingsStore(root).save(
