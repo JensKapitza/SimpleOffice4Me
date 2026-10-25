@@ -129,7 +129,9 @@ class FinTSCapabilityTests(unittest.TestCase):
 
     def test_fresh_capability_discovery_retries_transient_transport_failure(self):
         failed = FakeClient(self.information())
-        failed.get_information = Mock(side_effect=ConnectionResetError("temporary disconnect"))
+        failed.get_sepa_accounts = Mock(
+            side_effect=ConnectionResetError("temporary disconnect"),
+        )
         success = FakeClient(self.information())
         with patch("app.finance_fints._client", side_effect=[failed, success]) as make_client, patch(
             "app.finance_fints_retry.is_retryable_transport_error", return_value=True,
@@ -140,7 +142,7 @@ class FinTSCapabilityTests(unittest.TestCase):
 
         self.assertEqual(2, make_client.call_count)
         self.assertEqual(1, is_retryable.call_count)
-        failed.get_information.assert_called_once()
+        failed.get_sepa_accounts.assert_called_once()
         sleep.assert_called_once()
         self.assertEqual(self.remote_id, accounts[0]["remote_account_id"])
         self.assertTrue(profile["read"]["balance"])
