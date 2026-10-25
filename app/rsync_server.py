@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import shlex
 import shutil
 import stat
@@ -77,12 +76,12 @@ class RestrictedRsyncSession:
         self.actor = f"rsync:{server.username}"
         self.scope = server.identity.get("scope", "read")
         self.app = server.app
-        self.max_files = int(os.environ.get("SIMPLEOFFICE_RSYNC_MAX_FILES", "100000"))
         from .settings_store import SettingsStore
 
         network_settings = SettingsStore(self.vfs.root).settings()["network"]
         self.timeout = network_settings["rsync_timeout_seconds"]
         self.max_bytes = network_settings["rsync_max_bytes"]
+        self.max_files = network_settings["rsync_max_files"]
         self.initial_directories: set[str] = set()
 
     @staticmethod
