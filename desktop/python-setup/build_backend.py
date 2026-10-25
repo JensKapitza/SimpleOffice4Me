@@ -52,7 +52,7 @@ def main() -> None:
     python = str(python_in_venv())
 
     run(python, "-m", "pip", "install", "--upgrade", "pip")
-    run(python, "-m", "pip", "install", f"{REPO}[ocr]")
+    # A source-built cryptography extension may link against runner OpenSSL, while\n    # PyInstaller bundles a different libssl. Require a self-contained wheel.\n    run(python, "-m", "pip", "install", "--only-binary=cryptography", f"{REPO}[ocr]")
     run(python, "-m", "pip", "install", "-r", str(HERE / "requirements-build.txt"))
 
     shutil.rmtree(DIST, ignore_errors=True)
