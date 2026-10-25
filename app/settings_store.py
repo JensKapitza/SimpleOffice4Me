@@ -38,6 +38,9 @@ MAX_OSM_READ_TIMEOUT_SECONDS = 3600
 DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
 MIN_CLAMAV_TIMEOUT_SECONDS = 5
 MAX_CLAMAV_TIMEOUT_SECONDS = 900
+DEFAULT_RSYNC_TIMEOUT_SECONDS = 3600
+MIN_RSYNC_TIMEOUT_SECONDS = 30
+MAX_RSYNC_TIMEOUT_SECONDS = 86400
 
 
 @contextmanager
@@ -72,7 +75,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
-    "network": {"webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB},
+    "network": {
+        "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
+        "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
+    },
     "media": {
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -385,6 +391,8 @@ class SettingsStore:
         stored_network = stored.get("network") if isinstance(stored, dict) else None
         if not isinstance(stored_network, dict) or "webdav_quota_mib" not in stored_network:
             result["network"]["webdav_quota_mib"] = self._legacy_webdav_quota()
+        if not isinstance(stored_network, dict) or "rsync_timeout_seconds" not in stored_network:
+            result["network"]["rsync_timeout_seconds"] = self._legacy_rsync_timeout()
         result["network"] = self._normalize_network_settings(result["network"])
         stored_integrations = stored.get("integrations") if isinstance(stored, dict) else None
         if (
@@ -425,7 +433,36 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored WebDAV quota; using the unlimited default")
             quota = DEFAULT_WEBDAV_QUOTA_MIB
-        return {"webdav_quota_mib": quota}
+        rsync_timeout = network.get(
+            "rsync_timeout_seconds", DEFAULT_RSYNC_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(rsync_timeout, bool)
+            or not isinstance(rsync_timeout, int)
+            or not MIN_RSYNC_TIMEOUT_SECONDS <= rsync_timeout <= MAX_RSYNC_TIMEOUT_SECONDS
+        ):
+            _LOGGER.warning("Invalid stored rsync timeout; using the default")
+            rsync_timeout = DEFAULT_RSYNC_TIMEOUT_SECONDS
+        return {
+            "webdav_quota_mib": quota,
+            "rsync_timeout_seconds": rsync_timeout,
+        }
+
+    @staticmethod
+    def _legacy_rsync_timeout() -> int:
+        """Read and bound the legacy rsync session timeout until it is saved."""
+        raw = os.environ.get(
+            "SIMPLEOFFICE_RSYNC_TIMEOUT", str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
+        ).strip()
+        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
+        if len(raw) > 12 or not raw.isascii() or not is_integer:
+            _LOGGER.warning("Invalid legacy rsync timeout; using the default")
+            return DEFAULT_RSYNC_TIMEOUT_SECONDS
+        value = int(raw)
+        if not MIN_RSYNC_TIMEOUT_SECONDS <= value <= MAX_RSYNC_TIMEOUT_SECONDS:
+            _LOGGER.warning("Legacy rsync timeout outside range; clamping to supported limits")
+            return max(MIN_RSYNC_TIMEOUT_SECONDS, min(MAX_RSYNC_TIMEOUT_SECONDS, value))
+        return value
 
     @staticmethod
     def _legacy_osm_read_timeout() -> int:
@@ -575,10 +612,10 @@ class SettingsStore:
                 if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
                     latest["s3"] = {"enabled": True}
             # Ordinary preferences and admin S3 changes share one atomic merge.
-            # Media and integration settings support partial writes so callers
+            # Network, media and integration settings support partial writes so callers
             # preserve the other controls in the same section.
             merged = {**latest, **settings}
-            for section in ("media", "integrations"):
+            for section in ("network", "media", "integrations"):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -610,6 +647,15 @@ class SettingsStore:
             or not DEFAULT_WEBDAV_QUOTA_MIB <= webdav_quota <= MAX_WEBDAV_QUOTA_MIB
         ):
             raise ValueError("WebDAV quota must be 0 or between 1 and 1,048,576 MiB")
+        rsync_timeout = network.get(
+            "rsync_timeout_seconds", DEFAULT_RSYNC_TIMEOUT_SECONDS,
+        )
+        if (
+            isinstance(rsync_timeout, bool)
+            or not isinstance(rsync_timeout, int)
+            or not MIN_RSYNC_TIMEOUT_SECONDS <= rsync_timeout <= MAX_RSYNC_TIMEOUT_SECONDS
+        ):
+            raise ValueError("rsync timeout must be between 30 and 86,400 seconds")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
@@ -693,7 +739,10 @@ class SettingsStore:
             },
             "sharing": {"default_expiry_days": expiry},
             "s3": {"enabled": s3.get("enabled", False)},
-            "network": {"webdav_quota_mib": webdav_quota},
+            "network": {
+                "webdav_quota_mib": webdav_quota,
+                "rsync_timeout_seconds": rsync_timeout,
+            },
             "media": {
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
