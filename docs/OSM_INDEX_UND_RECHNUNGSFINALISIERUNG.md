@@ -63,9 +63,11 @@ unbeachtete `stderr`-Pipe volllaufen. Es gibt keinen festen Gesamtlaufzeit-
 Timeout mehr: Solange Datensätze geliefert werden, darf auch ein mehr als sechs
 Stunden dauernder Deutschland-Export weiterlaufen. Nur wenn standardmäßig 30
 Minuten keinerlei Ausgabe erfolgt, beendet ein Leerlauf-Watchdog den Prozess.
-Der Wert kann über `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` zwischen 300 und
-86.400 Sekunden gesetzt werden. Die nächste Ausführung setzt am letzten
-bestätigten Batch fort.
+Das Leerlauf-Timeout beträgt standardmäßig 1.800 Sekunden und kann unter
+**Admin → Einstellungen → Integrationen & Dienste** zwischen 300 und 86.400
+Sekunden konfiguriert werden. `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` wird nur
+als begrenzter Startwert verwendet, bis ein persistierter Wert gespeichert ist.
+Die nächste Ausführung setzt am letzten bestätigten Batch fort.
 
 Der vorherige `osmium tags-filter`-Schritt hat ein separates Prozesszeitlimit.
 Es beträgt standardmäßig sechs Stunden und kann unter **Admin → Einstellungen →
