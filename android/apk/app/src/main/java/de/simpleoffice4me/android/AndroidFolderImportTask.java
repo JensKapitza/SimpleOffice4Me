@@ -240,7 +240,7 @@ final class AndroidFolderImportTask implements Runnable {
                 + " MiB aus " + treeUris.size()
                 + " Ordner(n). Import erfolgt in Teilpaketen. Bitte bestätigen.";
         return new PreparedUpload("", files, Collections.emptyList(), new byte[0],
-                new byte[0], new byte[0], 0, totalBytes, preview);
+                new byte[0], new byte[0], new byte[0], 0, totalBytes, preview);
     }
 
     private PreparedUpload prepareUpload(List<Entry> files, String importId) throws ImportFailure, IOException {
@@ -334,6 +334,10 @@ final class AndroidFolderImportTask implements Runnable {
             }
         }
         return result;
+    }
+
+    private static String collisionKey(String path) {
+        return Normalizer.normalize(path, Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
     }
 
     private void collectDirectory(ContentResolver resolver, Uri treeUri, String directoryId, String parentPath,
