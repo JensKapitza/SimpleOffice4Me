@@ -7,7 +7,9 @@ from app.preview_service import PreviewService
 
 
 def test_generic_filetype_thumbnails(tmp_path: Path):
-    for name in ("sound.mp3", "archive.zip", "notes.txt", "unknown.blob"):
+    for name in (
+        "sound.mp3", "archive.zip", "comic.cbz", "book.epub", "notes.txt", "unknown.blob",
+    ):
         source = tmp_path / name
         source.write_bytes(b"sample")
         output = tmp_path / (name + ".webp")

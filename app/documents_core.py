@@ -37,6 +37,7 @@ from .replication_store import CATEGORIES, ReplicationStore
 from .object_store import ObjectStore
 from .attachment_security import AttachmentSecurity, ClamAV
 from .preview_service import (
+    ARCHIVE_SUFFIXES,
     AUDIO_SUFFIXES,
     IMAGE_SUFFIXES,
     TEXT_SUFFIXES,
@@ -365,6 +366,7 @@ def _preview_data(document: dict) -> dict[str, str]:
     elif suffix == ".pdf": kind, icon = "pdf", "fa-file-pdf"
     elif suffix in AUDIO_SUFFIXES: kind, icon = "audio", "fa-file-audio"
     elif suffix in VIDEO_SUFFIXES: kind, icon = "video", "fa-file-video"
+    elif suffix in ARCHIVE_SUFFIXES: kind, icon = "archive", "fa-file-archive"
     elif suffix in TEXT_SUFFIXES or document.get("extracted_text") or document.get("ocr_text"):
         kind, icon = "text", "fa-file-lines"
     elif suffix in {".doc", ".docx", ".odt", ".rtf"}: kind, icon = "document", "fa-file-word"
@@ -379,6 +381,10 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
     preview_service = PreviewService(current_app.config["DOCUMENT_ROOT"])
     text, text_status, text_truncated = _safe_inline_text_preview(document)
     suffix = Path(str(document.get("last_path", ""))).suffix.casefold()
+    saved_preview = document.get("preview", {})
+    archive_preview = saved_preview.get("archive") if isinstance(saved_preview, dict) else None
+    if not isinstance(archive_preview, dict):
+        archive_preview = {}
     if not text and suffix not in TEXT_SUFFIXES:
         text = str(
             document.get("extracted_text") or document.get("ocr_text") or ""
@@ -397,6 +403,7 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
             "text": text,
             "text_status": text_status,
             "text_truncated": text_truncated,
+            "archive": archive_preview,
         },
         "document_path_parts": [part for part in str(document.get("last_path", "")).split("/") if part],
     }
