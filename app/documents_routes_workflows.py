@@ -53,7 +53,11 @@ def upload():
     import_root = ""
     import_id = ""
     if folder_import:
-        import_id = uuid4().hex
+        supplied_import_id = request.form.get("import_id", "")
+        if supplied_import_id and (len(supplied_import_id) != 32 or any(char not in "0123456789abcdef" for char in supplied_import_id)):
+            flash("Ungültige Importkennung.")
+            return redirect(url_for("documents.index"))
+        import_id = supplied_import_id or uuid4().hex
         import_root = "imports/" + import_id
     stored = 0
     actor = str(g.user["username"])
