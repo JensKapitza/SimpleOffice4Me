@@ -25,6 +25,7 @@ from .printershare_store import (
     RETENTION_ORDER,
     effective_retention,
     normalize_retention,
+    spool_payload,
 )
 
 
@@ -484,6 +485,63 @@ def update_settings():
 @bp.post("/admin/printers/<printer_id>")
 @admin_required
 def update_printer(printer_id: str):
+    return redirect(url_for("admin.printer_settings"))
+
+
+def _printer_test_pdf(label: str) -> bytes:
+    from io import BytesIO
+
+    from reportlab.pdfgen import canvas
+
+    output = BytesIO()
+    page = canvas.Canvas(output, pagesize=(595, 842), pageCompression=1)
+    page.setTitle("SimpleOffice4Me Druckertest")
+    page.setFont("Helvetica-Bold", 18)
+    page.drawString(48, 780, "SimpleOffice4Me Druckertest")
+    page.setFont("Helvetica", 12)
+    page.drawString(48, 750, "Wenn diese Seite lesbar ist, funktioniert der Druckpfad.")
+    safe_label = " ".join(str(label or "").split()).encode("cp1252", "replace").decode("cp1252")[:120]
+    page.drawString(48, 725, "Drucker: " + safe_label)
+    page.showPage()
+    page.save()
+    return output.getvalue()
+
+
+@bp.post("/admin/printers/<printer_id>/test")
+@admin_required
+def test_printer_device(printer_id: str):
+    store = _store()
+    printer = next((item for item in store.printers() if item["printer_id"] == printer_id), None)
+    if printer is None:
+        abort(404)
+    try:
+        if printer.get("backend") == "brother":
+            from .library.printer import print_image, render_text
+
+            profile = store.brother_profile()
+            profile["uri"] = printer["uri"]
+            profile["model"] = printer["model"]
+            print_image(render_text("SimpleOffice4Me Testetikett", profile), profile)
+        else:
+            if printer.get("kind") == "raw":
+                raise ValueError("RAW-Drucker benötigen einen gerätespezifischen Testauftrag")
+            payload = _printer_test_pdf(str(printer.get("label") or printer["name"]))
+            spool_payload(
+                printer,
+                payload,
+                content_type="application/pdf",
+                filename="simpleoffice-druckertest.pdf",
+            )
+        audit(
+            "printer_test_sent", "printer", printer_id,
+            detail={"kind": printer["kind"], "backend": printer.get("backend", "")},
+        )
+        flash(f"Testauftrag wurde an {printer['label']} gesendet.")
+    except (OSError, RuntimeError, ValueError) as exc:
+        current_app.logger.warning(
+            "Printer test failed for %s (%s)", printer_id, type(exc).__name__,
+        )
+        flash(str(exc) if isinstance(exc, ValueError) else "Testauftrag konnte nicht gedruckt werden.")
     return redirect(url_for("admin.printer_settings"))
 
 

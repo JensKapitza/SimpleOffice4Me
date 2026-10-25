@@ -39,7 +39,16 @@
               <td>{% if printer.backend == 'brother' %}<span class="badge text-bg-info">Etikett</span>{% else %}<select class="form-select form-select-sm" form="{{ form_id }}" name="kind" aria-label="Druckertyp für {{ printer.name }}"><option value="auto" {% if printer.configured_kind == 'auto' %}selected{% endif %}>Automatisch</option><option value="normal" {% if printer.configured_kind == 'normal' %}selected{% endif %}>Standard</option><option value="label" {% if printer.configured_kind == 'label' %}selected{% endif %}>Etikett</option><option value="raw" {% if printer.configured_kind == 'raw' %}selected{% endif %}>RAW/Etikett</option></select>{% endif %}</td>
               <td>{% if printer.backend == 'brother' %}<span class="small text-secondary">Lokal</span>{% else %}<div class="form-check"><input class="form-check-input" form="{{ form_id }}" type="checkbox" name="federation_shared" value="1" id="share-{{ printer.printer_id }}" {% if printer.federation_shared %}checked{% endif %}><label class="form-check-label" for="share-{{ printer.printer_id }}">Freigeben</label></div>{% endif %}</td>
               <td>{{ 'Konfiguriert' if printer.backend == 'brother' else 'Vom Betriebssystem erkannt' }}<div class="small text-secondary">{{ printer.driver }}{% if printer.port %} · {{ printer.port }}{% endif %}</div></td>
-              <td>{% if printer.backend == 'brother' %}<span class="small text-secondary">Im Brother-Profil</span>{% else %}<form id="{{ form_id }}" method="post" action="{{ url_for('admin.save_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Speichern</button></form>{% endif %}</td>
+               <td>
+                 {% if printer.backend == 'brother' %}
+                 <div class="d-flex flex-wrap align-items-center gap-2"><span class="small text-secondary">Im Brother-Profil</span><form method="post" action="{{ url_for('printershare.test_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Testetikett</button></form></div>
+                 {% else %}
+                 <div class="d-flex flex-wrap align-items-center gap-2"><form id="{{ form_id }}" method="post" action="{{ url_for('admin.save_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Speichern</button></form>
+                   {% if printer.kind == 'raw' %}<button class="btn btn-sm btn-outline-secondary" type="button" disabled title="RAW-Drucker brauchen einen gerätespezifischen Testauftrag">Kein generischer Test</button>
+                   {% else %}<form method="post" action="{{ url_for('printershare.test_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Testseite drucken</button></form>{% endif %}
+                 </div>
+                 {% endif %}
+               </td>
             </tr>
             {% else %}<tr><td colspan="5" class="text-secondary">Noch kein lokaler Drucker erkannt oder eingerichtet.</td></tr>{% endfor %}
           </tbody>

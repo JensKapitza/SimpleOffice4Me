@@ -4,9 +4,11 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from pypdf import PdfReader
 from werkzeug.security import generate_password_hash
 
 from app import app
@@ -337,6 +339,40 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn("Zugangsdaten".encode("utf-8"), response.data)
         self.assertNotIn(b"secret", response.data)
+
+    def test_printer_test_page_is_admin_only_and_spools_ephemerally(self):
+        printer = {
+            "printer_id": "c" * 24, "name": "Office", "driver": "Test",
+            "port": "TEST:", "is_default": True, "kind": "normal", "backend": "cups",
+            "label": "Office Printer", "federation_shared": False,
+        }
+        target = f"/printershare/admin/printers/{printer['printer_id']}/test"
+        with patch("app.printershare_store.discover_printers", return_value=[printer]):
+            self.assertEqual(403, self.worker.post(target).status_code)
+            with patch("app.printershare.spool_payload") as spool:
+                response = self.admin.post(target)
+
+        self.assertEqual(302, response.status_code)
+        spool.assert_called_once()
+        self.assertEqual(printer["printer_id"], spool.call_args.args[0]["printer_id"])
+        self.assertEqual("application/pdf", spool.call_args.kwargs["content_type"])
+        self.assertEqual("simpleoffice-druckertest.pdf", spool.call_args.kwargs["filename"])
+        page = PdfReader(BytesIO(spool.call_args.args[1])).pages[0]
+        self.assertIn("SimpleOffice4Me Druckertest", page.extract_text())
+
+    def test_generic_test_page_rejects_raw_printer_without_spooling(self):
+        printer = {
+            "printer_id": "d" * 24, "name": "RAW labeler", "driver": "ZPL",
+            "port": "TEST:", "is_default": False, "kind": "raw", "backend": "cups",
+            "label": "RAW labeler", "federation_shared": False,
+        }
+        target = f"/printershare/admin/printers/{printer['printer_id']}/test"
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload") as spool:
+            response = self.admin.post(target, follow_redirects=True)
+
+        self.assertIn("gerätespezifischen Testauftrag", response.get_data(as_text=True))
+        spool.assert_not_called()
 
     def test_self_lockout_is_rejected_and_audit_is_recorded(self):
         with app.app_context():
