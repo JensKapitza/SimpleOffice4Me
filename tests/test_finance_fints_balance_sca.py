@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.finance_fints import FinTSAuthenticationRequired
 from app.finance_fints_balances import fetch_balance
@@ -139,3 +139,18 @@ class FinTSBalanceSCATests(TestCase):
             )
         self.assertEqual("", client.sent_tan)
         self.assertEqual("15.00", result["booked_balance"])
+
+    def test_stateful_balance_tan_continuation_is_not_retried(self):
+        client = FakeClient()
+        client.send_tan = Mock(side_effect=TimeoutError("response lost"))
+        with patch("app.finance_fints_balances._client", return_value=client), patch(
+            "app.finance_fints_balances._restore_retry_response", return_value=NeedTANResponse(),
+        ), patch("app.finance_fints_balances.run_read_with_bounded_retry") as retry:
+            with self.assertRaisesRegex(TimeoutError, "response lost"):
+                fetch_balance(
+                    {"provider": "fints"}, "iban:DE123", "request-pin",
+                    challenge_state=self.challenge_state(), tan="123456",
+                )
+
+        client.send_tan.assert_called_once()
+        retry.assert_not_called()

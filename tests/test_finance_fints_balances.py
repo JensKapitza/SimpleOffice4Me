@@ -3,7 +3,7 @@ from decimal import Decimal
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.finance_fints import FinTSAuthenticationRequired
 from app.finance_fints_balances import _decimal_amount, fetch_balance
@@ -78,6 +78,29 @@ class FinTSBalanceTests(TestCase):
             result,
         )
         self.assertNotIn("temporary-pin", repr(result))
+
+    def test_fresh_balance_read_retries_transient_transport_failure(self):
+        account = SimpleNamespace(currency="EUR")
+        failed_client = FakeFinTSClient()
+        failed_client.get_balance = Mock(side_effect=ConnectionResetError("temporary disconnect"))
+        success_client = FakeFinTSClient(balance=SimpleNamespace(
+            amount=Decimal("42.25"), currency="EUR",
+        ))
+
+        with patch("app.finance_fints_balances._client", side_effect=[failed_client, success_client]) as make_client, patch(
+            "app.finance_fints_balances._find_remote_account", return_value=account,
+        ), patch(
+            "app.finance_fints_retry.is_retryable_transport_error", return_value=True,
+        ) as is_retryable, patch("app.finance_fints_retry.time.sleep") as sleep:
+            result = fetch_balance(
+                {"provider": "fints"}, "iban:DE123", "temporary-pin",
+            )
+
+        self.assertEqual("42.25", result["booked_balance"])
+        self.assertEqual(2, make_client.call_count)
+        self.assertEqual(1, is_retryable.call_count)
+        failed_client.get_balance.assert_called_once()
+        sleep.assert_called_once()
 
     def test_fetch_balance_requires_interactive_authentication(self):
         class NeedTANResponse:
