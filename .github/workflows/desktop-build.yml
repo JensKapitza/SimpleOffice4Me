@@ -7,6 +7,8 @@ on:
   pull_request:
     paths:
       - 'desktop/**'
+      - 'pyproject.toml'
+      - 'tests/test_desktop_ocr_dependencies.py'
       - 'tools/generate_sbom.py'
       - '.github/workflows/desktop-build.yml'
 
@@ -32,8 +34,10 @@ jobs:
             artifact: linux
           - os: windows-latest
             artifact: windows
-          - os: macos-latest
-            artifact: macos
+          - os: macos-15
+            artifact: macos-arm64
+          - os: macos-15-intel
+            artifact: macos-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,6 +86,9 @@ jobs:
             'utf8'
           );
           NODE
+      - name: Verify OCR dependency markers
+        shell: bash
+        run: python -m unittest discover -s tests -p test_desktop_ocr_dependencies.py
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
@@ -120,7 +127,7 @@ jobs:
               ;;
             macOS/X64)
               asset=cyclonedx-osx-x64
-              digest=0ea92306fc6ea1a3f6598d8e0257d52903341d0df21a325fb1510aee7c6b30dd
+              digest=0ea92306fc7d7c30ed112a7463781a200585a3bf1cdaf77229181c5aabd1d4b6
               ;;
             macOS/ARM64)
               asset=cyclonedx-osx-arm64
@@ -199,9 +206,37 @@ jobs:
           path: artifacts/linux/*
           if-no-files-found: error
           retention-days: 14
+      - name: Prepare macOS installer
+        if: startsWith(matrix.artifact, 'macos-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.artifact }}" in
+            macos-arm64) expected=arm64 ;;
+            macos-x64) expected=x64 ;;
+            *) exit 1 ;;
+          esac
+          actual="$(node -p 'process.arch')"
+          test "$actual" = "$expected" || { echo "Wrong macOS runner architecture: $actual (expected $expected)" >&2; exit 1; }
+          # electron-builder emits a versioned DMG without an architecture suffix.
+          # The native runner architecture is checked above; rename the artifact explicitly.
+          set -- desktop/electron/dist/*.dmg
+          test "$#" -eq 1 && test -f "$1" || { echo "Expected exactly one macOS DMG" >&2; exit 1; }
+          mkdir -p artifacts/macos
+          cp "$1" "artifacts/macos/SimpleOffice4Me-macos-$expected.dmg"
+          printf 'Verified macOS %s DMG size: %s bytes\n' "$expected" "$(stat -f%z "$1")"
+          (cd artifacts/macos && shasum -a 256 *.dmg > SHA256SUMS)
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: "!startsWith(matrix.artifact, 'macos-')"
         with:
           name: simpleoffice4me-desktop-${{ matrix.artifact }}
           path: desktop/electron/dist/**
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: startsWith(matrix.artifact, 'macos-')
+        with:
+          name: simpleoffice4me-desktop-${{ matrix.artifact }}
+          path: artifacts/macos/*
           if-no-files-found: error
           retention-days: 14
