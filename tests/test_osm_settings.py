@@ -98,7 +98,12 @@ class OsmSettingsTests(unittest.TestCase):
 
     def test_download_timeout_retains_existing_admin_and_audit_contract(self):
         payload = {"osm_download_read_timeout_seconds": "420"}
-        self.assertEqual(403, self.post_osm_settings(self.admin, payload).status_code)
+        self.assertEqual(
+            403,
+            self.admin.post(
+                "/admin/settings/integrations/osm", data=payload,
+            ).status_code,
+        )
         self.assertEqual(403, self.post_osm_settings(
             self.user, payload, token="u" * 40,
         ).status_code)
@@ -146,7 +151,12 @@ class OsmSettingsTests(unittest.TestCase):
             {"integrations": {"osm_download_read_timeout_seconds": 420}}, "osm-admin",
         )
         payload = {"osm_filter_timeout_seconds": "7200"}
-        self.assertEqual(403, self.post_osm_settings(self.admin, payload).status_code)
+        self.assertEqual(
+            403,
+            self.admin.post(
+                "/admin/settings/integrations/osm", data=payload,
+            ).status_code,
+        )
         self.assertEqual(403, self.post_osm_settings(
             self.user, payload, token="u" * 40,
         ).status_code)
@@ -190,7 +200,12 @@ class OsmSettingsTests(unittest.TestCase):
             "osm-admin",
         )
         payload = {"osm_export_idle_timeout_seconds": "3600"}
-        self.assertEqual(403, self.post_osm_settings(self.admin, payload).status_code)
+        self.assertEqual(
+            403,
+            self.admin.post(
+                "/admin/settings/integrations/osm", data=payload,
+            ).status_code,
+        )
         self.assertEqual(403, self.post_osm_settings(
             self.user, payload, token="u" * 40,
         ).status_code)
