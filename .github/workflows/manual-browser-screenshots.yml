@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    paths:
+      - tests/browser/manual_screenshot_smoke.py
+      - .github/workflows/manual-browser-screenshots.yml
   workflow_dispatch:
     inputs:
       scope:
