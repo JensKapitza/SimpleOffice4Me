@@ -157,8 +157,35 @@ final class AndroidFolderImportTask implements Runnable {
             PreparedUpload batch = preparedUpload;
             notifyListener("uploading", 0, batch.files.size(),
                     batch.files.size() + " Datei(en) werden importiert …");
-            upload(batch.boundary, batch.files, batch.fileHeaders, batch.folderField,
-                    batch.manifestField, batch.sourceIdsField, batch.closing, batch.bodyLength);
+            String importId = java.util.UUID.randomUUID().toString().replace("-", "");
+            int completed = 0;
+            while (completed < batch.files.size()) {
+                checkCancelled();
+                int end = completed;
+                long bytes = 0;
+                int pathBytes = 2;
+                while (end < batch.files.size()) {
+                    Entry entry = batch.files.get(end);
+                    int nextPathBytes = entry.relativePath.getBytes(StandardCharsets.UTF_8).length * 2 + 8;
+                    long nextBytes = entry.size + nextPathBytes + 4096;
+                    if (end > completed && (bytes + nextBytes > maxRequestBytes
+                            || pathBytes + nextPathBytes > MAX_MANIFEST_BYTES
+                            || end - completed >= 100)) break;
+                    if (nextBytes > maxRequestBytes || nextPathBytes > MAX_MANIFEST_BYTES) {
+                        throw new ImportFailure("Eine einzelne Datei überschreitet das Upload-Limit.");
+                    }
+                    bytes += nextBytes;
+                    pathBytes += nextPathBytes;
+                    end++;
+                }
+                PreparedUpload part = prepareUpload(batch.files.subList(completed, end), importId);
+                upload(part.boundary, part.files, part.fileHeaders, part.folderField,
+                        part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
+                requestBodySent = false;
+                completed = end;
+                notifyListener("uploading", completed, batch.files.size(),
+                        completed + " von " + batch.files.size() + " Dateien verarbeitet.");
+            }
             finished = true;
             terminal = true;
             notifyListener("done", batch.files.size(), batch.files.size(), "Ordnerimport abgeschlossen.");
@@ -196,9 +223,20 @@ final class AndroidFolderImportTask implements Runnable {
     private PreparedUpload prepareUpload() throws ImportFailure, IOException {
         List<Entry> files = collectFiles();
         checkCancelled();
+        return prepareUpload(files, "");
+    }
+
+    private PreparedUpload prepareUpload(List<Entry> files, String importId) throws ImportFailure, IOException {
         if (files.isEmpty()) throw new ImportFailure("Der ausgewählte Ordner enthält keine Dateien.");
         String boundary = "----SimpleOfficeFolder" + java.util.UUID.randomUUID().toString().replace("-", "");
         byte[] folderField = formField(boundary, "folder_import", "1");
+        if (!importId.isEmpty()) {
+            byte[] idField = formField(boundary, "import_id", importId);
+            byte[] combined = new byte[folderField.length + idField.length];
+            System.arraycopy(folderField, 0, combined, 0, folderField.length);
+            System.arraycopy(idField, 0, combined, folderField.length, idField.length);
+            folderField = combined;
+        }
         JSONArray paths = new JSONArray();
         JSONArray sourceIds = new JSONArray();
         long bodyLength = folderField.length;
