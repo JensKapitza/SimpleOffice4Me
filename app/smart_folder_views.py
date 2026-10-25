@@ -17,6 +17,7 @@ from defusedxml import ElementTree as ET
 from defusedxml.common import DefusedXmlException
 
 from .document_store_core import CONTROL_DIR, atomic_json_write
+from .folder_import_validation import stable_source_folder_id
 from .file_lock import exclusive_file_lock
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
@@ -110,16 +111,24 @@ class SmartFolderViews:
         import_id = str(origin.get("import_id", ""))
         source_path = origin.get("source_path")
         folder_id = str(origin.get("folder_id", ""))
+        source_identity = origin.get("source_identity", "")
         if not re.fullmatch(r"[0-9a-f]{32}", import_id) or not isinstance(source_path, str):
             return None
         try:
             source_path = self.normalize(source_path)
         except ValueError:
             return None
-        expected_id = uuid5(UUID(hex=import_id), source_path).hex
+        if source_identity:
+            if not isinstance(source_identity, str) or not re.fullmatch(r"[0-9a-f]{64}", source_identity):
+                return None
+            expected_id = stable_source_folder_id(self.actor, source_identity, source_path)
+            view_path = f"imports/{folder_id}/{source_path}"
+        else:
+            expected_id = uuid5(UUID(hex=import_id), source_path).hex
+            view_path = f"imports/{import_id}/{source_path}"
         if folder_id != expected_id:
             return None
-        return f"imports/{import_id}/{source_path}", folder_id, source_path
+        return view_path, folder_id, source_path
 
     def import_origin_view_path(self, document: dict) -> str:
         """Return the validated persistent Smart View path for an import origin."""

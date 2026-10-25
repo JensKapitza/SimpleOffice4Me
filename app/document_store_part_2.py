@@ -342,9 +342,22 @@ class _DocumentStorePart2:
 
     def refresh_missing_text(self, actor: str, force: bool = False) -> int:
         self._require_actor(actor)
+
+        def needs_refresh(item: dict[str, Any]) -> bool:
+            extraction = item.get("text_extraction")
+            extraction = extraction if isinstance(extraction, dict) else {}
+            is_pdf = str(item.get("last_path", "")).lower().endswith(".pdf")
+            return bool(
+                force
+                or extraction.get("source_sha256") != item.get("sha256")
+                or "extracted_text" not in item
+                or extraction.get("status") != "completed"
+                or (is_pdf and extraction.get("ocr_pipeline_version") != PDF_OCR_PIPELINE_VERSION)
+            )
+
         pending = {
             item["document_id"] for item in self._all_documents()
-            if force or item.get("text_extraction", {}).get("source_sha256") != item.get("sha256") or "extracted_text" not in item
+            if needs_refresh(item)
         }
         self.scan()
         updated = 0

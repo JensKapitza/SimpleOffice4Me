@@ -239,6 +239,21 @@ def index():
     locations = _store().locations()
     if selected_location and not any(row["location_id"] == selected_location for row in locations):
         selected_location = ""
+    captured_item = None
+    captured_id = str(request.args.get("captured", "") or "").strip()
+    if captured_id:
+        try:
+            candidate = _objects().object(captured_id)
+        except ValueError:
+            candidate = None
+        assignment = _store().assignment(captured_id) if candidate else None
+        if candidate and assignment:
+            target_matches = not selected_location or assignment.get("location_id") == selected_location
+            if target_matches:
+                captured_item = {
+                    **candidate,
+                    "library_location_path": _store().location_path(assignment.get("location_id", "")),
+                }
     from ..printershare_store import PrinterShareStore
 
     printer_context = PrinterShareStore(
@@ -248,6 +263,7 @@ def index():
         "library/index.html",
         locations=locations,
         selected_location=selected_location,
+        captured_item=captured_item,
         author_filter=request.args.get("author", "").strip(),
         genre_filter=request.args.get("genre", "").strip(),
         printer_context=printer_context,

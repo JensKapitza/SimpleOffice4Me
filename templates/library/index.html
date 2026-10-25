@@ -14,6 +14,7 @@
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if captured_item %}<div class="alert alert-success d-flex flex-wrap align-items-center justify-content-between gap-2" role="status" aria-live="polite"><span>Buch <strong>#{{ captured_item.display_id }} · {{ captured_item.name }}</strong> ist im Inventar gespeichert und {{ captured_item.library_location_path }} zugeordnet.</span><a class="btn btn-sm btn-success" href="{{ url_for('inventory.item_detail', object_id=captured_item.object_id) }}">Inventareintrag öffnen</a></div>{% endif %}
 
   <section class="card shadow-sm mb-3" id="find-book">
     <div class="card-header"><strong>1 · Buch wiederfinden</strong></div>
@@ -109,7 +110,7 @@
     </div>
   </section>
 
-  <section class="row g-3">
+  <section class="row g-3" id="books">
     <div class="col-lg-8"><div class="card shadow-sm h-100">
       <div class="card-header"><strong>Bücher &amp; Standorte</strong></div>
       <form method="get" action="{{ url_for('library.index') }}">

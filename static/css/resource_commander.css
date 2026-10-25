@@ -56,6 +56,10 @@
 .commander-dialog form{padding:1rem 1rem max(1rem,env(safe-area-inset-bottom,0px))}
 }
 
+@media(max-width:760px) and (max-height:600px){
+.resource-commander-actions{position:static;z-index:auto;box-shadow:none}
+}
+
 /* Keep narrow navigation targets and landscape cutouts usable. */
 .resource-commander-bar button{min-width:44px}
 .resource-commander-header a,.resource-commander-actions a{display:inline-flex;align-items:center;min-height:44px}

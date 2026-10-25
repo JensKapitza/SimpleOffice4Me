@@ -739,13 +739,80 @@ class _DocumentStorePart4:
 
     def _apply_document_text_extraction(self, path: Path, metadata: dict[str, Any], force: bool = False) -> bool:
         current = metadata.get("text_extraction", {})
-        if not force and current.get("source_sha256") == metadata.get("sha256") and "extracted_text" in metadata: return False
-        analysis: dict[str, Any] = {"source_sha256": metadata.get("sha256", ""), "extracted_at": utc_now(), "status": "completed"}; native_text = ""; image_text = ""
-        try:
-            if self._is_image(path): native_text = metadata.get("ocr_text", ""); analysis["kind"] = "image"
-            elif path.suffix.lower() == ".pdf": native_text = self._pdf_text(path); image_text = self._pdf_image_ocr(path); analysis["kind"] = "pdf"
-            else: native_text, kind = self._file_text(path); analysis["kind"] = kind
-        except RuntimeError as exc:
-            analysis["status"] = "partial"; analysis["error"] = str(exc)
-        combined = "\n".join(part for part in (native_text, image_text) if part).strip(); metadata["extracted_text"] = combined; metadata["text_extraction"] = {**analysis, "native_characters": len(native_text), "image_ocr_characters": len(image_text), "characters": len(combined)}
+        current = current if isinstance(current, dict) else {}
+        is_pdf = path.suffix.lower() == ".pdf"
+        current_pipeline = current.get("ocr_pipeline_version")
+        if (
+            not force
+            and current.get("source_sha256") == metadata.get("sha256")
+            and current.get("status") == "completed"
+            and (not is_pdf or current_pipeline == PDF_OCR_PIPELINE_VERSION)
+            and "extracted_text" in metadata
+        ):
+            return False
+        analysis: dict[str, Any] = {
+            "source_sha256": metadata.get("sha256", ""),
+            "extracted_at": utc_now(),
+            "status": "completed",
+        }
+        native_text = ""
+        image_text = ""
+        if self._is_image(path):
+            native_text = metadata.get("ocr_text", "")
+            analysis["kind"] = "image"
+        elif is_pdf:
+            analysis.update({"kind": "pdf", "ocr_pipeline_version": PDF_OCR_PIPELINE_VERSION})
+            try:
+                native_text = self._pdf_text(path)
+            except (OSError, RuntimeError, ValueError):
+                analysis["native_extraction_error"] = "PDF text extraction failed; page OCR was still attempted"
+            try:
+                ocr = self._pdf_image_ocr(path)
+            except (OSError, RuntimeError, ValueError):
+                ocr = {
+                    "status": "failed", "text": "", "engines": [],
+                    "pages_total": 0, "pages_processed": 0,
+                    "pages_with_text": 0, "failed_pages": 0,
+                    "error": "PDF OCR could not be completed",
+                }
+            image_text = str(ocr.get("text") or "")
+            analysis["ocr"] = {
+                "status": str(ocr.get("status", "unavailable")),
+                "engines": list(ocr.get("engines", [])),
+                "pages_total": int(ocr.get("pages_total", 0)),
+                "pages_processed": int(ocr.get("pages_processed", 0)),
+                "pages_with_text": int(ocr.get("pages_with_text", 0)),
+                "failed_pages": int(ocr.get("failed_pages", 0)),
+            }
+            if ocr.get("status") != "completed":
+                analysis["status"] = "partial"
+                if ocr.get("error"):
+                    analysis["ocr_error"] = str(ocr["error"])[:240]
+        else:
+            try:
+                native_text, kind = self._file_text(path)
+                analysis["kind"] = kind
+            except (OSError, RuntimeError, ValueError) as exc:
+                analysis["status"] = "partial"
+                analysis["error"] = str(exc)[:240]
+
+        native_text = str(native_text or "")
+        image_text = str(image_text or "")
+        if is_pdf:
+            native_lines = [line.rstrip() for line in native_text.splitlines() if line.strip()]
+            known_lines = {" ".join(line.split()).casefold() for line in native_lines}
+            ocr_lines = [
+                line.rstrip() for line in image_text.splitlines()
+                if line.strip() and " ".join(line.split()).casefold() not in known_lines
+            ]
+            combined = "\n".join(part for part in ("\n".join(native_lines), "\n".join(ocr_lines)) if part).strip()
+        else:
+            combined = "\n".join(part for part in (native_text, image_text) if part).strip()
+        metadata["extracted_text"] = combined
+        metadata["text_extraction"] = {
+            **analysis,
+            "native_characters": len(native_text),
+            "image_ocr_characters": len(image_text),
+            "characters": len(combined),
+        }
         return True

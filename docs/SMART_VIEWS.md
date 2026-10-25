@@ -20,11 +20,28 @@ Verschieben bleibt eine getrennte Aktion. Die Ordnerauswahl aus der
 Dokumentdetailseite zeigt beim physischen Verschieben den vollständigen
 Zielpfad und blockiert bereits belegte Dateinamen.
 
-Beim Web-Ordnerimport erhalten Dateien zusätzlich eine Herkunfts-ID für den
-Import und relativen Quellordner. Die ID bleibt als Dokumentmetadatum erhalten;
-die Herkunfts-Smart-View bleibt daher auch nach einem physischen Verschieben
-auffindbar. Unabhängige Importvorgänge bekommen getrennte IDs und werden nicht
-automatisch fusioniert.
+Beim Ordnerimport erhalten Dateien eine Herkunfts-ID für den Quellordner. Sie
+bleibt als Dokumentmetadatum erhalten; die Herkunfts-Smart-View bleibt auch
+nach einem physischen Verschieben auffindbar. SAF-Importe verwenden einen
+installationsgebunden gesalzenen SHA-256-Fingerabdruck der Android-
+`content://`-Tree-URI: Die URI und ihre Berechtigung werden nie an Flask
+übertragen. Wiederholte Auswahl derselben SAF-URI auf derselben Installation
+gruppiert Importe desselben angemeldeten Benutzers; unterschiedliche Quell-URIs
+bleiben getrennt, auch bei gleichem Ordnernamen. Der Server bildet
+aus Quellkennung, Benutzer und relativem Unterordner eine opake `folder_id`;
+die Smart View liegt unter `imports/<folder_id>/<Quellpfad>`, während die
+Originaldateien weiterhin in je eigenständigen Batch-Verzeichnissen bleiben.
+
+Browserordnerauswahl stellt keine dauerhafte Ordner-URI bereit. Sie kann daher
+optional ein Quellenprofil verwenden: Der Benutzer gibt im Browser einen
+Wiedererkennungsnamen ein und nutzt ihn bei weiteren Importen derselben Quelle.
+Der Name und die zufällige Quell-ID bleiben nur in `localStorage` des aktuellen
+Browserprofils; übertragen wird ausschließlich die opake 256-Bit-ID. Für
+verschiedene Quellen mit gleichem Ordnernamen sind unterschiedliche Profilnamen
+zu verwenden. Profile gelten nur in diesem Browserprofil und werden nicht auf
+andere Geräte synchronisiert. Ohne Profil bleibt der Import wie bisher
+batchgebunden. Gespeicherte Browserprofile können in der Dokumentansicht gelöscht
+werden. Alte Importe ohne Quell-ID behalten ihre bisherige Batch-Identität.
 
 Aktivierte Sammelordner können Aufgaben über den bestehenden `TodoStore`
 erhalten. Aufgaben referenzieren die stabile Sammelordner-ID; bei einer

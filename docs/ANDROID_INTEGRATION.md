@@ -101,6 +101,15 @@ vollständiger Import verarbeitet. Vor der Bestätigung zeigt die APK Dateianzah
 Gesamtgröße und das Ziel eines neuen eindeutigen Importordners. Sobald alle
 Bytes übertragen wurden, wird der Abbruch deaktiviert, während der Server den
 Import beendet.
+Für die Herkunfts-Smart-View bildet die APK lokal mit einem zufälligen,
+installationsgebundenen Salt einen SHA-256-Fingerabdruck der SAF-Tree-URI und
+sendet nur diesen opaken Wert als Quellkennung. Der Salt liegt in privaten
+Android-`SharedPreferences`, die von Cloud-Backup und Geräteübertragung
+ausgeschlossen sind. Wiederholte Importe derselben stabilen Provider-URI auf
+dieser Installation bleiben so zugeordnet, ohne URI, Provider-Zugangsdaten oder
+Berechtigungs-Token an den Server weiterzugeben. Nach App-Datenlöschung,
+Neuinstallation oder bei wechselnden Provider-Tree-URIs entsteht bewusst eine
+neue Herkunftskennung.
 
 - pro Upload höchstens 1000 Dateien und maximal 64 Verzeichnisebenen;
 - bis zu 20 SAF-Wurzeln in einer Importwarteschlange und höchstens 10000

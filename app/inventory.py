@@ -741,7 +741,16 @@ def index():
     items = _objects().objects()
     metadata = _inventory().object_metas()
     rows = [{**item, "inventory": metadata.get(item["object_id"], {})} for item in reversed(items[-80:])]
-    return render_template("inventory/index.html", inventory_rows=rows, today=date.today().isoformat())
+    from .inventory_library_capture import capture_context_from_query, capture_locations
+
+    capture = capture_context_from_query(request.args)
+    return render_template(
+        "inventory/index.html",
+        inventory_rows=rows,
+        today=date.today().isoformat(),
+        capture_context=capture,
+        library_locations=capture_locations() if capture.get("enabled") else [],
+    )
 
 
 @bp.get("/<object_id>")
@@ -846,76 +855,9 @@ def amazon_search():
 @bp.post("/books", endpoint="create_book")
 @login_required
 def create_item():
-    actor = str(g.user["username"])
-    barcode = _single_line(request.form.get("barcode", ""), 120)
-    explicit_isbn = str(request.form.get("isbn", "") or "").strip()
-    isbn_value = explicit_isbn or isbn_from_barcode(barcode)
-    isbn = ""
-    if isbn_value:
-        try:
-            isbn = normalize_isbn(isbn_value)
-        except ValueError as exc:
-            flash(str(exc))
-            return redirect(url_for("inventory.index"))
-    item_type = _single_line(request.form.get("item_type"), 80) or ("book" if isbn else "object")
-    if isbn and item_type.casefold() == "object":
-        item_type = "book"
-    identifier = isbn or barcode
-    nfc_id = _single_line(request.form.get("nfc_id", ""), 240)
-    duplicate = _find_exact(identifier, nfc_id)
-    if duplicate and request.form.get("allow_duplicate") != "1":
-        flash(f"Bereits vorhanden: #{duplicate.get('display_id', '')} {duplicate.get('name', '')}. Kein Duplikat angelegt.")
-        return redirect(url_for("inventory.item_detail", object_id=duplicate["object_id"]))
-    try:
-        fields = _object_fields(request.form, isbn)
-        title = _single_line(request.form.get("title", ""), 300)
-        if not title:
-            title = f"{item_type} {identifier}".strip() if identifier else item_type
-        tags = {"Inventar"}
-        tags.update(_single_line(request.form.get("tags", ""), 500).split(","))
-        tags = {tag.strip() for tag in tags if tag.strip()}
-        if item_type.casefold() in BOOK_TYPE_NAMES or isbn:
-            tags.add("Buch")
-        if isbn:
-            tags.add("ISBN")
-        item = _objects().create(
-            {
-                "name": title,
-                "type": item_type,
-                "status": "active",
-                "description": str(request.form.get("description", "") or "").strip()[:8000],
-                "identifier": identifier,
-                "location": _single_line(request.form.get("location", ""), 300),
-                "expires_at": "",
-                "tags": ",".join(sorted(tags, key=str.casefold)),
-                "fields": _fields_text(fields),
-            },
-            actor,
-        )
-    except ValueError as exc:
-        flash(str(exc))
-        return redirect(url_for("inventory.index"))
+    from .inventory_library_capture import create_item_response
 
-    sidecar = _inventory()
-    sidecar.record_snapshot(item["object_id"], fields, actor)
-    notices: list[str] = []
-    try:
-        sidecar.save_photo(item["object_id"], request.files.get("photo"), actor)
-    except (OSError, ValueError) as exc:
-        notices.append(f"Foto nicht gespeichert: {exc}")
-    try:
-        inspection = _inspection_input(request.form)
-        if inspection:
-            task = _create_inspection_task(item, inspection, actor)
-            try:
-                sidecar.add_inspection(item["object_id"], inspection, actor, task["id"])
-            except Exception:
-                _todos().soft_delete(task["id"], actor)
-                raise
-    except (OSError, ValueError) as exc:
-        notices.append(f"Prüftermin nicht angelegt: {exc}")
-    flash(f"Inventarobjekt #{item.get('display_id', '')} wurde angelegt." + (" " + " ".join(notices) if notices else ""))
-    return redirect(url_for("inventory.item_detail", object_id=item["object_id"]))
+    return create_item_response()
 
 
 @bp.post("/<object_id>/photo")
