@@ -8,6 +8,7 @@ import mimetypes
 import os
 import shutil
 import subprocess
+import unicodedata
 import secrets
 import shlex
 from collections import Counter
@@ -35,11 +36,18 @@ from .project_store import ProjectStore
 from .replication_store import CATEGORIES, ReplicationStore
 from .object_store import ObjectStore
 from .attachment_security import AttachmentSecurity, ClamAV
-from .preview_service import AUDIO_SUFFIXES, IMAGE_SUFFIXES, VIDEO_SUFFIXES, PreviewService, media_mimetype
+from .preview_service import (
+    AUDIO_SUFFIXES,
+    IMAGE_SUFFIXES,
+    TEXT_SUFFIXES,
+    VIDEO_SUFFIXES,
+    PreviewService,
+    media_mimetype,
+)
 from .db import get_db
 from .setup_store import SetupStore
 from .mail_client import MailStore, SmtpSubmission
-from .v2.contracts import StoragePort
+from .v2.contracts import LogicalObjectId, StoragePort
 from .v2.storage_runtime import storage_for
 
 
@@ -286,6 +294,70 @@ def _document_or_404(document_id: str) -> dict:
         abort(404)
 
 
+MAX_INLINE_TEXT_PREVIEW_BYTES = 256 * 1024
+MAX_INLINE_TEXT_PREVIEW_CHARS = 12_000
+MAX_INLINE_TEXT_PREVIEW_LINES = 300
+
+
+def _safe_inline_text_preview(document: dict) -> tuple[str, str, bool]:
+    """Return only small, verified UTF-8 text; never interpret uploaded markup."""
+    filename = str(document.get("last_path", ""))
+    if Path(filename).suffix.casefold() not in TEXT_SUFFIXES:
+        return "", "", False
+    try:
+        storage = storage_for(
+            current_app.config["DOCUMENT_ROOT"],
+            str(g.user["username"]),
+        )
+        object_id = LogicalObjectId(str(document["document_id"]))
+        description = storage.stat(object_id)
+        if not description.ok:
+            return "", "unavailable", False
+        expected = description.value
+        if expected.size > MAX_INLINE_TEXT_PREVIEW_BYTES:
+            return "", "too_large", False
+        spool = io.BytesIO()
+        copied = storage.copy_verified_range_to(
+            object_id,
+            spool,
+            start=0,
+            length=expected.size,
+        )
+        if (
+            not copied.ok
+            or copied.value.size != expected.size
+            or copied.value.version != expected.version
+        ):
+            return "", "unavailable", False
+        content = spool.getvalue()
+        if len(content) != expected.size or any(
+            (value < 32 and value not in {9, 10, 12, 13}) or value == 127
+            for value in content
+        ):
+            return "", "binary", False
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return "", "encoding", False
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return "", "unavailable", False
+    if any(
+        unicodedata.category(character) == "Cc"
+        and character not in {"\t", "\n", "\f", "\r"}
+        for character in text
+    ):
+        return "", "binary", False
+    if not text:
+        return "", "empty", False
+
+    lines = text.splitlines()
+    truncated = (
+        len(lines) > MAX_INLINE_TEXT_PREVIEW_LINES
+        or len(text) > MAX_INLINE_TEXT_PREVIEW_CHARS
+    )
+    text = "\n".join(lines[:MAX_INLINE_TEXT_PREVIEW_LINES])
+    return text[:MAX_INLINE_TEXT_PREVIEW_CHARS], "ready", truncated
+
+
 def _preview_data(document: dict) -> dict[str, str]:
     filename = str(document.get("last_path", ""))
     suffix = Path(filename).suffix.lower()
@@ -293,7 +365,8 @@ def _preview_data(document: dict) -> dict[str, str]:
     elif suffix == ".pdf": kind, icon = "pdf", "fa-file-pdf"
     elif suffix in AUDIO_SUFFIXES: kind, icon = "audio", "fa-file-audio"
     elif suffix in VIDEO_SUFFIXES: kind, icon = "video", "fa-file-video"
-    elif document.get("extracted_text") or document.get("ocr_text"): kind, icon = "text", "fa-file-lines"
+    elif suffix in TEXT_SUFFIXES or document.get("extracted_text") or document.get("ocr_text"):
+        kind, icon = "text", "fa-file-lines"
     elif suffix in {".doc", ".docx", ".odt", ".rtf"}: kind, icon = "document", "fa-file-word"
     elif suffix in {".xls", ".xlsx", ".ods", ".csv"}: kind, icon = "document", "fa-file-excel"
     else: kind, icon = "file", "fa-file"
@@ -304,6 +377,13 @@ def _preview_data(document: dict) -> dict[str, str]:
 def _document_detail_preview_context(document: dict) -> dict[str, Any]:
     document_id = str(document["document_id"])
     preview_service = PreviewService(current_app.config["DOCUMENT_ROOT"])
+    text, text_status, text_truncated = _safe_inline_text_preview(document)
+    suffix = Path(str(document.get("last_path", ""))).suffix.casefold()
+    if not text and suffix not in TEXT_SUFFIXES:
+        text = str(
+            document.get("extracted_text") or document.get("ocr_text") or ""
+        )[:MAX_INLINE_TEXT_PREVIEW_CHARS]
+        text_status = "ready" if text else ""
     return {
         "preview": {
             **_preview_data(document),
@@ -314,7 +394,9 @@ def _document_detail_preview_context(document: dict) -> dict[str, Any]:
             "thumbnail_available": preview_service.cached_path(document, "thumbnail") is not None,
             "preview_status": document.get("preview", {}).get("status", "pending"),
             "name": str(document.get("last_path", "")).rsplit("/", 1)[-1],
-            "text": (document.get("extracted_text") or document.get("ocr_text") or "")[:12000],
+            "text": text,
+            "text_status": text_status,
+            "text_truncated": text_truncated,
         },
         "document_path_parts": [part for part in str(document.get("last_path", "")).split("/") if part],
     }
