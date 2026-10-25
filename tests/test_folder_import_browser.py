@@ -353,6 +353,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                     const sourceManifest = form.get('source_ids') || '';
                     window.uploadBatches.push({
                       importId: form.get('import_id'), count: files.length,
+                      folderImport: form.get('folder_import'),
                       pathBytes: new TextEncoder().encode(pathManifest).length,
                       sourceBytes: new TextEncoder().encode(sourceManifest).length,
                       paths: pathManifest ? JSON.parse(pathManifest) : [],
