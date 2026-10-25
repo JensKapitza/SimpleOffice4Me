@@ -143,7 +143,7 @@ class BookLabelHttpContractTest(unittest.TestCase):
         with patch("app.library.printer_routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
              patch("app.library.printer_routes._store", return_value=library), \
              patch("app.library.printer_routes.render_barcode", return_value=object()) as render, \
-             patch("app.library.printer_routes.print_image", return_value=128) as print_label:
+             patch("app.library.printer_routes._send_label_image", return_value=128) as print_label:
             response = self.client.post(
                 "/library/printer/print/barcode",
                 data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931", "copies": "3"},
@@ -159,7 +159,7 @@ class BookLabelHttpContractTest(unittest.TestCase):
         library = Mock()
         with patch("app.library.printer_routes._store", return_value=library), \
              patch("app.library.printer_routes.render_barcode") as render, \
-             patch("app.library.printer_routes.print_image") as print_label:
+             patch("app.library.printer_routes._send_label_image") as print_label:
             response = self.client.post(
                 "/library/printer/print/barcode",
                 data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931", "copies": "101"},
@@ -176,7 +176,7 @@ class BookLabelHttpContractTest(unittest.TestCase):
         with patch("app.library.printer_routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Brother QL"}, {"label": "62"})), \
              patch("app.library.printer_routes._store", return_value=library), \
              patch("app.library.printer_routes.render_barcode", return_value=object()), \
-             patch("app.library.printer_routes.print_image", side_effect=[128, OSError("printer unavailable")]) as print_label:
+             patch("app.library.printer_routes._send_label_image", side_effect=[128, OSError("printer unavailable")]) as print_label:
             response = self.client.post(
                 "/library/printer/print/barcode",
                 data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931", "copies": "3"},
