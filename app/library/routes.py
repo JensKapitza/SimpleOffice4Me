@@ -486,7 +486,13 @@ def print_book_labels():
     try:
         share, printer, settings = _label_printer_configuration()
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 503
+        current_app.logger.warning(
+            "Book-label printer selection failed (%s)", type(exc).__name__,
+        )
+        return jsonify({
+            "ok": False,
+            "error": "Etikettendrucker nicht verfügbar oder durch eine Druckerrichtlinie gesperrt.",
+        }), 503
     printed = 0
     for item, value, caption in items:
         try:
