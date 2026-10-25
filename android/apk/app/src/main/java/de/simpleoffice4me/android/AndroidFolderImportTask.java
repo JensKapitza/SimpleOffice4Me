@@ -149,6 +149,8 @@ final class AndroidFolderImportTask implements Runnable {
                 notifyListener("scanning", 0, 0, "Ordner und Dateigrößen werden geprüft …");
                 preparedUpload = prepareUpload();
                 checkCancelled();
+                // Preview is actionable immediately; do not reject a quick confirmation as busy.
+                synchronized (this) { running = false; }
                 notifyListener("preview", preparedUpload.files.size(), preparedUpload.files.size(),
                         preparedUpload.previewMessage);
                 return;
@@ -533,6 +535,9 @@ final class AndroidFolderImportTask implements Runnable {
         if ((responseCode == HttpURLConnection.HTTP_MOVED_TEMP
                 || responseCode == HttpURLConnection.HTTP_SEE_OTHER)
                 && isDocumentsRedirect(location)) return;
+        if (responseCode == 409) {
+            throw new ImportFailure("Ein Upload-Teilpaket wurde nicht vollständig gespeichert. Import gestoppt.");
+        }
         if (responseCode == 413) {
             throw new ImportFailure("Der Upload ist größer als das konfigurierte Limit.");
         }
