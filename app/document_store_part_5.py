@@ -7,6 +7,7 @@ from .sqlite_utils import connect as sqlite_connect
 
 from .document_store_core import *  # noqa: F401,F403
 from .file_lock import exclusive_file_lock
+from .ocr_preprocessing import OCR_RENDER_EDGE
 
 MAX_EML_INDEX_BYTES = 25 * 1024 * 1024
 MAX_MANUAL_ANALYSIS_BYTES = 128 * 1024 * 1024
@@ -21,7 +22,7 @@ class _DocumentStorePart5:
                 result = subprocess.run([executable, "-layout", str(path), "-"], capture_output=True, text=True, timeout=90, check=False)
             except subprocess.TimeoutExpired as exc:
                 raise RuntimeError("PDF text extraction timed out after 90 seconds") from exc
-            if result.returncode == 0:
+            if result.returncode == 0 and result.stdout.strip():
                 return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
 
         # GitHub Actions and portable installations do not necessarily provide
@@ -30,29 +31,71 @@ class _DocumentStorePart5:
             from pypdf import PdfReader
 
             reader = PdfReader(str(path))
-            return "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+            python_text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+            if python_text or not executable:
+                return python_text
+            return ""
         except Exception as exc:
             if executable:
                 raise RuntimeError(result.stderr.strip() or "PDF text extraction failed") from exc
             raise RuntimeError("PDF text extraction requires pypdf when pdftotext is unavailable") from exc
 
-    def _pdf_image_ocr(self, path: Path) -> str:
-        return "\n".join(self._pdf_rendered_ocr(path))
+    def _pdf_image_ocr(self, path: Path) -> dict[str, Any]:
+        return self._pdf_rendered_ocr(path)
 
-    def _pdf_rendered_ocr(self, path: Path) -> list[str]:
+    def _pdf_page_ocr(
+        self, source: Path, target: Path, tesseract: str | None,
+    ) -> tuple[str, list[str]]:
+        from .object_vision import analyze_ocr
+        from .ocr_preprocessing import needs_ocr_supplement, prepare_ocr_image
+
+        prepare_ocr_image(source, target)
+        ml_result = analyze_ocr(target, fallback_tesseract=False)
+        ml_text = str(ml_result.get("text") or "").strip()
+        if ml_result.get("status") == "completed" and ml_text:
+            if not tesseract or not needs_ocr_supplement(ml_text, ml_result.get("confidence")):
+                return ml_text, ["rapidocr"]
+            try:
+                tesseract_text = self._image_ocr(target, timeout=30)
+            except (OSError, RuntimeError, ValueError):
+                return ml_text, ["rapidocr"]
+            if not tesseract_text:
+                return ml_text, ["rapidocr"]
+            lines = ml_text.splitlines()
+            known = {" ".join(line.split()).casefold() for line in lines if line.strip()}
+            for line in tesseract_text.splitlines():
+                normalized = " ".join(line.split()).casefold()
+                if line.strip() and normalized not in known:
+                    lines.append(line.rstrip())
+                    known.add(normalized)
+            return "\n".join(lines).strip(), ["rapidocr", "tesseract"]
+        if not tesseract:
+            raise RuntimeError("RapidOCR hat keinen Text erkannt und Tesseract ist nicht installiert")
+        return self._image_ocr(target, timeout=30), ["tesseract"]
+
+    def _pdf_rendered_ocr(self, path: Path) -> dict[str, Any]:
         renderer = shutil.which("pdftoppm")
-        if not renderer or not shutil.which("tesseract"):
-            return []
+        tesseract = shutil.which("tesseract")
+        if not renderer:
+            return {"status": "unavailable", "text": "", "engines": [], "pages_total": 0,
+                    "pages_processed": 0, "pages_with_text": 0, "failed_pages": 0,
+                    "error": "Poppler pdftoppm is not installed"}
         try:
             from pypdf import PdfReader
 
             page_count = len(PdfReader(str(path)).pages)
-        except Exception:
-            return []
+        except Exception as exc:
+            return {"status": "failed", "text": "", "engines": [], "pages_total": 0,
+                    "pages_processed": 0, "pages_with_text": 0, "failed_pages": 0,
+                    "error": f"PDF page count could not be read ({type(exc).__name__})"}
         if page_count < 1:
-            return []
+            return {"status": "failed", "text": "", "engines": [], "pages_total": 0,
+                    "pages_processed": 0, "pages_with_text": 0, "failed_pages": 0,
+                    "error": "PDF contains no pages"}
         with tempfile.TemporaryDirectory(prefix="simpleoffice-pdf-ocr-") as temp:
-            texts: list[str] = []
+            page_text: dict[int, str] = {}
+            failed_pages: set[int] = set()
+            engines: set[str] = set()
             batch_size = 10
             for first_page in range(1, page_count + 1, batch_size):
                 last_page = min(page_count, first_page + batch_size - 1)
@@ -62,7 +105,7 @@ class _DocumentStorePart5:
                     pattern = f"{prefix.name}-*.png"
                     try:
                         result = subprocess.run(
-                            [renderer, "-f", str(start), "-l", str(end), "-scale-to", "1800", "-png", "--", str(path), str(prefix)],
+                            [renderer, "-f", str(start), "-l", str(end), "-scale-to", str(OCR_RENDER_EDGE), "-gray", "-png", "--", str(path), str(prefix)],
                             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90, check=False,
                         )
                     except (OSError, subprocess.TimeoutExpired):
@@ -84,21 +127,43 @@ class _DocumentStorePart5:
                     for image_path in images:
                         image_path.unlink(missing_ok=True)
                     images = []
+                    page_images: list[tuple[int, Path]] = []
                     for page in range(first_page, last_page + 1):
-                        images.extend(render(page, page))
+                        rendered_page = render(page, page)
+                        if len(rendered_page) != 1:
+                            failed_pages.add(page)
+                        else:
+                            page_images.append((page, rendered_page[0]))
+                else:
+                    page_images = [
+                        (first_page + offset, image_path)
+                        for offset, image_path in enumerate(images)
+                    ]
 
-                for image_path in images:
+                for page_number, image_path in page_images:
+                    enhanced_path = Path(temp) / f"ocr-{page_number:06d}.png"
                     try:
-                        text = self._image_ocr(image_path, timeout=30)
-                    except RuntimeError:
-                        text = ""
-                    if text:
-                        texts.append(text)
-                    try:
-                        image_path.unlink()
-                    except OSError:
-                        pass
-            return texts
+                        text, page_engines = self._pdf_page_ocr(image_path, enhanced_path, tesseract)
+                        engines.update(page_engines)
+                        page_text[page_number] = text
+                    except (OSError, RuntimeError, ValueError):
+                        failed_pages.add(page_number)
+                    finally:
+                        image_path.unlink(missing_ok=True)
+                        enhanced_path.unlink(missing_ok=True)
+
+        texts = [page_text[number] for number in range(1, page_count + 1) if page_text.get(number)]
+        processed = len(page_text)
+        return {
+            "status": "partial" if failed_pages else "completed",
+            "text": "\n".join(texts),
+            "engines": sorted(engines),
+            "pages_total": page_count,
+            "pages_processed": processed,
+            "pages_with_text": len(texts),
+            "failed_pages": len(failed_pages),
+            "error": "Some PDF pages could not be rendered or recognized" if failed_pages else "",
+        }
 
     @staticmethod
     def _file_text(path: Path) -> tuple[str, str]:
@@ -266,7 +331,7 @@ class _DocumentStorePart5:
             raise RuntimeError(f"OCR timed out after {timeout} seconds") from exc
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "Tesseract OCR failed")
-        return " ".join(result.stdout.split())
+        return "\n".join(line.rstrip() for line in result.stdout.splitlines()).strip()
 
     def _save_document(self, metadata: dict[str, Any]) -> None:
         atomic_json_write(self.documents / f"{metadata['document_id']}.json", metadata)

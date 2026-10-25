@@ -280,7 +280,7 @@ def quick_search():
 def refresh_document_search():
     try:
         updated = _store().refresh_missing_text(str(g.user["username"]))
-        flash(f"Textextraktion aktualisiert: {updated} Dokument(e) ergänzt.")
+        flash(f"Textextraktion und OCR nachgearbeitet: {updated} Dokument(e) aktualisiert.")
     except (OSError, RuntimeError, ValueError) as exc:
         flash(f"Textextraktion fehlgeschlagen: {exc}")
     return redirect(url_for("documents.document_search", q=request.form.get("q", "").strip()))
