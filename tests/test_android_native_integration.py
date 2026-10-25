@@ -333,6 +333,7 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
     def test_native_folder_import_is_scoped_bounded_authenticated_and_cancellable(self):
         activity = self.read(JAVA / "MainActivity.java")
         importer = self.read(JAVA / "AndroidFolderImportTask.java")
+        inventory = self.read(JAVA / "AndroidFolderImportInventory.java")
         grant_store = self.read(JAVA / "AndroidFolderImportGrantStore.java")
         backup_rules = self.read(
             ROOT / "android" / "apk" / "app" / "src" / "main" / "res" / "xml" / "backup_rules.xml"
@@ -369,9 +370,14 @@ class AndroidNativeIntegrationTests(unittest.TestCase):
         self.assertIn('notifyListener("retry"', importer)
         self.assertIn("preservingForActivityDestroy", importer)
         self.assertIn("responseCode == 429 || responseCode >= 500", importer)
+        self.assertIn("extends AbstractList<AndroidFolderImportInventory.Entry>", inventory)
+        self.assertIn("readRange(completedSortKey, 100)", importer)
+        self.assertIn("CREATE TABLE files", inventory)
+        self.assertIn("CREATE TABLE directories", inventory)
+        self.assertNotIn("List<Child>", importer)
         self.assertIn("MAX_TREES = 20", importer)
         self.assertNotIn("MAX_FILES = 1000", importer)
-        self.assertIn("prepareUpload(batch.files.subList(completedFiles, end), importId)", importer)
+        self.assertIn("prepareUpload(partFiles, importId)", importer)
         self.assertIn("requestBodySent = false;", importer)
         self.assertIn("MAX_DEPTH = 64", importer)
         self.assertIn("MAX_MANIFEST_BYTES = 400000", importer)

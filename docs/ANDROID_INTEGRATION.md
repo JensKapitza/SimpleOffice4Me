@@ -120,6 +120,11 @@ fortgesetzt werden. Die Dateianzahl eines Importvorgangs ist nicht begrenzt.
 
 - höchstens 20 SAF-Wurzeln und maximal 64 Verzeichnisebenen; keine feste
   Dateianzahlgrenze;
+- Verzeichniswarteschlange, besuchte SAF-Verzeichnisse und Dateimetadaten liegen
+  in einer temporären SQLite-Datei im App-Cache. Im Arbeitsspeicher bleiben nur
+  der aktuelle Ordnercursor und Upload-Teilpakete mit höchstens 100 Dateien;
+  nach Abbruch oder Abschluss wird die Datei gelöscht, verwaiste Dateien älter
+  als sieben Tage werden beim nächsten Import entfernt;
 - pro Anfrage höchstens 100 Dateien; relative Pfad- und Quell-ID-Listen sowie
   gesamte Anfragegröße sind pro Teilpaket begrenzt;
 - Dateiinhalte werden mit begrenztem Puffer übertragen und die gesamte Anfrage
@@ -137,9 +142,8 @@ fortgesetzt werden. Die Dateianzahl eines Importvorgangs ist nicht begrenzt.
   diese Marker werden nicht in Cloud-Backup oder Geräteübertragung aufgenommen;
 - bereits in **Einstellungen → Lokale Ordner** gespeicherte Berechtigungen werden
   wiederverwendet und nach dem Import nicht durch die Importwarteschlange widerrufen;
-- leere Verzeichnisse werden nicht importiert; zwei ausgewählte Wurzeln mit
-  gleichem Namen werden abgelehnt, damit sich Zielpfade nicht überschreiben;
-  stattdessen kann der gemeinsame übergeordnete Ordner gewählt werden;
+- leere Verzeichnisse werden nicht importiert; gleichnamige ausgewählte Wurzeln
+  erhalten anhand ihrer stabilen Quellkennung kollisionsfreie Zielnamen;
 - liefert ein Dokumentanbieter keine Dateigröße, wird der Batch vor dem Upload
   abgebrochen, statt eine unbeschränkte Anfrage zu starten.
 

@@ -3,6 +3,7 @@ package de.simpleoffice4me.android;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
+import android.database.sqlite.SQLiteException;
 import android.net.Uri;
 import android.os.CancellationSignal;
 import android.provider.DocumentsContract;
@@ -25,7 +26,6 @@ import java.security.MessageDigest;
 import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -72,6 +72,7 @@ final class AndroidFolderImportTask implements Runnable {
     private String importId;
     private int completedFiles;
     private long completedBytes;
+    private String completedSortKey = "";
     private final AtomicBoolean grantsReleased = new AtomicBoolean();
 
     AndroidFolderImportTask(Context context, List<Uri> treeUris, List<Uri> ownedGrantUris,
@@ -91,6 +92,7 @@ final class AndroidFolderImportTask implements Runnable {
         cancelActiveWork();
         if (preparedUpload != null && !running && !finished) {
             finished = true;
+            closePreparedInventory();
             releaseOwnedGrants();
             notifyListener("cancelled", 0, 0, "Ordnerimport abgebrochen.");
         }
@@ -102,6 +104,7 @@ final class AndroidFolderImportTask implements Runnable {
         preservingForActivityDestroy = true;
         cancelled = true;
         cancelActiveWork();
+        if (!running) closePreparedInventory();
         return true;
     }
 
@@ -192,6 +195,11 @@ final class AndroidFolderImportTask implements Runnable {
             }
             if (!confirmed) return;
             PreparedUpload batch = preparedUpload;
+            if (!(batch.files instanceof AndroidFolderImportInventory)) {
+                throw new ImportFailure("Die geprüfte Dateiliste ist nicht mehr verfügbar.");
+            }
+            AndroidFolderImportInventory inventory = (AndroidFolderImportInventory) batch.files;
+            int totalFiles = batch.files.size();
             notifyListener("uploading", completedFiles, batch.files.size(),
                     String.format(Locale.ROOT, "%d von %d Dateien, %.1f von %.1f MiB werden importiert …",
                             completedFiles, batch.files.size(), completedBytes / 1048576.0,
@@ -199,33 +207,38 @@ final class AndroidFolderImportTask implements Runnable {
             if (importId == null || importId.isEmpty()) {
                 importId = java.util.UUID.randomUUID().toString().replace("-", "");
             }
-            while (completedFiles < batch.files.size()) {
+            while (completedFiles < totalFiles) {
                 checkCancelled();
-                int end = completedFiles;
+                List<AndroidFolderImportInventory.Entry> candidates = inventory.readRange(completedSortKey, 100);
+                if (candidates.isEmpty()) {
+                    throw new ImportFailure("Die geprüfte Dateiliste ist unvollständig.");
+                }
+                List<AndroidFolderImportInventory.Entry> partFiles = new ArrayList<>(candidates.size());
                 long bytes = 0;
                 int pathBytes = 2;
-                while (end < batch.files.size()) {
-                    Entry entry = batch.files.get(end);
+                for (AndroidFolderImportInventory.Entry entry : candidates) {
                     int nextPathBytes = entry.relativePath.getBytes(StandardCharsets.UTF_8).length * 2 + 8;
                     long nextBytes = entry.size + nextPathBytes + 4096;
-                    if (end > completedFiles && (bytes + nextBytes > maxRequestBytes
-                            || pathBytes + nextPathBytes > MAX_MANIFEST_BYTES
-                            || end - completedFiles >= 100)) break;
+                    if (!partFiles.isEmpty() && (bytes + nextBytes > maxRequestBytes
+                            || pathBytes + nextPathBytes > MAX_MANIFEST_BYTES)) break;
                     if (nextBytes > maxRequestBytes || nextPathBytes > MAX_MANIFEST_BYTES) {
                         throw new ImportFailure("Eine einzelne Datei überschreitet das Upload-Limit.");
                     }
                     bytes += nextBytes;
                     pathBytes += nextPathBytes;
-                    end++;
+                    partFiles.add(entry);
                 }
-                PreparedUpload part = prepareUpload(batch.files.subList(completedFiles, end), importId);
+                int end = completedFiles + partFiles.size();
+                PreparedUpload part = prepareUpload(partFiles, importId);
                 upload(part.boundary, part.files, part.fileHeaders, part.folderField,
                         part.manifestField, part.sourceIdsField, part.closing, part.bodyLength);
                 requestBodySent = false;
-                for (int index = completedFiles; index < end; index++) {
-                    completedBytes = Math.addExact(completedBytes, batch.files.get(index).size);
+                for (AndroidFolderImportInventory.Entry entry : partFiles) {
+                    completedBytes = Math.addExact(completedBytes, entry.size);
                 }
+                completedSortKey = partFiles.get(partFiles.size() - 1).sortKey;
                 completedFiles = end;
+                inventory.touch();
                 notifyListener("uploading", completedFiles, batch.files.size(),
                         String.format(Locale.ROOT, "%d von %d Dateien, %.1f von %.1f MiB verarbeitet.",
                                 completedFiles, batch.files.size(), completedBytes / 1048576.0,
@@ -283,6 +296,13 @@ final class AndroidFolderImportTask implements Runnable {
                 notifyListener("retry", completedFiles, preparedUpload.files.size(),
                         "Import unterbrochen. Verbindung prüfen und Import fortsetzen.");
             }
+        } catch (SQLiteException error) {
+            if (preserveForActivityRestart()) return;
+            finished = true;
+            terminal = true;
+            notifyListener("error", completedFiles,
+                    preparedUpload == null ? 0 : preparedUpload.files.size(),
+                    "Der temporäre Gerätespeicher reicht für die Dateiliste nicht aus.");
         } catch (RuntimeException error) {
             if (preserveForActivityRestart()) return;
             finished = true;
@@ -295,6 +315,7 @@ final class AndroidFolderImportTask implements Runnable {
             HttpURLConnection active = connection;
             if (active != null) active.disconnect();
             if (terminal) releaseOwnedGrants();
+            if (terminal || preservingForActivityDestroy) closePreparedInventory();
             if (!terminal && !retryPending && preparedUpload != null && !confirmed && !cancelled) {
                 notifyListener("preview", preparedUpload.files.size(), preparedUpload.files.size(),
                         preparedUpload.previewMessage);
@@ -303,19 +324,28 @@ final class AndroidFolderImportTask implements Runnable {
     }
 
     private PreparedUpload prepareUpload() throws ImportFailure, IOException {
-        List<Entry> files = collectFiles();
-        checkCancelled();
-        long totalBytes = 0;
-        for (Entry entry : files) totalBytes = Math.addExact(totalBytes, entry.size);
-        String preview = files.size() + " Datei(en), "
-                + String.format(Locale.ROOT, "%.1f", totalBytes / 1048576.0)
-                + " MiB aus " + treeUris.size()
-                + " Ordner(n). Import erfolgt in Teilpaketen. Bitte bestätigen.";
-        return new PreparedUpload("", files, Collections.emptyList(), new byte[0],
-                new byte[0], new byte[0], new byte[0], 0, totalBytes, preview);
+        AndroidFolderImportInventory files = collectFiles();
+        try {
+            checkCancelled();
+            if (files.size() == 0) {
+                throw new ImportFailure("Der ausgewählte Ordner enthält keine Dateien.");
+            }
+            long totalBytes = files.totalBytes();
+            String preview = files.size() + " Datei(en), "
+                    + String.format(Locale.ROOT, "%.1f", totalBytes / 1048576.0)
+                    + " MiB aus " + treeUris.size()
+                    + " Ordner(n). Import erfolgt in Teilpaketen. Bitte bestätigen.";
+            return new PreparedUpload("", files, Collections.emptyList(), new byte[0],
+                    new byte[0], new byte[0], new byte[0], 0, totalBytes, preview);
+        } catch (IOException | RuntimeException error) {
+            files.close();
+            throw error;
+        }
     }
 
-    private PreparedUpload prepareUpload(List<Entry> files, String importId) throws ImportFailure, IOException {
+    private PreparedUpload prepareUpload(
+            List<AndroidFolderImportInventory.Entry> files, String importId)
+            throws ImportFailure, IOException {
         if (files.isEmpty()) throw new ImportFailure("Der ausgewählte Ordner enthält keine Dateien.");
         String boundary = "----SimpleOfficeFolder" + java.util.UUID.randomUUID().toString().replace("-", "");
         byte[] folderField = formField(boundary, "folder_import", "1");
@@ -331,7 +361,7 @@ final class AndroidFolderImportTask implements Runnable {
         long bodyLength = folderField.length;
         long totalBytes = 0;
         List<byte[]> fileHeaders = new ArrayList<>(files.size());
-        for (Entry entry : files) {
+        for (AndroidFolderImportInventory.Entry entry : files) {
             paths.put(entry.relativePath);
             sourceIds.put(entry.sourceIdentity);
             byte[] header = fileHeader(boundary, entry.fileName());
@@ -378,47 +408,49 @@ final class AndroidFolderImportTask implements Runnable {
         }
     }
 
-    private List<Entry> collectFiles() throws ImportFailure, IOException {
+    private AndroidFolderImportInventory collectFiles() throws ImportFailure, IOException {
         ContentResolver resolver = context.getContentResolver();
-        List<Entry> result = new ArrayList<>();
+        AndroidFolderImportInventory result = new AndroidFolderImportInventory(context);
         Set<String> rootNames = new HashSet<>();
-        for (Uri treeUri : treeUris) {
-            checkCancelled();
-            String rootId;
-            try {
-                rootId = DocumentsContract.getTreeDocumentId(treeUri);
-            } catch (IllegalArgumentException error) {
-                throw new ImportFailure("Ein ausgewählter Ordner ist ungültig.");
+        try {
+            result.beginScan();
+            for (Uri treeUri : treeUris) {
+                checkCancelled();
+                String rootId;
+                try {
+                    rootId = DocumentsContract.getTreeDocumentId(treeUri);
+                } catch (IllegalArgumentException error) {
+                    throw new ImportFailure("Ein ausgewählter Ordner ist ungültig.");
+                }
+                String rootName = validateSegment(queryDisplayName(
+                        DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner"));
+                String sourceIdentity = stableSourceIdentity(context, treeUri);
+                String importRootName = FolderImportRootNames.reserve(rootName, sourceIdentity, rootNames);
+                String treeKey = sourceIdentity;
+                if (!result.markVisited(treeKey, rootId)) {
+                    throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
+                }
+                result.enqueueDirectory(treeUri, rootId, importRootName, sourceIdentity, treeKey, 0);
             }
-            String rootName = validateSegment(queryDisplayName(
-                    DocumentsContract.buildDocumentUriUsingTree(treeUri, rootId), "Ordner"));
-            String sourceIdentity = stableSourceIdentity(context, treeUri);
-            String importRootName = FolderImportRootNames.reserve(rootName, sourceIdentity, rootNames);
-            Set<String> visitedDirectories = new HashSet<>();
-            visitedDirectories.add(rootId);
-            collectDirectory(resolver, treeUri, rootId, importRootName, sourceIdentity, 0,
-                    visitedDirectories, result);
-        }
-        Set<String> destinationPaths = new HashSet<>();
-        for (Entry entry : result) {
-            if (!destinationPaths.add(collisionKey(entry.relativePath))) {
-                throw new ImportFailure("Der Ordner enthält doppelte Dateipfade.");
+            AndroidFolderImportInventory.Directory directory;
+            while ((directory = result.nextDirectory()) != null) {
+                collectDirectory(resolver, directory, result);
             }
+            result.finishScan();
+            return result;
+        } catch (IOException | RuntimeException error) {
+            result.close();
+            throw error;
         }
-        return result;
     }
 
-    private static String collisionKey(String path) {
-        return Normalizer.normalize(path, Normalizer.Form.NFC).toLowerCase(Locale.ROOT);
-    }
-
-    private void collectDirectory(ContentResolver resolver, Uri treeUri, String directoryId, String parentPath,
-            String sourceIdentity, int depth, Set<String> visitedDirectories, List<Entry> result)
+    private void collectDirectory(ContentResolver resolver,
+            AndroidFolderImportInventory.Directory directory, AndroidFolderImportInventory result)
             throws ImportFailure, IOException {
         checkCancelled();
-        if (depth > MAX_DEPTH) throw new ImportFailure("Der Ordner ist zu tief verschachtelt.");
-        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directoryId);
-        List<Child> children = new ArrayList<>();
+        if (directory.depth > MAX_DEPTH) throw new ImportFailure("Der Ordner ist zu tief verschachtelt.");
+        Uri treeUri = Uri.parse(directory.treeUri);
+        Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, directory.documentId);
         CancellationSignal querySignal = new CancellationSignal();
         activeQuery = querySignal;
         if (cancelled) querySignal.cancel();
@@ -434,6 +466,7 @@ final class AndroidFolderImportTask implements Runnable {
             int mimeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE);
             int sizeColumn = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_SIZE);
             while (cursor.moveToNext()) {
+                checkCancelled();
                 String childId = cursor.getString(idColumn);
                 String name = validateSegment(cursor.getString(nameColumn));
                 String mime = cursor.getString(mimeColumn);
@@ -441,35 +474,29 @@ final class AndroidFolderImportTask implements Runnable {
                 if (childId == null || childId.isEmpty()) {
                     throw new ImportFailure("Android hat einen ungültigen Dateieintrag geliefert.");
                 }
-                children.add(new Child(childId, name, mime, size));
+                String path = directory.relativePath + "/" + name;
+                if (path.getBytes(StandardCharsets.UTF_8).length > MAX_PATH_BYTES) {
+                    throw new ImportFailure("Ein relativer Ordnerpfad ist zu lang.");
+                }
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                    if (!result.markVisited(directory.treeKey, childId)) {
+                        throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
+                    }
+                    result.enqueueDirectory(treeUri, childId, path, directory.sourceIdentity,
+                            directory.treeKey, directory.depth + 1);
+                    continue;
+                }
+                if (size < 0) {
+                    throw new ImportFailure("Android kann die Größe einer Datei nicht bestimmen. Bitte einen anderen Ordneranbieter verwenden.");
+                }
+                Uri fileUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId);
+                result.addEntry(new AndroidFolderImportInventory.Entry(
+                        fileUri, path, size, directory.sourceIdentity));
             }
         } catch (IllegalArgumentException error) {
             throw new ImportFailure("Android konnte den Ordnerinhalt nicht lesen.");
         } finally {
             activeQuery = null;
-        }
-        Collections.sort(children, Comparator.comparing(child -> child.name.toLowerCase(Locale.ROOT)));
-        for (Child child : children) {
-            checkCancelled();
-            String path = parentPath + "/" + child.name;
-            if (path.getBytes(StandardCharsets.UTF_8).length > MAX_PATH_BYTES) {
-                throw new ImportFailure("Ein relativer Ordnerpfad ist zu lang.");
-            }
-            if (DocumentsContract.Document.MIME_TYPE_DIR.equals(child.mimeType)) {
-                if (!visitedDirectories.add(child.documentId)) {
-                    throw new ImportFailure("Der Ordneranbieter lieferte eine zyklische Verzeichnisstruktur.");
-                }
-                collectDirectory(resolver, treeUri, child.documentId, path, sourceIdentity, depth + 1,
-                        visitedDirectories, result);
-                continue;
-            }
-            if (child.size < 0) {
-                throw new ImportFailure("Android kann die Größe einer Datei nicht bestimmen. Bitte einen anderen Ordneranbieter verwenden.");
-            }
-            result.add(new Entry(
-                    DocumentsContract.buildDocumentUriUsingTree(treeUri, child.documentId),
-                    path, child.size, sourceIdentity
-            ));
         }
     }
 
@@ -535,7 +562,7 @@ final class AndroidFolderImportTask implements Runnable {
         return value;
     }
 
-    private void upload(String boundary, List<Entry> files, List<byte[]> headers,
+    private void upload(String boundary, List<AndroidFolderImportInventory.Entry> files, List<byte[]> headers,
             byte[] folderField, byte[] manifestField, byte[] sourceIdsField,
             byte[] closing, long bodyLength)
             throws IOException, ImportFailure {
@@ -564,7 +591,7 @@ final class AndroidFolderImportTask implements Runnable {
             byte[] buffer = new byte[BUFFER_SIZE];
             for (int index = 0; index < files.size(); index++) {
                 checkCancelled();
-                Entry entry = files.get(index);
+                AndroidFolderImportInventory.Entry entry = files.get(index);
                 output.write(headers.get(index));
                 long fileBytes = 0;
                 InputStream opened = context.getContentResolver().openInputStream(entry.uri);
@@ -742,23 +769,16 @@ final class AndroidFolderImportTask implements Runnable {
         return true;
     }
 
-    private static final class Child {
-        final String documentId;
-        final String name;
-        final String mimeType;
-        final long size;
-
-        Child(String documentId, String name, String mimeType, long size) {
-            this.documentId = documentId;
-            this.name = name;
-            this.mimeType = mimeType;
-            this.size = size;
+    private void closePreparedInventory() {
+        PreparedUpload batch = preparedUpload;
+        if (batch != null && batch.files instanceof AndroidFolderImportInventory) {
+            ((AndroidFolderImportInventory) batch.files).close();
         }
     }
 
     private static final class PreparedUpload {
         final String boundary;
-        final List<Entry> files;
+        final List<AndroidFolderImportInventory.Entry> files;
         final List<byte[]> fileHeaders;
         final byte[] folderField;
         final byte[] manifestField;
@@ -768,7 +788,8 @@ final class AndroidFolderImportTask implements Runnable {
         final long totalBytes;
         final String previewMessage;
 
-        PreparedUpload(String boundary, List<Entry> files, List<byte[]> fileHeaders,
+        PreparedUpload(String boundary, List<AndroidFolderImportInventory.Entry> files,
+                List<byte[]> fileHeaders,
                 byte[] folderField, byte[] manifestField, byte[] sourceIdsField, byte[] closing,
                 long bodyLength, long totalBytes, String previewMessage) {
             this.boundary = boundary;
@@ -784,25 +805,7 @@ final class AndroidFolderImportTask implements Runnable {
         }
     }
 
-    private static final class Entry {
-        final Uri uri;
-        final String relativePath;
-        final long size;
-        final String sourceIdentity;
-
-        Entry(Uri uri, String relativePath, long size, String sourceIdentity) {
-            this.uri = uri;
-            this.relativePath = relativePath;
-            this.size = size;
-            this.sourceIdentity = sourceIdentity;
-        }
-
-        String fileName() {
-            return relativePath.substring(relativePath.lastIndexOf('/') + 1);
-        }
-    }
-
-    private static final class ImportFailure extends IOException {
+    static final class ImportFailure extends IOException {
         ImportFailure(String message) {
             super(message);
         }
