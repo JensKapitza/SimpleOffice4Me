@@ -79,7 +79,7 @@
       </div>
     </div>
     <ul class="list-group" aria-label="{{ 'Archive contents' if g.language == 'en' else 'Archivinhalt' }}">
-      {% for item in preview.archive.items %}
+      {% for item in preview.archive['items'] %}
       <li class="list-group-item d-flex justify-content-between gap-3 archive-preview-item">
         <span class="text-break">{{ item.name }}</span>
         <small class="text-secondary text-nowrap">{% if item.kind == 'chapter' %}{{ 'Chapter' if g.language == 'en' else 'Kapitel' }} {{ item.index + 1 }}{% elif item.kind == 'folder' %}{{ 'Folder' if g.language == 'en' else 'Ordner' }}{% else %}{{ item.size }} Bytes{% endif %}</small>
