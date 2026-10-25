@@ -47,6 +47,13 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         project = tomllib.loads((Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8"))
         self.assertIn("rapidocr==3.10.0", project["project"]["optional-dependencies"]["ocr"])
 
+    def test_cyclonedx_intel_macos_asset_uses_release_sha256(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/desktop-build.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            "digest=0ea92306fc7d7c30ed112a7463781a200585a3bf1cdaf77229181c5aabd1d4b6",
+            workflow,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
