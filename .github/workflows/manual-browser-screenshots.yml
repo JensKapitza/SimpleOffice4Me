@@ -281,6 +281,7 @@ jobs:
         run: |
           docker rm -f simpleoffice-browser-peer-a simpleoffice-browser-peer-b >/dev/null 2>&1 || true
           docker network rm simpleoffice-browser-p2p >/dev/null 2>&1 || true
+          docker volume rm "simpleoffice-browser-peer-a-${GITHUB_RUN_ID}" "simpleoffice-browser-peer-b-${GITHUB_RUN_ID}" >/dev/null 2>&1 || true
 
       - name: Upload screenshots and diagnostics
         if: always()
