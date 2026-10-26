@@ -107,6 +107,7 @@ def configure_peer(
     peer_docker_url: str,
     peer_token: str,
     allow_documents: bool = False,
+    probe_connection: bool = True,
 ) -> None:
     response = page.goto(
         f"{base_url}/admin/federation?view=peers", wait_until="domcontentloaded"
@@ -157,13 +158,14 @@ def configure_peer(
     if "Federation-Peer gespeichert." not in page.locator("body").inner_text():
         raise RuntimeError(f"Peer {peer_id} wurde nicht gespeichert.")
 
-    row = page.locator("tr").filter(has_text=peer_id).first
-    row.get_by_role(
-        "button", name="Verbindung testen", exact=True
-    ).click()
-    page.wait_for_load_state("domcontentloaded")
-    if "Peer erreichbar:" not in page.locator("body").inner_text():
-        raise RuntimeError(f"Peer {peer_id} ist nicht erreichbar.")
+    if probe_connection:
+        row = page.locator("tr").filter(has_text=peer_id).first
+        row.get_by_role(
+            "button", name="Verbindung testen", exact=True
+        ).click()
+        page.wait_for_load_state("domcontentloaded")
+        if "Peer erreichbar:" not in page.locator("body").inner_text():
+            raise RuntimeError(f"Peer {peer_id} ist nicht erreichbar.")
 
 
 def record_p2p_check(
@@ -253,6 +255,7 @@ def run_peer_to_peer(
             peer_docker_url=PEER_B_DOCKER_URL,
             peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
+            probe_connection=False,
         )
         configure_peer(
             page_b,
@@ -262,6 +265,24 @@ def run_peer_to_peer(
             peer_docker_url=PEER_A_DOCKER_URL,
             peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
+            probe_connection=False,
+        )
+        page_a.goto(
+            f"{BASE_URL}/admin/federation?view=peers",
+            wait_until="domcontentloaded",
+        )
+        peer_b_row = page_a.locator("tr").filter(has_text="peer-b").first
+        peer_b_row.get_by_role(
+            "button", name="Verbindung testen", exact=True
+        ).click()
+        page_a.wait_for_load_state("domcontentloaded")
+        if "Peer erreichbar:" not in page_a.locator("body").inner_text():
+            raise RuntimeError("Peer-bound capability probe failed for peer-b.")
+        record_p2p_check(
+            summary,
+            "peer_bound_capability_probe",
+            True,
+            "peer-a -> peer-b via SOFP-PEER-V1",
         )
         write_html_snapshot(
             page_a, "Federation Peer A", "p2p", summary, failures
