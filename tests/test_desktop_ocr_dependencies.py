@@ -33,7 +33,7 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         crypto = [req for req in requirements if req.name == "cryptography"]
         self.assertEqual(2, len(crypto))
         for platform, machine, expected in (
-            ("darwin", "x86_64", "==50.0.2"),
+            ("darwin", "x86_64", "==48.0.1"),
             ("darwin", "arm64", "<51,>=48.0.1"),
             ("linux", "x86_64", "<51,>=48.0.1"),
         ):
