@@ -335,7 +335,8 @@ def save_brother_printer_settings():
         )
         flash("Brother-Etikettendrucker wurde in der zentralen Druckerverwaltung gespeichert.")
     except (OSError, ValueError) as exc:
-        flash(f"Brother-Drucker konnte nicht gespeichert werden: {exc}")
+        current_app.logger.warning("Brother printer profile save failed (%s)", type(exc).__name__)
+        flash("Brother-Drucker konnte nicht gespeichert werden. Bitte Einstellungen prüfen.")
     return redirect(url_for("admin.printer_settings"))
 
 
