@@ -325,6 +325,18 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertEqual(400, response.status_code)
             spool.assert_not_called()
 
+    def test_printer_device_failure_does_not_reflect_os_secrets(self):
+        secret = "smb://admin:secret-password@printer/share"
+        with patch("app.printershare_store.PrinterShareStore.set_printer", side_effect=OSError(secret)):
+            response = self.admin.post(
+                "/admin/settings/printers/devices/" + "a" * 24,
+                data={"kind": "normal", "label": "Office"},
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Druckerprofil konnte nicht gespeichert werden", response.get_data(as_text=True))
+
     def test_brother_printer_uri_rejects_credentials_and_is_not_reflected(self):
         response = self.admin.post(
             "/admin/settings/printers/brother",
