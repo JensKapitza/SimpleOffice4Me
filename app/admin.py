@@ -272,7 +272,8 @@ def save_printer_device(printer_id: str):
         )
         flash("Druckerprofil gespeichert.")
     except (OSError, ValueError) as exc:
-        flash(str(exc))
+        current_app.logger.warning("Printer device update failed (%s)", type(exc).__name__)
+        flash("Druckerprofil konnte nicht gespeichert werden. Bitte Eingaben prüfen.")
     return redirect(url_for("admin.printer_settings"))
 
 
