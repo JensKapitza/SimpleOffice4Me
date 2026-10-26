@@ -50,6 +50,12 @@ Alle Rechte gelten zusaetzlich pro Ressourcentyp und optional Sammlung/Projekt/K
 
 `GET /federation/v1/capabilities`
 
+Requests from persistently configured peers use the peer-bound `SOFP-PEER-V1`
+HMAC headers and that peer's unique token. The authenticated peer identity is
+used by resource-specific policy checks. The legacy global bearer remains
+available for compatibility, but is identity-neutral and cannot be used to
+evaluate per-peer policy.
+
 ```json
 {
   "protocol": "sofp",
