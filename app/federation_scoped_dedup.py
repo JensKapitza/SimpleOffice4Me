@@ -26,19 +26,19 @@ def _signed_get(
     *,
     timeout: int = 120,
 ):
-    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
-    if not source_token:
+    shared_bearer = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not shared_bearer:
         raise ValueError("Lokaler Federation-Token fehlt für peer-signiertes V2-Dedup")
     headers = peer_auth_headers(
         local_peer_id(),
-        source_token,
+        token,
         "GET",
         path,
         b"",
     )
     return _request(
         peer["base_url"] + path,
-        token=token,
+        token=shared_bearer,
         headers=headers,
         timeout=timeout,
     )
@@ -117,17 +117,17 @@ def scoped_deduplicated_download(
                     + f"/blocks/{int(block['index'])}"
                 )
                 endpoint = f"{peer['base_url']}{path}?{query}"
-                source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
-                if not source_token:
+                shared_bearer = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+                if not shared_bearer:
                     raise ValueError("Lokaler Federation-Token fehlt für peer-signiertes V2-Dedup")
                 headers = peer_auth_headers(
                     local_peer_id(),
-                    source_token,
+                    token,
                     "GET",
                     path,
                     b"",
                 )
-                with _request(endpoint, token=token, headers=headers, timeout=120) as response:
+                with _request(endpoint, token=shared_bearer, headers=headers, timeout=120) as response:
                     data = response.read(length + 1)
                 digest = sha512_bytes(data)
                 actual = scoped_block_token(token, session, digest)
