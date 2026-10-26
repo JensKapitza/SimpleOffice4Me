@@ -59,8 +59,9 @@ def _request(
     request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     if token:
         request_headers["Authorization"] = f"Bearer {token}"
-        # Updated clients keep working after a blacklist disables unidentified
-        # shared-token traffic. Never replace an explicit protocol signature.
+        # Keep the target bearer separate from the local peer proof; older
+        # peers may still rely on the bearer alone. Never replace a protocol
+        # signature already bound to a more specific request contract.
         if "X-SimpleOffice-Peer-Signature" not in request_headers:
             request_headers.update(_configured_peer_proof(url, token, method, body or b""))
     req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
@@ -71,12 +72,15 @@ def _configured_peer_proof(url, token, method, body):
     from flask import current_app, has_app_context
     if not has_app_context() or not current_app.config.get("DOCUMENT_ROOT"):
         return {}
+    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    if not source_token:
+        return {}
     store = FederationStore(current_app.config["DOCUMENT_ROOT"])
     for peer in store.list_peers():
         base = peer["base_url"].rstrip("/")
         if peer["enabled"] and url.startswith(base + "/") and store.peer_token(peer["peer_id"]) == token:
             path = urllib.parse.urlsplit(url[len(base):]).path
-            return peer_auth_headers(local_peer_id(), token, method, path, body)
+            return peer_auth_headers(local_peer_id(), source_token, method, path, body)
     return {}
 
 

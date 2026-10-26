@@ -59,7 +59,6 @@ env:
   BROWSER_PEER_B_DOCKER_URL: http://peer-b:8080
   BROWSER_PEER_A_TOKEN: browser-peer-a-not-a-secret
   BROWSER_PEER_B_TOKEN: browser-peer-b-not-a-secret
-  BROWSER_PEER_LINK_TOKEN: browser-peer-link-not-a-secret
 
 jobs:
   browser-screenshot:

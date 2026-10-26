@@ -12,9 +12,10 @@ from flask import Flask
 
 from app.document_store import DocumentStore
 from app.federation_core import bitmap_encode, build_manifest
+from app.federation_peer_auth import sign as peer_auth_sign
 from app.federation_store import FederationStore
 from app.federation_moderation import FederationModerationStore
-from app.federation_worker import _find_blob, push_blob_to_peer, push_blob_to_transient_target
+from app.federation_worker import _configured_peer_proof, _find_blob, push_blob_to_peer, push_blob_to_transient_target
 from app.v2.blob_store import BlobStore
 from app.v2.catalog import ObjectCatalog
 from app.v2.cutover import activate_v2, prepare_shadow
@@ -139,6 +140,36 @@ class FederationWorkerStorageTests(unittest.TestCase):
 
     def test_v1_direct_transfer(self):
         self.assert_success()
+
+    def test_peer_proof_uses_local_identity_secret_not_target_bearer(self):
+        url = "https://peer.example.test/federation/v1/capabilities"
+        path = "/federation/v1/capabilities"
+        with patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-source-secret",
+                "SIMPLEOFFICE_FEDERATION_PEER_ID": "source-peer",
+            },
+        ):
+            headers = _configured_peer_proof(
+                url, "synthetic-peer-token", "GET", b""
+            )
+
+        self.assertEqual("source-peer", headers["X-SimpleOffice-Peer-ID"])
+        timestamp = int(headers["X-SimpleOffice-Peer-Timestamp"])
+        nonce = headers["X-SimpleOffice-Peer-Nonce"]
+        self.assertEqual(
+            peer_auth_sign(
+                "source-peer", "local-source-secret", "GET", path, timestamp, nonce, b""
+            ),
+            headers["X-SimpleOffice-Peer-Signature"],
+        )
+        self.assertNotEqual(
+            peer_auth_sign(
+                "source-peer", "synthetic-peer-token", "GET", path, timestamp, nonce, b""
+            ),
+            headers["X-SimpleOffice-Peer-Signature"],
+        )
 
     def test_compatibility_blob_lookup_handles_sqlite_tuple_rows(self):
         self.assertEqual(self.projection, _find_blob(self.root, self.document["sha256"]))
