@@ -392,6 +392,24 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("Zugangsdaten".encode("utf-8"), response.data)
         self.assertNotIn(b"secret", response.data)
 
+    def test_brother_profile_save_error_hides_transport_credentials(self):
+        secret = "tcp://operator:secret-password@192.168.1.50:9100"
+        with patch.object(PrinterShareStore, "set_brother_profile", side_effect=OSError(secret)):
+            response = self.admin.post(
+                "/admin/settings/printers/brother",
+                data={
+                    "uri": "tcp://192.168.1.50:9100",
+                    "model": "QL-820NWB", "label": "62",
+                    "font_name": "DejaVuSans", "font_size": "56",
+                    "color": "black", "align": "center",
+                },
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertNotIn("secret-password", response.get_data(as_text=True))
+        self.assertIn("Brother-Drucker konnte nicht gespeichert werden", response.get_data(as_text=True))
+
     def test_printer_test_page_is_admin_only_and_spools_ephemerally(self):
         printer = {
             "printer_id": "c" * 24, "name": "Office", "driver": "Test",
