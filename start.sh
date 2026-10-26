@@ -653,7 +653,7 @@ fi
 if [ "$IS_TERMUX" -eq 0 ] && [ "${SIMPLEOFFICE_WEB_EXPORT_INSTALL:-1}" != "0" ]; then
   echo "Webseitenexport: prüfe Playwright/Chromium in $VENV ..."
   if ! "$VENV/bin/python" -c 'import playwright.sync_api' >/dev/null 2>&1; then
-    if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.64.0'; then
+    if ! "$VENV/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'playwright==1.64.1'; then
       echo "WARNUNG: Playwright konnte nicht installiert werden; PDF/PNG-Webexport bleibt deaktiviert." >&2
     fi
   fi

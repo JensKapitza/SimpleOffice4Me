@@ -16,10 +16,10 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         onnx = [req for req in requirements if req.name == "onnxruntime"]
         self.assertEqual(2, len(onnx))
         for platform, machine, expected in (
-            ("darwin", "x86_64", "1.23.2"),
-            ("darwin", "arm64", "1.30.0"),
-            ("linux", "x86_64", "1.30.0"),
-            ("win32", "AMD64", "1.30.0"),
+            ("darwin", "x86_64", "1.31.0"),
+            ("darwin", "arm64", "1.31.0"),
+            ("linux", "x86_64", "1.31.0"),
+            ("win32", "AMD64", "1.31.0"),
         ):
             with self.subTest(platform=platform, machine=machine):
                 selected = [str(req.specifier) for req in onnx if req.marker.evaluate(
@@ -33,7 +33,7 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         crypto = [req for req in requirements if req.name == "cryptography"]
         self.assertEqual(2, len(crypto))
         for platform, machine, expected in (
-            ("darwin", "x86_64", "==48.0.1"),
+            ("darwin", "x86_64", "==50.0.2"),
             ("darwin", "arm64", "<51,>=48.0.1"),
             ("linux", "x86_64", "<51,>=48.0.1"),
         ):
