@@ -407,11 +407,16 @@ class FederationStore:
         ids = list(dict.fromkeys(sanitize_peer_id(value) for value in peer_ids if str(value or "")))
         if not ids:
             return {}
-        placeholders = ",".join("?" for _ in ids)
         with self._db() as db:
+            db.execute("CREATE TEMP TABLE selected_diagnostic_peers(peer_id TEXT PRIMARY KEY)")
+            db.executemany(
+                "INSERT INTO selected_diagnostic_peers(peer_id) VALUES(?)",
+                ((peer_id,) for peer_id in ids),
+            )
             rows = db.execute(
-                f"SELECT * FROM federation_network_diagnostic WHERE peer_id IN ({placeholders}) ORDER BY peer_id,direction,source",
-                ids,
+                """SELECT diagnostic.* FROM federation_network_diagnostic AS diagnostic
+                   JOIN selected_diagnostic_peers AS selected USING(peer_id)
+                   ORDER BY diagnostic.peer_id,diagnostic.direction,diagnostic.source""",
             ).fetchall()
         result = {peer_id: [] for peer_id in ids}
         for row in rows:
@@ -492,11 +497,16 @@ class FederationStore:
         ids = list(dict.fromkeys(sanitize_peer_id(value) for value in peer_ids if str(value or "")))
         if not ids:
             return {}
-        placeholders = ",".join("?" for _ in ids)
         with self._db() as db:
+            db.execute("CREATE TEMP TABLE selected_manual_confirmation_peers(peer_id TEXT PRIMARY KEY)")
+            db.executemany(
+                "INSERT INTO selected_manual_confirmation_peers(peer_id) VALUES(?)",
+                ((peer_id,) for peer_id in ids),
+            )
             rows = db.execute(
-                f"SELECT peer_id,actor,outcome,confirmed_at FROM federation_network_manual_confirmation WHERE peer_id IN ({placeholders})",
-                ids,
+                """SELECT confirmation.peer_id,confirmation.actor,confirmation.outcome,confirmation.confirmed_at
+                   FROM federation_network_manual_confirmation AS confirmation
+                   JOIN selected_manual_confirmation_peers AS selected USING(peer_id)""",
             ).fetchall()
         return {
             str(row["peer_id"]): {
