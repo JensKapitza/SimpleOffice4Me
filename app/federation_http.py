@@ -241,7 +241,6 @@ def diagnostics_probe():
     if status != 200:
         return jsonify(result), status, {"Cache-Control": "no-store"}
     response = Response(result["body"], status=200, content_type="application/json; charset=utf-8")
-    response.headers["X-SimpleOffice-Diagnostic-Nonce"] = result["nonce"]
     response.headers["X-SimpleOffice-Diagnostic-Signature"] = result["signature"]
     response.headers["Cache-Control"] = "no-store"
     return response

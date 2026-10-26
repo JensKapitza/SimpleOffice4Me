@@ -177,10 +177,9 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         if len(raw) > MAX_RESPONSE_BYTES:
             return _record_failure(store, peer_id, started, "response_too_large", stages)
         stages["authentication"] = "checking_signature"
-        supplied_nonce = response.getheader("X-SimpleOffice-Diagnostic-Nonce", "")
         supplied_signature = response.getheader("X-SimpleOffice-Diagnostic-Signature", "").casefold()
         expected_signature = response_signature(token, nonce, raw)
-        if supplied_nonce != nonce or not hmac.compare_digest(expected_signature, supplied_signature):
+        if not hmac.compare_digest(expected_signature, supplied_signature):
             stages["authentication"] = "signature_failed"
             return _record_failure(store, peer_id, started, "authentication", stages)
         try:
@@ -188,7 +187,12 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         except (UnicodeDecodeError, json.JSONDecodeError):
             stages["authentication"] = "invalid_response"
             return _record_failure(store, peer_id, started, "authentication", stages)
-        if not isinstance(result, dict) or result.get("peer_id") != peer["peer_id"] or result.get("probe_id") != probe_id:
+        if (
+            not isinstance(result, dict)
+            or result.get("peer_id") != peer["peer_id"]
+            or result.get("probe_id") != probe_id
+            or result.get("request_nonce") != nonce
+        ):
             stages["authentication"] = "identity_mismatch"
             return _record_failure(store, peer_id, started, "authentication", stages)
         stages["authentication"] = "ok"
@@ -264,7 +268,10 @@ def accept_inbound_probe(root: str | Path, request) -> tuple[dict, int]:
         return {"error": "invalid_diagnostic_probe"}, 400
     timestamp = int(time.time())
     token = store.peer_token(peer_id)
-    payload = _json_bytes({"peer_id": local_peer_id(), "probe_id": probe_id, "received_at": timestamp})
+    payload = _json_bytes({
+        "peer_id": local_peer_id(), "probe_id": probe_id,
+        "request_nonce": nonce, "received_at": timestamp,
+    })
     signature = response_signature(token, nonce, payload)
     _record_inbound(
         store, peer_id, status="success", category="authenticated_probe",
@@ -272,6 +279,5 @@ def accept_inbound_probe(root: str | Path, request) -> tuple[dict, int]:
     )
     return {
         "body": payload,
-        "nonce": nonce,
         "signature": signature,
     }, 200

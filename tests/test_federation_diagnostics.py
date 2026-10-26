@@ -56,6 +56,7 @@ class _ProbeHandler(BaseHTTPRequestHandler):
         response_body = _json_bytes({
             "peer_id": "remote-peer",
             "probe_id": probe["probe_id"],
+            "request_nonce": "mismatched-nonce" if self.server.mismatched_response_nonce else nonce,
             "received_at": 1_800_000_000,
         })
         signature = response_signature(self.server.peer_token, nonce, response_body)
@@ -63,7 +64,6 @@ class _ProbeHandler(BaseHTTPRequestHandler):
             signature = "0" * 64
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
-        self.send_header("X-SimpleOffice-Diagnostic-Nonce", nonce)
         self.send_header("X-SimpleOffice-Diagnostic-Signature", signature)
         self.send_header("Content-Length", str(len(response_body)))
         self.end_headers()
@@ -136,7 +136,7 @@ class FederationDiagnosticsTests(unittest.TestCase):
         response, proof, _payload = self._inbound_request()
         self.assertEqual(200, response.status_code)
         self.assertEqual("no-store", response.headers["Cache-Control"])
-        self.assertEqual(proof["X-SimpleOffice-Peer-Nonce"], response.headers["X-SimpleOffice-Diagnostic-Nonce"])
+        self.assertEqual(proof["X-SimpleOffice-Peer-Nonce"], response.json["request_nonce"])
         self.assertEqual(
             response_signature(self.token, proof["X-SimpleOffice-Peer-Nonce"], response.data),
             response.headers["X-SimpleOffice-Diagnostic-Signature"],
@@ -196,6 +196,7 @@ class FederationDiagnosticsTests(unittest.TestCase):
         self.server.peer_token = self.token
         self.server.status = 200
         self.server.invalid_signature = False
+        self.server.mismatched_response_nonce = False
         self.server.request_count = 0
         self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.server_thread.start()
@@ -224,6 +225,14 @@ class FederationDiagnosticsTests(unittest.TestCase):
         self.assertEqual("authentication", signature_failure["category"])
         self.assertEqual("signature_failed", signature_failure["detail"]["stages"]["authentication"])
 
+        self.server.invalid_signature = False
+        self.server.mismatched_response_nonce = True
+        with self.app.app_context():
+            nonce_failure = probe_peer(self.root, "remote-peer")
+        self.assertEqual("authentication", nonce_failure["category"])
+        self.assertEqual("identity_mismatch", nonce_failure["detail"]["stages"]["authentication"])
+
+        self.server.mismatched_response_nonce = False
         self.server.invalid_signature = False
         self.server.status = 403
         with self.app.app_context():
