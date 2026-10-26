@@ -1,7 +1,9 @@
 import base64
 import tempfile
 import unittest
+from xml.etree import ElementTree
 from pathlib import Path
+from urllib.parse import quote
 
 from app import app
 from app.calendar_collections import CalendarCollections, CalendarConflict
@@ -35,6 +37,33 @@ class CalDavTest(unittest.TestCase):
         self.assertIn("supported-calendar-component-set", home.text); self.assertIn('name="VEVENT"', home.text)
         self.assertIn('name="VTODO"', home.text); self.assertIn("/tasks/", home.text)
         self.assertIn("sync-collection", options.headers["DAV"]); self.assertIn("calendar-access", options.headers["DAV"])
+
+    def test_authenticated_usernames_are_escaped_in_nested_xml_hrefs(self):
+        username = "<script>alert(1)</script>"
+        password = "malicious-but-authenticated-password"
+        self.store.activate(username, password, username)
+        authorization = base64.b64encode(f"{username}:{password}".encode()).decode()
+
+        response = self.client.open(
+            "/caldav/", method="PROPFIND", headers={"Authorization": f"Basic {authorization}"},
+        )
+
+        self.assertEqual(207, response.status_code)
+        self.assertEqual("application/xml; charset=utf-8", response.headers["Content-Type"])
+        self.assertEqual("nosniff", response.headers["X-Content-Type-Options"])
+        self.assertNotIn("<script>alert(1)</script>", response.get_data(as_text=True))
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", response.get_data(as_text=True))
+        ElementTree.fromstring(response.data)
+
+        principal = self.client.open(
+            f"/caldav/principals/{quote(username, safe='')}/",
+            method="PROPFIND",
+            headers={"Authorization": f"Basic {authorization}"},
+        )
+        self.assertEqual(207, principal.status_code)
+        self.assertNotIn("<script>alert(1)</script>", principal.get_data(as_text=True))
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", principal.get_data(as_text=True))
+        ElementTree.fromstring(principal.data)
 
     def test_vtodo_collection_roundtrip_query_conflict_and_sync(self):
         collection = "/caldav/calendars/admin/tasks/"; resource = collection + "offer.ics"
