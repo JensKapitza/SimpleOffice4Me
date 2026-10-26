@@ -181,7 +181,7 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertFalse(response.json["technical_verification"])
 
         body = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
-        self.assertIn("Benutzerbestätigung: Seite geöffnet", body)
+        self.assertIn("Benutzerbestätigung (aktuell): Seite geöffnet", body)
         self.assertIn("admin", body)
         self.assertIn("nicht technisch verifiziert", body)
 
