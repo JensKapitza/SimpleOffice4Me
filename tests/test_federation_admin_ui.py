@@ -1,6 +1,8 @@
 import json
 import re
+import shutil
 import sqlite3
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +19,21 @@ from app.federation_pairing_client import PairingClientError
 from app.federation_qr import encode_peer
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
+
+
+class FederationBrowserDiagnosticsFrontendTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is unavailable")
+    def test_browser_diagnostics_client_safety_and_statuses(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(root / "tests" / "federation_browser_diagnostics.test.cjs")],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 class FederationAdminUiTests(unittest.TestCase):
@@ -89,6 +106,23 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn("gesperrt", body)
         self.assertIn('id="fed-enabled" checked', body)
+
+    def test_browser_diagnostic_actions_only_render_for_http_peers(self):
+        store = FederationStore(self.root)
+        store.save_peer("web-peer", "Web Peer", "https://peer.example/base", "", enabled=True)
+        store.save_peer("other-peer", "Other Peer", "ftp://peer.example/files", "", enabled=True)
+
+        response = self.client.get("/admin/federation?view=peers")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("js/federation_browser_diagnostics.js", body)
+        self.assertIn('data-peer-open="web-peer"', body)
+        self.assertIn('data-peer-browser-check="web-peer"', body)
+        self.assertIn('data-peer-manual-confirm="web-peer"', body)
+        self.assertIn('data-peer-url="https://peer.example/base"', body)
+        self.assertNotIn('data-peer-open="other-peer"', body)
+        self.assertNotIn('data-peer-browser-check="other-peer"', body)
 
     def test_peer_form_maps_document_permissions_without_losing_advanced_policy(self):
         response = self.client.post(
