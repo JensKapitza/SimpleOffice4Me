@@ -255,6 +255,36 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         self.assertEqual(403, response.status_code)
         capture.assert_not_called()
 
+    def test_non_admin_cannot_start_local_bank_browser(self):
+        with patch("app.finance_web.capture_santander_statement") as capture:
+            response = self.user.post(
+                "/documents/business/bookkeeping/finances/bank-browser/santander",
+                headers={"X-CSRF-Token": "u" * 40},
+                environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            )
+        self.assertEqual(403, response.status_code)
+        capture.assert_not_called()
+
+    def test_invalid_browser_export_is_not_staged(self):
+        from app.finance_browser_download import CapturedStatement
+
+        with (
+            patch("app.finance_web.capture_santander_statement", return_value=CapturedStatement(
+                "invalid.csv", b"not a valid bank statement",
+            )),
+            patch("app.finance_web.FinanceStatementImporter.preview", side_effect=ValueError(
+                "invalid statement",
+            )),
+            patch("app.finance_web._stage_upload") as stage,
+        ):
+            response = self.admin.post(
+                "/documents/business/bookkeeping/finances/bank-browser/santander",
+                headers={"X-CSRF-Token": "a" * 40},
+                environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+            )
+        self.assertEqual(302, response.status_code)
+        stage.assert_not_called()
+
     def test_settings_store_rejects_non_boolean_finance_values(self):
         with self.assertRaisesRegex(ValueError, "bank browser setting"):
             SettingsStore(self.root).save(

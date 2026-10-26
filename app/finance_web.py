@@ -340,19 +340,19 @@ def update_bank_browser_setting():
 @bp.post("/bank-browser/santander")
 @login_required
 def santander_browser_download():
-    if not _local_bank_browser_enabled():
+    if not is_admin(g.user) or not _local_bank_browser_enabled():
         abort(403)
     actor = _actor()
     try:
         timeout = _bank_browser_timeout_seconds()
         result = capture_santander_statement(timeout_seconds=timeout)
-        token = _stage_upload(result.content, actor)
         preview = FinanceStatementImporter(_store()).preview(
             result.content,
             result.filename,
             actor,
             account_id=request.form.get("account_id", "").strip(),
         )
+        token = _stage_upload(result.content, actor)
         return render_template(
             "finance/statement_preview.html",
             preview=preview,
