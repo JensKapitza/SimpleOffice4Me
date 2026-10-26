@@ -20,7 +20,6 @@ from .federation_blocks import (
     sha512_bytes,
 )
 from .federation_core import normalize_sha256
-from .federation_peer_auth import authenticate as authenticate_peer
 from .safe_paths import resolve_under
 
 
@@ -29,14 +28,8 @@ MAX_BLOCK_RESPONSE = 64 * 1024 * 1024
 
 
 def _authorized() -> bool:
-    root = current_app.config["DOCUMENT_ROOT"]
-    try:
-        authenticate_peer(root, request)
-        return True
-    except (TypeError, ValueError):
-        pass
     from .federation_moderation_auth import legacy_peer_allowed
-    if not legacy_peer_allowed(root, request):
+    if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
     if not expected:

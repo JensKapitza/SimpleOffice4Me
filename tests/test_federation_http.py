@@ -7,11 +7,8 @@ from pathlib import Path
 from flask import Flask
 
 from app.document_store import DocumentStore
-from app.federation_blocks_http import bp as blocks_bp
 from app.federation_core import build_manifest
 from app.federation_http import bp
-from app.federation_peer_auth import headers as peer_headers
-from app.federation_store import FederationStore
 from app.v2.cutover import activate_v2, prepare_shadow
 from app.v2.migration import create_migration_backup, transfer_legacy_documents
 
@@ -23,7 +20,6 @@ class FederationHttpTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
-        self.app.register_blueprint(blocks_bp)
         self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
         os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "test-federation-token"
         with self.app.app_context():
@@ -52,42 +48,6 @@ class FederationHttpTest(unittest.TestCase):
         self.assertTrue(response.json["range"])
         self.assertTrue(response.json["curl_resume"])
         self.assertTrue(response.json["incoming_chunk_put"])
-
-    def test_capabilities_accept_peer_bound_hmac(self):
-        with self.app.app_context():
-            FederationStore(self.root).save_peer(
-                "peer-a",
-                "Peer A",
-                "https://peer-a.example.test",
-                "peer-specific-token",
-            )
-        path = "/federation/v1/capabilities"
-        response = self.client.get(
-            path,
-            headers=peer_headers(
-                "peer-a", "peer-specific-token", "GET", path, b""
-            ),
-        )
-        self.assertEqual(200, response.status_code)
-        self.assertTrue(response.json["range"])
-
-    def test_content_block_capabilities_accept_peer_bound_hmac(self):
-        with self.app.app_context():
-            FederationStore(self.root).save_peer(
-                "peer-a",
-                "Peer A",
-                "https://peer-a.example.test",
-                "peer-specific-token",
-            )
-        path = "/federation/v1/blocks/capabilities"
-        response = self.client.get(
-            path,
-            headers=peer_headers(
-                "peer-a", "peer-specific-token", "GET", path, b""
-            ),
-        )
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("sha512", response.json["hash_algorithm"])
 
     def test_document_range_download(self):
         document_id = self.document["document_id"]

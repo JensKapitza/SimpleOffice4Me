@@ -15,7 +15,7 @@ from app.federation_core import bitmap_encode, build_manifest
 from app.federation_peer_auth import sign as peer_auth_sign
 from app.federation_store import FederationStore
 from app.federation_moderation import FederationModerationStore
-from app.federation_worker import _configured_peer_proof, _find_blob, push_blob_to_peer, push_blob_to_transient_target
+from app.federation_worker import _configured_peer_proof, _find_blob, _request, push_blob_to_peer, push_blob_to_transient_target
 from app.v2.blob_store import BlobStore
 from app.v2.catalog import ObjectCatalog
 from app.v2.cutover import activate_v2, prepare_shadow
@@ -169,6 +169,35 @@ class FederationWorkerStorageTests(unittest.TestCase):
                 "source-peer", "local-shared-bearer", "GET", path, timestamp, nonce, b""
             ),
             headers["X-SimpleOffice-Peer-Signature"],
+        )
+
+    def test_request_keeps_shared_bearer_separate_from_peer_proof(self):
+        url = "https://peer.example.test/federation/v1/capabilities"
+        path = "/federation/v1/capabilities"
+        with patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-shared-bearer",
+                "SIMPLEOFFICE_FEDERATION_PEER_ID": "source-peer",
+            },
+        ), patch("app.federation_worker._OPENER.open", return_value=io.BytesIO(b"{}")) as opened:
+            _request(url, token="synthetic-peer-token")
+
+        request = opened.call_args.args[0]
+        headers = {key.casefold(): value for key, value in request.header_items()}
+        self.assertEqual("Bearer local-shared-bearer", headers["authorization"])
+        self.assertEqual("source-peer", headers["x-simpleoffice-peer-id"])
+        self.assertEqual(
+            peer_auth_sign(
+                "source-peer",
+                "synthetic-peer-token",
+                "GET",
+                path,
+                int(headers["x-simpleoffice-peer-timestamp"]),
+                headers["x-simpleoffice-peer-nonce"],
+                b"",
+            ),
+            headers["x-simpleoffice-peer-signature"],
         )
 
     def test_compatibility_blob_lookup_handles_sqlite_tuple_rows(self):

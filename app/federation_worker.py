@@ -58,10 +58,10 @@ def _request(
         raise ValueError("Ungültige Federation-Zieladresse")
     request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     if token:
-        request_headers["Authorization"] = f"Bearer {token}"
-        # Keep the target bearer separate from the local peer proof; older
-        # peers may still rely on the bearer alone. Never replace a protocol
-        # signature already bound to a more specific request contract.
+        bearer = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
+        request_headers["Authorization"] = f"Bearer {bearer}"
+        # Keep the shared bearer separate from the per-peer identity proof.
+        # Never replace a protocol signature already bound to a request.
         if "X-SimpleOffice-Peer-Signature" not in request_headers:
             request_headers.update(_configured_peer_proof(url, token, method, body or b""))
     req = urllib.request.Request(url, data=body, method=method, headers=request_headers)
