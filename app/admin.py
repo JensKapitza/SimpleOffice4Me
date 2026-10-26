@@ -23,10 +23,14 @@ from .settings_store import (
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_OSM_DOWNLOAD_RETRIES,
+    DEFAULT_OSM_MAX_DOWNLOAD_GIB,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_OSM_READ_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    MAX_OSM_DOWNLOAD_RETRIES,
+    MAX_OSM_MAX_DOWNLOAD_GIB,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
@@ -43,6 +47,8 @@ from .settings_store import (
     MIN_OSM_READ_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    MIN_OSM_DOWNLOAD_RETRIES,
+    MIN_OSM_MAX_DOWNLOAD_GIB,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
@@ -677,10 +683,43 @@ def save_osm_settings():
                 raise ValueError(
                     "Der OSM-Export-Leerlauf-Timeout muss zwischen 300 und 86400 Sekunden liegen."
                 )
+        max_download_raw = request.form.get("osm_max_download_gib")
+        if reset_defaults:
+            max_download_gib = DEFAULT_OSM_MAX_DOWNLOAD_GIB
+        elif max_download_raw is None:
+            max_download_gib = current["osm_max_download_gib"]
+        else:
+            if (
+                not max_download_raw.isascii()
+                or not max_download_raw.isdigit()
+                or len(max_download_raw) > len(str(MAX_OSM_MAX_DOWNLOAD_GIB))
+            ):
+                raise ValueError("Bitte ein ganzzahliges OSM-Downloadlimit in GiB eingeben.")
+            max_download_gib = int(max_download_raw)
+            if not MIN_OSM_MAX_DOWNLOAD_GIB <= max_download_gib <= MAX_OSM_MAX_DOWNLOAD_GIB:
+                raise ValueError("Das OSM-Downloadlimit muss zwischen 0 und 64 GiB liegen.")
+
+        retries_raw = request.form.get("osm_download_retries")
+        if reset_defaults:
+            download_retries = DEFAULT_OSM_DOWNLOAD_RETRIES
+        elif retries_raw is None:
+            download_retries = current["osm_download_retries"]
+        else:
+            if (
+                not retries_raw.isascii()
+                or not retries_raw.isdigit()
+                or len(retries_raw) > len(str(MAX_OSM_DOWNLOAD_RETRIES))
+            ):
+                raise ValueError("Bitte eine ganzzahlige Anzahl OSM-Downloadversuche eingeben.")
+            download_retries = int(retries_raw)
+            if not MIN_OSM_DOWNLOAD_RETRIES <= download_retries <= MAX_OSM_DOWNLOAD_RETRIES:
+                raise ValueError("Die Anzahl OSM-Downloadversuche muss zwischen 1 und 10 liegen.")
         integrations = {
             "osm_download_read_timeout_seconds": timeout,
             "osm_filter_timeout_seconds": filter_timeout,
             "osm_export_idle_timeout_seconds": export_idle_timeout,
+            "osm_max_download_gib": max_download_gib,
+            "osm_download_retries": download_retries,
         }
         read_timeout_changed = (
             timeout != current["osm_download_read_timeout_seconds"]
@@ -691,8 +730,14 @@ def save_osm_settings():
         export_idle_timeout_changed = (
             export_idle_timeout != current["osm_export_idle_timeout_seconds"]
         )
+        download_limits_changed = (
+            max_download_gib != current["osm_max_download_gib"]
+            or download_retries != current["osm_download_retries"]
+        )
         store.save({"integrations": integrations}, str(g.user["username"]))
-        if read_timeout_changed or not (filter_timeout_changed or export_idle_timeout_changed):
+        if read_timeout_changed or not (
+            filter_timeout_changed or export_idle_timeout_changed or download_limits_changed
+        ):
             audit(
                 "osm_download_settings_updated",
                 "settings",
@@ -717,6 +762,17 @@ def save_osm_settings():
                 detail={"osm_export_idle_timeout_seconds": export_idle_timeout,
                         "reset_to_defaults": reset_defaults,
                         "restart_required": False},
+            )
+        if download_limits_changed:
+            audit(
+                "osm_download_limits_updated",
+                "settings",
+                "integrations.osm_download_limits",
+                detail={
+                    "osm_max_download_gib": max_download_gib,
+                    "osm_download_retries": download_retries,
+                    "reset_to_defaults": reset_defaults,
+                },
             )
         flash(
             "OSM-Einstellungen auf Standard zurückgesetzt."
