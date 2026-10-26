@@ -217,7 +217,11 @@ def verify_mutual_network_probe(
     )
     inbound_row = target_page.locator("tr").filter(has_text=requester_peer_id).first
     inbound_text = compact(inbound_row.inner_text())
-    inbound_ok = "Authentifizierter Peer → Server: erreichbar" in inbound_text
+    inbound_ok = (
+        "Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest): erreichbar"
+        in inbound_text
+        and "Auth: ok" in inbound_text
+    )
     record_p2p_check(summary, f"{check_name}_inbound", inbound_ok, inbound_text)
     if not inbound_ok:
         failures.append(f"Authenticated inbound diagnostic was not recorded by {target_peer_id}")

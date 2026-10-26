@@ -150,7 +150,10 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn("Server → konfigurierte Peer-Adresse: nicht erreichbar", body)
         self.assertIn("TLS: Zertifikat ungültig", body)
-        self.assertIn("Authentifizierter Peer → Server: erreichbar", body)
+        self.assertIn(
+            "Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest): erreichbar",
+            body,
+        )
         self.assertIn("zuletzt erfolgreich", body)
 
     def test_peer_dashboard_marks_old_diagnostic_results_stale(self):
