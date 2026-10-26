@@ -367,7 +367,7 @@ class AdminSecurityTest(unittest.TestCase):
             "port": "TEST:", "is_default": True, "kind": "normal", "backend": "cups",
             "label": "Office Printer", "federation_shared": False,
         }
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \\
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
              patch("app.printershare.spool_payload", side_effect=ValueError(secret)):
             response = self.admin.post(
                 f"/printershare/admin/printers/{printer['printer_id']}/test",
