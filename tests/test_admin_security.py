@@ -393,12 +393,12 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertNotIn(b"secret", response.data)
 
     def test_printer_policy_validation_error_hides_sensitive_details(self):
-        secret = "ipp://admin:secret-password@printer.example/queue"
+        secret = "ipp://operator:synthetic-credential@printer.example/queue"
         with patch.object(
             PrinterShareStore, "set_user_printer_policies", side_effect=ValueError(secret),
         ):
             response = self.admin.post(
-                "/admin/settings/printers/admin",
+                "/admin/settings/printers/owner",
                 data={"standard_mode": "none", "label_mode": "none"},
                 follow_redirects=True,
             )
