@@ -200,6 +200,36 @@ class BookLabelHttpContractTest(unittest.TestCase):
         with self.client.session_transaction() as state:
             self.assertIn("1 von 3 Etiketten wurden bereits gesendet", state["_flashes"][-1][1])
 
+    def test_manual_printer_selection_error_does_not_expose_credentials(self):
+        secret = "smb://admin:private-password@printer/share"
+        library = Mock()
+        with patch("app.library.printer_routes._store", return_value=library), \
+             patch("app.library.printer_routes._label_printer_configuration", side_effect=ValueError(secret)):
+            response = self.client.post(
+                "/library/printer/print/barcode",
+                data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931"},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertNotIn(secret, str(library.record_print.call_args))
+        with self.client.session_transaction() as state:
+            self.assertNotIn(secret, str(state.get("_flashes", [])))
+
+    def test_manual_printer_transport_error_does_not_expose_credentials(self):
+        secret = "smb://admin:private-password@printer/share"
+        library = Mock()
+        with patch("app.library.printer_routes._store", return_value=library), \
+             patch("app.library.printer_routes._label_printer_configuration", return_value=(None, {"backend": "brother", "label": "Test"}, {"label": "62"})), \
+             patch("app.library.printer_routes.render_barcode", return_value=object()), \
+             patch("app.library.printer_routes._send_label_image", side_effect=OSError(secret)):
+            response = self.client.post(
+                "/library/printer/print/barcode",
+                data={"_csrf_token": "book-label-csrf-token", "value": "4006381333931"},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertNotIn(secret, str(library.record_print.call_args))
+        with self.client.session_transaction() as state:
+            self.assertNotIn(secret, str(state.get("_flashes", [])))
+
     def test_non_book_selection_is_rejected_without_printer_output(self):
         response = self._post([self.device["object_id"]])
 
