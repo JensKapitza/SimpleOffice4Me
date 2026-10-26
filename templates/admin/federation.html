@@ -318,6 +318,7 @@
     {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
     {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
     {% set rendezvous_relay_policy = peer_policy.get('rendezvous_relay', {}) if peer_policy else {} %}
+    {% set network_diagnostics_policy = peer_policy.get('network_diagnostics', {}) if peer_policy else {} %}
     <div class="row g-4">
       <section class="col-xl-5" id="peer-form">
         <div class="card shadow-sm">
@@ -333,6 +334,7 @@
               <input type="hidden" name="_documents_policy_form" value="1">
               <input type="hidden" name="_mail_cases_policy_form" value="1">
               <input type="hidden" name="_rendezvous_relay_policy_form" value="1">
+              <input type="hidden" name="_network_diagnostics_policy_form" value="1">
               <div class="col-md-6">
                 <label class="form-label" for="peer-id">Peer-ID</label>
                 <input class="form-control" id="peer-id" name="peer_id" value="{{ edit_peer.peer_id if edit_peer else '' }}" {% if edit_peer %}readonly{% endif %} required>
@@ -411,6 +413,12 @@
                 <label class="form-check-label" for="fed-enabled">Peer aktiv</label>
               </div>
 
+              <div class="col-12 form-check ms-2">
+                <input class="form-check-input" type="checkbox" name="network_diagnostics_share_status" value="1" id="fed-diagnostic-share" {% if network_diagnostics_policy.get('share_status_with_users', false) is sameas true %}checked{% endif %}>
+                <label class="form-check-label" for="fed-diagnostic-share">Aggregierten Diagnosestatus für angemeldete Nutzer freigeben</label>
+                <div class="form-text">Teilt nur Peer-Name, Richtung und Erreichbarkeitsstatus; keine Adresse, Fehlerdetails, Latenz oder Netzwerkroute. Standardmäßig nur für Administratoren sichtbar.</div>
+              </div>
+
               <div class="col-12">
                 <details>
                   <summary class="fw-semibold">Erweiterte Policy</summary>
@@ -442,6 +450,10 @@
               <tbody>
                 {% for peer in peers %}
                   {% set state = catalog_peer_states.get(peer.peer_id, {}) %}
+                  {% set diagnostics = diagnostic_states.get(peer.peer_id, {}) %}
+                  {% set outbound = diagnostics.get('outbound', {}) %}
+                  {% set inbound = diagnostics.get('inbound', {}) %}
+                  {% set manual_confirmation = manual_confirmations.get(peer.peer_id, {}) %}
                   {% set peer_relay_policy = peer.get('policy', {}).get('rendezvous_relay', {}) %}
                   <tr>
                     <td>
@@ -454,6 +466,14 @@
                       <span class="badge {{ 'text-bg-info' if peer_relay_policy.get('enabled', false) is sameas true else 'text-bg-secondary' }}">Relay {{ 'freigegeben' if peer_relay_policy.get('enabled', false) is sameas true else 'aus' }}</span>
                       <br><small>Index: {{ state.last_index_at or 'noch nie' }}</small>
                       {% if state.last_index_error %}<div class="text-danger small text-break">{{ state.last_index_error }}</div>{% endif %}
+                      <br><small>Server → konfigurierte Peer-Adresse: {{ outbound.get('status_label', 'unbekannt') }} · letzter Versuch {{ outbound.get('checked_at_label', 'noch nie') }} · zuletzt erfolgreich {{ outbound.get('last_success_label', 'noch nie') }}{% if outbound.get('latency_ms') %} · {{ outbound.latency_ms }} ms{% endif %}</small>
+                      {% if outbound.get('stages_label') %}<br><small class="text-secondary">{{ outbound.stages_label|e }}</small>{% endif %}
+                      {% if outbound.get('category') %}<br><small class="text-secondary">Fehlerkategorie: {{ outbound.category|e }}</small>{% endif %}
+                      {% if outbound.get('history') %}<details class="small"><summary>Letzte Serverprüfungen</summary><ul class="mb-0">{% for attempt in outbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+                      <br><small>Authentifizierter Peer → Server: {{ inbound.get('status_label', 'unbekannt') }} · letzter Versuch {{ inbound.get('checked_at_label', 'noch nie') }} · zuletzt erfolgreich {{ inbound.get('last_success_label', 'noch nie') }}</small>
+                      {% if inbound.get('stages_label') %}<br><small class="text-secondary">{{ inbound.stages_label|e }}</small>{% endif %}
+                      {% if inbound.get('history') %}<details class="small"><summary>Letzte eingehende Prüfungen</summary><ul class="mb-0">{% for attempt in inbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+                      {% if manual_confirmation %}<br><small>Benutzerbestätigung ({{ manual_confirmation.status_label }}): {{ 'Seite geöffnet' if manual_confirmation.outcome == 'reachable' else 'nicht erreichbar' }} · {{ manual_confirmation.confirmed_at_label }} · {{ manual_confirmation.actor|e }} · nicht technisch verifiziert</small>{% endif %}
                     </td>
                     <td>
                       <form method="post" action="{{ url_for('federation_admin.set_server_priority', peer_id=peer.peer_id) }}" class="input-group input-group-sm">
@@ -471,10 +491,16 @@
                           <input type="hidden" name="_return_view" value="peers">
                           <button class="btn btn-sm btn-outline-success" type="submit">Dateiindex holen</button>
                         </form>
+                        <form method="post" action="{{ url_for('federation_admin.network_diagnostic_peer', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>Gegenseitig prüfen</button>
+                        </form>
                         {% if peer.base_url.startswith('https://') or peer.base_url.startswith('http://') %}
                         <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-open="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}" aria-label="Peer-Seite von {{ peer.label }} im neuen Tab öffnen">Peer-Seite öffnen</button>
                         <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-browser-check="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}">Browser prüfen</button>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}">Manuell bestätigen</button>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}" data-peer-manual-outcome="reachable" data-peer-confirm-url="{{ url_for('federation_admin.manual_network_diagnostic_confirmation', peer_id=peer.peer_id) }}" data-peer-confirm-csrf="{{ csrf_token() }}">Seite erfolgreich geöffnet</button>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}" data-peer-manual-outcome="unreachable" data-peer-confirm-url="{{ url_for('federation_admin.manual_network_diagnostic_confirmation', peer_id=peer.peer_id) }}" data-peer-confirm-csrf="{{ csrf_token() }}">Nicht erreichbar (manuell)</button>
                         <span class="small text-secondary" role="status" aria-live="polite" data-peer-browser-status="{{ peer.peer_id|e }}">Client: ungeprüft</span>
                         {% endif %}
                         <form method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}">
@@ -492,6 +518,14 @@
             </table>
           </div>
         </div>
+        <details class="card shadow-sm mt-3">
+          <summary class="card-header">Netzwerkdiagnose verstehen</summary>
+          <div class="card-body small">
+            <p class="mb-2"><strong>DNS</strong> prüft die Auflösung des konfigurierten Peer-Hosts; <strong>TCP</strong> den Socket-Aufbau; <strong>TLS</strong> Zertifikat und verschlüsselte Verbindung; <strong>HTTP</strong> die Antwort; <strong>Auth</strong> Peer-Identität und signierte Probeantwort.</p>
+            <p class="mb-2">„Server → konfigurierte Peer-Adresse“ misst nur den ausgehenden Weg von dieser Instanz. „Authentifizierter Peer → Server“ erscheint erst nach einer gültigen signierten Gegenprobe. Beides beweist keine öffentliche Erreichbarkeit und leitet keinen NAT-, Tunnel- oder Relay-Pfad ab.</p>
+            <p class="mb-0">Browserprüfung ist eine getrennte Best-effort-Client-Sicht. CORS, CSP, Mixed Content, TLS und Browserrichtlinien können sie unauswertbar machen; daraus wird kein Offline-Status abgeleitet. Veraltete Ergebnisse sind älter als fünf Minuten.</p>
+          </div>
+        </details>
       </section>
     </div>
 

@@ -75,6 +75,39 @@ evaluate per-peer policy.
 }
 ```
 
+## Gegenseitige Netzwerkdiagnose
+
+`POST /federation/v1/diagnostics/probe` ist ausschließlich für konfigurierte,
+aktivierte Peers vorgesehen. Jeder Request verwendet den individuellen Peer-Token
+mit `SOFP-PEER-V1`-HMAC, Zeitfenster und Einmal-Nonce. Die Antwort bindet Peer-ID
+und Probe-ID an die Request-Nonce und wird ebenfalls mit dem individuellen
+Peer-Token signiert. Redirects werden nicht verfolgt.
+
+Die Admin-Seite zeigt getrennt den ausgehenden Test zur konfigurierten Peer-Adresse
+und den zuletzt authentifizierten eingehenden Test. Die ausgehende Probe läuft im
+Serverprozess. DNS-Auflösung hat ein Fünf-Sekunden-Limit und höchstens 16
+parallele Resolver-Aufrufe; alle DNS-Adressen werden gegen die Deployment-Policy
+geprüft. Die TCP-/TLS-Verbindung wird auf eine geprüfte IP gepinnt. Loopback und
+Link-Local sind standardmäßig gesperrt. Private/LAN-Ziele sind nur mit
+`SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` erlaubt;
+`SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK=1` ist eine explizite Ausnahme für lokale
+Trust-Umgebungen und wird in CI nur im isolierten Testnetz gesetzt.
+TLS-Zertifikatsprüfung bleibt aktiv.
+
+Pro Peer werden letzter Versuch, letzter Erfolg, Fehlerkategorie und
+Transportstufen getrennt gespeichert; die letzten 20 Ergebnisse je Richtung und
+Peer bleiben als begrenzte Historie verfügbar. Nach fünf Minuten gilt der aktuelle
+Status als veraltet. Nicht authentifizierte Anfragen werden keinem Peer
+zugeschrieben. Pro authentifiziertem Peer sind zehn Proben pro Minute erlaubt.
+Manuelle Seitenbestätigungen werden getrennt von technischen Ergebnissen mit
+Administrator und Zeitstempel gespeichert und bleiben ausdrücklich unverifiziert.
+Für Nutzeransichten bleiben Statusdaten standardmäßig verborgen; Administratoren
+können sie pro Peer über `network_diagnostics.share_status_with_users` freigeben.
+Diese Ansicht zeigt ausschließlich Peer-Label und aggregierte Richtungsstatus,
+ohne Endpunkt, Fehlerkategorie, Latenz oder Netzwerkroute.
+Die Browserdiagnose bleibt eine getrennte best-effort Client-Sicht und gilt nie
+als Server- oder Gegenstellen-Nachweis.
+
 ## Objekt- und Blobidentitaet
 
 Logische Objekte werden durch `(origin_instance_id, object_id)` identifiziert. Dokumentinhalt wird separat durch `blob_hash` identifiziert. Dadurch kann derselbe Blob beliebig viele Dokumentobjekte referenzieren, ohne erneut gespeichert oder uebertragen zu werden.

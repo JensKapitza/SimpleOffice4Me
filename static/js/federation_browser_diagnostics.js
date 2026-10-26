@@ -69,10 +69,35 @@
     });
 
     document.querySelectorAll('[data-peer-manual-confirm]').forEach((button) => {
-      button.addEventListener('click', () => {
+      button.addEventListener('click', async () => {
         const status = findStatus(button.dataset.peerManualConfirm);
-        if (status && window.confirm('Hast du die Peer-Seite selbst geöffnet und die Login-Seite gesehen?')) {
-          status.textContent = 'Client: manuell bestätigt (' + new window.Date().toLocaleString() + '), nicht technisch verifiziert; nur diese Browser-Sitzung';
+        if (!status) return;
+        const reachable = button.dataset.peerManualOutcome === 'reachable';
+        const question = reachable
+          ? 'Hast du die Peer-Seite selbst geöffnet und die Login-Seite gesehen?'
+          : 'Hast du selbst geprüft, dass die Peer-Seite nicht erreichbar war?';
+        if (!window.confirm(question)) return;
+        status.textContent = 'Client: manuelle Bestätigung wird gespeichert…';
+        try {
+          const response = await window.fetch(button.dataset.peerConfirmUrl, {
+            method: 'POST',
+            credentials: 'same-origin',
+            cache: 'no-store',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'},
+            body: new window.URLSearchParams({
+              _csrf_token: button.dataset.peerConfirmCsrf,
+              outcome: reachable ? 'reachable' : 'unreachable',
+            }).toString(),
+          });
+          const result = await response.json();
+          if (!response.ok || result.status !== 'recorded' || result.technical_verification !== false) {
+            throw new Error('confirmation was not accepted');
+          }
+          const outcome = result.outcome === 'reachable' ? 'Seite geöffnet' : 'nicht erreichbar';
+          const timestamp = new window.Date(Number(result.confirmed_at) * 1000).toLocaleString();
+          status.textContent = 'Client: manuell bestätigt — ' + outcome + ' (' + timestamp + ', ' + result.actor + '), nicht technisch verifiziert';
+        } catch (_) {
+          status.textContent = 'Client: Bestätigung konnte nicht gespeichert werden; kein technischer Erreichbarkeitsnachweis';
         }
       });
     });

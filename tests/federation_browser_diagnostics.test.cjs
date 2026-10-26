@@ -8,7 +8,8 @@ function harness({fetchImpl, confirmResult = true, setTimeoutImpl = setTimeout, 
   const buttons = [
     {dataset: {peerOpen: "peer-a", peerUrl: "https://peer.example/base"}},
     {dataset: {peerBrowserCheck: "peer-a", peerUrl: "https://peer.example/base"}},
-    {dataset: {peerManualConfirm: "peer-a"}},
+    {dataset: {peerManualConfirm: "peer-a", peerManualOutcome: "reachable", peerConfirmUrl: "/admin/federation/peers/peer-a/diagnostics/manual", peerConfirmCsrf: "csrf-token"}},
+    {dataset: {peerManualConfirm: "peer-a", peerManualOutcome: "unreachable", peerConfirmUrl: "/admin/federation/peers/peer-a/diagnostics/manual", peerConfirmCsrf: "csrf-token"}},
   ].map(button => {
     const element = {...button};
     element.addEventListener = (event, listener) => listeners.set(element, listener);
@@ -19,7 +20,7 @@ function harness({fetchImpl, confirmResult = true, setTimeoutImpl = setTimeout, 
       if (selector === "[data-peer-browser-status]") return [status];
       if (selector === "[data-peer-open]") return [buttons[0]];
       if (selector === "[data-peer-browser-check]") return [buttons[1]];
-      if (selector === "[data-peer-manual-confirm]") return [buttons[2]];
+      if (selector === "[data-peer-manual-confirm]") return [buttons[2], buttons[3]];
       return [];
     },
   };
@@ -27,11 +28,12 @@ function harness({fetchImpl, confirmResult = true, setTimeoutImpl = setTimeout, 
   const confirms = [];
   const window = {
     URL,
+    URLSearchParams,
     Date,
     AbortController,
     setTimeout: setTimeoutImpl,
     clearTimeout: clearTimeoutImpl,
-    fetch: fetchImpl || (async () => ({type: "opaque", status: 0})),
+    fetch: fetchImpl || (async () => ({ok: true, async json() { return {status: "recorded", outcome: "reachable", actor: "admin", confirmed_at: 1_800_000_000, technical_verification: false}; }})),
     open: (...args) => opened.push(args),
     confirm: message => { confirms.push(message); return confirmResult; },
   };
@@ -93,17 +95,39 @@ test("probe timeout is bounded and remains an indeterminate result", async () =>
   assert.match(page.status.textContent, /Peer nicht zwingend offline/);
 });
 
-test("manual confirmation is explicit and marked unverified", () => {
-  const page = harness();
-  page.listeners.get(page.buttons[2])();
+test("manual confirmation is persisted with same-origin credentials and remains unverified", async () => {
+  const requests = [];
+  const page = harness({fetchImpl: async (...args) => {
+    requests.push(args);
+    return {ok: true, async json() { return {status: "recorded", outcome: "reachable", actor: "admin", confirmed_at: 1_800_000_000, technical_verification: false}; }};
+  }});
+  await page.listeners.get(page.buttons[2])();
   assert.equal(page.confirms.length, 1);
   assert.match(page.status.textContent, /manuell bestätigt/);
   assert.match(page.status.textContent, /nicht technisch verifiziert/);
-  assert.match(page.status.textContent, /nur diese Browser-Sitzung/);
+  assert.equal(requests[0][0], "/admin/federation/peers/peer-a/diagnostics/manual");
+  assert.equal(requests[0][1].method, "POST");
+  assert.equal(requests[0][1].credentials, "same-origin");
+  assert.match(requests[0][1].body, /_csrf_token=csrf-token/);
+  assert.match(requests[0][1].body, /outcome=reachable/);
 });
 
-test("declining manual confirmation leaves the state unchanged", () => {
-  const page = harness({confirmResult: false});
-  page.listeners.get(page.buttons[2])();
+test("manual non-reachability is recorded as a user assertion, not technical evidence", async () => {
+  const requests = [];
+  const page = harness({fetchImpl: async (...args) => {
+    requests.push(args);
+    return {ok: true, async json() { return {status: "recorded", outcome: "unreachable", actor: "admin", confirmed_at: 1_800_000_000, technical_verification: false}; }};
+  }});
+  await page.listeners.get(page.buttons[3])();
+  assert.match(page.status.textContent, /nicht erreichbar/);
+  assert.match(requests[0][1].body, /outcome=unreachable/);
+  assert.match(page.status.textContent, /nicht technisch verifiziert/);
+});
+
+test("declining manual confirmation leaves the state unchanged", async () => {
+  const requests = [];
+  const page = harness({confirmResult: false, fetchImpl: async (...args) => { requests.push(args); }});
+  await page.listeners.get(page.buttons[2])();
   assert.equal(page.status.textContent, "Client: ungeprüft");
+  assert.equal(requests.length, 0);
 });

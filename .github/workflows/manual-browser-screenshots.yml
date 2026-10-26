@@ -7,10 +7,15 @@ on:
   pull_request:
     paths:
       - tests/browser/manual_screenshot_smoke.py
+      - tests/browser/peer_to_peer_smoke.py
+      - tests/test_federation_admin_ui.py
+      - tests/test_federation_diagnostics.py
       - .github/workflows/manual-browser-screenshots.yml
       - app/chat*.py
       - app/documents_routes_upload.py
       - app/federation*.py
+      - templates/admin/federation.html
+      - docs/FEDERATION_PROTOCOL.md
       - app/v3_inbox*.py
       - templates/documents/index.html
   workflow_dispatch:
@@ -109,9 +114,11 @@ jobs:
             --name simpleoffice-browser-peer-a \
             --network simpleoffice-browser-p2p \
             --network-alias peer-a \
+            --volume "simpleoffice-browser-peer-a-${GITHUB_RUN_ID}:/var/lib/simpleoffice4me" \
             -p 127.0.0.1:8080:8080 \
             -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_A_TOKEN" \
             -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-a \
+            -e SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1 \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
@@ -137,9 +144,11 @@ jobs:
             --name simpleoffice-browser-peer-b \
             --network simpleoffice-browser-p2p \
             --network-alias peer-b \
+            --volume "simpleoffice-browser-peer-b-${GITHUB_RUN_ID}:/var/lib/simpleoffice4me" \
             -p 127.0.0.1:8081:8080 \
             -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_B_TOKEN" \
             -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-b \
+            -e SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1 \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
@@ -188,6 +197,19 @@ jobs:
           docker logs simpleoffice-browser-peer-a || true
           docker logs simpleoffice-browser-peer-b || true
           exit 1
+
+      - name: Resolve peer container IPs for direct-path diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          peer_a_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' simpleoffice-browser-peer-a)"
+          peer_b_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' simpleoffice-browser-peer-b)"
+          if [[ -z "$peer_a_ip" || -z "$peer_b_ip" ]]; then
+            echo "Could not resolve both live Docker peer IPs."
+            exit 1
+          fi
+          echo "BROWSER_PEER_A_IP=$peer_a_ip" >> "$GITHUB_ENV"
+          echo "BROWSER_PEER_B_IP=$peer_b_ip" >> "$GITHUB_ENV"
 
       - name: Real AWS CLI S3 compatibility smoke
         if: github.event_name == 'workflow_dispatch' && inputs.aws_s3_smoke

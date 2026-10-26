@@ -33,6 +33,7 @@ from .federation_store import FederationStore, PeerBanned
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_worker import BlobHashMismatch, _materialize_blob, push_blob_to_transient_target, validate_transient_target
+from .federation_diagnostics import accept_inbound_probe
 from .v2.materialize import materialize_verified_object
 from .v2.authorization import AuthorizationStore, GrantRight
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
@@ -230,6 +231,20 @@ def capabilities():
         "encrypted_recovery_grant_scope": "recovery:<descriptor_id>",
     })
     return jsonify(result)
+
+
+@bp.post("/diagnostics/probe")
+def diagnostics_probe():
+    if request.content_length is None or request.content_length > 1024:
+        return jsonify({"error": "invalid_diagnostic_size"}), 413, {"Cache-Control": "no-store"}
+    result, status = accept_inbound_probe(current_app.config["DOCUMENT_ROOT"], request)
+    if status != 200:
+        return jsonify(result), status, {"Cache-Control": "no-store"}
+    response = Response(result["body"], status=200, content_type="application/json; charset=utf-8")
+    response.headers["X-SimpleOffice-Diagnostic-Nonce"] = result["nonce"]
+    response.headers["X-SimpleOffice-Diagnostic-Signature"] = result["signature"]
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @bp.route("/documents/<document_id>/manifest", methods=["GET", "HEAD"])
