@@ -72,21 +72,23 @@ def printer_print(kind: str):
     try:
         copies = _printer_copy_count(kind)
     except PrinterError as exc:
-        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error=str(exc))
-        flash(str(exc))
+        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error="Ungültige Anzahl von Etiketten.")
+        flash("Anzahl muss zwischen 1 und 100 liegen.")
         return redirect(url_for("library.index") + "#printer")
 
     try:
         share, printer, settings = _label_printer_configuration()
     except ValueError as exc:
-        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error=str(exc))
-        flash(str(exc))
+        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error="Etikettendrucker nicht verfügbar oder durch Richtlinie gesperrt.")
+        current_app.logger.warning("Printer selection failed (%s)", type(exc).__name__)
+        flash("Etikettendrucker nicht verfügbar oder durch Administrator festgelegt.")
         return redirect(url_for("library.index") + "#printer")
     try:
         image = _render_requested(kind, settings)
     except (PrinterError, ValueError) as exc:
-        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error=str(exc))
-        flash(str(exc))
+        library.record_print(_actor(), kind=kind, status="failed", summary=kind, error="Etikett konnte nicht erstellt werden.")
+        current_app.logger.warning("Label rendering failed (%s)", type(exc).__name__)
+        flash("Etikett konnte nicht erstellt werden. Bitte Eingaben prüfen.")
         return redirect(url_for("library.index") + "#printer")
 
     printed = 0
@@ -115,7 +117,7 @@ def printer_print(kind: str):
     except (OSError, PrinterError, RuntimeError, ValueError) as exc:
         library.record_print(
             _actor(), kind=kind, status="failed", summary=kind,
-            error=f"{exc} (bereits gesendet: {printed}/{copies})",
+            error=f"Druck fehlgeschlagen (bereits gesendet: {printed}/{copies})",
         )
         if printed:
             flash(f"Druck teilweise fehlgeschlagen: {printed} von {copies} Etiketten wurden bereits gesendet. Bitte Verlauf prüfen.")
@@ -145,6 +147,7 @@ def printer_cut():
         library.record_print(_actor(), kind="cut", status="printed", summary="Vorschub und Schnitt", byte_count=byte_count)
         flash("Vorschub/Schnitt wurde an den Drucker gesendet.")
     except (OSError, PrinterError, ValueError) as exc:
-        library.record_print(_actor(), kind="cut", status="failed", summary="Vorschub und Schnitt", error=str(exc))
+        library.record_print(_actor(), kind="cut", status="failed", summary="Vorschub und Schnitt", error="Vorschub/Schnitt fehlgeschlagen.")
+        current_app.logger.warning("Printer cut failed (%s)", type(exc).__name__)
         flash("Vorschub/Schnitt fehlgeschlagen. Bitte Drucker prüfen.")
     return redirect(url_for("library.index") + "#printer")
