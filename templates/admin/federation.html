@@ -471,6 +471,12 @@
                           <input type="hidden" name="_return_view" value="peers">
                           <button class="btn btn-sm btn-outline-success" type="submit">Dateiindex holen</button>
                         </form>
+                        {% if peer.base_url.startswith('https://') or peer.base_url.startswith('http://') %}
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ peer.base_url|e }}" target="_blank" rel="noopener noreferrer" aria-label="Login-Seite von {{ peer.label }} im neuen Tab öffnen">Peer-Seite öffnen</a>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-browser-check="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}">Browser prüfen</button>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}">Manuell bestätigen</button>
+                        <span class="small text-secondary" role="status" aria-live="polite" data-peer-browser-status="{{ peer.peer_id|e }}">Client: ungeprüft</span>
+                        {% endif %}
                         <form method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
@@ -488,6 +494,40 @@
         </div>
       </section>
     </div>
+
+  <script>
+  (() => {
+    const statusFor = (id) => Array.from(document.querySelectorAll('[data-peer-browser-status]'))
+      .find((element) => element.dataset.peerBrowserStatus === id);
+    document.querySelectorAll('[data-peer-browser-check]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const status = statusFor(button.dataset.peerBrowserCheck);
+        if (!status) return;
+        status.textContent = 'Client: Prüfung läuft…';
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 5000);
+        try {
+          const url = new URL('/auth/login', button.dataset.peerUrl);
+          if (!['http:', 'https:'].includes(url.protocol)) throw new Error('unsupported protocol');
+          await fetch(url.href, { method: 'GET', mode: 'no-cors', credentials: 'omit', cache: 'no-store', signal: controller.signal });
+          status.textContent = 'Client: Anfrage gesendet; HTTP-Erfolg wegen Browser-Sicherheitsregeln nicht verifizierbar';
+        } catch (_) {
+          status.textContent = 'Client: nicht auswertbar (Netzwerk, CORS, TLS oder Browser-Schutz); Peer nicht zwingend offline';
+        } finally {
+          clearTimeout(timeout);
+        }
+      });
+    });
+    document.querySelectorAll('[data-peer-manual-confirm]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const status = statusFor(button.dataset.peerManualConfirm);
+        if (status && window.confirm('Hast du die Peer-Seite selbst geöffnet und die Login-Seite gesehen?')) {
+          status.textContent = 'Client: manuell bestätigt (' + new Date().toLocaleString() + '), nicht technisch verifiziert; nur diese Browser-Sitzung';
+        }
+      });
+    });
+  })();
+  </script>
 
   {% elif active_view == 'transfers' %}
     <section class="card shadow-sm mb-4">
