@@ -392,6 +392,20 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("Zugangsdaten".encode("utf-8"), response.data)
         self.assertNotIn(b"secret", response.data)
 
+    def test_printer_policy_validation_error_hides_sensitive_details(self):
+        secret = "ipp://admin:secret-password@printer.example/queue"
+        with patch.object(
+            PrinterShareStore, "set_user_printer_policies", side_effect=ValueError(secret),
+        ):
+            response = self.admin.post(
+                "/admin/settings/printers/admin",
+                data={"standard_mode": "none", "label_mode": "none"},
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Druckerrichtlinie konnte nicht gespeichert werden", response.get_data(as_text=True))
+
     def test_brother_profile_save_error_hides_transport_credentials(self):
         secret = "tcp://operator:secret-password@192.168.1.50:9100"
         with patch.object(PrinterShareStore, "set_brother_profile", side_effect=OSError(secret)):
