@@ -15,7 +15,7 @@ from pathlib import Path
 
 from flask import current_app
 
-from .federation_discovery_endpoint import connection_for, host_header, resolve_pinned_endpoint
+from .federation_discovery_endpoint import host_header, resolve_pinned_endpoint
 from .federation_core import sanitize_peer_id
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
@@ -139,7 +139,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         **proof,
     }
     nonce = proof["X-SimpleOffice-Peer-Nonce"]
-    connection = connection_for(parsed.scheme, connect_host, port, parsed.hostname, PROBE_TIMEOUT_SECONDS)
+    connection = http.client.HTTPConnection(connect_host, port=port, timeout=PROBE_TIMEOUT_SECONDS)
     raw_socket = None
     try:
         raw_socket = socket.create_connection((connect_host, port), timeout=PROBE_TIMEOUT_SECONDS)
@@ -147,6 +147,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         if parsed.scheme == "https":
             try:
                 context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
                 connection.sock = context.wrap_socket(raw_socket, server_hostname=parsed.hostname)
                 raw_socket = None
                 stages["tls"] = "ok"

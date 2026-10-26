@@ -2,6 +2,7 @@ import hmac
 import ipaddress
 import json
 import os
+import re
 import ssl
 import tempfile
 import threading
@@ -33,6 +34,10 @@ class _ProbeHandler(BaseHTTPRequestHandler):
         peer_id = self.headers.get("X-SimpleOffice-Peer-ID", "")
         timestamp = self.headers.get("X-SimpleOffice-Peer-Timestamp", "")
         supplied = self.headers.get("X-SimpleOffice-Peer-Signature", "")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", nonce):
+            self.send_response(400)
+            self.end_headers()
+            return
         expected = peer_sign(peer_id, self.server.peer_token, "POST", self.path, int(timestamp), nonce, body)
         if not hmac.compare_digest(supplied, expected):
             self.send_response(401)
@@ -263,6 +268,7 @@ class FederationDiagnosticsTests(unittest.TestCase):
                 result = probe_peer(self.root, "remote-peer")
         self.assertEqual("tls_certificate", result["category"])
         self.assertEqual("certificate_failed", result["detail"]["stages"]["tls"])
+        self.assertEqual(ssl.TLSVersion.TLSv1_2, context.minimum_version)
         context.wrap_socket.assert_called_once_with(raw_socket, server_hostname="127.0.0.1")
         raw_socket.close.assert_called_once()
 
