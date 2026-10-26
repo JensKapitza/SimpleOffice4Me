@@ -407,7 +407,7 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("Druckerrichtlinie konnte nicht gespeichert werden", response.get_data(as_text=True))
 
     def test_brother_profile_save_error_hides_transport_credentials(self):
-        secret = "tcp://operator:synthetic-credential@192.168.1.50:9100"
+        secret = "printer transport error: internal connection details"
         with patch.object(PrinterShareStore, "set_brother_profile", side_effect=OSError(secret)):
             response = self.admin.post(
                 "/admin/settings/printers/brother",
@@ -421,7 +421,7 @@ class AdminSecurityTest(unittest.TestCase):
             )
         self.assertEqual(200, response.status_code)
         self.assertNotIn(secret, response.get_data(as_text=True))
-        self.assertNotIn("synthetic-credential", response.get_data(as_text=True))
+        self.assertNotIn("internal connection details", response.get_data(as_text=True))
         self.assertIn("Brother-Drucker konnte nicht gespeichert werden", response.get_data(as_text=True))
 
     def test_printer_test_page_is_admin_only_and_spools_ephemerally(self):
