@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import tempfile
 import threading
 import unittest
+import zipfile
 from pathlib import Path
 
 from PIL import Image
@@ -82,6 +84,19 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
         self.assertEqual("ready", preview.get("status"))
         self.store.set_preview_metadata(image["document_id"], preview)
         unknown = self._add_document("imports/archive.unknown", b"opaque payload")
+        archive_payload = io.BytesIO()
+        with zipfile.ZipFile(archive_payload, "w", zipfile.ZIP_DEFLATED) as archive_file:
+            archive_file.writestr(
+                "reports/<script>window.archivePreviewAttack=true</script>.txt",
+                b"safe text member",
+            )
+            archive_file.writestr("../outside.txt", b"must not be listed")
+        archive_document = self._add_document("imports/safe.zip", archive_payload.getvalue())
+        archive_path = self.root / "imports" / "safe.zip"
+        archive_preview = PreviewService(self.root).generate(archive_path, archive_document)
+        self.assertEqual("ready", archive_preview.get("archive", {}).get("status"))
+        self.store.set_preview_metadata(archive_document["document_id"], archive_preview)
+        archive_document = self.store.get_document(archive_path)
         text = self._add_document(
             "imports/notes.md",
             b"# Plain text\n<script>window.previewAttack = true</script>",
@@ -104,6 +119,7 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             "pdf": pdf,
             "image": image,
             "unknown": unknown,
+            "archive": archive_document,
             "text": text,
             "html": html,
             "svg": svg,
@@ -185,6 +201,16 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             self.assertEqual(0, unknown_panel.locator("img, video, audio, iframe").count())
             self.assertTrue(unknown_panel.locator("i.fa-file").is_visible())
             self.assertTrue(unknown_panel.locator("a[download]").is_visible())
+
+            archive_document = self.documents["archive"]
+            page.goto(f"{self.base_url}/documents/{archive_document['document_id']}")
+            archive_panel = page.locator("#document-preview")
+            archive_item = archive_panel.locator(".archive-preview-item")
+            self.assertEqual(1, archive_item.count())
+            self.assertIn("<script>window.archivePreviewAttack=true</script>.txt", archive_item.inner_text())
+            self.assertEqual(0, archive_item.locator("script").count())
+            self.assertFalse(page.evaluate("window.archivePreviewAttack === true"))
+            self.assertNotIn("outside.txt", archive_panel.inner_text())
 
             text_document = self.documents["text"]
             page.goto(f"{self.base_url}/documents/{text_document['document_id']}")

@@ -16,6 +16,7 @@ Beim Start erkennt der Indexdienst Werkzeuge ausschließlich mit einer Pfadsuche
 | PDF | Poppler `pdftoppm`, Seiten 1–4, danach Pillow | Ohne `pdftoppm` weiterhin Browser-Originalansicht, keine Cachevorschau |
 | DOC(X), ODT, RTF, XLS(X), ODS, PPT(X), ODP | LibreOffice/`soffice` headless → temporäres PDF → Poppler | Nur wenn LibreOffice **und** Poppler vorhanden sind |
 | Video | FFmpeg: genau ein Bild bei Sekunde 1 | Ohne FFmpeg weiterhin Original öffnen |
+| ZIP, CBZ und EPUB | Archiv-Zentralverzeichnis beziehungsweise EPUB-Titel, Autor und Inhaltsverzeichnis | Keine Entpackung; Quelldatei maximal 16 MiB, höchstens 5.000 Mitglieder, 200 MiB angegebene entpackte Gesamtgröße und 100 angezeigte Einträge |
 
 Die Implementierung folgt den dokumentierten Mechanismen von [ImageMagick `-thumbnail`](https://imagemagick.org/command-line-options/#thumbnail), [Poppler `pdftoppm` mit Seitenbereich und Skalierung](https://manpages.debian.org/trixie/poppler-utils/pdftoppm.1.en.html), [LibreOffice-Kommandozeilenparametern](https://help.libreoffice.org/latest/en-US/text/shared/guide/start_parameters.html) und [FFmpeg-Ausgabebegrenzung/Filterung](https://ffmpeg.org/ffmpeg.html). Das sind Werkzeug- und Formatspezifikationen; für eine interne Rastervorschau existiert kein einschlägiges IETF-Protokoll. WebDAV liefert weiterhin unveränderte Ressourcen und ETags.
 
@@ -42,6 +43,7 @@ Umgebungseinstellungen:
 - Vorschau- und Collage-Endpunkte verlangen dieselbe Anmeldung und Dokument-Leseberechtigung wie das Original.
 - `.webcache` ist für Scan, WebDAV, SFTP und virtuelle Pfadauflösung reserviert; Benutzer können ihn weder durchsuchen noch überschreiben.
 - Konverter erhalten feste Argumentlisten ohne Shell. Dateinamen werden nicht als Befehle interpretiert. Eingabegröße, Pixelzahl und Laufzeit sind begrenzt.
+- ZIP/CBZ-Vorschauen lesen ausschließlich das Archiv-Zentralverzeichnis; EPUB-Vorschauen verwenden Titel, Autor und Inhaltsverzeichnis des bestehenden bounded EPUB-Readers. Es werden keine Mitglieder entpackt. Unsichere Pfade und Symlinks werden ausgelassen; Mitgliedszahl, angegebene entpackte Gesamtgröße, Namen und angezeigte Einträge sind begrenzt.
 - Konvertiert wird in einem privaten temporären Verzeichnis. Erst vollständige Ausgaben werden atomar in den Cache verschoben.
 - Fehlerdaten enthalten nur `conversion_failed`, keine möglicherweise sensiblen Dateinamen, Dokumentinhalte oder Konverterausgaben.
 - Cacheantworten sind `private`; hashgebundene Ergebnisse dürfen unveränderlich zwischengespeichert werden. Das Original bleibt separat erreichbar.
@@ -60,4 +62,4 @@ Es gibt keine Datenbank- oder Datenmigration und keine Rechteausweitung. Alte Me
 
 ## Tests und bekannte Grenzen
 
-Automatisiert geprüft werden Werkzeugerkennung, unveränderte Originale, Bildskalierung, Cacheausschluss aus dem Scan, Cachegültigkeit nach Verschieben, Traversalabwehr, Zeitlimit sowie redigiertes Fehlerverhalten. Reale PDF-/Office-/Videokonvertierung hängt von den lokal installierten Versionen und deren Codecs/Importfiltern ab. Passwortgeschützte Dokumente, animierte Collagen, vollständige PDF-Seitenraster und SVG werden bewusst nicht automatisch gerendert.
+Automatisiert geprüft werden Werkzeugerkennung, unveränderte Originale, Bildskalierung, Cacheausschluss aus dem Scan, Cachegültigkeit nach Verschieben, ZIP/CBZ/EPUB-Metadaten, Archivgrenzen, Traversal-/Symlink-Abwehr, Zeitlimit sowie redigiertes Fehlerverhalten. Reale PDF-/Office-/Videokonvertierung hängt von den lokal installierten Versionen und deren Codecs/Importfiltern ab. ZIP/CBZ-Mitglieder werden nicht einzeln geöffnet oder heruntergeladen; die Vorschau ist nur ein sicherer Inhaltsüberblick. Passwortgeschützte Dokumente, animierte Collagen, vollständige PDF-Seitenraster und SVG werden bewusst nicht automatisch gerendert.
