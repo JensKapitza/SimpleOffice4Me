@@ -6,6 +6,7 @@ secrets, cookies, storage state, or browser profile are persisted by this module
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ipaddress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
@@ -58,7 +59,16 @@ def _guard_santander_navigation(route) -> None:
         parsed = urlparse(request.url)
         # Do not permit HTTP downgrade or local-file/network schemes in a bank session.
         # HTTPS assets from third parties remain allowed for legitimate bank flows.
-        allowed = parsed.scheme == "https" and bool(parsed.hostname)
+        hostname = (parsed.hostname or "").rstrip(".").lower()
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            # A local hostname is not a valid third-party banking resource.
+            allowed_host = bool(hostname) and hostname != "localhost" and not hostname.endswith(".localhost")
+        else:
+            # Prevent requests to loopback, LAN and other IP literals.
+            allowed_host = address.is_global
+        allowed = parsed.scheme == "https" and allowed_host and parsed.username is None and parsed.password is None
     if not allowed:
         route.abort()
         return

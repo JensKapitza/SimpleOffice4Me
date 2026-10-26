@@ -217,6 +217,23 @@ class BrowserBankDownloadTests(unittest.TestCase):
                 self.assertTrue(route.aborted)
                 self.assertFalse(route.continued)
 
+    def test_navigation_guard_blocks_local_https_resources(self):
+        for url in (
+            "https://localhost/private",
+            "https://localhost./private",
+            "https://service.localhost/private",
+            "https://127.0.0.1/private",
+            "https://192.168.1.1/private",
+            "https://[::1]/private",
+            "https://169.254.169.254/latest/meta-data/",
+            "https://user:password@cdn.example.test/script.js",
+        ):
+            with self.subTest(url=url):
+                route = _FakeRoute(url, navigation=False)
+                _guard_santander_navigation(route)
+                self.assertTrue(route.aborted)
+                self.assertFalse(route.continued)
+
     def test_navigation_guard_keeps_https_mfa_resources_available(self):
         resource = _FakeRoute("https://auth.example.test/challenge.js", navigation=False)
         _guard_santander_navigation(resource)
