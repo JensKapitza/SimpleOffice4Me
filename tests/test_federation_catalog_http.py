@@ -77,6 +77,10 @@ class FederationCatalogHttpTest(unittest.TestCase):
                     "remote-peer-token",
                     policy,
                 )
+                self.assertEqual(
+                    policy,
+                    FederationStore(self.root).get_peer("remote-peer")["policy"],
+                )
 
                 response = self.client.get(
                     path,
