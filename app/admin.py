@@ -239,7 +239,8 @@ def save_printer_policy(username: str):
         )
         flash(f"Druckerrichtlinien für {username} gespeichert.")
     except ValueError as exc:
-        flash(str(exc))
+        current_app.logger.warning("Printer policy validation failed (%s)", type(exc).__name__)
+        flash("Druckerrichtlinie konnte nicht gespeichert werden. Bitte Auswahl prüfen.")
     except OSError as exc:
         current_app.logger.warning(
             "Printer policy update could not be persisted (%s)", type(exc).__name__,
