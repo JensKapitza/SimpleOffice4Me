@@ -105,7 +105,11 @@ def _peer_can_receive_catalog(root: str | Path) -> bool:
     if not peer or not peer.get("enabled"):
         return False
     policy = peer.get("policy")
-    if not isinstance(policy, dict) or "documents" not in policy:
+    if policy is None:
+        return True
+    if not isinstance(policy, dict):
+        return False
+    if "documents" not in policy:
         return True
     document_policy = policy.get("documents")
     if not isinstance(document_policy, dict):

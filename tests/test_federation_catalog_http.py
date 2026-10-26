@@ -62,19 +62,20 @@ class FederationCatalogHttpTest(unittest.TestCase):
 
     def test_peer_document_policy_denies_catalog_metadata(self):
         path = "/federation/v1/catalog/documents"
-        for document_policy in (
-            {"send": False, "receive": True, "seed": True},
-            {"send": True, "receive": True, "seed": False},
-            {"send": "false", "receive": True, "seed": True},
-            None,
+        for policy in (
+            {"documents": {"send": False, "receive": True, "seed": True}},
+            {"documents": {"send": True, "receive": True, "seed": False}},
+            {"documents": {"send": "false", "receive": True, "seed": True}},
+            {"documents": None},
+            [],
         ):
-            with self.subTest(document_policy=document_policy):
+            with self.subTest(policy=policy):
                 FederationStore(self.root).save_peer(
                     "remote-peer",
                     "Remote",
                     "https://remote.example.test",
                     "remote-peer-token",
-                    {"documents": document_policy},
+                    policy,
                 )
 
                 response = self.client.get(
