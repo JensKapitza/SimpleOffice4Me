@@ -417,7 +417,8 @@ def retry_job(job_id: str):
         result = _store().retry(job_id)
         flash(f"Druckauftrag erneut an den Spooler übergeben: {result['job_id']}.")
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
-        flash(f"Druckauftrag konnte nicht wiederholt werden: {exc}")
+        current_app.logger.warning("Printer retry failed (%s)", type(exc).__name__)
+        flash("Druckauftrag konnte nicht erneut an den Spooler übergeben werden.")
     return redirect(url_for("printershare.index"))
 
 
@@ -428,7 +429,8 @@ def delete_copy(job_id: str):
         _store().delete_retained(job_id)
         flash("Aufbewahrte Druckdatei wurde gelöscht; Metadaten des Auftrags bleiben im Verlauf.")
     except ValueError as exc:
-        flash(str(exc))
+        current_app.logger.warning("Printer retained copy deletion failed (%s)", type(exc).__name__)
+        flash("Aufbewahrte Druckdatei konnte nicht gelöscht werden.")
     return redirect(url_for("printershare.index"))
 
 
@@ -479,7 +481,8 @@ def update_settings():
         })
         flash("PrinterShare-Einstellungen gespeichert.")
     except (TypeError, ValueError) as exc:
-        flash(f"PrinterShare-Einstellungen konnten nicht gespeichert werden: {exc}")
+        current_app.logger.warning("PrinterShare settings validation failed (%s)", type(exc).__name__)
+        flash("PrinterShare-Einstellungen konnten nicht gespeichert werden. Bitte Eingaben prüfen.")
     return redirect(url_for("printershare.index"))
 
 
@@ -542,7 +545,7 @@ def test_printer_device(printer_id: str):
         current_app.logger.warning(
             "Printer test failed for %s (%s)", printer_id, type(exc).__name__,
         )
-        flash(str(exc) if isinstance(exc, ValueError) else "Testauftrag konnte nicht gedruckt werden.")
+        flash("RAW-Drucker benötigen einen gerätespezifischen Testauftrag." if isinstance(exc, ValueError) and printer.get("kind") == "raw" else "Testauftrag konnte nicht gedruckt werden.")
     return redirect(url_for("admin.printer_settings"))
 
 
