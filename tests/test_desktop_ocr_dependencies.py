@@ -16,7 +16,7 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         onnx = [req for req in requirements if req.name == "onnxruntime"]
         self.assertEqual(2, len(onnx))
         for platform, machine, expected in (
-            ("darwin", "x86_64", "1.31.0"),
+            ("darwin", "x86_64", "1.23.2"),
             ("darwin", "arm64", "1.31.0"),
             ("linux", "x86_64", "1.31.0"),
             ("win32", "AMD64", "1.31.0"),

@@ -69,7 +69,7 @@ setup(
         "quality": ["ruff==0.17.2"],
         "ocr": [
             "rapidocr==3.10.0",
-            "onnxruntime==1.31.0; sys_platform == 'darwin' and platform_machine == 'x86_64'",
+            "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
             "onnxruntime==1.31.0; sys_platform != 'darwin' or platform_machine != 'x86_64'",
         ],
         "sftp": ["paramiko>=3.5,<6"],
