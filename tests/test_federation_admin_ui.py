@@ -163,7 +163,6 @@ class FederationAdminUiTests(unittest.TestCase):
         )
 
         response = self.client.get("/admin/federation?view=peers")
-        body = response.get_data(as_text=True)
         self.assertEqual(200, response.status_code)
         row = response.get_data(as_text=True).split("stale-peer", 1)[1]
         self.assertIn("Server → konfigurierte Peer-Adresse: veraltet", row)
