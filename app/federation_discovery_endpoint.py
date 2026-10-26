@@ -222,16 +222,21 @@ class _PinnedHTTPSConnection(http.client.HTTPSConnection):
         )
 
 
-def connection_for(scheme, connect_host, port, server_hostname, timeout):
+def _connection_for(scheme, connect_host, port, server_hostname, timeout):
     if scheme == "https":
         return _PinnedHTTPSConnection(connect_host, port, server_hostname, timeout)
     return http.client.HTTPConnection(connect_host, port=port, timeout=timeout)
 
 
-def host_header(host, port, scheme):
+def _host_header(host, port, scheme):
     default_port = 443 if scheme == "https" else 80
     rendered = _format_host(host)
     return rendered if port == default_port else f"{rendered}:{port}"
+
+
+def host_header(host, port, scheme):
+    """Build a Host header from the validated logical host and port."""
+    return _host_header(host, port, scheme)
 
 
 def _request_path(parsed):
@@ -245,14 +250,14 @@ def fetch_discovery_profile(value, timeout=8, *, allow_private=None, allow_loopb
         value, allow_private=allow_private, allow_loopback=allow_loopback
     )
     connect_host = addresses[0].compressed
-    connection = connection_for(parsed.scheme, connect_host, port, parsed.hostname, timeout)
+    connection = _connection_for(parsed.scheme, connect_host, port, parsed.hostname, timeout)
     try:
         connection.request(
             "GET",
             _request_path(parsed),
             headers={
                 "Accept": "application/json",
-                "Host": host_header(parsed.hostname, port, parsed.scheme),
+                "Host": _host_header(parsed.hostname, port, parsed.scheme),
                 "User-Agent": _USER_AGENT,
             },
         )

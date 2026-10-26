@@ -6,8 +6,8 @@ import json
 from typing import Any
 
 from .federation_discovery_endpoint import (
-    connection_for,
-    host_header,
+    _connection_for,
+    _host_header,
     _validated_target,
 )
 from .federation_discovery_service import _is_explicit_local_endpoint
@@ -45,7 +45,7 @@ def _request(connection, method: str, path: str, host: str, port: int, scheme: s
     body = None
     headers = {
         "Accept": "application/json",
-        "Host": host_header(host, port, scheme),
+        "Host": _host_header(host, port, scheme),
         "User-Agent": _USER_AGENT,
     }
     if payload is not None:
@@ -96,7 +96,7 @@ def _pairing_request(root: str, peer: dict[str, Any], operation: str, *, code: s
             base_url,
             allow_private=allow_private,
         )
-        connection = connection_for(
+        connection = _connection_for(
             parsed.scheme,
             addresses[0].compressed,
             port,
@@ -109,7 +109,7 @@ def _pairing_request(root: str, peer: dict[str, Any], operation: str, *, code: s
             connection.close()
 
         payload = build_pairing_request(root, operation, code=code)
-        connection = connection_for(
+        connection = _connection_for(
             parsed.scheme,
             addresses[0].compressed,
             port,
