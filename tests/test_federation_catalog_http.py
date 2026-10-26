@@ -60,6 +60,39 @@ class FederationCatalogHttpTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200)
 
+    def test_peer_document_policy_denies_catalog_metadata(self):
+        path = "/federation/v1/catalog/documents"
+        for policy in (
+            {"documents": {"send": False, "receive": True, "seed": True}},
+            {"documents": {"send": True, "receive": True, "seed": False}},
+            {"documents": {"send": "false", "receive": True, "seed": True}},
+            {"documents": None},
+            [],
+        ):
+            with self.subTest(policy=policy):
+                FederationStore(self.root).save_peer(
+                    "remote-peer",
+                    "Remote",
+                    "https://remote.example.test",
+                    "remote-peer-token",
+                    policy,
+                )
+                self.assertEqual(
+                    policy,
+                    FederationStore(self.root).get_peer("remote-peer")["policy"],
+                )
+
+                response = self.client.get(
+                    path,
+                    headers=peer_headers(
+                        "remote-peer", "remote-peer-token", "GET", path, b""
+                    ),
+                )
+
+                self.assertEqual(403, response.status_code)
+                self.assertEqual({"error": "catalog_policy_denied"}, response.json)
+                self.assertEqual("no-store", response.headers["Cache-Control"])
+
     def test_catalog_keeps_global_bearer_as_identity_neutral_legacy_compatibility(self):
         response = self.client.get("/federation/v1/catalog/documents", headers=self.auth)
         self.assertEqual(response.status_code, 200)

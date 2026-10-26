@@ -30,11 +30,12 @@ class FederationScopedDedupTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.secret = "peer-secret"
+        self.shared_bearer = "local-peer-secret"
         self.first = b"abc"
         self.second = b"def"
         self.payload = self.first + self.second
         self.blob_hash = hashlib.sha256(self.payload).hexdigest()
-        self.session = create_dedup_session(self.secret, self.blob_hash)
+        self.session = create_dedup_session(self.shared_bearer, self.blob_hash)
         self.first_hash = hashlib.sha512(self.first).hexdigest()
         self.second_hash = hashlib.sha512(self.second).hexdigest()
         self.manifest = {
@@ -47,13 +48,13 @@ class FederationScopedDedupTest(unittest.TestCase):
                     "index": 0,
                     "offset": 0,
                     "length": len(self.first),
-                    "token": scoped_block_token(self.secret, self.session, self.first_hash),
+                    "token": scoped_block_token(self.shared_bearer, self.session, self.first_hash),
                 },
                 {
                     "index": 1,
                     "offset": len(self.first),
                     "length": len(self.second),
-                    "token": scoped_block_token(self.secret, self.session, self.second_hash),
+                    "token": scoped_block_token(self.shared_bearer, self.session, self.second_hash),
                 },
             ],
         }
@@ -73,7 +74,7 @@ class FederationScopedDedupTest(unittest.TestCase):
         self.environment = patch.dict(
             os.environ,
             {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-peer-secret",
+                "SIMPLEOFFICE_FEDERATION_TOKEN": self.shared_bearer,
                 "SIMPLEOFFICE_FEDERATION_PEER_ID": "local-peer",
             },
             clear=False,
@@ -117,6 +118,7 @@ class FederationScopedDedupTest(unittest.TestCase):
         self.assertNotIn(self.blob_hash, requested_url)
         self.assertNotIn(self.first_hash, requested_url)
         self.assertNotIn(self.second_hash, requested_url)
+        self.assertEqual(self.shared_bearer, request_kwargs["token"])
         self.assertEqual("local-peer", request_kwargs["headers"]["X-SimpleOffice-Peer-ID"])
         self.assertTrue(request_kwargs["headers"]["X-SimpleOffice-Peer-Signature"])
 
@@ -142,6 +144,7 @@ class FederationScopedDedupTest(unittest.TestCase):
         kwargs = request_call.call_args.kwargs
         self.assertIn("/federation/v2/blocks/documents/remote-document-1/manifest", url)
         self.assertNotIn(self.blob_hash, url)
+        self.assertEqual(self.shared_bearer, kwargs["token"])
         self.assertEqual("local-peer", kwargs["headers"]["X-SimpleOffice-Peer-ID"])
         self.assertTrue(kwargs["headers"]["X-SimpleOffice-Peer-Signature"])
 

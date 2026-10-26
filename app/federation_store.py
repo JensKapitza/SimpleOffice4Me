@@ -193,7 +193,8 @@ class FederationStore:
                      policy_json=excluded.policy_json, updated_at=excluded.updated_at""",
                 (
                     peer_id, label, base_url, token_enc, 1 if enabled else 0,
-                    _json(policy or {}), current.get("created_at", timestamp) if current else timestamp,
+                    _json(policy if policy is not None else {}),
+                    current.get("created_at", timestamp) if current else timestamp,
                     timestamp,
                 ),
             )

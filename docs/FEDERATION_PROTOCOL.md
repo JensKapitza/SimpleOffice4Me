@@ -50,6 +50,12 @@ Alle Rechte gelten zusaetzlich pro Ressourcentyp und optional Sammlung/Projekt/K
 
 `GET /federation/v1/capabilities`
 
+Requests from persistently configured peers use the peer-bound `SOFP-PEER-V1`
+HMAC headers and that peer's unique token. The authenticated peer identity is
+used by resource-specific policy checks. The legacy global bearer remains
+available for compatibility, but is identity-neutral and cannot be used to
+evaluate per-peer policy.
+
 ```json
 {
   "protocol": "sofp",
@@ -227,7 +233,7 @@ Jeder Job besitzt Status, Fortschritt, Bytezaehler, Chunk-Bitmap, Fehlerliste un
 
 ## Metadaten-Synchronisation
 
-Kontakte, Kalender und Aufgaben verwenden weiterhin Manifest-/Cursor-Sync. Dokument-Metadaten und Blob-Transfer sind getrennt. Ein Ziel kann Metadaten annehmen, den Blob ablehnen oder nur bei Zugriff on-demand laden.
+Kontakte, Kalender und Aufgaben verwenden weiterhin Manifest-/Cursor-Sync. Dokument-Metadaten und Blob-Transfer sind getrennt. Ein Ziel kann Metadaten annehmen, den Blob ablehnen oder nur bei Zugriff on-demand laden. Der peergebundene Dokumentkatalog wird nur an aktiv konfigurierte Peers ausgegeben, deren lokale `documents.send`- und `documents.seed`-Policy dies erlaubt; eine explizit verweigerte oder ungültige Policy ergibt HTTP 403. Der identity-neutrale globale Bearer bleibt für Legacy-Clients kompatibel und kann daher keine per-Peer-Policy auswerten.
 
 `GET /federation/v1/changes/{resource}?after=<cursor>&limit=<n>` liefert Delta-Manifeste. `POST /federation/v1/need` beschreibt fehlende Metadaten/Blobs. `POST /federation/v1/ack` bestaetigt verarbeitete Sequenzen.
 
