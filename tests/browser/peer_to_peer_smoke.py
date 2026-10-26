@@ -18,8 +18,9 @@ PEER_BASE_URL = os.environ.get("PEER_BASE_URL", "").rstrip("/")
 PEER_TO_PEER = bool(PEER_BASE_URL)
 PEER_A_DOCKER_URL = os.environ.get("BROWSER_PEER_A_DOCKER_URL", "http://peer-a:8080").rstrip("/")
 PEER_B_DOCKER_URL = os.environ.get("BROWSER_PEER_B_DOCKER_URL", "http://peer-b:8080").rstrip("/")
-PEER_A_TOKEN = os.environ.get("BROWSER_PEER_A_TOKEN", "browser-peer-a-not-a-secret")
-PEER_B_TOKEN = os.environ.get("BROWSER_PEER_B_TOKEN", "browser-peer-b-not-a-secret")
+PEER_LINK_TOKEN = os.environ.get(
+    "BROWSER_PEER_LINK_TOKEN", "browser-peer-link-not-a-secret"
+)
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
 FIXTURE_DIR = OUTPUT_DIR / "fixtures"
@@ -252,8 +253,9 @@ def run_peer_to_peer(
             peer_id="peer-b",
             peer_label="Browser Peer B",
             peer_docker_url=PEER_B_DOCKER_URL,
-            peer_token=PEER_B_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
+            probe_connection=False,
         )
         configure_peer(
             page_b,
@@ -261,14 +263,26 @@ def run_peer_to_peer(
             peer_id="peer-a",
             peer_label="Browser Peer A",
             peer_docker_url=PEER_A_DOCKER_URL,
-            peer_token=PEER_A_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
+            probe_connection=False,
         )
+        page_a.goto(
+            f"{BASE_URL}/admin/federation?view=peers",
+            wait_until="domcontentloaded",
+        )
+        peer_b_row = page_a.locator("tr").filter(has_text="peer-b").first
+        peer_b_row.get_by_role(
+            "button", name="Verbindung testen", exact=True
+        ).click()
+        page_a.wait_for_load_state("domcontentloaded")
+        if "Peer erreichbar:" not in page_a.locator("body").inner_text():
+            raise RuntimeError("Peer-bound capability probe failed for peer-b.")
         record_p2p_check(
             summary,
             "peer_bound_capability_probe",
             True,
-            "peer-a <-> peer-b via SOFP-PEER-V1",
+            "peer-a -> peer-b via SOFP-PEER-V1",
         )
         write_html_snapshot(
             page_a, "Federation Peer A", "p2p", summary, failures
@@ -515,7 +529,7 @@ def run_peer_to_peer(
             peer_id="peer-b",
             peer_label="Browser Peer B",
             peer_docker_url=PEER_B_DOCKER_URL,
-            peer_token=PEER_B_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=True,
         )
         configure_peer(
@@ -524,7 +538,7 @@ def run_peer_to_peer(
             peer_id="peer-a",
             peer_label="Browser Peer A",
             peer_docker_url=PEER_A_DOCKER_URL,
-            peer_token=PEER_A_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=True,
         )
 

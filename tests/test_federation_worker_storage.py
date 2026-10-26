@@ -141,13 +141,13 @@ class FederationWorkerStorageTests(unittest.TestCase):
     def test_v1_direct_transfer(self):
         self.assert_success()
 
-    def test_peer_proof_uses_local_identity_secret_not_target_bearer(self):
+    def test_peer_proof_uses_peer_secret_not_shared_bearer(self):
         url = "https://peer.example.test/federation/v1/capabilities"
         path = "/federation/v1/capabilities"
         with patch.dict(
             os.environ,
             {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-source-secret",
+                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-shared-bearer",
                 "SIMPLEOFFICE_FEDERATION_PEER_ID": "source-peer",
             },
         ):
@@ -160,13 +160,13 @@ class FederationWorkerStorageTests(unittest.TestCase):
         nonce = headers["X-SimpleOffice-Peer-Nonce"]
         self.assertEqual(
             peer_auth_sign(
-                "source-peer", "local-source-secret", "GET", path, timestamp, nonce, b""
+                "source-peer", "synthetic-peer-token", "GET", path, timestamp, nonce, b""
             ),
             headers["X-SimpleOffice-Peer-Signature"],
         )
         self.assertNotEqual(
             peer_auth_sign(
-                "source-peer", "synthetic-peer-token", "GET", path, timestamp, nonce, b""
+                "source-peer", "local-shared-bearer", "GET", path, timestamp, nonce, b""
             ),
             headers["X-SimpleOffice-Peer-Signature"],
         )
