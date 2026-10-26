@@ -18,8 +18,9 @@ PEER_BASE_URL = os.environ.get("PEER_BASE_URL", "").rstrip("/")
 PEER_TO_PEER = bool(PEER_BASE_URL)
 PEER_A_DOCKER_URL = os.environ.get("BROWSER_PEER_A_DOCKER_URL", "http://peer-a:8080").rstrip("/")
 PEER_B_DOCKER_URL = os.environ.get("BROWSER_PEER_B_DOCKER_URL", "http://peer-b:8080").rstrip("/")
-PEER_A_TOKEN = os.environ.get("BROWSER_PEER_A_TOKEN", "browser-peer-a-not-a-secret")
-PEER_B_TOKEN = os.environ.get("BROWSER_PEER_B_TOKEN", "browser-peer-b-not-a-secret")
+PEER_LINK_TOKEN = os.environ.get(
+    "BROWSER_PEER_LINK_TOKEN", "browser-peer-link-not-a-secret"
+)
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
 FIXTURE_DIR = OUTPUT_DIR / "fixtures"
@@ -250,7 +251,7 @@ def run_peer_to_peer(
             peer_id="peer-b",
             peer_label="Browser Peer B",
             peer_docker_url=PEER_B_DOCKER_URL,
-            peer_token=PEER_B_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
         )
         configure_peer(
@@ -259,7 +260,7 @@ def run_peer_to_peer(
             peer_id="peer-a",
             peer_label="Browser Peer A",
             peer_docker_url=PEER_A_DOCKER_URL,
-            peer_token=PEER_A_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
         )
         record_p2p_check(
@@ -504,7 +505,7 @@ def run_peer_to_peer(
             peer_id="peer-b",
             peer_label="Browser Peer B",
             peer_docker_url=PEER_B_DOCKER_URL,
-            peer_token=PEER_B_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=True,
         )
         configure_peer(
@@ -513,7 +514,7 @@ def run_peer_to_peer(
             peer_id="peer-a",
             peer_label="Browser Peer A",
             peer_docker_url=PEER_A_DOCKER_URL,
-            peer_token=PEER_A_TOKEN,
+            peer_token=PEER_LINK_TOKEN,
             allow_documents=True,
         )
 
