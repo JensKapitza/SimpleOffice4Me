@@ -68,22 +68,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: android-cp315-arm64-Pillow-wheel
           path: android/apk/app/wheelhouse
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: android-cp315-arm64-cryptography-wheel
           path: android/apk/app/wheelhouse
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: android-cp315-arm64-cffi-wheel
           path: android/apk/app/wheelhouse
 
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           name: android-cp315-arm64-argon2-cffi-bindings-wheel
           path: android/apk/app/wheelhouse
@@ -100,7 +100,7 @@ jobs:
           java-version: '17'
 
       - name: Set up Chaquopy build Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v7.1.0
         with:
           python-version: ${{ matrix.python }}
 
@@ -231,7 +231,7 @@ jobs:
             --require-python-dependency
 
       - name: Upload Android ELF linkage diagnostics
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: android-elf-linkage-${{ matrix.abi }}
           path: artifacts/android/elf-diagnostics/*.txt
@@ -268,7 +268,7 @@ jobs:
           done
 
       - name: Upload APK-bundled Python SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: android-python-sbom-${{ matrix.abi }}
           path: |
@@ -278,7 +278,7 @@ jobs:
           retention-days: 14
 
       - name: Upload resolved Android JVM SBOM
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: android-gradle-sbom-${{ matrix.abi }}
           path: |
@@ -297,7 +297,7 @@ jobs:
             --enforce-pillow-baseline
 
       - name: Upload installable APK
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: artifacts/android/*
