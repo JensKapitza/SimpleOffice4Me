@@ -337,6 +337,46 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertNotIn(secret, response.get_data(as_text=True))
         self.assertIn("Druckerprofil konnte nicht gespeichert werden", response.get_data(as_text=True))
 
+    def test_printershare_failure_paths_hide_sensitive_exception_messages(self):
+        secret = "smb://admin:secret-password@printer/share"
+        cases = (
+            ("/printershare/jobs/job-1/retry", "retry", "Druckauftrag konnte nicht erneut"),
+            ("/printershare/jobs/job-1/delete-copy", "delete_retained", "Druckdatei konnte nicht gelöscht"),
+        )
+        for endpoint, method, expected in cases:
+            with self.subTest(endpoint=endpoint):
+                with patch.object(PrinterShareStore, method, side_effect=ValueError(secret)):
+                    response = self.admin.post(endpoint, follow_redirects=True)
+                body = response.get_data(as_text=True)
+                self.assertEqual(200, response.status_code)
+                self.assertNotIn(secret, body)
+                self.assertIn(expected, body)
+
+        with patch.object(PrinterShareStore, "update_settings", side_effect=ValueError(secret)):
+            response = self.admin.post("/printershare/admin/settings", data={
+                "ttl_hours": "24", "max_job_mib": "64",
+            }, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("PrinterShare-Einstellungen konnten nicht gespeichert werden", response.get_data(as_text=True))
+
+    def test_printer_test_failure_hides_sensitive_validation_error(self):
+        secret = "ipp://admin:secret-password@printer.example/queue"
+        printer = {
+            "printer_id": "e" * 24, "name": "Office", "driver": "Test",
+            "port": "TEST:", "is_default": True, "kind": "normal", "backend": "cups",
+            "label": "Office Printer", "federation_shared": False,
+        }
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \\
+             patch("app.printershare.spool_payload", side_effect=ValueError(secret)):
+            response = self.admin.post(
+                f"/printershare/admin/printers/{printer['printer_id']}/test",
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Testauftrag konnte nicht gedruckt werden", response.get_data(as_text=True))
+
     def test_brother_printer_uri_rejects_credentials_and_is_not_reflected(self):
         response = self.admin.post(
             "/admin/settings/printers/brother",
