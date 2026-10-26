@@ -263,9 +263,6 @@ def run_peer_to_peer(
             peer_token=PEER_LINK_TOKEN,
             allow_documents=False,
         )
-        record_p2p_check(
-            summary, "peers_connected", True, "peer-a <-> peer-b"
-        )
         write_html_snapshot(
             page_a, "Federation Peer A", "p2p", summary, failures
         )
@@ -346,6 +343,12 @@ def run_peer_to_peer(
         page_b.locator(
             "a[href*='/chat/attachments/']"
         ).filter(has_text=chat_filename).last.wait_for()
+        record_p2p_check(
+            summary,
+            "peers_connected",
+            True,
+            "peer-a <-> peer-b via peer-bound chat",
+        )
         record_p2p_check(
             summary,
             "chat_received_on_b",

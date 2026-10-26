@@ -80,8 +80,14 @@ def _transfer_capability_authorized(supplied: str) -> bool:
 
 
 def _authorized() -> bool:
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        authenticate_peer(root, request)
+        return True
+    except (TypeError, ValueError):
+        pass
     from .federation_moderation_auth import legacy_peer_allowed
-    if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
+    if not legacy_peer_allowed(root, request):
         return False
     supplied = _bearer()
     expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
