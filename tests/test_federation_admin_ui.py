@@ -177,7 +177,7 @@ class FederationAdminUiTests(unittest.TestCase):
             data={"outcome": "reachable"},
         )
         self.assertEqual(200, response.status_code)
-        self.assertEqual("admin", response.json["actor"])
+        self.assertEqual("federation-ui-admin", response.json["actor"])
         self.assertFalse(response.json["technical_verification"])
 
         body = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
@@ -238,7 +238,10 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertEqual({"keep": True}, peer["policy"]["future"])
         self.assertTrue(peer["policy"]["network_diagnostics"]["share_status_with_users"])
         editor = self.client.get("/admin/federation?view=peers&edit_peer=shared-form-peer")
-        self.assertIn('name="network_diagnostics_share_status" value="1" checked', editor.get_data(as_text=True))
+        self.assertRegex(
+            editor.get_data(as_text=True),
+            r'name="network_diagnostics_share_status" value="1" id="fed-diagnostic-share" checked',
+        )
 
     def test_peer_form_maps_document_permissions_without_losing_advanced_policy(self):
         response = self.client.post(
