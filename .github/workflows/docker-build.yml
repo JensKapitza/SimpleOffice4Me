@@ -41,7 +41,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
 
@@ -179,7 +179,7 @@ jobs:
               --input-format xml --input-version v1_6 --fail-on-errors
           done
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: simpleoffice4me-container-python-sbom-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}
           path: |
@@ -193,7 +193,7 @@ jobs:
       - name: Compress Docker image
         run: gzip -9 /tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v7.0.2
         with:
           name: simpleoffice4me-docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}
           path: /tmp/SimpleOffice4Me-Docker-${{ steps.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
