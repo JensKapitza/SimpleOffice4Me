@@ -46,9 +46,20 @@ def _allowed_santander_url(url: str) -> bool:
 
 
 def _guard_santander_navigation(route) -> None:
-    """Block top-level and frame navigations away from the verified bank domain."""
+    """Keep navigation on Santander and deny insecure cross-origin subresources.
+
+    HTTPS subresources may be needed for bank-hosted authentication and MFA;
+    download origins are validated independently before statement import.
+    """
     request = route.request
-    if request.is_navigation_request() and not _allowed_santander_url(request.url):
+    if request.is_navigation_request():
+        allowed = _allowed_santander_url(request.url)
+    else:
+        parsed = urlparse(request.url)
+        # Do not permit HTTP downgrade or local-file/network schemes in a bank session.
+        # HTTPS assets from third parties remain allowed for legitimate bank flows.
+        allowed = parsed.scheme == "https" and bool(parsed.hostname)
+    if not allowed:
         route.abort()
         return
     route.continue_()

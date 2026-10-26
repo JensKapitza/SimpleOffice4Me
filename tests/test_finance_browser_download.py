@@ -204,6 +204,25 @@ class BrowserBankDownloadTests(unittest.TestCase):
         self.assertFalse(external_resource.aborted)
         self.assertTrue(external_resource.continued)
 
+    def test_navigation_guard_blocks_insecure_subresources(self):
+        for url in (
+            "http://cdn.example.test/script.js",
+            "file:///etc/passwd",
+            "data:text/html,example",
+            "ftp://cdn.example.test/script.js",
+        ):
+            with self.subTest(url=url):
+                route = _FakeRoute(url, navigation=False)
+                _guard_santander_navigation(route)
+                self.assertTrue(route.aborted)
+                self.assertFalse(route.continued)
+
+    def test_navigation_guard_keeps_https_mfa_resources_available(self):
+        resource = _FakeRoute("https://auth.example.test/challenge.js", navigation=False)
+        _guard_santander_navigation(resource)
+        self.assertTrue(resource.continued)
+        self.assertFalse(resource.aborted)
+
     def test_download_checks_format_and_size(self):
         result = _checked_download("umsatz.csv", b"Buchungstag;Betrag\n01.01.2026;1,00\n")
         self.assertEqual(result.filename, "umsatz.csv")
