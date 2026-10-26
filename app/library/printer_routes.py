@@ -71,7 +71,7 @@ def printer_print(kind: str):
     library = _store()
     try:
         copies = _printer_copy_count(kind)
-    except PrinterError as exc:
+    except PrinterError:
         library.record_print(_actor(), kind=kind, status="failed", summary=kind, error="Ungültige Anzahl von Etiketten.")
         flash("Anzahl muss zwischen 1 und 100 liegen.")
         return redirect(url_for("library.index") + "#printer")
@@ -114,7 +114,7 @@ def printer_print(kind: str):
             flash(f"{printed} Barcode-Etiketten wurden an {printer['label']} gesendet.")
         else:
             flash(f"Etikett wurde an {printer['label']} gesendet.")
-    except (OSError, PrinterError, RuntimeError, ValueError) as exc:
+    except (OSError, PrinterError, RuntimeError, ValueError):
         library.record_print(
             _actor(), kind=kind, status="failed", summary=kind,
             error=f"Druck fehlgeschlagen (bereits gesendet: {printed}/{copies})",
