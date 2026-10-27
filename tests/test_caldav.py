@@ -41,13 +41,9 @@ class CalDavTest(unittest.TestCase):
 
     def test_authenticated_usernames_are_escaped_in_nested_xml_hrefs(self):
         username = "<script>alert(1)</script>"
-        password = "malicious-but-authenticated-password"
-        self.store.activate(username, password, username)
-        authorization = base64.b64encode(f"{username}:{password}".encode()).decode()
 
-        response = self.client.open(
-            "/caldav/", method="PROPFIND", headers={"Authorization": f"Basic {authorization}"},
-        )
+        with patch("app.caldav._auth", return_value=username):
+            response = self.client.open("/caldav/", method="PROPFIND")
 
         self.assertEqual(207, response.status_code)
         self.assertEqual("application/xml; charset=utf-8", response.headers["Content-Type"])
@@ -56,12 +52,13 @@ class CalDavTest(unittest.TestCase):
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", response.get_data(as_text=True))
         ElementTree.fromstring(response.data)
 
-        with patch("app.caldav._scheduling") as scheduling:
+        with patch("app.caldav._auth", return_value=username), patch(
+            "app.caldav._scheduling",
+        ) as scheduling:
             scheduling.return_value.get.return_value = {"enabled": True}
             principal = self.client.open(
                 f"/caldav/principals/{quote(username, safe='')}/",
                 method="PROPFIND",
-                headers={"Authorization": f"Basic {authorization}"},
             )
         self.assertEqual(207, principal.status_code)
         self.assertNotIn("<script>alert(1)</script>", principal.get_data(as_text=True))
