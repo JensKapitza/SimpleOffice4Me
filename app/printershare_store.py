@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import platform
 import re
@@ -42,6 +43,14 @@ RAW_CONTENT_TYPES = {
     "text/x-zpl",
     "text/x-epl",
 }
+PRINTER_ROLES = ("standard", "label")
+PRINTER_POLICY_MODES = {"none", "recommended", "forced"}
+_PRINTER_ID = re.compile(r"^[0-9a-f]{24}$")
+DEFAULT_BROTHER_PROFILE: dict[str, Any] = {
+    "uri": "", "model": "QL-820NWB", "label": "62", "font_name": "DejaVuSans",
+    "font_size": 56, "color": "black", "align": "center", "bold": False,
+    "cut": True, "uri_needs_review": False,
+}
 MAGIC = b"SOPRINT1\x00"
 DEFAULT_SETTINGS: dict[str, Any] = {
     "enabled": True,
@@ -51,6 +60,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "federation_enabled": False,
     "federation_default_retention": "no_store",
     "printers": {},
+    "user_preferences": {},
+    "user_printer_policies": {},
+    "brother_profile": DEFAULT_BROTHER_PROFILE,
+    "brother_profile_migrated": False,
 }
 
 
@@ -99,7 +112,7 @@ def _discover_cups() -> list[dict[str, Any]]:
     printers: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
         match = re.match(r"^printer\s+(\S+)", line.strip(), re.IGNORECASE)
-        if not match:
+        if not match or re.search(r"\bdisabled\b", line, re.IGNORECASE):
             continue
         name = match.group(1)
         printers.append({
@@ -120,7 +133,7 @@ def _discover_windows() -> list[dict[str, Any]]:
         return []
     command = (
         "Get-CimInstance Win32_Printer | "
-        "Select-Object Name,DriverName,PortName,Shared,Default | ConvertTo-Json -Compress"
+        "Select-Object Name,DriverName,PortName,Shared,Default,WorkOffline | ConvertTo-Json -Compress"
     )
     result = subprocess.run(
         [executable, "-NoProfile", "-NonInteractive", "-Command", command],
@@ -138,7 +151,8 @@ def _discover_windows() -> list[dict[str, Any]]:
     rows = value if isinstance(value, list) else [value]
     printers = []
     for row in rows:
-        if not isinstance(row, dict) or not str(row.get("Name") or "").strip():
+        if not isinstance(row, dict) or not str(row.get("Name") or "").strip() \
+                or row.get("WorkOffline") is True:
             continue
         name = str(row["Name"]).strip()
         driver = str(row.get("DriverName") or "")
@@ -334,37 +348,169 @@ class PrinterShareStore:
         result["ttl_seconds"] = _bounded_int(result.get("ttl_seconds"), 86400, 60, 365 * 86400)
         result["max_job_bytes"] = _bounded_int(result.get("max_job_bytes"), 64 * 1024 * 1024, 1024, 1024 * 1024 * 1024)
         result["printers"] = result.get("printers") if isinstance(result.get("printers"), dict) else {}
+        result["user_preferences"] = self._sanitize_user_preferences(result.get("user_preferences"))
+        result["user_printer_policies"] = self._sanitize_user_policies(result.get("user_printer_policies"))
+        result["brother_profile"] = self._sanitize_brother_profile(result.get("brother_profile"))
+        result["brother_profile_migrated"] = bool(result.get("brother_profile_migrated", False))
+        return result
+
+    @staticmethod
+    def _sanitize_brother_profile(value: object) -> dict[str, Any]:
+        profile = {**DEFAULT_BROTHER_PROFILE}
+        if not isinstance(value, dict):
+            return profile
+        profile["uri"] = str(value.get("uri") or "").strip()[:300]
+        profile["model"] = str(value.get("model") or profile["model"]).strip().upper()[:40]
+        profile["label"] = str(value.get("label") or profile["label"]).strip().lower()[:30]
+        profile["font_name"] = " ".join(str(value.get("font_name") or profile["font_name"]).split())[:80]
+        profile["font_size"] = _bounded_int(value.get("font_size"), profile["font_size"], 8, 300)
+        profile["color"] = str(value.get("color") or "black").strip().lower()
+        if profile["color"] not in {"black", "red"}:
+            profile["color"] = "black"
+        profile["align"] = str(value.get("align") or "center").strip().lower()
+        if profile["align"] not in {"left", "center", "right"}:
+            profile["align"] = "center"
+        profile["bold"] = bool(value.get("bold", False))
+        profile["cut"] = bool(value.get("cut", True))
+        profile["uri_needs_review"] = bool(value.get("uri_needs_review", False))
+        return profile
+
+    def _migrate_legacy_brother_profile(self) -> None:
+        if self.settings()["brother_profile_migrated"]:
+            return
+        from .library.store import LibraryStore
+
+        legacy = LibraryStore(self.root).printer_settings()
+        profile = self._sanitize_brother_profile(legacy)
+        try:
+            from .library.printer import PrinterError, validate_printer_uri
+
+            profile["uri"] = validate_printer_uri(profile["uri"])
+        except (PrinterError, ValueError):
+            profile["uri"] = ""
+            profile["uri_needs_review"] = True
+            logging.getLogger(__name__).warning(
+                "A legacy Brother printer profile requires administrator review."
+            )
+        with exclusive_file_lock(self.lock_path):
+            data = self.settings()
+            if not data["brother_profile_migrated"]:
+                data["brother_profile"] = profile
+                data["brother_profile_migrated"] = True
+                atomic_json_write(self.settings_path, data)
+
+    def brother_profile(self) -> dict[str, Any]:
+        self._migrate_legacy_brother_profile()
+        return dict(self.settings()["brother_profile"])
+
+    def set_brother_profile(self, values: dict[str, Any]) -> dict[str, Any]:
+        from .library.printer import LABELS, MODELS, PrinterError, validate_printer_uri
+
+        profile = self._sanitize_brother_profile(values)
+        if profile["model"] not in MODELS:
+            raise ValueError("Unbekanntes Brother-Druckermodell.")
+        if profile["label"] not in LABELS:
+            raise ValueError("Unbekannte Etikettengröße.")
+        try:
+            profile["uri"] = validate_printer_uri(profile["uri"])
+            profile["uri_needs_review"] = False
+        except PrinterError as exc:
+            raise ValueError(str(exc)) from exc
+        with exclusive_file_lock(self.lock_path):
+            data = self.settings()
+            data["brother_profile"] = profile
+            data["brother_profile_migrated"] = True
+            atomic_json_write(self.settings_path, data)
+        return profile
+
+    @staticmethod
+    def _safe_username(value: object) -> str:
+        username = str(value or "").strip()
+        if not username or len(username) > 64 or any(ord(char) < 32 for char in username):
+            raise ValueError("Ungültiger Benutzername für Druckerpräferenz")
+        return username
+
+    @classmethod
+    def _sanitize_user_preferences(cls, value: object) -> dict[str, dict[str, str]]:
+        if not isinstance(value, dict):
+            return {}
+        result: dict[str, dict[str, str]] = {}
+        for raw_username, raw_preferences in value.items():
+            try:
+                username = cls._safe_username(raw_username)
+            except ValueError:
+                continue
+            if not isinstance(raw_preferences, dict):
+                continue
+            result[username] = {
+                role: (str(raw_preferences.get(role) or "") if _PRINTER_ID.fullmatch(str(raw_preferences.get(role) or "")) else "")
+                for role in PRINTER_ROLES
+            }
+        return result
+
+    @classmethod
+    def _sanitize_user_policies(cls, value: object) -> dict[str, dict[str, dict[str, str]]]:
+        if not isinstance(value, dict):
+            return {}
+        result: dict[str, dict[str, dict[str, str]]] = {}
+        for raw_username, raw_policies in value.items():
+            try:
+                username = cls._safe_username(raw_username)
+            except ValueError:
+                continue
+            if not isinstance(raw_policies, dict):
+                continue
+            policies: dict[str, dict[str, str]] = {}
+            for role in PRINTER_ROLES:
+                raw_policy = raw_policies.get(role)
+                if not isinstance(raw_policy, dict):
+                    continue
+                mode = str(raw_policy.get("mode") or "none").casefold()
+                printer_id_value = str(raw_policy.get("printer_id") or "")
+                if mode not in PRINTER_POLICY_MODES:
+                    mode = "none"
+                if not _PRINTER_ID.fullmatch(printer_id_value):
+                    printer_id_value = ""
+                if mode == "none":
+                    printer_id_value = ""
+                policies[role] = {"mode": mode, "printer_id": printer_id_value}
+            if policies:
+                result[username] = policies
         return result
 
     def update_settings(self, values: dict[str, Any]) -> dict[str, Any]:
-        data = self.settings()
-        for key in ("enabled", "federation_enabled"):
-            if key in values:
-                data[key] = bool(values[key])
-        for key in ("default_retention", "federation_default_retention"):
-            if key in values:
-                data[key] = normalize_retention(values[key])
-        if "ttl_seconds" in values:
-            data["ttl_seconds"] = _bounded_int(values["ttl_seconds"], data["ttl_seconds"], 60, 365 * 86400)
-        if "max_job_bytes" in values:
-            data["max_job_bytes"] = _bounded_int(values["max_job_bytes"], data["max_job_bytes"], 1024, 1024 * 1024 * 1024)
         with exclusive_file_lock(self.lock_path):
+            data = self.settings()
+            for key in ("enabled", "federation_enabled"):
+                if key in values:
+                    data[key] = bool(values[key])
+            for key in ("default_retention", "federation_default_retention"):
+                if key in values:
+                    data[key] = normalize_retention(values[key])
+            if "ttl_seconds" in values:
+                data["ttl_seconds"] = _bounded_int(values["ttl_seconds"], data["ttl_seconds"], 60, 365 * 86400)
+            if "max_job_bytes" in values:
+                data["max_job_bytes"] = _bounded_int(values["max_job_bytes"], data["max_job_bytes"], 1024, 1024 * 1024 * 1024)
             atomic_json_write(self.settings_path, data)
         return data
 
     def set_printer(self, target_id: str, *, kind: str, federation_shared: bool, label: str = "") -> dict[str, Any]:
-        data = self.settings()
-        if target_id not in {item["printer_id"] for item in discover_printers()}:
-            raise ValueError("Drucker ist aktuell nicht eingerichtet")
-        normalized_kind = str(kind or "auto").casefold()
-        if normalized_kind not in {"auto", "normal", "label", "raw"}:
-            raise ValueError("Ungültiger Druckertyp")
-        data["printers"][target_id] = {
-            "kind": normalized_kind,
-            "federation_shared": bool(federation_shared),
-            "label": " ".join(str(label or "").split())[:160],
-        }
+        self._migrate_legacy_brother_profile()
         with exclusive_file_lock(self.lock_path):
+            data = self.settings()
+            available = {item["printer_id"]: item for item in self.printers()}
+            if target_id not in available:
+                raise ValueError("Drucker ist aktuell nicht eingerichtet")
+            if available[target_id].get("backend") == "brother" and federation_shared:
+                raise ValueError("Ein lokaler Brother-Drucker kann nicht für Federation freigegeben werden")
+            normalized_kind = str(kind or "auto").casefold()
+            if normalized_kind not in {"auto", "normal", "label", "raw"}:
+                raise ValueError("Ungültiger Druckertyp")
+            data["printers"][target_id] = {
+                "kind": normalized_kind,
+                "federation_shared": bool(federation_shared),
+                "label": " ".join(str(label or "").split())[:160],
+            }
             atomic_json_write(self.settings_path, data)
         return data["printers"][target_id]
 
@@ -382,7 +528,187 @@ class PrinterShareStore:
                 "label": str(override.get("label") or item["name"]),
                 "federation_shared": bool(override.get("federation_shared", False)),
             })
+        legacy_brother = self._legacy_brother_printer()
+        if legacy_brother:
+            result.append(legacy_brother)
         return sorted(result, key=lambda item: (not item["is_default"], item["label"].casefold()))
+
+    def _legacy_brother_printer(self) -> dict[str, Any] | None:
+        """Expose the migrated Brother profile as a private central device."""
+        settings = self.brother_profile()
+        uri = str(settings.get("uri") or "").strip()
+        if not uri:
+            return None
+        try:
+            from .library.printer import validate_printer_uri
+
+            uri = validate_printer_uri(uri)
+        except (RuntimeError, ValueError) as exc:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Ignoring invalid legacy Brother printer URI (%s)", type(exc).__name__,
+            )
+            return None
+        model = str(settings.get("model") or "QL-820NWB").strip()[:40]
+        name = "Brother " + model
+        return {
+            "printer_id": printer_id("simpleoffice-library-brother-label"),
+            "name": name,
+            "driver": "SimpleOffice Brother label transport",
+            "port": "",
+            "is_default": False,
+            "kind": "label",
+            "configured_kind": "label",
+            "label": name,
+            "federation_shared": False,
+            "backend": "brother",
+            "uri": uri,
+            "model": model,
+        }
+
+    @staticmethod
+    def _compatible(printer: dict[str, Any], role: str) -> bool:
+        kind = str(printer.get("kind") or "normal").casefold()
+        return kind in {"label", "raw"} if role == "label" else kind == "normal"
+
+    def user_printer_context(self, username: str) -> dict[str, Any]:
+        """Resolve personal preferences, admin directives and safe per-role fallback."""
+        username = self._safe_username(username)
+        settings = self.settings()
+        preferences = settings["user_preferences"].get(username, {})
+        policies = settings["user_printer_policies"].get(username, {})
+        printers = self.printers()
+        public_printers = [
+            {key: printer.get(key) for key in ("printer_id", "name", "label", "kind", "is_default", "backend")}
+            for printer in printers
+        ]
+        roles: dict[str, dict[str, Any]] = {}
+        for role in PRINTER_ROLES:
+            policy = policies.get(role, {"mode": "none", "printer_id": ""})
+            candidates = [printer for printer in printers if self._compatible(printer, role)]
+            by_id = {printer["printer_id"]: printer for printer in candidates}
+            recommended_id = policy.get("printer_id", "")
+            preferred_id = preferences.get(role, "")
+            selected_id = ""
+            source = "unavailable"
+            if policy.get("mode") == "forced":
+                if recommended_id in by_id:
+                    selected_id, source = recommended_id, "forced"
+            elif preferred_id in by_id:
+                selected_id, source = preferred_id, "personal"
+            elif policy.get("mode") == "recommended" and recommended_id in by_id:
+                selected_id, source = recommended_id, "recommended"
+            elif candidates:
+                fallback = next((printer for printer in candidates if printer.get("is_default")), candidates[0])
+                selected_id, source = fallback["printer_id"], "fallback"
+            selected_printer = by_id.get(selected_id)
+            roles[role] = {
+                "policy": policy.get("mode", "none"),
+                "policy_printer_id": recommended_id,
+                "policy_available": policy.get("mode") == "none" or recommended_id in by_id,
+                "preference_printer_id": preferred_id,
+                "printer_id": selected_id,
+                "source": source,
+                "available": bool(selected_id),
+                "selected_label": str(selected_printer.get("label") or selected_printer.get("name") or "")
+                    if selected_printer else "",
+                "selected_backend": str(selected_printer.get("backend") or "") if selected_printer else "",
+                "options": [
+                    {key: printer.get(key) for key in ("printer_id", "label", "kind", "backend")}
+                    for printer in candidates
+                ],
+            }
+        return {"username": username, "roles": roles, "printers": public_printers}
+
+    def set_user_preferences(
+        self, username: str, *, standard_printer_id: str = "", label_printer_id: str = "",
+    ) -> dict[str, str]:
+        username = self._safe_username(username)
+        requested = {"standard": str(standard_printer_id or ""), "label": str(label_printer_id or "")}
+        self._migrate_legacy_brother_profile()
+        with exclusive_file_lock(self.lock_path):
+            data = self.settings()
+            printers = {printer["printer_id"]: printer for printer in self.printers()}
+            current = data["user_printer_policies"].get(username, {})
+            normalized: dict[str, str] = {}
+            for role, printer_id_value in requested.items():
+                policy = current.get(role, {"mode": "none", "printer_id": ""})
+                if policy.get("mode") == "forced":
+                    if printer_id_value != policy.get("printer_id"):
+                        raise ValueError("Die Druckerwahl ist durch eine Administrationsrichtlinie gesperrt")
+                    normalized[role] = str(policy["printer_id"])
+                    continue
+                if printer_id_value:
+                    printer = printers.get(printer_id_value)
+                    if printer is None or not self._compatible(printer, role):
+                        raise ValueError("Der ausgewählte Drucker ist für diese Druckart nicht verfügbar")
+                normalized[role] = printer_id_value
+            data["user_preferences"][username] = normalized
+            atomic_json_write(self.settings_path, data)
+        return normalized
+
+    def set_user_printer_policies(
+        self, username: str, policies: dict[str, dict[str, str]],
+    ) -> dict[str, dict[str, str]]:
+        username = self._safe_username(username)
+        if not isinstance(policies, dict) or set(policies) != set(PRINTER_ROLES):
+            raise ValueError("Für Standard- und Etikettendruck muss eine Richtlinie angegeben werden")
+        self._migrate_legacy_brother_profile()
+        with exclusive_file_lock(self.lock_path):
+            data = self.settings()
+            printers = {printer["printer_id"]: printer for printer in self.printers()}
+            normalized: dict[str, dict[str, str]] = {}
+            for role in PRINTER_ROLES:
+                value = policies[role] if isinstance(policies[role], dict) else {}
+                mode = str(value.get("mode") or "none").casefold()
+                printer_id_value = str(value.get("printer_id") or "")
+                if mode not in PRINTER_POLICY_MODES:
+                    raise ValueError("Unbekannte Druckerrichtlinie")
+                if mode == "none":
+                    printer_id_value = ""
+                elif not printer_id_value:
+                    raise ValueError("Für eine aktive Druckerrichtlinie muss ein Drucker gewählt werden")
+                else:
+                    printer = printers.get(printer_id_value)
+                    if printer is None or not self._compatible(printer, role):
+                        raise ValueError("Der gewählte Drucker ist für diese Druckart nicht verfügbar")
+                normalized[role] = {"mode": mode, "printer_id": printer_id_value}
+            data["user_printer_policies"][username] = normalized
+            atomic_json_write(self.settings_path, data)
+        return normalized
+
+    def set_user_printer_policy(
+        self, username: str, role: str, mode: str, printer_id_value: str = "",
+    ) -> dict[str, str]:
+        """Update one role without bypassing validation or dropping the other."""
+        username = self._safe_username(username)
+        if role not in PRINTER_ROLES:
+            raise ValueError("Unbekannte Druckerrolle")
+        current = self.settings()["user_printer_policies"].get(username, {})
+        policies = {
+            item: dict(current.get(item, {"mode": "none", "printer_id": ""}))
+            for item in PRINTER_ROLES
+        }
+        policies[role] = {"mode": mode, "printer_id": printer_id_value}
+        return self.set_user_printer_policies(username, policies)[role]
+
+    def resolve_user_printer(self, username: str, role: str, requested_id: str = "") -> dict[str, Any]:
+        if role not in PRINTER_ROLES:
+            raise ValueError("Unbekannte Druckerrolle")
+        context = self.user_printer_context(username)["roles"][role]
+        if context["policy"] == "forced":
+            if not context["available"]:
+                raise ValueError("Der erzwungene Drucker ist nicht verfügbar; bitte Administration informieren")
+            if requested_id and requested_id != context["printer_id"]:
+                raise ValueError("Der Druckauftrag weicht von der erzwungenen Druckerrichtlinie ab")
+            selected = context["printer_id"]
+        else:
+            selected = str(requested_id or context["printer_id"])
+        printer = next((item for item in self.printers() if item["printer_id"] == selected), None)
+        if printer is None or not self._compatible(printer, role):
+            raise ValueError("Kein verfügbarer Drucker für diese Druckart ausgewählt")
+        return printer
 
     def printer(self, target_id: str, *, federation: bool = False) -> dict[str, Any]:
         item = next((printer for printer in self.printers() if printer["printer_id"] == target_id), None)
