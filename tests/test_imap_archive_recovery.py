@@ -290,8 +290,12 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
         self.assertEqual([FIRST], self.messages())
 
     def test_archive_lock_identity_does_not_depend_on_password(self):
+        index_lock_name = self.store.index_path.with_suffix(".lock").name
         self.run_archive()
-        original_lock_names = sorted(path.name for path in self.store.control.glob("archive-*.lock"))
+        original_lock_names = sorted(
+            path.name for path in self.store.control.glob("archive-*.lock")
+            if path.name != index_lock_name
+        )
         self.assertEqual(1, len(original_lock_names))
 
         self.account = {**self.account, "plain_password": "rotated-password"}
@@ -299,7 +303,10 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
 
         self.assertEqual(
             original_lock_names,
-            sorted(path.name for path in self.store.control.glob("archive-*.lock")),
+            sorted(
+                path.name for path in self.store.control.glob("archive-*.lock")
+                if path.name != index_lock_name
+            ),
         )
 
     def test_folder_change_rescans_instead_of_reusing_other_folders_uid_progress(self):
