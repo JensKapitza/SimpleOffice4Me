@@ -21,9 +21,10 @@ class CheckpointUnavailable(OSError):
 
 
 class ArchiveRecovery:
-    def __init__(self, client, actor, account):
+    def __init__(self, client, actor, account_id, account, password):
         self.client, self.store = client, client.store
-        self.actor, self.account = actor, account
+        self.actor, self.account_id = actor, account_id
+        self.account, self.password = account, password
         self.state = {}
         self.known = set()
         self.locations = None
@@ -33,7 +34,7 @@ class ArchiveRecovery:
     def save(self):
         self.state.update(sha512=sorted(self.known)[-100000:], updated_at=utc_now())
         try:
-            self.store.update_archive_state(self.actor, self.account["id"], self.state)
+            self.store.update_archive_state(self.actor, self.account_id, self.state)
         except OSError as exc:
             raise CheckpointUnavailable("Archivfortschritt konnte nicht sicher gespeichert werden.") from exc
 
@@ -49,7 +50,7 @@ class ArchiveRecovery:
             {key: self.account.get(key) for key in
              ("host", "port", "security", "username", "folder")}, sort_keys=True,
         ).encode()).hexdigest()
-        previous = self.store.archive_state(self.actor, self.account["id"])
+        previous = self.store.archive_state(self.actor, self.account_id)
         self.known = set(previous.get("sha512", []))
         same = (previous.get("recovery_version") == 2
                 and previous.get("uidvalidity") == validity
@@ -97,7 +98,7 @@ class ArchiveRecovery:
             from .mail_archive_storage import archive_locations
             if self.locations is None:
                 self.locations = {}
-                for path in archive_locations(self.store, self.actor, self.account["id"]):
+                for path in archive_locations(self.store, self.actor, self.account_id):
                     relative = Path(path)
                     if len(relative.parts) == 5:
                         self.locations.setdefault(relative.stem, []).append(path)
@@ -106,7 +107,7 @@ class ArchiveRecovery:
                 raise ValueError("archive message identity is ambiguous")
             year = datetime.now(timezone.utc).strftime("%Y")
             row["path"] = matches[0] if matches else (
-                f"email/{_owner_key(self.actor)}/{self.account['id']}/{year}/{digest}.eml"
+                f"email/{_owner_key(self.actor)}/{self.account_id}/{year}/{digest}.eml"
             )
         row.update(stage="storage", sha512=digest)
         self.save()
@@ -120,11 +121,11 @@ class ArchiveRecovery:
         self.save()
         documents = DocumentStore(self.store.root)
         documents.set_tags(document["document_id"], list(dict.fromkeys([
-            *document.get("tags", []), "email", "source:imap", f"imap-account:{self.account['id']}",
+            *document.get("tags", []), "email", "source:imap", f"imap-account:{self.account_id}",
         ])), self.actor)
         message = BytesParser(policy=policy.default).parsebytes(raw, headersonly=True)
         documents.set_attribute(document["document_id"], "email_origin", {
-            "account_id": self.account["id"], "folder": self.account["folder"],
+            "account_id": self.account_id, "folder": self.account["folder"],
             "uidvalidity": self.state["uidvalidity"], "uid": uid, "sha512": digest,
             **{key: str(message.get(header, ""))[:500] for key, header in
                (("message_id", "Message-ID"), ("subject", "Subject"), ("from", "From"))},
@@ -148,12 +149,12 @@ class ArchiveRecovery:
         self.save()
 
     def run(self, limit, extract):
-        self.store._owned_row(self.actor, self.account["id"])
-        lock_id = hashlib.sha256(f"{self.actor}:{self.account['id']}".encode()).hexdigest()
+        self.store._owned_row(self.actor, self.account_id)
+        lock_id = hashlib.sha256(f"{self.actor}:{self.account_id}".encode()).hexdigest()
         with exclusive_file_lock(self.store.control / f"archive-{lock_id}.lock"):
-            connection = self.client._connect(self.account)
+            connection = self.client._connect(self.account, password=self.password)
             try:
-                self.store.ensure_private_archive(self.actor, self.account["id"])
+                self.store.ensure_private_archive(self.actor, self.account_id)
                 self.prepare(connection)
                 last = self.state["last_uid"]
                 start = min(last + 1, 2**32 - 1)
@@ -183,11 +184,11 @@ class ArchiveRecovery:
                                                       "error_type": type(exc).__name__})
                         logging.getLogger(__name__).warning(
                             "IMAP archive incomplete: account=%s uid=%s stage=%s error_type=%s",
-                            self.account["id"], uid, row["stage"], type(exc).__name__,
+                            self.account_id, uid, row["stage"], type(exc).__name__,
                         )
                 self.result["pending"] = len(self.state["pending"])
                 self.result["superseded_pending"] = sum(len(rows) for rows in self.state["superseded"].values())
-                self.store.history.record("imap_archive_completed", self.actor, "mail-archive", self.account["id"],
+                self.store.history.record("imap_archive_completed", self.actor, "mail-archive", self.account_id,
                                           {key: value for key, value in self.result.items() if key != "errors"}
                                           | {"errors": len(self.result["errors"]), "last_uid": self.state["last_uid"]})
                 return self.result

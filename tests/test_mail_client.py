@@ -267,8 +267,14 @@ class MailClientTests(unittest.TestCase):
     def test_archive_uses_examine_and_never_mutating_imap_commands(self):
         fake = FakeImap()
         account = self.store.account("alice", self.account["id"])
+        account_config = {
+            key: account[key]
+            for key in ("id", "host", "port", "security", "username", "auth_method", "folder")
+        }
         with patch.object(ImapArchive, "_connect", return_value=fake):
-            first = ImapArchive(self.store).archive("alice", account)
+            first = ImapArchive(self.store).archive(
+                "alice", account["id"], account_config, account["plain_password"],
+            )
         self.assertEqual(1, first["archived"])
         self.assertTrue(any(call == ("select", "INBOX", True) for call in fake.calls))
         commands = [call[1].casefold() for call in fake.calls if call[0] == "uid"]
@@ -283,6 +289,46 @@ class MailClientTests(unittest.TestCase):
         vfs = VirtualFileSystem(self.root)
         self.assertTrue(vfs.allows("alice", f"email/{owner_key}/{self.account['id']}", "write"))
         self.assertFalse(vfs.allows("bob", f"email/{owner_key}/{self.account['id']}", "read"))
+
+    def test_archive_splits_credential_record_before_recovery_boundary(self):
+        account = self.store.account("alice", self.account["id"])
+        credential_record = {
+            **account,
+            "smtp_password": "encrypted-smtp-secret",
+            "smtp_plain_password": "separate-smtp-secret",
+        }
+
+        with patch("app.imap_archive_recovery.ArchiveRecovery") as recovery:
+            recovery.return_value.run.return_value = {"archived": 0}
+            result = ImapArchive(self.store).archive(
+                "alice", self.account["id"], credential_record, account["plain_password"],
+            )
+
+        self.assertEqual({"archived": 0}, result)
+        recovery_args = recovery.call_args.args
+        self.assertEqual(("alice", self.account["id"]), recovery_args[1:3])
+        self.assertEqual("secret-password", recovery_args[4])
+        self.assertEqual(
+            {"id", "host", "port", "security", "username", "auth_method", "folder"},
+            set(recovery_args[3]),
+        )
+        for secret in (
+            "plain_password", "password", "smtp_password", "smtp_plain_password",
+        ):
+            self.assertNotIn(secret, recovery_args[3])
+
+    def test_archive_rejects_mismatched_identity_or_missing_password(self):
+        account = self.store.account("alice", self.account["id"])
+        account_config = {
+            key: account[key]
+            for key in ("id", "host", "port", "security", "username", "auth_method", "folder")
+        }
+        archive = ImapArchive(self.store)
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            archive.archive("alice", "other", account_config, account["plain_password"])
+        with self.assertRaisesRegex(ValueError, "password is required"):
+            archive.archive("alice", self.account["id"], account_config, "")
 
     def test_imap_authentication_diagnostic_names_method_and_safe_alternatives(self):
         account = self.store.account("alice", self.account["id"])
