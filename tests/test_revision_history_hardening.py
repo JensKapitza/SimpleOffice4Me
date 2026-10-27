@@ -4,10 +4,41 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.revision_history import RevisionHistory
+from app.revision_history import RevisionHistory, _canonical_digest
 
 
 class RevisionHistoryHardeningTest(unittest.TestCase):
+    def test_legacy_snapshot_secrets_are_redacted_before_audit_hashing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            history = RevisionHistory(Path(temp))
+            snapshot_path = history.root / "snapshots" / "settings" / "legacy.json"
+            snapshot_path.parent.mkdir(parents=True)
+            snapshot_path.write_text(
+                json.dumps({"password": "legacy-cleartext", "theme": "light"}),
+                encoding="utf-8",
+            )
+            digest_inputs = []
+
+            def capture_digest(value):
+                digest_inputs.append(value)
+                return _canonical_digest(value)
+
+            with patch("app.revision_history._canonical_digest", side_effect=capture_digest):
+                history.record(
+                    "settings_updated", "jens", "settings", "legacy",
+                    {"password": "new-cleartext", "theme": "dark"},
+                )
+
+            self.assertTrue(digest_inputs)
+            self.assertNotIn("legacy-cleartext", json.dumps(digest_inputs))
+            self.assertNotIn("new-cleartext", json.dumps(digest_inputs))
+            persisted = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            self.assertEqual("[REDACTED]", persisted["password"])
+            events = history.events(category="settings", key="legacy")
+            self.assertNotIn("legacy-cleartext", json.dumps(events))
+            self.assertNotIn("new-cleartext", json.dumps(events))
+            self.assertTrue(history.verify_event_chain()["valid"])
+
     def test_events_include_context_changes_hash_chain_and_redact_secrets(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
