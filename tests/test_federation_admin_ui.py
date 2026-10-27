@@ -1,7 +1,10 @@
 import json
 import re
+import shutil
 import sqlite3
+import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -17,6 +20,21 @@ from app.federation_pairing_client import PairingClientError
 from app.federation_qr import encode_peer
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
+
+
+class FederationBrowserDiagnosticsFrontendTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "Node.js is unavailable")
+    def test_browser_diagnostics_client_safety_and_statuses(self):
+        root = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [shutil.which("node"), "--test", str(root / "tests" / "federation_browser_diagnostics.test.cjs")],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
 
 class FederationAdminUiTests(unittest.TestCase):
@@ -42,6 +60,11 @@ class FederationAdminUiTests(unittest.TestCase):
                 "INSERT INTO user(username,password,is_admin,created_at,updated_at) "
                 "VALUES (?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
                 ("federation-ui-admin", generate_password_hash("federation-ui-password")),
+            )
+            db.execute(
+                "INSERT INTO user(username,password,is_admin,created_at,updated_at) "
+                "VALUES (?,?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("federation-ui-user", generate_password_hash("federation-user-password")),
             )
             db.commit()
         self.client = app.test_client()
@@ -89,6 +112,139 @@ class FederationAdminUiTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertIn("gesperrt", body)
         self.assertIn('id="fed-enabled" checked', body)
+
+    def test_browser_diagnostic_actions_only_render_for_http_peers(self):
+        store = FederationStore(self.root)
+        store.save_peer("web-peer", "Web Peer", "https://peer.example/base", "", enabled=True)
+        store.save_peer("other-peer", "Other Peer", "ftp://peer.example/files", "", enabled=True)
+
+        response = self.client.get("/admin/federation?view=peers")
+        body = response.get_data(as_text=True)
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("js/federation_browser_diagnostics.js", body)
+        self.assertIn('data-peer-open="web-peer"', body)
+        self.assertIn('data-peer-browser-check="web-peer"', body)
+        self.assertIn('data-peer-manual-confirm="web-peer"', body)
+        self.assertIn('data-peer-url="https://peer.example/base"', body)
+        self.assertNotIn('data-peer-open="other-peer"', body)
+        self.assertNotIn('data-peer-browser-check="other-peer"', body)
+
+    def test_peer_dashboard_separates_outbound_and_authenticated_inbound_diagnostics(self):
+        store = FederationStore(self.root)
+        store.save_peer("diagnostic-peer", "Diagnostic Peer", "https://peer.example", "", enabled=True)
+        checked_at = int(time.time())
+        store.record_network_diagnostic(
+            "diagnostic-peer", direction="outbound", source="local", status="failure",
+            category="tls_certificate", checked_at=checked_at,
+            detail={"stages": {"dns": "ok", "tcp": "ok", "tls": "certificate_failed", "http": "unknown", "authentication": "unknown"}},
+        )
+        store.record_network_diagnostic(
+            "diagnostic-peer", direction="inbound", source="diagnostic-peer", status="success",
+            category="authenticated_probe", checked_at=checked_at,
+            detail={"stages": {"authentication": "ok", "http": "accepted"}},
+        )
+
+        response = self.client.get("/admin/federation?view=peers")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Server → konfigurierte Peer-Adresse: nicht erreichbar", body)
+        self.assertIn("TLS: Zertifikat ungültig", body)
+        self.assertIn(
+            "Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest): erreichbar",
+            body,
+        )
+        self.assertIn("zuletzt erfolgreich", body)
+
+    def test_peer_dashboard_marks_old_diagnostic_results_stale(self):
+        store = FederationStore(self.root)
+        store.save_peer("stale-peer", "Stale Peer", "https://stale.example", "", enabled=True)
+        old_timestamp = int(time.time()) - 600
+        store.record_network_diagnostic(
+            "stale-peer", direction="outbound", source="local", status="success",
+            checked_at=old_timestamp, detail={"stages": {"authentication": "ok"}},
+        )
+
+        response = self.client.get("/admin/federation?view=peers")
+        self.assertEqual(200, response.status_code)
+        row = response.get_data(as_text=True).split("stale-peer", 1)[1]
+        self.assertIn("Server → konfigurierte Peer-Adresse: veraltet", row)
+        self.assertIn("zuletzt erfolgreich", row)
+
+    def test_manual_peer_confirmation_is_persisted_with_actor_and_unverified_label(self):
+        FederationStore(self.root).save_peer(
+            "manual-peer", "Manual Peer", "https://manual.example", "", enabled=True,
+        )
+        response = self.client.post(
+            "/admin/federation/peers/manual-peer/diagnostics/manual",
+            data={"outcome": "reachable"},
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("federation-ui-admin", response.json["actor"])
+        self.assertFalse(response.json["technical_verification"])
+
+        body = self.client.get("/admin/federation?view=peers").get_data(as_text=True)
+        self.assertIn("Benutzerbestätigung (aktuell): Seite geöffnet", body)
+        self.assertIn("admin", body)
+        self.assertIn("nicht technisch verifiziert", body)
+
+    def test_normal_users_only_see_admin_shared_aggregate_status(self):
+        store = FederationStore(self.root)
+        with app.app_context():
+            store.save_peer(
+                "shared-peer", "Shared Office", "https://private.example/base", "secret-token",
+                {"network_diagnostics": {"share_status_with_users": True}}, True,
+            )
+            store.save_peer(
+                "hidden-peer", "Hidden Office", "https://hidden.example", "hidden-token",
+                {"network_diagnostics": {"share_status_with_users": False}}, True,
+            )
+        store.record_network_diagnostic(
+            "shared-peer", direction="outbound", source="local", status="failure",
+            category="tls_certificate", detail={"stages": {"dns": "ok", "tcp": "ok", "tls": "certificate_failed"}},
+        )
+        user_client = app.test_client()
+        login = user_client.post(
+            "/auth/login",
+            data={"username": "federation-ui-user", "password": "federation-user-password"},
+        )
+        self.assertLess(login.status_code, 400)
+
+        response = user_client.get("/federation/diagnostics")
+        body = response.get_data(as_text=True)
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Federation-Status", body)
+        self.assertIn('href="/federation/diagnostics"', body)
+        self.assertIn("Shared Office", body)
+        self.assertIn("nicht erreichbar", body)
+        self.assertNotIn("Hidden Office", body)
+        self.assertNotIn("private.example", body)
+        self.assertNotIn("tls_certificate", body)
+        self.assertNotIn("certificate_failed", body)
+        self.assertEqual(403, user_client.get("/admin/federation?view=peers").status_code)
+
+    def test_peer_form_explicitly_controls_user_status_sharing(self):
+        response = self.client.post(
+            "/admin/federation/peers",
+            data={
+                "peer_id": "shared-form-peer",
+                "label": "Shared Form Peer",
+                "base_url": "https://peer.example",
+                "enabled": "1",
+                "policy_json": '{"future":{"keep":true}}',
+                "_network_diagnostics_policy_form": "1",
+                "network_diagnostics_share_status": "1",
+            },
+        )
+        self.assertEqual(302, response.status_code)
+        peer = FederationStore(self.root).get_peer("shared-form-peer")
+        self.assertEqual({"keep": True}, peer["policy"]["future"])
+        self.assertTrue(peer["policy"]["network_diagnostics"]["share_status_with_users"])
+        editor = self.client.get("/admin/federation?view=peers&edit_peer=shared-form-peer")
+        self.assertRegex(
+            editor.get_data(as_text=True),
+            r'name="network_diagnostics_share_status" value="1" id="fed-diagnostic-share" checked',
+        )
 
     def test_peer_form_maps_document_permissions_without_losing_advanced_policy(self):
         response = self.client.post(

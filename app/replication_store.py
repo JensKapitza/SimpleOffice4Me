@@ -330,6 +330,7 @@ def init_app(app) -> None:
         federation_contacts_http,
         federation_discovery_http,
         federation_discovery_runtime,
+        federation_status,
         federation_moderation_admin,
         federation_moderation_http,
         federation_http,
@@ -355,6 +356,7 @@ def init_app(app) -> None:
     app.register_blueprint(federation_moderation_admin.bp)
     app.register_blueprint(federation_moderation_http.bp)
     app.register_blueprint(federation_peer_admin.bp)
+    app.register_blueprint(federation_status.bp)
     app.register_blueprint(gamification_federation_http.bp)
     app.register_blueprint(gamification_leaderboard_routes.bp)
     app.register_blueprint(federation_catalog_http.bp)

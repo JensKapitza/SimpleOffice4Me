@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+import time
+from datetime import datetime
 
-from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import is_admin
 from .auth import login_required
@@ -16,6 +19,7 @@ from .federation_download_worker import process_queue, sync_peer_catalog
 from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
 from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
+from .federation_diagnostics import probe_peer as run_network_diagnostic
 from .v2.materialize import materialize_verified_object
 
 bp = Blueprint("federation_admin", __name__, url_prefix="/admin/federation")
@@ -41,6 +45,15 @@ def _catalog() -> FederationCatalog:
 
 def _documents() -> DocumentStore:
     return DocumentStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _diagnostic_time(timestamp: int | None) -> str:
+    if not timestamp:
+        return "noch nie"
+    try:
+        return datetime.fromtimestamp(int(timestamp)).astimezone().isoformat(timespec="seconds")
+    except (OverflowError, OSError, TypeError, ValueError):
+        return "unbekannt"
 
 
 def _document_blob(document_id: str) -> tuple[dict, dict, str]:
@@ -133,6 +146,61 @@ def dashboard():
     peers = store.list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
+    diagnostic_states = store.network_diagnostics([peer["peer_id"] for peer in peers])
+    manual_confirmations = store.manual_network_confirmations([peer["peer_id"] for peer in peers])
+    now = int(time.time())
+    for confirmation in manual_confirmations.values():
+        confirmation["confirmed_at_label"] = _diagnostic_time(confirmation["confirmed_at"])
+        confirmation["status_label"] = "veraltet" if now - confirmation["confirmed_at"] > 300 else "aktuell"
+    for peer in peers:
+        rows = diagnostic_states.get(peer["peer_id"], [])
+        by_direction = {row["direction"]: row for row in rows if row["source"] in {"local", peer["peer_id"]}}
+        peer_diagnostics = {}
+        for direction in ("outbound", "inbound"):
+            row = by_direction.get(direction)
+            if row is None:
+                peer_diagnostics[direction] = {
+                    "status_label": "unbekannt", "category": "", "latency_ms": 0,
+                    "checked_at_label": "noch nie", "last_success_label": "noch nie", "history": [],
+                }
+                continue
+            stale = now - row["checked_at"] > 300
+            stage_labels = {"dns": "DNS", "tcp": "TCP", "tls": "TLS", "http": "HTTP", "authentication": "Auth"}
+            stage_states = {
+                "ok": "ok", "unknown": "unbekannt", "not_applicable": "nicht verwendet",
+                "not_checked": "nicht geprüft", "failed": "fehlgeschlagen", "timeout": "Zeitlimit",
+                "certificate_failed": "Zertifikat ungültig", "checking_signature": "Signaturprüfung",
+                "signature_failed": "Signatur ungültig", "invalid_response": "Antwort ungültig",
+                "identity_mismatch": "Peer-Identität stimmt nicht überein",
+                "authenticated_but_forbidden": "nicht autorisiert", "rejected": "abgelehnt",
+                "accepted": "angenommen", "rate_limited": "gedrosselt",
+            }
+            stages = row.get("detail", {}).get("stages", {})
+            stages_label = " · ".join(
+                f"{stage_labels[key]}: {stage_states.get(value, value)}"
+                for key, value in stages.items()
+                if key in stage_labels
+            ) if isinstance(stages, dict) else ""
+            peer_diagnostics[direction] = {
+                **row,
+                "status_label": "veraltet" if stale else "erreichbar" if row["status"] == "success" else "nicht erreichbar",
+                "checked_at_label": _diagnostic_time(row["checked_at"]),
+                "last_success_label": _diagnostic_time(row["last_success_at"]),
+                "stages_label": stages_label,
+                "history": [
+                    {
+                        **entry,
+                        "status_label": "erreichbar" if entry["status"] == "success" else "nicht erreichbar",
+                        "checked_at_label": _diagnostic_time(entry["checked_at"]),
+                    }
+                    for entry in store.network_diagnostic_history(
+                        peer["peer_id"], direction=direction,
+                        source="local" if direction == "outbound" else peer["peer_id"],
+                        limit=5,
+                    )
+                ],
+            }
+        diagnostic_states[peer["peer_id"]] = peer_diagnostics
     edit_peer = next((peer for peer in peers if peer.get("peer_id") == edit_peer_id), None)
     transfers = store.list_transfers(200)
     if selected:
@@ -152,6 +220,8 @@ def dashboard():
         download_queue=catalog.queue(500),
         catalog_events=catalog.events(100),
         catalog_peer_states={peer["peer_id"]: catalog.peer_state(peer["peer_id"]) for peer in peers},
+        diagnostic_states=diagnostic_states,
+        manual_confirmations=manual_confirmations,
         chat_action_labels=ACTION_LABELS,
         active_view=active_view,
         edit_peer=edit_peer,
@@ -297,6 +367,14 @@ def save_peer():
                 request.form.get("rendezvous_relay_enabled") == "1"
             )
             policy["rendezvous_relay"] = rendezvous_relay
+        if request.form.get("_network_diagnostics_policy_form") == "1":
+            diagnostics_policy = policy.get("network_diagnostics")
+            if not isinstance(diagnostics_policy, dict):
+                diagnostics_policy = {}
+            diagnostics_policy["share_status_with_users"] = (
+                request.form.get("network_diagnostics_share_status") == "1"
+            )
+            policy["network_diagnostics"] = diagnostics_policy
         _store().save_peer(peer_id, label, base_url, token, policy, request.form.get("enabled") == "1")
         flash("Federation-Peer gespeichert.")
     except (ValueError, json.JSONDecodeError) as exc:
@@ -351,6 +429,56 @@ def probe_peer(peer_id: str):
     except Exception as exc:
         flash(f"Peer-Test fehlgeschlagen: {exc}")
     return _redirect_dashboard()
+
+
+@bp.post("/peers/<peer_id>/diagnostics/probe")
+@admin_required
+def network_diagnostic_peer(peer_id: str):
+    result = run_network_diagnostic(current_app.config["DOCUMENT_ROOT"], peer_id)
+    if result.get("status") == "success":
+        flash(f"Serverprüfung erfolgreich: Peer authentifiziert, {result.get('latency_ms', 0)} ms.")
+    else:
+        category = str(result.get("category") or "unknown")
+        labels = {
+            "configuration": "Peer-Konfiguration prüfen",
+            "dns": "DNS-Auflösung fehlgeschlagen",
+            "dns_timeout": "DNS-Auflösung überschritt das Zeitlimit oder der Resolver ist ausgelastet",
+            "policy": "Ziel durch Netzwerk-Sicherheitsrichtlinie blockiert",
+            "tcp": "TCP-Verbindung fehlgeschlagen oder Timeout",
+            "tcp_timeout": "TCP-Verbindung mit Timeout abgebrochen",
+            "http_timeout": "HTTP-Antwort überschritt das Zeitlimit",
+            "tls": "TLS-Verbindung fehlgeschlagen",
+            "tls_certificate": "TLS-Zertifikat konnte nicht verifiziert werden",
+            "http": "Peer lieferte eine unerwartete HTTP-Antwort",
+            "authentication": "Peer-Authentifizierung fehlgeschlagen",
+            "permission": "Peer hat die Diagnose nicht autorisiert",
+            "rate_limited": "Prüfung gedrosselt; bitte später erneut versuchen",
+            "response_too_large": "Peer-Antwort überschreitet die erlaubte Größe",
+            "invalid_request": "Peer hat eine ungültige Diagnoseanfrage gesendet",
+        }
+        flash(f"Serverprüfung fehlgeschlagen: {labels.get(category, 'Ursache nicht klassifiziert')}.")
+    return _redirect_dashboard(view="peers")
+
+
+@bp.post("/peers/<peer_id>/diagnostics/manual")
+@admin_required
+def manual_network_diagnostic_confirmation(peer_id: str):
+    try:
+        store = _store()
+        if store.get_peer(peer_id) is None:
+            return jsonify({"error": "unknown_peer"}), 404
+        result = store.record_manual_network_confirmation(
+            peer_id,
+            actor=str(g.user["username"]),
+            outcome=request.form.get("outcome", ""),
+        )
+    except (sqlite3.IntegrityError, ValueError):
+        return jsonify({"error": "invalid_manual_confirmation"}), 400
+    return jsonify({
+        "status": "recorded", "peer_id": peer_id, "outcome": result["outcome"],
+        "actor": result["actor"], "confirmed_at": result["confirmed_at"],
+        "technical_verification": False,
+    }), 200
 
 
 @bp.post("/peers/<peer_id>/sync-index")
