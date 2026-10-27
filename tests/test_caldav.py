@@ -1,6 +1,7 @@
 import base64
 import tempfile
 import unittest
+from unittest.mock import patch
 from xml.etree import ElementTree
 from pathlib import Path
 from urllib.parse import quote
@@ -55,14 +56,24 @@ class CalDavTest(unittest.TestCase):
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", response.get_data(as_text=True))
         ElementTree.fromstring(response.data)
 
-        principal = self.client.open(
-            f"/caldav/principals/{quote(username, safe='')}/",
-            method="PROPFIND",
-            headers={"Authorization": f"Basic {authorization}"},
-        )
+        with patch("app.caldav._scheduling") as scheduling:
+            scheduling.return_value.get.return_value = {"enabled": True}
+            principal = self.client.open(
+                f"/caldav/principals/{quote(username, safe='')}/",
+                method="PROPFIND",
+                headers={"Authorization": f"Basic {authorization}"},
+            )
         self.assertEqual(207, principal.status_code)
         self.assertNotIn("<script>alert(1)</script>", principal.get_data(as_text=True))
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", principal.get_data(as_text=True))
+        self.assertIn(
+            "/caldav/scheduling/&lt;script&gt;alert(1)&lt;/script&gt;/inbox/",
+            principal.get_data(as_text=True),
+        )
+        self.assertIn(
+            "/caldav/scheduling/&lt;script&gt;alert(1)&lt;/script&gt;/outbox/",
+            principal.get_data(as_text=True),
+        )
         ElementTree.fromstring(principal.data)
 
     def test_vtodo_collection_roundtrip_query_conflict_and_sync(self):
