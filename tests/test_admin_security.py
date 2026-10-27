@@ -375,7 +375,7 @@ class AdminSecurityTest(unittest.TestCase):
             )
         self.assertEqual(200, response.status_code)
         self.assertNotIn(secret, response.get_data(as_text=True))
-        self.assertIn("Testauftrag konnte nicht gedruckt werden", response.get_data(as_text=True))
+        self.assertIn("Testauftrag konnte nicht an das Drucksystem übergeben werden", response.get_data(as_text=True))
 
     def test_brother_printer_uri_rejects_credentials_and_is_not_reflected(self):
         response = self.admin.post(
@@ -446,7 +446,7 @@ class AdminSecurityTest(unittest.TestCase):
         with patch("app.printershare_store.discover_printers", return_value=[printer]), \
              patch("app.printershare.spool_payload", side_effect=subprocess.TimeoutExpired(["lp"], 180)):
             timed_out = self.admin.post(target, follow_redirects=True)
-        self.assertIn("Testauftrag konnte nicht gedruckt werden", timed_out.get_data(as_text=True))
+        self.assertIn("Testauftrag konnte nicht an das Drucksystem übergeben werden", timed_out.get_data(as_text=True))
 
     def test_generic_test_page_rejects_raw_printer_without_spooling(self):
         printer = {
