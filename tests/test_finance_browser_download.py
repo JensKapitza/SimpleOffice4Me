@@ -398,7 +398,7 @@ class BrowserBankDownloadTests(unittest.TestCase):
 
     def test_only_one_local_bank_browser_session_can_run_at_a_time(self):
         with _BANK_BROWSER_SESSION_LOCK:
-            with self.assertRaisesRegex(RuntimeError, "already geöffnet"):
+            with self.assertRaisesRegex(RuntimeError, "bereits geöffnet"):
                 capture_santander_statement(timeout_seconds=30)
 
     def test_bank_browser_session_lock_is_released_after_capture_failure(self):
