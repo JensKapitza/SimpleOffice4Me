@@ -302,6 +302,9 @@ from . import personnel_time_clock
 app.register_blueprint(personnel_time_clock.bp)
 personnel_time_clock.init_app(app)
 
+from .contextflow import web as contextflow_web
+app.register_blueprint(contextflow_web.bp)
+
 from . import eur
 app.register_blueprint(eur.bp)
 

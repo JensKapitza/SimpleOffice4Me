@@ -1,0 +1,118 @@
+{% extends 'layout.html' %}
+{% block body %}
+<main id="main-content" class="cf-page">
+  <link rel="stylesheet" href="{{ url_for('static', filename='contextflow.css') }}">
+  <header class="cf-head">
+    <span class="cf-engel" aria-hidden="true">😇</span>
+    <div>
+      <h1>ContextFlow – belegte Hinweise</h1>
+      <p class="cf-lead">Der Büroengel klopft nur an, wenn wirklich etwas liegengeblieben ist –
+        mit Quelle, Grund und genau einer freizugebenden Aktion.</p>
+      <p class="cf-offline" role="note">Lokaler Regelbetrieb · keine Cloud · keine KI-Abfrage</p>
+    </div>
+  </header>
+
+  {% if cards %}
+  <section aria-label="Offene Hinweise">
+    {% for card in cards %}
+    <article class="cf-card">
+      <h2>
+        {% if card.hint %}Offener Follow-up{% else %}Bestätigter Fall{% endif %}
+        <span class="cf-date">({{ card.completed_on }})</span>
+      </h2>
+      {% if card.hint %}
+      <p class="cf-reason">Grund: {{ card.reason }} · {{ card.days }} Tage seit Abschluss</p>
+      <ul class="cf-evidence">
+        {% for item in card.evidence %}
+        <li>
+          <span class="cf-type">{{ item.type }}</span>
+          {% if item.url %}<a href="{{ item.url }}">{{ item.short }}</a>{% else %}{{ item.short }}{% endif %}
+          <span class="cf-rev" title="Belegstand">· {{ item.revision }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+      <p class="cf-invoice">
+        Rechnungsstand: {{ card.invoice_state }}
+        {% if card.invoice_state == "unknown" %}
+        <span class="cf-unknown">(unklar – nicht „fehlt“)</span>
+        {% endif %}
+        {% if card.editor_url %}
+        · <a href="{{ card.editor_url }}">Rechnungseditor öffnen</a>
+        {% endif %}
+        · <a href="{{ card.mail_url }}">Mail-Vorgang öffnen</a>
+        · <a href="{{ card.visit_url }}">Ortstermin öffnen</a>
+        · <a href="{{ card.tasks_url }}">Aufgaben öffnen</a>
+      </p>
+      {% for proposal in card.proposals %}
+      <form class="cf-approve" method="post" action="{{ url_for('contextflow.approve') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="link_id" value="{{ card.link_id }}">
+        <input type="hidden" name="expected_hint_id" value="{{ card.hint_id }}">
+        <label class="cf-check">
+          <input type="checkbox" name="approved" value="yes" required>
+          {{ proposal.title }} – einmalig erstellen
+        </label>
+        <button class="cf-btn cf-primary" type="submit">Jetzt Aufgabe erstellen</button>
+      </form>
+      {% endfor %}
+      <div class="cf-secondary">
+        <form method="post" action="{{ url_for('contextflow.snooze') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="link_id" value="{{ card.link_id }}">
+          <label>Später erinnern ab <input type="date" name="until" required></label>
+          <button class="cf-btn" type="submit">Später</button>
+        </form>
+        <form method="post" action="{{ url_for('contextflow.dismiss') }}">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="link_id" value="{{ card.link_id }}">
+          <button class="cf-btn cf-quiet" type="submit">Nicht mehr zeigen</button>
+        </form>
+      </div>
+      {% else %}
+      <p>Aktuell nichts fällig. Der Fall bleibt belegt und wird erneut geprüft, sobald sich etwas ändert.</p>
+      <p>
+        <a href="{{ card.mail_url }}">Mail-Vorgang</a> ·
+        <a href="{{ card.visit_url }}">Ortstermin</a> ·
+        <a href="{{ card.tasks_url }}">Aufgaben</a>
+      </p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+  {% else %}
+  <p>Noch keine bestätigten Fälle. Lege unten eine Zuordnung an.</p>
+  {% endif %}
+
+  <details class="cf-confirm">
+    <summary>Zuordnung bestätigen</summary>
+    <form method="post" action="{{ url_for('contextflow.confirm_link') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Mail-Vorgang
+        <select name="mail_case_id" required>
+          <option value="">– bitte wählen –</option>
+          {% for item in cases %}<option value="{{ item.id }}">{{ item.title }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Kontakt
+        <select name="contact_id" required>
+          <option value="">– bitte wählen –</option>
+          {% for item in contacts %}<option value="{{ item.id }}">{{ item.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Ortstermin
+        <select name="visit_id" required>
+          <option value="">– bitte wählen –</option>
+          {% for item in visits %}<option value="{{ item.id }}">{{ item.title }} ({{ item.status }})</option>{% endfor %}
+        </select>
+      </label>
+      <label>Rechnung (optional, nur bestätigte Kennung)
+        <input type="text" name="invoice_id" value="" autocomplete="off">
+      </label>
+      <label>Abschlussdatum (von dir bestätigt)
+        <input type="date" name="completed_on" required>
+      </label>
+      <button class="cf-btn cf-primary" type="submit">Zuordnung bestätigen</button>
+    </form>
+  </details>
+</main>
+{% endblock %}

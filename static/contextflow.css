@@ -1,0 +1,58 @@
+/* ContextFlow – ruhige, warme UI passend zum Produkt. */
+.cf-page { max-width: 760px; margin: 0 auto; padding: 1rem; }
+.cf-head { display: flex; gap: 0.9rem; align-items: flex-start; }
+.cf-engel {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 72px; height: 72px; font-size: 2.4rem; flex: 0 0 auto;
+  background: #fff8ec; border: 1px solid #f0dfb8; border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(120, 90, 20, 0.12);
+  animation: cf-float 3s ease-in-out infinite;
+}
+.cf-lead { color: #5a5347; }
+.cf-offline {
+  display: inline-block; font-size: 0.85rem; color: #3f5a3a;
+  background: #eef5ea; border: 1px solid #cfe3c8; border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+}
+.cf-card {
+  background: #fffdf8; border: 1px solid #eadfc8; border-radius: 14px;
+  padding: 1rem 1.1rem; margin: 1rem 0;
+}
+.cf-date { font-weight: normal; color: #8a8175; font-size: 0.9rem; }
+.cf-reason { font-weight: 600; }
+.cf-evidence { list-style: none; padding-left: 0; }
+.cf-evidence li { margin: 0.2rem 0; }
+.cf-type {
+  display: inline-block; min-width: 7rem; font-size: 0.8rem; color: #6b6257;
+  background: #f4eee1; border-radius: 6px; padding: 0.05rem 0.4rem; margin-right: 0.4rem;
+}
+.cf-rev { color: #8a8175; font-size: 0.8rem; }
+.cf-invoice { background: #fbf7ee; border-radius: 8px; padding: 0.5rem 0.7rem; }
+.cf-unknown { color: #8a8175; }
+.cf-approve { margin-top: 0.6rem; }
+.cf-check { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+.cf-btn {
+  border: 1px solid #c9b98f; background: #fff; border-radius: 10px;
+  padding: 0.45rem 1rem; cursor: pointer;
+}
+.cf-btn:focus-visible, a:focus-visible, input:focus-visible,
+select:focus-visible, button:focus-visible, summary:focus-visible {
+  outline: 3px solid #2f6fed; outline-offset: 2px;
+}
+.cf-primary { background: #2f6fed; border-color: #2f6fed; color: #fff; font-weight: 600; }
+.cf-quiet { border-color: transparent; color: #6b6257; text-decoration: underline; }
+.cf-secondary { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.6rem; align-items: end; }
+.cf-confirm { margin: 1.5rem 0; border: 1px dashed #c9b98f; border-radius: 12px; padding: 0.8rem 1rem; }
+.cf-confirm label { display: block; margin: 0.5rem 0; }
+.cf-confirm select, .cf-confirm input { display: block; margin-top: 0.2rem; max-width: 100%; }
+@keyframes cf-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cf-engel { animation: none; }
+}
+@media (max-width: 560px) {
+  .cf-page { padding: 0.6rem; }
+  .cf-head { flex-direction: column; }
+}
