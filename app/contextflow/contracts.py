@@ -1,0 +1,151 @@
+"""ContextFlow evidence contract (Batch 1).
+
+Small, stable data shapes for authorized read adapters. No I/O here.
+"""
+
+from __future__ import annotations
+
+from typing import Literal, TypedDict
+
+Certainty = Literal["verified", "unknown"]
+InvoiceStateValue = Literal["unknown", "linked"]
+
+MAIL_CASE_TYPE = "mail_case"
+VISIT_TYPE = "site_visit"
+CONTACT_TYPE = "contact"
+TASK_TYPE = "task"
+CALENDAR_EVENT_TYPE = "calendar_event"
+INVOICE_TYPE = "invoice"
+
+MAIL_CASE_URL = "/documents/mail/reader?case={case_id}&mode=case#mail-case"
+VISIT_URL = "/site-visits/{visit_id}"
+INVOICE_URL = "/documents/business/invoices/{invoice_id}"
+TASKS_URL = "/tasks/"
+
+LINK_TYPE = "case_link"
+FOLLOWUP_SIGNAL = "visit_follow_up"
+FOLLOWUP_DAYS = 5
+
+
+class CaseLinkRecord(TypedDict, total=False):
+    """Persistent, actor-scoped assignment of confirmed domain objects."""
+
+    link_id: str
+    owner: str
+    mail_case_id: str
+    contact_id: str
+    visit_id: str
+    invoice_id: str
+    completed_on: str
+    confirmed_at: str
+    confirmed_by: str
+    revision: str
+    status: str
+    source_revisions: dict[str, str]
+
+
+class HintProposal(TypedDict, total=False):
+    type: str
+    title: str
+    approval_required: bool
+    ref: str
+
+
+class FollowupHint(TypedDict, total=False):
+    hint_id: str
+    link_id: str
+    signal: str
+    reason_code: str
+    certainty: Certainty
+    observed_at: str
+    completed_on: str
+    days_since_completion: int
+    evidence: list[EvidenceRef]
+    pending_finding_ids: list[str]
+    proposals: list[HintProposal]
+    invoice: InvoiceState
+
+
+class EvidenceRef(TypedDict, total=False):
+    """Stable reference to one source object.
+
+    ``url`` is only set for routes verified against the repository.
+    ``revision`` is a short hash over id plus change markers, never content.
+    """
+
+    type: str
+    id: str
+    revision: str
+    url: str
+
+
+class MailCaseSummary(TypedDict):
+    case_id: str
+    title: str
+    status: str
+    account_id: str
+    created_by: str
+    created_at: str
+    updated_at: str
+    message_count: int
+
+
+class ContactSummary(TypedDict):
+    contact_id: str
+    display_name: str
+    email: str
+
+
+class FindingSummary(TypedDict, total=False):
+    finding_id: str
+    title: str
+    status: str
+    evidence_class: str
+    confidence: int
+    observed_at: str
+
+
+class VisitSummary(TypedDict):
+    visit_id: str
+    title: str
+    customer: str
+    site: str
+    visit_date: str
+    status: str
+    created_at: str
+    updated_at: str
+    findings: list[FindingSummary]
+
+
+class TodoSummary(TypedDict, total=False):
+    id: str
+    title: str
+    done: bool
+    due: str
+    contact_id: str
+    project_id: str
+    list_id: str
+
+
+class CalendarEventSummary(TypedDict, total=False):
+    event_id: str
+    title: str
+    start: str
+    end: str
+
+
+class InvoiceState(TypedDict, total=False):
+    """Invoice state for one case context.
+
+    ``unknown`` is the default: no confirmed case link, no confirmed invoice
+    reference, no matching row, or a contact mismatch. ``linked`` is only
+    returned after a contact manage check and a matching stored row.
+    """
+
+    state: InvoiceStateValue
+    reason: str
+    invoice_id: str
+    invoice_number: str
+    status: str
+    issue_date: str
+    evidence: EvidenceRef

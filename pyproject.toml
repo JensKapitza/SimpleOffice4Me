@@ -64,7 +64,7 @@ simpleoffice-sftp = "app.sftp_server:serve"
 simpleoffice-v2-recovery = "simpleoffice_recovery_cli:main"
 
 [tool.setuptools]
-packages = ["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"]
+packages = ["app", "app.contextflow", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"]
 py-modules = [
   "simpleoffice_runtime_support",
   "simpleoffice_recovery_cli",
