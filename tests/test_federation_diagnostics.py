@@ -3,6 +3,7 @@ import ipaddress
 import json
 import os
 import re
+import socket
 import ssl
 import tempfile
 import threading
@@ -216,6 +217,35 @@ class FederationDiagnosticsTests(unittest.TestCase):
         self.assertEqual(1_800_000_000, result["detail"]["remote_received_at"])
         self.assertEqual(1, self.server.request_count)
         self.assertEqual(1_800_000_001, result["last_success_at"])
+
+    def test_outbound_probe_tries_later_validated_address_after_first_connect_fails(self):
+        self._start_probe_server()
+        base_url = f"http://127.0.0.1:{self.server.server_port}/simpleoffice"
+        addresses = [
+            ipaddress.ip_address("2001:4860:4860::8888"),
+            ipaddress.ip_address("127.0.0.1"),
+        ]
+        real_create_connection = socket.create_connection
+        attempts = []
+
+        def connect(address, *, timeout):
+            attempts.append(address[0])
+            if len(attempts) == 1:
+                raise ConnectionRefusedError("first address is unavailable")
+            return real_create_connection(address, timeout=timeout)
+
+        with patch(
+            "app.federation_diagnostics.resolve_pinned_endpoint",
+            return_value=(base_url, urlsplit(base_url), self.server.server_port, addresses),
+        ), patch(
+            "app.federation_diagnostics.socket.create_connection", side_effect=connect,
+        ):
+            with self.app.app_context():
+                result = probe_peer(self.root, "remote-peer", now=1_800_000_001)
+
+        self.assertEqual("success", result["status"])
+        self.assertEqual([address.compressed for address in addresses], attempts)
+        self.assertEqual(1, self.server.request_count)
 
     def test_outbound_authentication_and_http_failures_are_classified(self):
         self._start_probe_server()

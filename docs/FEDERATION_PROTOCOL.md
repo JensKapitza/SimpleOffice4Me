@@ -94,6 +94,11 @@ Link-Local sind standardmäßig gesperrt. Private/LAN-Ziele sind nur mit
 Trust-Umgebungen und wird in CI nur im isolierten Testnetz gesetzt.
 TLS-Zertifikatsprüfung bleibt aktiv.
 
+Für Multi-Address-DNS-Ziele werden bis zu acht bereits geprüfte Adressen
+ausprobiert, wenn ein früherer TCP-Verbindungsversuch fehlschlägt. Die
+Verbindungsversuche teilen sich ein Fünf-Sekunden-Budget; es wird nie erneut
+DNS zwischen Prüfung und Verbindung aufgelöst.
+
 Pro Peer werden letzter Versuch, letzter Erfolg, Fehlerkategorie und
 Transportstufen getrennt gespeichert; die letzten 20 Ergebnisse je Richtung und
 Peer bleiben als begrenzte Historie verfügbar. Nach fünf Minuten gilt der aktuelle

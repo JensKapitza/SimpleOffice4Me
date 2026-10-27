@@ -27,6 +27,7 @@ PROBE_TIMEOUT_SECONDS = 5
 MAX_RESPONSE_BYTES = 4096
 RATE_LIMIT_COUNT = 10
 RATE_LIMIT_WINDOW_SECONDS = 60
+MAX_PROBE_ADDRESSES = 8
 USER_AGENT = "SimpleOffice4Me-Federation-Diagnostics/1"
 _NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -85,6 +86,26 @@ def _unavailable_peer(peer_id: str) -> dict:
     }
 
 
+def _connect_pinned(addresses, port: int, timeout: float):
+    """Try a bounded set of previously validated addresses within one TCP budget."""
+    deadline = time.monotonic() + timeout
+    last_error: OSError | None = None
+    for address in addresses[:MAX_PROBE_ADDRESSES]:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            raw_socket = socket.create_connection(
+                (address.compressed, port), timeout=remaining,
+            )
+            return address, raw_socket
+        except OSError as exc:
+            last_error = exc
+    if last_error is not None:
+        raise last_error
+    raise TimeoutError("no validated peer address connected before the deadline")
+
+
 def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dict:
     """Run a signed outbound probe against one stored peer, never an arbitrary URL."""
     store = FederationStore(root)
@@ -119,8 +140,6 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         stages["dns"] = "failed" if category == "dns" else "not_checked"
         return _record_failure(store, peer_id, started, category, stages)
     stages["dns"] = "ok"
-    address = addresses[0]
-    connect_host = address.compressed
     request_path = (parsed.path.rstrip("/") + PROBE_PATH) or PROBE_PATH
     probe_id = secrets.token_urlsafe(18)
     payload = _json_bytes({"probe_id": probe_id, "requested_at": int(time.time() if now is None else now)})
@@ -139,10 +158,15 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         **proof,
     }
     nonce = proof["X-SimpleOffice-Peer-Nonce"]
-    connection = http.client.HTTPConnection(connect_host, port=port, timeout=PROBE_TIMEOUT_SECONDS)
+    connection: http.client.HTTPConnection | None = None
     raw_socket = None
     try:
-        raw_socket = socket.create_connection((connect_host, port), timeout=PROBE_TIMEOUT_SECONDS)
+        address, raw_socket = _connect_pinned(
+            addresses, port, PROBE_TIMEOUT_SECONDS,
+        )
+        connection = http.client.HTTPConnection(
+            address.compressed, port=port, timeout=PROBE_TIMEOUT_SECONDS,
+        )
         stages["tcp"] = "ok"
         if parsed.scheme == "https":
             try:
@@ -231,7 +255,8 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         stages["http"] = "failed"
         return _record_failure(store, peer_id, started, "http", stages)
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
         if raw_socket is not None:
             raw_socket.close()
 
