@@ -50,12 +50,20 @@ class MailResourceProvider:
         account_id = _validated_account_id(account_id)
         self._account(account_id)
         try:
-            folder = resolve_for_write_under(
-                self.root, Path("email") / _owner_key(self.actor) / account_id,
+            self.root.mkdir(parents=True, exist_ok=True)
+            owner_key = _owner_key(self.actor)
+            email_root = resolve_for_write_under(self.root, "email")
+            email_root.mkdir(parents=True, exist_ok=True)
+            owner_root = resolve_for_write_under(
+                self.root, Path("email") / owner_key,
             )
-        except ValueError as exc:
+            owner_root.mkdir(parents=True, exist_ok=True)
+            folder = resolve_for_write_under(
+                self.root, Path("email") / owner_key / account_id,
+            )
+            folder.mkdir(parents=True, exist_ok=True)
+        except (OSError, ValueError) as exc:
             raise ProviderError("E-Mail-Archivpfad ist ungültig") from exc
-        folder.mkdir(parents=True, exist_ok=True)
         return LocalResourceProvider(folder)
 
     def list(self, path: str = "") -> Iterable[ResourceEntry]:
