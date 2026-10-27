@@ -326,6 +326,9 @@ app.register_blueprint(mail_reader_routes.bp)
 from . import admin
 app.register_blueprint(admin.bp)
 
+from . import admin_osm_settings
+app.register_blueprint(admin_osm_settings.bp)
+
 from . import v3_finance_routes
 app.register_blueprint(v3_finance_routes.bp)
 
