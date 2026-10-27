@@ -97,6 +97,7 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="osm_export_idle_timeout_seconds"', html)
         self.assertIn('name="osm_max_download_gib"', html)
         self.assertIn('name="osm_download_retries"', html)
+        self.assertIn('action="/admin/settings/integrations/osm"', html)
         self.assertIn('name="clamav_timeout_seconds"', html)
         self.assertIn("30–3600 Sekunden", html)
         self.assertIn("3.600–86.400 Sekunden", html)
