@@ -43,6 +43,8 @@ class ProjectReleaseSbomTests(unittest.TestCase):
         self.assertNotIn("contents: write", workflow.split("jobs:\n", maxsplit=1)[0])
         self.assertIn("actions: write", dispatch)
         self.assertIn("contents: read", dispatch)
+        self.assertIn("BUILD_REF: ${{ github.ref_name }}", dispatch)
+        self.assertNotIn("BUILD_REF: ${{ github.ref }}", dispatch)
         self.assertIn("actions: read", build)
         self.assertIn("contents: read", build)
         self.assertIn("actions: read", publish)
