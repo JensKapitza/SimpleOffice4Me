@@ -56,8 +56,8 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 
 | Variable | Standard / Grenze | Verwendung |
 |---|---|---|
-| `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | `5`, effektiv 1–10 | Downloadversuche; [OSM-Download](../app/osm_address_storage.py) |
-| `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | `8` | Maximaler Quelldownload in GiB; [OSM-Download](../app/osm_address_storage.py) |
+| `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | `5`, effektiv 1–10 | Legacy-Startwert bis eine persistierte Admin-Einstellung existiert; [OSM-Download](../app/osm_address_storage.py) |
+| `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | `8`, effektiv 0–64 | Legacy-Startwert; 0 deaktiviert OSM-Downloads, danach maßgeblich ist `integrations.osm_max_download_gib` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | `300`, effektiv 30–3600 | Legacy-Timeout bis eine persistierte Admin-Einstellung existiert; danach maßgeblich ist `integrations.osm_download_read_timeout_seconds` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | Legacy-Startwert bis `integrations.osm_filter_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | Legacy-Startwert bis `integrations.osm_export_idle_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
@@ -69,11 +69,17 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 Dies sind lokale Verarbeitungslimits, keine Zusage über tatsächliche
 Gesamtlaufzeit, RAM-Verbrauch, Netzleistung oder Mail-/Anhangsfreigabe.
 
-Der OSM-Lese-Timeout ist unter **Admin → Einstellungen → Integrationen &
-Dienste** persistent konfigurierbar. Die gespeicherte Einstellung
-gilt für neu gestartete Downloads und hat Vorrang vor
-`SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`. Der Environment-Wert wird nur
-verwendet, solange noch keine persistierte OSM-Einstellung vorliegt.
+OSM-Lese-Timeout, maximales Quelldownload-Limit und Downloadversuche sind unter
+**Admin → Einstellungen → Integrationen & Dienste** persistent konfigurierbar.
+Die Größenbegrenzung wird vor dem Request anhand der gemeldeten Dateigröße und
+erneut für jeden tatsächlich gelesenen Datenblock geprüft. Ein Limit von 0
+deaktiviert Downloads, bevor ein Netzwerkzugriff erfolgt. Die Retry-Anzahl
+begrenzt Wiederholungen; der bestehende exponentielle Warteplan bleibt auf
+höchstens 10 Sekunden begrenzt. Gespeicherte Einstellungen gelten für neue
+Downloads und haben Vorrang vor `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`,
+`SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` und `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES`.
+Diese Environment-Werte werden nur bis zum Speichern der persistenten
+Einstellungen als begrenzte Legacy-Startwerte verwendet.
 
 Das ClamAV-Zeitlimit ist im Administrationsbereich **Integrationen & Dienste**
 unter **ClamAV-Sicherheitsprüfung** persistent konfigurierbar. Der gespeicherte

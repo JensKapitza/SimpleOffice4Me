@@ -12,6 +12,34 @@ from pathlib import Path
 from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
+from .integration_settings import (
+    DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    DEFAULT_OSM_DOWNLOAD_RETRIES,
+    DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    DEFAULT_OSM_MAX_DOWNLOAD_GIB,
+    DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
+    MAX_OSM_DOWNLOAD_RETRIES as MAX_OSM_DOWNLOAD_RETRIES,
+    MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS as MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    MAX_OSM_FILTER_TIMEOUT_SECONDS as MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_MAX_DOWNLOAD_GIB as MAX_OSM_MAX_DOWNLOAD_GIB,
+    MAX_OSM_READ_TIMEOUT_SECONDS as MAX_OSM_READ_TIMEOUT_SECONDS,
+    MIN_CLAMAV_TIMEOUT_SECONDS as MIN_CLAMAV_TIMEOUT_SECONDS,
+    MIN_OSM_DOWNLOAD_RETRIES as MIN_OSM_DOWNLOAD_RETRIES,
+    MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS as MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    MIN_OSM_FILTER_TIMEOUT_SECONDS as MIN_OSM_FILTER_TIMEOUT_SECONDS,
+    MIN_OSM_MAX_DOWNLOAD_GIB as MIN_OSM_MAX_DOWNLOAD_GIB,
+    MIN_OSM_READ_TIMEOUT_SECONDS as MIN_OSM_READ_TIMEOUT_SECONDS,
+    legacy_clamav_timeout,
+    legacy_osm_download_retries,
+    legacy_osm_export_idle_timeout,
+    legacy_osm_filter_timeout,
+    legacy_osm_max_download_gib,
+    legacy_osm_read_timeout,
+    normalize_integration_settings,
+    validate_integration_settings,
+)
 from .revision_history import RevisionHistory
 from .settings_limits import (
     DEFAULT_RSYNC_MAX_BYTES,
@@ -41,18 +69,6 @@ MAX_PREVIEW_MAX_BYTES = 2 * 1024 * 1024 * 1024
 DEFAULT_PREVIEW_MAX_PIXELS = 80_000_000
 MIN_PREVIEW_MAX_PIXELS = 1_000_000
 MAX_PREVIEW_MAX_PIXELS = 250_000_000
-DEFAULT_OSM_READ_TIMEOUT_SECONDS = 300
-MIN_OSM_READ_TIMEOUT_SECONDS = 30
-MAX_OSM_READ_TIMEOUT_SECONDS = 3600
-DEFAULT_OSM_FILTER_TIMEOUT_SECONDS = 21600
-MIN_OSM_FILTER_TIMEOUT_SECONDS = 3600
-MAX_OSM_FILTER_TIMEOUT_SECONDS = 86400
-DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS = 1800
-MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS = 300
-MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS = 86400
-DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
-MIN_CLAMAV_TIMEOUT_SECONDS = 5
-MAX_CLAMAV_TIMEOUT_SECONDS = 900
 DEFAULT_RSYNC_TIMEOUT_SECONDS = 3600
 MIN_RSYNC_TIMEOUT_SECONDS = 30
 MAX_RSYNC_TIMEOUT_SECONDS = 86400
@@ -107,6 +123,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS,
         "osm_filter_timeout_seconds": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
         "osm_export_idle_timeout_seconds": DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+        "osm_max_download_gib": DEFAULT_OSM_MAX_DOWNLOAD_GIB,
+        "osm_download_retries": DEFAULT_OSM_DOWNLOAD_RETRIES,
         "clamav_timeout_seconds": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     },
 }
@@ -423,25 +441,29 @@ class SettingsStore:
             or "osm_download_read_timeout_seconds" not in stored_integrations
         ):
             result["integrations"]["osm_download_read_timeout_seconds"] = (
-                self._legacy_osm_read_timeout()
+                legacy_osm_read_timeout()
             )
         if not isinstance(stored_integrations, dict) or "osm_filter_timeout_seconds" not in stored_integrations:
             result["integrations"]["osm_filter_timeout_seconds"] = (
-                self._legacy_osm_filter_timeout()
+                legacy_osm_filter_timeout()
             )
         if (
             not isinstance(stored_integrations, dict)
             or "osm_export_idle_timeout_seconds" not in stored_integrations
         ):
             result["integrations"]["osm_export_idle_timeout_seconds"] = (
-                self._legacy_osm_export_idle_timeout()
+                legacy_osm_export_idle_timeout()
             )
+        if not isinstance(stored_integrations, dict) or "osm_max_download_gib" not in stored_integrations:
+            result["integrations"]["osm_max_download_gib"] = legacy_osm_max_download_gib()
+        if not isinstance(stored_integrations, dict) or "osm_download_retries" not in stored_integrations:
+            result["integrations"]["osm_download_retries"] = legacy_osm_download_retries()
         if (
             not isinstance(stored_integrations, dict)
             or "clamav_timeout_seconds" not in stored_integrations
         ):
             result["integrations"]["clamav_timeout_seconds"] = (
-                self._legacy_clamav_timeout()
+                legacy_clamav_timeout()
             )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
@@ -549,143 +571,8 @@ class SettingsStore:
         return value
 
     @staticmethod
-    def _legacy_osm_read_timeout() -> int:
-        """Read and bound the legacy environment value before it is persisted."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS",
-            str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 12 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy OSM read timeout; using the default")
-            return DEFAULT_OSM_READ_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_OSM_READ_TIMEOUT_SECONDS <= value <= MAX_OSM_READ_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy OSM read timeout outside range; clamping to supported limits")
-            return max(
-                MIN_OSM_READ_TIMEOUT_SECONDS,
-                min(MAX_OSM_READ_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
-    def _legacy_osm_filter_timeout() -> int:
-        """Read and bound the legacy OSM filter timeout until settings are saved."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_OSM_FILTER_TIMEOUT",
-            str(DEFAULT_OSM_FILTER_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy OSM filter timeout; using the default")
-            return DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
-        if len(raw) > 12:
-            _LOGGER.warning("Legacy OSM filter timeout outside range; clamping to supported limits")
-            return MIN_OSM_FILTER_TIMEOUT_SECONDS if raw.startswith("-") else MAX_OSM_FILTER_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_OSM_FILTER_TIMEOUT_SECONDS <= value <= MAX_OSM_FILTER_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy OSM filter timeout outside range; clamping to supported limits")
-            return max(
-                MIN_OSM_FILTER_TIMEOUT_SECONDS,
-                min(MAX_OSM_FILTER_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
-    def _legacy_osm_export_idle_timeout() -> int:
-        """Read and bound the OSM export watchdog until settings are saved."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT",
-            str(DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy OSM export idle timeout; using the default")
-            return DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        if len(raw) > 12:
-            _LOGGER.warning("Legacy OSM export idle timeout outside range; clamping to supported limits")
-            return (
-                MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-                if raw.startswith("-") else MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-            )
-        value = int(raw)
-        if not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS <= value <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy OSM export idle timeout outside range; clamping to supported limits")
-            return max(
-                MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-                min(MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
-    def _legacy_clamav_timeout() -> int:
-        """Migrate and bound the former environment-only scanner timeout."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_CLAMAV_TIMEOUT", str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 12 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy ClamAV timeout; using the default")
-            return DEFAULT_CLAMAV_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_CLAMAV_TIMEOUT_SECONDS <= value <= MAX_CLAMAV_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy ClamAV timeout outside range; clamping to supported limits")
-            return max(
-                MIN_CLAMAV_TIMEOUT_SECONDS,
-                min(MAX_CLAMAV_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
     def _normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
-        timeout = integrations.get(
-            "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, int)
-            or not MIN_OSM_READ_TIMEOUT_SECONDS <= timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored OSM read timeout; using the default")
-            timeout = DEFAULT_OSM_READ_TIMEOUT_SECONDS
-        filter_timeout = integrations.get(
-            "osm_filter_timeout_seconds", DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(filter_timeout, bool)
-            or not isinstance(filter_timeout, int)
-            or not MIN_OSM_FILTER_TIMEOUT_SECONDS <= filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored OSM filter timeout; using the default")
-            filter_timeout = DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
-        export_idle_timeout = integrations.get(
-            "osm_export_idle_timeout_seconds", DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(export_idle_timeout, bool)
-            or not isinstance(export_idle_timeout, int)
-            or not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-            <= export_idle_timeout
-            <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored OSM export idle timeout; using the default")
-            export_idle_timeout = DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        clamav_timeout = integrations.get(
-            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(clamav_timeout, bool)
-            or not isinstance(clamav_timeout, int)
-            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored ClamAV timeout; using the default")
-            clamav_timeout = DEFAULT_CLAMAV_TIMEOUT_SECONDS
-        return {
-            "osm_download_read_timeout_seconds": timeout,
-            "osm_filter_timeout_seconds": filter_timeout,
-            "osm_export_idle_timeout_seconds": export_idle_timeout,
-            "clamav_timeout_seconds": clamav_timeout,
-        }
+        return normalize_integration_settings(integrations)
 
     def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
@@ -831,44 +718,7 @@ class SettingsStore:
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
             raise ValueError("integration settings must be an object")
-        osm_read_timeout = integrations.get(
-            "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(osm_read_timeout, bool)
-            or not isinstance(osm_read_timeout, int)
-            or not MIN_OSM_READ_TIMEOUT_SECONDS <= osm_read_timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
-        ):
-            raise ValueError("OSM read timeout must be between 30 and 3600 seconds")
-        osm_filter_timeout = integrations.get(
-            "osm_filter_timeout_seconds", DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(osm_filter_timeout, bool)
-            or not isinstance(osm_filter_timeout, int)
-            or not MIN_OSM_FILTER_TIMEOUT_SECONDS <= osm_filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS
-        ):
-            raise ValueError("OSM filter timeout must be between 3600 and 86,400 seconds")
-        osm_export_idle_timeout = integrations.get(
-            "osm_export_idle_timeout_seconds", DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(osm_export_idle_timeout, bool)
-            or not isinstance(osm_export_idle_timeout, int)
-            or not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-            <= osm_export_idle_timeout
-            <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        ):
-            raise ValueError("OSM export idle timeout must be between 300 and 86,400 seconds")
-        clamav_timeout = integrations.get(
-            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(clamav_timeout, bool)
-            or not isinstance(clamav_timeout, int)
-            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
-        ):
-            raise ValueError("ClamAV timeout must be between 5 and 900 seconds")
+        integrations = validate_integration_settings(integrations)
         video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
         if (
             isinstance(video_preview_frames, bool)
@@ -944,9 +794,6 @@ class SettingsStore:
                 "preview_max_pixels": preview_max_pixels,
             },
             "integrations": {
-                "osm_download_read_timeout_seconds": osm_read_timeout,
-                "osm_filter_timeout_seconds": osm_filter_timeout,
-                "osm_export_idle_timeout_seconds": osm_export_idle_timeout,
-                "clamav_timeout_seconds": clamav_timeout,
+                **integrations,
             },
         }

@@ -12,11 +12,15 @@ from werkzeug.security import generate_password_hash
 
 from app import app, db as database
 from app.settings_store import (
+    DEFAULT_OSM_DOWNLOAD_RETRIES,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    DEFAULT_OSM_MAX_DOWNLOAD_GIB,
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    MAX_OSM_DOWNLOAD_RETRIES,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_MAX_DOWNLOAD_GIB,
     MAX_OSM_READ_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
@@ -47,6 +51,8 @@ class OsmSettingsTests(unittest.TestCase):
             "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
             "SIMPLEOFFICE_OSM_FILTER_TIMEOUT": str(DEFAULT_OSM_FILTER_TIMEOUT_SECONDS),
             "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": str(DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS),
+            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": str(DEFAULT_OSM_MAX_DOWNLOAD_GIB),
+            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": str(DEFAULT_OSM_DOWNLOAD_RETRIES),
         })
         self.environment.start()
         with app.app_context():
@@ -89,10 +95,15 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="osm_download_read_timeout_seconds"', html)
         self.assertIn('name="osm_filter_timeout_seconds"', html)
         self.assertIn('name="osm_export_idle_timeout_seconds"', html)
+        self.assertIn('name="osm_max_download_gib"', html)
+        self.assertIn('name="osm_download_retries"', html)
+        self.assertIn('action="/admin/settings/integrations/osm"', html)
         self.assertIn('name="clamav_timeout_seconds"', html)
         self.assertIn("30–3600 Sekunden", html)
         self.assertIn("3.600–86.400 Sekunden", html)
         self.assertIn("300–86.400 Sekunden", html)
+        self.assertIn("0–64 GiB", html)
+        self.assertIn("1–10", html)
         self.assertIn("5–900 Sekunden", html)
         self.assertIn('name="_csrf_token"', html)
 
@@ -270,6 +281,71 @@ class OsmSettingsTests(unittest.TestCase):
             SettingsStore(self.root).save(
                 {"integrations": {"osm_export_idle_timeout_seconds": True}}, "osm-admin",
             )
+
+    def test_osm_download_limits_are_admin_only_bounded_persistent_and_audited(self):
+        payload = {"osm_max_download_gib": "0", "osm_download_retries": "2"}
+        self.assertEqual(403, self.post_osm_settings(self.user, payload, token="u" * 40).status_code)
+        saved = self.post_osm_settings(self.admin, payload)
+        self.assertEqual(302, saved.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(0, settings["osm_max_download_gib"])
+        self.assertEqual(2, settings["osm_download_retries"])
+        self.post_osm_settings(
+            self.admin, {"osm_download_read_timeout_seconds": "420"},
+        )
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(0, settings["osm_max_download_gib"])
+        self.assertEqual(2, settings["osm_download_retries"])
+
+        for field, invalid in (
+            ("osm_max_download_gib", "-1"),
+            ("osm_max_download_gib", str(MAX_OSM_MAX_DOWNLOAD_GIB + 1)),
+            ("osm_max_download_gib", "9" * 20),
+            ("osm_download_retries", "0"),
+            ("osm_download_retries", str(MAX_OSM_DOWNLOAD_RETRIES + 1)),
+            ("osm_download_retries", "9" * 20),
+        ):
+            with self.subTest(field=field, invalid=invalid):
+                self.assertEqual(302, self.post_osm_settings(self.admin, {field: invalid}).status_code)
+                settings = SettingsStore(self.root).settings()["integrations"]
+                self.assertEqual(0, settings["osm_max_download_gib"])
+                self.assertEqual(2, settings["osm_download_retries"])
+
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("osm_download_limits_updated",),
+            ).fetchone()
+        self.assertEqual("osm-admin", row["actor_name"])
+        self.assertEqual("integrations.osm_download_limits", row["target_id"])
+        self.assertEqual(2, json.loads(row["detail"])["osm_download_retries"])
+
+        self.post_osm_settings(self.admin, {"reset": "1"})
+        reset = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_OSM_MAX_DOWNLOAD_GIB, reset["osm_max_download_gib"])
+        self.assertEqual(DEFAULT_OSM_DOWNLOAD_RETRIES, reset["osm_download_retries"])
+
+    def test_osm_download_limits_migrate_legacy_environment_until_saved(self):
+        env = {
+            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "0",
+            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "99",
+        }
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, env):
+            migrated = SettingsStore(root).settings()["integrations"]
+            self.assertEqual(0, migrated["osm_max_download_gib"])
+            self.assertEqual(MAX_OSM_DOWNLOAD_RETRIES, migrated["osm_download_retries"])
+            SettingsStore(root).save(
+                {"integrations": {"osm_download_read_timeout_seconds": 420}},
+                "osm-admin",
+            )
+            with patch.dict(os.environ, {
+                "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "32",
+                "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "3",
+            }):
+                persisted = SettingsStore(root).settings()["integrations"]
+            self.assertEqual(0, persisted["osm_max_download_gib"])
+            self.assertEqual(MAX_OSM_DOWNLOAD_RETRIES, persisted["osm_download_retries"])
 
 
 if __name__ == "__main__":
