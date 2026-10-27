@@ -1,9 +1,11 @@
 import base64
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from app import app
+from app.caldav_credentials import CalDAVCredentials
 from app.calendar_collections import CalendarCollections, CalendarConflict
 from app.todo_store import TodoStore
 
@@ -35,6 +37,20 @@ class CalDavTest(unittest.TestCase):
         self.assertIn("supported-calendar-component-set", home.text); self.assertIn('name="VEVENT"', home.text)
         self.assertIn('name="VTODO"', home.text); self.assertIn("/tasks/", home.text)
         self.assertIn("sync-collection", options.headers["DAV"]); self.assertIn("calendar-access", options.headers["DAV"])
+
+    def test_caldav_activation_returns_only_creation_time(self):
+        credential_value = "test-generated-caldav-credential"
+        credentials = CalDAVCredentials(self.store.auth_path, self.store.lock)
+
+        created_at = credentials.activate("metadata-only", credential_value, "metadata-only")
+
+        self.assertIsInstance(created_at, str)
+        self.assertTrue(created_at)
+        stored = json.loads(self.store.auth_path.read_text(encoding="utf-8"))
+        record = next(item for item in stored["accounts"] if item["username"] == "metadata-only")
+        self.assertIn("password_hash", record)
+        self.assertIn("password_salt", record)
+        self.assertNotIn(credential_value, json.dumps(record))
 
     def test_vtodo_collection_roundtrip_query_conflict_and_sync(self):
         collection = "/caldav/calendars/admin/tasks/"; resource = collection + "offer.ics"
