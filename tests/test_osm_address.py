@@ -253,6 +253,73 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual(2048, target.stat().st_size)
             self.assertEqual(timeout, open_source.call_args.kwargs["timeout"])
 
+    def test_persisted_zero_download_limit_blocks_network_and_preserves_partial_files(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
+            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "8",
+            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "10",
+        }):
+            SettingsStore(root).save(
+                {"integrations": {
+                    "osm_max_download_gib": 0,
+                    "osm_download_retries": 2,
+                }},
+                "osm-admin",
+            )
+            index = LocalAddressIndex(Path(root))
+            index.data_dir.mkdir(parents=True)
+            partial = index.data_dir / "germany-latest.osm.pbf.part"
+            partial.write_bytes(b"preserve interrupted download")
+            with patch.object(index, "region_info") as region_info, patch(
+                "app.osm_address_storage._open_geofabrik",
+            ) as open_source:
+                with self.assertRaisesRegex(ValueError, "downloads are disabled"):
+                    index.download_region("germany")
+            region_info.assert_not_called()
+            open_source.assert_not_called()
+            self.assertEqual(b"preserve interrupted download", partial.read_bytes())
+
+    def test_download_limit_checks_remote_size_before_opening_source(self):
+        with tempfile.TemporaryDirectory() as root:
+            SettingsStore(root).save(
+                {"integrations": {"osm_max_download_gib": 1}}, "osm-admin",
+            )
+            index = LocalAddressIndex(Path(root))
+            with patch.object(
+                index,
+                "region_info",
+                return_value={"bytes": 1024**3 + 1, "last_modified": ""},
+            ), patch("app.osm_address_storage._open_geofabrik") as open_source:
+                with self.assertRaisesRegex(ValueError, "exceeds configured size limit"):
+                    index.download_region("germany")
+            open_source.assert_not_called()
+
+    def test_download_uses_persisted_retry_limit_instead_of_legacy_environment(self):
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
+            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "8",
+            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "10",
+        }):
+            SettingsStore(root).save(
+                {"integrations": {
+                    "osm_max_download_gib": 1,
+                    "osm_download_retries": 2,
+                }},
+                "osm-admin",
+            )
+            index = LocalAddressIndex(Path(root))
+            with patch.object(
+                index,
+                "region_info",
+                return_value={"bytes": 0, "last_modified": ""},
+            ), patch(
+                "app.osm_address_storage._open_geofabrik",
+                side_effect=OSError("temporary network failure"),
+            ) as open_source, patch("app.osm_address_storage.time.sleep") as sleep:
+                with self.assertRaisesRegex(OSError, "temporary network failure"):
+                    index.download_region("germany")
+            self.assertEqual(2, open_source.call_count)
+            sleep.assert_called_once_with(1)
+            self.assertEqual(2, index.status()["download_attempts"])
+
     def test_existing_download_can_be_reindexed_without_network(self):
         with tempfile.TemporaryDirectory() as root:
             index = LocalAddressIndex(Path(root))

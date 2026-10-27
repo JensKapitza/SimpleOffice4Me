@@ -342,18 +342,17 @@ class LocalAddressIndex:
 
     def download_region(self, region: str) -> Path:
         label, url = self._source(region)
+        integrations = SettingsStore(self.root).settings()["integrations"]
+        max_bytes = integrations["osm_max_download_gib"] * 1024**3
+        max_attempts = integrations["osm_download_retries"]
+        if max_bytes == 0:
+            raise ValueError("OSM downloads are disabled by the configured size limit")
+
         self.data_dir.mkdir(parents=True, exist_ok=True)
         target = self.data_dir / f"{region}-latest.osm.pbf"
         partial = self.data_dir / f"{region}-latest.osm.pbf.part"
         legacy_partial = target.with_suffix(".download")
-        try:
-            max_bytes = int(os.environ.get("SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB", "8")) * 1024**3
-            max_attempts = max(1, min(10, int(os.environ.get("SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES", "5"))))
-        except ValueError as exc:
-            raise ValueError("invalid OSM download configuration") from exc
-        read_timeout = SettingsStore(self.root).settings()["integrations"][
-            "osm_download_read_timeout_seconds"
-        ]
+        read_timeout = integrations["osm_download_read_timeout_seconds"]
 
         with exclusive_file_lock(self.download_lock):
             if legacy_partial.is_file() and not partial.exists():
