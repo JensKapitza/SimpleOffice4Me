@@ -1,16 +1,18 @@
 import tempfile
 import time
 import unittest
+from contextlib import contextmanager
 from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
 
+from app.file_lock import exclusive_file_lock
 from app.printershare_store import PrinterShareStore, effective_retention
 
 
 TEST_PRINTER = {
-    "printer_id": "printer-test-1",
+    "printer_id": "a" * 24,
     "name": "Office Printer",
     "driver": "Test Driver",
     "port": "TEST:",
@@ -106,6 +108,179 @@ class PrinterShareStoreTest(unittest.TestCase):
         first = self.store.policy_revision()
         self.store.update_settings({"federation_default_retention": "ttl"})
         self.assertNotEqual(first, self.store.policy_revision())
+
+    def test_user_preferences_are_persistent_and_role_specific(self):
+        label_printer = {
+            **TEST_PRINTER,
+            "printer_id": "b" * 24,
+            "name": "Brother QL",
+            "is_default": False,
+            "kind": "label",
+        }
+        with patch(
+            "app.printershare_store.discover_printers",
+            return_value=[dict(TEST_PRINTER), label_printer],
+        ):
+            saved = self.store.set_user_preferences(
+                "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+                label_printer_id=label_printer["printer_id"],
+            )
+            reopened = PrinterShareStore(self.root, self.app.config["SECRET_KEY"])
+            context = reopened.user_printer_context("alice")
+
+        self.assertEqual(TEST_PRINTER["printer_id"], saved["standard"])
+        self.assertEqual(label_printer["printer_id"], saved["label"])
+        self.assertEqual(TEST_PRINTER["printer_id"], context["roles"]["standard"]["printer_id"])
+        self.assertEqual(label_printer["printer_id"], context["roles"]["label"]["printer_id"])
+        self.assertEqual("personal", context["roles"]["label"]["source"])
+
+    def test_policy_precedence_and_forced_printer_are_server_enforced(self):
+        second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
+        with patch(
+            "app.printershare_store.discover_printers",
+            return_value=[dict(TEST_PRINTER), second],
+        ):
+            self.store.set_user_preferences(
+                "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+            )
+            self.store.set_user_printer_policies("alice", {
+                "standard": {"mode": "recommended", "printer_id": second["printer_id"]},
+                "label": {"mode": "none", "printer_id": ""},
+            })
+            recommended = self.store.user_printer_context("alice")["roles"]["standard"]
+            self.store.set_user_printer_policies("alice", {
+                "standard": {"mode": "forced", "printer_id": second["printer_id"]},
+                "label": {"mode": "none", "printer_id": ""},
+            })
+            forced = self.store.user_printer_context("alice")["roles"]["standard"]
+            resolved = self.store.resolve_user_printer("alice", "standard")
+            with self.assertRaisesRegex(ValueError, "erzwungenen Druckerrichtlinie"):
+                self.store.resolve_user_printer("alice", "standard", TEST_PRINTER["printer_id"])
+
+        self.assertEqual(TEST_PRINTER["printer_id"], recommended["printer_id"])
+        self.assertEqual("personal", recommended["source"])
+        self.assertEqual(second["printer_id"], forced["printer_id"])
+        self.assertEqual(second["printer_id"], resolved["printer_id"])
+
+    def test_user_printer_preferences_are_isolated_between_accounts(self):
+        second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
+        with patch(
+            "app.printershare_store.discover_printers",
+            return_value=[dict(TEST_PRINTER), second],
+        ):
+            self.store.set_user_preferences(
+                "alice", standard_printer_id=second["printer_id"],
+            )
+            self.store.set_user_preferences(
+                "bob", standard_printer_id=TEST_PRINTER["printer_id"],
+            )
+            reopened = PrinterShareStore(self.root, self.app.config["SECRET_KEY"])
+            alice = reopened.resolve_user_printer("alice", "standard")
+            bob = reopened.resolve_user_printer("bob", "standard")
+        self.assertEqual(second["printer_id"], alice["printer_id"])
+        self.assertEqual(TEST_PRINTER["printer_id"], bob["printer_id"])
+
+    def test_forced_policy_blocks_preference_change_and_preserves_saved_value(self):
+        second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
+        with patch(
+            "app.printershare_store.discover_printers",
+            return_value=[dict(TEST_PRINTER), second],
+        ):
+            self.store.set_user_preferences(
+                "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+            )
+            self.store.set_user_printer_policies("alice", {
+                "standard": {"mode": "forced", "printer_id": second["printer_id"]},
+                "label": {"mode": "none", "printer_id": ""},
+            })
+            with self.assertRaisesRegex(ValueError, "Administrationsrichtlinie"):
+                self.store.set_user_preferences(
+                    "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+                )
+            context = self.store.user_printer_context("alice")["roles"]["standard"]
+        self.assertEqual(second["printer_id"], context["printer_id"])
+        self.assertEqual(TEST_PRINTER["printer_id"], context["preference_printer_id"])
+
+    def test_single_role_policy_preserves_other_role_and_validates_mode(self):
+        self.store.set_user_printer_policies("alice", {
+            "standard": {"mode": "recommended", "printer_id": TEST_PRINTER["printer_id"]},
+            "label": {"mode": "none", "printer_id": ""},
+        })
+        updated = self.store.set_user_printer_policy("alice", "label", "none")
+        self.assertEqual("none", updated["mode"])
+        saved = self.store.settings()["user_printer_policies"]["alice"]
+        self.assertEqual("recommended", saved["standard"]["mode"])
+        with self.assertRaisesRegex(ValueError, "Unbekannte Druckerrichtlinie"):
+            self.store.set_user_printer_policy("alice", "label", "invalid")
+        self.assertEqual(saved, self.store.settings()["user_printer_policies"]["alice"])
+
+    def test_missing_forced_device_fails_closed_without_fallback(self):
+        self.store.set_user_printer_policies("alice", {
+            "standard": {"mode": "forced", "printer_id": TEST_PRINTER["printer_id"]},
+            "label": {"mode": "none", "printer_id": ""},
+        })
+        with patch("app.printershare_store.discover_printers", return_value=[]):
+            context = self.store.user_printer_context("alice")["roles"]["standard"]
+            self.assertFalse(context["available"])
+            self.assertEqual("forced", context["policy"])
+            with self.assertRaisesRegex(ValueError, "erzwungene Drucker ist nicht verfügbar"):
+                self.store.resolve_user_printer("alice", "standard")
+
+    def test_removed_personal_printer_uses_compatible_system_fallback(self):
+        replacement = {**TEST_PRINTER, "printer_id": "e" * 24, "name": "Replacement"}
+        self.store.set_user_preferences("alice", standard_printer_id=TEST_PRINTER["printer_id"])
+        with patch("app.printershare_store.discover_printers", return_value=[replacement]):
+            context = self.store.user_printer_context("alice")["roles"]["standard"]
+
+        self.assertEqual(replacement["printer_id"], context["printer_id"])
+        self.assertEqual("fallback", context["source"])
+
+    def test_legacy_brother_profile_is_migrated_into_private_central_label_choices(self):
+        with patch(
+            "app.library.store.LibraryStore.printer_settings",
+            return_value={"uri": "tcp://192.168.1.50:9100", "model": "QL-820NWB"},
+        ):
+            context = self.store.user_printer_context("alice")
+
+        label = context["roles"]["label"]
+        self.assertTrue(label["available"])
+        self.assertEqual("label", label["options"][0]["kind"])
+        self.assertEqual("brother", label["options"][0]["backend"])
+        self.assertTrue(all("uri" not in printer for printer in context["printers"]))
+
+    def test_first_printer_mutations_migrate_before_taking_write_lock(self):
+        policies = {
+            "standard": {"mode": "recommended", "printer_id": TEST_PRINTER["printer_id"]},
+            "label": {"mode": "none", "printer_id": ""},
+        }
+        mutations = (
+            lambda store: store.set_printer(
+                TEST_PRINTER["printer_id"], kind="normal", federation_shared=False,
+            ),
+            lambda store: store.set_user_preferences(
+                "alice", standard_printer_id=TEST_PRINTER["printer_id"],
+            ),
+            lambda store: store.set_user_printer_policies("alice", policies),
+        )
+        for index, mutate in enumerate(mutations):
+            with self.subTest(mutation=index):
+                store = PrinterShareStore(self.root / f"write-lock-{index}", self.app.config["SECRET_KEY"])
+                lock_active = False
+
+                @contextmanager
+                def non_reentrant_lock(path):
+                    nonlocal lock_active
+                    if lock_active:
+                        raise AssertionError("printer settings write lock was re-entered")
+                    with exclusive_file_lock(path):
+                        lock_active = True
+                        try:
+                            yield
+                        finally:
+                            lock_active = False
+
+                with patch("app.printershare_store.exclusive_file_lock", side_effect=non_reentrant_lock):
+                    mutate(store)
 
 
 if __name__ == "__main__":

@@ -12,19 +12,30 @@
       <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
       <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
       <a class="nav-link active" href="{{ url_for('admin.integration_settings') }}" aria-current="page">Integrationen &amp; Dienste</a>
+      <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">Drucker</a>
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <section class="card">
     <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
     <div class="card-body">
-      <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Filter-Timeout begrenzt den lokalen <code>osmium tags-filter</code>-Prozess. Beide gelten für neu gestartete Vorgänge. Die bisherigen Environment-Werte werden als Startwerte übernommen, bis eine persistierte Einstellung gespeichert wurde.</p>
-      <form method="post" action="{{ url_for('admin.save_osm_settings') }}" class="row g-3 align-items-end">
+      <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Größenlimit schützt den lokalen Speicher, und die Versuchsanzahl begrenzt Wiederholungen bei vorübergehenden Netzwerkfehlern. Filter- und Export-Leerlauf-Timeouts begrenzen lokale <code>osmium</code>-Prozesse. Die Werte gelten für neu gestartete Vorgänge. Bisherige Environment-Werte werden als Startwerte übernommen, bis die jeweilige persistierte Einstellung gespeichert wurde.</p>
+      <form method="post" action="{{ url_for('admin_osm_settings.save_osm_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
           <label class="form-label" for="osm-read-timeout">Lese-Timeout (Sekunden)</label>
           <input class="form-control" id="osm-read-timeout" type="number" name="osm_download_read_timeout_seconds" value="{{ integrations.osm_download_read_timeout_seconds }}" min="30" max="3600" step="1" required>
           <div class="form-text">Standard: 300 Sekunden. Zulässig: 30–3600 Sekunden.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="osm-max-download-gib">Maximale Quelldatei (GiB)</label>
+          <input class="form-control" id="osm-max-download-gib" type="number" name="osm_max_download_gib" value="{{ integrations.osm_max_download_gib }}" min="0" max="64" step="1" required>
+          <div class="form-text">Standard: 8 GiB. Zulässig: 0–64 GiB; 0 deaktiviert OSM-Downloads. Schutz wird vor und während des Downloads angewendet.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="osm-download-retries">Downloadversuche</label>
+          <input class="form-control" id="osm-download-retries" type="number" name="osm_download_retries" value="{{ integrations.osm_download_retries }}" min="1" max="10" step="1" required>
+          <div class="form-text">Standard: 5 Versuche. Zulässig: 1–10; Wartezeit zwischen Wiederholungen bleibt begrenzt.</div>
         </div>
         <div class="col-md-7">
           <label class="form-label" for="osm-filter-timeout">Filter-Timeout (Sekunden)</label>

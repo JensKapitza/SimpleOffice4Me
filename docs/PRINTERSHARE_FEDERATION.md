@@ -2,6 +2,46 @@
 
 SimpleOffice4Me kann lokal eingerichtete Drucker als PrinterShare verwenden. Linux/macOS nutzt vorhandene CUPS-Drucker (`lpstat`, `lp`/`lpr`), Windows die installierten Windows-Drucker. Normale Drucker und Labeldrucker werden unterschieden; fuer ZPL/EPL bzw. explizit als `raw` konfigurierte Drucker werden RAW-Druckdaten direkt an den Spooler uebergeben.
 
+## Benutzer-Drucker und Administratorrichtlinien
+
+Der normale Hauptmenuepunkt **Drucker** enthaelt **Meine Drucker** und
+**Druckauftraege / Druckfunktionen**. Jeder Benutzer kann einen Standard- und
+einen Etikettendrucker auswaehlen. Die Auswahl liegt serverseitig im
+PrinterShare-Einstellungsdatensatz, ist an den SimpleOffice-Benutzernamen
+gebunden und bleibt nach Neuanmeldung erhalten. Der Browser erhaelt nur
+Drucker-IDs und Anzeigenamen, keine Verbindungs-URIs.
+
+Administratoren verwalten Geraete, das bisherige Brother-QL-Profil und
+Zuweisungen unter **Einstellungen → Administration → Drucker**. Die
+vorhandenen Brother-Modell-, Medien-, Schrift-, Farb- und Schnittoptionen
+bleiben erhalten; die bisher gespeicherte Brother-Verbindung wird als
+Etikettendrucker in der zentralen Auswahl dargestellt. CUPS-/Windows-Drucker
+werden weiterhin aus dem Betriebssystem erkannt.
+
+Die Administration kann für erkannte Standard-/Etikettendrucker eine
+einseitige PDF-Testseite an den Betriebssystem-Spooler senden; das Test-PDF
+wird nur im Arbeitsspeicher erzeugt und nicht im SimpleOffice-Backlog
+gespeichert. Brother-Geräte erhalten ein einzelnes Testetikett. Generische
+Testseiten sind für `raw`-Drucker gesperrt, weil deren Befehlssprache
+gerätespezifisch ist. Druckerwarteschlangen werden weiterhin im Betriebssystem
+angelegt oder entfernt; SimpleOffice erkennt die dort installierten Geräte.
+
+Standard- und Etikettendruck haben jeweils eine getrennte Richtlinie:
+
+- **Keine Vorgabe:** persoenliche Auswahl, danach System-Fallback;
+- **Empfohlen:** die Administratorauswahl ist der Fallback, eine gespeicherte
+  persoenliche Auswahl hat Vorrang und bleibt frei aenderbar;
+- **Erzwungen:** der konfigurierte Drucker hat Vorrang, die Benutzerauswahl ist
+  in der Oberflaeche gesperrt und die Druck-API weist abweichende Drucker-IDs
+  serverseitig ab.
+
+Prioritaet: erzwungen > persoenliche Auswahl > Empfehlung > System-Fallback.
+Fehlt ein erzwungener Drucker, wird nicht auf ein anderes Geraet ausgewichen;
+der Auftrag schlaegt mit einer klaren Fehlermeldung fehl. Entfernte oder nicht
+mehr erkannte persoenliche Drucker fallen auf einen kompatiblen Systemdrucker
+zurueck. Legacy-Brother-URIs mit Zugangsdaten, Query oder Fragment werden nicht
+in die Browserausgabe gespiegelt und bei der Migration abgelehnt.
+
 ## Aufbewahrungsmodi
 
 Der Administrator konfiguriert einen Standardmodus. Ein Benutzer bzw. Federation-Sender darf fuer einen einzelnen Auftrag immer eine strengere Obergrenze verlangen. Die Empfaengerseite darf diese Obergrenze niemals lockern.

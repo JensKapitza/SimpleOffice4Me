@@ -78,7 +78,7 @@ Unterstützte Modellprofile umfassen aktuell:
 - QL-1100, QL-1110NWB, QL-1115NWB
 - PT-P750W und PT-P900W
 
-Die Oberfläche kann Text, Code-128-Barcodes und Bilder rendern. Schrift, Schriftgröße, Farbe, Ausrichtung, Fettdruck, Etikettenformat und automatischer Schnitt werden gespeichert und gelten für folgende Druckaufträge weiter.
+Die Oberfläche kann Text, Code-128-Barcodes und Bilder rendern. Schrift, Schriftgröße, Farbe, Ausrichtung, Fettdruck, Etikettenformat und automatischer Schnitt werden zentral unter **Einstellungen → Administration → Drucker** gespeichert und gelten für folgende Druckaufträge weiter. Der Bibliotheksbereich zeigt den effektiven Etikettendrucker sowie seine Admin-/Benutzerrichtlinie an; die persönliche Auswahl liegt unter **Drucker → Meine Drucker**.
 
 Die Druckoberfläche **PrinterShare** verlinkt direkt zu **Barcode scannen** und
 **Barcode-Etiketten drucken** in dieser bestehenden Bibliotheksfunktion; es gibt
