@@ -20,7 +20,7 @@
     <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
     <div class="card-body">
       <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Größenlimit schützt den lokalen Speicher, und die Versuchsanzahl begrenzt Wiederholungen bei vorübergehenden Netzwerkfehlern. Filter- und Export-Leerlauf-Timeouts begrenzen lokale <code>osmium</code>-Prozesse. Die Werte gelten für neu gestartete Vorgänge. Bisherige Environment-Werte werden als Startwerte übernommen, bis die jeweilige persistierte Einstellung gespeichert wurde.</p>
-      <form method="post" action="{{ url_for('admin.save_osm_settings') }}" class="row g-3 align-items-end">
+      <form method="post" action="{{ url_for('admin_osm_settings.save_osm_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
           <label class="form-label" for="osm-read-timeout">Lese-Timeout (Sekunden)</label>
