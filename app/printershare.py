@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import socket
+import subprocess
 import threading
 import time
 import urllib.error
@@ -14,7 +15,7 @@ from typing import Any
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
-from .access_control import is_admin
+from .access_control import audit, is_admin
 from .auth import login_required
 from .federation_print_auth import PrintRequestProof, new_nonce, sign_request
 from .federation_store import FederationStore
@@ -25,6 +26,7 @@ from .printershare_store import (
     RETENTION_ORDER,
     effective_retention,
     normalize_retention,
+    spool_payload,
 )
 
 
@@ -91,6 +93,7 @@ def admin_required(view):
 def _job_headers() -> dict[str, Any]:
     return {
         "printer_id": request.headers.get("X-SimpleOffice-Printer", "").strip(),
+        "printer_role": request.headers.get("X-SimpleOffice-Printer-Role", "standard").strip().casefold(),
         "content_type": request.headers.get("X-SimpleOffice-Content-Type", request.content_type or "application/octet-stream").split(";", 1)[0].strip(),
         "filename": request.headers.get("X-SimpleOffice-Filename", "").strip()[:240],
         "retention_ceiling": normalize_retention(request.headers.get("X-SimpleOffice-Retention-Ceiling", "permanent"), "permanent"),
@@ -324,6 +327,7 @@ def submit_remote_print(
 def index():
     store = _store()
     settings = store.settings()
+    printer_context = store.user_printer_context(str(g.user["username"]))
     peers = [
         peer for peer in _federation().list_peers()
         if peer.get("enabled") and _may_send_print(peer)
@@ -339,6 +343,7 @@ def index():
     return render_template(
         "printershare/index.html",
         printers=store.printers(),
+        printer_context=printer_context,
         settings=settings,
         jobs=jobs,
         retention_labels=RETENTION_LABELS,
@@ -354,9 +359,16 @@ def submit_local_job():
     settings = store.settings()
     headers = _job_headers()
     try:
+        if headers["printer_role"] != "standard":
+            raise ValueError("Normale Druckaufträge verwenden die Standarddruckerrolle")
+        printer = store.resolve_user_printer(
+            str(g.user["username"]), "standard", headers["printer_id"],
+        )
+        if printer.get("backend") == "brother":
+            raise ValueError("Brother-Etikettendrucker werden über die Bibliotheks-Etikettenaktionen verwendet")
         ttl = int(headers["ttl_ceiling_seconds"] or 0)
         result = store.submit(
-            headers["printer_id"],
+            printer["printer_id"],
             _payload(settings["max_job_bytes"]),
             content_type=headers["content_type"],
             filename=headers["filename"],
@@ -370,14 +382,43 @@ def submit_local_job():
         return jsonify({"error": "print_job_rejected"}), 400
 
 
+@bp.post("/preferences")
+@login_required
+def save_printer_preferences():
+    actor = str(g.user["username"])
+    try:
+        preferences = _store().set_user_preferences(
+            actor,
+            standard_printer_id=request.form.get("standard_printer_id", ""),
+            label_printer_id=request.form.get("label_printer_id", ""),
+        )
+        audit(
+            "printer_preferences_updated", "user", actor,
+            detail={
+                "standard_printer_id": preferences["standard"],
+                "label_printer_id": preferences["label"],
+            },
+        )
+        flash("Meine Druckerauswahl wurde gespeichert.")
+    except ValueError as exc:
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning(
+            "Printer preference update could not be persisted (%s)", type(exc).__name__,
+        )
+        flash("Druckerauswahl konnte nicht gespeichert werden. Bitte erneut versuchen.")
+    return redirect(url_for("printershare.index"))
+
+
 @bp.post("/jobs/<job_id>/retry")
 @admin_required
 def retry_job(job_id: str):
     try:
         result = _store().retry(job_id)
         flash(f"Druckauftrag erneut an den Spooler übergeben: {result['job_id']}.")
-    except (OSError, RuntimeError, ValueError) as exc:
-        flash(f"Druckauftrag konnte nicht wiederholt werden: {exc}")
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        current_app.logger.warning("Printer retry failed (%s)", type(exc).__name__)
+        flash("Druckauftrag konnte nicht erneut an den Spooler übergeben werden.")
     return redirect(url_for("printershare.index"))
 
 
@@ -388,7 +429,8 @@ def delete_copy(job_id: str):
         _store().delete_retained(job_id)
         flash("Aufbewahrte Druckdatei wurde gelöscht; Metadaten des Auftrags bleiben im Verlauf.")
     except ValueError as exc:
-        flash(str(exc))
+        current_app.logger.warning("Printer retained copy deletion failed (%s)", type(exc).__name__)
+        flash("Aufbewahrte Druckdatei konnte nicht gelöscht werden.")
     return redirect(url_for("printershare.index"))
 
 
@@ -439,24 +481,72 @@ def update_settings():
         })
         flash("PrinterShare-Einstellungen gespeichert.")
     except (TypeError, ValueError) as exc:
-        flash(f"PrinterShare-Einstellungen konnten nicht gespeichert werden: {exc}")
+        current_app.logger.warning("PrinterShare settings validation failed (%s)", type(exc).__name__)
+        flash("PrinterShare-Einstellungen konnten nicht gespeichert werden. Bitte Eingaben prüfen.")
     return redirect(url_for("printershare.index"))
 
 
 @bp.post("/admin/printers/<printer_id>")
 @admin_required
 def update_printer(printer_id: str):
+    return redirect(url_for("admin.printer_settings"))
+
+
+def _printer_test_pdf(label: str) -> bytes:
+    from io import BytesIO
+
+    from reportlab.pdfgen import canvas
+
+    output = BytesIO()
+    page = canvas.Canvas(output, pagesize=(595, 842), pageCompression=1)
+    page.setTitle("SimpleOffice4Me Druckertest")
+    page.setFont("Helvetica-Bold", 18)
+    page.drawString(48, 780, "SimpleOffice4Me Druckertest")
+    page.setFont("Helvetica", 12)
+    page.drawString(48, 750, "Wenn diese Seite lesbar ist, funktioniert der Druckpfad.")
+    safe_label = " ".join(str(label or "").split()).encode("cp1252", "replace").decode("cp1252")[:120]
+    page.drawString(48, 725, "Drucker: " + safe_label)
+    page.showPage()
+    page.save()
+    return output.getvalue()
+
+
+@bp.post("/admin/printers/<printer_id>/test")
+@admin_required
+def test_printer_device(printer_id: str):
+    store = _store()
+    printer = next((item for item in store.printers() if item["printer_id"] == printer_id), None)
+    if printer is None:
+        abort(404)
     try:
-        _store().set_printer(
-            printer_id,
-            kind=request.form.get("kind", "auto"),
-            federation_shared=request.form.get("federation_shared") == "1",
-            label=request.form.get("label", ""),
+        if printer.get("backend") == "brother":
+            from .library.printer import print_image, render_text
+
+            profile = store.brother_profile()
+            profile["uri"] = printer["uri"]
+            profile["model"] = printer["model"]
+            print_image(render_text("SimpleOffice4Me Testetikett", profile), profile)
+        else:
+            if printer.get("kind") == "raw":
+                raise ValueError("RAW-Drucker benötigen einen gerätespezifischen Testauftrag")
+            payload = _printer_test_pdf(str(printer.get("label") or printer["name"]))
+            spool_payload(
+                printer,
+                payload,
+                content_type="application/pdf",
+                filename="simpleoffice-druckertest.pdf",
+            )
+        audit(
+            "printer_test_sent", "printer", printer_id,
+            detail={"kind": printer["kind"], "backend": printer.get("backend", "")},
         )
-        flash("Druckerfreigabe gespeichert.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("printershare.index"))
+        flash(f"Testauftrag wurde für {printer['label']} an das Drucksystem übergeben. Die tatsächliche Ausgabe ist nicht bestätigt.")
+    except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
+        current_app.logger.warning(
+            "Printer test failed for %s (%s)", printer_id, type(exc).__name__,
+        )
+        flash("RAW-Drucker benötigen einen gerätespezifischen Testauftrag." if isinstance(exc, ValueError) and printer.get("kind") == "raw" else "Testauftrag konnte nicht an das Drucksystem übergeben werden.")
+    return redirect(url_for("admin.printer_settings"))
 
 
 def init_app(app) -> None:

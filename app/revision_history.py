@@ -168,6 +168,7 @@ def _redact_secrets(value: Any, *, key: str = "", depth: int = 0) -> Any:
 
 
 def _canonical_digest(value: Any) -> str:
+    """Return an integrity fingerprint for audit metadata, never a password verifier."""
     payload = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8", "replace")).hexdigest()
 
@@ -303,7 +304,7 @@ class RevisionHistory:
         with exclusive_file_lock(self.root / ".simpleoffice-write.lock"):
             snapshot_path = self.root / "snapshots" / category_component / f"{key_component}.json"
             chain_path = self.root / "event-chain.json"
-            previous_snapshot = _read_json_strict(snapshot_path)
+            previous_snapshot = _redact_secrets(_read_json_strict(snapshot_path))
             chain = _read_json_strict(chain_path)
             previous_sequence, previous_event_hash = _chain_state(chain)
 
