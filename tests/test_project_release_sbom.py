@@ -8,6 +8,13 @@ WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "proj
 
 
 class ProjectReleaseSbomTests(unittest.TestCase):
+    def test_privileged_release_workflow_only_runs_for_version_tags(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        triggers = workflow.split("\npermissions:", maxsplit=1)[0]
+
+        self.assertNotIn("workflow_dispatch:", triggers)
+        self.assertIn("push:\n    tags:\n      - 'v*'", triggers)
+
     def test_release_generates_validates_and_attaches_json_and_xml_inventories(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         generation = workflow.index("- name: Generate release SBOM")
