@@ -517,14 +517,15 @@ class MailStore:
             self.history.record("mail_archive_access_initialized", actor, "policies", hashlib.sha256(f"mail:{actor}:{account_id}".encode()).hexdigest(), {"account_id": account_id, "owner": actor, "role": "manage", "inherit": True})
         return folder
 
-    def archive_outbound(self, actor: str, account: dict[str, Any], raw: bytes, state: str, detail: dict[str, Any]) -> dict[str, Any]:
-        """Persist the exact submitted EML before transport and audit its state."""
+    def archive_outbound(self, actor: str, account_id: str, raw: bytes, state: str, detail: dict[str, Any]) -> dict[str, Any]:
+        """Persist the EML using only its account ID, never a credential record."""
+        account_id = _safe_id(account_id)
         if len(raw) > MAX_OUTBOUND_BYTES:
             raise ValueError("outbound message exceeds 25 MiB")
         digest = hashlib.sha512(raw).hexdigest()
-        self.ensure_private_archive(actor, account["id"])
+        self.ensure_private_archive(actor, account_id)
         year = datetime.now(timezone.utc).strftime("%Y")
-        path = f"email/{_owner_key(actor)}/{account['id']}/sent/{year}/{digest}.eml"
+        path = f"email/{_owner_key(actor)}/{account_id}/sent/{year}/{digest}.eml"
         documents = DocumentStore(self.root)
         target = self.root / path
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -533,8 +534,8 @@ class MailStore:
             document = documents.get_document(path)
         else:
             document = create_document(documents.root, actor, path, raw, max_bytes=MAX_OUTBOUND_BYTES)
-            documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account['id']}"], actor)
-        origin = {"account_id": account["id"], "sha512": digest, "state": state, **detail}
+            documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account_id}"], actor)
+        origin = {"account_id": account_id, "sha512": digest, "state": state, **detail}
         documents.set_attribute(document["document_id"], "email_origin", origin, actor)
         self.history.record(f"smtp_message_{state}", actor, "mail-outbound", document["document_id"], origin)
         return {"document_id": document["document_id"], "path": path, "sha512": digest}
@@ -706,12 +707,13 @@ class SmtpSubmission:
             "attachment_count": len(attachments),
             "at": utc_now(),
         }
-        archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
+        account_id = _safe_id(str(account["id"]))
+        archived = self.store.archive_outbound(actor, account_id, raw, "pending", detail)
 
         def archive_state(state: str, extra: dict[str, Any] | None = None) -> None:
             try:
                 self.store.archive_outbound(
-                    actor, account, raw, state, {**detail, **(extra or {})}
+                    actor, account_id, raw, state, {**detail, **(extra or {})}
                 )
             except Exception:
                 # The pending EML already exists. Do not turn an audit/storage
@@ -759,7 +761,7 @@ class SmtpSubmission:
                     pass
 
         try:
-            self.store.archive_outbound(actor, account, raw, "sent", detail)
+            self.store.archive_outbound(actor, account_id, raw, "sent", detail)
         except Exception as exc:
             raise SmtpDeliveryStateUnknown(
                 "accepted_unarchived",
