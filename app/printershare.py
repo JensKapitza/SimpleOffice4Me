@@ -540,12 +540,12 @@ def test_printer_device(printer_id: str):
             "printer_test_sent", "printer", printer_id,
             detail={"kind": printer["kind"], "backend": printer.get("backend", "")},
         )
-        flash(f"Testauftrag wurde an {printer['label']} gesendet.")
+        flash(f"Testauftrag wurde für {printer['label']} an das Drucksystem übergeben. Die tatsächliche Ausgabe ist nicht bestätigt.")
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         current_app.logger.warning(
             "Printer test failed for %s (%s)", printer_id, type(exc).__name__,
         )
-        flash("RAW-Drucker benötigen einen gerätespezifischen Testauftrag." if isinstance(exc, ValueError) and printer.get("kind") == "raw" else "Testauftrag konnte nicht gedruckt werden.")
+        flash("RAW-Drucker benötigen einen gerätespezifischen Testauftrag." if isinstance(exc, ValueError) and printer.get("kind") == "raw" else "Testauftrag konnte nicht an das Drucksystem übergeben werden.")
     return redirect(url_for("admin.printer_settings"))
 
 
