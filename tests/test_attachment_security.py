@@ -151,6 +151,17 @@ class AttachmentSecurityTests(unittest.TestCase):
         self.original.write_bytes(EML + b"changed")
         with self.assertRaises(ValueError): service.extract(manifest["manifest_id"], [part], "alice")
 
+    def test_extract_rejects_path_traversal_manifest_id_before_locking_files(self):
+        service = AttachmentSecurity(self.root, FakeScanner())
+        outside = self.root / "outside"
+        outside.mkdir()
+        lock_path = outside / "manifest.lock"
+
+        with self.assertRaisesRegex(ValueError, "invalid extraction preview identifier"):
+            service.extract("../../outside/manifest", [0], "alice")
+
+        self.assertFalse(lock_path.exists())
+
     def test_clamav_uses_fixed_argv_without_shell(self):
         scanner = ClamAV(10)
         with patch.object(scanner, "executable", return_value="/usr/bin/clamscan"), patch("app.attachment_security.subprocess.run") as run:

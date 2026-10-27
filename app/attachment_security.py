@@ -29,6 +29,7 @@ MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 MAX_TOTAL_BYTES = 200 * 1024 * 1024
 MAX_EML_BYTES = 512 * 1024 * 1024
 MANIFEST_TTL_MINUTES = 30
+_MANIFEST_ID = re.compile(r"[0-9a-f]{32}")
 
 
 @dataclass(frozen=True)
@@ -265,6 +266,9 @@ class AttachmentSecurity:
         return manifest
 
     def extract(self, manifest_id: str, selected: list[int], actor: str, *, idempotent: bool = False) -> list[dict[str, Any]]:
+        manifest_id = str(manifest_id or "")
+        if _MANIFEST_ID.fullmatch(manifest_id) is None:
+            raise ValueError("invalid extraction preview identifier")
         path = self.manifests / f"{manifest_id}.json"
         with exclusive_file_lock(path.with_suffix(".lock")):
             try:
