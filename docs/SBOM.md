@@ -33,7 +33,9 @@ for attaching the final release SBOMs. Before checksumming and publishing, the
 project release workflow validates every collected CycloneDX JSON/XML artifact
 against the pinned 1.6 validator and requires both formats. Missing or
 unresolved inventory records fail closed rather than being represented as a
-complete SBOM.
+complete SBOM. The privileged project-release workflow runs only for `v*` tag
+pushes; do not add a manual branch-dispatch trigger, which could execute
+untrusted workflow code with artifact and release permissions.
 
 ## Vulnerability follow-up mapping
 
