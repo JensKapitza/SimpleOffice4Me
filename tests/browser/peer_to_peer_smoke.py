@@ -18,6 +18,8 @@ PEER_BASE_URL = os.environ.get("PEER_BASE_URL", "").rstrip("/")
 PEER_TO_PEER = bool(PEER_BASE_URL)
 PEER_A_DOCKER_URL = os.environ.get("BROWSER_PEER_A_DOCKER_URL", "http://peer-a:8080").rstrip("/")
 PEER_B_DOCKER_URL = os.environ.get("BROWSER_PEER_B_DOCKER_URL", "http://peer-b:8080").rstrip("/")
+PEER_A_DOCKER_IP = os.environ.get("BROWSER_PEER_A_IP", "").strip()
+PEER_B_DOCKER_IP = os.environ.get("BROWSER_PEER_B_IP", "").strip()
 PEER_LINK_TOKEN = os.environ.get(
     "BROWSER_PEER_LINK_TOKEN", "browser-peer-link-not-a-secret"
 )
@@ -178,6 +180,53 @@ def record_p2p_check(
     checks.append({"name": name, "ok": ok, "detail": detail})
 
 
+def verify_mutual_network_probe(
+    requester_page,
+    target_page,
+    *,
+    requester_base: str,
+    target_peer_id: str,
+    requester_peer_id: str,
+    check_name: str,
+    summary: dict[str, object],
+    failures: list[str],
+) -> None:
+    requester_page.goto(
+        f"{requester_base}/admin/federation?view=peers", wait_until="domcontentloaded"
+    )
+    row = requester_page.locator("tr").filter(has_text=target_peer_id).first
+    row.get_by_role("button", name="Gegenseitig prüfen", exact=True).click()
+    requester_page.wait_for_load_state("domcontentloaded")
+    outbound_row = requester_page.locator("tr").filter(has_text=target_peer_id).first
+    outbound_text = compact(outbound_row.inner_text())
+    outbound_ok = (
+        "Serverprüfung erfolgreich" in requester_page.locator("body").inner_text()
+        and "Server → konfigurierte Peer-Adresse: erreichbar" in outbound_text
+        and "DNS: ok" in outbound_text
+        and "TCP: ok" in outbound_text
+        and "HTTP: 200" in outbound_text
+        and "Auth: ok" in outbound_text
+    )
+    record_p2p_check(summary, f"{check_name}_outbound", outbound_ok, outbound_text)
+    if not outbound_ok:
+        failures.append(f"Mutual diagnostic outbound probe failed for {requester_peer_id} -> {target_peer_id}")
+
+    target_page.goto(
+        f"{PEER_BASE_URL if target_peer_id == 'peer-b' else BASE_URL}/admin/federation?view=peers",
+        wait_until="domcontentloaded",
+    )
+    inbound_row = target_page.locator("tr").filter(has_text=requester_peer_id).first
+    inbound_text = compact(inbound_row.inner_text())
+    inbound_ok = (
+        "Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest): erreichbar"
+        in inbound_text
+        and "Auth: ok" in inbound_text
+    )
+    record_p2p_check(summary, f"{check_name}_inbound", inbound_ok, inbound_text)
+    if not inbound_ok:
+        failures.append(f"Authenticated inbound diagnostic was not recorded by {target_peer_id}")
+
+
 def run_peer_to_peer(
     page_a,
     browser,
@@ -284,6 +333,70 @@ def run_peer_to_peer(
             True,
             "peer-a -> peer-b via SOFP-PEER-V1",
         )
+        verify_mutual_network_probe(
+            page_a, page_b,
+            requester_base=BASE_URL,
+            target_peer_id="peer-b",
+            requester_peer_id="peer-a",
+            check_name="peer_a_to_peer_b_dns",
+            summary=summary,
+            failures=failures,
+        )
+        verify_mutual_network_probe(
+            page_b, page_a,
+            requester_base=PEER_BASE_URL,
+            target_peer_id="peer-a",
+            requester_peer_id="peer-b",
+            check_name="peer_b_to_peer_a_dns",
+            summary=summary,
+            failures=failures,
+        )
+
+        if PEER_A_DOCKER_IP and PEER_B_DOCKER_IP:
+            configure_peer(
+                page_a,
+                base_url=BASE_URL,
+                peer_id="peer-b",
+                peer_label="Browser Peer B",
+                peer_docker_url=f"http://{PEER_B_DOCKER_IP}:8080",
+                peer_token=PEER_LINK_TOKEN,
+                allow_documents=False,
+                probe_connection=False,
+            )
+            verify_mutual_network_probe(
+                page_a, page_b,
+                requester_base=BASE_URL,
+                target_peer_id="peer-b",
+                requester_peer_id="peer-a",
+                check_name="peer_a_to_peer_b_ip",
+                summary=summary,
+                failures=failures,
+            )
+            configure_peer(
+                page_b,
+                base_url=PEER_BASE_URL,
+                peer_id="peer-a",
+                peer_label="Browser Peer A",
+                peer_docker_url=f"http://{PEER_A_DOCKER_IP}:8080",
+                peer_token=PEER_LINK_TOKEN,
+                allow_documents=False,
+                probe_connection=False,
+            )
+            verify_mutual_network_probe(
+                page_b, page_a,
+                requester_base=PEER_BASE_URL,
+                target_peer_id="peer-a",
+                requester_peer_id="peer-b",
+                check_name="peer_b_to_peer_a_ip",
+                summary=summary,
+                failures=failures,
+            )
+        else:
+            record_p2p_check(
+                summary, "direct_ip_diagnostics", False,
+                "container IPs were not supplied by the integration workflow",
+            )
+            failures.append("Container IPs are required for bidirectional direct-IP diagnostics")
         write_html_snapshot(
             page_a, "Federation Peer A", "p2p", summary, failures
         )
