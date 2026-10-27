@@ -2,7 +2,10 @@ import base64
 import json
 import tempfile
 import unittest
+from unittest.mock import patch
+from xml.etree import ElementTree
 from pathlib import Path
+from urllib.parse import quote
 
 from app import app
 from app.caldav_credentials import CalDAVCredentials
@@ -37,6 +40,40 @@ class CalDavTest(unittest.TestCase):
         self.assertIn("supported-calendar-component-set", home.text); self.assertIn('name="VEVENT"', home.text)
         self.assertIn('name="VTODO"', home.text); self.assertIn("/tasks/", home.text)
         self.assertIn("sync-collection", options.headers["DAV"]); self.assertIn("calendar-access", options.headers["DAV"])
+
+    def test_authenticated_usernames_are_escaped_in_nested_xml_hrefs(self):
+        username = "<script>alert(1)</script>"
+
+        with patch("app.caldav._auth", return_value=username):
+            response = self.client.open("/caldav/", method="PROPFIND")
+
+        self.assertEqual(207, response.status_code)
+        self.assertEqual("application/xml; charset=utf-8", response.headers["Content-Type"])
+        self.assertEqual("nosniff", response.headers["X-Content-Type-Options"])
+        self.assertNotIn("<script>alert(1)</script>", response.get_data(as_text=True))
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", response.get_data(as_text=True))
+        ElementTree.fromstring(response.data)
+
+        with patch("app.caldav._auth", return_value=username), patch(
+            "app.caldav._scheduling",
+        ) as scheduling:
+            scheduling.return_value.get.return_value = {"enabled": True}
+            principal = self.client.open(
+                f"/caldav/principals/{quote(username, safe='')}/",
+                method="PROPFIND",
+            )
+        self.assertEqual(207, principal.status_code)
+        self.assertNotIn("<script>alert(1)</script>", principal.get_data(as_text=True))
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", principal.get_data(as_text=True))
+        self.assertIn(
+            "/caldav/scheduling/&lt;script&gt;alert(1)&lt;/script&gt;/inbox/",
+            principal.get_data(as_text=True),
+        )
+        self.assertIn(
+            "/caldav/scheduling/&lt;script&gt;alert(1)&lt;/script&gt;/outbox/",
+            principal.get_data(as_text=True),
+        )
+        ElementTree.fromstring(principal.data)
 
     def test_caldav_activation_returns_only_creation_time(self):
         credential_value = "test-generated-caldav-credential"
