@@ -13,6 +13,7 @@ import os
 import re
 import socket
 import ssl
+import threading
 from urllib.parse import urlsplit, urlunsplit
 
 
@@ -22,6 +23,7 @@ _MAX_DISCOVERY_RESPONSE = 1024 * 1024
 _USER_AGENT = "SimpleOffice4Me-Federation-Discovery/1"
 _SHARED_IPV4 = ipaddress.ip_network("100.64.0.0/10")
 _BASE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._~-]{1,80}$")
+_DNS_LOOKUP_SLOTS = threading.BoundedSemaphore(16)
 
 
 def _env_flag(name):
@@ -98,13 +100,45 @@ def _format_host(host):
     return f"[{address.compressed}]" if address.version == 6 else address.compressed
 
 
-def _resolve_addresses(host, port):
+def _getaddrinfo_bounded(host, port, timeout):
+    if not _DNS_LOOKUP_SLOTS.acquire(blocking=False):
+        raise TimeoutError("DNS lookup capacity exhausted")
+    result = {}
+    completed = threading.Event()
+
+    def resolve():
+        try:
+            result["rows"] = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        except OSError as exc:
+            result["error"] = exc
+        finally:
+            _DNS_LOOKUP_SLOTS.release()
+            completed.set()
+
+    worker = threading.Thread(target=resolve, name="federation-diagnostic-dns", daemon=True)
+    try:
+        worker.start()
+    except RuntimeError:
+        _DNS_LOOKUP_SLOTS.release()
+        raise
+    if not completed.wait(max(0.1, min(float(timeout), 30.0))):
+        raise TimeoutError("DNS resolution timed out")
+    if "error" in result:
+        raise result["error"]
+    return result.get("rows", [])
+
+
+def _resolve_addresses(host, port, timeout=None):
     try:
         return [ipaddress.ip_address(host)]
     except ValueError:
         pass
     try:
-        rows = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        rows = (
+            _getaddrinfo_bounded(host, port, timeout)
+            if timeout is not None
+            else socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+        )
     except socket.gaierror as exc:
         raise ValueError("peer endpoint cannot be resolved") from exc
     addresses = []
@@ -140,7 +174,7 @@ def _validate_address(address, allow_private, allow_loopback):
         raise ValueError("peer endpoint resolves to a non-public network address")
 
 
-def _validated_target(value, *, allow_private=None, allow_loopback=None):
+def _validated_target(value, *, allow_private=None, allow_loopback=None, dns_timeout=None):
     base_url = normalize_endpoint(value)
     parsed = urlsplit(base_url)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
@@ -148,7 +182,7 @@ def _validated_target(value, *, allow_private=None, allow_loopback=None):
         allow_private = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS")
     if allow_loopback is None:
         allow_loopback = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK")
-    addresses = _resolve_addresses(parsed.hostname, port)
+    addresses = _resolve_addresses(parsed.hostname, port, timeout=dns_timeout)
     for address in addresses:
         _validate_address(address, bool(allow_private), bool(allow_loopback))
     return base_url, parsed, port, addresses
@@ -158,6 +192,11 @@ def validate_discovery_endpoint(value):
     """Validate a direct-discovery destination without opening a connection."""
     base_url, _parsed, _port, _addresses = _validated_target(value)
     return base_url
+
+
+def resolve_pinned_endpoint(value, *, timeout=5):
+    """Resolve and validate an explicitly configured peer target for a pinned request."""
+    return _validated_target(value, dns_timeout=timeout)
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):
@@ -193,6 +232,11 @@ def _host_header(host, port, scheme):
     default_port = 443 if scheme == "https" else 80
     rendered = _format_host(host)
     return rendered if port == default_port else f"{rendered}:{port}"
+
+
+def host_header(host, port, scheme):
+    """Build a Host header from the validated logical host and port."""
+    return _host_header(host, port, scheme)
 
 
 def _request_path(parsed):

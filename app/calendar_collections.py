@@ -123,8 +123,8 @@ class CalendarCollections:
         self.history.record("calendar_collection_deleted", actor, "calendar-collections", calendar_id, {**item, "deleted_at": utc_now()})
 
     def activate(self, username: str, password: str, actor: str) -> None:
-        account = CalDAVCredentials(self.auth_path, self.lock).activate(username, password, actor)
-        self.history.record("caldav_activated", actor, "calendar-collections", f"caldav-{username}", {"username": username, "enabled": True, "created_at": account["created_at"]})
+        created_at = CalDAVCredentials(self.auth_path, self.lock).activate(username, password, actor)
+        self.history.record("caldav_activated", actor, "calendar-collections", f"caldav-{username}", {"username": username, "enabled": True, "created_at": created_at})
 
     def authenticate(self, username: str, password: str) -> bool:
         return CalDAVCredentials(self.auth_path, self.lock).authenticate(username, password)
