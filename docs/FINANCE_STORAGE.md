@@ -106,5 +106,27 @@ nur lokal auf dem ausführenden Rechner gestartet werden; bei Serverbetrieb öff
 nicht auf einem entfernten Client. Die Einstellungen lassen sich revisionssicher auf ihre
 Standardwerte zurücksetzen. Importformate bleiben auf CSV, CAMT.052/CAMT.053 und MT940
 beschränkt.
-Login und Bankfreigabe bleiben bei Santander, Cookies und Bankzugangsdaten werden nicht
-dauerhaft gespeichert. Der Download wird vor Vorschau und bestätigtem Import geprüft.
+Der Start-Endpunkt ist ausschließlich Administratoren zugänglich und nur bei
+Loopback-Client und Loopback-Host erreichbar. Login und Bankfreigabe erfolgen in
+einer sichtbaren, einmaligen Sitzung; Zugangsdaten und Cookies werden nicht
+dauerhaft gespeichert.
+
+Der Browser darf ausschließlich HTTPS-Navigationen und -Subrequests zu
+`santander.de` und dessen Subdomains senden. Externe MFA-Webseiten und andere
+Drittanbieterressourcen werden blockiert; die Freigabe muss in der Santander-App
+oder auf dem Mobiltelefon erfolgen. Falls die Bank den Export oder die Freigabe
+blockiert, bleibt der manuelle Dateiimport der vorgesehene Fallback.
+
+Alle Browser-TCP-Verbindungen laufen zusätzlich durch einen kurzlebigen,
+loopback-gebundenen CONNECT-Proxy. Der Proxy akzeptiert nur Port 443, löst den
+Santander-Host innerhalb von fünf Sekunden auf, lehnt jede DNS-Antwort mit
+nicht-öffentlichen Adressen ab und verbindet direkt mit einer geprüften
+numerischen Adresse; so führt eine zweite DNS-Auflösung beim Verbindungsaufbau
+nicht zu DNS-Rebinding.
+TLS-Zertifikatsprüfung und Hostname/SNI-Prüfung verbleiben beim Browser und
+werden nicht abgeschaltet. Pro Sitzung sind höchstens 16 gleichzeitige
+Proxyverbindungen und 100 MiB aggregierter Proxyverkehr erlaubt. Pro Prozess
+kann nur eine Banking-Browsersitzung gleichzeitig geöffnet sein; die Sitzung
+bleibt zusätzlich durch das konfigurierte Browser-Timeout begrenzt.
+Der Download wird vor der Vorschau validiert und erst danach im benutzergebundenen
+Staging abgelegt; abgelehnte Exporte hinterlassen keine Importvorschau.

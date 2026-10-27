@@ -5,13 +5,14 @@ secrets, cookies, storage state, or browser profile are persisted by this module
 """
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
-import ipaddress
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from urllib.parse import urlparse
-import time
 
+from .finance_browser_proxy import SantanderConnectProxy, is_allowed_santander_host
 from .settings_store import (
     DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
     MAX_FINANCE_IMPORT_LIMIT_BYTES,
@@ -22,6 +23,7 @@ from .settings_store import (
 MAX_DOWNLOAD_BYTES = MAX_FINANCE_IMPORT_LIMIT_BYTES
 SUPPORTED_EXTENSIONS = {".csv", ".xml", ".sta", ".mt940", ".txt"}
 SANTANDER_START_URL = "https://www.santander.de/"
+_BANK_BROWSER_SESSION_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -32,7 +34,7 @@ class CapturedStatement:
 
 def _allowed_santander_url(url: str) -> bool:
     parsed = urlparse(url)
-    host = (parsed.hostname or "").lower().rstrip(".")
+    host = parsed.hostname or ""
     try:
         port = parsed.port
     except ValueError:
@@ -42,34 +44,14 @@ def _allowed_santander_url(url: str) -> bool:
         and parsed.username is None
         and parsed.password is None
         and port in {None, 443}
-        and (host == "santander.de" or host.endswith(".santander.de"))
+        and is_allowed_santander_host(host)
     )
 
 
 def _guard_santander_navigation(route) -> None:
-    """Keep navigation on Santander and deny insecure cross-origin subresources.
-
-    HTTPS subresources may be needed for bank-hosted authentication and MFA;
-    download origins are validated independently before statement import.
-    """
+    """Allow HTTPS requests only to the official Santander domain family."""
     request = route.request
-    if request.is_navigation_request():
-        allowed = _allowed_santander_url(request.url)
-    else:
-        parsed = urlparse(request.url)
-        # Do not permit HTTP downgrade or local-file/network schemes in a bank session.
-        # HTTPS assets from third parties remain allowed for legitimate bank flows.
-        hostname = (parsed.hostname or "").rstrip(".").lower()
-        try:
-            address = ipaddress.ip_address(hostname)
-        except ValueError:
-            # A local hostname is not a valid third-party banking resource.
-            allowed_host = bool(hostname) and hostname != "localhost" and not hostname.endswith(".localhost")
-        else:
-            # Prevent requests to loopback, LAN and other IP literals.
-            allowed_host = address.is_global
-        allowed = parsed.scheme == "https" and allowed_host and parsed.username is None and parsed.password is None
-    if not allowed:
+    if not _allowed_santander_url(request.url):
         route.abort()
         return
     route.continue_()
@@ -98,13 +80,6 @@ def _remaining_timeout_ms(deadline: float) -> int:
 def capture_santander_statement(
     *, timeout_seconds: int = DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
 ) -> CapturedStatement:
-    """Wait for a user-initiated statement export in a visible Santander browser.
-
-    Requires the optional Playwright package and installed Chromium browser.
-    Does not automate authentication, bypass challenges, or submit transactions.
-    The returned bytes must be passed to FinanceStatementImporter.preview and
-    only committed after explicit user confirmation.
-    """
     if (
         isinstance(timeout_seconds, bool)
         or not isinstance(timeout_seconds, int)
@@ -114,6 +89,16 @@ def capture_santander_statement(
             "Zeitlimit muss zwischen "
             f"{MIN_BANK_BROWSER_TIMEOUT_SECONDS} und {MAX_BANK_BROWSER_TIMEOUT_SECONDS} Sekunden liegen"
         )
+    if not _BANK_BROWSER_SESSION_LOCK.acquire(blocking=False):
+        raise RuntimeError("Ein lokaler Banking-Browser ist bereits geöffnet")
+    try:
+        return _capture_santander_statement(timeout_seconds=timeout_seconds)
+    finally:
+        _BANK_BROWSER_SESSION_LOCK.release()
+
+
+def _capture_santander_statement(*, timeout_seconds: int) -> CapturedStatement:
+    """Perform one already-serialized, user-initiated visible browser session."""
     try:
         from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
         from playwright.sync_api import sync_playwright
@@ -121,18 +106,29 @@ def capture_santander_statement(
         raise RuntimeError("Browser-Abruf benötigt das optionale Paket playwright") from exc
 
     deadline = time.monotonic() + timeout_seconds
-    with TemporaryDirectory(prefix="simpleoffice-bank-") as directory:
+    with TemporaryDirectory(prefix="simpleoffice-bank-") as directory, SantanderConnectProxy(
+        deadline=deadline,
+    ) as proxy:
         with sync_playwright() as playwright:
             try:
                 browser = playwright.chromium.launch(
                     headless=False,
                     downloads_path=directory,
+                    proxy=proxy.browser_settings,
+                    args=[
+                        "--dns-prefetch-disable",
+                        "--disable-quic",
+                        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+                    ],
                     timeout=_remaining_timeout_ms(deadline),
                 )
             except PlaywrightTimeoutError as exc:
                 raise TimeoutError("Zeitlimit beim Start des Santander-Browsers überschritten") from exc
             try:
-                context = browser.new_context(accept_downloads=True)
+                context = browser.new_context(
+                    accept_downloads=True,
+                    service_workers="block",
+                )
                 context.route("**/*", _guard_santander_navigation)
                 page = context.new_page()
                 downloads = []

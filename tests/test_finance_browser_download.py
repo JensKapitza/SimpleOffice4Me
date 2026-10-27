@@ -1,16 +1,25 @@
 """Offline validation tests for the browser-assisted bank export adapter."""
+import socket
 import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from types import ModuleType
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from app.finance_browser_download import (
     MAX_DOWNLOAD_BYTES,
+    _BANK_BROWSER_SESSION_LOCK,
     _allowed_santander_url,
     _checked_download,
     _guard_santander_navigation,
     capture_santander_statement,
+)
+from app.finance_browser_proxy import (
+    SantanderConnectProxy,
+    _connect_public_santander_host,
+    _public_addresses,
 )
 
 
@@ -188,7 +197,7 @@ class BrowserBankDownloadTests(unittest.TestCase):
         self.assertFalse(_allowed_santander_url("https://user@santander.de/"))
         self.assertFalse(_allowed_santander_url("https://santander.de:invalid/"))
 
-    def test_navigation_guard_blocks_external_navigation_but_allows_other_requests(self):
+    def test_navigation_guard_blocks_external_navigation_and_subresources(self):
         external_navigation = _FakeRoute("https://login.attacker.test/", navigation=True)
         _guard_santander_navigation(external_navigation)
         self.assertTrue(external_navigation.aborted)
@@ -201,8 +210,13 @@ class BrowserBankDownloadTests(unittest.TestCase):
 
         external_resource = _FakeRoute("https://cdn.example.test/app.js", navigation=False)
         _guard_santander_navigation(external_resource)
-        self.assertFalse(external_resource.aborted)
-        self.assertTrue(external_resource.continued)
+        self.assertTrue(external_resource.aborted)
+        self.assertFalse(external_resource.continued)
+
+        bank_resource = _FakeRoute("https://login.santander.de/mfa.js", navigation=False)
+        _guard_santander_navigation(bank_resource)
+        self.assertFalse(bank_resource.aborted)
+        self.assertTrue(bank_resource.continued)
 
     def test_navigation_guard_blocks_insecure_subresources(self):
         for url in (
@@ -235,10 +249,128 @@ class BrowserBankDownloadTests(unittest.TestCase):
                 self.assertFalse(route.continued)
 
     def test_navigation_guard_keeps_https_mfa_resources_available(self):
-        resource = _FakeRoute("https://auth.example.test/challenge.js", navigation=False)
+        resource = _FakeRoute("https://login.santander.de/challenge.js", navigation=False)
         _guard_santander_navigation(resource)
         self.assertTrue(resource.continued)
         self.assertFalse(resource.aborted)
+
+    def test_dns_resolution_fails_closed_for_mixed_public_and_private_answers(self):
+        answers = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("93.184.216.34", 443)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.20.30.40", 443)),
+        ]
+        with patch("app.finance_browser_proxy.socket.getaddrinfo", return_value=answers):
+            with self.assertRaisesRegex(ValueError, "non-public"):
+                _public_addresses("login.santander.de", 443)
+
+    def test_dns_resolution_obeys_bounded_lookup_timeout(self):
+        def slow_resolution(*_args, **_kwargs):
+            time.sleep(0.05)
+            return []
+
+        with patch("app.finance_browser_proxy._DNS_LOOKUP_TIMEOUT_SECONDS", 0.005), \
+             patch("app.finance_browser_proxy.socket.getaddrinfo", side_effect=slow_resolution):
+            with self.assertRaisesRegex(TimeoutError, "bounded timeout"):
+                _public_addresses("login.santander.de", 443)
+        time.sleep(0.06)
+
+    def test_connect_uses_the_numeric_address_from_the_validated_lookup(self):
+        upstream = Mock()
+        address = (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, ("93.184.216.34", 443))
+        with patch("app.finance_browser_proxy._public_addresses", return_value=[address]), \
+             patch("app.finance_browser_proxy.socket.socket", return_value=upstream):
+            self.assertIs(_connect_public_santander_host("login.santander.de", 443), upstream)
+
+        upstream.connect.assert_called_once_with(("93.184.216.34", 443))
+        upstream.setblocking.assert_called_once_with(False)
+
+    def test_connect_proxy_rejects_split_horizon_answers_before_connecting(self):
+        private_answer = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("192.168.1.10", 443)),
+        ]
+        with SantanderConnectProxy(deadline=time.monotonic() + 5) as proxy:
+            host, port = proxy.browser_settings["server"].removeprefix("http://").split(":")
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.settimeout(2)
+            try:
+                client.connect((host, int(port)))
+                with patch(
+                    "app.finance_browser_proxy.socket.getaddrinfo",
+                    return_value=private_answer,
+                ):
+                    client.sendall(
+                        b"CONNECT login.santander.de:443 HTTP/1.1\r\n"
+                        b"Host: login.santander.de:443\r\n\r\n"
+                    )
+                    response = client.recv(128)
+            finally:
+                client.close()
+
+        self.assertTrue(response.startswith(b"HTTP/1.1 502 Bad Gateway"))
+
+    def test_connect_proxy_relays_large_bidirectional_payloads_with_backpressure(self):
+        payload = b"request" * 75_000
+        response_payload = b"response" * 65_000
+        upstream_listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        upstream_listener.bind(("127.0.0.1", 0))
+        upstream_listener.listen(1)
+        upstream_port = upstream_listener.getsockname()[1]
+        received_request = bytearray()
+
+        def serve_upstream():
+            connection, _address = upstream_listener.accept()
+            with connection:
+                while len(received_request) < len(payload):
+                    chunk = connection.recv(64 * 1024)
+                    if not chunk:
+                        break
+                    received_request.extend(chunk)
+                connection.sendall(response_payload)
+                connection.shutdown(socket.SHUT_WR)
+
+        upstream_thread = threading.Thread(target=serve_upstream, daemon=True)
+        upstream_thread.start()
+        try:
+            with SantanderConnectProxy(deadline=time.monotonic() + 10) as proxy, patch(
+                "app.finance_browser_proxy._connect_public_santander_host",
+                side_effect=lambda _host, _port: socket.create_connection(
+                    ("127.0.0.1", upstream_port), timeout=2,
+                ),
+            ):
+                proxy_host, proxy_port = (
+                    proxy.browser_settings["server"]
+                    .removeprefix("http://")
+                    .split(":")
+                )
+                client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                client.settimeout(5)
+                try:
+                    client.connect((proxy_host, int(proxy_port)))
+                    client.sendall(
+                        b"CONNECT login.santander.de:443 HTTP/1.1\r\n"
+                        b"Host: login.santander.de:443\r\n\r\n"
+                    )
+                    handshake = bytearray()
+                    while b"\r\n\r\n" not in handshake:
+                        handshake.extend(client.recv(256))
+                    self.assertTrue(handshake.startswith(b"HTTP/1.1 200"))
+                    client.sendall(payload)
+                    client.shutdown(socket.SHUT_WR)
+                    received_response = bytearray()
+                    while True:
+                        chunk = client.recv(64 * 1024)
+                        if not chunk:
+                            break
+                        received_response.extend(chunk)
+                finally:
+                    client.close()
+            upstream_thread.join(timeout=2)
+        finally:
+            upstream_listener.close()
+
+        self.assertFalse(upstream_thread.is_alive())
+        self.assertEqual(payload, bytes(received_request))
+        self.assertEqual(response_payload, bytes(received_response))
 
     def test_download_checks_format_and_size(self):
         result = _checked_download("umsatz.csv", b"Buchungstag;Betrag\n01.01.2026;1,00\n")
@@ -264,6 +396,28 @@ class BrowserBankDownloadTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     capture_santander_statement(timeout_seconds=invalid)
 
+    def test_only_one_local_bank_browser_session_can_run_at_a_time(self):
+        with _BANK_BROWSER_SESSION_LOCK:
+            with self.assertRaisesRegex(RuntimeError, "already geöffnet"):
+                capture_santander_statement(timeout_seconds=30)
+
+    def test_bank_browser_session_lock_is_released_after_capture_failure(self):
+        from app.finance_browser_download import CapturedStatement
+
+        with patch(
+            "app.finance_browser_download._capture_santander_statement",
+            side_effect=RuntimeError("test browser failure"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "test browser failure"):
+                capture_santander_statement(timeout_seconds=30)
+
+        result = CapturedStatement("statement.csv", b"valid test content")
+        with patch(
+            "app.finance_browser_download._capture_santander_statement",
+            return_value=result,
+        ):
+            self.assertIs(capture_santander_statement(timeout_seconds=30), result)
+
     def test_capture_accepts_manual_santander_popup_export_in_ephemeral_context(self):
         harness = _FakePlaywright()
         with patch.dict(sys.modules, harness.module_mocks()):
@@ -276,11 +430,24 @@ class BrowserBankDownloadTests(unittest.TestCase):
         self.assertLessEqual(harness.navigation_timeout_ms, 30_000)
         launch_options = dict(harness.launch_options)
         self.assertGreaterEqual(launch_options.pop("timeout"), 29_000)
+        proxy_settings = launch_options.pop("proxy")
+        self.assertTrue(proxy_settings["server"].startswith("http://127.0.0.1:"))
+        self.assertEqual("<-loopback>", proxy_settings["bypass"])
+        browser_args = launch_options.pop("args")
+        self.assertIn("--dns-prefetch-disable", browser_args)
+        self.assertIn("--disable-quic", browser_args)
+        self.assertIn(
+            "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+            browser_args,
+        )
         self.assertEqual(
             {"headless": False, "downloads_path": harness.download_directory},
             launch_options,
         )
-        self.assertEqual({"accept_downloads": True}, harness.context_options)
+        self.assertEqual(
+            {"accept_downloads": True, "service_workers": "block"},
+            harness.context_options,
+        )
         self.assertEqual("**/*", harness.route_pattern)
         blocked_redirect = _FakeRoute("https://login.attacker.test/", navigation=True)
         harness.route_handler(blocked_redirect)
