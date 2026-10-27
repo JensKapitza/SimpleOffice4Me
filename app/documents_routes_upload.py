@@ -205,8 +205,20 @@ def upload():
             )
             stored += 1
         except (OSError, ValueError) as exc:
-            fail_web_inbox_upload(current_app.config["DOCUMENT_ROOT"], inbox["item"], str(exc))
-            message = f"{item.filename}: {exc}"
+            is_storage_error = isinstance(exc, OSError)
+            failure_reason = "storage failure" if is_storage_error else "file import failure"
+            current_app.logger.warning(
+                "Document upload failed (%s)", type(exc).__name__,
+            )
+            fail_web_inbox_upload(
+                current_app.config["DOCUMENT_ROOT"], inbox["item"], failure_reason,
+            )
+            detail = (
+                "Speicherung fehlgeschlagen. Bitte erneut versuchen oder den Administrator kontaktieren."
+                if is_storage_error
+                else "Datei konnte nicht importiert werden. Bitte Datei und Speicherpfad prüfen."
+            )
+            message = f"{upload_name}: {detail}"
             errors.append(message)
             flash(message)
     if stored:
