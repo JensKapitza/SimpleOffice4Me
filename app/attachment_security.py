@@ -18,6 +18,8 @@ from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, BinaryIO
 
+from werkzeug.security import safe_join
+
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_under, safe_filename
@@ -269,7 +271,17 @@ class AttachmentSecurity:
         manifest_id = str(manifest_id or "")
         if _MANIFEST_ID.fullmatch(manifest_id) is None:
             raise ValueError("invalid extraction preview identifier")
-        path = self.manifests / f"{manifest_id}.json"
+        try:
+            control_root = self.control.resolve()
+            manifest_root = self.manifests.resolve()
+            manifest_root.relative_to(control_root)
+            joined_path = safe_join(str(manifest_root), f"{manifest_id}.json")
+            if joined_path is None:
+                raise ValueError("invalid extraction preview path")
+            path = Path(joined_path).resolve()
+            path.relative_to(manifest_root)
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ValueError("invalid extraction preview path") from exc
         with exclusive_file_lock(path.with_suffix(".lock")):
             try:
                 manifest = json.loads(path.read_text(encoding="utf-8"))
