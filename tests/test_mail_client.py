@@ -341,6 +341,11 @@ class MailClientTests(unittest.TestCase):
         for call in archive_outbound.call_args_list:
             self.assertEqual(self.account["id"], call.args[1])
             self.assertIsInstance(call.args[1], str)
+        history = "".join(
+            path.read_text(encoding="utf-8")
+            for path in (self.root / ".simpleoffice-history" / "events").glob("*.json")
+        )
+        self.assertNotIn(account["smtp_plain_password"], history)
         self.assertEqual(1, result["recipients"])
         archived = self.root / result["path"]
         self.assertEqual(smtp.sent[0][2], archived.read_bytes())
