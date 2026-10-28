@@ -17,7 +17,7 @@ from app.pdf_limits import MAX_PDF_BYTES
 
 def epub_bytes(
     *, unsafe: bool = False, encrypted: bool = False, cover: bool = False,
-    toc_format: str = "",
+    toc_format: str = "", chapter_xml: str | None = None,
 ) -> bytes:
     output = io.BytesIO()
     chapter_count = 2 if toc_format else 1
@@ -49,8 +49,10 @@ def epub_bytes(
         )
         archive.writestr(
             "OEBPS/chapter.xhtml",
-            '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Kapitel Eins</title></head>'
-            "<body><h1>Kapitel Eins</h1><p>Hallo &amp; sicher.</p><script>alert(1)</script></body></html>",
+            chapter_xml or (
+                '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Kapitel Eins</title></head>'
+                "<body><h1>Kapitel Eins</h1><p>Hallo &amp; sicher.</p><script>alert(1)</script></body></html>"
+            ),
         )
         if chapter_count == 2:
             archive.writestr(
@@ -168,6 +170,15 @@ class EpubReaderTests(unittest.TestCase):
         cover = EpubBook(epub_bytes(cover=True)).cover()
         self.assertIsNotNone(cover)
         self.assertEqual("image/png", cover[1])
+
+    def test_epub_chapter_xml_depth_and_element_count_are_bounded(self):
+        deeply_nested = "<html><body>" + "<span>" * 257 + "text" + "</span>" * 257 + "</body></html>"
+        with self.assertRaisesRegex(ValueError, "nesting exceeds"):
+            EpubBook(epub_bytes(chapter_xml=deeply_nested)).chapter(0)
+
+        many_elements = "<html><body>" + "<span/>" * 50_001 + "</body></html>"
+        with self.assertRaisesRegex(ValueError, "too many elements"):
+            EpubBook(epub_bytes(chapter_xml=many_elements)).chapter(0)
 
 
 class ReaderRoutesTests(unittest.TestCase):
@@ -360,6 +371,17 @@ class ReaderRoutesTests(unittest.TestCase):
         page = self.client.get(f"/documents/reader/{broken['document_id']}")
         self.assertEqual(422, page.status_code)
         self.assertIn("nicht im Reader", page.get_data(as_text=True))
+
+    def test_epub_chapter_with_excessive_xml_depth_fails_closed(self):
+        deeply_nested = "<html><body>" + "<span>" * 257 + "text" + "</span>" * 257 + "</body></html>"
+        document = DocumentStore(self.documents).import_upload(
+            io.BytesIO(epub_bytes(chapter_xml=deeply_nested)),
+            "deeply-nested.epub", "admin",
+        )
+        response = self.client.get(
+            f"/documents/reader/{document['document_id']}/epub/0",
+        )
+        self.assertEqual(404, response.status_code)
 
     def test_direct_unknown_reader_document_fails_closed(self):
         self.assertEqual(404, self.client.get("/documents/reader/not-a-document").status_code)
