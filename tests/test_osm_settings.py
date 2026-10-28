@@ -112,6 +112,7 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="clamav_timeout_seconds"', html)
         self.assertIn('name="personnel_time_autosync_enabled"', html)
         self.assertIn('name="personnel_time_autosync_seconds"', html)
+        self.assertIn('<option value="" disabled>Bitte auswählen</option>', html)
         self.assertIn("30–3600 Sekunden", html)
         self.assertIn("3.600–86.400 Sekunden", html)
         self.assertIn("300–86.400 Sekunden", html)
