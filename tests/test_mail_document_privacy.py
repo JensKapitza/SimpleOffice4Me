@@ -50,7 +50,7 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         self.mail = MailStore(self.root, secret.encode() if isinstance(secret, str) else bytes(secret))
         account = self.mail.save_account("alice", {"id": "work", "host": "imap.example.test", "username": "alice@example.test"}, "synthetic-mail-password", True)
         self.raw = b"From: sender@example.test\r\nTo: alice@example.test\r\nSubject: Private archive\r\n\r\nprivate-marker\r\n"
-        self.archive = self.mail.archive_outbound("alice", account, self.raw, "sent", {})
+        self.archive = self.mail.archive_outbound("alice", account["id"], self.raw, "sent", {})
         self.documents = DocumentStore(self.root)
         self.cases = MailCaseStore(self.root)
         self.case_id = self.cases.create_case("alice", "Private case", "work", "sha512:" + self.archive["sha512"])
@@ -132,7 +132,7 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         message.set_content("Synthetic body")
         message.add_attachment(b"mime attachment marker", maintype="application", subtype="octet-stream", filename="invoice.bin")
         account = self.mail.account("alice", "work")
-        archived = self.mail.archive_outbound("alice", account, message.as_bytes(), "sent", {})
+        archived = self.mail.archive_outbound("alice", account["id"], message.as_bytes(), "sent", {})
         if self.v2:
             (self.root / archived["path"]).unlink()
         url = f"/documents/mail/reader/case/{self.case_id}/attachment/{archived['sha512']}/2"
@@ -164,7 +164,7 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         message["Subject"] = "Confirmed extraction"
         message.set_content("Synthetic message")
         message.add_attachment(b"confirmed extraction marker", maintype="application", subtype="octet-stream", filename="evidence.bin")
-        archived = self.mail.archive_outbound("alice", self.mail.account("alice", "work"), message.as_bytes(), "sent", {})
+        archived = self.mail.archive_outbound("alice", self.mail.account("alice", "work")["id"], message.as_bytes(), "sent", {})
         if self.v2:
             (self.root / archived["path"]).unlink()
         url = f"/documents/{archived['document_id']}/attachments"
