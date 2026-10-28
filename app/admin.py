@@ -22,9 +22,11 @@ from .settings_store import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
@@ -44,6 +46,7 @@ from .settings_store import (
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
     MIN_RSYNC_TIMEOUT_SECONDS,
@@ -648,6 +651,8 @@ def integration_settings():
         osm_export_idle_timeout_max=MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
         personnel_time_autosync_min=MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
         personnel_time_autosync_max=MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        printershare_purge_interval_min=MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        printershare_purge_interval_max=MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     )
 
 
@@ -882,6 +887,52 @@ def save_personnel_time_autosync_settings():
     except OSError as exc:
         current_app.logger.warning("Personnel auto-sync settings save failed: %s", type(exc).__name__)
         flash("Personaldaten-Synchronisationseinstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/printershare")
+@admin_required
+def save_printershare_purge_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]
+        if reset_defaults:
+            interval = DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS
+        else:
+            raw_interval = request.form.get("printershare_purge_interval_seconds")
+            if raw_interval is None:
+                interval = current["printershare_purge_interval_seconds"]
+            else:
+                if (
+                    not raw_interval.isascii()
+                    or not raw_interval.isdigit()
+                    or len(raw_interval) > len(str(MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS))
+                ):
+                    raise ValueError("Bitte ein ganzzahliges PrinterShare-Bereinigungsintervall eingeben.")
+                interval = int(raw_interval)
+                if not MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS <= interval <= MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS:
+                    raise ValueError("Das PrinterShare-Bereinigungsintervall muss zwischen 30 und 3600 Sekunden liegen.")
+
+        integrations = {"printershare_purge_interval_seconds": interval}
+        store.save({"integrations": integrations}, str(g.user["username"]))
+        audit(
+            "printershare_purge_interval_updated",
+            "settings",
+            "integrations.printershare_purge_interval_seconds",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "PrinterShare-Bereinigungsintervall auf Standard zurückgesetzt."
+            if reset_defaults else "PrinterShare-Bereinigungsintervall gespeichert."
+        )
+        flash("Die Änderung gilt nach einem Neustart des Webprozesses.")
+    except ValueError as exc:
+        current_app.logger.info("PrinterShare purge setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("PrinterShare purge setting save failed: %s", type(exc).__name__)
+        flash("PrinterShare-Bereinigungsintervall konnte nicht gespeichert werden.")
     return redirect(url_for("admin.integration_settings"))
 
 
