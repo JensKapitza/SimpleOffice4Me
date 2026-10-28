@@ -177,6 +177,11 @@ class OsmSettingsTests(unittest.TestCase):
                 with patch("app.personnel_time_analytics.threading.Thread") as thread:
                     _start_worker_if_needed(app)
                     thread.assert_not_called()
+                with patch("app.personnel_time_analytics._WORKER_STARTED", True), patch(
+                    "app.personnel_time_analytics.auto_sync_runtime_enabled",
+                ) as auto_enabled:
+                    _start_worker_if_needed(app)
+                    auto_enabled.assert_not_called()
             finally:
                 app.testing = testing
         with app.app_context():

@@ -386,7 +386,13 @@ def _worker(app) -> None:
 
 def _start_worker_if_needed(app) -> None:
     global _WORKER_STARTED
-    if app.testing or not auto_sync_runtime_enabled(): return
+    if app.testing:
+        return
+    with _WORKER_LOCK:
+        if _WORKER_STARTED:
+            return
+    if not auto_sync_runtime_enabled():
+        return
     with app.app_context():
         ensure_schema(); enabled = get_db().execute("SELECT 1 FROM employee_time_federation_map WHERE auto_sync=1 LIMIT 1").fetchone() is not None
     if not enabled: return
