@@ -31,6 +31,9 @@ DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED = 1
 DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS = 300
 MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS = 60
 MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS = 3600
+DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS = 60
+MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS = 30
+MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS = 3600
 
 
 def _legacy_integer(
@@ -137,6 +140,17 @@ def legacy_personnel_time_autosync_seconds() -> int:
     )
 
 
+def legacy_printershare_purge_interval_seconds() -> int:
+    return _legacy_integer(
+        "SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL",
+        DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        clamp_oversized=True,
+        max_digits=128,
+    )
+
+
 def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
     ranges = {
         "osm_download_read_timeout_seconds": (
@@ -179,6 +193,11 @@ def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, An
             MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
             MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
         ),
+        "printershare_purge_interval_seconds": (
+            DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+            MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+            MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        ),
     }
     result: dict[str, int] = {}
     for key, (default, minimum, maximum) in ranges.items():
@@ -216,6 +235,9 @@ def validate_integration_settings(integrations: Any) -> dict[str, int]:
         ("personnel_time_autosync_seconds", MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
          MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
          "Personnel time auto-sync interval must be between 60 and 3600 seconds"),
+        ("printershare_purge_interval_seconds", MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+         MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+         "PrinterShare purge interval must be between 30 and 3600 seconds"),
     )
     for key, minimum, maximum, message in fields:
         value = integrations.get(key, values[key])

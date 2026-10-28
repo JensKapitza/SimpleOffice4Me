@@ -549,6 +549,14 @@ def test_printer_device(printer_id: str):
     return redirect(url_for("admin.printer_settings"))
 
 
+def configured_purge_interval(root: str) -> int:
+    """Return the persistent PrinterShare cleanup interval, including legacy migration."""
+    from .settings_store import SettingsStore
+
+    integrations = SettingsStore(root).settings()["integrations"]
+    return int(integrations["printershare_purge_interval_seconds"])
+
+
 def init_app(app) -> None:
     """Register routes and start an application-lifetime TTL cleanup worker."""
     app.register_blueprint(bp)
@@ -557,11 +565,7 @@ def init_app(app) -> None:
     app.extensions["printershare_ttl_purger"] = True
     root = str(app.config["DOCUMENT_ROOT"])
     secret_key = app.config["SECRET_KEY"]
-    try:
-        interval = int(os.environ.get("SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL", "60"))
-    except ValueError:
-        interval = 60
-    interval = max(30, min(interval, 3600))
+    interval = configured_purge_interval(root)
 
     def purge_loop() -> None:
         while True:

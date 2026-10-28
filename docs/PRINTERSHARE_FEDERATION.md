@@ -52,6 +52,13 @@ Der Administrator konfiguriert einen Standardmodus. Ein Benutzer bzw. Federation
 
 Wichtig: `no_store` ist eine Zusage ueber die SimpleOffice-Anwendungsspeicherung. Betriebssystem, Druckertreiber, CUPS/Windows-Spooler, Reverse-Proxy oder der Drucker selbst koennen fuer die technische Durchfuehrung temporaer puffern. SimpleOffice behauptet deshalb bewusst keine physikalische Null-Speicherung ausserhalb der Anwendung.
 
+Das Intervall fuer die Bereinigung bereits abgelaufener TTL-Auftraege ist unter
+**Admin → Einstellungen → Integrationen & Dienste** einstellbar. Der Wert
+beeinflusst nur, wie oft der Bereinigungsworker faellige Auftraege prueft; er
+verlaengert weder deren TTL noch die Aufbewahrungsfrist. Die persistierte
+Einstellung wird beim naechsten Webprozessstart geladen. Bis zur Speicherung
+dient `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` als begrenzter Legacy-Wert.
+
 ## Peer-Policy: Default-Deny
 
 Federation-Druck ist opt-in. Der sendende Server muss fuer den Ziel-Peer `printing.send=true` gesetzt haben. Der empfangende Server muss den Quell-Peer kennen, aktiviert haben und fuer ihn `printing.receive=true` gesetzt haben.
