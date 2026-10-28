@@ -1,10 +1,30 @@
 # ContextFlow – README (Hackathon-Arbeit, Branch `hackathon/contextflow-mvp`)
 
-**Stand:** 28.10.2026 — ContextFlow 114 OK + 1 Skip, Inventar 55 OK,
-Gates OK (Eigentümer-Lauf nach Timeout-Code); lokale Inferenz
-(Ollama qwen3-vl:2b) live auf 127.0.0.1:5091 verifiziert;
-Scan-zu-Foto-UX implementiert, Lauf ausstehend. Kein
-Meta-Runtime-Einsatz, keine Cloud.
+**Stand:** 28.10.2026 — Architektur-Gate auf Meta-only-Laufzeit umgestellt;
+Meta Model API und Meta-Ollama-Allowlist in Code und Demo-Starter verankert.
+Qwen-Live-Läufe in älteren Notizen sind historische, nicht mehr zulässige
+Ergebnisse und kein unterstützter Runtime-Pfad. Testergebnisse zum neuen Gate
+stehen weiter unten.
+
+## Hackathon-Laufzeitregel (verbindlich)
+
+- Coding-Werkzeuge und Entwicklungsmodelle sind frei wählbar.
+- Der ContextFlow-Wettbewerbspfad ruft ausschließlich Meta-Modelle auf. Die Laufzeit
+  verweigert beliebige Ollama-Modellnamen sowie fremde Cloud-Endpunkte.
+- Für lokale Textaufgaben ist `llama3.2:1b` (oder `llama3.2:3b`) via Ollama
+  zugelassen. Diese Llama-3.2-Modelle sind text-only. Bildanalyse braucht
+  `llama3.2-vision` oder `muse-glimmer`.
+- Die sichtbare Meta-Cloud-Demo ruft `muse-spark-1.3` über den offiziellen
+  Meta Model API-Endpunkt auf. Sie braucht `MODEL_API_KEY`, die ausdrückliche
+  Einwilligung im Formular und den isolierten synthetischen Demo-Root.
+  Echtdaten werden für diesen Pfad abgelehnt.
+- Das verwendete Modell steht im Startprotokoll und im Ergebnis der Bildanalyse.
+  Die Meta-AI-Tooling-Wertung (25 %) wird nur mit einem tatsächlichen Meta-Aufruf
+  belegt; der Mock ist ein Bedien-Dummy und zählt nicht als KI-Nachweis.
+- Modellnachweise: [Meta Model API](https://dev.meta.ai/docs/overview),
+  [Llama 3.2 Textmodelle](https://ollama.com/library/llama3.2),
+  [Llama 3.2 Vision](https://registry.ollama.com/blog/llama3.2-vision),
+  [Muse Glimmer](https://registry.ollama.com/library/muse-glimmer).
 
 ## Produktziel und Abnahmekriterien (geteiltes Ziel, aus update2.md)
 
@@ -14,13 +34,13 @@ Meta-Runtime-Einsatz, keine Cloud.
   den Büroengel freundlich an und lässt sie nach menschlicher
   Freigabe bearbeiten — ohne Cloud-Zwang im Normalbetrieb.
 - Architektur: SimpleOffice4Me (Fach-Wahrheit) + ContextFlow
-  (Verbindungsschicht) + Büroengel (sichtbare Figur) + lokale
-  Ollama-KI (Texte/Klassifikation) + Meta-Muse-Spark-Agent
-  (echt, mehrstufig, nur synthetisch-isoliert).
+  (Verbindungsschicht) + Büroengel (sichtbare Figur) + Meta-Modelle lokal via
+  Ollama oder Muse Spark über Meta Model API (nur synthetisch-isoliert).
 - P0-Umfang: verknüpfter Servicefall (A), 5-Tage-Follow-up (B),
   Engel-Hinweis mit Quellen (C), Aufgabe-genau-einmal +
   Rechnungseditor-Link (D), Mail-Entwurf ohne Autoversand (E),
-  kostenlose lokale Betriebsart (F), echter Meta-Agent (G),
+  kostenlose lokale Betriebsart (F), echter Meta-Modell-Aufruf im
+  Foto-Befundfluss (G; mehrstufige Werkzeugnutzung bleibt offen),
   Security/QA/Alt-Neu (H); danach 3-Minuten-Jury-Demo.
 - Abnahme: P0-A–H je umgesetzt, getestet und in der Demo
   nachgewiesen (nur synthetische Daten, nur neue Arbeit); keine
@@ -115,12 +135,45 @@ start.bat demo --port 5088
   `docs/hackathon/contextflow/OLLAMA.md` (`CONTEXTFLOW_OLLAMA_MODEL`;
   ohne Modell nur Mock-Befunddemo, Inventar antwortet 503).
 
+### 3-Minuten-Jury-Demo: tatsächliche Meta-Inferenz zeigen
+
+Die Meta-AI-Tooling-Wertung beträgt 25 %. Für den sichtbaren Cloud-Aufruf
+ein neues PowerShell-Terminal verwenden und den API-Schlüssel nur als
+Prozess-Umgebungsvariable setzen (nicht in Dateien oder Git speichern):
+
+```powershell
+$env:CONTEXTFLOW_VISION_PROVIDER = "meta"
+$env:MODEL_API_KEY = "<Meta-Model-API-Schlüssel>"
+.venv\Scripts\python.exe tools\contextflow_demo.py --port 5088 --fresh
+```
+
+Der Start muss `Meta Muse Spark 1.3 (Meta Model API)` ausgeben. Dann im
+Browser unter `http://127.0.0.1:5088/contextflow/` anmelden (`demo` /
+`demo-contextflow-1`) und in drei Minuten zeigen:
+
+1. **0:00–0:30:** Startausgabe und UI-Modellkennung `Meta Muse Spark 1.3`
+   zeigen. Demo-Root und Beispieldaten sind synthetisch.
+2. **0:30–1:30:** Im Foto-Formular einen synthetischen Ortstermin wählen,
+   ein unkritisches Demo-Bild auswählen, Meta-Cloud-Einwilligung markieren
+   und den Vorschlag starten. Das Ergebnis nennt als Provider
+   `Meta Muse Spark 1.3 (Meta Model API)`.
+3. **1:30–2:00:** Titel, Befundart und Sicherheit prüfen; ohne Bestätigung
+   wird nichts gespeichert. Den Entwurf danach ausdrücklich übernehmen.
+4. **2:00–3:00:** Die bestätigte Arbeit mit Quellen im Büroengel zeigen,
+   eine freigegebene Aufgabe anlegen und die einmalige Ausführung erklären.
+   Geld- oder externe Aktionen werden nicht automatisch ausgelöst.
+
+Ohne Meta-API-Schlüssel darf die Jury-Demo nicht als echte Meta-Inferenz
+bezeichnet werden. Als lokale Alternative für die Bildaufgabe kann `muse-glimmer`
+oder `llama3.2-vision` über Ollama laufen; der Mock ist nur für UI- und
+Workflow-Durchläufe.
+
 ## Tests
 
 ```bat
 set TEMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
-.venv\Scripts\python.exe -m unittest tests.test_contextflow_adapters tests.test_contextflow_links tests.test_contextflow_evaluator tests.test_contextflow_actions tests.test_contextflow_web tests.test_contextflow_device_prefill tests.test_contextflow_vision tests.test_contextflow_demo_reset tests.test_contextflow_demo_vision tests.test_contextflow_inventory_entry -v
+.venv\Scripts\python.exe -m unittest tests.test_contextflow_adapters tests.test_contextflow_links tests.test_contextflow_evaluator tests.test_contextflow_actions tests.test_contextflow_web tests.test_contextflow_device_prefill tests.test_contextflow_vision tests.test_contextflow_model_guard tests.test_contextflow_doc_tags tests.test_contextflow_demo_reset tests.test_contextflow_demo_vision tests.test_contextflow_inventory_entry -v
 .venv\Scripts\python.exe -m unittest tests.test_auth_login_qr tests.test_invoice_relations -v
 .venv\Scripts\python.exe -m compileall -q app tools
 .venv\Scripts\python.exe tools/check_project_policy.py .
@@ -130,8 +183,14 @@ set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 
 ## Grenzen (ehrlich)
 
-- Lokale Inferenz via Ollama auf Loopback (live-verifiziert mit
-  qwen3-vl:2b, siehe OLLAMA.md); kein `MODEL_API_KEY`, kein API-Key
-  aus Muse-Auth, kein Cloud-Pfad in der Demo. Meta-Runtime nicht live.
+- Der neue Meta-Pfad ist durch feste Endpoint-/Modell-Gates und
+  transportgemockte Tests abgesichert. Ein Live-Aufruf mit echtem
+  `MODEL_API_KEY` ist in dieser Arbeitsrunde nicht erfolgt.
+- Der Meta-Aufruf ist derzeit eine einzelne Fotoanalyse, die einen
+  überprüfbaren Befundentwurf liefert. Ein allgemeiner, mehrstufiger
+  Meta-Agent mit Tool-Aufrufen ist damit noch nicht nachgewiesen.
+- Llama 3.2 1B/3B sind nur Textmodelle; lokale Bildanalyse braucht ein
+  Vision-Modell. Meta-Cloud-Bildanalyse ist nur im isolierten synthetischen
+  Demo-Root nach Einwilligung freigegeben.
 - Der Büroengel nutzt einen SVG-Platzhalter; echte Assets folgen nach dem MVP.
 - Demo zeigt ausschließlich neue Hackathon-Arbeit (Baseline `af5a600b`).

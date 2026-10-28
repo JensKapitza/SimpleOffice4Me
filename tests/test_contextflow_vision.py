@@ -25,6 +25,8 @@ from app import app
 from app.contextflow.actions import ApprovalStale
 from app.contextflow.demo import DEMO_MARKER
 from app.contextflow.vision import (
+    META_MODEL_API_ENDPOINT,
+    META_MODEL_API_MODEL,
     OLLAMA_NUM_PREDICT,
     InferenceTimeoutError,
     InferenceUnavailable,
@@ -263,8 +265,8 @@ class VisionBackendTest(unittest.TestCase):
             "provider": "meta",
             "meta_consent": True,
             "meta_api_key": "key",
-            "meta_endpoint": "https://meta.example/v1/chat/completions",
-            "meta_model": "muse-test",
+            "meta_endpoint": META_MODEL_API_ENDPOINT,
+            "meta_model": META_MODEL_API_MODEL,
         }
         image = {"filename": "f.png", "content_type": "image/png",
                  "stream": BytesIO(_png_bytes())}
@@ -302,17 +304,21 @@ class VisionBackendTest(unittest.TestCase):
         context = mock.MagicMock()
         context.__enter__.return_value = response
         context.__exit__.return_value = False
+        transport = mock.MagicMock()
+        transport.open.return_value = context
         with mock.patch(
-            "app.contextflow.vision.urllib.request.urlopen", return_value=context
-        ) as opener:
+            "app.contextflow.vision.urllib.request.build_opener",
+            return_value=transport,
+        ) as build_opener:
             out = MetaVisionProvider(
-                "k", "https://meta.example/v1/chat/completions", "muse-test"
+                "k", META_MODEL_API_ENDPOINT, META_MODEL_API_MODEL
             ).suggest(b"x", "image/png", {})
         self.assertEqual(out, suggestion)
-        sent = opener.call_args[0][0]
+        build_opener.assert_called_once()
+        sent = transport.open.call_args[0][0]
         self.assertEqual(sent.get_header("Authorization"), "Bearer k")
         body = json.loads(sent.data.decode("utf-8"))
-        self.assertEqual(body["model"], "muse-test")
+        self.assertEqual(body["model"], META_MODEL_API_MODEL)
         parts = body["messages"][0]["content"]
         self.assertEqual(parts[0]["type"], "text")
         self.assertEqual(parts[1]["type"], "image_url")
@@ -324,14 +330,46 @@ class VisionBackendTest(unittest.TestCase):
         for bad_url in ("https://example.com", "http://example.com",
                         "ftp://127.0.0.1/x", "keine-url"):
             with self.assertRaises(VisionError, msg=bad_url):
-                LocalVisionProvider(bad_url, "modell")
+                LocalVisionProvider(bad_url, "llama3.2-vision:11b")
         with self.assertRaises(VisionError):
             LocalVisionProvider("http://127.0.0.1:11434", "")
-        refused = LocalVisionProvider("http://127.0.0.1:9", "modell", timeout=2)
+        refused = LocalVisionProvider(
+            "http://127.0.0.1:9", "llama3.2-vision:11b", timeout=2
+        )
         with self.assertRaises(InferenceUnavailable):
             refused.suggest(b"x", "image/png", {})
         with self.assertRaises(VisionError):
             select_provider({"provider": "raten"}, False, self.root)
+
+    def test_runtime_rejects_non_meta_and_text_only_image_models(self) -> None:
+        with mock.patch("app.contextflow.vision.local_urlopen") as transport:
+            with self.assertRaises(VisionError):
+                LocalVisionProvider("http://127.0.0.1:11434", "qwen3-vl:2b")
+            with self.assertRaises(VisionError) as raised:
+                LocalVisionProvider(
+                    "http://127.0.0.1:11434", "llama3.2:1b"
+                ).suggest(b"x", "image/png", {})
+        self.assertIn("nur Text", str(raised.exception))
+        transport.assert_not_called()
+
+    def test_meta_provider_pins_official_endpoint_and_model(self) -> None:
+        with self.assertRaises(VisionError):
+            MetaVisionProvider(
+                "k", "https://api.attacker.invalid/v1/chat/completions",
+                META_MODEL_API_MODEL,
+            )
+        with self.assertRaises(VisionError):
+            MetaVisionProvider("k", META_MODEL_API_ENDPOINT, "non-meta-model")
+
+    def test_meta_transport_does_not_follow_redirects(self) -> None:
+        from app.contextflow.vision import _NoRedirectHandler
+
+        handler = _NoRedirectHandler()
+        self.assertIsNone(
+            handler.redirect_request(
+                None, None, 302, "Found", {}, "https://attacker.invalid/"
+            )
+        )
 
 
 class ObjectSuggestionTest(unittest.TestCase):
@@ -341,7 +379,7 @@ class ObjectSuggestionTest(unittest.TestCase):
                 b"x", "image/png", {}, dict(MOCK_SETTINGS)
             )
         message = str(raised.exception)
-        self.assertIn("lokal", message)
+        self.assertIn("Meta-Modell", message)
         self.assertNotIn("Hammer", message)
 
     def test_object_schema(self) -> None:
@@ -424,7 +462,7 @@ class ObjectSuggestionTest(unittest.TestCase):
         settings = {
             "provider": "local",
             "ollama_url": "http://127.0.0.1:11434",
-            "ollama_model": "modell",
+            "ollama_model": "llama3.2-vision:11b",
         }
         route = _local_route(show=SHOW_PLAIN, chat=chunks)
         with mock.patch(
@@ -442,8 +480,8 @@ class ObjectSuggestionTest(unittest.TestCase):
             "provider": "meta",
             "meta_consent": True,
             "meta_api_key": "key",
-            "meta_endpoint": "https://meta.example/v1/chat/completions",
-            "meta_model": "muse-test",
+            "meta_endpoint": META_MODEL_API_ENDPOINT,
+            "meta_model": META_MODEL_API_MODEL,
         }
         with self.assertRaises(PermissionError):
             suggest_inventory_object(
@@ -454,7 +492,7 @@ class ObjectSuggestionTest(unittest.TestCase):
         settings = {
             "provider": "local",
             "ollama_url": "http://127.0.0.1:11434",
-            "ollama_model": "modell",
+            "ollama_model": "llama3.2-vision:11b",
         }
         chunks = [
             {
@@ -504,7 +542,7 @@ class ObjectSuggestionTest(unittest.TestCase):
         settings = {
             "provider": "local",
             "ollama_url": "http://127.0.0.1:11434",
-            "ollama_model": "modell",
+            "ollama_model": "llama3.2-vision:11b",
         }
         variants = [
             [{"message": {"role": "assistant", "content": "   "}, "done": True}],
@@ -536,7 +574,7 @@ class ObjectSuggestionTest(unittest.TestCase):
         ):
             with self.assertRaises(InferenceTimeoutError) as raised:
                 LocalVisionProvider(
-                    "http://127.0.0.1:11434", "modell", timeout=60
+                    "http://127.0.0.1:11434", "llama3.2-vision:11b", timeout=60
                 ).suggest(b"x", "image/png", {})
         self.assertIn("Zeitlimit", str(raised.exception))
 
@@ -551,7 +589,7 @@ class ObjectSuggestionTest(unittest.TestCase):
         settings = {
             "provider": "local",
             "ollama_url": "http://127.0.0.1:11434",
-            "ollama_model": "modell",
+            "ollama_model": "llama3.2-vision:11b",
         }
         route = _local_route(show=SHOW_PLAIN, chat=chunks)
         with mock.patch(
@@ -870,7 +908,7 @@ class VisionWebTest(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 503)
         payload = response.get_json()
-        self.assertIn("lokal", payload["error"])
+        self.assertIn("Meta-Modell", payload["error"])
         self.assertNotIn(b"Hammer", response.data)
 
     def test_inventory_suggest_rejects_bad_image(self) -> None:

@@ -1,7 +1,7 @@
 """Local-AI tag suggestions for imported documents (Bueroengel).
 
 Reads existing metadata plus locally extracted text, asks the on-machine
-Ollama model "Welche Tags wuerdest du hinzufuegen?", and returns concrete
+Meta Ollama model "Welche Tags wuerdest du hinzufuegen?", and returns concrete
 tag proposals with short justifications for explicit user confirmation.
 Images get a short description plus object hints through a separate
 local vision call, so text tags never wait for vision. Suggestion
@@ -151,14 +151,14 @@ def _require_local_provider(settings: dict[str, Any], *, purpose: str) -> Any:
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     if choice == "local" and not str(settings.get("ollama_model", "") or "").strip():
         raise InferenceUnavailable(
-            "Kein lokales Modell konfiguriert. Bitte zuerst ein Ollama-Modell wählen."
+            "Kein freigegebenes Meta-Modell konfiguriert. Bitte ein Ollama-Modell wählen."
         )
     provider = select_provider(settings, False, None)
     if provider.name == "mock":
         raise MockBlockedError(
-            f"Für {purpose} ist kein lokales Modell verfügbar "
+            f"Für {purpose} ist kein Meta-Modell verfügbar "
             "(Platzhalter sind hier nicht erlaubt). Bitte Ollama mit "
-            "passendem Modell einrichten."
+            "einem freigegebenen Meta-Modell einrichten."
         )
     return provider
 

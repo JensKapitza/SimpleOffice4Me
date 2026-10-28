@@ -38,6 +38,25 @@ ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 TITLE_LIMIT = 240
 DESCRIPTION_LIMIT = 12000
 LOCALHOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1/chat/completions"
+META_MODEL_API_MODEL = "muse-spark-1.3"
+# Names are deliberately exact Ollama IDs. Custom aliases could point to
+# non-Meta weights while claiming a Meta name, so inference fails closed.
+META_OLLAMA_TEXT_MODELS = frozenset(
+    {"llama3.2:1b", "llama3.2:3b", "llama3.2:latest"}
+)
+META_OLLAMA_VISION_MODELS = frozenset(
+    {
+        "llama3.2-vision",
+        "llama3.2-vision:11b",
+        "llama3.2-vision:90b",
+        "llama3.2-vision:latest",
+        "muse-glimmer",
+        "muse-glimmer:latest",
+        "muse-glimmer:30b",
+    }
+)
+META_OLLAMA_MODELS = META_OLLAMA_TEXT_MODELS | META_OLLAMA_VISION_MODELS
 
 
 class VisionError(ValueError):
@@ -54,6 +73,31 @@ class MockBlockedError(InferenceUnavailable):
 
 class InferenceTimeoutError(InferenceUnavailable):
     """The local backend did not answer within its time budget."""
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never forward Meta Model API credentials through an HTTP redirect."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _ = (req, fp, code, msg, headers, newurl)
+        return None
+
+
+def require_meta_ollama_model(model: object, *, vision: bool = False) -> str:
+    """Accept only explicitly supported Meta model IDs for local inference."""
+    configured = str(model or "").strip().casefold()
+    if configured not in META_OLLAMA_MODELS:
+        raise VisionError(
+            f"Das lokale Modell '{configured or '(leer)'}' ist nicht freigegeben. "
+            "ContextFlow erlaubt zur Laufzeit ausschließlich Meta-Modelle: "
+            "Llama 3.2 über Ollama oder Muse Glimmer."
+        )
+    if vision and configured not in META_OLLAMA_VISION_MODELS:
+        raise VisionError(
+            f"Das Meta-Modell '{configured}' verarbeitet nur Text, keine Bilder. "
+            "Für Fotos bitte llama3.2-vision:11b oder muse-glimmer verwenden."
+        )
+    return configured
 
 
 def validate_image(filename: object, content_type: object, stream: BinaryIO) -> bytes:
@@ -195,9 +239,9 @@ def suggest_inventory_object(
     provider = select_provider(settings, consent_meta, None)
     if provider.name == "mock":
         raise MockBlockedError(
-            "Für Inventar-Vorschläge ist kein lokales Modell verfügbar "
-            "(Platzhalter sind hier nicht erlaubt). Bitte Ollama mit "
-            "Vision-Modell einrichten."
+            "Für Inventar-Vorschläge ist kein Meta-Modell verfügbar "
+            "(Platzhalter sind hier nicht erlaubt). Bitte Ollama mit einem "
+            "freigegebenen Vision-Modell einrichten."
         )
     context = {
         "mode": "object",
@@ -299,10 +343,9 @@ def ollama_chat_body(
     """Build one local /api/chat request body (streaming, bounded).
 
     ``stream`` stays true: only the streamed NDJSON path answers
-    reliably for thinking vision models over HTTP. The ``think``
-    field is omitted entirely — an explicit ``think: false`` hangs
-    qwen3-vl over HTTP while an omitted field answers in seconds
-    (owner warm test, 28.10.). ``options`` carries only the hard
+    reliably for supported vision models over HTTP. The ``think``
+    field is omitted entirely so each Meta model can use its default
+    behavior. ``options`` carries only the hard
     ``num_predict`` cap: 2048 tokens leave room for reasoning plus
     the concise JSON answer inside a 4096-token window, given the
     bounded prompts (text excerpt at most 4000 chars, short
@@ -414,64 +457,14 @@ def parse_chat_stream(
     return answer
 
 
-def _is_thinking_model(payload: object) -> bool:
-    """Return True when an /api/show payload marks a thinking model.
-
-    Primary signal is the exact "thinking" capability; renderer-style
-    fields (template, renderer, parser) are scanned for the word as a
-    fallback, since thinking templates report e.g. qwen3-vl-thinking.
-    """
-    if not isinstance(payload, dict):
-        return False
-    capabilities = payload.get("capabilities", [])
-    if isinstance(capabilities, list) and any(
-        isinstance(entry, str) and entry.strip().casefold() == "thinking"
-        for entry in capabilities
-    ):
-        return True
-    texts = [payload.get("template", "")]
-    for key in ("renderer", "parser", "template_renderer", "template_parser"):
-        texts.append(payload.get(key, ""))
-    return any(
-        isinstance(text, str) and "thinking" in text.casefold() for text in texts
-    )
-
-
-def _instruct_sibling(model: str) -> str:
-    """Return the instruct-tagged sibling name for a thinking model."""
-    return (model or "").strip() + "-instruct"
-
-
-def _sibling_installed(tags_payload: object, sibling: str) -> bool:
-    """Return True when /api/tags lists the sibling (exact or :tag)."""
-    if not isinstance(tags_payload, dict):
-        return False
-    models = tags_payload.get("models", [])
-    if not isinstance(models, list):
-        return False
-    want = sibling.strip().casefold()
-    for entry in models:
-        if not isinstance(entry, dict):
-            continue
-        name = str(entry.get("name", "") or "").strip().casefold()
-        if name == want or name.startswith(want + ":"):
-            return True
-    return False
-
-
 def resolve_local_model(base_url: str, model: str, timeout: float) -> str:
-    """Return the effective local model: configured, or an instruct sibling.
+    """Return the configured Meta model after a bounded Ollama probe.
 
-    Thinking models stream reasoning instead of answers (observed:
-    256 KiB stream cap hit before any content, 503 after ~178 s), so
-    a positively detected thinking model is never run: an installed
-    `-instruct` sibling is used instead, otherwise a fast actionable
-    setup error is raised. Nothing is ever downloaded (no /api/pull);
-    probes send only the model name over direct loopback. Probe
-    failures fail open to the configured model; inference itself
-    stays bounded by its own timeout and caps.
+    Nothing is ever downloaded; probes send only the model name over
+    direct loopback. Probe failures fail open to the configured model;
+    inference itself stays bounded by its own timeout and caps.
     """
-    configured = (model or "").strip()
+    configured = require_meta_ollama_model(model)
     limit = min(OLLAMA_PROBE_TIMEOUT, max(1.0, float(timeout or 0)))
     try:
         probe = urllib.request.Request(
@@ -493,45 +486,25 @@ def resolve_local_model(base_url: str, model: str, timeout: float) -> str:
         return configured
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return configured
-    if configured.casefold().endswith("-instruct"):
-        return configured
-    if not _is_thinking_model(payload):
-        return configured
-    sibling = _instruct_sibling(configured)
-    try:
-        listing = urllib.request.Request(base_url + "/api/tags", method="GET")
-        with local_urlopen(listing, timeout=limit) as response:
-            tags = json.loads(response.read(OLLAMA_PROBE_MAX_BYTES).decode("utf-8"))
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        tags = None
-    if _sibling_installed(tags, sibling):
-        return sibling
-    raise InferenceUnavailable(
-        f"Das konfigurierte Modell '{configured}' denkt laut "
-        "(Thinking-Modell) und eignet sich nicht für kurze "
-        "JSON-Antworten. Bitte installieren: `ollama pull "
-        f"{sibling}`, dann CONTEXTFLOW_OLLAMA_MODEL={sibling} "
-        "setzen und erneut versuchen. Es wird nichts automatisch "
-        "heruntergeladen."
-    )
+    _ = payload
+    return configured
 
 
 class LocalVisionProvider(VisionProvider):
     """On-machine Ollama vision model; default backend, never cloud."""
 
     name = "local"
-    label = "Lokale KI (eigener Rechner)"
+    label = "Meta-Modell lokal via Ollama"
 
     def __init__(self, base_url: str, model: str, timeout: int = 60) -> None:
         self.base_url = _localhost_only(base_url)
-        self.model = (model or "").strip()
-        if not self.model:
-            raise VisionError("local inference needs a configured model")
+        self.model = require_meta_ollama_model(model)
         self.timeout = max(1, min(int(timeout or 60), 600))
         self.resolved_model: str | None = None
 
     def suggest(self, image: bytes, mime: str, context: dict[str, str]) -> dict[str, Any]:
         _ = mime
+        require_meta_ollama_model(self.model, vision=True)
         model = resolve_local_model(self.base_url, self.model, self.timeout)
         self.resolved_model = model
         prompt = context.get("instruction") or (
@@ -587,23 +560,27 @@ class LocalVisionProvider(VisionProvider):
 class MetaVisionProvider(VisionProvider):
     """Meta cloud inference: isolated synthetic demo only, never real data.
 
-    Speaks the official OpenAI-compatible Chat Completions API
-    (``POST {endpoint}`` with ``{model, messages}`` and data-URL image
-    parts); the suggestion is parsed from
+    Speaks Meta's official Chat Completions endpoint. The protocol is
+    OpenAI-compatible, but both the host and model ID are pinned to Meta.
+    The suggestion is parsed from
     ``choices[0].message.content`` and schema-validated by the caller.
     """
 
     name = "meta"
-    label = "Meta-Cloud (nur Demo + Einwilligung)"
+    label = "Meta Muse Spark 1.3 (Meta Model API)"
 
     def __init__(self, api_key: str, endpoint: str, model: str) -> None:
-        if not api_key or not endpoint or not model:
+        if not api_key:
             raise PermissionError(
-                "Meta inference needs an API key, endpoint and model"
+                "Meta inference needs a Model API key"
             )
+        if str(endpoint or "").strip() != META_MODEL_API_ENDPOINT:
+            raise VisionError("Meta Model API endpoint is not the official endpoint")
+        if str(model or "").strip() != META_MODEL_API_MODEL:
+            raise VisionError("ContextFlow only allows the Meta Muse Spark 1.3 model")
         self.api_key = api_key
-        self.endpoint = endpoint
-        self.model = model
+        self.endpoint = META_MODEL_API_ENDPOINT
+        self.model = META_MODEL_API_MODEL
 
     def suggest(self, image: bytes, mime: str, context: dict[str, str]) -> dict[str, Any]:
         prompt = context.get("instruction") or (
@@ -646,7 +623,8 @@ class MetaVisionProvider(VisionProvider):
             method="POST",
         )
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=60) as response:
                 payload = json.loads(response.read().decode("utf-8"))
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             raise VisionError(f"Meta inference failed ({exc})") from None
@@ -675,8 +653,14 @@ def select_provider(
         if consent_meta is not True or settings.get("meta_consent") is not True:
             raise PermissionError("Meta inference needs explicit consent")
         key = str(settings.get("meta_api_key", "") or "")
-        endpoint = str(settings.get("meta_endpoint", "") or "")
-        model = str(settings.get("meta_model", "") or "")
+        endpoint = str(
+            settings.get("meta_endpoint", META_MODEL_API_ENDPOINT)
+            or META_MODEL_API_ENDPOINT
+        ).strip()
+        model = str(
+            settings.get("meta_model", META_MODEL_API_MODEL)
+            or META_MODEL_API_MODEL
+        ).strip()
         if not key or not endpoint or not model:
             raise PermissionError("Meta inference is not configured")
         if not is_verified_demo_root(_Path(str(root))):
@@ -750,7 +734,12 @@ def prepare_draft(
         "draft": draft,
         "fingerprint": draft_fingerprint(visit_id, asset, draft),
         "provider": provider.name,
-        "provider_label": provider.label,
+        "provider_label": (
+            f"{provider.label} · "
+            f"{getattr(provider, 'resolved_model', None) or provider.model}"
+            if provider.name == "local"
+            else provider.label
+        ),
     }
 
 
