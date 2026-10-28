@@ -172,6 +172,21 @@ class ContextflowReads:
                     "evidence_class": str(item.get("evidence_class", "")),
                     "confidence": int(item.get("confidence", 0) or 0),
                     "observed_at": str(item.get("observed_at", "")),
+                    "asset_id": str(item.get("asset_id", "") or ""),
+                    "room_id": str(item.get("room_id", "") or ""),
+                }
+            )
+        assets: list[dict[str, Any]] = []
+        for asset in record.get("assets", []) or []:
+            if not isinstance(asset, dict):
+                continue
+            assets.append(
+                {
+                    "asset_id": str(asset.get("asset_id", "")),
+                    "name": str(asset.get("name", "")),
+                    "kind": str(asset.get("kind", "")),
+                    "room_id": str(asset.get("room_id", "") or ""),
+                    "status": str(asset.get("status", "")),
                 }
             )
         summary: VisitSummary = {
@@ -184,6 +199,7 @@ class ContextflowReads:
             "created_at": str(record.get("created_at", "")),
             "updated_at": str(record.get("updated_at", "")),
             "findings": findings,
+            "assets": assets,
         }
         evidence: EvidenceRef = {
             "type": VISIT_TYPE,

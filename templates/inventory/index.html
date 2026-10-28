@@ -8,7 +8,10 @@
        data-lookup-url="{{ url_for('inventory.book_lookup') }}"
        data-amazon-url="{{ url_for('inventory.amazon_search') }}"
        data-objects-url="{{ url_for('documents.objects') }}"
-       data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}"></div>
+       data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}"
+       data-suggest-url="{{ url_for('contextflow.inventory_suggest') }}"
+       data-match-url="{{ url_for('contextflow.inventory_match') }}"
+       data-attach-url="{{ url_for('contextflow.inventory_attach') }}"></div>
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div>
       <h1 class="h2 mb-1">Inventar · Schnellerfassung</h1>
@@ -57,6 +60,20 @@
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="start-barcode">Barcode / ISBN scannen</button></div>
             <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="scan-nfc">NFC lesen</button></div>
           </div>
+          {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+          <div class="row g-2 mb-3" id="photo-actions">
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-primary btn-lg" id="take-photo">Foto aufnehmen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="choose-photo">Foto auswählen</button></div>
+          </div>
+          {% endif %}
+          {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+          <div class="row g-2 mb-3" id="photo-series">
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="series-add">Fotos zur Serie hinzufügen</button></div>
+            <div class="col-12 col-md-6 d-grid"><button type="button" class="btn btn-outline-primary btn-lg" id="series-capture">Serienfoto aufnehmen</button></div>
+            <div class="col-12"><label class="form-label" for="series-shelf">Regal für die Serie (erforderlich)</label><select class="form-select form-select-lg" id="series-shelf"><option value="">Regal wählen …</option>{% for location in series_locations %}<option value="{{ location.location_id }}">{{ location.name }} · {{ location.code }}</option>{% endfor %}</select><div class="form-text">Gilt für alle Serienfotos und bleibt beim Speichern erhalten – jedes Foto wird einzeln als Buch angelegt.</div></div>
+            <div class="col-12"><input class="visually-hidden" id="photo-series-input" type="file" accept="image/jpeg,image/png,image/webp" multiple tabindex="-1" aria-hidden="true"><div id="queue-list" class="d-grid gap-2"></div><p class="form-text mb-0" id="queue-hint">Maximal 8 Fotos je Serie. Jedes Foto wird einzeln lokal analysiert — nichts wird automatisch gespeichert.</p></div>
+          </div>
+          {% endif %}
           <div class="alert alert-secondary py-2 small" id="scan-status" role="status" aria-live="polite">ISBN kann jederzeit manuell eingegeben werden. ISBN-10 und ISBN-13 mit oder ohne Bindestriche werden unterstützt.</div>
           <div class="ratio ratio-4x3 bg-dark rounded overflow-hidden mb-3" id="camera-box" hidden><video id="camera-preview" autoplay playsinline muted></video></div>
 
@@ -68,7 +85,7 @@
             {% endif %}
 
             <div class="col-md-6"><label class="form-label" for="item-type">Objekttyp</label><input class="form-control form-control-lg" id="item-type" name="item_type" value="{{ 'book' if capture_context.enabled else 'object' }}" list="inventory-types"><datalist id="inventory-types"><option value="object"><option value="book"><option value="tool"><option value="electrical-device"><option value="machine"><option value="vehicle"><option value="it-device"><option value="measuring-device"><option value="ladder"><option value="key"><option value="furniture"><option value="document"><option value="spare-part"><option value="consumable"></datalist></div>
-            <div class="col-md-6"><label class="form-label" for="title">{{ 'Buchtitel (erforderlich)' if capture_context.enabled else 'Objektname' }}</label><input required class="form-control form-control-lg" id="title" name="title" maxlength="300" placeholder="{{ 'Titel manuell eingeben oder Buchdaten laden' if capture_context.enabled else 'z. B. Akkuschrauber Werkstatt' }}"></div>
+            <div class="col-md-6"><label class="form-label" for="title">{{ 'Buchtitel (erforderlich)' if capture_context.enabled else 'Objektname' }}</label><input required class="form-control form-control-lg" id="title" name="title" maxlength="300" placeholder="{{ 'Titel manuell eingeben oder Buchdaten laden' if capture_context.enabled else 'z. B. Akkuschrauber Werkstatt' }}"></div><div class="col-12" id="isbn-title-hint" hidden><div class="alert alert-info py-2 small mb-0">Das sieht wie eine ISBN aus, nicht wie ein Titel. <button type="button" class="btn btn-sm btn-outline-primary ms-2" id="adopt-isbn-title">Als ISBN übernehmen</button></div></div>
 
             {% if capture_context.enabled %}
             <div class="col-12"><label class="form-label" for="library-location-id">Zuordnung in der Bibliothek (erforderlich)</label><select required class="form-select form-select-lg" id="library-location-id" name="library_location_id">{% for location in library_locations %}<option value="{{ location.location_id }}" {% if location.location_id == capture_context.location_id %}selected{% endif %}>{{ location.name }} · {{ location.code }}</option>{% endfor %}</select><div class="form-text">Der ausgewählte Regalstandort ist editierbar und wird beim Speichern als Bibliothekszuordnung hinterlegt.</div></div>
@@ -109,6 +126,21 @@
             <div class="col-md-5"><label class="form-label" for="price-source">Preisquelle</label><input class="form-control" id="price-source" name="price_source" maxlength="120"></div>
 
             <div class="col-12"><label class="form-label" for="photo">Foto</label><input class="form-control" id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><div class="form-text">JPEG, PNG oder WebP, maximal 12 MiB. Auf dem Handy kann direkt die Rückkamera verwendet werden.</div><img id="photo-preview" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==" hidden alt="Vorschau des ausgewählten Inventarfotos" class="img-fluid rounded border mt-2" style="max-height:220px;object-fit:contain" loading="lazy" decoding="async"></div>
+      {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+      <div class="col-12" id="engel-suggest-box">
+        <button type="button" class="btn btn-outline-primary" id="analyze-photo">Foto analysieren – Objekt vorschlagen</button>
+        <p class="form-text">Der Büroengel schlägt anhand des Fotos einen Objektnamen vor. Erst dein Klick übernimmt ihn ins Formular – gespeichert wird wie gewohnt über „Objekt speichern“.</p>
+        <div id="object-suggestion" class="alert alert-info py-2 mt-2" hidden>
+          <strong id="suggested-name"></strong> <span id="suggested-type" class="small text-secondary"></span>
+          <div class="small" id="suggested-note"></div>
+          <div class="small text-secondary" id="suggested-provider"></div>
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-primary" id="adopt-suggestion">Als Objektnamen übernehmen</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="dismiss-suggestion">Verwerfen</button>
+          </div>
+        </div>
+      </div>
+      {% endif %}
 
             <div class="col-12"><div class="border rounded p-3 bg-body-tertiary"><div class="d-flex justify-content-between align-items-center mb-2"><strong>Prüfung / Wiedervorlage (optional)</strong><span class="small text-secondary">erzeugt eine Aufgabe</span></div><div class="row g-2">
               <div class="col-md-6"><label class="form-label" for="inspection-name">Prüfung</label><input class="form-control" id="inspection-name" name="inspection_name" maxlength="240" placeholder="Elektrische Prüfung, Sichtprüfung …"></div>

@@ -20,6 +20,7 @@ from .case_links import CaseLinkStore
 from .contracts import (
     FOLLOWUP_DAYS,
     FOLLOWUP_SIGNAL,
+    VISIT_URL,
     FollowupHint,
 )
 
@@ -68,15 +69,51 @@ class FollowupEvaluator:
         visit_summary = reads["visit"]["summary"]
         if visit_summary.get("status") != "completed":
             return None
-        pending = [
-            str(item.get("finding_id", ""))
+        pending_items = [
+            item
             for item in visit_summary.get("findings", []) or []
             if isinstance(item, dict)
             and item.get("status") == "unreviewed"
             and item.get("finding_id")
         ]
+        pending = [str(item.get("finding_id", "")) for item in pending_items]
         if not pending:
             return None
+        known_assets = {
+            str(asset.get("asset_id", ""))
+            for asset in visit_summary.get("assets", []) or []
+            if isinstance(asset, dict) and asset.get("asset_id")
+        }
+        by_asset: dict[str, dict[str, Any]] = {}
+        for asset in visit_summary.get("assets", []) or []:
+            if not isinstance(asset, dict) or not asset.get("asset_id"):
+                continue
+            by_asset[str(asset.get("asset_id"))] = asset
+        refs: dict[str, list[str]] = {}
+        for item in pending_items:
+            asset_id = str(item.get("asset_id", "") or "")
+            if asset_id and asset_id in known_assets:
+                refs.setdefault(asset_id, []).append(
+                    str(item.get("finding_id", ""))
+                )
+        device_context: list[dict[str, Any]] = []
+        for asset_id in sorted(refs):
+            asset = by_asset.get(asset_id, {})
+            device_context.append(
+                {
+                    "asset_id": asset_id,
+                    "name": str(asset.get("name", "")),
+                    "kind": str(asset.get("kind", "")),
+                    "room_id": str(asset.get("room_id", "") or ""),
+                    "finding_ids": sorted(refs[asset_id]),
+                    "url": (
+                        VISIT_URL + "#asset-{asset}"
+                    ).format(
+                        visit_id=str(visit_summary.get("visit_id", "")),
+                        asset=asset_id,
+                    ),
+                }
+            )
 
         invoice_state = reads["invoice"]
         evidence = [
@@ -92,6 +129,10 @@ class FollowupEvaluator:
                 link["completed_on"],
                 [item.get("revision", "") for item in evidence],
                 sorted(pending),
+                sorted(
+                    (str(row.get("asset_id", "")), sorted(row.get("finding_ids", [])))
+                    for row in device_context
+                ),
                 invoice_state.get("state", "unknown"),
                 str((invoice_state.get("evidence") or {}).get("revision", "")),
             ]
@@ -107,6 +148,7 @@ class FollowupEvaluator:
             "days_since_completion": days,
             "evidence": evidence,
             "pending_finding_ids": pending,
+            "device_context": device_context,
             "proposals": [
                 {
                     "type": "task.create",

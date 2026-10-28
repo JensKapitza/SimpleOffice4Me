@@ -14,6 +14,8 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
+from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
+from .invoice_display import _display_zugferd
 from .invoice_relations import (
     INVOICE_RELATION_TYPES,
     INVOICE_RELATION_TYPES_EN,
@@ -35,18 +37,6 @@ from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 register_invoice_relation_routes(bp)
-
-
-def _managed_invoice(root: Path, invoice_id: str, actor: str) -> dict[str, Any]:
-    try:
-        row = invoice(root, invoice_id)
-        contacts = ContactStore(root)
-        contact = contacts.get(str(row.get("contact_id", "")), actor)
-    except ValueError:
-        abort(404)
-    if not contacts.can_manage_contact(contact, actor):
-        abort(403)
-    return row
 
 
 def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
@@ -896,9 +886,11 @@ def invoice_detail(invoice_id:str):
         )
         related, candidates, annotations = [], [], []
         relation_error = True
+    display = {**row, "payment_state": invoice_state(row)}
+    display["zugferd"] = _display_zugferd(row.get("zugferd"))
     return render_template(
         "documents/invoice_detail.html",
-        invoice={**row,"payment_state":invoice_state(row)}, contact=contact,
+        invoice=display, contact=contact,
         related_invoices=related, related_invoice_candidates=candidates,
         invoice_relationship_types=(INVOICE_RELATION_TYPES_EN if g.language == "en" else INVOICE_RELATION_TYPES),
         annotations=annotations,

@@ -1,7 +1,9 @@
-"""ContextFlow: authorized read layer for verified office follow-ups.
+"""ContextFlow: verified office follow-ups (reads, hints, approved writes).
 
 Batch 1 provides read-only, actor-scoped domain adapters plus an evidence
-contract. No writes, no network calls and no model calls in this package.
+contract. Approved writes (tasks, findings) always need explicit user
+confirmation; inference backends stay local by default, Meta cloud only
+with consent on synthetic demo roots.
 """
 
 from .adapters import ContextflowReads

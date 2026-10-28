@@ -1,58 +1,408 @@
-/* ContextFlow – ruhige, warme UI passend zum Produkt. */
-.cf-page { max-width: 760px; margin: 0 auto; padding: 1rem; }
-.cf-head { display: flex; gap: 0.9rem; align-items: flex-start; }
+/* ContextFlow / Büroengel – warm, ruhig, selbstbewusst.
+   Baut auf den Bootstrap-Tokens des Hosts auf (var(--bs-*)), damit die
+   Ansicht Light/Dark des Produkts mitträgt. Kein Glas, keine Verläufe. */
+
+.cf-page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+  font-size: 1rem;
+  line-height: 1.55;
+}
+
+.cf-back {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+}
+
+/* ---------- Hero ---------- */
+
+.cf-hero {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  background: var(--bs-body-bg, #fffdf8);
+  border: 1px solid #eadfc8;
+  border-radius: 16px;
+  padding: 1.25rem 1.4rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 10px rgba(120, 90, 20, 0.08);
+}
+
 .cf-engel {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 72px; height: 72px; font-size: 2.4rem; flex: 0 0 auto;
-  background: #fff8ec; border: 1px solid #f0dfb8; border-radius: 50%;
-  box-shadow: 0 1px 4px rgba(120, 90, 20, 0.12);
-  animation: cf-float 3s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  flex: 0 0 auto;
+  background: #eef5f1;
+  border: 2px solid #0f766e;
+  border-radius: 50%;
 }
-.cf-lead { color: #5a5347; }
-.cf-offline {
-  display: inline-block; font-size: 0.85rem; color: #3f5a3a;
-  background: #eef5ea; border: 1px solid #cfe3c8; border-radius: 999px;
-  padding: 0.15rem 0.7rem;
+
+.cf-hero-text h1 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.01em;
 }
+
+.cf-lead {
+  margin: 0 0 0.6rem;
+  color: var(--bs-secondary-color, #5a5347);
+  max-width: 60ch;
+}
+
+.cf-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.cf-pill {
+  display: inline-block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0c5f59;
+  background: #e3f0ec;
+  border: 1px solid #bcd9d2;
+  border-radius: 999px;
+  padding: 0.15rem 0.75rem;
+}
+
+.cf-pill-quiet {
+  color: var(--bs-secondary-color, #6b6257);
+  background: transparent;
+  border-style: dashed;
+}
+
+/* ---------- Arbeitsliste & Karten ---------- */
+
+.cf-worklist {
+  display: grid;
+  gap: 1.25rem;
+}
+
 .cf-card {
-  background: #fffdf8; border: 1px solid #eadfc8; border-radius: 14px;
-  padding: 1rem 1.1rem; margin: 1rem 0;
+  background: var(--bs-body-bg, #fffdf8);
+  border: 1px solid #eadfc8;
+  border-radius: 16px;
+  padding: 1.25rem 1.4rem;
+  box-shadow: 0 2px 8px rgba(120, 90, 20, 0.07);
 }
-.cf-date { font-weight: normal; color: #8a8175; font-size: 0.9rem; }
-.cf-reason { font-weight: 600; }
-.cf-evidence { list-style: none; padding-left: 0; }
-.cf-evidence li { margin: 0.2rem 0; }
+
+.cf-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #f0e6d2;
+  padding-bottom: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.cf-card-head h2 {
+  font-size: 1.2rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.cf-date {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0c5f59;
+  background: #e3f0ec;
+  border-radius: 999px;
+  padding: 0.1rem 0.7rem;
+  white-space: nowrap;
+}
+
+.cf-status {
+  font-size: 0.92rem;
+  color: var(--bs-secondary-color, #6b6257);
+  margin: 0 0 0.5rem;
+}
+
+.cf-reason {
+  margin: 0.4rem 0 0.6rem;
+}
+
+.cf-evidence {
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.cf-evidence li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+}
+
 .cf-type {
-  display: inline-block; min-width: 7rem; font-size: 0.8rem; color: #6b6257;
-  background: #f4eee1; border-radius: 6px; padding: 0.05rem 0.4rem; margin-right: 0.4rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #0c5f59;
+  background: #e3f0ec;
+  border: 1px solid #bcd9d2;
+  border-radius: 6px;
+  padding: 0.05rem 0.45rem;
 }
-.cf-rev { color: #8a8175; font-size: 0.8rem; }
-.cf-invoice { background: #fbf7ee; border-radius: 8px; padding: 0.5rem 0.7rem; }
-.cf-unknown { color: #8a8175; }
-.cf-approve { margin-top: 0.6rem; }
-.cf-check { display: block; margin-bottom: 0.5rem; font-weight: 600; }
+
+.cf-rev {
+  color: var(--bs-secondary-color, #8a8175);
+  font-size: 0.8rem;
+}
+
+/* ---------- Geräteauswahl ---------- */
+
+.cf-device {
+  border: 1px solid #cfddd8;
+  border-radius: 12px;
+  padding: 0.8rem 1rem 0.9rem;
+  margin: 0 0 0.75rem;
+  background: #f6faf9;
+}
+
+.cf-device legend {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0 0.4rem;
+}
+
+.cf-hint-text {
+  font-size: 0.85rem;
+  color: var(--bs-secondary-color, #6b6257);
+  margin: 0 0 0.5rem;
+}
+
+.cf-radio {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.45rem 0.6rem;
+  margin: 0 -0.6rem;
+  cursor: pointer;
+}
+
+.cf-radio:hover {
+  background: #edf4f2;
+  border-color: #cfddd8;
+}
+
+.cf-radio input[type="radio"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.2rem;
+  accent-color: #0f766e;
+  flex: 0 0 auto;
+}
+
+.cf-radio input[type="radio"]:checked + span {
+  font-weight: 600;
+}
+
+.cf-muted {
+  color: var(--bs-secondary-color, #6b6257);
+  font-weight: 400;
+}
+
+.cf-device-link {
+  margin: -0.2rem 0 0.4rem 2.3rem;
+  font-size: 0.85rem;
+}
+
+/* ---------- Belegstand & Workflow-Links ---------- */
+
+.cf-invoice {
+  background: #fbf7ee;
+  border: 1px solid #eadfc8;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+  margin: 0 0 0.6rem;
+  font-size: 0.92rem;
+}
+
+.cf-unknown {
+  color: var(--bs-secondary-color, #8a8175);
+}
+
+.cf-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
+  font-size: 0.92rem;
+  margin: 0 0 0.75rem;
+}
+
+/* ---------- Aktionen ---------- */
+
+.cf-approve {
+  border-top: 1px solid #f0e6d2;
+  padding-top: 0.8rem;
+  margin: 0 0 0.5rem;
+}
+
+.cf-check {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  font-weight: 600;
+  margin-bottom: 0.6rem;
+  cursor: pointer;
+}
+
+.cf-check input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.2rem;
+  accent-color: #0f766e;
+  flex: 0 0 auto;
+}
+
 .cf-btn {
-  border: 1px solid #c9b98f; background: #fff; border-radius: 10px;
-  padding: 0.45rem 1rem; cursor: pointer;
+  border: 1px solid #b9a06a;
+  background: var(--bs-body-bg, #fff);
+  color: var(--bs-body-color, #212529);
+  border-radius: 10px;
+  padding: 0.5rem 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
 }
-.cf-btn:focus-visible, a:focus-visible, input:focus-visible,
-select:focus-visible, button:focus-visible, summary:focus-visible {
-  outline: 3px solid #2f6fed; outline-offset: 2px;
+
+.cf-btn:hover {
+  border-color: #0f766e;
 }
-.cf-primary { background: #2f6fed; border-color: #2f6fed; color: #fff; font-weight: 600; }
-.cf-quiet { border-color: transparent; color: #6b6257; text-decoration: underline; }
-.cf-secondary { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 0.6rem; align-items: end; }
-.cf-confirm { margin: 1.5rem 0; border: 1px dashed #c9b98f; border-radius: 12px; padding: 0.8rem 1rem; }
-.cf-confirm label { display: block; margin: 0.5rem 0; }
-.cf-confirm select, .cf-confirm input { display: block; margin-top: 0.2rem; max-width: 100%; }
-@keyframes cf-float {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-5px); }
+
+.cf-btn:focus-visible,
+.cf-card a:focus-visible,
+.cf-radio:focus-within,
+input:focus-visible,
+select:focus-visible,
+button:focus-visible,
+summary:focus-visible {
+  outline: 3px solid #2f6fed;
+  outline-offset: 2px;
 }
+
+.cf-primary {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+.cf-primary:hover {
+  background: #0c5f59;
+  border-color: #0c5f59;
+  color: #fff;
+}
+
+.cf-quiet {
+  border-color: transparent;
+  color: var(--bs-secondary-color, #6b6257);
+  text-decoration: underline;
+  font-weight: 400;
+}
+
+.cf-secondary {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  align-items: end;
+  font-size: 0.9rem;
+}
+
+/* ---------- Zuordnung ---------- */
+
+.cf-confirm {
+  margin: 1.75rem 0 0;
+  border: 1px dashed #b9a06a;
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+  background: var(--bs-body-bg, #fffdf8);
+}
+
+.cf-confirm summary {
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cf-confirm label {
+  display: block;
+  margin: 0.55rem 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.cf-confirm select,
+.cf-confirm input {
+  display: block;
+  margin-top: 0.25rem;
+  max-width: 100%;
+  font-weight: 400;
+}
+
+.cf-draft {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 0.3rem 0.8rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.92rem;
+}
+
+.cf-draft dt {
+  font-weight: 700;
+  color: var(--bs-secondary-color, #6b6257);
+}
+
+.cf-draft dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Bewegung & Mobil ---------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .cf-card {
+    transition: box-shadow 0.15s ease-in-out;
+  }
+  .cf-card:hover {
+    box-shadow: 0 4px 16px rgba(15, 118, 110, 0.12);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .cf-engel { animation: none; }
+  .cf-card {
+    transition: none;
+  }
 }
-@media (max-width: 560px) {
-  .cf-page { padding: 0.6rem; }
-  .cf-head { flex-direction: column; }
+
+@media (max-width: 640px) {
+  .cf-page {
+    padding: 1rem 0.6rem 2.5rem;
+  }
+  .cf-hero {
+    flex-direction: column;
+    padding: 1rem;
+  }
+  .cf-hero-text h1 {
+    font-size: 1.3rem;
+  }
+  .cf-card {
+    padding: 1rem;
+  }
+  .cf-secondary {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }

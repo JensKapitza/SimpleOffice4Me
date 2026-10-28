@@ -71,7 +71,20 @@
         </form>
       </div></div>
       {% if item.fields.market_price %}<div class="card shadow-sm"><div class="card-body"><div class="text-secondary small">Preis / Richtwert</div><div class="h4 mb-0">{{ item.fields.market_price }} {{ item.fields.currency or 'EUR' }}</div>{% if item.fields.price_source %}<div class="small text-secondary">{{ item.fields.price_source }}</div>{% endif %}</div></div>{% endif %}
+      {% if (item.fields.isbn or item.identifier) and contextflow_enabled|default(false) and feature_enabled('documents') %}
+      <div class="card shadow-sm mb-3" id="peer-stock" data-url="{{ url_for('contextflow.peer_stock_check') }}" data-identifier="{{ item.fields.isbn or item.identifier }}" data-csrf="{{ csrf_token() }}">
+        <div class="card-header"><strong>Freunde fragen</strong></div><div class="card-body">
+          <p class="small text-secondary mb-2">Prüft lokal geteilte Kataloge von Freunden (vertraute Peers mit freigegebener Dokumentsicht) — ohne Netz, ohne Weitergabe. Nur gültige Indizes zählen als geprüft; fehlende oder fehlerhafte Kataloge werden als nicht verfügbar gezeigt.</p>
+          <button type="button" class="btn btn-outline-primary" id="peer-stock-ask">Bestand bei Freunden prüfen</button>
+          <div id="peer-stock-status" class="mt-2" role="status" aria-live="polite"></div>
+          <div id="peer-stock-result" class="mt-2 small" hidden></div>
+        </div>
+      </div>
+      {% endif %}
     </aside>
   </div>
 </main>
+{% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+<script src="{{ url_for('static', filename='js/peer_stock.js') }}" defer></script>
+{% endif %}
 {% endblock %}

@@ -11,6 +11,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 from app import app
@@ -32,6 +33,16 @@ class ContextflowWebTest(unittest.TestCase):
     password = "contextflow-web-test-password"
 
     def setUp(self) -> None:
+        # Deterministic test clock: routes call the real Berlin clock via
+        # app.contextflow.web._now, but these tests fix NOW=2026-10-29 with
+        # completed_on=NOW-5d. Patching _now to NOW keeps every route on the
+        # same five-day boundary without touching FOLLOWUP_DAYS or
+        # weakening the production freshness rule.
+        self._now_patch = mock.patch(
+            "app.contextflow.web._now", return_value=NOW
+        )
+        self._now_patch.start()
+        self.addCleanup(self._now_patch.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.saved = {
             key: app.config.get(key)

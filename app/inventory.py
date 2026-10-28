@@ -744,12 +744,14 @@ def index():
     from .inventory_library_capture import capture_context_from_query, capture_locations
 
     capture = capture_context_from_query(request.args)
+    locations = capture_locations()
     return render_template(
         "inventory/index.html",
         inventory_rows=rows,
         today=date.today().isoformat(),
         capture_context=capture,
-        library_locations=capture_locations() if capture.get("enabled") else [],
+        library_locations=locations if capture.get("enabled") else [],
+        series_locations=locations,
     )
 
 

@@ -1,0 +1,40 @@
+{% extends 'layout.html' %}
+{% block title %}Vorschlag prüfen · Büroengel{% endblock %}
+{% block body %}{% include "documents/nav.html" %}
+<main id="main-content" class="cf-page">
+  <link rel="stylesheet" href="{{ url_for('static', filename='contextflow.css') }}">
+  <header class="cf-hero">
+    <div class="cf-hero-text">
+      <h1>Vorschlag prüfen</h1>
+      <p class="cf-lead">Entwurf für <strong>{{ draft.visit_title }}</strong>{% if draft.asset_name %} · Gerät <strong>{{ draft.asset_name }}</strong>{% endif %}.</p>
+      <p class="cf-pills"><span class="cf-pill" role="note">{{ draft.provider_label }}</span></p>
+    </div>
+  </header>
+
+  <article class="cf-card">
+    <p class="cf-status">Entwurf — noch nichts gespeichert, noch kein Befund angelegt.</p>
+    <dl class="cf-draft">
+      <dt>Titel</dt><dd>{{ draft.draft.title }}</dd>
+      <dt>Beschreibung</dt><dd>{{ draft.draft.description or '–' }}</dd>
+      <dt>Aussagetyp</dt><dd>{{ draft.draft.evidence_class }}</dd>
+      <dt>Sicherheit</dt><dd>{{ draft.draft.confidence }} %</dd>
+    </dl>
+    <form class="cf-approve" method="post" action="{{ url_for('contextflow.confirm_suggestion') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="visit_id" value="{{ draft.visit_id }}">
+      <input type="hidden" name="asset_id" value="{{ draft.asset_id }}">
+      <input type="hidden" name="title" value="{{ draft.draft.title }}">
+      <input type="hidden" name="description" value="{{ draft.draft.description }}">
+      <input type="hidden" name="evidence_class" value="{{ draft.draft.evidence_class }}">
+      <input type="hidden" name="confidence" value="{{ draft.draft.confidence }}">
+      <input type="hidden" name="expected_fingerprint" value="{{ draft.fingerprint }}">
+      <label class="cf-check">
+        <input type="checkbox" name="approved" value="yes" required>
+        Genau diesen Vorschlag als Befund übernehmen
+      </label>
+      <button class="cf-btn cf-primary" type="submit">Befund anlegen</button>
+      <a class="cf-btn cf-quiet" href="{{ url_for('contextflow.dashboard') }}">Verwerfen</a>
+    </form>
+  </article>
+</main>
+{% endblock %}
