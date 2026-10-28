@@ -16,6 +16,33 @@
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card mb-3">
+    <div class="card-header"><strong>Personaldaten-Synchronisation</strong></div>
+    <div class="card-body">
+      <p>Steuert den Hintergrund-Worker für bereits ausdrücklich aktivierte Personalsynchronisationen. Die Freigabe je Peer und Person bleibt separat. Änderungen gelten spätestens beim nächsten Worker-Zyklus; <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC</code> und <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS</code> dienen nur als begrenzte Legacy-Startwerte, bis diese Einstellungen gespeichert wurden.</p>
+      <form method="post" action="{{ url_for('admin.save_personnel_time_autosync_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="personnel-time-autosync-enabled">Hintergrund-Synchronisation</label>
+          <select class="form-select" id="personnel-time-autosync-enabled" name="personnel_time_autosync_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="1" {% if integrations.personnel_time_autosync_enabled == 1 %}selected{% endif %}>Aktiviert</option>
+            <option value="0" {% if integrations.personnel_time_autosync_enabled == 0 %}selected{% endif %}>Deaktiviert</option>
+          </select>
+          <div class="form-text">Standard: aktiviert. Pro-Peer-/Person-Freigaben bleiben zusätzlich erforderlich.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="personnel-time-autosync-seconds">Worker-Prüfintervall (Sekunden)</label>
+          <input class="form-control" id="personnel-time-autosync-seconds" type="number" name="personnel_time_autosync_seconds" value="{{ integrations.personnel_time_autosync_seconds }}" min="{{ personnel_time_autosync_min }}" max="{{ personnel_time_autosync_max }}" step="1" required>
+          <div class="form-text">Standard: 300 Sekunden. Zulässig: 60–3600 Sekunden.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwerte zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
   <section class="card">
     <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
     <div class="card-body">
