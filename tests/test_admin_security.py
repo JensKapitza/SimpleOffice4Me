@@ -252,16 +252,25 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertNotIn("Verwaltete Dateien jetzt scannen", worker_page.get_data(as_text=True))
             self.assertEqual(403, self.worker.post("/documents/security/scan-now").status_code)
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": "owner"}, clear=False), \
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": "owner", "SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
              patch("app.documents.AttachmentSecurity.scan_documents", return_value={
                  "clean": 0, "infected": 0, "errors": 0, "skipped": 0,
-             }):
+             }), \
+             patch("app.attachment_security.ClamAV.status",
+                   return_value={"state": "available", "engine": "clamscan", "version": "x"}):
             page = self.admin.get("/documents/security")
             body = page.get_data(as_text=True)
             self.assertEqual(200, page.status_code)
             self.assertIn("Verwaltete Dateien jetzt scannen", body)
             self.assertNotIn("ausschließlich für konfigurierte Sicherheitsadministratoren", body)
             self.assertEqual(302, self.admin.post("/documents/security/scan-now").status_code)
+
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": "owner", "SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
+             patch("app.attachment_security.ClamAV.status",
+                   return_value={"state": "unavailable", "engine": "", "version": "missing"}):
+            page = self.admin.get("/documents/security")
+            self.assertEqual(200, page.status_code)
+            self.assertNotIn("Verwaltete Dateien jetzt scannen", page.get_data(as_text=True))
 
     def test_multiple_administrators_are_supported(self):
         self.update_worker(is_admin="1")

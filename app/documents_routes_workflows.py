@@ -19,6 +19,11 @@ def detail(document_id: str):
     linked_documents = store.relationship_targets(document)
     relationships = [{**relationship, "target": linked_documents.get(relationship.get("target_document_id"))} for relationship in document.get("relationships", [])]
     security = _attachment_security()
+    try:
+        security.scanner.executable()
+        detail_can_scan = True
+    except (OSError, RuntimeError):
+        detail_can_scan = False
     smart_views = SmartFolderViews(store, str(g.user["username"]))
     safe_attachments = _released_eml_attachments(store, document)
     eml_attachments = []
@@ -54,6 +59,8 @@ def detail(document_id: str):
         malware_scan=security.latest_document_scan(document),
         safe_attachments=safe_attachments,
         eml_attachments=eml_attachments,
+        scanner_name=getattr(security.scanner, "display_name", "ClamAV"),
+        can_scan=detail_can_scan,
     )
 
 @bp.route("/<document_id>/attachments", methods=["GET", "POST"])
@@ -82,7 +89,8 @@ def document_attachments(document_id: str):
 def security_center():
     actor = str(g.user["username"])
     security = _attachment_security()
-    return render_template("documents/security.html", status=security.scanner.status(), scans=security.recent_scans(), is_admin=_security_admin(actor))
+    status = security.scanner.status()
+    return render_template("documents/security.html", status=status, scans=security.recent_scans(), is_admin=_security_admin(actor), scanner_name=getattr(security.scanner, "display_name", "ClamAV"), can_scan=status.get("state") == "available")
 
 @bp.post("/security/scan-now")
 @login_required
@@ -97,16 +105,18 @@ def security_scan_now():
 @login_required
 def security_scan_document(document_id: str):
     _document_or_404(document_id)
+    security = _attachment_security()
+    name = getattr(security.scanner, "display_name", "ClamAV")
     try:
-        record = _attachment_security().scan_document(document_id, str(g.user["username"]))
+        record = security.scan_document(document_id, str(g.user["username"]))
         if record["verdict"] == "clean":
-            flash("ClamAV: The document is clean." if g.language == "en" else "ClamAV: Das Dokument ist unauffällig.")
+            flash(f"{name}: The document is clean." if g.language == "en" else f"{name}: Das Dokument ist unauffällig.")
         elif record["verdict"] == "infected":
-            flash("ClamAV: Malware detected. The document was reported and not modified." if g.language == "en" else "ClamAV: Schadsoftware erkannt. Das Dokument wurde gemeldet und nicht verändert.")
+            flash(f"{name}: Malware detected. The document was reported and not modified." if g.language == "en" else f"{name}: Schadsoftware erkannt. Das Dokument wurde gemeldet und nicht verändert.")
         else:
-            flash(("ClamAV scan failed: " if g.language == "en" else "ClamAV-Prüfung fehlgeschlagen: ") + record.get("detail", ""))
+            flash((f"{name} scan failed: " if g.language == "en" else f"{name}-Prüfung fehlgeschlagen: ") + record.get("detail", ""))
     except (OSError, RuntimeError, ValueError) as exc:
-        flash(("ClamAV scan failed: " if g.language == "en" else "ClamAV-Prüfung fehlgeschlagen: ") + str(exc))
+        flash((f"{name} scan failed: " if g.language == "en" else f"{name}-Prüfung fehlgeschlagen: ") + str(exc))
     view = request.form.get("return_view", "detail")
     if view == "search":
         return redirect(url_for("documents.document_search", q=request.form.get("q", ""), page=request.form.get("page", "1")))
@@ -119,10 +129,12 @@ def security_scan_document(document_id: str):
 def security_update():
     actor = str(g.user["username"])
     if not _security_admin(actor): abort(403)
+    security = _attachment_security()
+    name = getattr(security.scanner, "display_name", "ClamAV")
     try:
-        output = ClamAV().update()
-        _store().history.record("clamav_signatures_updated", actor, "security", "clamav", {"output": output[-1000:]})
-        flash("ClamAV-Signaturen wurden aktualisiert.")
+        output = security.scanner.update()
+        _store().history.record("clamav_signatures_updated", actor, "security", "clamav", {"engine": name, "output": output[-1000:]})
+        flash(f"{name}-Signaturen wurden aktualisiert.")
     except (OSError, RuntimeError, subprocess.TimeoutExpired) as exc: flash(f"Signatur-Update fehlgeschlagen: {exc}")
     return redirect(url_for("documents.security_center"))
 

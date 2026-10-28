@@ -26,10 +26,10 @@
 <button type="submit" class="btn btn-outline-primary">
 {{ 'As task' if g.language == 'en' else 'Als Aufgabe' }}</button>
 </form>{% if document.last_path.lower().endswith('.eml') %}<a class="btn btn-warning" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">
-{{ 'Check attachments' if g.language == 'en' else 'Anhänge sicher prüfen' }}</a>{% endif %}<form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}">
+{{ 'Check attachments' if g.language == 'en' else 'Anhänge sicher prüfen' }}</a>{% endif %}{% if can_scan %}<form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}">
 <button type="submit" class="btn btn-outline-danger">
-{{ 'Scan with ClamAV' if g.language == 'en' else 'Mit ClamAV prüfen' }}</button>
-</form>
+{{ 'Scan with ' ~ (scanner_name or 'ClamAV') if g.language == 'en' else 'Mit ' ~ (scanner_name or 'ClamAV') ~ ' prüfen' }}</button>
+</form>{% endif %}
 <a class="btn btn-outline-primary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">
 {{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a>
 <a class="btn btn-primary" href="{{ url_for('webdav.setup_document', document_id=document.document_id) }}">
