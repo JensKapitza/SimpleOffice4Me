@@ -20,8 +20,11 @@ from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .settings_store import (
     DEFAULT_SETTINGS,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
+    MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
@@ -40,6 +43,7 @@ from .settings_store import (
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
+    MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
     MIN_RSYNC_TIMEOUT_SECONDS,
@@ -642,6 +646,8 @@ def integration_settings():
         osm_filter_timeout_max=MAX_OSM_FILTER_TIMEOUT_SECONDS,
         osm_export_idle_timeout_min=MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
         osm_export_idle_timeout_max=MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+        personnel_time_autosync_min=MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        personnel_time_autosync_max=MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     )
 
 
@@ -819,6 +825,63 @@ def save_clamav_settings():
     except OSError as exc:
         current_app.logger.warning("ClamAV settings save failed: %s", type(exc).__name__)
         flash("ClamAV-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/personnel-time")
+@admin_required
+def save_personnel_time_autosync_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]
+        if reset_defaults:
+            enabled = DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED
+            interval = DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS
+        else:
+            raw_enabled = request.form.get("personnel_time_autosync_enabled")
+            if raw_enabled is None:
+                enabled = current["personnel_time_autosync_enabled"]
+            elif raw_enabled not in {"0", "1"}:
+                raise ValueError("Bitte die Personaldaten-Synchronisation aktivieren oder deaktivieren.")
+            else:
+                enabled = int(raw_enabled)
+
+            raw_interval = request.form.get("personnel_time_autosync_seconds")
+            if raw_interval is None:
+                interval = current["personnel_time_autosync_seconds"]
+            else:
+                if (
+                    not raw_interval.isascii()
+                    or not raw_interval.isdigit()
+                    or len(raw_interval) > len(str(MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS))
+                ):
+                    raise ValueError("Bitte ein ganzzahliges Personaldaten-Synchronisationsintervall eingeben.")
+                interval = int(raw_interval)
+                if not MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS <= interval <= MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS:
+                    raise ValueError("Das Intervall muss zwischen 60 und 3600 Sekunden liegen.")
+
+        integrations = {
+            "personnel_time_autosync_enabled": enabled,
+            "personnel_time_autosync_seconds": interval,
+        }
+        store.save({"integrations": integrations}, str(g.user["username"]))
+        audit(
+            "personnel_time_autosync_settings_updated",
+            "settings",
+            "integrations.personnel_time_autosync",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "Personaldaten-Synchronisationseinstellungen auf Standard zurückgesetzt."
+            if reset_defaults else "Personaldaten-Synchronisationseinstellungen gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Personnel auto-sync setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Personnel auto-sync settings save failed: %s", type(exc).__name__)
+        flash("Personaldaten-Synchronisationseinstellungen konnten nicht gespeichert werden.")
     return redirect(url_for("admin.integration_settings"))
 
 
