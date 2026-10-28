@@ -332,8 +332,23 @@ class MailClientTests(unittest.TestCase):
     def test_smtp_archives_exact_eml_before_sending_and_marks_sent(self):
         account = self.store.smtp_account("alice", self.account["id"])
         smtp = FakeSmtp()
-        with patch.object(SmtpSubmission, "_connect", return_value=smtp):
+        with patch.object(SmtpSubmission, "_connect", return_value=smtp), patch.object(
+            self.store, "archive_outbound", wraps=self.store.archive_outbound,
+        ) as archive_outbound:
             result = SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Termin", "Bitte teilnehmen", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:one@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+        self.assertTrue(account["smtp_plain_password"])
+        self.assertTrue(archive_outbound.call_args_list)
+        for call in archive_outbound.call_args_list:
+            self.assertEqual(self.account["id"], call.args[1])
+            self.assertIsInstance(call.args[1], str)
+        history_events = list((self.root / ".simpleoffice-history" / "events").glob("*.json"))
+        self.assertTrue(history_events)
+        history = "".join(
+            path.read_text(encoding="utf-8")
+            for path in history_events
+        )
+        self.assertIn("smtp_message_sent", history)
+        self.assertNotIn(account["smtp_plain_password"], history)
         self.assertEqual(1, result["recipients"])
         archived = self.root / result["path"]
         self.assertEqual(smtp.sent[0][2], archived.read_bytes())

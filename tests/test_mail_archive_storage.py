@@ -34,7 +34,7 @@ class MailArchiveStorageTests(unittest.TestCase):
         message.set_content("Verified message body")
         message.add_attachment(b"verified attachment", maintype="application", subtype="octet-stream", filename="invoice.bin")
         self.raw = message.as_bytes()
-        self.archived = self.store.archive_outbound("alice", self.account, self.raw, "sent", {})
+        self.archived = self.store.archive_outbound("alice", self.account["id"], self.raw, "sent", {})
         self.digest = self.archived["sha512"]
         self.path = self.root / self.archived["path"]
         if self.mode != "v1":
