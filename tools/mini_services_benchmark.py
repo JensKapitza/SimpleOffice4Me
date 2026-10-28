@@ -34,7 +34,7 @@ def _service_factories(path):
         return service
 
     def sip():
-        service = SipRegistrarService(path)
+        service = SipRegistrarService(path, master_key="benchmark-installation-key-long-enough")
         service.settings.update(bind_host="127.0.0.1", registrar_port=0)
         return service
 

@@ -34,6 +34,7 @@ Die Telefonie-Verwaltung persistiert dieselben Werte, die der Worker verwendet.
 | `realm` | `simpleoffice.local`; Bestandteil des Digest-Verifiers, bei vorhandenen Profilen nicht beliebig änderbar |
 | `stun_server` | leer; optionale Client-/externe Infrastruktur, der Mini-Registrar betreibt selbst keinen STUN-Server |
 | `SIMPLEOFFICE_SIP_BIND` | nicht gesetzt; manuell nur Loopback oder private IPv4 zulässig |
+| `SIMPLEOFFICE_SECRET_KEY_FILE` | optionaler Schlüsseldateipfad, wenn die Flask-Instance-Datei abweicht; Web-App und Worker müssen denselben Schlüssel verwenden |
 | Aktiviert / Autostart | gemeinsame Worker-Präferenzen, getrennt von Nebenstellen-Konfiguration |
 
 ## Discovery
@@ -137,9 +138,9 @@ Audio und Video laufen nach der SIP-Aushandlung direkt zwischen den Endgeraeten.
 
 Beim Anlegen einer Nebenstelle erzeugt SimpleOffice ein zufaelliges SIP-Passwort. Das Passwort wird einmalig angezeigt und weiterhin verschluesselt gespeichert.
 
-Zusaetzlich wird fuer den eingebauten Registrar der SIP-Digest-Verifier `HA1 = MD5(username:realm:password)` abgelegt. Das ist der fuer SIP Digest erforderliche Verifier; der Mini-Services-Worker muss das Klartextpasswort dadurch nicht entschluesseln oder kennen.
+Für den eingebauten Registrar werden SHA-256- und MD5-HA1-Verifier in einem AES-GCM-geschützten Datenbankfeld gespeichert. Der Worker bietet SHA-256 zuerst an und erhält MD5 für ältere SIP-Endgeräte. Der Schlüssel ist derselbe Installationsschlüssel wie für Web-Sitzungen (standardmäßig `app/instance/session-secret`); bei einer abweichenden Flask-Instance muss `SIMPLEOFFICE_SECRET_KEY_FILE` auf denselben Schlüssel zeigen. Schlüsseldateien müssen mindestens 32 Zeichen enthalten und auf POSIX-Systemen für andere Benutzer gesperrt sein.
 
-Aeltere Profile ohne Verifier werden beim Aufruf der geschuetzten Telefonie-Verwaltung migriert, soweit ihr verschluesseltes Passwort noch mit dem Installationsschluessel entschluesselt werden kann.
+Vorhandene unverschlüsselte MD5-Verifier werden beim Initialisieren des Telefonie-Speichers oder SIP-Workers in einer atomaren Datenbanktransaktion geprüft und verschlüsselt; SHA-256 wird aus dem bereits verschlüsselten Profilpasswort ergänzt. Bei fehlendem/falschem Schlüssel oder inkonsistenten Daten schlägt die Migration fehl, statt die Verifier zu verwerfen.
 
 Der Realm kann bei vorhandenen Nebenstellen nicht unbemerkt geaendert werden, weil er Bestandteil des Digest-Verifiers ist.
 

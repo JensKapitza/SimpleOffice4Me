@@ -222,7 +222,11 @@ app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
 app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
 app.config['TEMPLATES_AUTO_RELOAD'] = True
-app.config['SECRET_KEY'] = load_or_create_secret_key(Path(app.instance_path) / "session-secret")
+secret_key_path = Path(
+    os.environ.get("SIMPLEOFFICE_SECRET_KEY_FILE", "").strip()
+    or Path(app.instance_path) / "session-secret"
+).expanduser()
+app.config['SECRET_KEY'] = load_or_create_secret_key(secret_key_path)
 google_client_id, google_client_secret = google_oauth_credentials()
 app.config['GOOGLE_OAUTH_CLIENT_ID'] = google_client_id
 app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = google_client_secret

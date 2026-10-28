@@ -7,7 +7,6 @@ RTP/audio/video then flows directly between the SIP user agents.
 """
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import os
 import re
@@ -19,6 +18,14 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
+
+from simpleoffice_sip_crypto import (
+    decrypt_sip_digest_verifiers,
+    load_sip_installation_key,
+    migrate_legacy_sip_verifiers,
+    sip_installation_key_path,
+    sip_digest_hash,
+)
 
 _MAX_PACKET = 64 * 1024
 _MAX_HEADERS = 100
@@ -34,14 +41,6 @@ _RFC1918 = (
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
 )
-
-
-def _md5_hex(value: str) -> str:
-    data = value.encode("utf-8")
-    try:
-        return hashlib.md5(data, usedforsecurity=False).hexdigest()
-    except TypeError:  # pragma: no cover
-        return hashlib.md5(data).hexdigest()  # nosec B324 - SIP Digest compatibility
 
 
 def _is_local_address(value: str) -> bool:
@@ -219,9 +218,18 @@ from simpleoffice_service_lifecycle import DatagramLifecycle, service_health
 class SipRegistrarService(DatagramLifecycle):
     """Authenticated RFC3261-style registrar plus local INVITE redirector."""
 
-    def __init__(self, config_path: str | Path, event: Callable[[dict[str, Any]], None] | None = None):
+    def __init__(
+        self,
+        config_path: str | Path,
+        event: Callable[[dict[str, Any]], None] | None = None,
+        *,
+        master_key: str | bytes | None = None,
+    ):
         self.config_path = Path(config_path)
         self.db_path = telephony_db_path(config_path)
+        secret_path = sip_installation_key_path()
+        self.master_key = master_key if master_key is not None else load_sip_installation_key(secret_path)
+        migrate_legacy_sip_verifiers(self.db_path, self.master_key)
         self.event = event or (lambda _row: None)
         self.stop_event = threading.Event()
         self.lifecycle_lock = threading.RLock()
@@ -302,9 +310,32 @@ class SipRegistrarService(DatagramLifecycle):
                 ).fetchone()
         except sqlite3.Error:
             return None
-        return dict(row) if row else None
+        if row is None:
+            return None
+        profile = dict(row)
+        try:
+            profile["digest_verifiers"] = (
+                decrypt_sip_digest_verifiers(
+                    extension, str(profile.get("digest_ha1") or ""), self.master_key,
+                )
+                if profile.get("digest_ha1") else {}
+            )
+        except ValueError:
+            self.event({
+                "service": "sip", "action": "profile_verifier_invalid",
+                "extension": str(extension),
+            })
+            return None
+        return profile
 
-    def _challenge(self, headers: dict[str, list[str]], source_ip: str, *, stale: bool = False) -> bytes:
+    def _challenge(
+        self,
+        headers: dict[str, list[str]],
+        source_ip: str,
+        *,
+        username: str = "",
+        stale: bool = False,
+    ) -> bytes:
         nonce = secrets.token_urlsafe(24)
         with self.lock:
             # Expiry alone is not a memory bound during an unauthenticated flood.
@@ -314,10 +345,18 @@ class SipRegistrarService(DatagramLifecycle):
                 del self.nonces[oldest]
                 self.nonce_counts = {key: count for key, count in self.nonce_counts.items() if key[0] != oldest}
             self.nonces[nonce] = (time.time() + _NONCE_TTL, source_ip)
-        value = f'Digest realm="{self.realm}", nonce="{nonce}", algorithm=MD5, qop="auth"'
-        if stale:
-            value += ", stale=true"
-        return _response(401, "Unauthorized", headers, extra=[("WWW-Authenticate", value)])
+        algorithms = ("SHA-256", "MD5")
+        profile = self._profile(username) if username else None
+        if profile is not None and profile.get("digest_verifiers"):
+            available = profile["digest_verifiers"]
+            algorithms = tuple(algorithm for algorithm in algorithms if algorithm in available)
+        extra = []
+        for algorithm in algorithms:
+            value = f'Digest realm="{self.realm}", nonce="{nonce}", algorithm={algorithm}, qop="auth"'
+            if stale:
+                value += ", stale=true"
+            extra.append(("WWW-Authenticate", value))
+        return _response(401, "Unauthorized", headers, extra=extra)
 
     def _authorized(self, method: str, uri: str, headers: dict[str, list[str]], source_ip: str, expected_user: str | None = None) -> str | None:
         authorization = _first(headers, "authorization")
@@ -328,8 +367,14 @@ class SipRegistrarService(DatagramLifecycle):
         except ValueError:
             return None
         username = str(values.get("username") or "")
+        algorithm = str(values.get("algorithm") or "MD5").strip().upper()
+        if algorithm not in {"MD5", "SHA-256"}:
+            return None
         profile = self._profile(username)
-        if not profile or not bool(profile.get("enabled")) or not str(profile.get("digest_ha1") or ""):
+        if not profile or not bool(profile.get("enabled")):
+            return None
+        ha1 = profile.get("digest_verifiers", {}).get(algorithm)
+        if not ha1:
             return None
         if expected_user is not None and username != expected_user:
             return None
@@ -354,8 +399,11 @@ class SipRegistrarService(DatagramLifecycle):
         with self.lock:
             if nc <= self.nonce_counts.get(key, 0):
                 return None
-        ha2 = _md5_hex(f"{method}:{uri}")
-        expected = _md5_hex(f"{profile['digest_ha1']}:{nonce}:{nc_text}:{cnonce}:auth:{ha2}")
+        ha2 = sip_digest_hash(f"{method}:{uri}".encode("utf-8"), algorithm)
+        expected = sip_digest_hash(
+            f"{ha1}:{nonce}:{nc_text}:{cnonce}:auth:{ha2}".encode("utf-8"),
+            algorithm,
+        )
         if not secrets.compare_digest(expected, str(values.get("response") or "").casefold()):
             return None
         with self.lock:
@@ -375,7 +423,7 @@ class SipRegistrarService(DatagramLifecycle):
         extension = _extension_from_header(_first(headers, "to"))
         user = self._authorized("REGISTER", uri, headers, source[0], expected_user=extension)
         if user is None:
-            return self._challenge(headers, source[0])
+            return self._challenge(headers, source[0], username=extension)
         contact = _first(headers, "contact")
         expires_text = _first(headers, "expires") or "3600"
         if ";expires=" in contact.casefold():
@@ -419,12 +467,14 @@ class SipRegistrarService(DatagramLifecycle):
         return _response(200, "OK", headers, extra=[("Contact", f"{safe_contact};expires={expires}"), ("Expires", str(expires))])
 
     def _invite(self, uri: str, headers: dict[str, list[str]], source: tuple[str, int]) -> bytes:
-        caller = self._authorized("INVITE", uri, headers, source[0])
-        if caller is None:
-            return self._challenge(headers, source[0])
         try:
             from_user = _extension_from_header(_first(headers, "from"))
         except ValueError:
+            from_user = ""
+        caller = self._authorized("INVITE", uri, headers, source[0])
+        if caller is None:
+            return self._challenge(headers, source[0], username=from_user)
+        if not from_user:
             return _response(403, "Forbidden", headers)
         if from_user != caller:
             return _response(403, "Forbidden", headers)
