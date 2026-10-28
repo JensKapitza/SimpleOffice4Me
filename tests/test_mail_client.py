@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import tempfile
@@ -86,6 +87,21 @@ class MailClientTests(unittest.TestCase):
         token = box.encrypt("value")
         damaged = token[:-2] + ("AA" if token[-2:] != "AA" else "BB")
         with self.assertRaises(Exception): box.decrypt(damaged)
+
+    def test_outbound_archive_rejects_symlink_escape_before_writing(self):
+        owner_key = hashlib.sha256(b"alice").hexdigest()[:32]
+        email_root = self.root / "email"
+        email_root.mkdir(parents=True, exist_ok=True)
+        outside = Path(self.temp.name) / "outside-archive"
+        outside.mkdir()
+        try:
+            (email_root / owner_key).symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"directory symlink is unavailable: {type(exc).__name__}")
+
+        with self.assertRaisesRegex(ValueError, "inside the configured root"):
+            self.store.archive_outbound("alice", self.account["id"], MAIL, "sent", {})
+        self.assertEqual([], list(outside.iterdir()))
 
     def test_legacy_plaintext_password_is_migrated_without_blocking_login(self):
         payload = json.loads(self.store.accounts_path.read_text(encoding="utf-8"))
