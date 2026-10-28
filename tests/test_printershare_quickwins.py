@@ -91,16 +91,6 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
         with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "300"}):
             self.assertEqual(180, configured_purge_interval(str(self.root)))
 
-    def test_purge_interval_uses_legacy_value_until_persisted_value_exists(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "90"}):
-            self.assertEqual(90, configured_purge_interval(str(self.root)))
-            SettingsStore(self.root).save(
-                {"integrations": {"printershare_purge_interval_seconds": 180}},
-                "admin",
-            )
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "300"}):
-            self.assertEqual(180, configured_purge_interval(str(self.root)))
-
     def test_helpers_parse_booleans(self):
         self.assertIs(_parse_bool("yes"), True)
         self.assertIs(_parse_bool("0"), False)
