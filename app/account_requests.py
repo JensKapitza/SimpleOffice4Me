@@ -239,7 +239,8 @@ def _invitation_response(token, user_id, email):
             account = store.smtp_account(g.user["username"], account_id)
             SmtpSubmission(store).send(g.user["username"], account, email,
                                        "Einladung zu SimpleOffice4Me",
-                                       "Bitte öffne die Einladung und lege dein Passwort fest:\n" + link)
+                                       "Bitte öffne die Einladung und lege dein Passwort fest:\n" + link,
+                                       account_id=account_id)
             mail_status = "Einladung versandt."
             audit("account_invitation_email", "user", str(user_id))
         except (OSError, ValueError, RuntimeError, KeyError) as exc:

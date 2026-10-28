@@ -679,6 +679,7 @@ def send_case_draft(case_id: str, draft_id: str):
             draft["recipients_to"],
             draft["subject"],
             draft["body"],
+            account_id=draft["account_id"],
             cc=draft["recipients_cc"],
             bcc=draft["recipients_bcc"],
             attachments=outbound_attachments,
@@ -859,6 +860,7 @@ def send_message():
             request.form.get("subject", ""),
             request.form.get("body", ""),
             request.form.get("calendar_data", ""),
+            account_id=account_id,
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als EML archiviert.")
     except MailReadOnlyError as exc:

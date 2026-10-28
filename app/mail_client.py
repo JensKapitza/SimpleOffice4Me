@@ -692,8 +692,14 @@ class SmtpSubmission:
     def send(
         self, actor: str, account: dict[str, Any], recipients: str, subject: str,
         body: str, calendar_data: str = "", *, cc: str = "", bcc: str = "",
-        attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+        account_id: str, attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     ) -> dict[str, Any]:
+        account_id = _safe_id(str(account_id))
+        if str(account.get("id") or "") != account_id:
+            raise ValueError("SMTP account configuration does not match its ID")
+        if str(account.get("owner") or "") != actor:
+            raise PermissionError("SMTP account is not owned by the sending user")
+        self.store._owned_row(actor, account_id)
         raw, targets, message_id = self.compose(
             account, recipients, subject, body, calendar_data,
             cc=cc, bcc=bcc, attachments=attachments,
@@ -707,7 +713,6 @@ class SmtpSubmission:
             "attachment_count": len(attachments),
             "at": utc_now(),
         }
-        account_id = _safe_id(str(account["id"]))
         archived = self.store.archive_outbound(actor, account_id, raw, "pending", detail)
 
         def archive_state(state: str, extra: dict[str, Any] | None = None) -> None:
