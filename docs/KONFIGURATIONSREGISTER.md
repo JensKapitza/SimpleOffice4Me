@@ -64,7 +64,7 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Legacy-Startwert bis `integrations.personnel_time_autosync_enabled` gespeichert wird; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Legacy-Startwert bis `integrations.personnel_time_autosync_seconds` gespeichert wird; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
 | `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Uploadlimit der App, Fallback 512 MiB | Chat-Anhangslimit in Bytes, mindestens 1 und höchstens das App-Uploadlimit; [Chatroute](../app/chat_routes.py) |
-| `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | `60`, effektiv 30–3600 | TTL-Bereinigung in Sekunden; [PrinterShare](../app/printershare.py) |
+| `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | `60`, effektiv 30–3600 | Legacy-Startwert bis `integrations.printershare_purge_interval_seconds` gespeichert wird; [PrinterShare](../app/printershare.py) |
 
 Dies sind lokale Verarbeitungslimits, keine Zusage über tatsächliche
 Gesamtlaufzeit, RAM-Verbrauch, Netzleistung oder Mail-/Anhangsfreigabe.
@@ -95,6 +95,13 @@ Werte haben Vorrang vor `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` und
 begrenzte Startwerte, solange die jeweilige Einstellung noch fehlt. Die
 Einstellung ersetzt nicht die separate Freigabe einer Synchronisation pro Peer
 und Person.
+
+Das PrinterShare-Bereinigungsintervall ist unter **Admin → Einstellungen →
+Integrationen & Dienste → PrinterShare-Aufbewahrungsbereinigung** persistent
+konfigurierbar. Es steuert nur den Prüfzyklus für bereits abgelaufene Druckjobs,
+nicht deren Aufbewahrungsfrist. Die Einstellung wird beim nächsten Start des
+Webprozesses übernommen; bis zur Speicherung dient
+`SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` als begrenzter Legacy-Startwert.
 
 ### Zugangsdaten, Geräte und Betriebsmetadaten
 

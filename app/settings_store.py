@@ -28,6 +28,7 @@ from .integration_settings import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     DEFAULT_OSM_DOWNLOAD_RETRIES,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
@@ -35,6 +36,7 @@ from .integration_settings import (
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MAX_OSM_DOWNLOAD_RETRIES as MAX_OSM_DOWNLOAD_RETRIES,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS as MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS as MAX_OSM_FILTER_TIMEOUT_SECONDS,
@@ -42,6 +44,7 @@ from .integration_settings import (
     MAX_OSM_READ_TIMEOUT_SECONDS as MAX_OSM_READ_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS as MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS as MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MIN_OSM_DOWNLOAD_RETRIES as MIN_OSM_DOWNLOAD_RETRIES,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS as MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS as MIN_OSM_FILTER_TIMEOUT_SECONDS,
@@ -55,6 +58,7 @@ from .integration_settings import (
     legacy_osm_read_timeout,
     legacy_personnel_time_autosync_enabled,
     legacy_personnel_time_autosync_seconds,
+    legacy_printershare_purge_interval_seconds,
     normalize_integration_settings,
     validate_integration_settings,
 )
@@ -152,6 +156,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "clamav_timeout_seconds": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
         "personnel_time_autosync_enabled": DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
         "personnel_time_autosync_seconds": DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        "printershare_purge_interval_seconds": DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     },
 }
 
@@ -504,6 +509,13 @@ class SettingsStore:
         ):
             result["integrations"]["personnel_time_autosync_seconds"] = (
                 legacy_personnel_time_autosync_seconds()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "printershare_purge_interval_seconds" not in stored_integrations
+        ):
+            result["integrations"]["printershare_purge_interval_seconds"] = (
+                legacy_printershare_purge_interval_seconds()
             )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]

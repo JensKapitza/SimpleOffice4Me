@@ -19,6 +19,7 @@ from app.personnel_time_analytics import (
 from app.settings_store import (
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     DEFAULT_OSM_DOWNLOAD_RETRIES,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
@@ -33,7 +34,9 @@ from app.settings_store import (
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_READ_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     SettingsStore,
 )
 
@@ -64,6 +67,7 @@ class OsmSettingsTests(unittest.TestCase):
             "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": str(DEFAULT_OSM_DOWNLOAD_RETRIES),
             "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "1",
             "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": str(DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS),
+            "SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": str(DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS),
         })
         self.environment.start()
         with app.app_context():
@@ -112,6 +116,7 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="clamav_timeout_seconds"', html)
         self.assertIn('name="personnel_time_autosync_enabled"', html)
         self.assertIn('name="personnel_time_autosync_seconds"', html)
+        self.assertIn('name="printershare_purge_interval_seconds"', html)
         self.assertIn('<option value="" disabled>Bitte auswählen</option>', html)
         self.assertIn("30–3600 Sekunden", html)
         self.assertIn("3.600–86.400 Sekunden", html)
@@ -229,6 +234,73 @@ class OsmSettingsTests(unittest.TestCase):
                 persisted = store.settings()["integrations"]
             self.assertEqual(1, persisted["personnel_time_autosync_enabled"])
             self.assertEqual(180, persisted["personnel_time_autosync_seconds"])
+
+    def test_printershare_purge_interval_is_admin_only_bounded_resettable_and_audited(self):
+        path = "/admin/settings/integrations/printershare"
+        SettingsStore(self.root).save(
+            {"integrations": {"osm_download_read_timeout_seconds": 420}},
+            "osm-admin",
+        )
+        payload = {"printershare_purge_interval_seconds": "120"}
+        self.assertEqual(403, self.user.post(path, data=payload).status_code)
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        saved = self.admin.post(path, data=payload, headers={"X-CSRF-Token": "a" * 40})
+        self.assertEqual(302, saved.status_code)
+        integrations = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(120, integrations["printershare_purge_interval_seconds"])
+        self.assertEqual(420, integrations["osm_download_read_timeout_seconds"])
+        for invalid in (
+            str(MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS - 1),
+            str(MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS + 1), "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(invalid=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={"printershare_purge_interval_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    120,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "printershare_purge_interval_seconds"
+                    ],
+                )
+        reset = self.admin.post(
+            path,
+            data={"reset": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        integrations = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS, integrations["printershare_purge_interval_seconds"])
+        self.assertEqual(420, integrations["osm_download_read_timeout_seconds"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("printershare_purge_interval_updated",),
+            ).fetchone()
+        self.assertEqual("osm-admin", row["actor_name"])
+        self.assertEqual("integrations.printershare_purge_interval_seconds", row["target_id"])
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_printershare_purge_interval_migrates_legacy_environment_until_saved(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "90"}):
+            store = SettingsStore(self.root)
+            self.assertEqual(
+                90,
+                store.settings()["integrations"]["printershare_purge_interval_seconds"],
+            )
+            store.save(
+                {"integrations": {"printershare_purge_interval_seconds": 180}},
+                "osm-admin",
+            )
+        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "300"}):
+            self.assertEqual(
+                180,
+                SettingsStore(self.root).settings()["integrations"]["printershare_purge_interval_seconds"],
+            )
 
     def test_download_timeout_retains_existing_admin_and_audit_contract(self):
         payload = {"osm_download_read_timeout_seconds": "420"}
