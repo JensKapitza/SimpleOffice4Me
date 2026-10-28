@@ -11,7 +11,14 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, db as database
+from app.personnel_time_analytics import (
+    _start_worker_if_needed,
+    auto_sync_runtime_enabled,
+    configured_poll_seconds,
+)
 from app.settings_store import (
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     DEFAULT_OSM_DOWNLOAD_RETRIES,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
@@ -25,6 +32,8 @@ from app.settings_store import (
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     SettingsStore,
 )
 
@@ -53,6 +62,8 @@ class OsmSettingsTests(unittest.TestCase):
             "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": str(DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS),
             "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": str(DEFAULT_OSM_MAX_DOWNLOAD_GIB),
             "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": str(DEFAULT_OSM_DOWNLOAD_RETRIES),
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "1",
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": str(DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS),
         })
         self.environment.start()
         with app.app_context():
@@ -99,6 +110,8 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="osm_download_retries"', html)
         self.assertIn('action="/admin/settings/integrations/osm"', html)
         self.assertIn('name="clamav_timeout_seconds"', html)
+        self.assertIn('name="personnel_time_autosync_enabled"', html)
+        self.assertIn('name="personnel_time_autosync_seconds"', html)
         self.assertIn("30–3600 Sekunden", html)
         self.assertIn("3.600–86.400 Sekunden", html)
         self.assertIn("300–86.400 Sekunden", html)
@@ -106,6 +119,110 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn("1–10", html)
         self.assertIn("5–900 Sekunden", html)
         self.assertIn('name="_csrf_token"', html)
+
+    def test_personnel_auto_sync_settings_are_admin_only_bounded_and_persistent(self):
+        path = "/admin/settings/integrations/personnel-time"
+        SettingsStore(self.root).save(
+            {"integrations": {"osm_download_read_timeout_seconds": 420}},
+            "osm-admin",
+        )
+        payload = {
+            "personnel_time_autosync_enabled": "0",
+            "personnel_time_autosync_seconds": "120",
+        }
+        self.assertEqual(403, self.user.post(path, data=payload).status_code)
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        saved = self.admin.post(path, data=payload, headers={"X-CSRF-Token": "a" * 40})
+        self.assertEqual(302, saved.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(0, settings["personnel_time_autosync_enabled"])
+        self.assertEqual(120, settings["personnel_time_autosync_seconds"])
+        for invalid in ("-1", "2", "true", "9" * 20):
+            with self.subTest(enabled=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={**payload, "personnel_time_autosync_enabled": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    0,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "personnel_time_autosync_enabled"
+                    ],
+                )
+        for invalid in (
+            str(MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS - 1),
+            str(MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS + 1), "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(seconds=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={**payload, "personnel_time_autosync_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    120,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "personnel_time_autosync_seconds"
+                    ],
+                )
+        with app.app_context():
+            self.assertFalse(auto_sync_runtime_enabled())
+            self.assertEqual(120, configured_poll_seconds())
+            testing = app.testing
+            app.testing = False
+            try:
+                with patch("app.personnel_time_analytics.threading.Thread") as thread:
+                    _start_worker_if_needed(app)
+                    thread.assert_not_called()
+            finally:
+                app.testing = testing
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT target_id,detail FROM security_event WHERE action=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                ("personnel_time_autosync_settings_updated",),
+            ).fetchone()
+        self.assertEqual("integrations.personnel_time_autosync", row["target_id"])
+        self.assertFalse(json.loads(row["detail"])["reset_to_defaults"])
+
+        reset = self.admin.post(
+            path,
+            data={"reset": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        reset_integrations = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED, reset_integrations["personnel_time_autosync_enabled"])
+        self.assertEqual(DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS, reset_integrations["personnel_time_autosync_seconds"])
+        self.assertEqual(420, reset_integrations["osm_download_read_timeout_seconds"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT detail FROM security_event WHERE action=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                ("personnel_time_autosync_settings_updated",),
+            ).fetchone()
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_personnel_auto_sync_legacy_values_migrate_then_persist(self):
+        with patch.dict(os.environ, {
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "off",
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": "180",
+        }):
+            store = SettingsStore(self.root)
+            settings = store.settings()["integrations"]
+            self.assertEqual(0, settings["personnel_time_autosync_enabled"])
+            self.assertEqual(180, settings["personnel_time_autosync_seconds"])
+            store.save({"integrations": {"personnel_time_autosync_enabled": 1}}, "osm-admin")
+            with patch.dict(os.environ, {
+                "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "off",
+                "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": "240",
+            }):
+                persisted = store.settings()["integrations"]
+            self.assertEqual(1, persisted["personnel_time_autosync_enabled"])
+            self.assertEqual(180, persisted["personnel_time_autosync_seconds"])
 
     def test_download_timeout_retains_existing_admin_and_audit_contract(self):
         payload = {"osm_download_read_timeout_seconds": "420"}

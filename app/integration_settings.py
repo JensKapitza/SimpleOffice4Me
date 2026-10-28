@@ -27,6 +27,10 @@ MAX_OSM_DOWNLOAD_RETRIES = 10
 DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
 MIN_CLAMAV_TIMEOUT_SECONDS = 5
 MAX_CLAMAV_TIMEOUT_SECONDS = 900
+DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED = 1
+DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS = 300
+MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS = 60
+MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS = 3600
 
 
 def _legacy_integer(
@@ -116,6 +120,23 @@ def legacy_clamav_timeout() -> int:
     )
 
 
+def legacy_personnel_time_autosync_enabled() -> int:
+    """Keep the previous opt-out environment behavior until settings are saved."""
+    value = os.environ.get("SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC", "1").strip().casefold()
+    return 0 if value in {"0", "false", "no", "off"} else 1
+
+
+def legacy_personnel_time_autosync_seconds() -> int:
+    return _legacy_integer(
+        "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS",
+        DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        clamp_oversized=True,
+        max_digits=128,
+    )
+
+
 def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
     ranges = {
         "osm_download_read_timeout_seconds": (
@@ -147,6 +168,16 @@ def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, An
             DEFAULT_CLAMAV_TIMEOUT_SECONDS,
             MIN_CLAMAV_TIMEOUT_SECONDS,
             MAX_CLAMAV_TIMEOUT_SECONDS,
+        ),
+        "personnel_time_autosync_enabled": (
+            DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+            0,
+            1,
+        ),
+        "personnel_time_autosync_seconds": (
+            DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+            MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+            MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
         ),
     }
     result: dict[str, int] = {}
@@ -180,6 +211,11 @@ def validate_integration_settings(integrations: Any) -> dict[str, int]:
          "OSM download retries must be between 1 and 10"),
         ("clamav_timeout_seconds", MIN_CLAMAV_TIMEOUT_SECONDS, MAX_CLAMAV_TIMEOUT_SECONDS,
          "ClamAV timeout must be between 5 and 900 seconds"),
+        ("personnel_time_autosync_enabled", 0, 1,
+         "Personnel time auto-sync must be either enabled or disabled"),
+        ("personnel_time_autosync_seconds", MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+         MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+         "Personnel time auto-sync interval must be between 60 and 3600 seconds"),
     )
     for key, minimum, maximum, message in fields:
         value = integrations.get(key, values[key])

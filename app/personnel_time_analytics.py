@@ -4,7 +4,6 @@ from __future__ import annotations
 import csv
 import io
 import json
-import os
 import threading
 import time as time_module
 import urllib.parse
@@ -358,25 +357,31 @@ def run_auto_sync_once(*, force: bool = False, peer_id: str = "", remote_key: st
 
 
 def configured_poll_seconds() -> int:
-    try: value = int(os.environ.get("SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS", "300"))
-    except ValueError: value = 300
-    return max(60, min(value, 3600))
+    from .settings_store import SettingsStore
+
+    integrations = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["integrations"]
+    return int(integrations["personnel_time_autosync_seconds"])
 
 
 def auto_sync_runtime_enabled() -> bool:
-    return os.environ.get("SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC", "1").strip().casefold() not in {"0", "false", "no", "off"}
+    from .settings_store import SettingsStore
+
+    integrations = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["integrations"]
+    return bool(integrations["personnel_time_autosync_enabled"])
 
 
 def _worker(app) -> None:
     while True:
         with app.app_context():
             try:
-                result = run_auto_sync_once()
-                if result["synced"] or result["errors"]:
-                    app.logger.info("personnel_time_auto_sync synced=%s skipped=%s errors=%s", result["synced"], result["skipped"], result["errors"])
+                if auto_sync_runtime_enabled():
+                    result = run_auto_sync_once()
+                    if result["synced"] or result["errors"]:
+                        app.logger.info("personnel_time_auto_sync synced=%s skipped=%s errors=%s", result["synced"], result["skipped"], result["errors"])
             except Exception as exc:
                 app.logger.warning("personnel_time_auto_sync_worker_failed error=%s", type(exc).__name__)
-        time_module.sleep(configured_poll_seconds())
+            poll_seconds = configured_poll_seconds()
+        time_module.sleep(poll_seconds)
 
 
 def _start_worker_if_needed(app) -> None:
