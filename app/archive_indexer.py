@@ -193,7 +193,15 @@ def _interesting_for_content(name: str) -> bool:
     return suffix in PLAIN_TEXT_SUFFIXES or suffix in PATH_EXTRACT_SUFFIXES or suffix in IMAGE_SUFFIXES
 
 
-def _extract_member_text(store: Any, source: BinaryIO, name: str, size: int, text_cap: int) -> tuple[str, str]:
+def _extract_member_text(
+    store: Any,
+    source: BinaryIO,
+    name: str,
+    size: int,
+    text_cap: int,
+    *,
+    archive_ocr_enabled: bool,
+) -> tuple[str, str]:
     suffix = _member_suffix(name)
     if suffix in PLAIN_TEXT_SUFFIXES:
         return _decode_text(source, min(size, text_cap)), "plain_text"
@@ -204,7 +212,7 @@ def _extract_member_text(store: Any, source: BinaryIO, name: str, size: int, tex
         with _private_member_file(store, source, suffix, size) as temporary:
             text, kind = store._file_text(temporary)
             return text[:text_cap], kind
-    if suffix in IMAGE_SUFFIXES and os.environ.get("SIMPLEOFFICE_ARCHIVE_OCR", "0").strip().casefold() in {"1", "true", "yes", "on"}:
+    if suffix in IMAGE_SUFFIXES and archive_ocr_enabled:
         with _private_member_file(store, source, suffix, size) as temporary:
             text = store._image_ocr(temporary)
             return text[:text_cap], "image_ocr"
@@ -274,6 +282,9 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     if previous.get("source_sha256") == digest and previous.get("status") == "complete":
         return previous
 
+    from .settings_store import SettingsStore
+
+    archive_ocr_enabled = SettingsStore(store.root).settings()["media"]["archive_ocr_enabled"]
     busy, busy_reason = system_busy()
     max_members = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS", 20000, 100, 200000)
     max_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB", 512, 1, 8192) * 1024 * 1024
@@ -333,7 +344,14 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 continue
             try:
                 with handle:
-                    text, kind = _extract_member_text(store, handle, name, size, max_text_per_member)
+                    text, kind = _extract_member_text(
+                        store,
+                        handle,
+                        name,
+                        size,
+                        max_text_per_member,
+                        archive_ocr_enabled=archive_ocr_enabled,
+                    )
                 processed_bytes += size
                 if text and text_bytes < max_text:
                     prefix = f"\n[{name} | {kind}]\n"
