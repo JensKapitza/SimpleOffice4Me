@@ -14,11 +14,13 @@ def send_calendar_invitation(event_id: str):
         if not _calendar()._can_edit(event, actor):
             raise PermissionError("Für diesen Termin fehlt das Bearbeitungsrecht.")
         store = _mail()
-        account = store.smtp_account(actor, request.form.get("account_id", ""), request.form.get("smtp_password", ""))
+        account_id = request.form.get("account_id", "")
+        account = store.smtp_account(actor, account_id, request.form.get("smtp_password", ""))
         calendar_data = _itip().export(event_id, actor, "REQUEST", recipient, "", str(g.user["email"] or account.get("smtp_from", "")))
         result = SmtpSubmission(store).send(
             actor, account, recipient, f"Termineinladung: {event.get('title', 'Termin')}",
             request.form.get("body", "Bitte den beigefügten Termin prüfen."), calendar_data,
+            account_id=account_id,
         )
         flash(f"Einladung an {result['recipients']} Empfänger versandt und als EML archiviert.")
     except StopIteration:

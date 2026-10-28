@@ -381,7 +381,11 @@ class MailClientTests(unittest.TestCase):
         with patch.object(SmtpSubmission, "_connect", return_value=smtp), patch.object(
             self.store, "archive_outbound", wraps=self.store.archive_outbound,
         ) as archive_outbound:
-            result = SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Termin", "Bitte teilnehmen", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:one@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+            result = SmtpSubmission(self.store).send(
+                "alice", account, "bob@example.test", "Termin", "Bitte teilnehmen",
+                "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:one@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+                account_id=self.account["id"],
+            )
         self.assertTrue(account["smtp_plain_password"])
         self.assertTrue(archive_outbound.call_args_list)
         for call in archive_outbound.call_args_list:
@@ -407,7 +411,10 @@ class MailClientTests(unittest.TestCase):
         account = self.store.smtp_account("alice", self.account["id"])
         with patch.object(SmtpSubmission, "_connect", return_value=FakeSmtp(fail=True)):
             with self.assertRaises(SmtpDeliveryStateUnknown) as raised:
-                SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Fehler", "Inhalt")
+                SmtpSubmission(self.store).send(
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id=self.account["id"],
+                )
         self.assertEqual("unknown", raised.exception.delivery_status)
         self.assertNotIn("unavailable", str(raised.exception))
         sent = list((self.root / "email").rglob("*.eml"))
@@ -420,6 +427,25 @@ class MailClientTests(unittest.TestCase):
         self.assertIn("smtp_message_pending", actions)
         self.assertIn("smtp_message_unknown", actions)
 
+    def test_smtp_send_rejects_identity_mismatch_before_io(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        with patch.object(SmtpSubmission, "_connect") as connect, patch.object(
+            self.store, "archive_outbound",
+        ) as archive_outbound:
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                SmtpSubmission(self.store).send(
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id="other",
+                )
+            foreign_account = {**account, "owner": "bob"}
+            with self.assertRaises(PermissionError):
+                SmtpSubmission(self.store).send(
+                    "alice", foreign_account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id=self.account["id"],
+                )
+        connect.assert_not_called()
+        archive_outbound.assert_not_called()
+
     def test_smtp_authentication_response_is_not_persisted_in_archive_or_history(self):
         account = self.store.smtp_account("alice", self.account["id"])
         marker = "remote-secret-marker"
@@ -429,7 +455,8 @@ class MailClientTests(unittest.TestCase):
         with patch.object(SmtpSubmission, "_connect", side_effect=error):
             with self.assertRaises(__import__("smtplib").SMTPAuthenticationError):
                 SmtpSubmission(self.store).send(
-                    "alice", account, "bob@example.test", "Fehler", "Inhalt"
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id=self.account["id"],
                 )
         sent = next((self.root / "email").rglob("*.eml"))
         document = DocumentStore(self.root).get_document(sent)
