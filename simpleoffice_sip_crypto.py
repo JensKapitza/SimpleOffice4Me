@@ -39,12 +39,10 @@ def sip_digest_hash(data: bytes, algorithm: str) -> str:
         # SIP Digest HA1 is protocol-defined, not a local password-storage hash.
         # The verifier is encrypted at rest; replacing this with Argon2 would
         # break RFC 8760 interoperability.
-        # lgtm [py/weak-sensitive-data-hashing]
-        return hashlib.sha256(data).hexdigest()
+        return hashlib.sha256(data).hexdigest()  # lgtm [py/weak-sensitive-data-hashing]
     # RFC 3261 legacy endpoints require MD5; SHA-256 is advertised first and
     # the stored compatibility verifier remains AES-GCM encrypted.
-    # lgtm [py/weak-sensitive-data-hashing]
-    return hashlib.md5(data, usedforsecurity=False).hexdigest()
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()  # lgtm [py/weak-sensitive-data-hashing]
 
 
 def sip_digest_ha1(username: str, realm: str, password: str, algorithm: str) -> str:
