@@ -61,8 +61,8 @@ zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 | `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | `300`, effektiv 30–3600 | Legacy-Timeout bis eine persistierte Admin-Einstellung existiert; danach maßgeblich ist `integrations.osm_download_read_timeout_seconds` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | Legacy-Startwert bis `integrations.osm_filter_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | Legacy-Startwert bis `integrations.osm_export_idle_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
-| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Runtime-Autosync; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
-| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Poll-Intervall; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
+| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Legacy-Startwert bis `integrations.personnel_time_autosync_enabled` gespeichert wird; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
+| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Legacy-Startwert bis `integrations.personnel_time_autosync_seconds` gespeichert wird; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
 | `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Uploadlimit der App, Fallback 512 MiB | Chat-Anhangslimit in Bytes, mindestens 1 und höchstens das App-Uploadlimit; [Chatroute](../app/chat_routes.py) |
 | `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | `60`, effektiv 30–3600 | TTL-Bereinigung in Sekunden; [PrinterShare](../app/printershare.py) |
 
@@ -86,6 +86,15 @@ unter **ClamAV-Sicherheitsprüfung** persistent konfigurierbar. Der gespeicherte
 Wert gilt für neu gestartete Prüfungen und hat Vorrang vor
 `SIMPLEOFFICE_CLAMAV_TIMEOUT`; der Environment-Wert dient nur der Migration,
 solange keine persistierte Einstellung existiert.
+
+Die globale Hintergrund-Synchronisation der Personaldaten und ihr Prüfintervall
+sind unter **Admin → Einstellungen → Integrationen & Dienste →
+Personaldaten-Synchronisation** persistent konfigurierbar. Die gespeicherten
+Werte haben Vorrang vor `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` und
+`SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS`; diese Variablen dienen nur als
+begrenzte Startwerte, solange die jeweilige Einstellung noch fehlt. Die
+Einstellung ersetzt nicht die separate Freigabe einer Synchronisation pro Peer
+und Person.
 
 ### Zugangsdaten, Geräte und Betriebsmetadaten
 
