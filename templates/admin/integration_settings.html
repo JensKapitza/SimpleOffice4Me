@@ -43,6 +43,24 @@
       </form>
     </div>
   </section>
+  <section class="card mt-3">
+    <div class="card-header"><strong>PrinterShare-Aufbewahrungsbereinigung</strong></div>
+    <div class="card-body">
+      <p>Das Intervall steuert, wie oft abgelaufene Druckaufträge physisch bereinigt werden; es ändert nicht deren Aufbewahrungsfrist. Der gespeicherte Wert wird beim Start des Webprozesses übernommen. <code>SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL</code> dient als begrenzter Legacy-Startwert, bis die persistierte Einstellung gespeichert wurde.</p>
+      <form method="post" action="{{ url_for('admin.save_printershare_purge_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="printershare-purge-interval">Bereinigungsintervall (Sekunden)</label>
+          <input class="form-control" id="printershare-purge-interval" type="number" name="printershare_purge_interval_seconds" value="{{ integrations.printershare_purge_interval_seconds }}" min="{{ printershare_purge_interval_min }}" max="{{ printershare_purge_interval_max }}" step="1" required>
+          <div class="form-text">Standard: 60 Sekunden. Zulässig: 30–3600 Sekunden. Neustart erforderlich.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
   <section class="card">
     <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
     <div class="card-body">
