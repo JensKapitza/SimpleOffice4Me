@@ -25,6 +25,7 @@
         <div class="col-md-7">
           <label class="form-label" for="personnel-time-autosync-enabled">Hintergrund-Synchronisation</label>
           <select class="form-select" id="personnel-time-autosync-enabled" name="personnel_time_autosync_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
             <option value="1" {% if integrations.personnel_time_autosync_enabled == 1 %}selected{% endif %}>Aktiviert</option>
             <option value="0" {% if integrations.personnel_time_autosync_enabled == 0 %}selected{% endif %}>Deaktiviert</option>
           </select>
