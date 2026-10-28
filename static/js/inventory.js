@@ -22,6 +22,8 @@
   const openLibraryLink = $('openlibrary-link');
   const photo = $('photo');
   const photoPreview = $('photo-preview');
+  const takePhoto = $('take-photo');
+  const choosePhoto = $('choose-photo');
   const recentFilter = $('recent-filter');
   const saveButton = $('inventory-save');
   const replaceMetadata = $('replace-metadata');
@@ -34,6 +36,9 @@
     marketplace: '/inventory/marketplace/search',
     objects: root.dataset.objectsUrl,
     detailPattern: root.dataset.detailPattern,
+    suggest: root.dataset.suggestUrl,
+    match: root.dataset.matchUrl,
+    attach: root.dataset.attachUrl,
   };
 
   const fieldMap = {
@@ -62,6 +67,7 @@
     status.textContent = text;
   };
   const cleanText = (value) => String(value || '').trim();
+  const LOCAL_UNAVAILABLE_MESSAGE = 'Lokale Objekterkennung ist nicht eingerichtet. Bitte Ollama und ein Vision-Modell konfigurieren.';
 
   // Navigation targets can come from JSON responses or data attributes. Never allow
   // javascript:, data:, cross-origin, or malformed URLs to reach location APIs.
@@ -395,6 +401,88 @@
     } catch (_error) {}
   };
 
+  const analyzeButton = $('analyze-photo');
+  const suggestionBox = $('object-suggestion');
+  const suggestedName = $('suggested-name');
+  const suggestedType = $('suggested-type');
+  const suggestedNote = $('suggested-note');
+  const suggestedProvider = $('suggested-provider');
+  const isbnTitleHint = $('isbn-title-hint');
+  let pendingSuggestion = null;
+  let analyzing = null;
+
+  const hideObjectSuggestion = () => { pendingSuggestion = null; if (suggestionBox) suggestionBox.hidden = true; };
+  const showObjectSuggestion = (payload) => {
+    const suggestion = payload && payload.suggestion ? payload.suggestion : null;
+    if (!suggestion || !suggestionBox) { setStatus('Der Vorschlag war leer. Bitte erneut versuchen.', 'warning'); return; }
+    pendingSuggestion = suggestion;
+    if (suggestedName) suggestedName.textContent = cleanText(suggestion.object_name);
+    if (suggestedType) suggestedType.textContent = suggestion.item_type && suggestion.item_type !== 'object' ? `(${suggestion.item_type})` : '';
+    if (suggestedNote) suggestedNote.textContent = cleanText(suggestion.note);
+    if (suggestedProvider) suggestedProvider.textContent = cleanText(payload.provider_label);
+    suggestionBox.hidden = false;
+    suggestionBox.scrollIntoView({block: 'nearest'});
+  };
+  const analyzePhoto = async () => {
+    if (!photo?.files?.length) { setStatus('Bitte zuerst ein Foto auswählen.', 'warning'); return; }
+    const file = photo.files[0];
+    if (file.size > 5 * 1024 * 1024) { setStatus('Das Foto ist größer als 5 MiB – bitte ein kleineres Bild wählen.', 'warning'); return; }
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type || '')) { setStatus('Nur JPEG, PNG oder WebP sind erlaubt.', 'warning'); return; }
+    if (!urls.suggest) { setStatus('Vorschläge sind hier nicht verfügbar.', 'warning'); return; }
+    const token = form?.querySelector('input[name="_csrf_token"]')?.value || '';
+    const data = new FormData();
+    data.append('photo', file, file.name || 'foto');
+    data.append('_csrf_token', token);
+    const code = cleanText(barcode?.value); if (code) data.append('barcode', code.slice(0, 120));
+    const isbnCode = cleanText(isbn?.value); if (isbnCode) data.append('isbn', isbnCode.slice(0, 120));
+    if (analyzeButton) { analyzeButton.disabled = true; analyzeButton.setAttribute('aria-busy', 'true'); }
+    setStatus('Foto wird analysiert …', 'primary');
+    if (analyzing) analyzing.abort(); analyzing = new AbortController();
+    try {
+      const response = await fetch(urls.suggest, { method: 'POST', body: data, cache: 'no-store', signal: analyzing.signal });
+      const payload = await safeJson(response);
+      if (!response.ok) {
+        const serverMessage = cleanText(payload && payload.error);
+        const fallback = response.status === 503
+          ? LOCAL_UNAVAILABLE_MESSAGE
+          : `Vorschlag fehlgeschlagen (${response.status}).`;
+        setStatus(serverMessage || fallback, response.status >= 500 ? 'danger' : 'warning');
+        return;
+      }
+      showObjectSuggestion(payload);
+      setStatus('Vorschlag bereit. Bitte prüfen und bei Bedarf übernehmen.', 'success');
+    } catch (error) {
+      if (error?.name !== 'AbortError') setStatus('Die Analyse ist fehlgeschlagen.', 'danger');
+    } finally {
+      if (analyzeButton) { analyzeButton.disabled = false; analyzeButton.removeAttribute('aria-busy'); }
+    }
+  };
+  const adoptSuggestion = () => {
+    if (!pendingSuggestion || !title) { hideObjectSuggestion(); return; }
+    title.value = cleanText(pendingSuggestion.object_name);
+    const suggested = cleanText(pendingSuggestion.item_type);
+    if (suggested && suggested !== 'object' && type && (!cleanText(type.value) || cleanText(type.value) === 'object')) {
+      type.value = suggested; objectTypeWasAutoBook = false; updateMode();
+    }
+    hideObjectSuggestion();
+    setStatus('Vorschlag übernommen. Bitte Felder prüfen, dann speichern.', 'success');
+    title.focus();
+  };
+  const checkIsbnInTitle = () => {
+    if (!isbnTitleHint || !title || !isbn) return;
+    const canonical = normalizeIsbn(title.value);
+    isbnTitleHint.hidden = !(canonical && !cleanText(isbn.value));
+  };
+  const adoptIsbnFromTitle = () => {
+    if (!title || !isbn) return;
+    const canonical = normalizeIsbn(title.value);
+    if (!canonical) { if (isbnTitleHint) isbnTitleHint.hidden = true; return; }
+    isbn.value = canonical; title.value = '';
+    setBookModeFromIsbn(); updateBookLinks(canonical);
+    if (isbnTitleHint) isbnTitleHint.hidden = true;
+    lookup();
+  };
+
   const previewPhoto = async () => {
     if (!photoPreview || !photo?.files?.length) return; const file = photo.files[0];
     if (file.size > 12 * 1024 * 1024) { photo.value = ''; photoPreview.hidden = true; setStatus('Das Foto ist größer als 12 MiB.', 'warning'); return; }
@@ -427,7 +515,395 @@
   lookupButton?.addEventListener('click', lookup); $('clear-book-data')?.addEventListener('click', clearBookMetadata);
   $('book-mode')?.addEventListener('click', () => { type.value = 'book'; objectTypeWasAutoBook = false; updateMode(); isbn.focus(); });
   $('object-mode')?.addEventListener('click', () => { type.value = 'object'; objectTypeWasAutoBook = false; updateMode(); title.focus(); });
-  $('restore-location')?.addEventListener('click', restoreLocation); photo?.addEventListener('change', previewPhoto); recentFilter?.addEventListener('input', filterRecent);
+  $('restore-location')?.addEventListener('click', restoreLocation); photo?.addEventListener('change', previewPhoto);
+  photo?.addEventListener('change', hideObjectSuggestion);
+  photo?.addEventListener('change', () => { if ($('analyze-photo')) analyzePhoto(); });
+  // Cancel-safe: opening the chooser never clears the input, so a cancelled
+  // dialog keeps the attached file; both actions reuse the same #photo field.
+  takePhoto?.addEventListener('click', () => { if (!photo) return; photo.setAttribute('capture', 'environment'); photo.click(); });
+  choosePhoto?.addEventListener('click', () => { if (!photo) return; photo.removeAttribute('capture'); photo.click(); });
+  const SERIES_MAX_ITEMS = 8;
+  const SERIES_MAX_BYTES = 5 * 1024 * 1024;
+  const seriesInput = $('photo-series-input');
+  const queueList = $('queue-list');
+  const queueHint = $('queue-hint');
+  let seriesItems = [];
+  let seriesSeq = 0;
+  let seriesBusy = false;
+  const seriesShelf = $('series-shelf');
+  let seriesActiveId = null;
+  const seriesToken = () => { try { const bytes = new Uint8Array(16); crypto.getRandomValues(bytes); return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join(''); } catch (_error) { let out = ''; while (out.length < 32) out += Math.floor(Math.random() * 4294967295).toString(16).padStart(8, '0'); return out.slice(0, 32); } };
+  const seriesActive = () => seriesItems.find((entry) => entry.id === seriesActiveId && !entry.saved) || null;
+  const seriesFocusField = (key) => { const map = { title: 'title', isbn: 'isbn', barcode: 'barcode', library_location_id: 'series-shelf', market_price: 'market-price', purchase_date: 'purchase-date' }; const id = map[key || '']; if (id) $(id)?.focus(); };
+  const seriesUpdateHint = () => { if (queueHint) queueHint.textContent = `Serie: ${seriesItems.length}/${SERIES_MAX_ITEMS} Fotos. Jedes Foto wird einzeln lokal analysiert — nichts wird automatisch gespeichert.`; };
+  const seriesValidFile = (file) => file && /^image\/(jpeg|png|webp)$/i.test(file.type || '') && file.size > 0 && file.size <= SERIES_MAX_BYTES;
+  const seriesRenderItem = (item) => {
+    let card = document.getElementById(`series-card-${item.id}`);
+    if (!card) {
+      card = document.createElement('div');
+      card.className = 'card';
+      card.id = `series-card-${item.id}`;
+      card.innerHTML = '<div class="card-body d-flex gap-2 align-items-start"><img width="96" height="96" style="width:96px;height:96px;object-fit:cover" class="rounded border flex-shrink-0" alt=""><div class="flex-grow-1"><div class="fw-semibold small text-break" data-part="name"></div><div class="small" data-part="status" role="status"></div><div class="small text-secondary" data-part="suggestion" hidden></div><div class="d-flex flex-wrap gap-2 mt-1 align-items-center" data-part="isbn-row" hidden><span class="small text-secondary" data-part="isbn"></span><button type="button" class="btn btn-sm btn-outline-secondary" data-part="adopt-isbn">ISBN übernehmen</button></div><input class="form-control form-control-sm mt-2" data-part="identifier" placeholder="Barcode / ISBN (optional)" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="120"><div class="d-flex flex-wrap gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-primary" data-part="check">Im Inventar prüfen</button><button type="button" class="btn btn-sm btn-success" data-part="attach" hidden>Foto anhängen</button></div><div class="small mt-1" data-part="match" hidden></div><ul class="small mt-2 mb-0 ps-3" data-part="checklist" hidden></ul><div class="small mt-1" data-part="save" hidden></div><div class="d-flex flex-wrap gap-2 mt-2"><button type="button" class="btn btn-sm btn-outline-primary" data-part="transfer" hidden>Ins Formular übernehmen</button><button type="button" class="btn btn-sm btn-outline-secondary" data-part="retry" hidden>Erneut analysieren</button><button type="button" class="btn btn-sm btn-outline-danger" data-part="remove">Entfernen</button></div></div></div>';
+      card.querySelector('[data-part="transfer"]').addEventListener('click', () => seriesTransfer(item.id));
+      card.querySelector('[data-part="retry"]').addEventListener('click', () => seriesRetry(item.id));
+      card.querySelector('[data-part="remove"]').addEventListener('click', () => seriesRemove(item.id));
+      const identifierInput = card.querySelector('[data-part="identifier"]');
+      identifierInput.setAttribute('aria-label', `Kennung für Serienfoto ${item.id} (optional)`);
+      identifierInput.addEventListener('input', (event) => { item.identifier = event.target.value; item.match = null; item.attached = false; seriesRenderItem(item); });
+      card.querySelector('[data-part="check"]').addEventListener('click', () => seriesCheck(item.id));
+      card.querySelector('[data-part="attach"]').addEventListener('click', () => seriesAttach(item.id));
+      card.querySelector('[data-part="adopt-isbn"]').addEventListener('click', () => seriesAdoptIsbn(item.id));
+      queueList?.appendChild(card);
+    }
+    const img = card.querySelector('img');
+    img.hidden = !item.url;
+    if (item.url && img.getAttribute('src') !== item.url) { img.setAttribute('src', item.url); img.setAttribute('alt', `Serienfoto ${item.id}`); }
+    card.querySelector('[data-part="name"]').textContent = `#${item.id} · ${item.file.name || 'Foto'} (${Math.max(1, Math.round(item.file.size / 1024))} KB)`;
+    card.querySelector('[data-part="status"]').textContent = item.statusText;
+    const boxEl = card.querySelector('[data-part="suggestion"]');
+    if (item.suggestion) {
+      boxEl.hidden = false;
+      boxEl.textContent = `${cleanText(item.suggestion.object_name)}${item.suggestion.item_type && item.suggestion.item_type !== 'object' ? ` (${item.suggestion.item_type})` : ''}${item.suggestion.note ? ` – ${cleanText(item.suggestion.note)}` : ''}`;
+    } else { boxEl.hidden = true; boxEl.textContent = ''; }
+    const isbnRow = card.querySelector('[data-part="isbn-row"]');
+    const isbnValue = item.suggestion ? cleanText(item.suggestion.isbn) : '';
+    if (isbnValue) {
+      isbnRow.hidden = false;
+      card.querySelector('[data-part="isbn"]').textContent = `ISBN im Foto: ${isbnValue}`;
+    } else { isbnRow.hidden = true; }
+    card.querySelector('[data-part="transfer"]').hidden = !(item.status === 'ready' || item.status === 'transferred');
+    card.querySelector('[data-part="retry"]').hidden = !(item.status === 'error' || item.status === 'ready');
+    const matchEl = card.querySelector('[data-part="match"]');
+    const attachBtn = card.querySelector('[data-part="attach"]');
+    if (item.match) { matchEl.hidden = false; matchEl.textContent = item.match.text; }
+    else { matchEl.hidden = true; matchEl.textContent = ''; }
+    attachBtn.hidden = !(item.match && item.match.status === 'unique' && !item.attached);
+    seriesRenderChecklist(item, card);
+    const saveEl = card.querySelector('[data-part="save"]');
+    if (item.saveInfo) { saveEl.hidden = false; saveEl.textContent = ''; const span = document.createElement('span'); span.textContent = item.saveInfo.text; saveEl.appendChild(span); const target = safeLocalUrl(item.saveInfo.url); if (target) { saveEl.appendChild(document.createTextNode(' ')); const link = document.createElement('a'); link.href = target; link.textContent = 'Eintrag öffnen'; saveEl.appendChild(link); } }
+    else { saveEl.hidden = true; saveEl.textContent = ''; }
+  };
+  const seriesProcessNext = async () => {
+    // Sequential: one request at a time bounds Ollama memory/load.
+    if (seriesBusy || !queueList) return;
+    const item = seriesItems.find((entry) => entry.status === 'pending');
+    if (!item) return;
+    if (!urls.suggest) { item.status = 'error'; item.statusText = 'Vorschläge sind hier nicht verfügbar.'; seriesRenderItem(item); return; }
+    seriesBusy = true;
+    item.status = 'working'; item.statusText = 'Wird analysiert …'; item.controller = new AbortController();
+    seriesRenderItem(item);
+    try {
+      const token = form?.querySelector('input[name="_csrf_token"]')?.value || '';
+      const data = new FormData();
+      data.append('photo', item.file, item.file.name || 'foto');
+      data.append('_csrf_token', token);
+      // Item-local identifier only: never copy the main form's global barcode/ISBN here.
+      const ownCode = cleanText(item.identifier);
+      if (ownCode) { const ownIsbn = normalizeIsbn(ownCode); data.append(ownIsbn ? 'isbn' : 'barcode', (ownIsbn || ownCode).slice(0, 120)); }
+      const response = await fetch(urls.suggest, { method: 'POST', body: data, cache: 'no-store', signal: item.controller.signal });
+      const payload = await safeJson(response);
+      if (!seriesItems.includes(item)) { seriesBusy = false; seriesProcessNext(); return; }
+      if (!response.ok) {
+        const serverMessage = cleanText(payload && payload.error);
+        const fallback = response.status === 503 ? LOCAL_UNAVAILABLE_MESSAGE : `Vorschlag fehlgeschlagen (${response.status}).`;
+        item.status = 'error'; item.statusText = serverMessage || fallback;
+      } else if (!payload || !payload.suggestion) {
+        item.status = 'error'; item.statusText = 'Der Vorschlag war leer. Bitte erneut versuchen.';
+      } else {
+        item.status = 'ready'; item.suggestion = payload.suggestion;
+        const label = cleanText(payload.provider_label);
+        item.statusText = label ? `Vorschlag bereit (${label}).` : 'Vorschlag bereit.';
+      }
+    } catch (error) {
+      if (error?.name === 'AbortError') { seriesBusy = false; seriesProcessNext(); return; }
+      item.status = 'error'; item.statusText = 'Die Analyse ist fehlgeschlagen.';
+    }
+    seriesBusy = false;
+    seriesRenderItem(item);
+    seriesProcessNext();
+  };
+  const seriesAddFiles = (files) => {
+    if (!queueList || !files?.length) return;
+    // No dedupe: identical files stay independent items (never merge by similarity).
+    for (const file of files) {
+      if (seriesItems.length >= SERIES_MAX_ITEMS) { setStatus(`Maximal ${SERIES_MAX_ITEMS} Fotos je Serie – weitere wurden ignoriert.`, 'warning'); break; }
+      seriesSeq += 1;
+      const item = { id: seriesSeq, file, identifier: '', url: '', status: 'pending', statusText: 'Wartet auf Analyse …', suggestion: null, controller: null, match: null, attached: false, captureToken: seriesToken(), saved: false, saving: false, saveInfo: null };
+      if (!seriesValidFile(file)) {
+        item.status = 'error';
+        item.statusText = !/^image\/(jpeg|png|webp)$/i.test(file.type || '') ? 'Nur JPEG, PNG oder WebP sind erlaubt.' : 'Das Foto ist leer oder größer als 5 MiB.';
+      } else {
+        try { item.url = URL.createObjectURL(file); } catch (_error) { item.status = 'error'; item.statusText = 'Das Foto konnte nicht gelesen werden.'; }
+      }
+      seriesItems.push(item);
+      seriesRenderItem(item);
+    }
+    seriesUpdateHint();
+    seriesProcessNext();
+  };
+  const seriesRetry = (id) => {
+    const item = seriesItems.find((entry) => entry.id === id);
+    if (!item || item.status === 'working') return;
+    if (!seriesValidFile(item.file)) { item.status = 'error'; item.statusText = 'Datei weiterhin ungültig (JPEG/PNG/WebP, max. 5 MiB).'; seriesRenderItem(item); return; }
+    item.status = 'pending'; item.statusText = 'Wartet auf Analyse …'; item.suggestion = null;
+    seriesRenderItem(item);
+    seriesProcessNext();
+  };
+  const seriesRemove = (id) => {
+    const index = seriesItems.findIndex((entry) => entry.id === id);
+    if (index < 0) return;
+    const [item] = seriesItems.splice(index, 1);
+    if (seriesActiveId === id) seriesActiveId = null;
+    try { if (item.controller) item.controller.abort(); } catch (_error) {}
+    try { if (item.url) URL.revokeObjectURL(item.url); } catch (_error) {}
+    document.getElementById(`series-card-${id}`)?.remove();
+    seriesUpdateHint();
+  };
+  const seriesTransfer = (id) => {
+    const item = seriesItems.find((entry) => entry.id === id);
+    if (!item || !item.suggestion || !title || !photo || item.saved) return;
+    title.value = cleanText(item.suggestion.object_name);
+    const suggested = cleanText(item.suggestion.item_type);
+    if (suggested && suggested !== 'object' && type && (!cleanText(type.value) || cleanText(type.value) === 'object')) {
+      type.value = suggested; objectTypeWasAutoBook = false; updateMode();
+    }
+    const ownCode = cleanText(item.identifier);
+    const ownIsbn = normalizeIsbn(ownCode);
+    if (isbn) isbn.value = '';
+    if (barcode) barcode.value = '';
+    if (ownIsbn && isbn) { isbn.value = ownIsbn; setBookModeFromIsbn(); }
+    else if (ownCode && barcode) { barcode.value = ownCode; }
+    try {
+      const carry = new DataTransfer();
+      carry.items.add(item.file);
+      photo.files = carry.files;
+    } catch (_error) { setStatus('Das Serienfoto konnte nicht ins Formular übernommen werden.', 'danger'); return; }
+    previewPhoto();
+    item.status = 'transferred'; item.statusText = 'Ins Formular übernommen – bitte prüfen, dann speichern (Seite und Serie bleiben erhalten).';
+    seriesActiveId = item.id;
+    seriesRenderItem(item);
+    setStatus('Serienvorschlag übernommen. Bitte Felder prüfen, dann speichern – die Seite bleibt erhalten.', 'success');
+    if (ownIsbn) lookup();
+    title.focus();
+  };
+  const seriesAdoptIsbn = (id) => {
+    const item = seriesItems.find((entry) => entry.id === id);
+    const isbn = item && item.suggestion ? cleanText(item.suggestion.isbn) : '';
+    if (!item || !isbn) return;
+    const card = document.getElementById(`series-card-${id}`);
+    const field = card ? card.querySelector('[data-part="identifier"]') : null;
+    if (!field) return;
+    field.value = isbn;
+    item.identifier = isbn;
+    item.match = null;
+    item.attached = false;
+    seriesRenderItem(item);
+    const checkBtn = card.querySelector('[data-part="check"]');
+    if (checkBtn) checkBtn.focus();
+  };
+  const seriesCheck = async (id) => {
+    const item = seriesItems.find((entry) => entry.id === id);
+    if (!item || item.checking) return;
+    const ownCode = cleanText(item.identifier);
+    if (!ownCode || !urls.match) { item.match = { status: 'idle', text: ownCode ? 'Prüfung hier nicht verfügbar.' : 'Bitte zuerst eine Kennung eintragen.' }; seriesRenderItem(item); return; }
+    item.checking = true;
+    try {
+      const token = form?.querySelector('input[name="_csrf_token"]')?.value || '';
+      const data = new FormData();
+      data.append('identifier', ownCode);
+      data.append('_csrf_token', token);
+      const response = await fetch(urls.match, { method: 'POST', body: data, cache: 'no-store' });
+      const payload = await safeJson(response);
+      if (!response.ok) {
+        item.match = { status: 'error', text: cleanText(payload && payload.error) || `Prüfung fehlgeschlagen (${response.status}).` };
+      } else if (!payload || (payload.status !== 'unique' && payload.status !== 'none' && payload.status !== 'ambiguous')) {
+        item.match = { status: 'error', text: 'Die Prüfung war unverständlich. Bitte erneut versuchen.' };
+      } else if (payload.status === 'unique') {
+        const hit = (payload.matches || [])[0] || {};
+        item.match = { status: 'unique', text: `Treffer: ${cleanText(hit.name) || 'Objekt'} (${String(hit.object_id || '').slice(0, 8)}…)`, target: { object_id: String(hit.object_id || ''), name: cleanText(hit.name) } };
+      } else if (payload.status === 'ambiguous') {
+        const names = (payload.matches || []).slice(0, 3).map((hit) => cleanText(hit.name) || 'Objekt').join(', ');
+        item.match = { status: 'ambiguous', text: `Mehrdeutig: ${payload.count || (payload.matches || []).length} Treffer (${names}) – bitte manuell prüfen.` };
+      } else {
+        item.match = { status: 'none', text: 'Kein Treffer – per „Ins Formular übernehmen“ als neues Objekt anlegen.' };
+      }
+    } catch (_error) {
+      item.match = { status: 'error', text: 'Die Prüfung ist fehlgeschlagen.' };
+    }
+    item.checking = false;
+    seriesRenderItem(item);
+  };
+  const seriesAttach = async (id) => {
+    const item = seriesItems.find((entry) => entry.id === id);
+    if (!item || !item.match || item.match.status !== 'unique' || !item.match.target || item.attaching) return;
+    if (!urls.attach) { item.match = { status: 'error', text: 'Anhängen hier nicht verfügbar.' }; seriesRenderItem(item); return; }
+    item.attaching = true;
+    try {
+      const token = form?.querySelector('input[name="_csrf_token"]')?.value || '';
+      const data = new FormData();
+      data.append('photo', item.file, item.file.name || 'foto');
+      data.append('_csrf_token', token);
+      data.append('item_id', item.match.target.object_id);
+      data.append('identifier', cleanText(item.identifier));
+      const response = await fetch(urls.attach, { method: 'POST', body: data, cache: 'no-store' });
+      const payload = await safeJson(response);
+      if (!response.ok) {
+        item.match = { status: 'error', text: cleanText(payload && payload.error) || `Anhängen fehlgeschlagen (${response.status}). Bitte erneut prüfen.` };
+      } else {
+        item.attached = true;
+        item.statusText = 'Foto angehängt.';
+      }
+    } catch (_error) {
+      item.match = { status: 'error', text: 'Das Anhängen ist fehlgeschlagen. Bitte erneut prüfen.' };
+    }
+    item.attaching = false;
+    seriesRenderItem(item);
+  };
+  seriesInput?.addEventListener('change', () => { seriesAddFiles(seriesInput.files); seriesInput.value = ''; });
+  $('series-add')?.addEventListener('click', () => { if (!seriesInput) return; seriesInput.removeAttribute('capture'); seriesInput.setAttribute('multiple', ''); seriesInput.click(); });
+  $('series-capture')?.addEventListener('click', () => { if (!seriesInput) return; seriesInput.setAttribute('capture', 'environment'); seriesInput.removeAttribute('multiple'); seriesInput.click(); });
+  seriesUpdateHint();
+  // Series completion (own section after the queue wiring): submits the reviewed
+  // form per card via JSON. Unlike transfer/check/attach above, saving intentionally
+  // consumes the current form values — the isolation region ends at the queue wiring.
+  const seriesIsBook = (item) => {
+    const transferred = item.status === 'transferred';
+    const kind = transferred ? cleanText(type?.value) : cleanText(item.suggestion?.item_type);
+    if (kind.toLowerCase() === 'book' || kind.toLowerCase() === 'buch') return true;
+    const code = transferred ? (cleanText(isbn?.value) || cleanText(barcode?.value)) : (cleanText(item.suggestion?.isbn) || cleanText(item.identifier));
+    return Boolean(normalizeIsbn(code));
+  };
+  const seriesChecklist = (item) => {
+    const transferred = item.status === 'transferred';
+    const book = seriesIsBook(item);
+    const code = transferred ? (normalizeIsbn(isbn?.value) || cleanText(barcode?.value)) : cleanText(item.identifier);
+    const shelf = cleanText(seriesShelf?.value);
+    return [
+      { label: 'Titel/Typ', detail: transferred ? cleanText(title?.value) : cleanText(item.suggestion?.object_name), ok: Boolean(transferred ? cleanText(title?.value) : cleanText(item.suggestion?.object_name)), action: transferred ? 'title' : 'transfer' },
+      book
+        ? { label: 'Kennung (ISBN/Barcode)', detail: code, ok: Boolean(code), action: transferred ? 'isbn' : 'transfer' }
+        : { label: 'Kennung (optional)', detail: code, ok: true, action: transferred ? 'isbn' : 'transfer' },
+      book
+        ? { label: 'Regal (Serie)', detail: cleanText(seriesShelf?.selectedOptions?.[0]?.textContent), ok: Boolean(shelf), action: 'shelf' }
+        : { label: 'Regal (nur für Bücher)', detail: '', ok: true, action: 'shelf' },
+      { label: 'Preis (Empfehlung)', detail: cleanText($('market-price')?.value), ok: Boolean(cleanText($('market-price')?.value)), action: 'price' },
+    ];
+  };
+  const seriesChecklistAction = (id, action) => {
+    if (action === 'transfer') { seriesTransfer(id); return; }
+    ({ title: () => title?.focus(), isbn: () => isbn?.focus(), shelf: () => seriesShelf?.focus(), price: () => $('market-price')?.focus() })[action]?.();
+  };
+  const seriesRenderChecklist = (item, card) => {
+    const list = card.querySelector('[data-part="checklist"]');
+    if (!item.suggestion || item.saved) { list.hidden = true; list.textContent = ''; return; }
+    list.hidden = false; list.textContent = '';
+    for (const row of seriesChecklist(item)) {
+      const li = document.createElement('li');
+      li.textContent = `${row.ok ? '✓' : '○'} ${row.label}${row.detail ? `: ${row.detail}` : ''} `;
+      const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn btn-sm btn-link p-0';
+      btn.textContent = row.action === 'transfer' ? 'Übernehmen' : 'Anzeigen';
+      btn.addEventListener('click', () => seriesChecklistAction(item.id, row.action));
+      li.appendChild(btn); list.appendChild(li);
+    }
+  };
+  const seriesRefreshChecklists = () => { for (const entry of seriesItems) { if (entry.suggestion && !entry.saved && document.getElementById(`series-card-${entry.id}`)) seriesRenderItem(entry); } };
+  const seriesSaveInfo = (payload, fallback) => {
+    const extra = (Array.isArray(payload.notices) ? payload.notices : []).filter((note) => note && note !== payload.message);
+    return { text: `${cleanText(payload.message) || fallback}${extra.length ? ` Hinweis: ${extra.join(' ')}` : ''}`, url: cleanText(payload.detail_url) };
+  };
+  const seriesResetForm = () => {
+    if (title) title.value = ''; if (isbn) isbn.value = ''; if (barcode) barcode.value = ''; if (nfc) nfc.value = '';
+    if (photo) photo.value = ''; if (photoPreview) { photoPreview.hidden = true; photoPreview.removeAttribute('src'); }
+    const allow = $('allow-duplicate'); if (allow) allow.checked = false;
+    ['manufacturer', 'model', 'serial-number', 'purchase-date', 'location', 'tags', 'description', 'authors', 'publisher', 'published-date', 'page-count', 'book-language', 'categories', 'market-price', 'price-source', 'metadata-source', 'metadata-checked-at'].forEach((id) => { const el = $(id); if (el) el.value = ''; });
+    const currency = $('currency'); if (currency) currency.value = 'EUR';
+    if (metadataProvenance) { metadataProvenance.hidden = true; metadataProvenance.textContent = ''; }
+    ['inspection-name', 'inspection-due', 'inspection-interval', 'inspection-responsible', 'inspection-note'].forEach((id) => { const el = $(id); if (el) el.value = ''; });
+    const unit = $('inspection-unit'); if (unit) unit.value = 'months';
+    if (type) { type.value = 'object'; objectTypeWasAutoBook = false; updateMode(); }
+  };
+  const seriesSave = async (id) => {
+    const item = seriesItems.find((entry) => entry.id === id);
+    if (!item || item.saved || item.saving || !form) return;
+    if (item.status !== 'transferred') { item.statusText = 'Bitte zuerst ins Formular übernehmen und prüfen.'; seriesRenderItem(item); return; }
+    const book = seriesIsBook(item);
+    const shelf = cleanText(seriesShelf?.value);
+    if (!cleanText(title?.value) || (book && !shelf)) { setStatus(book ? 'Bitte Titel und Regal im Formular prüfen.' : 'Bitte einen Titel im Formular eingeben.', 'warning'); seriesRenderItem(item); seriesFocusField(!cleanText(title?.value) ? 'title' : 'library_location_id'); return; }
+    item.saving = true;
+    if (saveButton) { saveButton.disabled = true; saveButton.setAttribute('aria-busy', 'true'); }
+    rememberLocation();
+    try {
+      const data = new FormData(form);
+      data.set('response_format', 'json');
+      data.set('capture_request_id', item.captureToken);
+      if (book) {
+        data.set('library_return', '1');
+        data.set('library_location_id', shelf);
+        data.set('item_type', 'book');
+        if (!cleanText(data.get('barcode')) && cleanText(data.get('isbn'))) data.set('barcode', cleanText(data.get('isbn')));
+      } else {
+        data.delete('library_return');
+        data.delete('library_location_id');
+      }
+      const response = await fetch(form.action, { method: 'POST', body: data, cache: 'no-store' });
+      const payload = await safeJson(response);
+      if (!response.ok || !payload || payload.ok !== true) {
+        const fields = payload && typeof payload.fields === 'object' ? payload.fields : {};
+        if (fields.capture_request_id) item.captureToken = seriesToken();
+        item.saveInfo = null;
+        item.statusText = cleanText(payload && payload.error) || `Speichern fehlgeschlagen (${response.status}).`;
+        setStatus(item.statusText, 'danger');
+        seriesRenderItem(item);
+        seriesFocusField(Object.keys(fields)[0] || '');
+        return;
+      }
+      if (payload.saved) {
+        item.saved = true; item.status = 'saved';
+        item.saveInfo = seriesSaveInfo(payload, 'Gespeichert.');
+        item.statusText = `Gespeichert: #${cleanText(payload.display_id)} ${cleanText(payload.name)}`.trim();
+        seriesActiveId = null;
+        seriesResetForm();
+        setStatus('Serienfoto gespeichert. Regal bleibt – nächstes Foto übernehmen.', 'success');
+      } else if (payload.retried) {
+        item.saved = true; item.status = 'saved';
+        item.saveInfo = seriesSaveInfo(payload, 'Bereits erfasst.');
+        item.statusText = 'Bereits erfasst (Wiederholung) – kein Duplikat angelegt.';
+        seriesActiveId = null;
+        seriesResetForm();
+        setStatus(item.statusText, 'success');
+      } else if (payload.duplicate) {
+        item.captureToken = seriesToken();
+        item.saveInfo = seriesSaveInfo(payload, 'Bereits vorhanden.');
+        item.saveInfo.text += ' Für ein weiteres Exemplar „Trotz gleicher Kennung …“ aktivieren und erneut speichern.';
+        item.statusText = 'Bereits vorhanden – kein Duplikat angelegt.';
+        setStatus(item.statusText, 'warning');
+      } else {
+        item.statusText = 'Unverständliche Antwort – nichts gespeichert.';
+        setStatus(item.statusText, 'danger');
+      }
+    } catch (_error) {
+      item.statusText = 'Speichern fehlgeschlagen (Netzwerk). Erneut versuchen – die Kennung verhindert Duplikate.';
+      setStatus(item.statusText, 'danger');
+    } finally {
+      item.saving = false;
+      if (saveButton) { saveButton.disabled = false; saveButton.removeAttribute('aria-busy'); }
+      seriesRenderItem(item);
+    }
+  };
+  form?.addEventListener('submit', (event) => {
+    if (!seriesActive()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    seriesSave(seriesActiveId);
+  });
+  ['title', 'isbn', 'barcode', 'market-price'].forEach((id) => $(id)?.addEventListener('input', seriesRefreshChecklists));
+  seriesShelf?.addEventListener('change', seriesRefreshChecklists);
+  analyzeButton?.addEventListener('click', analyzePhoto);
+  $('adopt-suggestion')?.addEventListener('click', adoptSuggestion);
+  $('dismiss-suggestion')?.addEventListener('click', hideObjectSuggestion);
+  title?.addEventListener('input', checkIsbnInTitle);
+  $('adopt-isbn-title')?.addEventListener('click', adoptIsbnFromTitle);
+  recentFilter?.addEventListener('input', filterRecent);
 
   amazonButton?.addEventListener('click', () => searchMarketplace('amazon'));
 
@@ -475,7 +951,7 @@
           if (codes.length) {
             const value = cleanText(codes[0].rawValue); barcode.value = value; const canonical = normalizeIsbn(value);
             if (canonical) { isbn.value = canonical; type.value = 'book'; objectTypeWasAutoBook = true; updateMode(); updateBookLinks(canonical); setStatus(`ISBN erkannt: ${canonical}. Lade Buchdaten …`, 'success'); stopCamera(); lookup(); return; }
-            isbn.value = ''; updateMode(); setStatus(`Barcode erkannt: ${value}`, 'success'); stopCamera(); duplicateProbe(value, 'identifier'); return;
+            isbn.value = ''; updateMode(); setStatus($('analyze-photo') ? `Barcode erkannt: ${value}. Kein ISBN – bitte ein Foto aufnehmen, die Analyse startet automatisch.` : `Barcode erkannt: ${value}`, 'success'); stopCamera(); takePhoto?.focus(); duplicateProbe(value, 'identifier'); return;
           }
         } catch (_error) {}
         requestAnimationFrame(scan);

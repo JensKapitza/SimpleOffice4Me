@@ -20,6 +20,7 @@
           <ul class="dropdown-menu" aria-labelledby="nav-work">
             <li><a class="dropdown-item" href="{{ url_for('documents.projects') }}">Projekte</a></li>
             <li><a class="dropdown-item" href="{{ url_for('site_visits.index') }}">Ortstermine</a></li>
+            {% if contextflow_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('contextflow.dashboard') }}">Büroengel</a></li>{% endif %}
             {% if feature_enabled('projects') %}<li><a class="dropdown-item" href="{{ url_for('tasks.board') }}">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a></li>{% endif %}
             <li><a class="dropdown-item" href="{{ url_for('shopping.index') }}">Einkaufen</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.objects') }}">Objekte</a></li>

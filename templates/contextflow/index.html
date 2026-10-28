@@ -1,27 +1,39 @@
 {% extends 'layout.html' %}
-{% block body %}
+{% block title %}Büroengel · ContextFlow{% endblock %}
+{% block body %}{% include "documents/nav.html" %}
 <main id="main-content" class="cf-page">
   <link rel="stylesheet" href="{{ url_for('static', filename='contextflow.css') }}">
-  <header class="cf-head">
-    <span class="cf-engel" aria-hidden="true">😇</span>
-    <div>
-      <h1>ContextFlow – belegte Hinweise</h1>
-      <p class="cf-lead">Der Büroengel klopft nur an, wenn wirklich etwas liegengeblieben ist –
+  {% if back_to_inventory|default(false) %}<p class="cf-back"><a href="{{ url_for('inventory.index') }}">← Zurück zum Inventar</a></p>{% endif %}
+  <header class="cf-hero">
+    <span class="cf-engel" aria-hidden="true">
+      <svg width="44" height="44" viewBox="0 0 44 44" role="img" aria-label="Büroengel">
+        <circle cx="22" cy="15" r="7.5" fill="#f2c98a"/>
+        <path d="M9 33c2.2-8.5 7.5-12.5 13-12.5S32.8 24.5 35 33z" fill="#0f766e"/>
+        <path d="M7 24c-2.2-5.5 1-10 5.5-11M37 24c2.2-5.5-1-10-5.5-11" stroke="#0f766e" stroke-width="2.2" fill="none" stroke-linecap="round"/>
+      </svg>
+    </span>
+    <div class="cf-hero-text">
+      <h1>Büroengel – belegte Hinweise</h1>
+      <p class="cf-lead">Der Engel klopft nur an, wenn wirklich etwas liegengeblieben ist –
         mit Quelle, Grund und genau einer freizugebenden Aktion.</p>
-      <p class="cf-offline" role="note">Lokaler Regelbetrieb · keine Cloud · keine KI-Abfrage</p>
+      <p class="cf-pills">
+        <span class="cf-pill" role="note">Lokaler Regelbetrieb · keine Cloud · keine KI-Abfrage</span>
+        <span class="cf-pill cf-pill-quiet">Standard: ausgeschaltet, bis du es aktivierst</span>
+      </p>
     </div>
   </header>
 
   {% if cards %}
-  <section aria-label="Offene Hinweise">
+  <section aria-label="Offene Hinweise" class="cf-worklist">
     {% for card in cards %}
-    <article class="cf-card">
-      <h2>
-        {% if card.hint %}Offener Follow-up{% else %}Bestätigter Fall{% endif %}
-        <span class="cf-date">({{ card.completed_on }})</span>
-      </h2>
+    <article class="cf-card" data-link-id="{{ card.link_id }}">
+      <div class="cf-card-head">
+        <h2>{% if card.case_title %}{{ card.case_title }}{% elif card.hint %}Offener Follow-up{% else %}Bestätigter Fall{% endif %}</h2>
+        <span class="cf-date" title="Von dir bestätigtes Abschlussdatum">{{ card.completed_on }}</span>
+      </div>
+      <p class="cf-status">Bestätigt, noch nichts erledigt – erst die Aufgabe unten abarbeiten.</p>
       {% if card.hint %}
-      <p class="cf-reason">Grund: {{ card.reason }} · {{ card.days }} Tage seit Abschluss</p>
+      <p class="cf-reason"><strong>Grund:</strong> {{ card.reason }} · {{ card.days }} Tage seit Abschluss</p>
       <ul class="cf-evidence">
         {% for item in card.evidence %}
         <li>
@@ -31,23 +43,47 @@
         </li>
         {% endfor %}
       </ul>
+      {% if card.devices %}
+      <fieldset class="cf-device">
+        <legend>Betroffenes Gerät – bitte wählen und bestätigen</legend>
+        <p class="cf-hint-text">Nur Geräte aus belegten Befunden dieses Ortstermins. Ohne Auswahl und Häkchen entsteht eine reine Befund-Aufgabe.</p>
+        <label class="cf-radio">
+          <input type="radio" name="confirmed_asset_id" value="" form="cf-approve-{{ card.link_id }}" checked>
+          <span><strong>Ohne Gerätebezug</strong> <span class="cf-muted">– nur Befunde übernehmen</span></span>
+        </label>
+        {% for device in card.devices %}
+        <label class="cf-radio">
+          <input type="radio" name="confirmed_asset_id" value="{{ device.asset_id }}" form="cf-approve-{{ card.link_id }}">
+          <span><strong>{{ device.name }}</strong>{% if device.kind %} <span class="cf-muted">({{ device.kind }})</span>{% endif %}
+            <span class="cf-muted">· {{ device.finding_count }} offener Befund</span></span>
+        </label>
+        <p class="cf-device-link"><a href="{{ device.url }}">Im Ortstermin prüfen</a></p>
+        {% endfor %}
+      </fieldset>
+      {% endif %}
       <p class="cf-invoice">
-        Rechnungsstand: {{ card.invoice_state }}
+        Rechnungsstand: {{ card.invoice_display }}
         {% if card.invoice_state == "unknown" %}
         <span class="cf-unknown">(unklar – nicht „fehlt“)</span>
         {% endif %}
-        {% if card.editor_url %}
-        · <a href="{{ card.editor_url }}">Rechnungseditor öffnen</a>
-        {% endif %}
-        · <a href="{{ card.mail_url }}">Mail-Vorgang öffnen</a>
-        · <a href="{{ card.visit_url }}">Ortstermin öffnen</a>
-        · <a href="{{ card.tasks_url }}">Aufgaben öffnen</a>
       </p>
+      <nav class="cf-links" aria-label="Weiter im bestehenden Ablauf">
+        <a href="{{ card.mail_url }}">Mail-Vorgang öffnen</a>
+        <a href="{{ card.visit_url }}">Ortstermin öffnen</a>
+        <a href="{{ card.tasks_url }}">Aufgaben-Board öffnen</a>
+        {% if card.editor_url %}<a href="{{ card.editor_url }}">Rechnungseditor öffnen</a>{% endif %}
+      </nav>
       {% for proposal in card.proposals %}
-      <form class="cf-approve" method="post" action="{{ url_for('contextflow.approve') }}">
+      <form id="cf-approve-{{ card.link_id }}" class="cf-approve" method="post" action="{{ url_for('contextflow.approve') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="link_id" value="{{ card.link_id }}">
         <input type="hidden" name="expected_hint_id" value="{{ card.hint_id }}">
+        {% if card.devices %}
+        <label class="cf-check">
+          <input type="checkbox" name="confirm_device" value="yes">
+          Gewähltes Gerät bestätigen und in die Aufgabe übernehmen
+        </label>
+        {% endif %}
         <label class="cf-check">
           <input type="checkbox" name="approved" value="yes" required>
           {{ proposal.title }} – einmalig erstellen
@@ -70,18 +106,48 @@
       </div>
       {% else %}
       <p>Aktuell nichts fällig. Der Fall bleibt belegt und wird erneut geprüft, sobald sich etwas ändert.</p>
-      <p>
+      <p class="cf-invoice">Rechnungsstand: {{ card.invoice_display }}</p>
+      <nav class="cf-links" aria-label="Weiter im bestehenden Ablauf">
         <a href="{{ card.mail_url }}">Mail-Vorgang</a> ·
         <a href="{{ card.visit_url }}">Ortstermin</a> ·
-        <a href="{{ card.tasks_url }}">Aufgaben</a>
-      </p>
+        <a href="{{ card.tasks_url }}">Aufgaben-Board</a>
+      </nav>
       {% endif %}
     </article>
     {% endfor %}
   </section>
   {% else %}
-  <p>Noch keine bestätigten Fälle. Lege unten eine Zuordnung an.</p>
+  <p>Noch keine bestätigten Fälle. Lege unten eine Zuordnung an – bereits verknüpfte Vorgänge stehen dort nicht mehr zur Auswahl.</p>
   {% endif %}
+
+  <details class="cf-confirm">
+    <summary>Befund-Vorschlag aus Foto (Entwurf, {{ vision_label }})</summary>
+    <p class="cf-hint-text">Das Foto wird nur im Arbeitsspeicher analysiert und nirgends
+      gespeichert. Der Vorschlag bleibt Entwurf, bis du ihn unten ausdrücklich bestätigst.</p>
+    <form method="post" action="{{ url_for('contextflow.suggest') }}" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Ortstermin
+        <select name="visit_id" required>
+          <option value="">– bitte wählen –</option>
+          {% for item in vision_visits %}<option value="{{ item.id }}">{{ item.title }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Gerät (optional, aus echten Befund-Geräten)
+        <select name="asset_id">
+          <option value="">Ohne Gerätebezug</option>
+          {% for device in vision_assets %}<option value="{{ device.asset_id }}">{{ device.name }}{% if device.kind %} ({{ device.kind }}){% endif %} – {{ device.visit_title }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Foto (JPEG/PNG/WebP, max. 5 MB)
+        <input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required>
+      </label>
+      <label class="cf-check">
+        <input type="checkbox" name="consent_meta" value="yes">
+        Meta-Cloud-Analyse erlauben (nur Demo, nur synthetische Daten)
+      </label>
+      <button class="cf-btn cf-primary" type="submit">Vorschlag erstellen</button>
+    </form>
+  </details>
 
   <details class="cf-confirm">
     <summary>Zuordnung bestätigen</summary>

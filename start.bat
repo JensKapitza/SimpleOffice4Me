@@ -25,9 +25,12 @@ if /I "%~1"=="mini-services" goto :control
 if /I "%~1"=="status" goto :control
 if /I "%~1"=="stop" goto :control
 if /I "%~1"=="restart" goto :control
+if /I "%~1"=="demo" goto :contextflow_demo
 
 call :parse_args %*
 if errorlevel 1 exit /b %errorlevel%
+rem Help only prints and never continues into venv bootstrap or setup.
+if "%HELP_REQUESTED%"=="1" exit /b 0
 if "%CHECK_SYSTEM%"=="1" goto :check_system
 
 rem A supported existing venv takes precedence over the launcher's newest Python.
@@ -59,6 +62,16 @@ if exist ".venv\Scripts\python.exe" (
 ) else (
   %PYTHON% -m tools.launcher %*
 )
+exit /b %errorlevel%
+
+:contextflow_demo
+rem ContextFlow demo uses the existing venv and never touches production data.
+if exist ".venv\Scripts\python.exe" goto :contextflow_run
+echo Demo braucht die Projektumgebung. Bitte zuerst einmalig start.bat ohne demo ausfuehren.
+exit /b 1
+:contextflow_run
+shift
+".venv\Scripts\python.exe" "%ROOT%tools\contextflow_demo.py" %1 %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %errorlevel%
 
 :parse_args
@@ -172,7 +185,11 @@ echo Option %~1 benoetigt einen Wert.
 exit /b 2
 
 :help
+set "HELP_REQUESTED=1"
 echo SimpleOffice4Me starten
+echo.
+echo Befehle:
+echo   demo                        ContextFlow-Demo starten ^(lokal, synthetisch, 127.0.0.1^)
 echo.
 echo Optionen:
 echo   --google-json DATEI         Google OAuth JSON-Datei ^(Web-Anwendung^)
@@ -190,6 +207,7 @@ echo   --help                      Diese Hilfe anzeigen
 echo.
 echo Beispiel:
 echo   start.bat --google-json C:\simpleoffice\google-oauth.json --trusted-proxy-hops 1
+echo   start.bat demo --port 5088
 exit /b 0
 
 :python_error

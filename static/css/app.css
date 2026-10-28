@@ -12,6 +12,16 @@ a { text-underline-offset: .16em; }
 .auth-brand i { align-items: center; background: #ccfbf1; border-radius: .65rem; display: inline-flex; height: 2.5rem; justify-content: center; width: 2.5rem; }
 .btn-google { background: #fff; border: 1px solid #cbd5e1; color: #334155; font-weight: 600; }
 .btn-google:hover, .btn-google:focus { background: #f8fafc; border-color: #94a3b8; color: #0f172a; }
+.auth-qr-summary { align-items: baseline; cursor: pointer; display: flex; gap: .5rem; list-style: none; }
+.auth-qr-summary::-webkit-details-marker { display: none; }
+.auth-qr-summary::before { color: #0f766e; content: "▸"; font-size: 1rem; line-height: 1.2; }
+details[open] > .auth-qr-summary::before { content: "▾"; }
+.auth-qr-summary:focus-visible { border-radius: .375rem; outline: 3px solid #2f6fed; outline-offset: 2px; }
+.auth-stack { display: flex; flex-direction: column; max-width: 28rem; width: 100%; }
+.auth-stack > .auth-card { max-width: none; }
+.auth-card.auth-main-attached { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+details.auth-card.auth-qr-attached { border-top: 1px dashed #cbd5e1; border-top-left-radius: 0; border-top-right-radius: 0; box-shadow: 0 .6rem 1.5rem rgba(15,23,42,.10); margin-top: -1px; padding: 1rem 2.25rem; }
+details.auth-card.auth-qr-attached[open] { padding-bottom: 2.25rem; }
 .auth-divider { align-items: center; color: #64748b; display: flex; font-size: .8rem; gap: .75rem; text-align: center; }
 .auth-divider::before, .auth-divider::after { background: #e2e8f0; content: ''; flex: 1; height: 1px; }
 .app-navbar { background: linear-gradient(105deg, #0f766e, #155e75); box-shadow: 0 .125rem .5rem rgba(15, 23, 42, .18); }
@@ -64,6 +74,8 @@ a { text-underline-offset: .16em; }
 [data-bs-theme="dark"] .auth-brand i { background: #134e4a; }
 [data-bs-theme="dark"] .btn-google { background: #111827; border-color: #475569; color: #e2e8f0; }
 [data-bs-theme="dark"] .btn-google:hover, [data-bs-theme="dark"] .btn-google:focus { background: #1e293b; border-color: #64748b; color: #fff; }
+[data-bs-theme="dark"] .auth-qr-summary::before { color: #5eead4; }
+[data-bs-theme="dark"] details.auth-card.auth-qr-attached { border-top-color: #475569; box-shadow: 0 .6rem 1.5rem rgba(0,0,0,.35); }
 [data-bs-theme="dark"] .auth-divider::before, [data-bs-theme="dark"] .auth-divider::after { background: #334155; }
 [data-bs-theme="dark"] .calendar-grid { background: #111827; border-color: var(--so-border); }
 [data-bs-theme="dark"] .calendar-weekday { background: #1e293b; }

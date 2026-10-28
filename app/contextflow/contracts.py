@@ -51,6 +51,39 @@ class HintProposal(TypedDict, total=False):
     ref: str
 
 
+class DeviceContext(TypedDict, total=False):
+    """One visit asset referenced by pending findings (no secrets).
+
+    Only assets that actually exist on the visit AND are referenced by at
+    least one pending finding appear here. The UI may offer them as a
+    visible, user-confirmed prefill — never as an automatic assignment.
+    """
+
+    asset_id: str
+    name: str
+    kind: str
+    room_id: str
+    finding_ids: list[str]
+    url: str
+
+
+class AssetSummary(TypedDict, total=False):
+    asset_id: str
+    name: str
+    kind: str
+    room_id: str
+    status: str
+
+
+class SuggestionDraft(TypedDict):
+    """One validated vision suggestion (draft only, never a record)."""
+
+    title: str
+    description: str
+    evidence_class: str
+    confidence: int
+
+
 class FollowupHint(TypedDict, total=False):
     hint_id: str
     link_id: str
@@ -62,6 +95,7 @@ class FollowupHint(TypedDict, total=False):
     days_since_completion: int
     evidence: list[EvidenceRef]
     pending_finding_ids: list[str]
+    device_context: list[DeviceContext]
     proposals: list[HintProposal]
     invoice: InvoiceState
 
@@ -103,9 +137,11 @@ class FindingSummary(TypedDict, total=False):
     evidence_class: str
     confidence: int
     observed_at: str
+    asset_id: str
+    room_id: str
 
 
-class VisitSummary(TypedDict):
+class VisitSummary(TypedDict, total=False):
     visit_id: str
     title: str
     customer: str
@@ -115,6 +151,7 @@ class VisitSummary(TypedDict):
     created_at: str
     updated_at: str
     findings: list[FindingSummary]
+    assets: list[AssetSummary]
 
 
 class TodoSummary(TypedDict, total=False):
