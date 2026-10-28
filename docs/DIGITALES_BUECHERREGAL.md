@@ -59,6 +59,7 @@ Sicherheitsgrenzen:
 - maximal 5.000 ZIP-Einträge
 - maximal 20 MiB pro Eintrag
 - maximal 200 MiB deklarierte entpackte Gesamtdaten
+- XML maximal 256 Elemente tief und 50.000 XML-Elemente je XML-Datei
 - maximal 1.000 Kapitel
 - Traversal-, absolute und mehrdeutige ZIP-Pfade werden abgewiesen
 - verschlüsselte/DRM-markierte EPUBs werden abgewiesen
