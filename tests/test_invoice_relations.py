@@ -242,6 +242,19 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         self.assertEqual(before, path.read_bytes())
         self.assertEqual(pdf_digest, hashlib.sha256(self.invoice_pdf_path.read_bytes()).hexdigest())
 
+    def test_legacy_invoice_detail_without_zugferd_metadata_renders_safely(self):
+        path = self.root / CONTROL_DIR / "invoices" / "invoice-a.json"
+        legacy = json.loads(path.read_text(encoding="utf-8"))
+        legacy.pop("zugferd")
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+        before = path.read_bytes()
+
+        response = self.client.get("/documents/business/invoices/invoice-a")
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Für diese Rechnung nicht erfasst", response.get_data(as_text=True))
+        self.assertEqual(before, path.read_bytes())
+
     def test_relationship_routes_enforce_customer_scope_and_invoice_permissions(self):
         cross_customer = self.client.post(
             "/documents/business/invoices/invoice-a/relationships",
