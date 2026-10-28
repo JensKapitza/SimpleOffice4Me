@@ -27,6 +27,15 @@
       <form method="post" action="{{ url_for('admin.save_documents_media_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-6">
+          <label class="form-label" for="archive-ocr-enabled">OCR für Archivinhalte</label>
+          <select class="form-select" id="archive-ocr-enabled" name="archive_ocr_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="0" {% if not media.archive_ocr_enabled %}selected{% endif %}>Deaktiviert (Standard)</option>
+            <option value="1" {% if media.archive_ocr_enabled %}selected{% endif %}>Aktiviert</option>
+          </select>
+          <div class="form-text">Erfordert lokal installiertes Tesseract. Gilt für neue bzw. erneut gestartete Archivindizes; fertige bestehende Indizes werden nicht rückwirkend verändert.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>

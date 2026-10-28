@@ -45,12 +45,20 @@ ausgewertet. MB-Grenzen verwenden im Code `1024**2` Bytes.
 | `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | `500` | Anzahl für Inhaltsverarbeitung; 1–10000 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | `200` | Begrenzung des Kompressionsverhältnisses; 10–10000 |
 | `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | `2` | Pause je Eintrag in ms; 0–100 |
-| `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Optionale OCR für unterstützte Bild-Einträge |
+| `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Legacy-Startwert bis `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gespeichert wird; optionale OCR für unterstützte Bild-Einträge |
 
 Erzwungene tiefe Indexierung hebt nicht Größen-, Pfad-, Scratch- oder
 Kompressionsschutz auf. Das Scratch-Budget nutzt höchstens ein Zehntel des
 freien Speichers und berücksichtigt zusätzlich die Reserve. Erhöhte Limits
 zuerst an repräsentativen, nicht produktiven Archiven prüfen.
+
+Die optionale OCR für Bilddateien in Archiven ist unter **Admin → Einstellungen
+→ Dokumente & Medien** verfügbar. Sie ist standardmäßig deaktiviert und benötigt
+das lokal installierte Tesseract. Die Einstellung gilt für neue bzw. erneut
+gestartete Archivindizes; ein vorhandener vollständiger Index wird durch das
+Deaktivieren nicht rückwirkend geändert. `SIMPLEOFFICE_ARCHIVE_OCR` wird nur als
+Legacy-Startwert verwendet, bis die persistierte Medien-Einstellung gespeichert
+wird. Größen-, Laufzeit- und Scratch-Limits bleiben unabhängig davon aktiv.
 
 ### OSM, Personaldaten, Chat und Druckfreigaben
 

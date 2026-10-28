@@ -10,9 +10,43 @@ from unittest.mock import patch
 
 from app.archive_indexer import cleanup_stale_scratch, index_archive
 from app.document_store import DocumentStore
+from app.settings_store import SettingsStore
 
 
 class ArchiveIndexerTest(unittest.TestCase):
+    def test_archive_ocr_is_opt_in_and_persisted_setting_overrides_legacy_environment(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
+                "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
+                "SIMPLEOFFICE_ARCHIVE_OCR": "0",
+            },
+            clear=False,
+        ):
+            root = Path(temp)
+            store = DocumentStore(root)
+            first_archive = root / "ocr-disabled.zip"
+            with zipfile.ZipFile(first_archive, "w") as archive:
+                archive.writestr("scan.png", b"synthetic image bytes")
+            store.scan()
+            with patch.object(store, "_image_ocr", return_value="archive OCR marker") as ocr:
+                result = index_archive(store, first_archive)
+            ocr.assert_not_called()
+            self.assertNotIn("archive OCR marker", result["search_text"])
+
+            SettingsStore(root).save(
+                {"media": {"archive_ocr_enabled": True}}, "archive-admin",
+            )
+            second_archive = root / "ocr-enabled.zip"
+            with zipfile.ZipFile(second_archive, "w") as archive:
+                archive.writestr("scan.png", b"synthetic image bytes")
+            store.scan()
+            with patch.object(store, "_image_ocr", return_value="archive OCR marker") as ocr:
+                result = index_archive(store, second_archive)
+            ocr.assert_called_once()
+            self.assertIn("archive OCR marker", result["search_text"])
+
     def test_zip_catalog_and_plain_text_become_searchable_without_bulk_extraction(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ,
