@@ -2,7 +2,7 @@
 
 Batch 1 provides read-only, actor-scoped domain adapters plus an evidence
 contract. Approved writes (tasks, findings) always need explicit user
-confirmation; inference backends stay local by default, Meta cloud only
+confirmation; Meta-model backends stay local by default, Meta cloud only
 with consent on synthetic demo roots.
 """
 

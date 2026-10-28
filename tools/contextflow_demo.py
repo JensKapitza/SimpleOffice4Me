@@ -2,8 +2,9 @@
 
 Creates an isolated synthetic root (never production data), seeds the P0
 story, creates a local demo user in a separate demo auth database, and
-serves the existing Flask app on 127.0.0.1 only. No workers, no cloud, no
-external messages. Run from the repository root with the project venv:
+serves the existing Flask app on 127.0.0.1 only. Optional Meta Cloud
+inference requires explicit configuration and remains synthetic-only. No
+workers or external messages. Run from the repository root with the project venv:
 
     .venv/Scripts/python.exe tools/contextflow_demo.py [--port 5088] [--root DIR] [--fresh]
 """
@@ -36,19 +37,42 @@ def _fail(message: str) -> "NoReturn":
 
 def vision_config_from_env(
     env: Mapping[str, str] | None = None,
-) -> dict[str, str | int]:
+) -> dict[str, str | int | bool]:
     """Vision backend config from optional environment variables.
 
-    CONTEXTFLOW_OLLAMA_URL defaults to loopback :11434;
-    CONTEXTFLOW_OLLAMA_MODEL is empty unless configured; a configured
-    model selects real local inference with a 180s timeout default for
-    slow demo-CPU cold starts (overridable via CONTEXTFLOW_OLLAMA_TIMEOUT).
-    Without a model the labeled mock keeps the finding-draft demo
-    live-testable. No API keys, no cloud paths.
+    Local inference accepts only the project's explicit Meta Ollama
+    allowlist. The optional Meta Model API path requires an explicit
+    provider choice and MODEL_API_KEY; its model and endpoint are pinned.
+    With neither configured, a labeled mock keeps the UI live-testable.
     """
     source = os.environ if env is None else env
+    from app.contextflow.vision import (
+        META_MODEL_API_ENDPOINT,
+        META_MODEL_API_MODEL,
+        VisionError,
+        require_meta_ollama_model,
+    )
+
     url = str(source.get("CONTEXTFLOW_OLLAMA_URL", "") or "").strip()
     model = str(source.get("CONTEXTFLOW_OLLAMA_MODEL", "") or "").strip()
+    requested_provider = str(
+        source.get("CONTEXTFLOW_VISION_PROVIDER", "") or ""
+    ).strip().lower()
+    provider = requested_provider or ("local" if model else "mock")
+    if model:
+        try:
+            model = require_meta_ollama_model(model)
+        except VisionError as exc:
+            _fail(str(exc))
+    if provider not in {"local", "meta", "mock"}:
+        _fail("CONTEXTFLOW_VISION_PROVIDER must be local, meta or mock")
+    if provider == "local" and not model:
+        _fail("Local inference needs CONTEXTFLOW_OLLAMA_MODEL set to a Meta model")
+    if provider == "meta" and not str(source.get("MODEL_API_KEY", "") or "").strip():
+        _fail(
+            "Meta Muse Spark was selected but MODEL_API_KEY is missing. "
+            "Set it in the process environment; it is never written to the demo config."
+        )
     raw_timeout = str(source.get("CONTEXTFLOW_OLLAMA_TIMEOUT", "") or "").strip()
     try:
         timeout = int(raw_timeout) if raw_timeout else DEFAULT_OLLAMA_TIMEOUT
@@ -57,10 +81,13 @@ def vision_config_from_env(
     if timeout <= 0:
         timeout = DEFAULT_OLLAMA_TIMEOUT
     return {
-        "CONTEXTFLOW_VISION_PROVIDER": "local" if model else "mock",
+        "CONTEXTFLOW_VISION_PROVIDER": provider,
         "CONTEXTFLOW_OLLAMA_URL": url or DEFAULT_OLLAMA_URL,
         "CONTEXTFLOW_OLLAMA_MODEL": model,
         "CONTEXTFLOW_OLLAMA_TIMEOUT": timeout,
+        "CONTEXTFLOW_META_CONSENT": provider == "meta",
+        "CONTEXTFLOW_META_ENDPOINT": META_MODEL_API_ENDPOINT,
+        "CONTEXTFLOW_META_MODEL": META_MODEL_API_MODEL,
     }
 
 
@@ -143,12 +170,21 @@ def main() -> None:
     print(f"  Root:     {root}")
     print(f"  Fall:     {summary['link_id']} (abgeschlossen {summary['completed_on']})")
     if vision["CONTEXTFLOW_VISION_PROVIDER"] == "local":
-        print(f"  Vision:   lokal, Modell {vision['CONTEXTFLOW_OLLAMA_MODEL']}")
+        print(
+            "  Vision:   Meta-Modell lokal via Ollama, Modell "
+            f"{vision['CONTEXTFLOW_OLLAMA_MODEL']}"
+        )
         print(f"  Ollama:   {vision['CONTEXTFLOW_OLLAMA_URL']}")
         print(f"  Timeout:  {vision['CONTEXTFLOW_OLLAMA_TIMEOUT']}s (Kaltstart)")
+    elif vision["CONTEXTFLOW_VISION_PROVIDER"] == "meta":
+        print("  Vision:   Meta Muse Spark 1.3 (Meta Model API)")
+        print("  Daten:    ausschließlich synthetischer Demo-Root + Einwilligung")
     else:
         print("  Vision:   Mock (Befunddemo; Inventar braucht lokales Modell)")
-    print("Kein Cloud-Versand, keine Worker, keine externen Nachrichten.")
+    if vision["CONTEXTFLOW_VISION_PROVIDER"] != "meta":
+        print("Kein Cloud-Versand, keine Worker, keine externen Nachrichten.")
+    else:
+        print("Keine Worker oder externen Nachrichten.")
     print("Bei 'Zu viele Versuche': kurz warten oder mit --fresh neu starten.")
     flask_app.run(host="127.0.0.1", port=args.port, debug=False, use_reloader=False)
 

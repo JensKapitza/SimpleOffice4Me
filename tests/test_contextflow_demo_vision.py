@@ -1,9 +1,4 @@
-"""Focused start-config tests for the demo starter vision backend.
-
-MODEL set -> local provider with URL + model; MODEL missing/blank ->
-labeled mock for the finding-draft demo. No servers, no network access,
-no API keys. Run with the project venv (``.venv``).
-"""
+"""Focused start-config tests for Meta-only demo inference backends."""
 
 from __future__ import annotations
 
@@ -17,10 +12,12 @@ from tools.contextflow_demo import (
 
 
 class DemoVisionEnvTest(unittest.TestCase):
-    def test_model_selects_local_with_default_url(self) -> None:
-        config = vision_config_from_env({"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"})
+    def test_meta_vision_model_selects_local_with_default_url(self) -> None:
+        config = vision_config_from_env(
+            {"CONTEXTFLOW_OLLAMA_MODEL": "llama3.2-vision:11b"}
+        )
         self.assertEqual(config["CONTEXTFLOW_VISION_PROVIDER"], "local")
-        self.assertEqual(config["CONTEXTFLOW_OLLAMA_MODEL"], "qwen3-vl:2b")
+        self.assertEqual(config["CONTEXTFLOW_OLLAMA_MODEL"], "llama3.2-vision:11b")
         self.assertEqual(config["CONTEXTFLOW_OLLAMA_URL"], DEFAULT_OLLAMA_URL)
         self.assertEqual(DEFAULT_OLLAMA_URL, "http://127.0.0.1:11434")
 
@@ -28,7 +25,7 @@ class DemoVisionEnvTest(unittest.TestCase):
         config = vision_config_from_env(
             {
                 "CONTEXTFLOW_OLLAMA_URL": "http://127.0.0.1:11500",
-                "CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b",
+                "CONTEXTFLOW_OLLAMA_MODEL": "llama3.2-vision:11b",
             }
         )
         self.assertEqual(config["CONTEXTFLOW_VISION_PROVIDER"], "local")
@@ -49,14 +46,16 @@ class DemoVisionEnvTest(unittest.TestCase):
         self.assertEqual(config["CONTEXTFLOW_VISION_PROVIDER"], "mock")
 
     def test_local_model_defaults_to_180s(self) -> None:
-        config = vision_config_from_env({"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"})
+        config = vision_config_from_env(
+            {"CONTEXTFLOW_OLLAMA_MODEL": "llama3.2-vision:11b"}
+        )
         self.assertEqual(config["CONTEXTFLOW_OLLAMA_TIMEOUT"], 180)
         self.assertEqual(DEFAULT_OLLAMA_TIMEOUT, 180)
 
     def test_timeout_env_override(self) -> None:
         config = vision_config_from_env(
             {
-                "CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b",
+                "CONTEXTFLOW_OLLAMA_MODEL": "llama3.2-vision:11b",
                 "CONTEXTFLOW_OLLAMA_TIMEOUT": "300",
             }
         )
@@ -67,18 +66,35 @@ class DemoVisionEnvTest(unittest.TestCase):
             with self.subTest(raw=raw):
                 config = vision_config_from_env(
                     {
-                        "CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b",
+                        "CONTEXTFLOW_OLLAMA_MODEL": "llama3.2-vision:11b",
                         "CONTEXTFLOW_OLLAMA_TIMEOUT": raw,
                     }
                 )
                 self.assertEqual(config["CONTEXTFLOW_OLLAMA_TIMEOUT"], 180)
 
-    def test_no_keys_or_cloud_paths(self) -> None:
-        config = vision_config_from_env({"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"})
-        joined = " ".join(f"{key}={value}" for key, value in sorted(config.items()))
-        self.assertNotIn("API_KEY", joined)
-        self.assertNotIn("meta", joined.lower())
-        self.assertNotIn("cloud", joined.lower())
+    def test_non_meta_local_model_is_rejected(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            vision_config_from_env({"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"})
+        self.assertIn("ausschließlich Meta-Modelle", str(raised.exception))
+
+    def test_meta_cloud_is_explicit_and_never_copies_key_into_config(self) -> None:
+        config = vision_config_from_env(
+            {
+                "CONTEXTFLOW_VISION_PROVIDER": "meta",
+                "MODEL_API_KEY": "do-not-copy-this",
+            }
+        )
+        self.assertEqual("meta", config["CONTEXTFLOW_VISION_PROVIDER"])
+        self.assertTrue(config["CONTEXTFLOW_META_CONSENT"])
+        self.assertEqual("https://api.meta.ai/v1/chat/completions", config["CONTEXTFLOW_META_ENDPOINT"])
+        self.assertEqual("muse-spark-1.3", config["CONTEXTFLOW_META_MODEL"])
+        self.assertNotIn("MODEL_API_KEY", config)
+        self.assertNotIn("do-not-copy-this", " ".join(map(str, config.values())))
+
+    def test_meta_cloud_requires_api_key(self) -> None:
+        with self.assertRaises(SystemExit) as raised:
+            vision_config_from_env({"CONTEXTFLOW_VISION_PROVIDER": "meta"})
+        self.assertIn("MODEL_API_KEY is missing", str(raised.exception))
 
 
 if __name__ == "__main__":

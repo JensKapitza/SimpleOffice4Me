@@ -143,7 +143,6 @@ def _chat_bodies(opened) -> list:
 
 
 SHOW_PLAIN = {"capabilities": ["completion", "vision"]}
-SHOW_THINKING = {"capabilities": ["completion", "vision", "tools", "thinking"]}
 
 
 class _FakeJson:
@@ -226,7 +225,7 @@ class DocTagSuggestContracts(unittest.TestCase):
             CONTEXTFLOW_ENABLED=True,
             CONTEXTFLOW_VISION_PROVIDER="local",
             CONTEXTFLOW_OLLAMA_URL="http://127.0.0.1:11434",
-            CONTEXTFLOW_OLLAMA_MODEL="test-modell",
+            CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision:11b",
             CONTEXTFLOW_OLLAMA_TIMEOUT=60,
         )
         with app.app_context():
@@ -310,7 +309,7 @@ class DocTagSuggestContracts(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.get_json()
         self.assertTrue(payload["ok"])
-        self.assertEqual("Lokale KI (eigener Rechner)", payload["provider_label"])
+        self.assertEqual("Meta-Modell lokal via Ollama", payload["provider_label"])
         self.assertIn(payload["text_source"], ("extracted", "file"))
         self.assertEqual(
             ["Rechnung", "120 Euro"], [row["tag"] for row in payload["suggestions"]]
@@ -379,7 +378,7 @@ class DocTagSuggestContracts(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual("Ein Schreibtisch mit Bank.", payload["image"]["description"])
         self.assertEqual(["Bank"], payload["image"]["objects"])
-        self.assertEqual("Lokale KI (eigener Rechner)", payload["provider_label"])
+        self.assertEqual("Meta-Modell lokal via Ollama", payload["provider_label"])
 
     def test_image_suggest_reads_real_store_file_when_v2_missing(self):
         storage = _StubStorage(PNG_1PX, ok=False)
@@ -809,44 +808,19 @@ class DocTagSuggestContracts(unittest.TestCase):
         after = DocumentStore(self.document_root).get_document(self.png_id).get("tags", [])
         self.assertEqual(before, after)
 
-    def test_instruct_model_suggests_directly(self):
-        app.config.update(CONTEXTFLOW_OLLAMA_MODEL="qwen3-vl:2b-instruct")
+    def test_supported_meta_model_suggests_directly(self):
+        app.config.update(CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision:11b")
         calls: list = []
         with self.ollama([TEXT_CHUNKS], calls=calls):
             response = self.suggest(self.txt_id)
 
         self.assertEqual(200, response.status_code)
         payload = response.get_json()
-        self.assertEqual("qwen3-vl:2b-instruct", payload["model"])
+        self.assertEqual("llama3.2-vision:11b", payload["model"])
         self.assertEqual(["/api/show", "/api/chat"], calls)
 
-    def test_thinking_model_uses_installed_sibling(self):
-        app.config.update(CONTEXTFLOW_OLLAMA_MODEL="qwen3-vl:2b")
-        tags = {"models": [{"name": "qwen3-vl:2b-instruct:latest"}]}
-        calls: list = []
-        with self.ollama([TEXT_CHUNKS], show=SHOW_THINKING, tags=tags, calls=calls):
-            response = self.suggest(self.txt_id)
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("qwen3-vl:2b-instruct", response.get_json()["model"])
-        self.assertEqual(["/api/show", "/api/tags", "/api/chat"], calls)
-
-    def test_thinking_model_without_sibling_answers_503_with_setup_hint(self):
-        app.config.update(CONTEXTFLOW_OLLAMA_MODEL="qwen3-vl:2b")
-        calls: list = []
-        with self.ollama([], show=SHOW_THINKING, calls=calls):
-            response = self.suggest(self.txt_id)
-
-        self.assertEqual(503, response.status_code)
-        payload = response.get_json()
-        self.assertFalse(payload["ok"])
-        self.assertIn("ollama pull qwen3-vl:2b-instruct", payload["error"])
-        self.assertIn("CONTEXTFLOW_OLLAMA_MODEL", payload["error"])
-        self.assertIsNone(payload.get("timeout"))
-        self.assertEqual(["/api/show", "/api/tags"], calls)
-
     def test_missing_model_answers_503_with_pull_hint(self):
-        app.config.update(CONTEXTFLOW_OLLAMA_MODEL="qwen3-vl:2b-instruct")
+        app.config.update(CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision:11b")
         missing = urllib.error.HTTPError(
             "http://127.0.0.1:11434/api/show", 404, "Not Found", {}, None
         )
@@ -856,7 +830,7 @@ class DocTagSuggestContracts(unittest.TestCase):
         self.assertEqual(503, response.status_code)
         error = response.get_json()["error"]
         self.assertIn("nicht installiert", error)
-        self.assertIn("ollama pull qwen3-vl:2b-instruct", error)
+        self.assertIn("ollama pull llama3.2-vision:11b", error)
 
     def test_timeout_returns_503_with_german_hint(self):
         with patch(
@@ -933,7 +907,7 @@ class DocTagSuggestContracts(unittest.TestCase):
             response = self.suggest(self.txt_id)
 
         self.assertEqual(503, response.status_code)
-        self.assertIn("lokales Modell", response.get_json()["error"])
+        self.assertIn("Meta-Modell", response.get_json()["error"])
         opened.assert_not_called()
 
     def test_unreachable_backend_returns_503(self):

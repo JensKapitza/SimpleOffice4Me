@@ -1,15 +1,21 @@
-# Lokale Objekterkennung für die ContextFlow-Demo (Ollama)
+# Lokale Meta-Modelle für die ContextFlow-Demo (Ollama)
+
+> **Wettbewerbsregel:** ContextFlow akzeptiert zur Laufzeit ausschließlich
+> Meta-Modelle. Die nachfolgenden Qwen-Live-Logs sind historische Diagnose- und
+> Entwicklungsbelege von vor dem Meta-only-Gate; sie beschreiben keinen
+> zulässigen oder unterstützten Inferenzpfad.
 
 ## Einrichten
 
 1. Ollama über den Hersteller installieren und starten
    (Standard: `http://127.0.0.1:11434`).
-2. Vision-Modell laden: `ollama pull qwen3-vl:2b-instruct`
-   (Instruct-Variante, ca. 1,9 GB — die Thinking-Variante
-   qwen3-vl:2b sendet nur Reasoning und wird abgelehnt).
+2. Für lokale Bildanalyse ein Meta-Vision-Modell laden:
+   `ollama pull llama3.2-vision` (11B, benötigt laut Ollama mindestens
+   8 GB VRAM) oder `ollama pull muse-glimmer` (30B, multimodal).
+   Für reine Textaufgaben wie Tag-Vorschläge genügt
+   `ollama pull llama3.2:1b`; dieses Modell kann keine Bilder analysieren.
 3. Demo mit Modell starten (Repo-Root, Projekt-venv):
-   `set CONTEXTFLOW_OLLAMA_MODEL=qwen3-vl:2b-instruct` (cmd) bzw.
-   `$env:CONTEXTFLOW_OLLAMA_MODEL="qwen3-vl:2b-instruct"` (PowerShell),
+   `$env:CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision"` (PowerShell),
    dann `.venv/Scripts/python.exe tools/contextflow_demo.py --port 5091`
 
 Optional: `CONTEXTFLOW_OLLAMA_URL` (Default `http://127.0.0.1:11434`),
@@ -17,15 +23,18 @@ Optional: `CONTEXTFLOW_OLLAMA_URL` (Default `http://127.0.0.1:11434`),
 
 ## Verhalten
 
-- MODEL gesetzt → Provider `local`: Fotoanalyse und Befundentwürfe
-  laufen über das lokale Ollama-Modell.
+- Ein freigegebenes Meta-Modell gesetzt → Provider `local`: Fotoanalyse und
+  Befundentwürfe laufen über das lokale Ollama-Modell. `llama3.2:1b` ist nur
+  für Text-Aufgaben zugelassen; Bildrouten verweigern es vor dem Aufruf.
   Hinweis: der erste Aufruf nach Modellstart (Kaltstart) kann auf CPU
   deutlich über 60 s dauern — einfach warten bzw. erneut versuchen;
   danach antwortet das warme Modell schneller.
 - MODEL leer/fehlend → Provider `mock`: nur Befunddemo;
   `/contextflow/inventory-suggest` antwortet 503 mit deutschem Hinweis.
 
-Kein API-Key, kein Cloudpfad; alles bleibt auf 127.0.0.1.
+Im lokalen Provider bleiben Bild und Text auf 127.0.0.1. Nicht-Meta-Modelle
+werden bereits bei der Konfiguration abgewiesen. Für den getrennten, nur
+synthetischen Meta-Cloud-Demo-Pfad siehe `README.md`.
 
 ## Anfrage-Format (Streaming, /api/chat, kein think)
 
@@ -33,9 +42,8 @@ Kein API-Key, kein Cloudpfad; alles bleibt auf 127.0.0.1.
   content: prompt, images: [base64] nur Vision}]`, `stream: true`,
   `format: "json"`, `options: {num_predict: 2048}` — das Feld
   `think` wird vollständig weggelassen (weder top-level noch in
-  `options`): `think: false` hängt qwen3-vl über HTTP, ohne Feld
-  antwortet das warme Modell in Sekunden (Eigentümer-Beleg 28.10.).
-  2048 Tokens lassen Raum für Reasoning plus kurze JSON-Antwort
+  `options`), damit das ausgewählte Meta-Modell seinen unterstützten
+  Standardpfad verwendet. 2048 Tokens lassen Raum für kurze JSON-Antwort
   im 4096-Fenster (Prompts begrenzt: Text ≤4000 Zeichen).
 - Geparst wird inkrementell NDJSON: nur `message.content` wird
   akkumuliert, `message.thinking` ignoriert; `done: true` plus
@@ -45,13 +53,14 @@ Kein API-Key, kein Cloudpfad; alles bleibt auf 127.0.0.1.
 - Fehler deutsch: Timeout → 503 + `"timeout": true`; leer →
   „leer geantwortet" (400); unvollständig/zu lang → 503;
   beschädigt → 400. Exakte Body-/Parser-Tests.
-- Model-Guard vor jeder Inferenz: /api/show prüft Thinking
-  (Capability/Renderer, ≤10 s); Thinking-Modell → installierter
-  `-instruct`-Sibling wird verwendet, sonst schnelle 503 mit
-  `ollama pull`-Anleitung (nie Auto-Download, nie Thinking-Lauf);
-  Show-404 → Installations-Hinweis; Probefehler → Fail-open.
+- Meta-Model-Gate vor jeder Inferenz: ausschließlich die explizite
+  Ollama-Allowlist (Text: Llama 3.2 1B/3B; Bild: Llama 3.2 Vision
+  oder Muse Glimmer) ist zulässig. Ein text-only Modell wird auf
+  Bildrouten vor dem Netzwerkaufruf abgewiesen. `/api/show` prüft nur,
+  ob das Modell installiert ist; `404` gibt eine `ollama pull`-Anleitung,
+  andere Probe-Fehler fallen auf den freigegebenen Modellnamen zurück.
 
-## Live-Belege (28.10., synthetisch durch die App, kein Erfolg)
+## Historische Live-Belege (28.10., Qwen vor dem Meta-only-Gate)
 
 - 60-s-Budget: 503 Zeitlimit nach 60,2 s, ok:false.
 - 180-s-Budget: 503 „Remote end closed connection without

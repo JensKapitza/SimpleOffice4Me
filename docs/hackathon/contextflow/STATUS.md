@@ -34,6 +34,27 @@ Historie: 27.10. Batch 0–2 (31 Tests: 11 Adapter + 9 Links + 11 Evaluator),
 danach Batch 3, UI-Integration, Replay-/Security-Fixes, Testuhr-Patch,
 Reset-Suite — alle Zwischenstände unten sind im finalen 74er-Lauf enthalten.
 
+## Neu: verpflichtendes Meta-only-Laufzeit-Gate
+
+Die alte Ollama-Vorgabe nutzte Qwen und verletzte damit die verbindliche
+Hackathon-Architektur. Das bleibt als historischer Entwicklungsbeleg in den
+älteren Live-Logs erhalten, ist aber für neue Starts und Laufzeit-Aufrufe
+gesperrt. Ollama akzeptiert nur explizite Meta-Modellkennungen; Bildrouten
+verweigern text-only Llama 3.2 1B/3B, bevor Ollama kontaktiert wird. Der
+optionale Cloudpfad ist auf Meta Muse Spark 1.3 und
+`https://api.meta.ai/v1/chat/completions` festgelegt, folgt keinen Redirects,
+verlangt Einwilligung und einen synthetischen Demo-Root. Demo-Starter, UI-Label,
+README mit 3-Minuten-Ablauf sowie die Vorgabe in `AGENTS.md` sind aktualisiert.
+
+Verifikation dieser Änderung: ContextFlow-Regressionssatz 190 Tests OK,
+2 umgebungsbedingte Symlink-Skips; `compileall` für `app tools tests`,
+`check_project_policy.py`, File-Size-Limit 1000, Function-Size-Limit 300
+für `app tools` und `git diff --check` OK. Ein realer Meta-API-Aufruf war
+ohne persönlichen `MODEL_API_KEY` nicht möglich; der Transport und die
+Modell-/Endpoint-Gates sind mit Testtransport geprüft. Zwei redundante
+Tag-Testfälle wurden anschließend entfernt, damit die vorhandene Testdatei
+unter dem CI-Dateigrößenlimit bleibt; Produktionscode blieb unverändert.
+
 ## Neue Hackathon-Dateien (Branch-Arbeit)
 
 | Datei | Batch | Inhalt |

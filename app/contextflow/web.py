@@ -303,9 +303,9 @@ def dashboard():
                 }
             )
     vision_labels = {
-        "local": "Lokale KI (eigener Rechner)",
+        "local": "Meta-Modell lokal via Ollama",
         "mock": "Demo-Mock (keine echte Analyse)",
-        "meta": "Meta-Cloud (nur Demo + Einwilligung)",
+        "meta": "Meta Muse Spark 1.3 (Meta Model API · nur synthetische Demo + Einwilligung)",
     }
     vision_visits = [
         {"id": str(row.get("visit_id", "")), "title": str(row.get("title", ""))}

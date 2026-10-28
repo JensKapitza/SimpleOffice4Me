@@ -70,6 +70,11 @@ if exist ".venv\Scripts\python.exe" goto :contextflow_run
 echo Demo braucht die Projektumgebung. Bitte zuerst einmalig start.bat ohne demo ausfuehren.
 exit /b 1
 :contextflow_run
+rem Fail clearly if this checkout's venv is unsupported or incomplete.
+".venv\Scripts\python.exe" "%ROOT%simpleoffice_runtime_support.py"
+if errorlevel 1 goto :demo_python_error
+".venv\Scripts\python.exe" -c "import flask; from PIL import Image" >nul 2>nul
+if errorlevel 1 goto :demo_dependency_error
 shift
 ".venv\Scripts\python.exe" "%ROOT%tools\contextflow_demo.py" %1 %2 %3 %4 %5 %6 %7 %8 %9
 exit /b %errorlevel%
@@ -211,7 +216,17 @@ echo   start.bat demo --port 5088
 exit /b 0
 
 :python_error
-echo CPython 3.11 bis 3.14 wurde nicht gefunden oder konnte keine virtuelle Umgebung erstellen.
+echo CPython 3.11 bis 3.15 wurde nicht gefunden oder konnte keine virtuelle Umgebung erstellen.
+exit /b 1
+
+:demo_python_error
+echo Die Projektumgebung nutzt kein unterstuetztes CPython 3.11 bis 3.15.
+echo Bitte start.bat ohne demo ausfuehren und danach start.bat demo wiederholen.
+exit /b 1
+
+:demo_dependency_error
+echo Flask oder Pillow fehlt in der Projektumgebung.
+echo Bitte start.bat ohne demo ausfuehren und danach start.bat demo wiederholen.
 exit /b 1
 
 :install_error
