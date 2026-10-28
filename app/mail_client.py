@@ -782,9 +782,10 @@ class ImapArchive:
                 return item[1]
         raise RuntimeError("IMAP server returned no message body")
 
-    def _connect(self, account: dict[str, Any]):
+    def _connect(self, account: dict[str, Any], *, password: str | None = None):
         context = ssl.create_default_context()
         timeout = 30
+        credential = account["plain_password"] if password is None else password
         if account["security"] == "tls":
             connection = imaplib.IMAP4_SSL(account["host"], account["port"], ssl_context=context, timeout=timeout)
         else:
@@ -801,10 +802,10 @@ class ImapArchive:
         try:
             if method == "plain":
                 status, _ = connection.authenticate(
-                    "PLAIN", lambda _challenge: f"\0{account['username']}\0{account['plain_password']}".encode("utf-8")
+                    "PLAIN", lambda _challenge: f"\0{account['username']}\0{credential}".encode("utf-8")
                 )
             else:
-                status, _ = connection.login(account["username"], account["plain_password"])
+                status, _ = connection.login(account["username"], credential)
         except imaplib.IMAP4.error as exc:
             diagnostic = self.authentication_diagnostic(account, capabilities, exc, attempted)
             try: connection.logout()
@@ -846,10 +847,30 @@ class ImapArchive:
         finally:
             connection.logout()
 
-    def archive(self, actor: str, account: dict[str, Any], *, limit: int = 250, extract_attachments: bool = False) -> dict[str, Any]:
+    def archive(
+        self,
+        actor: str,
+        account_id: str,
+        account_config: dict[str, Any],
+        password: str,
+        *,
+        limit: int = 250,
+        extract_attachments: bool = False,
+    ) -> dict[str, Any]:
         from .imap_archive_recovery import ArchiveRecovery
 
-        return ArchiveRecovery(self, actor, account).run(
+        account_id = _safe_id(account_id)
+        if not isinstance(account_config, dict) or account_config.get("id") != account_id:
+            raise ValueError("IMAP archive account configuration does not match its ID")
+        if not isinstance(password, str) or not password:
+            raise ValueError("IMAP archive password is required")
+        public_fields = ("host", "port", "security", "username", "auth_method", "folder")
+        archive_config = {"id": account_id}
+        archive_config.update({key: account_config[key] for key in public_fields if key in account_config})
+        for key in ("host", "port", "security", "username", "folder"):
+            if key not in archive_config:
+                raise ValueError(f"IMAP archive account configuration is missing {key}")
+        return ArchiveRecovery(self, actor, account_id, archive_config, password).run(
             max(1, min(int(limit), MAX_MESSAGES_PER_RUN)), extract_attachments,
         )
 
