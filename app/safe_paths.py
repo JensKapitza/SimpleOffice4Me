@@ -91,12 +91,20 @@ def resolve_directory_under(root: str | Path, value: str | Path = ".") -> Path:
 
 
 def resolve_for_write_under(root: str | Path, value: str | Path) -> Path:
-    """Resolve a possibly-missing destination and prove its parent is contained."""
+    """Resolve a possibly-missing destination and prove its nearest existing parent is contained."""
     candidate = resolve_under(root, value, strict=False)
     root_path = normalize_path(root, strict=True)
     if candidate == root_path:
         return candidate
-    parent = normalize_path(candidate.parent, strict=True)
+    existing_parent = candidate.parent
+    while not existing_parent.exists():
+        ancestor = existing_parent.parent
+        if ancestor == existing_parent:
+            raise ValueError("write path has no existing parent")
+        existing_parent = ancestor
+    parent = normalize_path(existing_parent, strict=True)
+    if not parent.is_dir():
+        raise ValueError("write path parent is not a directory")
     try:
         parent.relative_to(root_path)
     except ValueError as exc:
