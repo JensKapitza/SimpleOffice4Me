@@ -429,6 +429,7 @@ def send(account_id: str):
         result = SmtpSubmission(store).send(
             _actor(), account, request.form.get("recipients", ""), request.form.get("subject", ""),
             request.form.get("body", ""), request.form.get("calendar_data", ""),
+            account_id=account_id,
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als unveränderte EML archiviert.")
     except MailReadOnlyError as exc:
