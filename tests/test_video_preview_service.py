@@ -68,6 +68,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
 
             self.assertEqual(
                 {
+                    "archive_ocr_enabled": False,
                     "preview_enabled": False,
                     "preview_timeout_seconds": 90,
                     "preview_max_bytes": 2 * 1024 * 1024,
