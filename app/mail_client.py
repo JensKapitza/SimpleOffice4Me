@@ -28,6 +28,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .mail_env_credentials import environment_mail_password
 from .revision_history import RevisionHistory
+from .safe_paths import resolve_for_write_under
 from .v2.storage_runtime import create_document
 
 MAX_MESSAGE_BYTES = 100 * 1024 * 1024
@@ -501,8 +502,9 @@ class MailStore:
 
     def ensure_private_archive(self, actor: str, account_id: str) -> Path:
         """Create an ACL boundary so DAV/SFTP users only see their own mail tree."""
-        user_folder = self.root / "email" / _owner_key(actor)
-        folder = user_folder / _safe_id(account_id)
+        owner_key = _owner_key(actor)
+        user_folder = resolve_for_write_under(self.root, Path("email") / owner_key)
+        folder = resolve_for_write_under(self.root, Path("email") / owner_key / _safe_id(account_id))
         changed = False
         for boundary in (user_folder, folder):
             policy_path = DocumentStore(self.root).ensure_folder_policy(boundary, actor)
@@ -527,7 +529,7 @@ class MailStore:
         year = datetime.now(timezone.utc).strftime("%Y")
         path = f"email/{_owner_key(actor)}/{account_id}/sent/{year}/{digest}.eml"
         documents = DocumentStore(self.root)
-        target = self.root / path
+        target = resolve_for_write_under(self.root, path)
         target.parent.mkdir(parents=True, exist_ok=True)
         documents.ensure_folder_policy(target.parent, actor)
         if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:

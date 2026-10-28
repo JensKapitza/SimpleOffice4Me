@@ -104,13 +104,20 @@ class SafePathsTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_directory_under(root, "folder/file.txt")
 
-    def test_write_target_may_be_missing_but_parent_must_exist_inside_root(self):
+    def test_write_target_and_intermediate_parents_may_be_missing_inside_root(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             folder = root / "folder"
             folder.mkdir()
-            target = resolve_for_write_under(root, "folder/new.txt")
-            self.assertEqual((folder / "new.txt").resolve(strict=False), target)
+            target = resolve_for_write_under(root, "folder/new/leaf.txt")
+            self.assertEqual((folder / "new/leaf.txt").resolve(strict=False), target)
+
+    def test_write_target_below_non_directory_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            (root / "file").write_text("x", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "parent is not a directory"):
+                resolve_for_write_under(root, "file/child.txt")
 
     def test_trusted_path_normalizer_uses_absolute_realpath(self):
         with tempfile.TemporaryDirectory() as temp:
