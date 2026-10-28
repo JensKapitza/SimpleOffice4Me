@@ -13,10 +13,6 @@ import stat
 from pathlib import Path
 from typing import Mapping
 
-from cryptography.exceptions import InvalidTag
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-
 _HA1_PREFIX = "enc:sip-ha1:v1:"
 _HA1_STORAGE_CONTEXT = b"SimpleOffice4Me/sip-ha1-storage/v1"
 _EXTENSION_RE = re.compile(r"^[0-9]{1,12}$")
@@ -84,6 +80,8 @@ def encrypt_sip_digest_verifiers(
     verifiers: Mapping[str, str],
     master_key: str | bytes,
 ) -> str:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     extension = str(extension or "")
     if not _EXTENSION_RE.fullmatch(extension):
         raise ValueError("invalid SIP extension for verifier encryption")
@@ -100,6 +98,9 @@ def decrypt_sip_digest_verifiers(
     value: str,
     master_key: str | bytes,
 ) -> dict[str, str]:
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     if not isinstance(value, str) or not value.startswith(_HA1_PREFIX):
         raise ValueError("SIP Digest verifier is not encrypted")
     extension = str(extension or "")
@@ -120,6 +121,9 @@ def decrypt_sip_digest_verifiers(
 
 def decrypt_sip_profile_secret(value: str, extension: str, master_key: str | bytes) -> str:
     """Decrypt the existing ``security_controls.protect_value`` format."""
+    from cryptography.exceptions import InvalidTag
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     if not isinstance(value, str) or not value.startswith("enc:v1:"):
         raise ValueError("SIP profile secret is not encrypted")
     extension = str(extension or "")
@@ -138,6 +142,8 @@ def decrypt_sip_profile_secret(value: str, extension: str, master_key: str | byt
 
 def encrypt_sip_profile_secret(value: str, extension: str, master_key: str | bytes) -> str:
     """Create the same purpose-bound SIP secret token used by the Flask admin."""
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
     if not value:
         raise ValueError("SIP profile secret is empty")
     extension = str(extension or "")
