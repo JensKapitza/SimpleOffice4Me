@@ -138,7 +138,7 @@ Audio und Video laufen nach der SIP-Aushandlung direkt zwischen den Endgeraeten.
 
 Beim Anlegen einer Nebenstelle erzeugt SimpleOffice ein zufaelliges SIP-Passwort. Das Passwort wird einmalig angezeigt und weiterhin verschluesselt gespeichert.
 
-Für den eingebauten Registrar werden SHA-256- und MD5-HA1-Verifier in einem AES-GCM-geschützten Datenbankfeld gespeichert. Der Worker bietet SHA-256 zuerst an und erhält MD5 für ältere SIP-Endgeräte. Der Schlüssel ist derselbe Installationsschlüssel wie für Web-Sitzungen (standardmäßig `app/instance/session-secret`); bei einer abweichenden Flask-Instance muss `SIMPLEOFFICE_SECRET_KEY_FILE` auf denselben Schlüssel zeigen. Schlüsseldateien müssen mindestens 32 Zeichen enthalten und auf POSIX-Systemen für andere Benutzer gesperrt sein.
+Für den eingebauten Registrar werden SHA-256- und MD5-HA1-Verifier in einem AES-GCM-geschützten Datenbankfeld gespeichert. Der Worker bietet SHA-256 zuerst an und erhält MD5 für ältere SIP-Endgeräte. Der Schlüssel ist derselbe Installationsschlüssel wie für Web-Sitzungen (standardmäßig `instance/session-secret`); bei einer abweichenden Flask-Instance muss `SIMPLEOFFICE_SECRET_KEY_FILE` auf denselben Schlüssel zeigen. Schlüsseldateien müssen mindestens 32 Zeichen enthalten und auf POSIX-Systemen für andere Benutzer gesperrt sein.
 
 Vorhandene unverschlüsselte MD5-Verifier werden beim Initialisieren des Telefonie-Speichers oder SIP-Workers in einer atomaren Datenbanktransaktion geprüft und verschlüsselt; SHA-256 wird aus dem bereits verschlüsselten Profilpasswort ergänzt. Bei fehlendem/falschem Schlüssel oder inkonsistenten Daten schlägt die Migration fehl, statt die Verifier zu verwerfen.
 

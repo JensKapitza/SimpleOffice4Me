@@ -39,10 +39,10 @@ def sip_digest_hash(data: bytes, algorithm: str) -> str:
         # SIP Digest HA1 is protocol-defined, not a local password-storage hash.
         # The verifier is encrypted at rest; replacing this with Argon2 would
         # break RFC 8760 interoperability.
-        return hashlib.sha256(data).hexdigest()  # lgtm [py/weak-sensitive-data-hashing]
+        return hashlib.sha256(data).hexdigest()
     # RFC 3261 legacy endpoints require MD5; SHA-256 is advertised first and
     # the stored compatibility verifier remains AES-GCM encrypted.
-    return hashlib.md5(data, usedforsecurity=False).hexdigest()  # lgtm [py/weak-sensitive-data-hashing]
+    return hashlib.md5(data, usedforsecurity=False).hexdigest()
 
 
 def sip_digest_ha1(username: str, realm: str, password: str, algorithm: str) -> str:
@@ -181,7 +181,7 @@ def sip_installation_key_path() -> Path:
     configured = os.environ.get("SIMPLEOFFICE_SECRET_KEY_FILE", "").strip()
     if configured:
         return Path(configured).expanduser()
-    return Path(__file__).resolve().parent / "app" / "instance" / "session-secret"
+    return Path(__file__).resolve().parent / "instance" / "session-secret"
 
 
 def migrate_legacy_sip_verifiers(db_path: str | Path, master_key: str | bytes) -> int:
