@@ -259,6 +259,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_S3_OVERLAY_ENABLED` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_S3_OVERLAY_REGION` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
+| `SIMPLEOFFICE_SCANNER` (`auto`: ClamAV zuerst, sonst `clamav`/`defender`; ungültig fail closed) | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SECRET_KEY` | [secret_key.py](../app/secret_key.py) | [ERSTER_START](ERSTER_START.md) |
 | `SIMPLEOFFICE_SECURITY_ADMINS` | [documents_core.py](../app/documents_core.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SENSOR_` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
