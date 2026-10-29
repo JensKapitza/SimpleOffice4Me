@@ -33,6 +33,12 @@
           <div class="form-text">Begrenzt die gesamte Anfrage (bei mehreren Dateien zusammen). Standard 512 MiB; zulässig 1–4096 MiB. Gilt nach Neustart des Webprozesses; S3-Uploads bleiben zusätzlich durch ihr eigenes Limit begrenzt.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="chat-attachment-max-bytes">Maximale Größe je Chat-Anhang (Bytes; 0 = Upload-Limit übernehmen)</label>
+          <input class="form-control" id="chat-attachment-max-bytes" type="number" name="chat_attachment_max_bytes"
+                 value="{{ media.chat_attachment_max_bytes }}" min="0" max="{{ max_chat_attachment_bytes }}" step="1" required>
+          <div class="form-text">0 folgt dem globalen Upload-Limit. Ein eigener Grenzwert wird zusätzlich dadurch begrenzt. Maximal {{ max_chat_attachment_bytes }} Bytes (4096 MiB).</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="archive-ocr-enabled">OCR für Archivinhalte</label>
           <select class="form-select" id="archive-ocr-enabled" name="archive_ocr_enabled" required>
             <option value="" disabled>Bitte auswählen</option>

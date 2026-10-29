@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import uuid
 from datetime import datetime
 
@@ -21,6 +20,8 @@ from .db import get_db
 from .document_store import DocumentStore, sha256_file
 from .federation_store import FederationStore
 from .safe_paths import resolve_file_under
+from .settings_limits import DEFAULT_UPLOAD_LIMIT_MIB, MIB
+from .settings_store import SettingsStore
 
 bp = Blueprint("chat", __name__, url_prefix="/chat")
 MAX_FILES_PER_MESSAGE = 20
@@ -136,9 +137,13 @@ def _mark_room_read(room_id: str, messages: list[dict]) -> None:
 
 
 def _file_limit() -> int:
-    try: configured=int(os.environ.get("SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES","") or current_app.config.get("MAX_CONTENT_LENGTH",512*1024*1024))
-    except ValueError: configured=int(current_app.config.get("MAX_CONTENT_LENGTH",512*1024*1024))
-    return max(1,min(configured,int(current_app.config.get("MAX_CONTENT_LENGTH",configured))))
+    default_request_limit = DEFAULT_UPLOAD_LIMIT_MIB * MIB
+    configured = current_app.config.get("MAX_CONTENT_LENGTH", default_request_limit)
+    if isinstance(configured, bool) or not isinstance(configured, int) or configured < 1:
+        configured = default_request_limit
+    media = SettingsStore(_root()).settings()["media"]
+    attachment_limit = media["chat_attachment_max_bytes"] or configured
+    return max(1, min(attachment_limit, configured))
 
 
 def _deliver_if_remote(room: dict, message_id: str) -> None:
