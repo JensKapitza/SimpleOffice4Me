@@ -81,6 +81,7 @@ DEFAULT_VIDEO_PREVIEW_FRAMES = 10
 MIN_VIDEO_PREVIEW_FRAMES = 1
 MAX_VIDEO_PREVIEW_FRAMES = 30
 LEGACY_VIDEO_PREVIEW_SETTINGS_FILE = "video-preview-settings.json"
+DEFAULT_ARCHIVE_OCR_ENABLED = False
 DEFAULT_PREVIEW_ENABLED = True
 DEFAULT_PREVIEW_TIMEOUT_SECONDS = 45
 MIN_PREVIEW_TIMEOUT_SECONDS = 5
@@ -141,6 +142,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "rsync_max_files": DEFAULT_RSYNC_MAX_FILES,
     },
     "media": {
+        "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
         "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
@@ -657,6 +659,9 @@ class SettingsStore:
                 os.environ.get("SIMPLEOFFICE_PREVIEW_MAX_PIXELS"),
                 DEFAULT_PREVIEW_MAX_PIXELS, MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
             ),
+            "archive_ocr_enabled": os.environ.get(
+                "SIMPLEOFFICE_ARCHIVE_OCR", "0",
+            ).strip().casefold() in {"1", "true", "yes", "on"},
         }
 
     @staticmethod
@@ -665,6 +670,9 @@ class SettingsStore:
         if not isinstance(normalized.get("preview_enabled"), bool):
             _LOGGER.warning("Invalid stored document preview enable setting; using default")
             normalized["preview_enabled"] = DEFAULT_PREVIEW_ENABLED
+        if not isinstance(normalized.get("archive_ocr_enabled"), bool):
+            _LOGGER.warning("Invalid stored archive OCR setting; using default")
+            normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
         ranges = {
             "video_preview_frames": (
                 DEFAULT_VIDEO_PREVIEW_FRAMES,
@@ -782,6 +790,9 @@ class SettingsStore:
         preview_enabled = media.get("preview_enabled", DEFAULT_PREVIEW_ENABLED)
         if not isinstance(preview_enabled, bool):
             raise ValueError("document previews enabled must be boolean")
+        archive_ocr_enabled = media.get("archive_ocr_enabled", DEFAULT_ARCHIVE_OCR_ENABLED)
+        if not isinstance(archive_ocr_enabled, bool):
+            raise ValueError("archive OCR enabled must be boolean")
         preview_timeout = media.get("preview_timeout_seconds", DEFAULT_PREVIEW_TIMEOUT_SECONDS)
         if (
             isinstance(preview_timeout, bool)
@@ -841,6 +852,7 @@ class SettingsStore:
                 "rsync_max_files": rsync_max_files,
             },
             "media": {
+                "archive_ocr_enabled": archive_ocr_enabled,
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
                 "preview_timeout_seconds": preview_timeout,
