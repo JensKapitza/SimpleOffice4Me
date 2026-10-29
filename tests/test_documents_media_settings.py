@@ -13,6 +13,7 @@ from werkzeug.security import generate_password_hash
 from app import app, configured_webdav_quota_bytes, db as database
 from app.attachment_security import AttachmentSecurity
 from app.settings_store import (
+    DEFAULT_ARCHIVE_OCR_ENABLED,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
@@ -60,6 +61,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
                 "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": str(DEFAULT_VIDEO_PREVIEW_FRAMES),
                 "SIMPLEOFFICE_CLAMAV_TIMEOUT": str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
+                "SIMPLEOFFICE_ARCHIVE_OCR": "0",
                 "SIMPLEOFFICE_RSYNC_TIMEOUT": str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_RSYNC_MAX_BYTES": str(DEFAULT_RSYNC_MAX_BYTES),
                 "SIMPLEOFFICE_RSYNC_MAX_FILES": str(DEFAULT_RSYNC_MAX_FILES),
@@ -93,6 +95,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
     @staticmethod
     def form_values(**overrides):
         values = {
+            "archive_ocr_enabled": "0",
             "preview_enabled": "1",
             "preview_timeout_seconds": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
             "preview_max_bytes": str(DEFAULT_PREVIEW_MAX_BYTES),
@@ -110,6 +113,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('name="_csrf_token"', html)
         self.assertIn('name="preview_timeout_seconds"', html)
+        self.assertIn('name="archive_ocr_enabled"', html)
         self.assertIn('name="preview_max_bytes"', html)
         self.assertIn('name="preview_max_pixels"', html)
         self.assertIn('name="video_preview_frames"', html)
@@ -630,6 +634,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             path,
             data=self.form_values(
                 preview_enabled="0",
+                archive_ocr_enabled="1",
                 preview_timeout_seconds="90",
                 preview_max_bytes="2000000",
                 preview_max_pixels="120000000",
@@ -640,6 +645,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(302, response.status_code)
         media = SettingsStore(self.root).settings()["media"]
         self.assertFalse(media["preview_enabled"])
+        self.assertTrue(media["archive_ocr_enabled"])
         self.assertEqual(90, media["preview_timeout_seconds"])
         self.assertEqual(2_000_000, media["preview_max_bytes"])
         self.assertEqual(120_000_000, media["preview_max_pixels"])
@@ -657,6 +663,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         path = "/admin/settings/documents-media"
         invalid_values = (
             {"preview_timeout_seconds": "301"},
+            {"archive_ocr_enabled": "maybe"},
             {"preview_max_bytes": "1023"},
             {"preview_max_bytes": "2147483649"},
             {"preview_max_pixels": "999999"},
@@ -686,15 +693,42 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(302, reset.status_code)
         media = SettingsStore(self.root).settings()["media"]
         self.assertEqual(DEFAULT_PREVIEW_ENABLED, media["preview_enabled"])
+        self.assertEqual(DEFAULT_ARCHIVE_OCR_ENABLED, media["archive_ocr_enabled"])
         self.assertEqual(DEFAULT_PREVIEW_TIMEOUT_SECONDS, media["preview_timeout_seconds"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_BYTES, media["preview_max_bytes"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_PIXELS, media["preview_max_pixels"])
         self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, media["video_preview_frames"])
 
+    def test_legacy_archive_ocr_environment_value_migrates_once(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_OCR": "yes"}):
+                self.assertTrue(store.settings()["media"]["archive_ocr_enabled"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_OCR": "0"}):
+                media = SettingsStore(legacy_root).settings()["media"]
+            self.assertTrue(media["archive_ocr_enabled"])
+            self.assertFalse(media["preview_enabled"])
+
+    def test_older_media_form_submission_preserves_archive_ocr_setting(self):
+        SettingsStore(self.root).save(
+            {"media": {"archive_ocr_enabled": True}}, "media-admin",
+        )
+        old_form = self.form_values()
+        old_form.pop("archive_ocr_enabled")
+        response = self.admin.post(
+            "/admin/settings/documents-media",
+            data=old_form,
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertTrue(SettingsStore(self.root).settings()["media"]["archive_ocr_enabled"])
+
     def test_settings_store_rejects_invalid_preview_types_and_bounds(self):
         store = SettingsStore(self.root)
         invalid_media = (
             {"preview_enabled": "0"},
+            {"archive_ocr_enabled": "1"},
             {"preview_timeout_seconds": True},
             {"preview_max_bytes": 2 * 1024 * 1024 * 1024 + 1},
             {"preview_max_pixels": 999_999},

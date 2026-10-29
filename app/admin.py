@@ -941,13 +941,23 @@ def save_printershare_purge_settings():
 def save_documents_media_settings():
     reset_defaults = request.form.get("reset") == "1"
     try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
         if reset_defaults:
             media = dict(DEFAULT_SETTINGS["media"])
         else:
+            current_media = store.settings()["media"]
             enabled = request.form.get("preview_enabled", "")
             if enabled not in {"0", "1"}:
                 raise ValueError("Bitte wählen, ob Dokumentvorschauen aktiviert sind.")
+            archive_ocr = request.form.get("archive_ocr_enabled")
+            if archive_ocr is None:
+                archive_ocr_enabled = current_media["archive_ocr_enabled"]
+            elif archive_ocr not in {"0", "1"}:
+                raise ValueError("Bitte wählen, ob OCR für neue Archivindizes aktiviert ist.")
+            else:
+                archive_ocr_enabled = archive_ocr == "1"
             media = {
+                "archive_ocr_enabled": archive_ocr_enabled,
                 "preview_enabled": enabled == "1",
                 "preview_timeout_seconds": _bounded_media_integer(
                     "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS, MAX_PREVIEW_TIMEOUT_SECONDS,
@@ -962,9 +972,7 @@ def save_documents_media_settings():
                     "video_preview_frames", MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
                 ),
             }
-        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
-            {"media": media}, str(g.user["username"]),
-        )
+        store.save({"media": media}, str(g.user["username"]))
         audit(
             "documents_media_settings_updated",
             "settings",
