@@ -69,11 +69,11 @@ class WorkflowActionPinTests(unittest.TestCase):
     def test_ci_pip_bootstrap_is_hash_locked_in_consuming_workflows(self):
         root = Path(__file__).resolve().parents[1]
         lock_text = (root / "requirements-ci-pip.txt").read_text(encoding="utf-8")
-        self.assertIn("pip==26.1.2", lock_text)
+        self.assertIn("pip==26.2.2", lock_text)
         self.assertEqual(
             {
-                "382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab",
-                "f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605",
+                "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70",
+                "3a8e5c800492787f33a4114ef54444546c340df428974ebba17e0fd47e11af2f",
             },
             set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
         )
