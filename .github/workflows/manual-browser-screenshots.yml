@@ -13,6 +13,8 @@ on:
       - .github/workflows/manual-browser-screenshots.yml
       - requirements-ci-pip.in
       - requirements-ci-pip.txt
+      - requirements-ci-browser.in
+      - requirements-ci-browser.txt
       - app/chat*.py
       - app/documents_routes_upload.py
       - app/federation*.py
@@ -98,7 +100,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
-          python -m pip install 'playwright==1.55.0'
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-ci-browser.txt
           python -m playwright install --with-deps chromium
 
       - name: Build SimpleOffice4Me image
