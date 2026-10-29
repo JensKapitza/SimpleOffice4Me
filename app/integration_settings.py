@@ -34,6 +34,10 @@ MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS = 3600
 DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS = 60
 MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS = 30
 MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS = 3600
+DEFAULT_FEDERATION_AUTOSCAN_COUNTRY = ""
+DEFAULT_FEDERATION_AUTOSCAN_SECONDS = 21600
+MIN_FEDERATION_AUTOSCAN_SECONDS = 3600
+MAX_FEDERATION_AUTOSCAN_SECONDS = 7 * 86400
 
 
 def _legacy_integer(
@@ -151,6 +155,29 @@ def legacy_printershare_purge_interval_seconds() -> int:
     )
 
 
+def legacy_federation_autoscan_country() -> str:
+    """Migrate the old optional country code without enabling invalid scans."""
+    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY", "")
+    country = raw.strip().upper()
+    if not country:
+        return DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
+    if len(country) != 2 or not country.isascii() or not country.isalpha():
+        _LOGGER.warning("Invalid legacy federation autoscan country; automatic discovery disabled")
+        return DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
+    return country
+
+
+def legacy_federation_autoscan_seconds() -> int:
+    return _legacy_integer(
+        "SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS",
+        DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+        MIN_FEDERATION_AUTOSCAN_SECONDS,
+        MAX_FEDERATION_AUTOSCAN_SECONDS,
+        clamp_oversized=True,
+        max_digits=128,
+    )
+
+
 def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
     ranges = {
         "osm_download_read_timeout_seconds": (
@@ -198,8 +225,13 @@ def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, An
             MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
             MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
         ),
+        "federation_autoscan_seconds": (
+            DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+            MIN_FEDERATION_AUTOSCAN_SECONDS,
+            MAX_FEDERATION_AUTOSCAN_SECONDS,
+        ),
     }
-    result: dict[str, int] = {}
+    result: dict[str, int | str] = {}
     for key, (default, minimum, maximum) in ranges.items():
         value = integrations.get(key, default)
         if (
@@ -210,10 +242,24 @@ def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, An
             _LOGGER.warning("Invalid stored integration setting %s; using default", key)
             value = default
         result[key] = value
+    country = integrations.get(
+        "federation_autoscan_country", DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
+    )
+    if not isinstance(country, str):
+        _LOGGER.warning("Invalid stored federation autoscan country; disabling automatic discovery")
+        country = DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
+    else:
+        country = country.strip().upper()
+        if country and (
+            len(country) != 2 or not country.isascii() or not country.isalpha()
+        ):
+            _LOGGER.warning("Invalid stored federation autoscan country; disabling automatic discovery")
+            country = DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
+    result["federation_autoscan_country"] = country
     return result
 
 
-def validate_integration_settings(integrations: Any) -> dict[str, int]:
+def validate_integration_settings(integrations: Any) -> dict[str, int | str]:
     if not isinstance(integrations, dict):
         raise ValueError("integration settings must be an object")
     values = normalize_integration_settings(integrations)
@@ -238,6 +284,9 @@ def validate_integration_settings(integrations: Any) -> dict[str, int]:
         ("printershare_purge_interval_seconds", MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
          MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
          "PrinterShare purge interval must be between 30 and 3600 seconds"),
+        ("federation_autoscan_seconds", MIN_FEDERATION_AUTOSCAN_SECONDS,
+         MAX_FEDERATION_AUTOSCAN_SECONDS,
+         "Federation autoscan interval must be between 3600 and 604800 seconds"),
     )
     for key, minimum, maximum, message in fields:
         value = integrations.get(key, values[key])
@@ -248,4 +297,13 @@ def validate_integration_settings(integrations: Any) -> dict[str, int]:
         ):
             raise ValueError(message)
         values[key] = value
+    country = integrations.get(
+        "federation_autoscan_country", DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
+    )
+    if not isinstance(country, str):
+        raise ValueError("Federation autoscan country must be empty or ISO-3166 alpha-2")
+    country = country.strip().upper()
+    if country and (len(country) != 2 or not country.isascii() or not country.isalpha()):
+        raise ValueError("Federation autoscan country must be empty or ISO-3166 alpha-2")
+    values["federation_autoscan_country"] = country
     return values

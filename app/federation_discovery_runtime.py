@@ -1,7 +1,7 @@
 """Runtime integration for automatic federation discovery and scheduled sync jobs."""
-import os
 import threading
 import time
+from pathlib import Path
 
 import click
 from flask import current_app
@@ -10,23 +10,22 @@ from .federation_discovery_schedule import claim_due
 from .federation_discovery_service import discover_country
 from .build_master import LICENSE_MASTER_MODE
 from .master_cluster import record_master_address_status
+from .settings_store import SettingsStore
 
 
-def configured_country():
-    return os.environ.get("SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY", "").strip().upper()[:2]
+def configured_country(root: str | Path) -> str:
+    return str(SettingsStore(root).settings()["integrations"]["federation_autoscan_country"])
 
 
-def configured_interval():
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS", "21600")
-    try:
-        value = int(raw)
-    except ValueError:
-        value = 21600
-    return max(3600, min(value, 7 * 86400))
+def configured_interval(root: str | Path) -> int:
+    return int(SettingsStore(root).settings()["integrations"]["federation_autoscan_seconds"])
 
 
 def _worker(app):
-    country = configured_country()
+    with app.app_context():
+        root = current_app.config["DOCUMENT_ROOT"]
+        country = configured_country(root)
+        interval = configured_interval(root)
     if not country and not LICENSE_MASTER_MODE:
         return
     while True:
@@ -39,14 +38,13 @@ def _worker(app):
                     app.extensions["simpleoffice_master_address_status"] = {"operating_state": "standby_probe_failed", "reachability": "not_checked", "authority_error": type(exc).__name__}
                     app.logger.warning("master cluster probe failed (%s)", type(exc).__name__)
             if country:
-                interval = configured_interval()
                 try:
                     if claim_due(root, "country:" + country, interval):
                         result = discover_country(root, country)
                         app.logger.info("federation autoscan country=%s peers=%s errors=%s", country, len(result["peers"]), len(result["errors"]))
                 except Exception as exc:
                     app.logger.warning("federation autoscan failed: %s", exc)
-        time.sleep(15 if LICENSE_MASTER_MODE else min(configured_interval(), 3600))
+        time.sleep(15 if LICENSE_MASTER_MODE else min(interval, 3600))
 
 
 @click.command("federation-discover")
@@ -58,7 +56,8 @@ def discover_command(country):
 
 def init_app(app):
     app.cli.add_command(discover_command)
-    if (configured_country() or LICENSE_MASTER_MODE) and not app.testing:
+    root = app.config["DOCUMENT_ROOT"]
+    if (configured_country(root) or LICENSE_MASTER_MODE) and not app.testing:
         thread = threading.Thread(target=_worker, args=(app,), daemon=True, name="federation-country-discovery")
         thread.start()
 
