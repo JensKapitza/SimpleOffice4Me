@@ -17,9 +17,10 @@ bleiben gesperrt. Python 3.10 wird nicht mehr unterstützt. Die
   zusammengeführt.
 - Fehlgeschlagene Prüfungen müssen vor einem Release untersucht werden.
 
-Die aktuell festgelegten Actions entsprechen `actions/checkout` 7.0.1 und
-`actions/setup-python` 7.0.0. Die Versionskommentare dienen nur der Lesbarkeit;
-ausgeführt wird immer der angegebene Commit-SHA.
+Externe GitHub Actions werden mit vollständigen Commit-SHAs festgelegt; ein
+Versionskommentar dokumentiert den zugehörigen Upstream-Tag. Ein Regressionstest
+prüft alle Workflow-Dateien auf veränderliche Tags oder Branch-Referenzen.
+Action-Updates müssen den geprüften SHA und den Kommentar gemeinsam aktualisieren.
 
 ## Lokal prüfen
 
