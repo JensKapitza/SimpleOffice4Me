@@ -501,7 +501,7 @@ class WebDavDocumentTestPart1(WebDavTestBase):
             io.BytesIO(payload), "untrusted.html", "jens",
         )
         urls = (
-            (f"{self.files}/untrusted.html", "text/html"),
+            (f"{self.files}/{document['last_path']}", "text/html"),
             (
                 f"/webdav/documents/jens/{document['document_id']}--untrusted.html",
                 "application/octet-stream",
@@ -517,6 +517,7 @@ class WebDavDocumentTestPart1(WebDavTestBase):
                     url, headers={**self.auth, "Range": "bytes=0-5,20-30"},
                 )
                 head = self.client.head(url, headers=self.auth)
+                self.assertEqual(200, full.status_code)
                 not_modified = self.client.get(
                     url, headers={**self.auth, "If-None-Match": full.headers["ETag"]},
                 )
