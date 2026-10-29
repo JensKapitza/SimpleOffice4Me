@@ -12,6 +12,7 @@ on:
       - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
       - 'docs/assets/simpleoffice-documentation-logo.png'
       - 'pyproject.toml'
+      - 'requirements-ci-tools.txt'
       - '.github/workflows/tauri-build.yml'
   workflow_dispatch:
 permissions:

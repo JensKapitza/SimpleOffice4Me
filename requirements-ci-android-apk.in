@@ -1,0 +1,2 @@
+# Host-side image inspection used by the Android APK validation job.
+Pillow==13.0.0

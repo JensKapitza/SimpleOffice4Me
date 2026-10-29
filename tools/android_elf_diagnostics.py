@@ -9,12 +9,16 @@ from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
 
-_RUST_ELF = "cryptography/hazmat/bindings/_rust.abi3.so"
+_RUST_ELF = "_rust.abi3.so"
+_RUST_ELF_PATHS = (
+    f"cryptography/hazmat/bindings/{_RUST_ELF}",
+    "cryptography/hazmat/bindings/_rust.abi3-aarch64-linux-android.so",
+)
 _PYTHON_ELF = "libpython3.15.so"
 
 
 def _is_relevant_elf(name: str) -> bool:
-    return name.endswith(_RUST_ELF) or name.endswith(_PYTHON_ELF)
+    return any(name.endswith(path) for path in _RUST_ELF_PATHS) or name.endswith(_PYTHON_ELF)
 
 
 def _iter_relevant_elfs(
@@ -52,7 +56,9 @@ def extract_linkage_diagnostics(apk: Path, output: Path, *, require_python_depen
     found: dict[str, Path] = {}
     with ZipFile(apk) as archive:
         for origin, contents in _iter_relevant_elfs(archive, source=str(apk)):
-            name = _RUST_ELF.rsplit("/", 1)[-1] if _RUST_ELF in origin else _PYTHON_ELF
+            name = _PYTHON_ELF if origin.endswith(_PYTHON_ELF) else _RUST_ELF
+            if name in found:
+                raise ValueError(f"APK contains multiple linkage ELF entries for {name}")
             target = output / name
             target.write_bytes(contents)
             found[name] = target
