@@ -126,7 +126,7 @@ jobs:
         run: python simpleoffice_runtime_support.py
       - name: Install application and audit dependencies
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable ".[security,sbom]"
           python -m pip_audit
       - name: Run policy, compile and complete unit-test gates
@@ -161,7 +161,7 @@ jobs:
         run: python simpleoffice_runtime_support.py
       - name: Install project
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable ".[security,sbom]"
       - name: Install existing optional SFTP extra for transport coverage
         if: matrix.python-version == '3.14'
@@ -262,7 +262,7 @@ jobs:
           cache: pip
       - name: Install project
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable .
       - name: Verify Java runtime
         run: java -version
@@ -289,7 +289,7 @@ jobs:
         run: python tools/check_secret_leaks.py .
       - name: Install project and auditor
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable ".[security,sbom]"
       - name: Check known dependency vulnerabilities
         run: python -m pip_audit
