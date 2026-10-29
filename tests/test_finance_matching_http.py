@@ -107,6 +107,20 @@ class FinanceMatchingHTTPTests(unittest.TestCase):
         self.assertEqual(5000, matches[0]["allocated_cents"])
         self.assertEqual(original, self.store.bank_transaction(self.transaction["transaction_id"], "match-user"))
 
+    def test_non_finite_allocation_is_rejected_without_a_server_error(self):
+        proposal = {"source_type": "contract", "source_id": "current-contract", "score": 85}
+        with patch("app.finance_web.proposals_for_transaction", return_value=[proposal]):
+            response = self.client.post(
+                self.url,
+                data={
+                    "source_type": "contract", "source_id": "current-contract",
+                    "allocated_amount": "Infinity",
+                },
+                headers={"X-CSRF-Token": "m" * 40},
+            )
+        self.assertEqual(302, response.status_code)
+        self.assertEqual([], self.store.transaction_matches(self.transaction["transaction_id"], "match-user"))
+
 
 if __name__ == "__main__":
     unittest.main()

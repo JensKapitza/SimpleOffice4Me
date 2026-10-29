@@ -527,7 +527,7 @@ def confirm_transaction_match(transaction_id: str):
     try:
         try:
             allocated_cents = int((Decimal(request.form.get("allocated_amount", "0").replace(",", ".")) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
-        except (InvalidOperation, ValueError):
+        except (InvalidOperation, OverflowError, ValueError):
             raise ValueError("Ungültiger Zuordnungsbetrag")
         selected_source_type = request.form.get("source_type", "")
         selected_source_id = request.form.get("source_id", "")
