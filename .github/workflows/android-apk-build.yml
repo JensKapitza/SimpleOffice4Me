@@ -61,29 +61,29 @@ jobs:
       SIMPLEOFFICE_ANDROID_PYTHON: ${{ matrix.python }}
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-Pillow-wheel
           path: android/apk/app/wheelhouse
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-cryptography-wheel
           path: android/apk/app/wheelhouse
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-cffi-wheel
           path: android/apk/app/wheelhouse
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-argon2-cffi-bindings-wheel
           path: android/apk/app/wheelhouse
@@ -94,13 +94,13 @@ jobs:
           cd android/apk/app/wheelhouse
           sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS
 
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Chaquopy build Python
-        uses: actions/setup-python@v7.1.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
 
@@ -108,7 +108,7 @@ jobs:
         shell: bash
         run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
 
-      - uses: gradle/actions/setup-gradle@v6
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
         with:
           gradle-version: '8.13'
 
@@ -231,7 +231,7 @@ jobs:
             --require-python-dependency
 
       - name: Upload Android ELF linkage diagnostics
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-elf-linkage-${{ matrix.abi }}
           path: artifacts/android/elf-diagnostics/*.txt
@@ -268,7 +268,7 @@ jobs:
           done
 
       - name: Upload APK-bundled Python SBOM
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-python-sbom-${{ matrix.abi }}
           path: |
@@ -278,7 +278,7 @@ jobs:
           retention-days: 14
 
       - name: Upload resolved Android JVM SBOM
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: android-gradle-sbom-${{ matrix.abi }}
           path: |
@@ -297,7 +297,7 @@ jobs:
             --enforce-pillow-baseline
 
       - name: Upload installable APK
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.artifact }}
           path: artifacts/android/*
