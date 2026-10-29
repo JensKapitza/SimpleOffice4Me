@@ -21,9 +21,19 @@ def _cents(value: Any) -> int:
         return 0
 
 
-def invoice_candidates(root: Path) -> list[MatchCandidate]:
+def invoice_candidates(root: Path, actor: str) -> list[MatchCandidate]:
+    contacts = ContactStore(root)
     result: list[MatchCandidate] = []
     for row in invoices(root):
+        contact_id = str(row.get("contact_id", ""))
+        if not contact_id:
+            continue
+        try:
+            contact = contacts.get(contact_id, actor=actor)
+        except ValueError:
+            continue
+        if not contacts.can_manage_contact(contact, actor):
+            continue
         state = invoice_state(row)
         if state.get("status") in {"draft", "paid", "cancelled", "written_off"}:
             continue
@@ -101,5 +111,10 @@ def rental_candidates(root: Path, actor: str) -> list[MatchCandidate]:
 
 def proposals_for_transaction(root: Path, store: FinanceStore, transaction_id: str, actor: str, *, limit: int = 12) -> list[dict[str, Any]]:
     transaction = store.bank_transaction(transaction_id, actor)
-    candidates = invoice_candidates(root) + obligation_candidates(store, actor) + receipt_candidates(root, actor) + rental_candidates(root, actor)
+    candidates = (
+        invoice_candidates(root, actor)
+        + obligation_candidates(store, actor)
+        + receipt_candidates(root, actor)
+        + rental_candidates(root, actor)
+    )
     return [item.as_dict() for item in propose_matches(transaction, candidates, limit=limit)]
