@@ -40,6 +40,28 @@ class WorkflowActionPinTests(unittest.TestCase):
                 self.assertTrue(bases, f"No base image found in {relative_path}")
                 self.assertTrue(all(image_reference.search(base) for base in bases), bases)
 
+    def test_ci_packaging_helper_uses_shared_sha256_lock(self):
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "requirements-ci-packaging.txt").read_text(encoding="utf-8")
+        self.assertIn("packaging==26.3", lock_text)
+        self.assertEqual(
+            {
+                "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+                "94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79",
+            },
+            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
+        )
+        workflow_root = root / ".github" / "workflows"
+        lock_references = 0
+        for path in workflow_root.glob("*.yml"):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("packaging==26.3", text, path.name)
+            for line in text.splitlines():
+                if "requirements-ci-packaging.txt" in line:
+                    lock_references += 1
+                    self.assertIn("--require-hashes", line, f"{path}:{line}")
+        self.assertGreater(lock_references, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

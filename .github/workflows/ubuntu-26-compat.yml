@@ -130,7 +130,7 @@ jobs:
         run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
       - name: Preflight Android wheels and install ReportLab wheel
         run: |
-          python -m pip install 'packaging==26.3'
+          python -m pip install --require-hashes -r requirements-ci-packaging.txt
           python tools/check_chaquopy_wheels.py \
             --python "$SIMPLEOFFICE_ANDROID_PYTHON" \
             --abi "$SIMPLEOFFICE_ANDROID_ABI" \
