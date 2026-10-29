@@ -153,14 +153,15 @@ class AttachmentSecurityTests(unittest.TestCase):
 
     def test_clamav_uses_fixed_argv_without_shell(self):
         scanner = ClamAV(10)
+        sample = Path("/tmp/sample")
         with patch.object(scanner, "executable", return_value="/usr/bin/clamscan"), patch("app.attachment_security.subprocess.run") as run:
             run.return_value.returncode = 0
             run.return_value.stdout = "sample: OK"
             run.return_value.stderr = ""
-            result = scanner.scan(Path("/tmp/sample"))
+            result = scanner.scan(sample)
         self.assertEqual("clean", result.verdict)
         args, kwargs = run.call_args
-        self.assertEqual(["/usr/bin/clamscan", "--no-summary", "/tmp/sample"], args[0])
+        self.assertEqual(["/usr/bin/clamscan", "--no-summary", str(sample)], args[0])
         self.assertNotIn("shell", kwargs)
 
     def test_windows_scanner_executable_name_is_accepted(self):

@@ -15,6 +15,39 @@ Demo-Seeding: 4 synthetische Dateien + Vorschau-Vorabgenerierung, idempotent
 Backend/Key; Browser/Kamera und echte Inferenz bleiben Eigentümer-Schritte.
 Nachbarn: 47 OK; mail-privacy V2 12 Errors umgebungsbedingt (Sandbox-Scratch
 ohne instance/), 1 vorbestehender ClamAV-Pfadfehler. Gates grün.
+## Arbeitsplan: Issues auf null + Meta-API (29.10., laufend)
+
+- **Phase 1 – Stabilisieren (Regressionen grün 29.10.):** Baum sauber bis auf
+  diese Liste + `.t/`-Fremdschrott; 86 Tests (neu + Kontakt + Peer + Nachbarn)
+  mit nur 1 ClamAV-Pfadfehler (29.10. plattformgerecht korrigiert, Rerun grün);
+  Live-Check 4×200 + ehrliche 503 aus Vorrunde gültig. Nachweis: phase1.log,
+  phase2b.log. Blocker: keiner.
+  Scratch `.t/` und Nutzerdaten nie committen.
+- **Phase 2 – Meta-API + Ollama (Code fertig 29.10., Smoke offen):** Responses-API
+  (`POST /v1/responses`, `muse-spark-1.3-contributor`, `GET /v1/models`-Check,
+  Timeouts,
+  Redirect-Stopp, keine Secrets in Fehlern/Logs) + Labels/Tests umgestellt;
+  `.env`-Loader (Elternordner, Allowlist, nie Override, still) mit Hooks in
+  Launcher/Demo; lokal nur echte Meta-Gewichte via Ollama; ContextFlow nutzt
+  kein LiteLLM (direkter Pfad bevorzugt). Nachweis: 104 Tests OK (Testtransport),
+  Gates grün. Blocker: Live-Smoke erst nach Key-Eintrag in `../.env`.
+  Schlusskorrektur 29.10.: Testname auf
+  `test_pins_point_at_responses_and_spark_contributor` umbenannt, finaler
+  Rerun (final-128.log) grün.
+- **Phase 3 – Abgleich (Triage-Liste 29.10. fertig, korrigiert):** 29 API-Einträge:
+  genau 26 eindeutige Issues + 3 PRs (#913, #893, #814; PRs via pull_request-Feld
+  erkannt). Buckets überschneidungsfrei: Hackathon-Scope (#767, #658, #813, #825,
+  #736), manuelle Gates (#823, #873, #874, #506, #811, #859, #770, #483),
+  allgemeines Repo (#801, #788, #759, #746, #741, #738, #737, #679, #675, #505,
+  #474, #471, #330). Einzelabgleich mit Akzeptanzkriterien folgt. Nachweis: pro
+  Issue Evidenz oder Blocker mit Nutzer-Aktion. GitHub-Connector kann
+  lesen/schreiben; Schließungen nur mit Nachweis durch den Nutzer.
+- **Phase 4 – Lücken schließen (offen):** fehlende priorisierte
+  Funktionen/UI/Workflow schrittweise implementieren. Abhängigkeit: Phase 3.
+- **Phase 5 – Abschluss (offen):** volle relevante Tests, Live-Demo,
+  Issue-Evidenz, Commit + Push auf verifizierten Branch.
+  Abhängigkeit: Phasen 1–4.
+
 **Stand (28.10.):** Import-Tag-Engel 46 Tests OK (1 vorbestehender
 Symlink-Skip, 94,1 s, nur fokussiertes Modul, Muse-Lauf);
 Discover 222 OK + 2 Skips = Stand der Vorrunde (auftragsgemäß
@@ -53,8 +86,8 @@ Hackathon-Architektur. Das bleibt als historischer Entwicklungsbeleg in den
 älteren Live-Logs erhalten, ist aber für neue Starts und Laufzeit-Aufrufe
 gesperrt. Ollama akzeptiert nur explizite Meta-Modellkennungen; Bildrouten
 verweigern text-only Llama 3.2 1B/3B, bevor Ollama kontaktiert wird. Der
-optionale Cloudpfad ist auf Meta Muse Spark 1.3 und
-`https://api.meta.ai/v1/chat/completions` festgelegt, folgt keinen Redirects,
+optionale Cloudpfad ist auf Meta Muse Spark 1.3 Contributor und
+`https://api.meta.ai/v1/responses` festgelegt, folgt keinen Redirects,
 verlangt Einwilligung und einen synthetischen Demo-Root. Demo-Starter, UI-Label,
 README mit 3-Minuten-Ablauf sowie die Vorgabe in `AGENTS.md` sind aktualisiert.
 
@@ -927,7 +960,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   bestätigt; Speichern bleibt im normalen Kontaktformular.
 - Meta-Pfad nur mit globaler Serverfreigabe UND nicht vorangekreuzter
   Anfrage-Einwilligung; lokal via Meta-Ollama oder extern via gepinnter
-  Meta-API (`muse-spark-1.3`, Meta Model API).
+  Meta-API (`muse-spark-1.3-contributor`, Meta Model API).
 - Tests (verifiziert im aufrufenden Supervisionslauf nach der letzten
   Provider-Änderung, nicht in dieser Doku-Session):
   `python -m unittest tests.test_contextflow_contact_suggest tests.test_contextflow_contact_suggest_meta -v`

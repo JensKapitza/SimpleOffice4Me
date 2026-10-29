@@ -3,13 +3,15 @@
 Takes contact text pasted by the user plus up to three business-card photos,
 runs local OCR per photo (stays on the machine), and asks a Meta model to
 structure the combined sources into concrete contact fields — the on-machine
-Meta Ollama model by default, or Muse Spark 1.3 via the Meta Model API when
+Meta Ollama model by default, or Muse Spark 1.3 Contributor via the Meta Model API when
 explicitly selected. Every suggestion carries a verbatim evidence quote plus its source;
 unsupported fields are dropped, never invented. Values that deviate from
 their quote (e.g. typo fixes) are explicitly marked as corrected so the UI
 can label them. Nothing is stored; applying a suggestion stays an explicit
 per-field user click in the contact form, and saving still happens only via
-the normal contact save path.
+the normal contact save path. The Meta cloud path runs on synthetic demo
+roots only: Contributor content may train future Meta models, so real
+contact data never reaches it.
 """
 
 from __future__ import annotations
@@ -234,9 +236,7 @@ def _require_provider(
         raise InferenceUnavailable(
             "Kein freigegebenes Meta-Modell konfiguriert. Bitte ein Ollama-Modell wählen."
         )
-    provider = select_provider(
-        settings, consent_meta is True, root, allow_real_root=True
-    )
+    provider = select_provider(settings, consent_meta is True, root)
     if provider.name == "mock":
         raise MockBlockedError(
             "Für Kontaktvorschläge ist kein Meta-Modell verfügbar "

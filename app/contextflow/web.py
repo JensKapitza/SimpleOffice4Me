@@ -309,7 +309,7 @@ def dashboard():
     vision_labels = {
         "local": "Meta-Modell lokal via Ollama",
         "mock": "Demo-Mock (keine echte Analyse)",
-        "meta": "Meta Muse Spark 1.3 (Meta Model API · nur synthetische Demo + Einwilligung)",
+        "meta": "Meta Muse Spark 1.3 Contributor (Meta Model API · nur synthetische Demo + Einwilligung)",
     }
     vision_visits = [
         {"id": str(row.get("visit_id", "")), "title": str(row.get("title", ""))}
@@ -521,7 +521,9 @@ def contact_suggest():
     structures the sources (photo bytes never leave the machine). Local
     Ollama answers by default; the Meta Model API path needs the
     server-side Meta switch plus API key and the explicit per-request
-    consent checkbox, otherwise cloud inference is refused here. Mock
+    consent checkbox, otherwise cloud inference is refused here. Meta cloud
+    additionally requires a synthetic demo root (real roots answer 403);
+    Contributor content may train future Meta models. Mock
     answers are refused with 503 (no invented contact data). Saving
     still happens exclusively via the normal contact form.
     """

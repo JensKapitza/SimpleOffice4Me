@@ -282,7 +282,7 @@
     if (button instanceof HTMLButtonElement) button.disabled = true;
     setEngelStatus(
       engelConsent?.checked
-        ? "Externe Meta-KI (Muse Spark 1.3) ordnet die Quellen zu … (nur Text, keine Fotos)"
+        ? "Externe Meta-KI (Muse Spark 1.3 Contributor) ordnet die Quellen zu … (nur Text, keine Fotos)"
         : "Lokale Meta-KI ordnet die Quellen zu …",
       "secondary",
     );
@@ -362,7 +362,8 @@
       parts.push("ML: Demo-Platzhalter (keine echte Analyse)");
     } else if (provider === "meta") {
       const key = meta.key_present ? "Schlüssel hinterlegt" : "kein API-Schlüssel";
-      parts.push(`ML: ${meta.label || "Meta-Modell"} · ${key}`);
+      const listed = meta.model_listed === true ? " · Modell gelistet" : (meta.model_listed === false ? " · Modell nicht bestätigt" : "");
+      parts.push(`ML: ${meta.label || "Meta-Modell"} · ${key}${listed}`);
     } else if (!ollama.model) {
       parts.push("ML: kein Modell konfiguriert");
     } else if (ollama.reachable && ollama.model_seen) {

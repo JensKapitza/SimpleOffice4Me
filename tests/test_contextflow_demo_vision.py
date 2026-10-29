@@ -86,8 +86,8 @@ class DemoVisionEnvTest(unittest.TestCase):
         )
         self.assertEqual("meta", config["CONTEXTFLOW_VISION_PROVIDER"])
         self.assertTrue(config["CONTEXTFLOW_META_CONSENT"])
-        self.assertEqual("https://api.meta.ai/v1/chat/completions", config["CONTEXTFLOW_META_ENDPOINT"])
-        self.assertEqual("muse-spark-1.3", config["CONTEXTFLOW_META_MODEL"])
+        self.assertEqual("https://api.meta.ai/v1/responses", config["CONTEXTFLOW_META_ENDPOINT"])
+        self.assertEqual("muse-spark-1.3-contributor", config["CONTEXTFLOW_META_MODEL"])
         self.assertNotIn("MODEL_API_KEY", config)
         self.assertNotIn("do-not-copy-this", " ".join(map(str, config.values())))
 
