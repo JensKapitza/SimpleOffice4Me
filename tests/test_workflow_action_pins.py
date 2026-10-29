@@ -41,12 +41,17 @@ class WorkflowActionPinTests(unittest.TestCase):
                 self.assertTrue(all(image_reference.search(base) for base in bases), bases)
 
     def test_scorecard_upload_workflow_has_only_step_scoped_environment(self):
+        root = Path(__file__).resolve().parents[1]
         workflow = (
-            Path(__file__).resolve().parents[1]
+            root
             / ".github"
             / "workflows"
             / "scorecard.yml"
         ).read_text(encoding="utf-8")
+        scanner_ignore = (root / ".oss-scanner" / "Dockerfile.dockerignore").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("!.github/workflows/scorecard.yml", scanner_ignore)
         self.assertNotRegex(workflow, r"(?m)^(?:env|defaults):")
         self.assertNotRegex(workflow, r"(?m)^  (?:env|defaults):")
         lines = workflow.splitlines()
