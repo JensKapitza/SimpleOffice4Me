@@ -145,6 +145,50 @@ class WorkflowActionPinTests(unittest.TestCase):
         )
         self.assertIn("!.github/workflows/extended-quality.yml", scanner_ignore)
 
+    def test_browser_test_tools_are_hash_locked_in_consuming_workflows(self):
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "requirements-ci-browser.txt").read_text(encoding="utf-8")
+        for package in (
+            "greenlet==3.3.2",
+            "jinja2==3.1.6",
+            "markupsafe==3.0.4",
+            "playwright==1.55.0",
+            "pyee==13.0.1",
+            "typing-extensions==4.16.0",
+        ):
+            with self.subTest(package=package):
+                self.assertIn(package, lock_text)
+        self.assertEqual(
+            {
+                "43e99d1749147ac21dde49b99c9abffcbc1e2d55c67501465ef0930d6e78e070",
+                "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
+                "8e124f974786f831d6043728e38296969d3579db8896fe004682f5758e613581",
+                "c6d4d8f6f8c66c483b0835569c7f0caa03230820af8e500c181c93509c92d831",
+                "af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228",
+                "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
+            },
+            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
+        )
+
+        workflow_root = root / ".github" / "workflows"
+        consumers = ("manual-browser-screenshots.yml", "ubuntu-26-compat.yml")
+        scanner_ignore = (root / ".oss-scanner" / "Dockerfile.dockerignore").read_text(
+            encoding="utf-8",
+        )
+        for name in consumers:
+            workflow = (workflow_root / name).read_text(encoding="utf-8")
+            with self.subTest(workflow=name):
+                self.assertIn("requirements-ci-browser.txt", workflow)
+                self.assertNotIn("playwright==1.55.0", workflow)
+                self.assertNotIn("Jinja2>=3.1.2,<4", workflow)
+                self.assertIn("--require-hashes --only-binary=:all:", workflow)
+                self.assertIn(f"!.github/workflows/{name}", scanner_ignore)
+                pull_request_paths = workflow.split("  pull_request:", 1)[1].split(
+                    "  workflow_dispatch:", 1,
+                )[0]
+                self.assertIn("requirements-ci-browser.in", pull_request_paths)
+                self.assertIn("requirements-ci-browser.txt", pull_request_paths)
+
     def test_android_build_tools_are_hash_locked_and_lock_changes_trigger_ci(self):
         root = Path(__file__).resolve().parents[1]
         wheel_lock = (root / "requirements-ci-android-wheels.txt").read_text(

@@ -30,10 +30,13 @@ sind die lesbaren Eingaben zur Hash-Lock-Erzeugung. Das pip-Bootstrap-Upgrade
 in CI wird aus `requirements-ci-pip.txt` mit vollständigen PyPI-Hashes installiert;
 damit ist auch der Installer selbst reproduzierbar gepinnt. Ruff in den
 Qualitätsprüfungen wird aus `requirements-ci-ruff.txt` mit SHA-256-Hashes
-installiert. Versionsupdates müssen PyPI-Artefakthashes, `.in`-Eingabedateien
-und die Workflow-Regressionstests gemeinsam aktualisieren. Nach Änderungen an diesen
-Locks müssen alle Workflows, die sie installieren, durch ihre Pull-Request-
-Pfadfilter neu anlaufen. Locks werden mit pip-tools 7.6.2 und
+installiert. Browser-Testabhängigkeiten werden für beide Ubuntu-x86_64-
+CPython-3.12-CI-Verbraucher aus `requirements-ci-browser.txt` mit SHA-256-Hashes
+und ausschließlich als geprüfte Wheels installiert. Versionsupdates
+müssen PyPI-Artefakthashes, `.in`-Eingabedateien und Workflow-Regressionstests
+gemeinsam aktualisieren. Nach Änderungen an diesen Locks müssen alle Workflows,
+die sie installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen. Locks
+werden mit pip-tools 7.6.2 und
 `pip-compile --generate-hashes --allow-unsafe --strip-extras` aktualisiert.
 
 ## Lokal prüfen
