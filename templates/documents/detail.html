@@ -104,6 +104,17 @@
     {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">Original öffnen</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>Original herunterladen</a></div>{% endif %}
   </div>
 </section>
+{% if preview.kind == 'image' and contextflow_enabled|default(false) %}
+<section id="doc-image-engel" class="card mb-4" data-suggest-url="{{ url_for('contextflow.doc_image_suggest') }}" data-document-id="{{ document.document_id }}" data-csrf="{{ csrf_token() }}">
+  <div class="card-header"><strong>✦ Büroengel · Bildanalyse</strong></div>
+  <div class="card-body">
+    <p class="small text-secondary mb-2">Echte Analyse des gespeicherten Bildes durch das lokale Meta-Modell. Modell und Ergebnis werden angezeigt, nichts wird gespeichert.</p>
+    <button type="button" class="btn btn-outline-primary" id="doc-image-analyze">Bild analysieren</button>
+    <div id="doc-image-status" class="mt-2" role="status" aria-live="polite"></div>
+    <div id="doc-image-result" class="mt-2" hidden></div>
+  </div>
+</section>
+{% endif %}
 <div class="row g-4">
 <section class="col-lg-7">
 <div class="card mb-4">
@@ -336,4 +347,4 @@
 </form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">Noch keine Freigabelinks.</div>{% endfor %}</div>
 </div>
 </section>{% endif %}{% endblock %}
-{% block script %}{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/doc_image_engel.js') }}"></script>{% endblock %}

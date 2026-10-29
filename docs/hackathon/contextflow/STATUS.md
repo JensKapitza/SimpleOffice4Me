@@ -3,6 +3,18 @@
 **Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
+**Stand (29.10., OCR/ML/Vorschau):** OCR-Fehler nennen Windows-Installschritte
+(venv-Extra, ensurepip, Tesseract/PATH) + `ocr_availability`-Helper (4 Tests OK);
+`GET /contextflow/ml-status` (Provider, Ollama-Erreichbarkeit/Modell, Meta-Key
+nur Bool, OCR-Bools) + Badge beim vCard-Export (8 Tests OK, node sauber);
+Bildanalyse auf Detailseite und freigegebenen Anhangsbildern mit
+Provider-/Modell-Anzeige, Mock→503, Unreleased ehrlich gesperrt (7 Tests OK);
+Demo-Seeding: 4 synthetische Dateien + Vorschau-Vorabgenerierung, idempotent
+(2 Tests OK); Peer-Test auf `__file__`-Pfad robuster gemacht. Live-Check
+(Test-Client, synthetisch): 4× Detail/Preview 200, ML-Routen ehrlich 503 ohne
+Backend/Key; Browser/Kamera und echte Inferenz bleiben Eigentümer-Schritte.
+Nachbarn: 47 OK; mail-privacy V2 12 Errors umgebungsbedingt (Sandbox-Scratch
+ohne instance/), 1 vorbestehender ClamAV-Pfadfehler. Gates grün.
 **Stand (28.10.):** Import-Tag-Engel 46 Tests OK (1 vorbestehender
 Symlink-Skip, 94,1 s, nur fokussiertes Modul, Muse-Lauf);
 Discover 222 OK + 2 Skips = Stand der Vorrunde (auftragsgemäß
@@ -906,3 +918,27 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Mehrdeutigkeit: anderes Label oder keines. Browser-
   Abnahme offen (Automation gestoppt, Neustart
   abgelehnt) — nicht browser-verifiziert.
+
+## Kontaktvorschlag (Text + bis 3 Fotos, 28.10.)
+
+- Umfang: Vorschlagsbereich auf `/documents/contacts` aus getipptem Text
+  plus bis zu 3 Fotos; Fotos werden lokal OCR-gelesen; an Meta geht nur
+  Text/OCR-Text, keine Bildbytes. Belegte Vorschläge werden einzeln
+  bestätigt; Speichern bleibt im normalen Kontaktformular.
+- Meta-Pfad nur mit globaler Serverfreigabe UND nicht vorangekreuzter
+  Anfrage-Einwilligung; lokal via Meta-Ollama oder extern via gepinnter
+  Meta-API (`muse-spark-1.3`, Meta Model API).
+- Tests (verifiziert im aufrufenden Supervisionslauf nach der letzten
+  Provider-Änderung, nicht in dieser Doku-Session):
+  `python -m unittest tests.test_contextflow_contact_suggest tests.test_contextflow_contact_suggest_meta -v`
+  — 39 Tests, OK. Meta-Pfad mit gemocktem Transport.
+- Gates (derselbe Supervisionslauf): `compileall`,
+  `tools/check_project_policy.py .`, `tools/check_file_size.py . --limit 1000`,
+  `tools/check_function_size.py app tools --limit 300` und `git diff --check`
+  — alle Exit 0.
+- Live (derselbe Supervisionslauf: `start.bat` auf synthetischem Root,
+  Port 5099): Login POST 302, danach `/documents/contacts` 200; HTML enthält
+  Vorschlagsbereich, Fotoauswahl und externe Meta-Checkbox.
+- Kein Meta-API-Schlüssel vorhanden: kein echter Modellaufruf — kein
+  Meta-Modellnachweis in dieser Runde. Kein Commit/Push; `.t/`
+  unangetastet.

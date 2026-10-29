@@ -169,6 +169,12 @@ def main() -> None:
     print(f"    {password}")
     print(f"  Root:     {root}")
     print(f"  Fall:     {summary['link_id']} (abgeschlossen {summary['completed_on']})")
+    for entry in summary["demo_documents"]["documents"]:
+        print(
+            f"  Demo-Datei: {entry['name']} "
+            f"-> http://127.0.0.1:{args.port}/documents/{entry['document_id']} "
+            f"(Vorschau: {entry['preview']}/{entry['converter']})"
+        )
     if vision["CONTEXTFLOW_VISION_PROVIDER"] == "local":
         print(
             "  Vision:   Meta-Modell lokal via Ollama, Modell "
