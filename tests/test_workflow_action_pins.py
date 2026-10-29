@@ -82,7 +82,6 @@ class WorkflowActionPinTests(unittest.TestCase):
         scanner_ignore = (root / ".oss-scanner" / "Dockerfile.dockerignore").read_text(
             encoding="utf-8",
         )
-        self.assertIn("!.github/workflows/ci.yml", scanner_ignore)
         consumers = (
             "ci.yml",
             "manual-browser-screenshots.yml",
@@ -92,6 +91,7 @@ class WorkflowActionPinTests(unittest.TestCase):
         for name in consumers:
             workflow = (workflow_root / name).read_text(encoding="utf-8")
             with self.subTest(workflow=name):
+                self.assertIn(f"!.github/workflows/{name}", scanner_ignore)
                 self.assertIn("requirements-ci-pip.txt", workflow)
                 self.assertNotIn("pip install --upgrade pip", workflow)
                 for line in workflow.splitlines():
