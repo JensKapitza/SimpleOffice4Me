@@ -9,7 +9,7 @@ from PIL import Image
 
 from app.preview_service import PreviewService
 from app.document_store import CONTROL_DIR
-from app.settings_store import SettingsStore
+from app.settings_store import DEFAULT_UPLOAD_LIMIT_MIB, SettingsStore
 from app.video_settings import save_video_preview_frame_count, video_preview_frame_count
 
 
@@ -68,6 +68,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
 
             self.assertEqual(
                 {
+                    "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
                     "archive_ocr_enabled": False,
                     "preview_enabled": False,
                     "preview_timeout_seconds": 90,
