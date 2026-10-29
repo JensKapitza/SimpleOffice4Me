@@ -111,7 +111,9 @@ class WorkflowActionPinTests(unittest.TestCase):
         apk_lock = (root / "requirements-ci-android-apk.txt").read_text(
             encoding="utf-8",
         )
-        for package in ("pip==26.1.2", "cibuildwheel==4.3.3", "wheel==0.46.3"):
+        self.assertIn("pip==26.2.2", wheel_lock)
+        self.assertNotIn("pip==26.1.2", wheel_lock)
+        for package in ("pip==26.2.2", "cibuildwheel==4.3.3", "wheel==0.46.3"):
             with self.subTest(package=package):
                 lines = wheel_lock.splitlines()
                 start = next(
