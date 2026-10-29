@@ -38,8 +38,13 @@ eintragen und den pip-Download mit `--require-hashes --only-binary=:all:` sowie
 den Workflow-Target-Parametern verifizieren. Andere Runner dürfen den Lock erst
 nach passender Wheel-/Hash-Prüfung verwenden. Alle Lock-Updates müssen PyPI-
 Artefakthashes, `.in`-Eingabedateien und Workflow-Regressionstests gemeinsam
-aktualisieren. Nach Änderungen an Locks müssen alle Workflows, die sie
-installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen. Die generischen
+aktualisieren. Der optionale AWS-S3-Kompatibilitätstest installiert AWS CLI aus
+`requirements-ci-awscli.txt`; dessen Version 1.45.28 enthält die bekannten
+Credential-Datei- und EMR-SSH-Hostkey-Korrekturen für AWS CLI v1. AWS CLI v1
+befindet sich im Maintenance-Modus und bleibt hier nur für den optionalen Smoke
+gegen den isolierten lokalen S3-Endpoint. Versionsupdates müssen alle Workflows,
+die sie installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen lassen.
+Die generischen
 Lock-Dateien werden mit pip-tools 7.6.2 und
 `pip-compile --generate-hashes --allow-unsafe --strip-extras` aktualisiert; der
 Browser-Lock wird gezielt für sein dokumentiertes Ubuntu-x86_64/CPython-3.12-
