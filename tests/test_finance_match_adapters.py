@@ -19,17 +19,49 @@ class FinanceMatchAdapterTests(unittest.TestCase):
 
     @patch("app.finance_match_adapters.invoices")
     @patch("app.finance_match_adapters.invoice_state")
-    def test_open_invoice_becomes_candidate(self, state, rows):
+    @patch("app.finance_match_adapters.ContactStore")
+    def test_open_invoice_becomes_candidate(self, contact_store, state, rows):
         rows.return_value = [{
             "invoice_id": "inv-1", "invoice_number": "RE-2026-0042",
+            "contact_id": "c-1",
             "due_date": "2026-09-20", "buyer": {"name": "Kunde GmbH"},
             "totals": {"gross": "119.00"}, "status": "final"
         }]
         state.return_value = {"status": "open", "outstanding": "119.00"}
-        candidates = invoice_candidates(self.root)
+        contact_store.return_value.get.return_value = {"contact_id": "c-1"}
+        contact_store.return_value.can_manage_contact.return_value = True
+        candidates = invoice_candidates(self.root, "jens")
         self.assertEqual(1, len(candidates))
         self.assertEqual(11900, candidates[0].amount_cents)
         self.assertEqual("RE-2026-0042", candidates[0].reference)
+
+    @patch("app.finance_match_adapters.ContactStore")
+    @patch("app.finance_match_adapters.invoice_state")
+    @patch("app.finance_match_adapters.invoices")
+    def test_invoice_candidates_exclude_contacts_user_cannot_manage(self, rows, state, contact_store):
+        rows.return_value = [
+            {
+                "invoice_id": "visible-invoice", "invoice_number": "RE-1",
+                "contact_id": "visible", "due_date": "2026-09-20",
+                "buyer": {"name": "Visible Customer"}, "totals": {"gross": "119.00"},
+            },
+            {
+                "invoice_id": "hidden-invoice", "invoice_number": "RE-2",
+                "contact_id": "hidden", "due_date": "2026-09-20",
+                "buyer": {"name": "Hidden Customer"}, "totals": {"gross": "119.00"},
+            },
+        ]
+        state.return_value = {"status": "open", "outstanding": "119.00"}
+        contact_store.return_value.get.side_effect = lambda contact_id, actor: {"contact_id": contact_id}
+        contact_store.return_value.can_manage_contact.side_effect = lambda contact, actor: contact["contact_id"] == "visible"
+
+        candidates = invoice_candidates(self.root, "jens")
+
+        self.assertEqual(["visible-invoice"], [candidate.source_id for candidate in candidates])
+        self.assertEqual(
+            [("visible", "jens"), ("hidden", "jens")],
+            [call.args + (call.kwargs["actor"],) for call in contact_store.return_value.get.call_args_list],
+        )
 
     def test_obligation_and_transaction_produce_explainable_proposal(self):
         obligation = self.store.create_obligation({
