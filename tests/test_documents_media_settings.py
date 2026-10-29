@@ -10,7 +10,13 @@ from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
-from app import app, configured_webdav_quota_bytes, db as database
+from app import (
+    app,
+    apply_upload_limit_settings,
+    configured_s3_overlay_upload_limit_bytes,
+    configured_webdav_quota_bytes,
+    db as database,
+)
 from app.attachment_security import AttachmentSecurity
 from app.settings_store import (
     DEFAULT_ARCHIVE_OCR_ENABLED,
@@ -24,7 +30,10 @@ from app.settings_store import (
     DEFAULT_PREVIEW_TIMEOUT_SECONDS,
     DEFAULT_PREVIEW_ENABLED,
     DEFAULT_VIDEO_PREVIEW_FRAMES,
+    DEFAULT_UPLOAD_LIMIT_MIB,
     MAX_WEBDAV_QUOTA_MIB,
+    MAX_UPLOAD_LIMIT_MIB,
+    MIN_UPLOAD_LIMIT_MIB,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_RSYNC_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
@@ -43,7 +52,10 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.config = {
             key: app.config.get(key)
-            for key in ("DATABASE", "DOCUMENT_ROOT", "SECRET_KEY", "TESTING", "TEST_CSRF_PROTECTION")
+            for key in (
+                "DATABASE", "DOCUMENT_ROOT", "SECRET_KEY", "TESTING", "TEST_CSRF_PROTECTION",
+                "MAX_CONTENT_LENGTH", "S3_OVERLAY_MAX_UPLOAD_BYTES",
+            )
         }
         app.config.update(
             DATABASE=str(self.root / "auth.sqlite3"),
@@ -56,6 +68,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             os.environ,
             {
                 "SIMPLEOFFICE_PREVIEWS": "1",
+                "SIMPLEOFFICE_MAX_UPLOAD_MIB": str(DEFAULT_UPLOAD_LIMIT_MIB),
                 "SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_PREVIEW_MAX_BYTES": str(DEFAULT_PREVIEW_MAX_BYTES),
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
@@ -95,6 +108,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
     @staticmethod
     def form_values(**overrides):
         values = {
+            "upload_limit_mib": str(DEFAULT_UPLOAD_LIMIT_MIB),
             "archive_ocr_enabled": "0",
             "preview_enabled": "1",
             "preview_timeout_seconds": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
@@ -113,6 +127,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('name="_csrf_token"', html)
         self.assertIn('name="preview_timeout_seconds"', html)
+        self.assertIn('name="upload_limit_mib"', html)
+        self.assertIn("Standard 512 MiB; zulässig 1–4096 MiB", html)
         self.assertIn('name="archive_ocr_enabled"', html)
         self.assertIn('name="preview_max_bytes"', html)
         self.assertIn('name="preview_max_pixels"', html)
@@ -639,6 +655,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 preview_max_bytes="2000000",
                 preview_max_pixels="120000000",
                 video_preview_frames="8",
+                upload_limit_mib="1024",
             ),
             headers={"X-CSRF-Token": "a" * 40},
         )
@@ -650,6 +667,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(2_000_000, media["preview_max_bytes"])
         self.assertEqual(120_000_000, media["preview_max_pixels"])
         self.assertEqual(8, media["video_preview_frames"])
+        self.assertEqual(1024, media["upload_limit_mib"])
         with app.app_context():
             row = database.get_db().execute(
                 "SELECT actor_name,target_id,detail FROM security_event WHERE action=?",
@@ -669,6 +687,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             {"preview_max_pixels": "999999"},
             {"preview_max_pixels": "250000001"},
             {"video_preview_frames": "31"},
+            {"upload_limit_mib": "0"},
+            {"upload_limit_mib": "4097"},
         )
         for invalid in invalid_values:
             with self.subTest(invalid=invalid):
@@ -698,6 +718,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_PREVIEW_MAX_BYTES, media["preview_max_bytes"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_PIXELS, media["preview_max_pixels"])
         self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, media["video_preview_frames"])
+        self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB, media["upload_limit_mib"])
 
     def test_legacy_archive_ocr_environment_value_migrates_once(self):
         with tempfile.TemporaryDirectory() as legacy_root:
@@ -709,6 +730,36 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 media = SettingsStore(legacy_root).settings()["media"]
             self.assertTrue(media["archive_ocr_enabled"])
             self.assertFalse(media["preview_enabled"])
+
+    def test_legacy_upload_limit_environment_value_migrates_once(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "256"}):
+                self.assertEqual(256, store.settings()["media"]["upload_limit_mib"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}):
+                media = SettingsStore(legacy_root).settings()["media"]
+            self.assertEqual(256, media["upload_limit_mib"])
+
+    def test_persisted_upload_limit_applies_to_request_and_s3_caps(self):
+        config = {}
+        with patch.dict(
+            os.environ, {"SIMPLEOFFICE_S3_MAX_UPLOAD_MIB": "2048"}, clear=True,
+        ):
+            apply_upload_limit_settings(config, 1024)
+        self.assertEqual(1024 * 1024 * 1024, config["MAX_CONTENT_LENGTH"])
+        self.assertEqual(config["MAX_CONTENT_LENGTH"], config["S3_OVERLAY_MAX_UPLOAD_BYTES"])
+        self.assertEqual(
+            1024 * 1024 * 1024,
+            configured_s3_overlay_upload_limit_bytes(config["MAX_CONTENT_LENGTH"]),
+        )
+
+    def test_upload_limit_accepts_supported_endpoints(self):
+        store = SettingsStore(self.root)
+        for limit in (MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB):
+            with self.subTest(limit=limit):
+                settings = store.save({"media": {"upload_limit_mib": limit}}, "media-admin")
+                self.assertEqual(limit, settings["media"]["upload_limit_mib"])
 
     def test_older_media_form_submission_preserves_archive_ocr_setting(self):
         SettingsStore(self.root).save(
@@ -733,6 +784,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             {"preview_max_bytes": 2 * 1024 * 1024 * 1024 + 1},
             {"preview_max_pixels": 999_999},
             {"video_preview_frames": False},
+            {"upload_limit_mib": MAX_UPLOAD_LIMIT_MIB + 1},
+            {"upload_limit_mib": True},
         )
         for values in invalid_media:
             with self.subTest(values=values):
