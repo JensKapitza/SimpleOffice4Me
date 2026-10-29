@@ -66,6 +66,47 @@ class WorkflowActionPinTests(unittest.TestCase):
                     self.assertIn("--require-hashes", line, f"{path}:{line}")
         self.assertGreater(lock_references, 0)
 
+    def test_ci_pip_bootstrap_is_hash_locked_in_consuming_workflows(self):
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "requirements-ci-pip.txt").read_text(encoding="utf-8")
+        self.assertIn("pip==26.2.2", lock_text)
+        self.assertEqual(
+            {
+                "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70",
+                "3a8e5c800492787f33a4114ef54444546c340df428974ebba17e0fd47e11af2f",
+            },
+            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
+        )
+
+        workflow_root = root / ".github" / "workflows"
+        scanner_ignore = (root / ".oss-scanner" / "Dockerfile.dockerignore").read_text(
+            encoding="utf-8",
+        )
+        consumers = (
+            "ci.yml",
+            "manual-browser-screenshots.yml",
+            "project-release.yml",
+            "ubuntu-26-compat.yml",
+        )
+        for name in consumers:
+            workflow = (workflow_root / name).read_text(encoding="utf-8")
+            with self.subTest(workflow=name):
+                self.assertIn(f"!.github/workflows/{name}", scanner_ignore)
+                self.assertIn("requirements-ci-pip.txt", workflow)
+                self.assertNotIn("pip install --upgrade pip", workflow)
+                for line in workflow.splitlines():
+                    if "requirements-ci-pip.txt" in line and "pip install" in line:
+                        self.assertIn("--require-hashes", line)
+
+        for name in ("manual-browser-screenshots.yml", "ubuntu-26-compat.yml"):
+            workflow = (workflow_root / name).read_text(encoding="utf-8")
+            pull_request_paths = workflow.split("  pull_request:", 1)[1].split(
+                "  workflow_dispatch:", 1,
+            )[0]
+            with self.subTest(path_filter=name):
+                self.assertIn("requirements-ci-pip.in", pull_request_paths)
+                self.assertIn("requirements-ci-pip.txt", pull_request_paths)
+
     def test_android_build_tools_are_hash_locked_and_lock_changes_trigger_ci(self):
         root = Path(__file__).resolve().parents[1]
         wheel_lock = (root / "requirements-ci-android-wheels.txt").read_text(
@@ -74,7 +115,9 @@ class WorkflowActionPinTests(unittest.TestCase):
         apk_lock = (root / "requirements-ci-android-apk.txt").read_text(
             encoding="utf-8",
         )
-        for package in ("pip==26.1.2", "cibuildwheel==4.3.3", "wheel==0.46.3"):
+        self.assertIn("pip==26.2.2", wheel_lock)
+        self.assertNotIn("pip==26.1.2", wheel_lock)
+        for package in ("pip==26.2.2", "cibuildwheel==4.3.3", "wheel==0.46.3"):
             with self.subTest(package=package):
                 lines = wheel_lock.splitlines()
                 start = next(

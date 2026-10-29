@@ -26,7 +26,9 @@ Die CI-SBOM-Helfer `packaging` und `defusedxml` werden aus
 `requirements-ci-tools.txt` mit SHA-256-Hashes installiert. Android-Workflows
 verwenden zusätzlich `requirements-ci-android-wheels.txt` für pip, cibuildwheel
 und wheel sowie `requirements-ci-android-apk.txt` für Pillow. Die `.in`-Dateien
-sind die lesbaren Eingaben zur Hash-Lock-Erzeugung. Versionsupdates
+sind die lesbaren Eingaben zur Hash-Lock-Erzeugung. Das pip-Bootstrap-Upgrade
+in CI wird aus `requirements-ci-pip.txt` mit vollständigen PyPI-Hashes installiert;
+damit ist auch der Installer selbst reproduzierbar gepinnt. Versionsupdates
 müssen die PyPI-Artefakthashes, die entsprechenden `.in`-Eingabedateien und die
 Workflow-Regressionstests gemeinsam aktualisieren. Nach Änderungen an diesen
 Locks müssen alle Workflows, die sie installieren, durch ihre Pull-Request-
