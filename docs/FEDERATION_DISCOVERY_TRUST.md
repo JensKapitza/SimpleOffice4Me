@@ -111,8 +111,8 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `SIMPLEOFFICE_FEDERATION_LAN_ADDRESS` – optional eine oder mehrere kommaseparierte lokale IPv4-Adressen, falls die aktive Host-/LAN-Adresse nicht automatisch erkannt wird. In Containern ist das nicht automatisch die Docker-Bridge-Adresse, die andere Geräte erreichen können.
 - `SIMPLEOFFICE_FEDERATION_LAN_PORTS` – optionale zusätzliche lokale SimpleOffice-Ports; maximal vier Ports werden geprüft.
 - Die **Scan-Basis / CIDR** wird im Admin-UI pro Scan angegeben, wenn die automatische Netzerkennung wegen Docker/Podman, Routing oder VPN nicht zum gewünschten Netz führt.
-- `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY=DE` – aktiviert automatisches Land-Discovery.
-- `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` – Intervall, mindestens eine Stunde; Standard 21600 Sekunden.
+- `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` und `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` sind Legacy-Startwerte bis zu einer gespeicherten Admin-Einstellung.
+- Land und Intervall lassen sich unter **Admin → Einstellungen → Integrationen & Dienste → Föderationssuche** konfigurieren. Ein leeres Land deaktiviert den automatischen Land-Scan; Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam. Der Standard ist deaktiviert und 21.600 Sekunden (6 Stunden); das Intervall muss zwischen 3.600 und 604.800 Sekunden liegen.
 
 ## HTTP-Endpunkte
 

@@ -203,8 +203,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` | [v3_extensions.py](../app/v3_extensions.py) | [V3_EXTENSIONS](V3_EXTENSIONS.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
-| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | [federation_discovery_runtime.py](../app/federation_discovery_runtime.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
-| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` | [federation_discovery_runtime.py](../app/federation_discovery_runtime.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | Legacy-Startwert für die optionale Admin-Einstellung `integrations.federation_autoscan_country` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` | `21600`, effektiv 3600–604800; Legacy-Startwert für `integrations.federation_autoscan_seconds` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` | [federation_discovery_service.py](../app/federation_discovery_service.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_COUNTRY` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN` | [federation_discovery_http.py](../app/federation_discovery_http.py) | Quelle und Ergänzungen oben |
