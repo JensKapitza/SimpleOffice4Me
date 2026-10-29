@@ -71,7 +71,7 @@ wird. Größen-, Laufzeit- und Scratch-Limits bleiben unabhängig davon aktiv.
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | Legacy-Startwert bis `integrations.osm_export_idle_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Legacy-Startwert bis `integrations.personnel_time_autosync_enabled` gespeichert wird; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Legacy-Startwert bis `integrations.personnel_time_autosync_seconds` gespeichert wird; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
-| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Uploadlimit der App, Fallback 512 MiB | Chat-Anhangslimit in Bytes, mindestens 1 und höchstens das App-Uploadlimit; [Chatroute](../app/chat_routes.py) |
+| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Mindestens 1 Byte, höchstens 4 GiB; leer/ungültig bedeutet globales Upload-Limit | Legacy-Startwert für `media.chat_attachment_max_bytes`; nach Speicherung ist **Admin → Einstellungen → Dokumente & Medien** maßgeblich. |
 | `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | `60`, effektiv 30–3600 | Legacy-Startwert bis `integrations.printershare_purge_interval_seconds` gespeichert wird; [PrinterShare](../app/printershare.py) |
 
 Dies sind lokale Verarbeitungslimits, keine Zusage über tatsächliche
@@ -184,7 +184,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_BUILD_EPOCH` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_NUMBER` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_REVISION` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [chat_routes.py](../app/chat_routes.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [settings_store.py](../app/settings_store.py) | Legacy-Migration; die persistente Einstellung wird in [chat_routes.py](../app/chat_routes.py) angewendet |
 | `SIMPLEOFFICE_CLAMAV_SCANNER` | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CLAMAV_TIMEOUT` | `120`, effektiv 5–900 | Legacy-Startwert bis `integrations.clamav_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird; [ClamAV-Anhänge](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CONTAINER_ROLE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
