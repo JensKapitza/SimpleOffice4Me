@@ -23,7 +23,7 @@ from .settings_store import (
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
-    DEFAULT_RSYNC_TIMEOUT_SECONDS,
+    DEFAULT_RSYNC_TIMEOUT_SECONDS, MAX_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -36,8 +36,7 @@ from .settings_store import (
     MAX_PREVIEW_MAX_PIXELS,
     MAX_PREVIEW_TIMEOUT_SECONDS,
     MAX_VIDEO_PREVIEW_FRAMES,
-    MAX_WEBDAV_QUOTA_MIB,
-    DEFAULT_WEBDAV_QUOTA_MIB,
+    MAX_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
     MIN_PREVIEW_MAX_BYTES,
     MIN_PREVIEW_MAX_PIXELS,
     MIN_PREVIEW_TIMEOUT_SECONDS,
@@ -48,8 +47,7 @@ from .settings_store import (
     MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MIN_RSYNC_MAX_BYTES,
-    MIN_RSYNC_MAX_FILES,
-    MIN_RSYNC_TIMEOUT_SECONDS,
+    MIN_RSYNC_MAX_FILES, MIN_RSYNC_TIMEOUT_SECONDS,
     SettingsStore,
 )
 from .system_identity import system_info
@@ -946,6 +944,13 @@ def save_documents_media_settings():
             media = dict(DEFAULT_SETTINGS["media"])
         else:
             current_media = store.settings()["media"]
+            upload_limit_mib = (
+                current_media["upload_limit_mib"]
+                if request.form.get("upload_limit_mib") is None
+                else _bounded_media_integer(
+                    "upload_limit_mib", MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
+                )
+            )
             enabled = request.form.get("preview_enabled", "")
             if enabled not in {"0", "1"}:
                 raise ValueError("Bitte wählen, ob Dokumentvorschauen aktiviert sind.")
@@ -957,6 +962,7 @@ def save_documents_media_settings():
             else:
                 archive_ocr_enabled = archive_ocr == "1"
             media = {
+                "upload_limit_mib": upload_limit_mib,
                 "archive_ocr_enabled": archive_ocr_enabled,
                 "preview_enabled": enabled == "1",
                 "preview_timeout_seconds": _bounded_media_integer(
@@ -983,6 +989,7 @@ def save_documents_media_settings():
             "Dokument- und Medienwerte auf Standard zurückgesetzt."
             if reset_defaults else "Dokument- und Medien-Einstellungen gespeichert."
         )
+        flash("Änderungen am Upload-Limit gelten nach einem Neustart des Webprozesses.")
     except ValueError as exc:
         current_app.logger.info("Document/media setting rejected: %s", type(exc).__name__)
         flash(str(exc))
