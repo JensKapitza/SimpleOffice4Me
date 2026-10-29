@@ -40,6 +40,22 @@ class WorkflowActionPinTests(unittest.TestCase):
                 self.assertTrue(bases, f"No base image found in {relative_path}")
                 self.assertTrue(all(image_reference.search(base) for base in bases), bases)
 
+    def test_scorecard_upload_workflow_has_only_step_scoped_environment(self):
+        workflow = (
+            Path(__file__).resolve().parents[1]
+            / ".github"
+            / "workflows"
+            / "scorecard.yml"
+        ).read_text(encoding="utf-8")
+        self.assertNotRegex(workflow, r"(?m)^(?:env|defaults):")
+        self.assertNotRegex(workflow, r"(?m)^  (?:env|defaults):")
+        runtime_settings = [
+            line for line in workflow.splitlines()
+            if "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:" in line
+        ]
+        self.assertEqual(4, len(runtime_settings))
+        self.assertTrue(all(len(line) - len(line.lstrip()) >= 10 for line in runtime_settings))
+
 
 if __name__ == "__main__":
     unittest.main()
