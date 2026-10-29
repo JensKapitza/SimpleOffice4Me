@@ -508,13 +508,13 @@ def transaction_matches(transaction_id: str):
         proposals = proposals_for_transaction(_root(), store, transaction_id, actor)
         confirmed = store.transaction_matches(transaction_id, actor)
         allocation = store.transaction_match_allocation(transaction_id, actor)
-        return render_template(
+        return _private_finance_response(make_response(render_template(
             "finance/transaction_matches.html",
             transaction=transaction,
             proposals=proposals,
             confirmed=confirmed,
             allocation=allocation,
-        )
+        )))
     except ValueError as exc:
         flash(f"Zuordnung nicht möglich: {exc}")
         return redirect(url_for(".index"))
@@ -529,12 +529,22 @@ def confirm_transaction_match(transaction_id: str):
             allocated_cents = int((Decimal(request.form.get("allocated_amount", "0").replace(",", ".")) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
         except (InvalidOperation, ValueError):
             raise ValueError("Ungültiger Zuordnungsbetrag")
-        match = _store().confirm_transaction_match(
+        selected_source_type = request.form.get("source_type", "")
+        selected_source_id = request.form.get("source_id", "")
+        store = _store()
+        proposal = next((
+            item for item in proposals_for_transaction(_root(), store, transaction_id, actor)
+            if item["source_type"] == selected_source_type
+            and item["source_id"] == selected_source_id
+        ), None)
+        if proposal is None:
+            raise ValueError("Die gewählte Zuordnung ist nicht mehr als aktueller Vorschlag verfügbar")
+        match = store.confirm_transaction_match(
             transaction_id,
-            request.form.get("source_type", ""),
-            request.form.get("source_id", ""),
+            selected_source_type,
+            selected_source_id,
             actor,
-            score=int(request.form.get("score", "0") or 0),
+            score=int(proposal["score"]),
             allocated_cents=allocated_cents,
             note=request.form.get("note", ""),
         )
