@@ -40,6 +40,32 @@ class WorkflowActionPinTests(unittest.TestCase):
                 self.assertTrue(bases, f"No base image found in {relative_path}")
                 self.assertTrue(all(image_reference.search(base) for base in bases), bases)
 
+    def test_ci_build_helpers_use_shared_sha256_lock(self):
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "requirements-ci-tools.txt").read_text(encoding="utf-8")
+        self.assertIn("packaging==26.3", lock_text)
+        self.assertIn("defusedxml==0.7.1", lock_text)
+        self.assertEqual(
+            {
+                "d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c",
+                "94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79",
+                "a352e7e428770286cc899e2542b6cdaedb2b4953ff269a210103ec58f6198a61",
+                "1bb3032db185915b62d7c6209c5a8792be6a32ab2fedacc84e01b52c51aa3e69",
+            },
+            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
+        )
+        workflow_root = root / ".github" / "workflows"
+        lock_references = 0
+        for path in workflow_root.glob("*.yml"):
+            text = path.read_text(encoding="utf-8")
+            self.assertNotIn("packaging==26.3", text, path.name)
+            self.assertNotIn("defusedxml==0.7.1", text, path.name)
+            for line in text.splitlines():
+                if "requirements-ci-tools.txt" in line:
+                    lock_references += 1
+                    self.assertIn("--require-hashes", line, f"{path}:{line}")
+        self.assertGreater(lock_references, 0)
+
     def test_scorecard_upload_workflow_has_only_step_scoped_environment(self):
         root = Path(__file__).resolve().parents[1]
         workflow = (
