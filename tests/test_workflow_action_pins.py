@@ -62,6 +62,29 @@ class WorkflowActionPinTests(unittest.TestCase):
                     self.assertIn("--require-hashes", line, f"{path}:{line}")
         self.assertGreater(lock_references, 0)
 
+    def test_scorecard_upload_workflow_has_only_step_scoped_environment(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (
+            root
+            / ".github"
+            / "workflows"
+            / "scorecard.yml"
+        ).read_text(encoding="utf-8")
+        scanner_ignore = (root / ".oss-scanner" / "Dockerfile.dockerignore").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("!.github/workflows/scorecard.yml", scanner_ignore)
+        self.assertNotRegex(workflow, r"(?m)^(?:env|defaults):")
+        self.assertNotRegex(workflow, r"(?m)^  (?:env|defaults):")
+        lines = workflow.splitlines()
+        runtime_settings = [
+            line for line in lines if "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:" in line
+        ]
+        action_steps = [line for line in lines if re.match(r"^\s+uses:", line)]
+        self.assertTrue(action_steps)
+        self.assertEqual(len(action_steps), len(runtime_settings))
+        self.assertTrue(all(len(line) - len(line.lstrip()) >= 10 for line in runtime_settings))
+
 
 if __name__ == "__main__":
     unittest.main()
