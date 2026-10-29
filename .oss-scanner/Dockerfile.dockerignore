@@ -6,6 +6,7 @@
 !.github/workflows/
 .github/workflows/*
 !.github/workflows/ci.yml
+!.github/workflows/extended-quality.yml
 !.github/workflows/manual-browser-screenshots.yml
 !.github/workflows/android-apk-build.yml
 !.github/workflows/android-native-wheels.yml
