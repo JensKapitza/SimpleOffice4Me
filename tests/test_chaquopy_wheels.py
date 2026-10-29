@@ -16,7 +16,12 @@ from tools.prepare_android_libffi import patch_android_libffi
 class ChaquopyWheelsTests(unittest.TestCase):
     def test_experimental_builder_pins_cpython_315_android_arm64_source_revisions(self):
         workflow = Path(".github/workflows/android-native-wheels.yml").read_text(encoding="utf-8")
-        self.assertIn("cibuildwheel==4.3.3", workflow)
+        wheel_build_tools = Path("requirements-ci-android-wheels.txt").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("cibuildwheel==4.3.3", wheel_build_tools)
+        self.assertIn("--hash=sha256:", wheel_build_tools)
+        self.assertIn("requirements-ci-android-wheels.txt", workflow)
         self.assertIn("CIBW_BUILD: cp315-android_arm64_v8a", workflow)
         self.assertIn("CIBW_ARCHS_ANDROID: arm64_v8a", workflow)
         self.assertIn("package: cffi", workflow)
