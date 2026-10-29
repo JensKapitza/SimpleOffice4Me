@@ -188,6 +188,10 @@ class WorkflowActionPinTests(unittest.TestCase):
         )
         self.assertIn("--require-hashes --only-binary=:all:", workflow)
         self.assertIn("requirements-ci-security-tools.txt", workflow)
+        install_step = workflow.split("- name: Install security scanners", 1)[1].split(
+            "- name: Audit Python dependencies", 1,
+        )[0]
+        self.assertIn("run: >-\n", install_step)
         self.assertNotIn(
             "pip install --disable-pip-version-check pip-audit bandit",
             workflow,
