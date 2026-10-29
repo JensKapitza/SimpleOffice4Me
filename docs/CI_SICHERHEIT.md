@@ -32,7 +32,11 @@ damit ist auch der Installer selbst reproduzierbar gepinnt. Ruff in den
 Qualitätsprüfungen wird aus `requirements-ci-ruff.txt` mit SHA-256-Hashes
 installiert. Browser-Testabhängigkeiten werden für beide Ubuntu-x86_64-
 CPython-3.12-CI-Verbraucher aus `requirements-ci-browser.txt` mit SHA-256-Hashes
-und ausschließlich als geprüfte Wheels installiert. Versionsupdates
+und ausschließlich als geprüfte Wheels installiert. Dieser Lock ist absichtlich
+auf dieses Runner-Ziel beschränkt; Updates müssen passende PyPI-Wheel-Hashes
+eintragen und den pip-Download mit `--require-hashes --only-binary=:all:` sowie
+den Workflow-Target-Parametern verifizieren. Andere Runner dürfen den Lock erst
+nach passender Wheel-/Hash-Prüfung verwenden. Versionsupdates
 müssen PyPI-Artefakthashes, `.in`-Eingabedateien und Workflow-Regressionstests
 gemeinsam aktualisieren. Nach Änderungen an diesen Locks müssen alle Workflows,
 die sie installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen. Locks

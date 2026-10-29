@@ -147,15 +147,25 @@ class WorkflowActionPinTests(unittest.TestCase):
 
     def test_browser_test_tools_are_hash_locked_in_consuming_workflows(self):
         root = Path(__file__).resolve().parents[1]
+        source_text = (root / "requirements-ci-browser.in").read_text(encoding="utf-8")
         lock_text = (root / "requirements-ci-browser.txt").read_text(encoding="utf-8")
-        for package in (
+        packages = {
             "greenlet==3.3.2",
             "jinja2==3.1.6",
             "markupsafe==3.0.4",
             "playwright==1.55.0",
             "pyee==13.0.1",
             "typing-extensions==4.16.0",
-        ):
+        }
+        self.assertEqual(
+            packages,
+            {
+                line.strip()
+                for line in source_text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")
+            },
+        )
+        for package in packages:
             with self.subTest(package=package):
                 self.assertIn(package, lock_text)
         self.assertEqual(
