@@ -14,6 +14,7 @@ from .access_control import FEATURES, activity_for, audit, is_admin, permissions
 from .auth import login_required
 from .contact_owner_admin import assign_ownerless_contacts, ownerless_contacts
 from .db import get_db
+from .documents_media_settings_form import media_settings_from_form
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex
 from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
@@ -23,8 +24,9 @@ from .settings_store import (
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
-    DEFAULT_RSYNC_TIMEOUT_SECONDS, MAX_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB,
+    DEFAULT_RSYNC_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
+    MAX_CHAT_ATTACHMENT_BYTES,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
@@ -32,15 +34,7 @@ from .settings_store import (
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
-    MAX_PREVIEW_MAX_BYTES,
-    MAX_PREVIEW_MAX_PIXELS,
-    MAX_PREVIEW_TIMEOUT_SECONDS,
-    MAX_VIDEO_PREVIEW_FRAMES,
     MAX_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
-    MIN_PREVIEW_MAX_BYTES,
-    MIN_PREVIEW_MAX_PIXELS,
-    MIN_PREVIEW_TIMEOUT_SECONDS,
-    MIN_VIDEO_PREVIEW_FRAMES,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
@@ -600,16 +594,6 @@ def resolve_error(error_id: int):
     return redirect(url_for("admin.logs"))
 
 
-def _bounded_media_integer(name: str, minimum: int, maximum: int) -> int:
-    raw = request.form.get(name, "")
-    if len(raw) > len(str(maximum)) or not raw.isascii() or not raw.isdigit():
-        raise ValueError("Bitte einen gültigen ganzzahligen Medienwert eingeben.")
-    value = int(raw)
-    if not minimum <= value <= maximum:
-        raise ValueError("Ein Medienwert liegt außerhalb des zulässigen Bereichs.")
-    return value
-
-
 @bp.get("/settings/documents-media")
 @admin_required
 def documents_media_settings():
@@ -617,6 +601,7 @@ def documents_media_settings():
     return render_template(
         "admin/documents_media_settings.html",
         media=media,
+        max_chat_attachment_bytes=MAX_CHAT_ATTACHMENT_BYTES,
     )
 
 
@@ -940,44 +925,9 @@ def save_documents_media_settings():
     reset_defaults = request.form.get("reset") == "1"
     try:
         store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
-        if reset_defaults:
-            media = dict(DEFAULT_SETTINGS["media"])
-        else:
-            current_media = store.settings()["media"]
-            upload_limit_mib = (
-                current_media["upload_limit_mib"]
-                if request.form.get("upload_limit_mib") is None
-                else _bounded_media_integer(
-                    "upload_limit_mib", MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
-                )
-            )
-            enabled = request.form.get("preview_enabled", "")
-            if enabled not in {"0", "1"}:
-                raise ValueError("Bitte wählen, ob Dokumentvorschauen aktiviert sind.")
-            archive_ocr = request.form.get("archive_ocr_enabled")
-            if archive_ocr is None:
-                archive_ocr_enabled = current_media["archive_ocr_enabled"]
-            elif archive_ocr not in {"0", "1"}:
-                raise ValueError("Bitte wählen, ob OCR für neue Archivindizes aktiviert ist.")
-            else:
-                archive_ocr_enabled = archive_ocr == "1"
-            media = {
-                "upload_limit_mib": upload_limit_mib,
-                "archive_ocr_enabled": archive_ocr_enabled,
-                "preview_enabled": enabled == "1",
-                "preview_timeout_seconds": _bounded_media_integer(
-                    "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS, MAX_PREVIEW_TIMEOUT_SECONDS,
-                ),
-                "preview_max_bytes": _bounded_media_integer(
-                    "preview_max_bytes", MIN_PREVIEW_MAX_BYTES, MAX_PREVIEW_MAX_BYTES,
-                ),
-                "preview_max_pixels": _bounded_media_integer(
-                    "preview_max_pixels", MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
-                ),
-                "video_preview_frames": _bounded_media_integer(
-                    "video_preview_frames", MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
-                ),
-            }
+        media = media_settings_from_form(
+            store, request.form, reset_defaults=reset_defaults,
+        )
         store.save({"media": media}, str(g.user["username"]))
         audit(
             "documents_media_settings_updated",

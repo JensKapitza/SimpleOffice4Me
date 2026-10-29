@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
+from functools import lru_cache
 import json
 import logging
 import os
@@ -52,10 +53,13 @@ from .integration_settings import (
 )
 from .revision_history import RevisionHistory
 from .settings_limits import (
+    DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
     DEFAULT_UPLOAD_LIMIT_MIB,
+    MAX_CHAT_ATTACHMENT_BYTES,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
     DEFAULT_WEBDAV_QUOTA_MIB,
+    MIN_CHAT_ATTACHMENT_BYTES,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_UPLOAD_LIMIT_MIB,
@@ -128,6 +132,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "media": {
         "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
+        "chat_attachment_max_bytes": DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
         "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -443,6 +448,10 @@ class SettingsStore:
             for key, legacy_value in legacy_media.items():
                 if not isinstance(stored_media, dict) or key not in stored_media:
                     result["media"][key] = legacy_value
+        if not isinstance(stored_media, dict) or "chat_attachment_max_bytes" not in stored_media:
+            result["media"]["chat_attachment_max_bytes"] = (
+                self._legacy_chat_attachment_max_bytes()
+            )
         result["media"] = self._normalize_media_settings(result["media"])
         stored_network = stored.get("network") if isinstance(stored, dict) else None
         if not isinstance(stored_network, dict) or "webdav_quota_mib" not in stored_network:
@@ -654,6 +663,34 @@ class SettingsStore:
             ).strip().casefold() in {"1", "true", "yes", "on"},
         }
 
+    @classmethod
+    def _legacy_chat_attachment_max_bytes(cls) -> int:
+        """Read the old byte cap until a persistent setting exists; zero inherits."""
+        raw = os.environ.get("SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES", "").strip()
+        if len(raw) > 20:
+            raw = "<oversized>"
+        return cls._parse_legacy_chat_attachment_max_bytes(raw)
+
+    @staticmethod
+    @lru_cache(maxsize=16)
+    def _parse_legacy_chat_attachment_max_bytes(raw: str) -> int:
+        if not raw:
+            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
+        if not raw.isascii():
+            _LOGGER.warning("Invalid legacy chat attachment limit; inheriting global upload limit")
+            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
+        try:
+            requested = int(raw)
+        except ValueError:
+            _LOGGER.warning("Invalid legacy chat attachment limit; inheriting global upload limit")
+            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
+        if requested < 1:
+            return 1
+        if requested > MAX_CHAT_ATTACHMENT_BYTES:
+            _LOGGER.warning("Legacy chat attachment limit exceeds supported maximum; clamping")
+            return MAX_CHAT_ATTACHMENT_BYTES
+        return requested
+
     @staticmethod
     def _normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         normalized = dict(media)
@@ -666,6 +703,11 @@ class SettingsStore:
         ranges = {
             "upload_limit_mib": (
                 DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
+            ),
+            "chat_attachment_max_bytes": (
+                DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
+                MIN_CHAT_ATTACHMENT_BYTES,
+                MAX_CHAT_ATTACHMENT_BYTES,
             ),
             "video_preview_frames": (
                 DEFAULT_VIDEO_PREVIEW_FRAMES,
@@ -780,6 +822,17 @@ class SettingsStore:
             or not MIN_UPLOAD_LIMIT_MIB <= upload_limit_mib <= MAX_UPLOAD_LIMIT_MIB
         ):
             raise ValueError("upload limit must be between 1 and 4096 MiB")
+        chat_attachment_max_bytes = media.get(
+            "chat_attachment_max_bytes", DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
+        )
+        if (
+            isinstance(chat_attachment_max_bytes, bool)
+            or not isinstance(chat_attachment_max_bytes, int)
+            or not MIN_CHAT_ATTACHMENT_BYTES
+            <= chat_attachment_max_bytes
+            <= MAX_CHAT_ATTACHMENT_BYTES
+        ):
+            raise ValueError("chat attachment limit must be 0 or between 1 byte and 4 GiB")
         if (
             isinstance(video_preview_frames, bool)
             or not isinstance(video_preview_frames, int)
@@ -851,6 +904,7 @@ class SettingsStore:
             },
             "media": {
                 "upload_limit_mib": upload_limit_mib,
+                "chat_attachment_max_bytes": chat_attachment_max_bytes,
                 "archive_ocr_enabled": archive_ocr_enabled,
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
