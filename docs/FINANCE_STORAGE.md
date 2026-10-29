@@ -18,6 +18,15 @@ Vor Updates die bestehenden Sicherungsverfahren für das Dokumentenverzeichnis v
 Bei Schreib- oder Dateiberechtigungsfehlern müssen die Zugriffsrechte des ausführenden
 SimpleOffice-Benutzers geprüft werden.
 
+## Bankumsatz-Abgleich
+
+Der Abgleich zeigt erklärbare, nicht bindende Vorschläge. Rechnungen erscheinen nur,
+wenn der angemeldete Benutzer den verknüpften Kontakt verwalten darf. Beim Bestätigen
+werden Vorschlag und Score serverseitig erneut berechnet; übermittelte Objekt-IDs oder
+Scores allein reichen nicht aus. Eine Bestätigung legt nur eine auditiert gespeicherte
+Zuordnung an und ändert weder den unveränderlichen Bankumsatz noch Rechnung, Vertrag oder
+Beleg. Teilzuordnungen dürfen den Umsatzbetrag nicht überschreiten.
+
 ## FinTS-Kontostände und Umsatzabruf
 
 Nach Konfiguration einer FinTS-Bankverbindung, dem Kontenabruf und der manuellen
