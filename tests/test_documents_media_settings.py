@@ -801,6 +801,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 self.assertEqual(25 * 1024 * 1024, _file_limit())
                 store.save({"media": {"chat_attachment_max_bytes": 0}}, "media-admin")
                 self.assertEqual(25 * 1024 * 1024, _file_limit())
+                app.config["MAX_CONTENT_LENGTH"] = None
+                self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB * 1024 * 1024, _file_limit())
 
     def test_persisted_upload_limit_applies_to_request_and_s3_caps(self):
         config = {}

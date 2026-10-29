@@ -20,7 +20,7 @@ from .db import get_db
 from .document_store import DocumentStore, sha256_file
 from .federation_store import FederationStore
 from .safe_paths import resolve_file_under
-from .settings_limits import MAX_CHAT_ATTACHMENT_BYTES
+from .settings_limits import DEFAULT_UPLOAD_LIMIT_MIB, MIB
 from .settings_store import SettingsStore
 
 bp = Blueprint("chat", __name__, url_prefix="/chat")
@@ -137,9 +137,10 @@ def _mark_room_read(room_id: str, messages: list[dict]) -> None:
 
 
 def _file_limit() -> int:
-    configured = current_app.config.get("MAX_CONTENT_LENGTH", MAX_CHAT_ATTACHMENT_BYTES)
+    default_request_limit = DEFAULT_UPLOAD_LIMIT_MIB * MIB
+    configured = current_app.config.get("MAX_CONTENT_LENGTH", default_request_limit)
     if isinstance(configured, bool) or not isinstance(configured, int) or configured < 1:
-        configured = MAX_CHAT_ATTACHMENT_BYTES
+        configured = default_request_limit
     media = SettingsStore(_root()).settings()["media"]
     attachment_limit = media["chat_attachment_max_bytes"] or configured
     return max(1, min(attachment_limit, configured))
