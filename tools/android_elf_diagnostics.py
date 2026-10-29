@@ -57,6 +57,8 @@ def extract_linkage_diagnostics(apk: Path, output: Path, *, require_python_depen
     with ZipFile(apk) as archive:
         for origin, contents in _iter_relevant_elfs(archive, source=str(apk)):
             name = _PYTHON_ELF if origin.endswith(_PYTHON_ELF) else _RUST_ELF
+            if name in found:
+                raise ValueError(f"APK contains multiple linkage ELF entries for {name}")
             target = output / name
             target.write_bytes(contents)
             found[name] = target

@@ -95,6 +95,20 @@ class AndroidElfDiagnosticsTests(unittest.TestCase):
                 )
             self.assertEqual(4, len(reports))
 
+    def test_release_gate_rejects_ambiguous_cryptography_extension_names(self):
+        with TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "app.apk"
+            with ZipFile(apk, "w") as archive:
+                archive.writestr("cryptography/hazmat/bindings/_rust.abi3.so", b"legacy")
+                archive.writestr(
+                    "cryptography/hazmat/bindings/_rust.abi3-aarch64-linux-android.so",
+                    b"platform-specific",
+                )
+                archive.writestr("libpython3.15.so", b"python")
+
+            with self.assertRaisesRegex(ValueError, "multiple linkage ELF entries"):
+                extract_linkage_diagnostics(apk, Path(tmp) / "reports")
+
 
 if __name__ == "__main__":
     unittest.main()
