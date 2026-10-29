@@ -151,7 +151,11 @@ class WorkflowActionPinTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertEqual(
-            {"bandit==1.9.4", "pip-audit==2.10.1"},
+            {
+                "bandit==1.9.4",
+                "pip-audit==2.10.1",
+                "typing-extensions==4.16.0",
+            },
             {line.strip() for line in source_text.splitlines() if line.strip()},
         )
 
