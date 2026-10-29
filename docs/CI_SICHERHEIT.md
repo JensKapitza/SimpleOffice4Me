@@ -36,16 +36,26 @@ und ausschließlich als geprüfte Wheels installiert. Dieser Lock ist absichtlic
 auf dieses Runner-Ziel beschränkt; Updates müssen passende PyPI-Wheel-Hashes
 eintragen und den pip-Download mit `--require-hashes --only-binary=:all:` sowie
 den Workflow-Target-Parametern verifizieren. Andere Runner dürfen den Lock erst
-nach passender Wheel-/Hash-Prüfung verwenden. Versionsupdates
-müssen PyPI-Artefakthashes, `.in`-Eingabedateien und Workflow-Regressionstests
-gemeinsam aktualisieren. Nach Änderungen an diesen Locks müssen alle Workflows,
-die sie installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen. Locks
-werden mit pip-tools 7.6.2 und
-`pip-compile --generate-hashes --allow-unsafe --strip-extras` aktualisiert.
+nach passender Wheel-/Hash-Prüfung verwenden. Alle Lock-Updates müssen PyPI-
+Artefakthashes, `.in`-Eingabedateien und Workflow-Regressionstests gemeinsam
+aktualisieren. Nach Änderungen an Locks müssen alle Workflows, die sie
+installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen. Die generischen
+Lock-Dateien werden mit pip-tools 7.6.2 und
+`pip-compile --generate-hashes --allow-unsafe --strip-extras` aktualisiert; der
+Browser-Lock wird gezielt für sein dokumentiertes Ubuntu-x86_64/CPython-3.12-
+Target gepflegt und mit dem unten stehenden pip-Download geprüft.
 
 ## Lokal prüfen
 
 ```bash
+python -m pip download --no-deps --require-hashes --only-binary=:all: \
+  --platform manylinux_2_17_x86_64 \
+  --platform manylinux_2_24_x86_64 \
+  --platform manylinux_2_28_x86_64 \
+  --platform manylinux1_x86_64 \
+  --implementation cp --python-version 3.12 --abi cp312 \
+  --dest /tmp/ci-browser-wheel-check \
+  -r requirements-ci-browser.txt
 python -m pip install --editable ".[security]"
 python -m compileall -q app tools
 python -m unittest discover -s tests -v
