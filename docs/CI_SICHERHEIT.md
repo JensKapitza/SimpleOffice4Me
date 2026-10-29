@@ -23,9 +23,15 @@ prüft alle Workflow-Dateien auf veränderliche Tags oder Branch-Referenzen.
 Action-Updates müssen den geprüften SHA und den Kommentar gemeinsam aktualisieren.
 
 Die CI-SBOM-Helfer `packaging` und `defusedxml` werden aus
-`requirements-ci-tools.txt` mit SHA-256-Hashes installiert. Versionsupdates
-müssen die PyPI-Artefakthashes und die zugehörigen Workflow-Regressionstests
-gemeinsam aktualisieren.
+`requirements-ci-tools.txt` mit SHA-256-Hashes installiert. Android-Workflows
+verwenden zusätzlich `requirements-ci-android-wheels.txt` für pip, cibuildwheel
+und wheel sowie `requirements-ci-android-apk.txt` für Pillow. Die `.in`-Dateien
+sind die lesbaren Eingaben zur Hash-Lock-Erzeugung. Versionsupdates
+müssen die PyPI-Artefakthashes, die entsprechenden `.in`-Eingabedateien und die
+Workflow-Regressionstests gemeinsam aktualisieren. Nach Änderungen an diesen
+Locks müssen alle Workflows, die sie installieren, durch ihre Pull-Request-
+Pfadfilter neu anlaufen. Locks werden mit pip-tools 7.6.2 und
+`pip-compile --generate-hashes --allow-unsafe --strip-extras` aktualisiert.
 
 ## Lokal prüfen
 

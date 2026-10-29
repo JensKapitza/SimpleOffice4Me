@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - 'Dockerfile'
+      - 'requirements-ci-tools.txt'
       - 'pyproject.toml'
       - 'tools/generate_sbom.py'
       - 'tools/check_container_image_sbom.py'

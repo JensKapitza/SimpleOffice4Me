@@ -15,6 +15,11 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'pyproject.toml'
+      - 'requirements-ci-tools.txt'
+      - 'requirements-ci-android-apk.in'
+      - 'requirements-ci-android-apk.txt'
+      - 'requirements-ci-android-wheels.in'
+      - 'requirements-ci-android-wheels.txt'
       - 'build-dep.sh'
   workflow_dispatch:
 
