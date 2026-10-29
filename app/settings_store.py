@@ -23,6 +23,8 @@ from .integration_settings import (
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
     DEFAULT_OSM_MAX_DOWNLOAD_GIB,
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
+    DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -31,6 +33,7 @@ from .integration_settings import (
     MAX_OSM_FILTER_TIMEOUT_SECONDS as MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_OSM_MAX_DOWNLOAD_GIB as MAX_OSM_MAX_DOWNLOAD_GIB,
     MAX_OSM_READ_TIMEOUT_SECONDS as MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_FEDERATION_AUTOSCAN_SECONDS as MAX_FEDERATION_AUTOSCAN_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS as MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS as MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -39,7 +42,10 @@ from .integration_settings import (
     MIN_OSM_FILTER_TIMEOUT_SECONDS as MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_MAX_DOWNLOAD_GIB as MIN_OSM_MAX_DOWNLOAD_GIB,
     MIN_OSM_READ_TIMEOUT_SECONDS as MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_FEDERATION_AUTOSCAN_SECONDS as MIN_FEDERATION_AUTOSCAN_SECONDS,
     legacy_clamav_timeout,
+    legacy_federation_autoscan_country,
+    legacy_federation_autoscan_seconds,
     legacy_osm_download_retries,
     legacy_osm_export_idle_timeout,
     legacy_osm_filter_timeout,
@@ -150,6 +156,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "personnel_time_autosync_enabled": DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
         "personnel_time_autosync_seconds": DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
         "printershare_purge_interval_seconds": DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        "federation_autoscan_country": DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
+        "federation_autoscan_seconds": DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
     },
 }
 
@@ -513,6 +521,20 @@ class SettingsStore:
         ):
             result["integrations"]["printershare_purge_interval_seconds"] = (
                 legacy_printershare_purge_interval_seconds()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_autoscan_country" not in stored_integrations
+        ):
+            result["integrations"]["federation_autoscan_country"] = (
+                legacy_federation_autoscan_country()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_autoscan_seconds" not in stored_integrations
+        ):
+            result["integrations"]["federation_autoscan_seconds"] = (
+                legacy_federation_autoscan_seconds()
             )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
