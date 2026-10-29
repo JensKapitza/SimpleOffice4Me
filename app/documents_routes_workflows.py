@@ -644,6 +644,35 @@ def contact_photo(contact_id: str):
     return Response(payload, mimetype=media_type, headers={"Content-Security-Policy": "default-src 'none'", "X-Content-Type-Options": "nosniff", "Cache-Control": "private, max-age=300"})
 
 
+_MANUAL_ADDRESS_FIELDS = {"street": 300, "postal": 20, "city": 100, "state": 100, "country": 2}
+_MANUAL_ADDRESS_LABELS = {"Privat", "Geschäftlich", "Weitere"}
+
+
+def _manual_address_from_form(values: dict[str, Any], format_address) -> dict[str, Any] | None:
+    """Build one user-confirmed address from the contact create form, if any.
+
+    Values come from explicit form inputs (typed by hand or adopted per
+    field from an Engel suggestion); nothing is invented. Unknown labels
+    fall back to "Privat". Returns None when all inputs are empty.
+    """
+    label = str(values.pop("contact_address_label", "") or "").strip() or "Privat"
+    if label not in _MANUAL_ADDRESS_LABELS:
+        label = "Privat"
+    components: dict[str, str] = {}
+    for key, limit in _MANUAL_ADDRESS_FIELDS.items():
+        value = str(values.pop(f"contact_address_{key}", "") or "").strip()
+        if len(value) > limit:
+            raise ValueError(f"Die Anschrift-Angabe für {key} ist zu lang.")
+        if value:
+            components[key] = value
+    country = components.get("country", "")
+    if country and not (len(country) == 2 and country.isalpha() and country.isascii()):
+        raise ValueError("Das Land muss als zweistelliger ISO-Code angegeben werden.")
+    if not components:
+        return None
+    return {"label": label, "value": format_address(components), "components": components}
+
+
 @bp.post("/contacts")
 @login_required
 def save_contact():
@@ -660,6 +689,9 @@ def save_contact():
                 ):
                     values.setdefault(f"custom_{key}", str(raw))
         metadata = company_data_metadata_from_form(values, existing, store.format_postal_address)
+        manual_address = _manual_address_from_form(values, store.format_postal_address)
+        if manual_address is not None and not contact_id:
+            metadata.setdefault("append_addresses", []).append(manual_address)
         candidates = store.contacts(actor); company_contact = None
         if company_id:
             if company_id == contact_id: raise ValueError("Ein Kontakt kann nicht sich selbst als Firma zugeordnet werden")

@@ -26,6 +26,29 @@ stehen weiter unten.
   [Llama 3.2 Vision](https://registry.ollama.com/blog/llama3.2-vision),
   [Muse Glimmer](https://registry.ollama.com/library/muse-glimmer).
 
+## OCR/ML-Betrieb, Status und Demo-Dateien (29.10.)
+
+- OCR bleibt lokal: RapidOCR läuft über das venv-Extra (`.\.venv\Scripts\python.exe
+  -m pip install .[ocr]`, falls `pip` fehlt vorher `python -m ensurepip`),
+  Tesseract über das UB-Mannheim-Setup plus `PATH`. Fehlt eine Engine, nennt die
+  Fehlermeldung den exakten Installationsschritt; `ocr_availability()` meldet
+  beide Backends als Bools.
+- Status: `GET /contextflow/ml-status` liefert Provider, Ollama-Erreichbarkeit
+  plus installiertes Modell, Meta-Key nur als Vorhanden-Bool und OCR-Bools —
+  nie Schlüssel oder Tracebacks. Ein dezentes Badge oben beim vCard-Export
+  zeigt den Stand an.
+- Bildanalyse: Detailseite (Bilder) und freigegebene EML-Anhangsbilder nutzen
+  `/doc-image-suggest` (echt, lokal, Mock→503); die Antwort zeigt Provider,
+  Modell, Beschreibung und Objekte. Unreleased Anhänge bleiben bis zur Freigabe
+  gesperrt (Quarantäne-Grenze, kein Scan-Bypass).
+- Demo-Dateien: `seed_demo_documents` importiert PNG/TXT/MD/PDF mit bekanntem
+  synthetischem Inhalt idempotent nur in Demo-Roots und erzeugt Vorschauen
+  vorab, weil der Demo-Modus keinen Index-Worker startet. Der Starter druckt
+  die Detail-URLs mit Vorschau-Status.
+- Ehrlichkeit: Ohne Modell/Schlüssel antworten ML-Routen 503 mit Grund; Mock
+  gilt nie als echte Analyse. Echte-Inferenz- und Browser-Abnahme sind offen
+  und laufen auf dem Host des Eigentümers.
+
 ## Produktziel und Abnahmekriterien (geteiltes Ziel, aus update2.md)
 
 - Zielsatz: SimpleOffice4Me erkennt offene Arbeitsschritte über
@@ -180,6 +203,31 @@ set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 .venv\Scripts\python.exe tools/check_file_size.py . --limit 1000
 .venv\Scripts\python.exe tools/check_function_size.py app tools --limit 300
 ```
+
+## Kontaktvorschlag (Text + bis zu 3 Fotos, Stand 28.10.2026)
+
+- `/documents/contacts` zeigt einen Vorschlagsbereich: getippter Text plus
+  bis zu 3 Fotos erzeugen einzelne, namentlich bestätigte Feldvorschläge.
+  Fotos werden nur lokal per OCR gelesen; an Meta geht ausschließlich
+  Text/OCR-Text, niemals Bildbytes.
+- Meta-Pfad nur mit globaler Serverfreigabe UND nicht vorangekreuzter
+  Einwilligungs-Checkbox pro Anfrage; Backend entweder lokale
+  Meta-Ollama-Alternative oder externe gepinnte Meta-API
+  (`muse-spark-1.3` über Meta Model API). Speichern bleibt Sache des
+  normalen Kontaktformulars.
+- Tests (verifiziert im aufrufenden Supervisionslauf nach der letzten
+  Provider-Änderung, nicht in dieser Doku-Session):
+  `python -m unittest tests.test_contextflow_contact_suggest tests.test_contextflow_contact_suggest_meta -v`
+  — 39 Tests, OK. Meta-Pfad mit gemocktem Transport.
+- Gates (derselbe Supervisionslauf): `compileall`,
+  `tools/check_project_policy.py .`, `tools/check_file_size.py . --limit 1000`,
+  `tools/check_function_size.py app tools --limit 300` und `git diff --check`
+  — alle Exit 0.
+- Live (derselbe Supervisionslauf: `start.bat` auf synthetischem Root,
+  Port 5099): Login POST 302, danach `/documents/contacts` 200; HTML enthält
+  Vorschlagsbereich, Fotoauswahl und externe Meta-Checkbox.
+- Kein Meta-API-Schlüssel vorhanden: kein echter Modellaufruf.
+  Der Mock zählt nicht als Meta-Modellnachweis (vgl. Laufzeitregel oben).
 
 ## Grenzen (ehrlich)
 

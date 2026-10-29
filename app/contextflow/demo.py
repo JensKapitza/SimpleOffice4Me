@@ -14,6 +14,7 @@ import os
 import shutil
 import stat
 import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -22,8 +23,9 @@ from zoneinfo import ZoneInfo
 from ..business_document_generation import INVOICE_DIR
 from ..calendar_store import CalendarStore
 from ..contact_store import ContactStore
-from ..document_store import CONTROL_DIR
+from ..document_store import CONTROL_DIR, DocumentStore
 from ..mail_case_store import MailCaseStore
+from ..preview_service import PreviewService
 from ..site_visit_store import SiteVisitStore
 from ..todo_store import TodoStore
 from .case_links import CaseLinkStore
@@ -32,6 +34,8 @@ BERLIN = ZoneInfo("Europe/Berlin")
 
 DEMO_MARKER = ".contextflow-demo.json"
 DEMO_TOOL_TAG = "contextflow_demo"
+DEMO_DOCUMENTS_MARKER = "contextflow-demo-documents.json"
+DEMO_DOCUMENT_TAG = "contextflow-demo-datei"
 
 
 class DemoRootError(ValueError):
@@ -260,6 +264,7 @@ def seed_demo(root: str | Path, actor: str = "demo") -> dict[str, Any]:
         completed_on=completed_on,
         now=datetime.now(BERLIN),
     )
+    documents = seed_demo_documents(root, actor)
     return {
         "actor": actor,
         "contact_id": contact_id,
@@ -270,5 +275,144 @@ def seed_demo(root: str | Path, actor: str = "demo") -> dict[str, Any]:
         "link_id": str(link["link_id"]),
         "completed_on": completed_on,
         "invoice_id": "DEMO-2026-001",
+        "demo_documents": documents,
         "synthetic": True,
     }
+
+
+def _demo_png_bytes() -> bytes:
+    """Render one small synthetic photo (labeled shapes, no real motif)."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (640, 420), "#f1f5f9")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((60, 60, 580, 140), fill="#0f766e")
+    draw.rectangle((60, 170, 360, 360), fill="#e2e8f0", outline="#334155", width=4)
+    draw.rectangle((400, 170, 580, 360), fill="#fef3c7", outline="#92400e", width=4)
+    draw.text((80, 85), "DEMO-FOTO (synthetisch)", fill="#ffffff")
+    draw.text((80, 200), "Rechnung 2024", fill="#0f172a")
+    draw.text((420, 200), "Bank", fill="#0f172a")
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def _demo_pdf_bytes() -> bytes:
+    """Build one minimal valid one-page PDF (synthetic demo text)."""
+    body = "Demo PDF synthetisch - Rechnung 2024"
+    content = (
+        b"BT /F1 18 Tf 40 150 Td (" + body.encode("latin-1") + b") Tj ET"
+    )
+    objects: list[bytes] = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        b"<< /Length " + str(len(content)).encode("ascii") + b" >>\nstream\n" + content + b"\nendstream",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, obj in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += str(number).encode("ascii") + b" 0 obj\n" + obj + b"\nendobj\n"
+    xref_at = len(out)
+    out += b"xref\n0 " + str(len(objects) + 1).encode("ascii") + b"\n"
+    out += b"0000000000 65535 f \n"
+    for offset in offsets:
+        out += str(offset).encode("ascii").zfill(10) + b" 00000 n \n"
+    out += (
+        b"trailer\n<< /Size "
+        + str(len(objects) + 1).encode("ascii")
+        + b" /Root 1 0 R >>\nstartxref\n"
+        + str(xref_at).encode("ascii")
+        + b"\n%%EOF\n"
+    )
+    return bytes(out)
+
+
+def _demo_source_files(staging: Path) -> list[Path]:
+    """Write synthetic demo sources outside the document root."""
+    files = {
+        "demo-foto.png": _demo_png_bytes(),
+        "demo-notizen.txt": (
+            "Rechnung über 240 Euro aus dem Jahr 2024.\n"
+            "Musterkunde Demo (synthetisch).\n"
+        ).encode("utf-8"),
+        "demo-bericht.md": (
+            "# Demo-Bericht (synthetisch)\n\n"
+            "Der Buchscanner wurde geprüft. Die Bank im Wartebereich "
+            "bleibt bestehen.\n"
+        ).encode("utf-8"),
+        "demo-seite.pdf": _demo_pdf_bytes(),
+    }
+    paths = []
+    for name, data in files.items():
+        path = staging / name
+        path.write_bytes(data)
+        paths.append(path)
+    return paths
+
+
+def seed_demo_documents(root: str | Path, actor: str = "demo") -> dict[str, Any]:
+    """Import synthetic demo files once and pre-generate their previews.
+
+    The demo server runs no index worker, so previews are generated
+    eagerly at seed time; without this, image thumbnails stay missing
+    in the demo. Seeding is idempotent via a marker file: restarts
+    without --fresh reuse the imported documents instead of
+    duplicating them.
+    """
+    root = Path(root).expanduser()
+    store = DocumentStore(root)
+    marker = root / CONTROL_DIR / DEMO_DOCUMENTS_MARKER
+    if marker.is_file() and not marker.is_symlink():
+        try:
+            cached = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            cached = {}
+        entries = cached.get("documents", []) if isinstance(cached, dict) else []
+        if entries and all(
+            isinstance(entry, dict) and entry.get("document_id") for entry in entries
+        ):
+            try:
+                for entry in entries:
+                    store.get_document(str(entry["document_id"]))
+            except ValueError:
+                pass
+            else:
+                cached["synthetic"] = True
+                return cached
+    staging = Path(tempfile.mkdtemp(prefix="contextflow-demo-docs-"))
+    try:
+        sources = _demo_source_files(staging)
+        service = PreviewService(root)
+        entries: list[dict[str, Any]] = []
+        previews: dict[str, str] = {}
+        for source in sources:
+            target = store.import_file(source, actor)
+            metadata = store.get_document(target)
+            document_id = str(metadata["document_id"])
+            store.set_tags(document_id, [DEMO_DOCUMENT_TAG], actor)
+            preview = service.generate(target, metadata)
+            store.set_preview_metadata(document_id, preview)
+            entries.append(
+                {
+                    "name": source.name,
+                    "document_id": document_id,
+                    "preview": str(preview.get("status", "")),
+                    "converter": str(preview.get("converter", "")),
+                }
+            )
+            previews[document_id] = str(preview.get("status", ""))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    result = {"documents": entries, "previews": previews, "synthetic": True}
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return result

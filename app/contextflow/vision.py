@@ -278,6 +278,10 @@ class VisionProvider:
     def suggest(self, image: bytes, mime: str, context: dict[str, str]) -> dict[str, Any]:
         raise NotImplementedError
 
+    def complete_text(self, prompt: str) -> dict[str, Any]:
+        """Run one text-only JSON completion (Meta cloud only)."""
+        raise NotImplementedError
+
 
 class MockVisionProvider(VisionProvider):
     """Deterministic canned draft for tests and the labeled demo fallback."""
@@ -558,18 +562,23 @@ class LocalVisionProvider(VisionProvider):
 
 
 class MetaVisionProvider(VisionProvider):
-    """Meta cloud inference: isolated synthetic demo only, never real data.
+    """Meta cloud inference: synthetic demo only, except text-only contact help.
 
     Speaks Meta's official Chat Completions endpoint. The protocol is
     OpenAI-compatible, but both the host and model ID are pinned to Meta.
     The suggestion is parsed from
     ``choices[0].message.content`` and schema-validated by the caller.
+    Image input (``suggest``) always stays behind the synthetic demo-root
+    barrier; only the text-only contact path (``complete_text``) may run
+    on a real root when the caller passes ``allow_real_root``.
     """
 
     name = "meta"
     label = "Meta Muse Spark 1.3 (Meta Model API)"
 
-    def __init__(self, api_key: str, endpoint: str, model: str) -> None:
+    def __init__(
+        self, api_key: str, endpoint: str, model: str, text_only: bool = False
+    ) -> None:
         if not api_key:
             raise PermissionError(
                 "Meta inference needs a Model API key"
@@ -581,8 +590,13 @@ class MetaVisionProvider(VisionProvider):
         self.api_key = api_key
         self.endpoint = META_MODEL_API_ENDPOINT
         self.model = META_MODEL_API_MODEL
+        self.text_only = text_only is True
 
     def suggest(self, image: bytes, mime: str, context: dict[str, str]) -> dict[str, Any]:
+        if self.text_only:
+            raise PermissionError(
+                "Meta image inference is limited to a synthetic demo root"
+            )
         prompt = context.get("instruction") or (
             "Analysiere das Foto als Büro-Service-Befund. Antworte NUR mit "
             "einem JSON-Objekt mit den Schlüsseln title (max 240 Zeichen), "
@@ -639,11 +653,61 @@ class MetaVisionProvider(VisionProvider):
             raise VisionError("Meta inference returned no suggestion JSON")
         return parsed
 
+    def complete_text(self, prompt: str) -> dict[str, Any]:
+        """Run one text-only JSON completion via the Meta Model API.
+
+        Sends only the given prompt text (callers pass OCR text plus
+        pasted user text; photo bytes never reach this call). The
+        answer is parsed from ``choices[0].message.content`` and must
+        be a JSON object; schema validation stays with the caller.
+        """
+        body = json.dumps(
+            {
+                "model": self.model,
+                "messages": [{"role": "user", "content": str(prompt)}],
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST",
+        )
+        try:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=60) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            raise VisionError(f"Meta inference failed ({exc})") from None
+        try:
+            content = payload["choices"][0]["message"]["content"]
+            parsed = json.loads(str(content))
+        except (KeyError, IndexError, TypeError, ValueError) as exc:
+            raise VisionError(
+                f"Meta inference returned no suggestion JSON ({exc})"
+            ) from None
+        if not isinstance(parsed, dict):
+            raise VisionError("Meta inference returned no suggestion JSON")
+        return parsed
+
 
 def select_provider(
-    settings: dict[str, Any], consent_meta: bool, root: object
+    settings: dict[str, Any],
+    consent_meta: bool,
+    root: object,
+    allow_real_root: bool = False,
 ) -> VisionProvider:
-    """Pick the configured backend; Meta only with consent + synthetic root."""
+    """Pick the configured backend; Meta only with consent + synthetic root.
+
+    ``allow_real_root`` lifts the demo-root barrier for the text-only
+    contact path only: the provider is then marked text-only, so image
+    input via :meth:`MetaVisionProvider.suggest` stays refused while
+    :meth:`MetaVisionProvider.complete_text` may run on a real root.
+    All other callers keep the default (demo-root barrier unchanged).
+    """
     from pathlib import Path as _Path
 
     choice = str(settings.get("provider", "local") or "local").strip().lower()
@@ -663,6 +727,8 @@ def select_provider(
         ).strip()
         if not key or not endpoint or not model:
             raise PermissionError("Meta inference is not configured")
+        if allow_real_root is True:
+            return MetaVisionProvider(key, endpoint, model, text_only=True)
         if not is_verified_demo_root(_Path(str(root))):
             raise PermissionError("Meta inference is limited to a synthetic demo root")
         return MetaVisionProvider(key, endpoint, model)
@@ -673,6 +739,66 @@ def select_provider(
         str(settings.get("ollama_model", "") or ""),
         int(settings.get("ollama_timeout", 60) or 60),
     )
+
+
+def _ollama_probe(url: str, model: str, timeout: float = 3.0) -> dict[str, Any]:
+    """Check one loopback Ollama server; never proxy, never leak details."""
+    try:
+        base = _localhost_only(url)
+    except VisionError:
+        return {"reachable": False, "model_seen": False, "error": "kein Loopback-Backend"}
+    try:
+        request = urllib.request.Request(base + "/api/tags", method="GET")
+        with local_urlopen(request, timeout) as response:
+            payload = json.loads(response.read(OLLAMA_PROBE_MAX_BYTES).decode("utf-8"))
+    except (TimeoutError, urllib.error.URLError, OSError) as exc:
+        reason = "Zeitüberschreitung" if isinstance(exc, TimeoutError) else "nicht erreichbar"
+        return {"reachable": False, "model_seen": False, "error": reason}
+    except ValueError:
+        return {"reachable": False, "model_seen": False, "error": "ungültige Antwort"}
+    names = set()
+    models = payload.get("models") if isinstance(payload, dict) else None
+    if isinstance(models, list):
+        for entry in models:
+            if isinstance(entry, dict) and entry.get("name"):
+                names.add(str(entry["name"]).strip().casefold())
+    wanted = model.strip().casefold()
+    seen = bool(wanted) and (wanted in names or any(name.startswith(wanted + ":") for name in names))
+    return {"reachable": True, "model_seen": seen, "error": ""}
+
+
+def ml_status(settings: dict[str, Any]) -> dict[str, Any]:
+    """Summarize ML backend state for the header badge (no secrets).
+
+    Reports the configured provider, loopback Ollama reachability plus
+    whether the configured Meta model is installed, and Meta cloud
+    readiness as booleans only — never keys, URLs with credentials,
+    or tracebacks.
+    """
+    choice = str(settings.get("provider", "local") or "local").strip().lower()
+    model = str(settings.get("ollama_model", "") or "").strip()
+    url = str(settings.get("ollama_url", "") or "").strip()
+    ollama: dict[str, Any] = {
+        "url": url,
+        "model": model,
+        "reachable": False,
+        "model_seen": False,
+        "error": "",
+    }
+    if choice == "local" and url and model:
+        ollama.update(_ollama_probe(url, model))
+    elif choice == "local" and not model:
+        ollama["error"] = "kein Modell konfiguriert"
+    return {
+        "provider": choice,
+        "ollama": ollama,
+        "meta": {
+            "model": META_MODEL_API_MODEL,
+            "label": MetaVisionProvider.label,
+            "key_present": bool(str(settings.get("meta_api_key", "") or "")),
+            "server_consent": settings.get("meta_consent") is True,
+        },
+    }
 
 
 def _visit_assets(root: object, actor: str, visit_id: str) -> tuple[dict[str, Any], str]:

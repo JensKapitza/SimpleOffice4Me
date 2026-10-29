@@ -6,7 +6,7 @@
 {% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-4"><div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4"><div><h1 class="h2 mb-1">Kontakte</h1><p class="text-secondary mb-0">Lokale Kontakte, CardDAV und feldbasierte Übernahme aus anderen Anwendungen.</p></div><div class="btn-group"><a class="btn btn-outline-dark" href="{{ url_for('contact_audit.manage') }}"><i class="fas fa-address-book me-1"></i>Kontaktmanagement</a><a class="btn btn-outline-warning" href="{{ url_for('contact_audit.crm_proposals') }}"><i class="fas fa-inbox me-1"></i>Änderungsvorschläge</a><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.history') }}"><i class="fas fa-clock-rotate-left me-1"></i>{{ 'Change history' if g.language == 'en' else 'Änderungshistorie' }}</a><a class="btn btn-outline-primary" href="{{ url_for('documents.export_contacts') }}"><i class="fas fa-download me-1"></i>vCard exportieren</a><button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#contacts-import" aria-expanded="false" aria-controls="contacts-import">Kontakt importieren</button></div></div>
+<main id="main-content" class="container-xl py-4"><div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4"><div><h1 class="h2 mb-1">Kontakte</h1><p class="text-secondary mb-0">Lokale Kontakte, CardDAV und feldbasierte Übernahme aus anderen Anwendungen.</p></div><div class="btn-group"><a class="btn btn-outline-dark" href="{{ url_for('contact_audit.manage') }}"><i class="fas fa-address-book me-1"></i>Kontaktmanagement</a><a class="btn btn-outline-warning" href="{{ url_for('contact_audit.crm_proposals') }}"><i class="fas fa-inbox me-1"></i>Änderungsvorschläge</a><a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.history') }}"><i class="fas fa-clock-rotate-left me-1"></i>{{ 'Change history' if g.language == 'en' else 'Änderungshistorie' }}</a><a class="btn btn-outline-primary" href="{{ url_for('documents.export_contacts') }}"><i class="fas fa-download me-1"></i>vCard exportieren</a><button type="button" class="btn btn-primary" data-bs-toggle="collapse" data-bs-target="#contacts-import" aria-expanded="false" aria-controls="contacts-import">Kontakt importieren</button></div>{% if contextflow_enabled|default(false) %}<span id="ml-status-badge" class="small text-secondary" role="status" data-ml-status-url="{{ url_for('contextflow.ml_status_route') }}">ML-Status wird geprüft …</span>{% endif %}</div>
 {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 <div class="mb-3"><a class="btn btn-outline-primary" href="{{ url_for('contact_audit.crm_overview') }}">CRM-Übersicht öffnen</a></div>
 <form role="search" aria-label="Kontakte suchen" method="get" class="input-group mb-4"><input type="search" class="form-control" name="q" value="{{ query }}" placeholder="Kontakte suchen: Name, Firma, E-Mail, Telefon, Adresse …"><button type="submit" class="btn btn-outline-primary">Suchen</button>{% if query %}<a class="btn btn-outline-secondary" href="{{ url_for('documents.contacts') }}">Zurücksetzen</a>{% endif %}</form>
@@ -39,6 +39,30 @@
     <p class="form-text mb-0">Der QR-Code wird im Browser gelesen. Es werden keine Daten an externe Scanner gesendet.</p>
   </section>
 </div>
+{% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+<section class="mt-4 border rounded p-3" aria-labelledby="engel-contact-heading" data-engel-contact data-suggest-url="{{ url_for('contextflow.contact_suggest') }}">
+  <h2 class="h6" id="engel-contact-heading">Büroengel: Feldvorschläge aus Text und Fotos</h2>
+  <p class="small text-secondary mb-2">Die Meta-KI ordnet eingefügten Text und bis zu 3 Visitenkarten-Fotos Kontaktfeldern zu — Standard ist das lokale Modell via Ollama. Fotos werden immer nur lokal gelesen, nichts wird gespeichert, jeder Vorschlag wird einzeln per Klick übernommen.</p>
+  <form id="engel-contact-form" class="row g-2" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="col-12"><label class="form-label" for="engel-contact-text">Kontakttext (optional)</label><textarea class="form-control" id="engel-contact-text" name="contact_text" rows="3" maxlength="4000" placeholder="Name, Firma, Adresse, Telefon, E-Mail …"></textarea></div>
+    <div class="col-12"><label class="form-label" for="engel-contact-photos">Fotos (optional, max. 3)</label><input class="form-control" id="engel-contact-photos" type="file" name="photos" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></div>
+    <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" id="engel-contact-consent" name="consent_meta" value="yes"><label class="form-check-label" for="engel-contact-consent">Externe Meta-KI (Muse Spark 1.3) verwenden — nur mit ausdrücklicher Einwilligung pro Anfrage (eingegebener Text und lokal erkannter Foto-Text gehen an Meta; Bilddateien bleiben lokal)</label></div></div>
+    <div class="col-12"><button type="submit" class="btn btn-primary" id="engel-contact-submit">Vorschläge anfordern</button></div>
+  </form>
+  <div id="engel-contact-status" class="alert alert-info mt-3 mb-0" role="status" aria-live="polite" hidden></div>
+  <section id="engel-contact-card" class="mt-3" aria-labelledby="engel-contact-card-heading" hidden>
+    <h3 class="h6" id="engel-contact-card-heading" tabindex="-1">Vorschläge prüfen und einzeln übernehmen</h3>
+    <p class="small text-secondary" id="engel-contact-provider"></p>
+    <ul class="list-group" id="engel-contact-list"></ul>
+    <div class="d-flex flex-wrap gap-2 mt-2">
+      <button type="button" class="btn btn-sm btn-outline-primary" id="engel-contact-adopt-empty">Nur leere Felder übernehmen</button>
+      <button type="button" class="btn btn-sm btn-outline-secondary" id="engel-contact-dismiss">Verwerfen</button>
+    </div>
+    <p class="small text-secondary mt-2 mb-0">Tippfehler-Korrekturen sind markiert. Öffentliche Firmenanschriften bitte weiterhin nur über die ausdrückliche Firmendaten-Suche mit Quellenangabe ergänzen.</p>
+  </section>
+</section>
+{% endif %}
 <div id="contact-capture-status" class="alert alert-info mt-3 mb-0" role="status" aria-live="polite" hidden></div>
 <details id="contact-capture-preview" class="mt-3" hidden><summary>Erkannten Inhalt anzeigen</summary><pre id="contact-capture-text" class="small border rounded bg-body-tertiary p-2 mt-2 mb-0" style="white-space:pre-wrap;max-height:220px;overflow:auto"></pre></details>
 <p class="small text-secondary mt-3 mb-0"><strong>Wichtig:</strong> Foto- und QR-Daten sind nur Vorschläge. Ein Kontakt wird erst mit „Kontakt speichern“ angelegt.</p>
@@ -61,6 +85,7 @@
         <div class="form-text" id="new-company-status" data-company-status aria-live="polite">Ab zwei Zeichen werden vorhandene Kontakte gesucht.</div>
       </div>
       <div class="col-12"><input class="form-control" name="custom_customer_number" placeholder="Eigenes Feld, z. B. custom_Kundennummer"></div>
+      <div class="col-12"><details class="border rounded p-2"><summary class="fw-semibold small">Anschrift (optional)</summary><div class="row g-2 mt-1"><div class="col-12"><label class="form-label" for="contact-address-label">Adressart</label><select class="form-select" id="contact-address-label" name="contact_address_label"><option value="Privat">Privat</option><option value="Geschäftlich">Geschäftlich</option><option value="Weitere">Weitere</option></select></div><div class="col-12"><label class="form-label" for="contact-address-street">Straße und Hausnummer</label><input class="form-control" id="contact-address-street" name="contact_address_street" maxlength="300" autocomplete="street-address"></div><div class="col-4"><label class="form-label" for="contact-address-postal">PLZ</label><input class="form-control" id="contact-address-postal" name="contact_address_postal" maxlength="20" autocomplete="postal-code"></div><div class="col-8"><label class="form-label" for="contact-address-city">Ort</label><input class="form-control" id="contact-address-city" name="contact_address_city" maxlength="100" autocomplete="address-level2"></div><div class="col-6"><label class="form-label" for="contact-address-state">Region</label><input class="form-control" id="contact-address-state" name="contact_address_state" maxlength="100"></div><div class="col-6"><label class="form-label" for="contact-address-country">Land (ISO-Code)</label><input class="form-control" id="contact-address-country" name="contact_address_country" maxlength="2" placeholder="DE" autocomplete="country"></div></div></details></div>
       {% set company_search_name = '' %}
       {% set company_search_city = '' %}
       {% set company_search_contact_id = '' %}

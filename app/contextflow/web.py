@@ -30,6 +30,7 @@ from ..auth import login_required
 from ..contact_store import ContactStore
 from ..document_store import DocumentStore
 from ..mail_case_store import MailCaseStore
+from ..object_vision import ocr_availability
 from ..site_visit_store import SiteVisitStore
 from .actions import ApprovalStale, approve_task
 from .case_links import BERLIN, CaseLinkStore
@@ -41,6 +42,8 @@ from .doc_tags import (
     suggest_tags_for_document,
 )
 from .evaluator import FollowupEvaluator
+from .contact_suggest import MAX_PHOTOS as MAX_CONTACT_PHOTOS
+from .contact_suggest import suggest_contact_fields
 from .hints import HintStates
 from .inventory_match import (
     AmbiguousMatchError,
@@ -58,6 +61,7 @@ from .vision import (
     InferenceTimeoutError,
     InferenceUnavailable,
     confirm_draft,
+    ml_status,
     prepare_draft,
     suggest_inventory_object,
     validate_image,
@@ -396,6 +400,21 @@ def _vision_settings() -> dict[str, Any]:
     }
 
 
+@bp.get("/ml-status")
+@login_required
+def ml_status_route():
+    """Machine-readable ML backend status for the header badge (JSON).
+
+    Login is required, but no object rights: the payload carries
+    availability booleans and configured model names only — never API
+    keys, credentials, or tracebacks.
+    """
+    _gate()
+    status = ml_status(_vision_settings())
+    status["ocr"] = ocr_availability()
+    return {"ok": True, **status}, 200
+
+
 @bp.post("/inventory-suggest")
 @login_required
 def inventory_suggest():
@@ -491,6 +510,70 @@ def inventory_attach():
     except ValueError as exc:
         abort(400, description=str(exc))
     return {"ok": True, "object_id": target["object_id"], "filename": photo["filename"]}, 200
+
+
+@bp.post("/contact-suggest")
+@login_required
+def contact_suggest():
+    """Suggest contact fields from user text and photos (JSON, nothing stored).
+
+    Photos are OCR-read locally; exactly one text-only Meta call
+    structures the sources (photo bytes never leave the machine). Local
+    Ollama answers by default; the Meta Model API path needs the
+    server-side Meta switch plus API key and the explicit per-request
+    consent checkbox, otherwise cloud inference is refused here. Mock
+    answers are refused with 503 (no invented contact data). Saving
+    still happens exclusively via the normal contact form.
+    """
+    _gate()
+    _actor()
+    uploads = [
+        item
+        for item in request.files.getlist("photos")
+        if item is not None and getattr(item, "filename", "")
+    ]
+    if len(uploads) > MAX_CONTACT_PHOTOS:
+        return {
+            "ok": False,
+            "error": f"Bitte höchstens {MAX_CONTACT_PHOTOS} Fotos auswählen.",
+        }, 400
+    photos: list[dict[str, Any]] = []
+    for index, upload in enumerate(uploads, start=1):
+        try:
+            photos.append(
+                {
+                    "data": validate_image(
+                        upload.filename, upload.content_type, upload.stream
+                    ),
+                    "mime": str(upload.content_type or "").strip().lower(),
+                }
+            )
+        except ValueError:
+            return {
+                "ok": False,
+                "error": (
+                    f"Foto {index}: nur JPEG, PNG oder WebP bis 5 MiB. "
+                    "Bitte ein lesbares Foto wählen."
+                ),
+            }, 400
+    try:
+        result = suggest_contact_fields(
+            text=request.form.get("contact_text", ""),
+            photos=photos,
+            settings=_vision_settings(),
+            consent_meta=request.form.get("consent_meta") == "yes",
+            root=_root(),
+        )
+    except PermissionError:
+        abort(403)
+    except InferenceUnavailable as exc:
+        payload: dict[str, object] = {"ok": False, "error": str(exc)}
+        if isinstance(exc, InferenceTimeoutError):
+            payload["timeout"] = True
+        return payload, 503
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}, 400
+    return {"ok": True, **result}, 200
 
 
 @bp.post("/doc-tag-suggest")

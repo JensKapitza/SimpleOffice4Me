@@ -272,7 +272,8 @@ class PeerStockContracts(unittest.TestCase):
         self.assertEqual(403, denied.status_code)
 
     def test_module_uses_no_network(self):
-        source = Path("app/contextflow/peer_stock.py").read_text(encoding="utf-8")
+        root = Path(__file__).resolve().parent.parent
+        source = (root / "app" / "contextflow" / "peer_stock.py").read_text(encoding="utf-8")
 
         for token in ("urllib", "socket", "requests", "httpx", "http.client", "urlopen"):
             with self.subTest(token=token):

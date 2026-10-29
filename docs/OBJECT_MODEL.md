@@ -37,6 +37,8 @@ Die Analyse bleibt lokal:
 
 Die ML-Modelle laufen lokal; Bilder oder erkannte Texte werden für die OCR nicht an externe Dienste übertragen. RapidOCR und ONNX Runtime liegen im optionalen Python-Extra `ocr`. Der Desktop-Build und das Docker-/Server-Image installieren dieses Extra ausdrücklich. Android/Termux laden die nativen ONNX-Abhängigkeiten nicht versehentlich; dort bleibt die gemeinsame Objektakte nutzbar und OCR fällt auf eine lokal verfügbare Fallback-Engine zurück.
 
+Windows-Installation im Projektordner (PowerShell): `.\.venv\Scripts\python.exe -m pip install .[ocr]` (falls `pip` im venv fehlt, vorher `python -m ensurepip`). Tesseract zusätzlich über das UB-Mannheim-Setup installieren und das `bin`-Verzeichnis in `PATH` aufnehmen, danach den Server neu starten. Fehlt eine Engine, nennt die Oberfläche den exakten Installationsschritt statt nur den Ausfall.
+
 Das gemeinsame OCR-Ergebnis ist unabhängig von der Engine aufgebaut und enthält mindestens:
 
 - verwendete Engine (`rapidocr` oder Fallback `tesseract`)
