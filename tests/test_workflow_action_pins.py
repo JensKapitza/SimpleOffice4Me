@@ -79,6 +79,10 @@ class WorkflowActionPinTests(unittest.TestCase):
         )
 
         workflow_root = root / ".github" / "workflows"
+        scanner_ignore = (root / ".oss-scanner" / "Dockerfile.dockerignore").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("!.github/workflows/ci.yml", scanner_ignore)
         consumers = (
             "ci.yml",
             "manual-browser-screenshots.yml",
