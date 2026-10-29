@@ -52,14 +52,17 @@ from .integration_settings import (
 )
 from .revision_history import RevisionHistory
 from .settings_limits import (
+    DEFAULT_UPLOAD_LIMIT_MIB,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
     DEFAULT_WEBDAV_QUOTA_MIB,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
+    MAX_UPLOAD_LIMIT_MIB,
     MAX_WEBDAV_QUOTA_MIB,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
+    MIN_UPLOAD_LIMIT_MIB,
 )
 
 
@@ -124,6 +127,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "rsync_max_files": DEFAULT_RSYNC_MAX_FILES,
     },
     "media": {
+        "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
         "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -622,6 +626,10 @@ class SettingsStore:
             else os.environ.get("SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES", DEFAULT_VIDEO_PREVIEW_FRAMES)
         )
         return {
+            "upload_limit_mib": _bounded_setting(
+                os.environ.get("SIMPLEOFFICE_MAX_UPLOAD_MIB"),
+                DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
+            ),
             "video_preview_frames": _bounded_setting(
                 legacy_frames, DEFAULT_VIDEO_PREVIEW_FRAMES,
                 MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
@@ -656,6 +664,9 @@ class SettingsStore:
             _LOGGER.warning("Invalid stored archive OCR setting; using default")
             normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
         ranges = {
+            "upload_limit_mib": (
+                DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
+            ),
             "video_preview_frames": (
                 DEFAULT_VIDEO_PREVIEW_FRAMES,
                 MIN_VIDEO_PREVIEW_FRAMES,
@@ -762,6 +773,13 @@ class SettingsStore:
             raise ValueError("integration settings must be an object")
         integrations = validate_integration_settings(integrations)
         video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
+        upload_limit_mib = media.get("upload_limit_mib", DEFAULT_UPLOAD_LIMIT_MIB)
+        if (
+            isinstance(upload_limit_mib, bool)
+            or not isinstance(upload_limit_mib, int)
+            or not MIN_UPLOAD_LIMIT_MIB <= upload_limit_mib <= MAX_UPLOAD_LIMIT_MIB
+        ):
+            raise ValueError("upload limit must be between 1 and 4096 MiB")
         if (
             isinstance(video_preview_frames, bool)
             or not isinstance(video_preview_frames, int)
@@ -832,6 +850,7 @@ class SettingsStore:
                 "rsync_max_files": rsync_max_files,
             },
             "media": {
+                "upload_limit_mib": upload_limit_mib,
                 "archive_ocr_enabled": archive_ocr_enabled,
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
