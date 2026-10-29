@@ -107,6 +107,44 @@ class WorkflowActionPinTests(unittest.TestCase):
                 self.assertIn("requirements-ci-pip.in", pull_request_paths)
                 self.assertIn("requirements-ci-pip.txt", pull_request_paths)
 
+    def test_ruff_static_analyzer_is_installed_from_hash_lock(self):
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "requirements-ci-ruff.txt").read_text(encoding="utf-8")
+        self.assertIn("ruff==0.16.9", lock_text)
+        self.assertEqual(
+            {
+                "95e6f022090368ab3b824c36276839c53b2adf1a3f4c09fefc33dfc400f6da96",
+                "a5f27be168556594a86d2f415db0cf43f5291917849318f873c7e2791f7a8c67",
+                "1632eb1d6197f33bd00b1acbc5b71009e89a8895c158e2d2b03a834fac964ab6",
+                "b3f951b14d865d5952c89d40a5ca07e87abe24fa5453299878411e127748fb1c",
+                "447fc07e1573afff7cb02803462b12b6c8ece7cf10e2cd78565fa6d7a1c0bf8d",
+                "8a3e039a6a40ed976c491722b60e0ae4a4aa1a86057f540ee7a37a5d19ae9120",
+                "4684dded7db60aa57cb118fa158630f5feade4af5782903b6053484bdf9bd129",
+                "d29c934357e45642fda2f34c0b1f4025b4a6c01e15e4bf0016879d60078a142c",
+                "a21713e629d3e5bdb2f5c2def1cc7f04f47fa8e1a7eb0571b4a28e1da64bc728",
+                "7baa24ef5fc8e77aa93879e1d3f43754a01ae488e869f1ae30cf431afd4d2452",
+                "a41aac6230aadfaa133bdfa1614488531ffa3e0837567ae04c0da2058a9c0f9e",
+                "c2529fb5896d49115b0e9aa8f887490b34bbe76baf879ec2264ac59406869ce7",
+                "41e3870277694177429b56406d65dfbdb2c2802c52b715edaf6a0b829c69d4ee",
+                "8adbe4e58af167f767d7b2ba5e83c42e878350796cf78c2f5e14ab9903a92588",
+                "0e1dbc2073624dee6618d41d0098690a7244654af746704b64759e12b6b6b385",
+                "6bd40fec8cd4c8a3d4dd589bd8ad4e6320c13c29234159bfd959a40d529d597b",
+                "ed1a252039200f57a59eebc063b54beabea67bfbaaca0eeaa7f54b5fbcda2284",
+                "12b625c6cfba78d285d9f48eda5f053374f1e53cb10ef17342a383750db99161",
+            },
+            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
+        )
+
+        workflow = (root / ".github/workflows/extended-quality.yml").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("--require-hashes -r requirements-ci-ruff.txt", workflow)
+        self.assertNotIn("ruff==0.16.9", workflow)
+        scanner_ignore = (root / ".oss-scanner/Dockerfile.dockerignore").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("!.github/workflows/extended-quality.yml", scanner_ignore)
+
     def test_android_build_tools_are_hash_locked_and_lock_changes_trigger_ci(self):
         root = Path(__file__).resolve().parents[1]
         wheel_lock = (root / "requirements-ci-android-wheels.txt").read_text(
