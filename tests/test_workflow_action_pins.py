@@ -66,6 +66,43 @@ class WorkflowActionPinTests(unittest.TestCase):
                     self.assertIn("--require-hashes", line, f"{path}:{line}")
         self.assertGreater(lock_references, 0)
 
+    def test_ci_pip_bootstrap_is_hash_locked_in_consuming_workflows(self):
+        root = Path(__file__).resolve().parents[1]
+        lock_text = (root / "requirements-ci-pip.txt").read_text(encoding="utf-8")
+        self.assertIn("pip==26.1.2", lock_text)
+        self.assertEqual(
+            {
+                "382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab",
+                "f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605",
+            },
+            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
+        )
+
+        workflow_root = root / ".github" / "workflows"
+        consumers = (
+            "ci.yml",
+            "manual-browser-screenshots.yml",
+            "project-release.yml",
+            "ubuntu-26-compat.yml",
+        )
+        for name in consumers:
+            workflow = (workflow_root / name).read_text(encoding="utf-8")
+            with self.subTest(workflow=name):
+                self.assertIn("requirements-ci-pip.txt", workflow)
+                self.assertNotIn("pip install --upgrade pip", workflow)
+                for line in workflow.splitlines():
+                    if "requirements-ci-pip.txt" in line and "pip install" in line:
+                        self.assertIn("--require-hashes", line)
+
+        for name in ("manual-browser-screenshots.yml", "ubuntu-26-compat.yml"):
+            workflow = (workflow_root / name).read_text(encoding="utf-8")
+            pull_request_paths = workflow.split("  pull_request:", 1)[1].split(
+                "  workflow_dispatch:", 1,
+            )[0]
+            with self.subTest(path_filter=name):
+                self.assertIn("requirements-ci-pip.in", pull_request_paths)
+                self.assertIn("requirements-ci-pip.txt", pull_request_paths)
+
     def test_android_build_tools_are_hash_locked_and_lock_changes_trigger_ci(self):
         root = Path(__file__).resolve().parents[1]
         wheel_lock = (root / "requirements-ci-android-wheels.txt").read_text(

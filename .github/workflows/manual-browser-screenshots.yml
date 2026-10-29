@@ -11,6 +11,8 @@ on:
       - tests/test_federation_admin_ui.py
       - tests/test_federation_diagnostics.py
       - .github/workflows/manual-browser-screenshots.yml
+      - requirements-ci-pip.in
+      - requirements-ci-pip.txt
       - app/chat*.py
       - app/documents_routes_upload.py
       - app/federation*.py
@@ -95,7 +97,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install 'playwright==1.55.0'
           python -m playwright install --with-deps chromium
 
