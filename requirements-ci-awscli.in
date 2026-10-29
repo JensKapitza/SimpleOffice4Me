@@ -1,0 +1,3 @@
+# AWS CLI v1 for the optional isolated S3 compatibility smoke.
+# 1.45.28 includes fixes for the AWS CLI v1 security advisories affecting 1.42.59.
+awscli==1.45.28

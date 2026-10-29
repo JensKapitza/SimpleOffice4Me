@@ -199,6 +199,52 @@ class WorkflowActionPinTests(unittest.TestCase):
                 self.assertIn("requirements-ci-browser.in", pull_request_paths)
                 self.assertIn("requirements-ci-browser.txt", pull_request_paths)
 
+    def test_aws_cli_s3_smoke_uses_hash_locked_patched_version(self):
+        root = Path(__file__).resolve().parents[1]
+        source_text = (root / "requirements-ci-awscli.in").read_text(encoding="utf-8")
+        lock_text = (root / "requirements-ci-awscli.txt").read_text(encoding="utf-8")
+        self.assertIn("awscli==1.45.28", source_text)
+        self.assertIn("awscli==1.45.28", lock_text)
+        self.assertNotIn("awscli==1.42.59", lock_text)
+        package_stanza = []
+        package_count = 0
+        for line in lock_text.splitlines():
+            if line and not line.startswith(("#", " ")) and "==" in line:
+                if package_stanza:
+                    self.assertTrue(
+                        any("--hash=sha256:" in stanza_line for stanza_line in package_stanza),
+                        package_stanza[0],
+                    )
+                package_stanza = [line]
+                package_count += 1
+            elif package_stanza:
+                package_stanza.append(line)
+        self.assertGreater(package_count, 1)
+        self.assertTrue(
+            any("--hash=sha256:" in stanza_line for stanza_line in package_stanza),
+            package_stanza[0],
+        )
+
+        workflow = (
+            root / ".github" / "workflows" / "manual-browser-screenshots.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "python -m pip install --require-hashes --only-binary=:all: "
+            "-r requirements-ci-awscli.txt",
+            workflow,
+        )
+        install_step = workflow.split(
+            "- name: Install hash-locked AWS CLI S3 test tool", 1,
+        )[1].split("\n      - name:", 1)[0]
+        self.assertIn("aws --version", install_step)
+        self.assertIn("if: github.event_name == 'pull_request'", workflow)
+        self.assertNotIn("awscli==1.42.59", workflow)
+        pull_request_paths = workflow.split("  pull_request:", 1)[1].split(
+            "  workflow_dispatch:", 1,
+        )[0]
+        self.assertIn("requirements-ci-awscli.in", pull_request_paths)
+        self.assertIn("requirements-ci-awscli.txt", pull_request_paths)
+
     def test_android_build_tools_are_hash_locked_and_lock_changes_trigger_ci(self):
         root = Path(__file__).resolve().parents[1]
         wheel_lock = (root / "requirements-ci-android-wheels.txt").read_text(
