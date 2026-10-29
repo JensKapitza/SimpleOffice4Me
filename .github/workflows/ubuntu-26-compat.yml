@@ -15,6 +15,15 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'pyproject.toml'
+      - 'requirements-ci-tools.txt'
+      - 'requirements-ci-android-apk.in'
+      - 'requirements-ci-android-apk.txt'
+      - 'requirements-ci-android-wheels.in'
+      - 'requirements-ci-android-wheels.txt'
+      - 'requirements-ci-pip.in'
+      - 'requirements-ci-pip.txt'
+      - 'requirements-ci-browser.in'
+      - 'requirements-ci-browser.txt'
       - 'build-dep.sh'
   workflow_dispatch:
 
@@ -41,7 +50,7 @@ jobs:
           cache: pip
       - name: Install project
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable ".[security,sftp]"
       - name: Run policy, compile and unit-test gates
         run: |
@@ -166,7 +175,7 @@ jobs:
           python-version: '3.12'
       - name: Install pinned Playwright and Chromium dependencies
         run: |
-          python -m pip install 'playwright==1.55.0' 'Jinja2>=3.1.2,<4'
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-ci-browser.txt
           python -m playwright install --with-deps chromium
           python -m playwright install --list
       - name: Resource Commander browser regressions
