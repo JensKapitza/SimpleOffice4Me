@@ -43,6 +43,29 @@
       </form>
     </div>
   </section>
+  <section class="card mb-3">
+    <div class="card-header"><strong>Föderationssuche</strong></div>
+    <div class="card-body">
+      <p>Die automatische Land-Suche ist optional und standardmäßig deaktiviert. Entdeckte Peers werden nur als Vorschläge gespeichert; sie werden dadurch weder aktiviert noch für Datenfreigaben autorisiert. Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam.</p>
+      <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_discovery_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="federation-autoscan-country">Land (ISO-3166 Alpha-2, leer = deaktiviert)</label>
+          <input class="form-control" id="federation-autoscan-country" type="text" name="federation_autoscan_country" value="{{ integrations.federation_autoscan_country }}" maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off">
+          <div class="form-text">Standardmäßig aus. Das frühere SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY wird bis zum Speichern als Legacy-Startwert übernommen.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="federation-autoscan-seconds">Suchintervall (Sekunden)</label>
+          <input class="form-control" id="federation-autoscan-seconds" type="number" name="federation_autoscan_seconds" value="{{ integrations.federation_autoscan_seconds }}" min="{{ federation_autoscan_min }}" max="{{ federation_autoscan_max }}" step="1" required>
+          <div class="form-text">Standard: 21.600 Sekunden (6 Stunden); zulässig: 3.600–604.800 Sekunden. Das frühere Environment-Intervall wird bis zum Speichern migriert.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwerte zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
   <section class="card mt-3">
     <div class="card-header"><strong>PrinterShare-Aufbewahrungsbereinigung</strong></div>
     <div class="card-body">

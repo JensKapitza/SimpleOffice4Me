@@ -18,8 +18,10 @@ from app import (
     db as database,
 )
 from app.attachment_security import AttachmentSecurity
+from app.chat_routes import _file_limit
 from app.settings_store import (
     DEFAULT_ARCHIVE_OCR_ENABLED,
+    DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
@@ -32,6 +34,7 @@ from app.settings_store import (
     DEFAULT_VIDEO_PREVIEW_FRAMES,
     DEFAULT_UPLOAD_LIMIT_MIB,
     MAX_WEBDAV_QUOTA_MIB,
+    MAX_CHAT_ATTACHMENT_BYTES,
     MAX_UPLOAD_LIMIT_MIB,
     MIN_UPLOAD_LIMIT_MIB,
     MAX_CLAMAV_TIMEOUT_SECONDS,
@@ -109,6 +112,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
     def form_values(**overrides):
         values = {
             "upload_limit_mib": str(DEFAULT_UPLOAD_LIMIT_MIB),
+            "chat_attachment_max_bytes": str(DEFAULT_CHAT_ATTACHMENT_MAX_BYTES),
             "archive_ocr_enabled": "0",
             "preview_enabled": "1",
             "preview_timeout_seconds": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
@@ -128,6 +132,9 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertIn('name="_csrf_token"', html)
         self.assertIn('name="preview_timeout_seconds"', html)
         self.assertIn('name="upload_limit_mib"', html)
+        self.assertIn('name="chat_attachment_max_bytes"', html)
+        self.assertEqual(1, html.count('id="chat-attachment-max-bytes"'))
+        self.assertIn('value="0" min="0"', html)
         self.assertIn("Standard 512 MiB; zulässig 1–4096 MiB", html)
         self.assertIn('name="archive_ocr_enabled"', html)
         self.assertIn('name="preview_max_bytes"', html)
@@ -656,6 +663,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 preview_max_pixels="120000000",
                 video_preview_frames="8",
                 upload_limit_mib="1024",
+                chat_attachment_max_bytes=str(100 * 1024 * 1024),
             ),
             headers={"X-CSRF-Token": "a" * 40},
         )
@@ -668,6 +676,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(120_000_000, media["preview_max_pixels"])
         self.assertEqual(8, media["video_preview_frames"])
         self.assertEqual(1024, media["upload_limit_mib"])
+        self.assertEqual(100 * 1024 * 1024, media["chat_attachment_max_bytes"])
         with app.app_context():
             row = database.get_db().execute(
                 "SELECT actor_name,target_id,detail FROM security_event WHERE action=?",
@@ -689,6 +698,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             {"video_preview_frames": "31"},
             {"upload_limit_mib": "0"},
             {"upload_limit_mib": "4097"},
+            {"chat_attachment_max_bytes": "-1"},
+            {"chat_attachment_max_bytes": str(MAX_CHAT_ATTACHMENT_BYTES + 1)},
         )
         for invalid in invalid_values:
             with self.subTest(invalid=invalid):
@@ -719,6 +730,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_PREVIEW_MAX_PIXELS, media["preview_max_pixels"])
         self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, media["video_preview_frames"])
         self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB, media["upload_limit_mib"])
+        self.assertEqual(DEFAULT_CHAT_ATTACHMENT_MAX_BYTES, media["chat_attachment_max_bytes"])
 
     def test_legacy_archive_ocr_environment_value_migrates_once(self):
         with tempfile.TemporaryDirectory() as legacy_root:
@@ -740,6 +752,57 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}):
                 media = SettingsStore(legacy_root).settings()["media"]
             self.assertEqual(256, media["upload_limit_mib"])
+
+    def test_legacy_chat_attachment_limit_migrates_once(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            old_limit = 100 * 1024 * 1024
+            with patch.dict(os.environ, {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(old_limit)}):
+                self.assertEqual(
+                    old_limit,
+                    store.settings()["media"]["chat_attachment_max_bytes"],
+                )
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(
+                os.environ,
+                {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(200 * 1024 * 1024)},
+            ):
+                self.assertEqual(
+                    old_limit,
+                    SettingsStore(legacy_root).settings()["media"]["chat_attachment_max_bytes"],
+                )
+
+    def test_invalid_legacy_chat_attachment_limit_inherits_or_clamps_safely(self):
+        for value, expected in (
+            ("invalid", DEFAULT_CHAT_ATTACHMENT_MAX_BYTES),
+            ("0", 1),
+            ("-10", 1),
+            ("999999999999", MAX_CHAT_ATTACHMENT_BYTES),
+        ):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as legacy_root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": value}):
+                    media = SettingsStore(legacy_root).settings()["media"]
+                self.assertEqual(expected, media["chat_attachment_max_bytes"])
+
+    def test_chat_attachment_limit_is_persisted_and_clamped_by_global_request_limit(self):
+        store = SettingsStore(self.root)
+        with app.app_context():
+            app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
+            with patch.dict(
+                os.environ,
+                {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(1024 * 1024)},
+            ):
+                store.save(
+                    {"media": {"chat_attachment_max_bytes": 50 * 1024 * 1024}},
+                    "media-admin",
+                )
+                self.assertEqual(50 * 1024 * 1024, _file_limit())
+                app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+                self.assertEqual(25 * 1024 * 1024, _file_limit())
+                store.save({"media": {"chat_attachment_max_bytes": 0}}, "media-admin")
+                self.assertEqual(25 * 1024 * 1024, _file_limit())
+                app.config["MAX_CONTENT_LENGTH"] = None
+                self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB * 1024 * 1024, _file_limit())
 
     def test_persisted_upload_limit_applies_to_request_and_s3_caps(self):
         config = {}
@@ -763,17 +826,26 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
 
     def test_older_media_form_submission_preserves_archive_ocr_setting(self):
         SettingsStore(self.root).save(
-            {"media": {"archive_ocr_enabled": True}}, "media-admin",
+            {
+                "media": {
+                    "archive_ocr_enabled": True,
+                    "chat_attachment_max_bytes": 100 * 1024 * 1024,
+                },
+            },
+            "media-admin",
         )
         old_form = self.form_values()
         old_form.pop("archive_ocr_enabled")
+        old_form.pop("chat_attachment_max_bytes")
         response = self.admin.post(
             "/admin/settings/documents-media",
             data=old_form,
             headers={"X-CSRF-Token": "a" * 40},
         )
         self.assertEqual(302, response.status_code)
-        self.assertTrue(SettingsStore(self.root).settings()["media"]["archive_ocr_enabled"])
+        media = SettingsStore(self.root).settings()["media"]
+        self.assertTrue(media["archive_ocr_enabled"])
+        self.assertEqual(100 * 1024 * 1024, media["chat_attachment_max_bytes"])
 
     def test_settings_store_rejects_invalid_preview_types_and_bounds(self):
         store = SettingsStore(self.root)
@@ -786,6 +858,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             {"video_preview_frames": False},
             {"upload_limit_mib": MAX_UPLOAD_LIMIT_MIB + 1},
             {"upload_limit_mib": True},
+            {"chat_attachment_max_bytes": MAX_CHAT_ATTACHMENT_BYTES + 1},
+            {"chat_attachment_max_bytes": True},
         )
         for values in invalid_media:
             with self.subTest(values=values):
