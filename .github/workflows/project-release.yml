@@ -139,7 +139,7 @@ jobs:
       - name: Generate release SBOM
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable '.[security,sbom]'
           python tools/generate_sbom.py --xml-output artifacts/sbom.cdx.xml
           python -m json.tool artifacts/sbom.cdx.json > /dev/null
