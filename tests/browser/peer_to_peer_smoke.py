@@ -153,12 +153,17 @@ def configure_peer(
     enabled = form.locator("input[name='enabled']")
     if not enabled.is_checked():
         enabled.check()
-    form.get_by_role(
-        "button", name="Peer speichern", exact=True
-    ).click()
-    page.wait_for_load_state("domcontentloaded")
-    if "Federation-Peer gespeichert." not in page.locator("body").inner_text():
-        raise RuntimeError(f"Peer {peer_id} wurde nicht gespeichert.")
+    button = form.get_by_role("button", name="Peer speichern", exact=True)
+    with page.expect_navigation(wait_until="domcontentloaded") as navigation:
+        button.click()
+    response = navigation.value
+    feedback = compact(" ".join(page.locator(".alert[role='status']").all_inner_texts()))
+    if "Federation-Peer gespeichert." not in feedback:
+        status = response.status if response is not None else "no-response"
+        raise RuntimeError(
+            f"Peer {peer_id} wurde nicht gespeichert (HTTP {status}; "
+            f"Rückmeldung: {feedback[:400] or 'keine'})."
+        )
 
     if probe_connection:
         row = page.locator("tr").filter(has_text=peer_id).first
