@@ -70,7 +70,7 @@ def vision_config_from_env(
         _fail("Local inference needs CONTEXTFLOW_OLLAMA_MODEL set to a Meta model")
     if provider == "meta" and not str(source.get("MODEL_API_KEY", "") or "").strip():
         _fail(
-            "Meta Muse Spark was selected but MODEL_API_KEY is missing. "
+            "Meta Muse Spark 1.3 Contributor was selected but MODEL_API_KEY is missing. "
             "Set it in the process environment; it is never written to the demo config."
         )
     raw_timeout = str(source.get("CONTEXTFLOW_OLLAMA_TIMEOUT", "") or "").strip()
@@ -126,6 +126,8 @@ def prepare_root(path: Path, fresh: bool) -> Path:
 
 
 def main() -> None:
+    from tools.local_env import load_parent_env_file
+    load_parent_env_file()
     parser = argparse.ArgumentParser(description="Run the local ContextFlow demo.")
     parser.add_argument("--port", type=int, default=5088)
     parser.add_argument("--root", default=str(DEFAULT_DIR))
@@ -183,7 +185,7 @@ def main() -> None:
         print(f"  Ollama:   {vision['CONTEXTFLOW_OLLAMA_URL']}")
         print(f"  Timeout:  {vision['CONTEXTFLOW_OLLAMA_TIMEOUT']}s (Kaltstart)")
     elif vision["CONTEXTFLOW_VISION_PROVIDER"] == "meta":
-        print("  Vision:   Meta Muse Spark 1.3 (Meta Model API)")
+        print("  Vision:   Meta Muse Spark 1.3 Contributor (Meta Model API)")
         print("  Daten:    ausschließlich synthetischer Demo-Root + Einwilligung")
     else:
         print("  Vision:   Mock (Befunddemo; Inventar braucht lokales Modell)")

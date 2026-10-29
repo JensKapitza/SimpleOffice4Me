@@ -14,10 +14,15 @@ stehen weiter unten.
 - Für lokale Textaufgaben ist `llama3.2:1b` (oder `llama3.2:3b`) via Ollama
   zugelassen. Diese Llama-3.2-Modelle sind text-only. Bildanalyse braucht
   `llama3.2-vision` oder `muse-glimmer`.
-- Die sichtbare Meta-Cloud-Demo ruft `muse-spark-1.3` über den offiziellen
+- Die sichtbare Meta-Cloud-Demo ruft `muse-spark-1.3-contributor` über den offiziellen Responses-Endpunkt
   Meta Model API-Endpunkt auf. Sie braucht `MODEL_API_KEY`, die ausdrückliche
   Einwilligung im Formular und den isolierten synthetischen Demo-Root.
   Echtdaten werden für diesen Pfad abgelehnt.
+- Contributor-Modus (`muse-spark-1.3-contributor`): Inhalte können laut
+  Meta-Doku zum Training künftiger Meta-Modelle verwendet werden. Die UI
+  kennzeichnet das direkt an der Einwilligung; Cloud-Läufe sind auf
+  synthetische Demo-Daten beschränkt, echte Kontaktdaten erreichen
+  diesen Pfad nie.
 - Das verwendete Modell steht im Startprotokoll und im Ergebnis der Bildanalyse.
   Die Meta-AI-Tooling-Wertung (25 %) wird nur mit einem tatsächlichen Meta-Aufruf
   belegt; der Mock ist ein Bedien-Dummy und zählt nicht als KI-Nachweis.
@@ -170,16 +175,16 @@ $env:MODEL_API_KEY = "<Meta-Model-API-Schlüssel>"
 .venv\Scripts\python.exe tools\contextflow_demo.py --port 5088 --fresh
 ```
 
-Der Start muss `Meta Muse Spark 1.3 (Meta Model API)` ausgeben. Dann im
+Der Start muss `Meta Muse Spark 1.3 Contributor (Meta Model API)` ausgeben. Dann im
 Browser unter `http://127.0.0.1:5088/contextflow/` anmelden (`demo` /
 `demo-contextflow-1`) und in drei Minuten zeigen:
 
-1. **0:00–0:30:** Startausgabe und UI-Modellkennung `Meta Muse Spark 1.3`
+1. **0:00–0:30:** Startausgabe und UI-Modellkennung `Meta Muse Spark 1.3 Contributor`
    zeigen. Demo-Root und Beispieldaten sind synthetisch.
 2. **0:30–1:30:** Im Foto-Formular einen synthetischen Ortstermin wählen,
    ein unkritisches Demo-Bild auswählen, Meta-Cloud-Einwilligung markieren
    und den Vorschlag starten. Das Ergebnis nennt als Provider
-   `Meta Muse Spark 1.3 (Meta Model API)`.
+   `Meta Muse Spark 1.3 Contributor (Meta Model API)`.
 3. **1:30–2:00:** Titel, Befundart und Sicherheit prüfen; ohne Bestätigung
    wird nichts gespeichert. Den Entwurf danach ausdrücklich übernehmen.
 4. **2:00–3:00:** Die bestätigte Arbeit mit Quellen im Büroengel zeigen,
@@ -213,7 +218,7 @@ set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 - Meta-Pfad nur mit globaler Serverfreigabe UND nicht vorangekreuzter
   Einwilligungs-Checkbox pro Anfrage; Backend entweder lokale
   Meta-Ollama-Alternative oder externe gepinnte Meta-API
-  (`muse-spark-1.3` über Meta Model API). Speichern bleibt Sache des
+  (`muse-spark-1.3-contributor` über Meta Model API). Speichern bleibt Sache des
   normalen Kontaktformulars.
 - Tests (verifiziert im aufrufenden Supervisionslauf nach der letzten
   Provider-Änderung, nicht in dieser Doku-Session):

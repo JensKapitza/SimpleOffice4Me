@@ -1,13 +1,13 @@
-"""Bueroengel contact suggestions: explicit Meta cloud path (real roots allowed).
+"""Bueroengel contact suggestions: explicit Meta cloud path (demo roots only).
 
 Covers the Meta Model API alternative to local Ollama for exactly this
 endpoint: per-request consent checkbox + server flag + API key + the
-pinned official endpoint/model, without a synthetic demo root. The
-single cloud call is text-only (typed text plus local OCR text; photo
-bytes stay on the machine), and every other Meta route keeps its
-demo-root barrier. Transport is faked; live inference is NOT verified
-here. The local-path tests live in
-tests/test_contextflow_contact_suggest.py and stay untouched.
+pinned official endpoint/model, only on a verified synthetic demo root
+(Contributor content may train future Meta models, so real contact data
+never reaches this path). The single cloud call is text-only (typed
+text plus local OCR text; photo bytes stay on the machine). Transport
+is faked; live inference is NOT verified here. The local-path tests live
+in tests/test_contextflow_contact_suggest.py and stay untouched.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from app.contextflow.demo import DEMO_MARKER
 from app.contextflow.vision import (
     META_MODEL_API_ENDPOINT,
     META_MODEL_API_MODEL,
+    MetaVisionProvider,
     VisionError,
     select_provider,
 )
@@ -65,7 +66,7 @@ def _demo_root(path: Path) -> Path:
 
 
 def _meta_transport(payload: bytes) -> mock.MagicMock:
-    """Fake the Meta chat-completions transport with one fixed answer."""
+    """Fake the Meta Responses transport with one fixed answer."""
     response = mock.MagicMock()
     response.read.return_value = payload
     context = mock.MagicMock()
@@ -78,7 +79,22 @@ def _meta_transport(payload: bytes) -> mock.MagicMock:
 
 def _completion_payload(fields: object) -> bytes:
     return json.dumps(
-        {"choices": [{"message": {"content": json.dumps({"fields": fields})}}]}
+        {
+            "object": "response",
+            "status": "completed",
+            "output": [
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": json.dumps({"fields": fields}),
+                        }
+                    ],
+                }
+            ],
+        }
     ).encode("utf-8")
 
 
@@ -115,37 +131,32 @@ class ContactMetaGateTest(unittest.TestCase):
                 consent_meta=True, root=self.demo,
             )
 
-    def test_allowed_outside_demo_root_with_consent(self) -> None:
-        fields = [
-            {"field": "display_name", "value": "Max Muster",
-             "evidence": "Max Muster", "source": "text"},
-        ]
+    def test_real_roots_are_refused_even_with_consent(self) -> None:
         for root in (self.plain, None):
             with self.subTest(root="none" if root is None else "plain"):
-                transport = _meta_transport(_completion_payload(fields))
-                with mock.patch(
-                    "app.contextflow.vision.urllib.request.build_opener",
-                    return_value=transport,
+                with (
+                    self.assertRaises(PermissionError),
+                    mock.patch(
+                        "app.contextflow.vision.urllib.request.build_opener"
+                    ) as transport,
                 ):
-                    result = suggest_contact_fields(
+                    suggest_contact_fields(
                         text="Max Muster", photos=[],
                         settings=_meta_settings(), consent_meta=True, root=root,
                     )
-                self.assertEqual(1, len(result["suggestions"]))
-                sent = transport.open.call_args[0][0]
-                raw = sent.data.decode("utf-8")
-                self.assertNotIn("images", raw)
-                self.assertIn("Max Muster", raw)
+                transport.assert_not_called()
 
-    def test_demo_barrier_stays_for_other_routes(self) -> None:
+    def test_demo_barrier_holds_for_meta_everywhere(self) -> None:
         settings = _meta_settings()
         with self.assertRaises(PermissionError):
             select_provider(dict(settings), True, self.plain)
-        provider = select_provider(dict(settings), True, self.plain,
-                                   allow_real_root=True)
+        provider = select_provider(dict(settings), True, self.demo)
         self.assertEqual("meta", provider.name)
+        text_only = MetaVisionProvider(
+            "k", META_MODEL_API_ENDPOINT, META_MODEL_API_MODEL, text_only=True
+        )
         with self.assertRaises(PermissionError):
-            provider.suggest(b"photo-bytes", "image/png", {})
+            text_only.suggest(b"photo-bytes", "image/png", {})
 
     def test_foreign_endpoint_and_model_are_pinned(self) -> None:
         with self.assertRaises(VisionError):
@@ -154,13 +165,13 @@ class ContactMetaGateTest(unittest.TestCase):
                 settings=_meta_settings(
                     meta_endpoint="https://api.attacker.invalid/v1/chat/completions"
                 ),
-                consent_meta=True, root=self.plain,
+                consent_meta=True, root=self.demo,
             )
         with self.assertRaises(VisionError):
             suggest_contact_fields(
                 text="Max Muster", photos=[],
                 settings=_meta_settings(meta_model="non-meta-model"),
-                consent_meta=True, root=self.plain,
+                consent_meta=True, root=self.demo,
             )
 
     def test_default_call_still_refuses_cloud(self) -> None:
@@ -196,7 +207,7 @@ class ContactMetaPositiveTest(unittest.TestCase):
             )
         self.assertEqual(2, len(result["suggestions"]))
         self.assertEqual(META_MODEL_API_MODEL, result["model"])
-        self.assertIn("Muse Spark", result["provider_label"])
+        self.assertIn("Muse Spark 1.3 Contributor", result["provider_label"])
         transport.open.assert_called_once()
         sent = transport.open.call_args[0][0]
         self.assertEqual(META_MODEL_API_ENDPOINT, sent.full_url)
@@ -206,7 +217,9 @@ class ContactMetaPositiveTest(unittest.TestCase):
         body = json.loads(sent.data.decode("utf-8"))
         self.assertEqual(META_MODEL_API_MODEL, body["model"])
         self.assertNotIn("images", json.dumps(body))
-        self.assertIn("Max Muster", body["messages"][0]["content"])
+        blocks = body["input"][0]["content"]
+        self.assertEqual("input_text", blocks[0]["type"])
+        self.assertIn("Max Muster", blocks[0]["text"])
 
     def test_photo_bytes_are_ocr_read_and_never_sent(self) -> None:
         fields = [
@@ -330,16 +343,10 @@ class ContactMetaWebTest(unittest.TestCase):
             )
         self.assertEqual(403, response.status_code)
 
-    def test_cloud_with_consent_answers_outside_demo_root(self) -> None:
-        fields = [
-            {"field": "display_name", "value": "Max Muster",
-             "evidence": "Max Muster", "source": "text"},
-        ]
-        transport = _meta_transport(_completion_payload(fields))
+    def test_cloud_with_consent_refused_outside_demo_root(self) -> None:
         with mock.patch.dict(os.environ, {"MODEL_API_KEY": "k"}), mock.patch(
-            "app.contextflow.vision.urllib.request.build_opener",
-            return_value=transport,
-        ):
+            "app.contextflow.vision.urllib.request.build_opener"
+        ) as transport:
             response = self.client.post(
                 "/contextflow/contact-suggest",
                 data={
@@ -348,15 +355,8 @@ class ContactMetaWebTest(unittest.TestCase):
                     "consent_meta": "yes",
                 },
             )
-        self.assertEqual(200, response.status_code)
-        payload = response.get_json()
-        self.assertTrue(payload["ok"])
-        self.assertEqual(1, len(payload["suggestions"]))
-        self.assertEqual(META_MODEL_API_MODEL, payload["model"])
-        sent = transport.open.call_args[0][0]
-        raw = sent.data.decode("utf-8")
-        self.assertNotIn("images", raw)
-        self.assertIn("Max Muster", raw)
+        self.assertEqual(403, response.status_code)
+        transport.assert_not_called()
 
     def test_cloud_with_consent_answers_on_demo_root(self) -> None:
         _demo_root(Path(self.temp.name) / "documents")
@@ -387,13 +387,18 @@ class ContactMetaWebTest(unittest.TestCase):
         body = self.client.get("/documents/contacts").get_data(as_text=True)
         self.assertIn('id="engel-contact-consent"', body)
         self.assertIn('name="consent_meta"', body)
-        self.assertIn("Muse Spark 1.3", body)
+        self.assertIn("Muse Spark 1.3 Contributor", body)
         self.assertIn(
             "eingegebener Text und lokal erkannter Foto-Text gehen an Meta; "
             "Bilddateien bleiben lokal",
             body,
         )
-        self.assertNotIn("synthetische Demo-Daten", body)
+        self.assertIn(
+            "Contributor-Modus: Inhalte können zum Training künftiger "
+            "Meta-Modelle verwendet werden.",
+            body,
+        )
+        self.assertIn("Nur synthetische Demo-Daten", body)
         match = re.search(
             r'<input[^>]*id="engel-contact-consent"[^>]*>', body
         )

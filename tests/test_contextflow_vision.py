@@ -297,7 +297,19 @@ class VisionBackendTest(unittest.TestCase):
         suggestion = {"title": "T", "description": "D",
                       "evidence_class": "observed", "confidence": 50}
         payload = json.dumps(
-            {"choices": [{"message": {"content": json.dumps(suggestion)}}]}
+            {
+                "object": "response",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": json.dumps(suggestion)}
+                        ],
+                    }
+                ],
+            }
         ).encode("utf-8")
         response = mock.MagicMock()
         response.read.return_value = payload
@@ -318,12 +330,13 @@ class VisionBackendTest(unittest.TestCase):
         sent = transport.open.call_args[0][0]
         self.assertEqual(sent.get_header("Authorization"), "Bearer k")
         body = json.loads(sent.data.decode("utf-8"))
+        self.assertEqual(sent.full_url, META_MODEL_API_ENDPOINT)
         self.assertEqual(body["model"], META_MODEL_API_MODEL)
-        parts = body["messages"][0]["content"]
-        self.assertEqual(parts[0]["type"], "text")
-        self.assertEqual(parts[1]["type"], "image_url")
+        parts = body["input"][0]["content"]
+        self.assertEqual(parts[0]["type"], "input_text")
+        self.assertEqual(parts[1]["type"], "input_image")
         self.assertTrue(
-            parts[1]["image_url"]["url"].startswith("data:image/png;base64,")
+            parts[1]["image_url"].startswith("data:image/png;base64,")
         )
 
     def test_local_backend_guards(self) -> None:

@@ -38,8 +38,10 @@ ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 TITLE_LIMIT = 240
 DESCRIPTION_LIMIT = 12000
 LOCALHOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
-META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1/chat/completions"
-META_MODEL_API_MODEL = "muse-spark-1.3"
+META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1/responses"
+META_MODEL_API_MODELS_ENDPOINT = "https://api.meta.ai/v1/models"
+META_MODEL_API_MODEL = "muse-spark-1.3-contributor"
+META_MODELS_TIMEOUT = 10.0
 # Names are deliberately exact Ollama IDs. Custom aliases could point to
 # non-Meta weights while claiming a Meta name, so inference fails closed.
 META_OLLAMA_TEXT_MODELS = frozenset(
@@ -561,20 +563,80 @@ class LocalVisionProvider(VisionProvider):
             ) from None
 
 
-class MetaVisionProvider(VisionProvider):
-    """Meta cloud inference: synthetic demo only, except text-only contact help.
+def _responses_text(payload: Any) -> str:
+    """Extract the first output_text from a Responses API payload."""
+    if not isinstance(payload, dict):
+        raise VisionError("Meta inference returned no suggestion JSON")
+    status = payload.get("status")
+    if status is not None and status != "completed":
+        raise VisionError(f"Meta inference did not complete ({status})")
+    output = payload.get("output")
+    if not isinstance(output, list):
+        raise VisionError("Meta inference returned no suggestion JSON")
+    for item in output:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if (
+                isinstance(block, dict)
+                and block.get("type") == "output_text"
+                and str(block.get("text") or "").strip()
+            ):
+                return str(block["text"])
+    raise VisionError("Meta inference returned no suggestion JSON")
 
-    Speaks Meta's official Chat Completions endpoint. The protocol is
-    OpenAI-compatible, but both the host and model ID are pinned to Meta.
-    The suggestion is parsed from
-    ``choices[0].message.content`` and schema-validated by the caller.
-    Image input (``suggest``) always stays behind the synthetic demo-root
-    barrier; only the text-only contact path (``complete_text``) may run
-    on a real root when the caller passes ``allow_real_root``.
+
+def check_meta_model(api_key: str, timeout: float = META_MODELS_TIMEOUT) -> tuple[bool, str]:
+    """Check via GET /v1/models that muse-spark-1.3-contributor is listed.
+
+    Returns (listed, short error). The key travels only in the
+    Authorization header and never appears in errors, logs, or files.
+    """
+    if not api_key:
+        return (False, "kein API-Schlüssel")
+    request = urllib.request.Request(
+        META_MODEL_API_MODELS_ENDPOINT,
+        headers={"Authorization": f"Bearer {api_key}"},
+        method="GET",
+    )
+    try:
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+        with opener.open(request, timeout=timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except TimeoutError:
+        return (False, "Zeitüberschreitung")
+    except (urllib.error.URLError, OSError, ValueError):
+        return (False, "Modelliste nicht erreichbar")
+    entries = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return (False, "ungültige Modelliste")
+    listed = any(
+        isinstance(entry, dict) and entry.get("id") == META_MODEL_API_MODEL
+        for entry in entries
+    )
+    return (listed, "" if listed else "Modell nicht gelistet")
+
+
+class MetaVisionProvider(VisionProvider):
+    """Meta cloud inference: synthetic demo roots only (Contributor mode).
+
+    Speaks Meta's official Responses endpoint (``POST /v1/responses``)
+    with the pinned ``muse-spark-1.3-contributor`` model. Contributor
+    content may be used to train future Meta models, so real roots are
+    never allowed here — not even for text-only calls. Text goes in as
+    ``input_text`` blocks, photos as ``input_image`` data URLs; the
+    suggestion is parsed from the first ``output_text`` block and
+    schema-validated by the caller. Image input (``suggest``) always
+    stays behind the synthetic demo-root barrier, and the text-only
+    contact path (``complete_text``) requires a verified synthetic
+    demo root as well.
     """
 
     name = "meta"
-    label = "Meta Muse Spark 1.3 (Meta Model API)"
+    label = "Meta Muse Spark 1.3 Contributor (Meta Model API)"
 
     def __init__(
         self, api_key: str, endpoint: str, model: str, text_only: bool = False
@@ -586,11 +648,43 @@ class MetaVisionProvider(VisionProvider):
         if str(endpoint or "").strip() != META_MODEL_API_ENDPOINT:
             raise VisionError("Meta Model API endpoint is not the official endpoint")
         if str(model or "").strip() != META_MODEL_API_MODEL:
-            raise VisionError("ContextFlow only allows the Meta Muse Spark 1.3 model")
+            raise VisionError("ContextFlow only allows the Meta Muse Spark 1.3 Contributor model")
         self.api_key = api_key
         self.endpoint = META_MODEL_API_ENDPOINT
         self.model = META_MODEL_API_MODEL
         self.text_only = text_only is True
+
+    def _post_response(self, content: list[dict[str, Any]]) -> dict[str, Any]:
+        body = json.dumps(
+            {
+                "model": self.model,
+                "input": [{"role": "user", "content": content}],
+            }
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            self.endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}",
+            },
+            method="POST",
+        )
+        try:
+            opener = urllib.request.build_opener(_NoRedirectHandler())
+            with opener.open(request, timeout=60) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
+            raise VisionError(f"Meta inference failed ({exc})") from None
+        try:
+            parsed = json.loads(_responses_text(payload))
+        except ValueError as exc:
+            raise VisionError(
+                f"Meta inference returned no suggestion JSON ({exc})"
+            ) from None
+        if not isinstance(parsed, dict):
+            raise VisionError("Meta inference returned no suggestion JSON")
+        return parsed
 
     def suggest(self, image: bytes, mime: str, context: dict[str, str]) -> dict[str, Any]:
         if self.text_only:
@@ -605,108 +699,41 @@ class MetaVisionProvider(VisionProvider):
             f"Kontext: {context.get('visit_title', '')} / "
             f"{context.get('asset_name', 'ohne Gerätebezug')}."
         )
-        body = json.dumps(
-            {
-                "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {
-                                    "url": (
-                                        f"data:{mime};base64,"
-                                        + base64.b64encode(image).decode("ascii")
-                                    )
-                                },
-                            },
-                        ],
-                    }
-                ],
-            }
-        ).encode("utf-8")
-        request = urllib.request.Request(
-            self.endpoint,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
+        return self._post_response(
+            [
+                {"type": "input_text", "text": prompt},
+                {
+                    "type": "input_image",
+                    "image_url": (
+                        f"data:{mime};base64,"
+                        + base64.b64encode(image).decode("ascii")
+                    ),
+                },
+            ]
         )
-        try:
-            opener = urllib.request.build_opener(_NoRedirectHandler())
-            with opener.open(request, timeout=60) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-            raise VisionError(f"Meta inference failed ({exc})") from None
-        try:
-            content = payload["choices"][0]["message"]["content"]
-            parsed = json.loads(str(content))
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise VisionError(
-                f"Meta inference returned no suggestion JSON ({exc})"
-            ) from None
-        if not isinstance(parsed, dict):
-            raise VisionError("Meta inference returned no suggestion JSON")
-        return parsed
 
     def complete_text(self, prompt: str) -> dict[str, Any]:
         """Run one text-only JSON completion via the Meta Model API.
 
         Sends only the given prompt text (callers pass OCR text plus
         pasted user text; photo bytes never reach this call). The
-        answer is parsed from ``choices[0].message.content`` and must
+        answer is parsed from the first ``output_text`` block and must
         be a JSON object; schema validation stays with the caller.
         """
-        body = json.dumps(
-            {
-                "model": self.model,
-                "messages": [{"role": "user", "content": str(prompt)}],
-            }
-        ).encode("utf-8")
-        request = urllib.request.Request(
-            self.endpoint,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.api_key}",
-            },
-            method="POST",
-        )
-        try:
-            opener = urllib.request.build_opener(_NoRedirectHandler())
-            with opener.open(request, timeout=60) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-            raise VisionError(f"Meta inference failed ({exc})") from None
-        try:
-            content = payload["choices"][0]["message"]["content"]
-            parsed = json.loads(str(content))
-        except (KeyError, IndexError, TypeError, ValueError) as exc:
-            raise VisionError(
-                f"Meta inference returned no suggestion JSON ({exc})"
-            ) from None
-        if not isinstance(parsed, dict):
-            raise VisionError("Meta inference returned no suggestion JSON")
-        return parsed
+        return self._post_response([{"type": "input_text", "text": str(prompt)}])
 
 
 def select_provider(
     settings: dict[str, Any],
     consent_meta: bool,
     root: object,
-    allow_real_root: bool = False,
 ) -> VisionProvider:
     """Pick the configured backend; Meta only with consent + synthetic root.
 
-    ``allow_real_root`` lifts the demo-root barrier for the text-only
-    contact path only: the provider is then marked text-only, so image
-    input via :meth:`MetaVisionProvider.suggest` stays refused while
-    :meth:`MetaVisionProvider.complete_text` may run on a real root.
-    All other callers keep the default (demo-root barrier unchanged).
+    The Meta Contributor path never runs on real roots: Contributor
+    content may train future Meta models, so even text-only contact
+    calls require a verified synthetic demo root. Local and mock
+    providers are unaffected by the root.
     """
     from pathlib import Path as _Path
 
@@ -727,8 +754,6 @@ def select_provider(
         ).strip()
         if not key or not endpoint or not model:
             raise PermissionError("Meta inference is not configured")
-        if allow_real_root is True:
-            return MetaVisionProvider(key, endpoint, model, text_only=True)
         if not is_verified_demo_root(_Path(str(root))):
             raise PermissionError("Meta inference is limited to a synthetic demo root")
         return MetaVisionProvider(key, endpoint, model)
@@ -773,7 +798,8 @@ def ml_status(settings: dict[str, Any]) -> dict[str, Any]:
     Reports the configured provider, loopback Ollama reachability plus
     whether the configured Meta model is installed, and Meta cloud
     readiness as booleans only — never keys, URLs with credentials,
-    or tracebacks.
+    or tracebacks. When the Meta provider is selected and a key
+    is present, the pinned model is verified once via GET /v1/models.
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     model = str(settings.get("ollama_model", "") or "").strip()
@@ -789,15 +815,23 @@ def ml_status(settings: dict[str, Any]) -> dict[str, Any]:
         ollama.update(_ollama_probe(url, model))
     elif choice == "local" and not model:
         ollama["error"] = "kein Modell konfiguriert"
+    key = str(settings.get("meta_api_key", "") or "")
+    meta: dict[str, Any] = {
+        "model": META_MODEL_API_MODEL,
+        "label": MetaVisionProvider.label,
+        "key_present": bool(key),
+        "server_consent": settings.get("meta_consent") is True,
+        "model_listed": None,
+        "models_error": "",
+    }
+    if choice == "meta" and key:
+        listed, models_error = check_meta_model(key)
+        meta["model_listed"] = listed
+        meta["models_error"] = models_error
     return {
         "provider": choice,
         "ollama": ollama,
-        "meta": {
-            "model": META_MODEL_API_MODEL,
-            "label": MetaVisionProvider.label,
-            "key_present": bool(str(settings.get("meta_api_key", "") or "")),
-            "server_consent": settings.get("meta_consent") is True,
-        },
+        "meta": meta,
     }
 
 

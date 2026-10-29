@@ -160,7 +160,7 @@ class MlStatusTests(unittest.TestCase):
             response = self.client.get("/contextflow/ml-status")
         payload = response.get_json()
         self.assertTrue(payload["meta"]["key_present"])
-        self.assertEqual(payload["meta"]["model"], "muse-spark-1.3")
+        self.assertEqual(payload["meta"]["model"], "muse-spark-1.3-contributor")
         self.assertNotIn(secret, response.get_data(as_text=True))
         with mock.patch.dict("os.environ", {}, clear=False):
             import os
