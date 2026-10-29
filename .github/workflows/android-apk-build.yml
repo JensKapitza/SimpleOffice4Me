@@ -5,6 +5,11 @@ on:
   pull_request:
     paths:
       - 'android/apk/**'
+      - 'requirements-ci-tools.txt'
+      - 'requirements-ci-android-apk.in'
+      - 'requirements-ci-android-apk.txt'
+      - 'requirements-ci-android-wheels.in'
+      - 'requirements-ci-android-wheels.txt'
       - 'tools/android_apk_python_sbom.py'
       - 'tools/android_elf_diagnostics.py'
       - 'tools/check_chaquopy_wheels.py'
@@ -188,7 +193,7 @@ jobs:
 
       - name: Verify packaged launcher images
         run: |
-          python -m pip install 'Pillow==13.0.0'
+          python -m pip install --require-hashes -r requirements-ci-android-apk.txt
           python tools/check_android_launcher_assets.py android/apk/app/build/outputs/apk/debug/app-debug.apk
 
       - name: Verify APK signature and native-library alignment

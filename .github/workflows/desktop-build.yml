@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'desktop/**'
+      - 'requirements-ci-tools.txt'
       - 'pyproject.toml'
       - 'tests/test_desktop_ocr_dependencies.py'
       - 'tools/generate_sbom.py'

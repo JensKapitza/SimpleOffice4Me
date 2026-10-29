@@ -61,10 +61,75 @@ class WorkflowActionPinTests(unittest.TestCase):
             self.assertNotIn("packaging==26.3", text, path.name)
             self.assertNotIn("defusedxml==0.7.1", text, path.name)
             for line in text.splitlines():
-                if "requirements-ci-tools.txt" in line:
+                if "requirements-ci-tools.txt" in line and "install" in line:
                     lock_references += 1
                     self.assertIn("--require-hashes", line, f"{path}:{line}")
         self.assertGreater(lock_references, 0)
+
+    def test_android_build_tools_are_hash_locked_and_lock_changes_trigger_ci(self):
+        root = Path(__file__).resolve().parents[1]
+        wheel_lock = (root / "requirements-ci-android-wheels.txt").read_text(
+            encoding="utf-8",
+        )
+        apk_lock = (root / "requirements-ci-android-apk.txt").read_text(
+            encoding="utf-8",
+        )
+        for package in ("pip==26.1.2", "cibuildwheel==4.3.3", "wheel==0.46.3"):
+            with self.subTest(package=package):
+                lines = wheel_lock.splitlines()
+                start = next(
+                    (index for index, line in enumerate(lines)
+                     if line.startswith(f"{package} \\")),
+                    None,
+                )
+                self.assertIsNotNone(start, package)
+                hashes = []
+                for line in lines[start + 1:]:
+                    if not line.startswith("    --hash=sha256:"):
+                        break
+                    hashes.extend(re.findall(r"sha256:([0-9a-f]{64})", line))
+                self.assertTrue(hashes, package)
+        self.assertIn("pillow==13.0.0", apk_lock)
+        self.assertRegex(apk_lock, r"--hash=sha256:[0-9a-f]{64}")
+
+        native_workflow = (root / ".github/workflows/android-native-wheels.yml").read_text(
+            encoding="utf-8",
+        )
+        apk_workflow = (root / ".github/workflows/android-apk-build.yml").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("--require-hashes", native_workflow)
+        self.assertIn("requirements-ci-android-wheels.txt", native_workflow)
+        self.assertNotIn("pip install --upgrade pip", native_workflow)
+        self.assertNotIn("pip install 'cibuildwheel==4.3.3'", native_workflow)
+        self.assertIn("requirements-ci-android-apk.txt", apk_workflow)
+        self.assertNotIn("pip install 'Pillow==13.0.0'", apk_workflow)
+        self.assertNotIn("pip install 'wheel==0.46.3'", native_workflow)
+
+        path_filtered_workflows = (
+            "android-apk-build.yml", "desktop-build.yml", "docker-build.yml",
+            "ubuntu-26-compat.yml", "tauri-build.yml",
+            "tauri-desktop-crossplatform.yml",
+        )
+        for name in path_filtered_workflows:
+            text = (root / ".github/workflows" / name).read_text(encoding="utf-8")
+            pull_request = text.split("  pull_request:", 1)[1]
+            pull_request_paths = re.split(
+                r"(?m)^(?:  [A-Za-z_-]+:|[A-Za-z_-]+:)", pull_request, maxsplit=1,
+            )[0]
+            with self.subTest(workflow=name):
+                self.assertIn("requirements-ci-tools.txt", pull_request_paths)
+        for lock_name in (
+            "requirements-ci-android-apk.in", "requirements-ci-android-apk.txt",
+            "requirements-ci-android-wheels.in", "requirements-ci-android-wheels.txt",
+        ):
+            with self.subTest(lock=lock_name):
+                pull_request = apk_workflow.split("  pull_request:", 1)[1]
+                pull_request_paths = re.split(
+                    r"(?m)^(?:  [A-Za-z_-]+:|[A-Za-z_-]+:)",
+                    pull_request, maxsplit=1,
+                )[0]
+                self.assertIn(lock_name, pull_request_paths)
 
     def test_scorecard_upload_workflow_has_only_step_scoped_environment(self):
         root = Path(__file__).resolve().parents[1]
