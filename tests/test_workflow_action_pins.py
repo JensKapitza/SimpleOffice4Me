@@ -49,11 +49,13 @@ class WorkflowActionPinTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertNotRegex(workflow, r"(?m)^(?:env|defaults):")
         self.assertNotRegex(workflow, r"(?m)^  (?:env|defaults):")
+        lines = workflow.splitlines()
         runtime_settings = [
-            line for line in workflow.splitlines()
-            if "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:" in line
+            line for line in lines if "FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:" in line
         ]
-        self.assertEqual(4, len(runtime_settings))
+        action_steps = [line for line in lines if re.match(r"^\s+uses:", line)]
+        self.assertTrue(action_steps)
+        self.assertEqual(len(action_steps), len(runtime_settings))
         self.assertTrue(all(len(line) - len(line.lstrip()) >= 10 for line in runtime_settings))
 
 
