@@ -50,6 +50,15 @@ Credential-Datei- und EMR-SSH-Hostkey-Korrekturen für AWS CLI v1. AWS CLI v1
 befindet sich im Maintenance-Modus und bleibt hier nur für den optionalen Smoke
 gegen den isolierten lokalen S3-Endpoint. Versionsupdates müssen alle Workflows,
 die sie installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen lassen.
+Die Electron-Desktop-CI führt nach `npm ci` auf einem Ubuntu-Runner zusätzlich
+`npm audit --audit-level=moderate` gegen `desktop/electron/package-lock.json`
+aus. Electron 44.10.0 sowie fast-uri 3.1.9 und undici 7.30.1/6.29.1 beheben
+bestätigte Advisories aus den vorherigen Locks 44.3.0, 3.1.8 und 7.30.0/6.29.0;
+die festgelegten Versionen wurden gegen OSV geprüft. Damit werden neue moderate
+oder schwerere npm-Advisories vor dem plattformübergreifenden Paketbau abgewiesen.
+Der Tauri-Lock pinnt Tokio 1.53.3 statt 1.53.2, um RUSTSEC-2026-0386 zu beheben;
+die 1.53.3-Abhängigkeitsanforderungen entsprechen 1.53.2. Die Tauri-CI validiert
+den Lock mit plattformübergreifenden Builds und `cargo audit`.
 Die generischen
 Lock-Dateien werden mit pip-tools 7.6.2 und
 `pip-compile --generate-hashes --allow-unsafe --strip-extras` aktualisiert; der

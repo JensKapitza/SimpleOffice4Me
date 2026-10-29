@@ -201,6 +201,18 @@ class WorkflowActionPinTests(unittest.TestCase):
         )
         self.assertIn("!.github/workflows/security-quickwins.yml", scanner_ignore)
 
+    def test_electron_desktop_dependencies_are_audited_in_ci(self):
+        root = Path(__file__).resolve().parents[1]
+        workflow = (root / ".github/workflows/desktop-build.yml").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("desktop/electron/package-lock.json", workflow)
+        audit_step = workflow.split(
+            "- name: Audit Electron npm dependencies", 1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn("if: matrix.os == 'ubuntu-24.04'", audit_step)
+        self.assertIn("npm audit --audit-level=moderate", audit_step)
+
     def test_browser_test_tools_are_hash_locked_in_consuming_workflows(self):
         root = Path(__file__).resolve().parents[1]
         source_text = (root / "requirements-ci-browser.in").read_text(encoding="utf-8")
