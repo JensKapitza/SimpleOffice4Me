@@ -22,6 +22,8 @@ class ChaquopyWheelsTests(unittest.TestCase):
         self.assertIn("cibuildwheel==4.3.3", wheel_build_tools)
         self.assertIn("--hash=sha256:", wheel_build_tools)
         self.assertIn("requirements-ci-android-wheels.txt", workflow)
+        self.assertIn("_rust.abi3*.so", workflow)
+        self.assertIn('"${#extensions[@]}" -ne 1', workflow)
         self.assertIn("CIBW_BUILD: cp315-android_arm64_v8a", workflow)
         self.assertIn("CIBW_ARCHS_ANDROID: arm64_v8a", workflow)
         self.assertIn("package: cffi", workflow)

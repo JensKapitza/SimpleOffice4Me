@@ -214,8 +214,13 @@ jobs:
           wheel_file="$(find wheelhouse -maxdepth 1 -name 'cryptography-*.whl' -print -quit)"
           test -n "$wheel_file"
           python -m wheel unpack "$wheel_file" --dest unpacked-wheel
-          extension="$(find unpacked-wheel -type f -path '*/cryptography/hazmat/bindings/_rust.abi3.so' -print -quit)"
-          test -n "$extension"
+          mapfile -t extensions < <(find unpacked-wheel -type f \
+            -path '*/cryptography/hazmat/bindings/_rust.abi3*.so' -print)
+          if [[ "${#extensions[@]}" -ne 1 ]]; then
+            echo "Expected exactly one Android cryptography Rust extension; found ${#extensions[@]}" >&2
+            exit 1
+          fi
+          extension="${extensions[0]}"
           patchelf --add-needed libpython3.15.so "$extension"
           readelf -d "$extension" | grep -F 'Shared library: [libpython3.15.so]'
           rm "$wheel_file"
