@@ -22,9 +22,10 @@ Versionskommentar dokumentiert den zugehörigen Upstream-Tag. Ein Regressionstes
 prüft alle Workflow-Dateien auf veränderliche Tags oder Branch-Referenzen.
 Action-Updates müssen den geprüften SHA und den Kommentar gemeinsam aktualisieren.
 
-Der CI-SBOM-Helfer `packaging` wird aus `requirements-ci-packaging.txt` mit
-SHA-256-Hashes installiert. Versionsupdates müssen die PyPI-Artefakthashes und
-die zugehörigen Workflow-Regressionstests gemeinsam aktualisieren.
+Die CI-SBOM-Helfer `packaging` und `defusedxml` werden aus
+`requirements-ci-tools.txt` mit SHA-256-Hashes installiert. Versionsupdates
+müssen die PyPI-Artefakthashes und die zugehörigen Workflow-Regressionstests
+gemeinsam aktualisieren.
 
 ## Lokal prüfen
 

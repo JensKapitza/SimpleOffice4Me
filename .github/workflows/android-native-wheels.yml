@@ -37,7 +37,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install 'cibuildwheel==4.3.3'
-          python -m pip install --require-hashes -r requirements-ci-packaging.txt
+          python -m pip install --require-hashes -r requirements-ci-tools.txt
       - name: Verify wheel compatibility tests
         run: python -m unittest discover -s tests -p test_chaquopy_wheels.py
       - name: Attempt Android ARM64 wheel build
