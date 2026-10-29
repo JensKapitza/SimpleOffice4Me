@@ -145,6 +145,54 @@ class WorkflowActionPinTests(unittest.TestCase):
         )
         self.assertIn("!.github/workflows/extended-quality.yml", scanner_ignore)
 
+    def test_security_scanners_are_installed_from_hash_lock(self):
+        root = Path(__file__).resolve().parents[1]
+        source_text = (root / "requirements-ci-security-tools.in").read_text(
+            encoding="utf-8",
+        )
+        self.assertEqual(
+            {"bandit==1.9.4", "pip-audit==2.10.1"},
+            {line.strip() for line in source_text.splitlines() if line.strip()},
+        )
+
+        lock_text = (root / "requirements-ci-security-tools.txt").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("bandit==1.9.4", lock_text)
+        self.assertIn("pip-audit==2.10.1", lock_text)
+        package_stanza = []
+        package_count = 0
+        for line in lock_text.splitlines():
+            if line and not line.startswith(("#", " ")) and "==" in line:
+                if package_stanza:
+                    self.assertTrue(
+                        any("--hash=sha256:" in entry for entry in package_stanza),
+                        package_stanza[0],
+                    )
+                package_stanza = [line]
+                package_count += 1
+            elif package_stanza:
+                package_stanza.append(line)
+        self.assertGreater(package_count, 2)
+        self.assertTrue(
+            any("--hash=sha256:" in entry for entry in package_stanza),
+            package_stanza[0],
+        )
+
+        workflow = (root / ".github/workflows/security-quickwins.yml").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("--require-hashes --only-binary=:all:", workflow)
+        self.assertIn("requirements-ci-security-tools.txt", workflow)
+        self.assertNotIn(
+            "pip install --disable-pip-version-check pip-audit bandit",
+            workflow,
+        )
+        scanner_ignore = (root / ".oss-scanner/Dockerfile.dockerignore").read_text(
+            encoding="utf-8",
+        )
+        self.assertIn("!.github/workflows/security-quickwins.yml", scanner_ignore)
+
     def test_browser_test_tools_are_hash_locked_in_consuming_workflows(self):
         root = Path(__file__).resolve().parents[1]
         source_text = (root / "requirements-ci-browser.in").read_text(encoding="utf-8")

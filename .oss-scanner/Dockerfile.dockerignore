@@ -17,6 +17,7 @@
 !.github/workflows/project-release.yml
 !.github/workflows/server-deb-build.yml
 !.github/workflows/scorecard.yml
+!.github/workflows/security-quickwins.yml
 !.github/workflows/ubuntu-26-compat.yml
 .venv
 **/.build-venv
