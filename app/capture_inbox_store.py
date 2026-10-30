@@ -29,6 +29,18 @@ STATUS_UNASSIGNED = "unassigned"
 STATUS_ASSIGNED = "assigned"
 ASSIGN_KINDS = ("book", "object")
 MAX_BATCH_PHOTOS = 12
+PHOTO_ROLES = ("title", "imprint", "spine", "other")
+PHOTO_ROLE_LABELS = {
+    "title": "Titelblatt",
+    "imprint": "Impressum",
+    "spine": "Buchrücken",
+    "other": "Sonstiges",
+}
+
+
+def photo_role_label(role: object) -> str:
+    """German display label for a photo role; "" for unknown values."""
+    return PHOTO_ROLE_LABELS.get(str(role or ""), "")
 
 
 class CaptureInboxIndexError(Exception):
@@ -288,6 +300,48 @@ class CaptureInboxStore:
             atomic_json_write(self.index_path, index)
             return dict(entry)
 
+    def set_photo_role(
+        self, entry_id: str, actor: str, role: str
+    ) -> dict[str, Any] | None:
+        """Set or clear the professional role of one owned photo.
+
+        Only PHOTO_ROLES (or "" to clear) are accepted; anything else
+        raises ValueError and mutates nothing. Repeating the same role
+        is idempotent (no new history); the original, analysis,
+        assignment and batch membership are preserved. Unknown or
+        foreign entries yield None (no leakage).
+        """
+        clean_role = str(role or "").strip().lower()
+        if clean_role and clean_role not in PHOTO_ROLES:
+            raise ValueError("Fotorolle ist ungültig")
+        if not ENTRY_ID_RE.fullmatch(str(entry_id or "")):
+            return None
+        with exclusive_file_lock(self.lock_path):
+            index = self._read()
+            entries = self._entries(index)
+            entry = entries.get(str(entry_id))
+            if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
+                return None
+            previous = str(entry.get("photo_role", "") or "")
+            if previous == clean_role:
+                return dict(entry)
+            now = utc_now()
+            entry["photo_role"] = clean_role
+            entry["updated_at"] = now
+            history = entry.setdefault("history", [])
+            if isinstance(history, list):
+                history.append({
+                    "event": "photo_role",
+                    "previous_role": previous,
+                    "photo_role": clean_role,
+                    "created_at": now,
+                    "created_by": str(actor),
+                })
+            index["entries"] = entries
+            index["version"] = 1
+            atomic_json_write(self.index_path, index)
+            return dict(entry)
+
     def save_analysis(
         self, entry_id: str, actor: str, analysis: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -379,6 +433,94 @@ class CaptureInboxStore:
             index["version"] = 1
             atomic_json_write(self.index_path, index)
             return dict(entry)
+
+    def assign_many(
+        self,
+        entry_ids: list[str],
+        actor: str,
+        kind: str,
+        object_id: str,
+        display_id: str = "",
+        name: str = "",
+        expected_batch_id: str | None = None,
+    ) -> list[dict[str, Any]] | None:
+        """Link all entries to one object in a single atomic index write.
+
+        Every id, ownership, group membership and current assignment
+        is validated under one lock before the first write; any
+        mismatch (unknown id, foreign actor, regrouped entry, or an
+        entry already linked elsewhere) returns None and leaves the
+        index untouched. Entries already linked to this exact target
+        are kept as-is (idempotent, no new history).
+        """
+        clean_kind = str(kind or "").strip().lower()
+        clean_object = str(object_id or "").strip()
+        if clean_kind not in ASSIGN_KINDS or not clean_object:
+            raise ValueError("assignment kind and object are required")
+        ids = [str(entry_id or "") for entry_id in (entry_ids or [])]
+        if not ids:
+            raise ValueError("at least one entry is required")
+        clean_batch = str(expected_batch_id or "").strip().lower()
+        if (expected_batch_id is not None
+                and not BATCH_ID_RE.fullmatch(clean_batch)):
+            raise ValueError("Buchgruppe ist ungültig")
+        with exclusive_file_lock(self.lock_path):
+            index = self._read()
+            entries = self._entries(index)
+            resolved: list[tuple[str, dict[str, Any]]] = []
+            for entry_id in dict.fromkeys(ids):
+                if not ENTRY_ID_RE.fullmatch(entry_id):
+                    return None
+                entry = entries.get(entry_id)
+                if not isinstance(entry, dict) or entry.get("actor") != str(actor or ""):
+                    return None
+                if clean_batch and str(entry.get("batch_id", "") or "") != clean_batch:
+                    return None
+                current = entry.get("assignment", {})
+                if not isinstance(current, dict):
+                    current = {}
+                linked = str(current.get("object_id", "") or "")
+                if linked and (linked != clean_object
+                               or current.get("kind") != clean_kind):
+                    return None
+                resolved.append((entry_id, entry))
+            now = utc_now()
+            for _entry_id, entry in resolved:
+                current = entry.get("assignment", {})
+                if not isinstance(current, dict):
+                    current = {}
+                if (current.get("kind") == clean_kind
+                        and current.get("object_id") == clean_object):
+                    continue
+                entry["assignment"] = {
+                    "kind": clean_kind,
+                    "object_id": clean_object,
+                    "display_id": str(display_id or ""),
+                    "name": str(name or ""),
+                    "assigned_at": now,
+                    "assigned_by": str(actor),
+                }
+                entry["status"] = STATUS_ASSIGNED
+                entry["updated_at"] = now
+                history = entry.setdefault("history", [])
+                if isinstance(history, list):
+                    event: dict[str, Any] = {
+                        "event": "assigned",
+                        "kind": clean_kind,
+                        "object_id": clean_object,
+                        "created_at": now,
+                        "created_by": str(actor),
+                    }
+                    if current.get("object_id"):
+                        event["previous"] = {
+                            "kind": str(current.get("kind", "")),
+                            "object_id": str(current.get("object_id", "")),
+                        }
+                    history.append(event)
+            index["entries"] = entries
+            index["version"] = 1
+            atomic_json_write(self.index_path, index)
+            return [dict(entries[entry_id]) for entry_id in ids]
 
     def media_path(self, entry_id: str, actor: str) -> Path:
         """Validated original path; raises ValueError when not available."""

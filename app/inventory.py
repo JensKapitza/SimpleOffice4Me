@@ -628,7 +628,7 @@ class InventoryEnrichmentStore:
             atomic_json_write(self.index_path, data)
         return event
 
-    def save_photo(self, object_id: str, upload: Any, actor: str) -> dict[str, Any] | None:
+    def save_photo(self, object_id: str, upload: Any, actor: str, photo_role: str = "") -> dict[str, Any] | None:
         if upload is None or not getattr(upload, "filename", ""):
             return None
         data = upload.stream.read(MAX_PHOTO_BYTES + 1)
@@ -642,6 +642,8 @@ class InventoryEnrichmentStore:
         target = target_dir / filename
         target.write_bytes(data)
         photo = {"filename": filename, "sha256": digest, "size": len(data), "created_at": utc_now(), "created_by": actor}
+        if str(photo_role or "").strip():
+            photo["role"] = str(photo_role).strip()
         try:
             with exclusive_file_lock(self.lock_path):
                 index = self._read(self.index_path)
@@ -661,6 +663,48 @@ class InventoryEnrichmentStore:
             finally:
                 raise
         return photo
+
+    def set_photo_role_by_sha(
+        self, object_id: str, sha256: str, role: str, actor: str
+    ) -> bool:
+        """Set the role of attached photo(s) matching a SHA digest.
+
+        The role must be caller-validated (PHOTO_ROLES or "" to
+        clear). True only when a row actually changed; unknown
+        objects/digests and equal roles yield False without a write.
+        """
+        digest = str(sha256 or "").strip().casefold()
+        if not re.fullmatch(r"[0-9a-f]{64}", digest):
+            return False
+        clean_role = str(role or "").strip()
+        changed = False
+        with exclusive_file_lock(self.lock_path):
+            index = self._read(self.index_path)
+            objects = index.get("objects")
+            entry = objects.get(str(object_id)) if isinstance(objects, dict) else None
+            photos = entry.get("photos", []) if isinstance(entry, dict) else []
+            if not isinstance(photos, list):
+                return False
+            for photo in photos:
+                if (not isinstance(photo, dict)
+                        or str(photo.get("sha256", "")).casefold() != digest):
+                    continue
+                if clean_role:
+                    if str(photo.get("role", "") or "") == clean_role:
+                        continue
+                    photo["role"] = clean_role
+                elif "role" not in photo:
+                    continue
+                else:
+                    del photo["role"]
+                changed = True
+            if not changed or not isinstance(entry, dict):
+                return False
+            entry["updated_at"] = utc_now()
+            entry["updated_by"] = str(actor)
+            index["version"] = 2
+            atomic_json_write(self.index_path, index)
+        return True
 
     def media_path(self, object_id: str, filename: str) -> Path:
         meta = self.object_meta(object_id)

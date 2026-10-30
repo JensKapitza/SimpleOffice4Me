@@ -108,6 +108,52 @@
     }
   };
 
+  const ROLE_LABELS = {title: 'Titelblatt', imprint: 'Impressum', spine: 'Buchrücken', other: 'Sonstiges'};
+
+  const saveRole = async (entry, select, state) => {
+    if (!entry.role_url) return;
+    select.disabled = true;
+    state.textContent = '…';
+    try {
+      const data = new FormData();
+      data.append('role', select.value);
+      data.append('_csrf_token', csrf);
+      const response = await fetch(entry.role_url, {method: 'POST', body: data, cache: 'no-store'});
+      const payload = await safeJson(response);
+      if (response.ok && payload && payload.ok) {
+        if (payload.entry) {
+          knownEntries.set(payload.entry.entry_id, payload.entry);
+          entry.photo_role = payload.entry.photo_role || '';
+        }
+        if (payload.attached_role_error) {
+          state.textContent = '';
+          const warn = document.createElement('span');
+          warn.className = 'fw-bold text-warning';
+          warn.textContent = 'Rolle im Eingangskorb gespeichert, am vorhandenen Foto noch nicht aktualisiert – erneut Rolle wählen zum Wiederholen.';
+          state.appendChild(warn);
+          const retry = document.createElement('button');
+          retry.type = 'button';
+          retry.className = 'btn btn-sm btn-outline-warning ms-1';
+          retry.textContent = 'Wiederholen';
+          retry.addEventListener('click', () => saveRole(entry, select, state));
+          state.appendChild(retry);
+        } else {
+          state.textContent = payload.attached_role_updated === true
+            ? '✓ (auch am zugeordneten Objekt aktualisiert)'
+            : '✓';
+        }
+      } else {
+        select.value = entry.photo_role || '';
+        state.textContent = cleanText(payload && payload.error) || 'Speichern fehlgeschlagen.';
+      }
+    } catch (_error) {
+      select.value = entry.photo_role || '';
+      state.textContent = 'Netzwerkfehler — Rolle nicht gespeichert, bitte erneut versuchen.';
+    } finally {
+      select.disabled = false;
+    }
+  };
+
   const renderEntry = (entry) => {
     if (entry && entry.entry_id) knownEntries.set(entry.entry_id, entry);
     const col = document.createElement('div');
@@ -155,6 +201,28 @@
       batchLine.appendChild(leave);
     }
     body.appendChild(batchLine);
+    const roleLine = document.createElement('p');
+    roleLine.className = 'small mb-1';
+    const roleLabel = document.createElement('label');
+    roleLabel.className = 'form-label small mb-0 me-1';
+    roleLabel.textContent = 'Fotorolle: ';
+    const roleSelect = document.createElement('select');
+    roleSelect.className = 'form-select form-select-sm d-inline-block w-auto';
+    roleSelect.setAttribute('aria-label', 'Fotorolle');
+    [['', 'Ohne Rolle'], ['title', 'Titelblatt'], ['imprint', 'Impressum'], ['spine', 'Buchrücken'], ['other', 'Sonstiges']].forEach(([value, text]) => {
+      const option = document.createElement('option');
+      option.value = value;
+      option.textContent = text;
+      roleSelect.appendChild(option);
+    });
+    roleSelect.value = entry.photo_role || '';
+    const roleState = document.createElement('span');
+    roleState.className = 'small text-secondary ms-1';
+    roleSelect.addEventListener('change', () => saveRole(entry, roleSelect, roleState));
+    roleLabel.appendChild(roleSelect);
+    roleLine.appendChild(roleLabel);
+    roleLine.appendChild(roleState);
+    body.appendChild(roleLine);
     card.appendChild(body);
     col.appendChild(card);
     const analysis = entry.analysis && entry.analysis.ok ? entry.analysis : null;
@@ -415,6 +483,19 @@
     });
   };
 
+  const refreshAssignedCards = async (batchId) => {
+    const fresh = await fetch(batchUrlFor(batchId), {cache: 'no-store'});
+    const reloaded = await safeJson(fresh);
+    if (!fresh.ok || !reloaded || reloaded.ok !== true) {
+      throw new Error('Aktualisierung fehlgeschlagen');
+    }
+    (reloaded.entries || []).forEach((entry) => {
+      knownEntries.set(entry.entry_id, entry);
+      const col = cards.querySelector(`[data-entry-id="${entry.entry_id}"]`);
+      if (col) col.replaceWith(renderEntry(entry));
+    });
+  };
+
   const openBatchReview = async (batchId, body, button) => {
     button.disabled = true;
     const url = batchUrlFor(batchId);
@@ -465,11 +546,17 @@
       note.textContent = `Unterschiedliche ISBNs: ${(combined.isbn_candidates || []).join(' · ')} — bitte korrekte ISBN unten wählen.`;
       wrap.appendChild(note);
     }
+    const rolesByPhoto = {};
+    (payload.entries || []).forEach((item) => {
+      if (item && item.entry_id) rolesByPhoto[item.entry_id] = item.photo_role || '';
+    });
     (combined.photos || []).forEach((photo) => {
       const line = document.createElement('p');
       line.className = 'small text-secondary mb-0';
+      const role = rolesByPhoto[photo.photo_id] || '';
       line.textContent = `Foto ${String(photo.photo_id || '').slice(0, 8)}: `
-        + `${photo.kind || '–'}${photo.isbn ? ` · ISBN ${photo.isbn}` : ''} · `
+        + `${photo.kind || '–'}${photo.isbn ? ` · ISBN ${photo.isbn}` : ''}`
+        + `${role && ROLE_LABELS[role] ? ` · Rolle: ${ROLE_LABELS[role]}` : ''} · `
         + (photo.ml_available
           ? `ML ${photo.ml_label || ''} · ${photo.ml_provider_label || ''} · ${photo.ml_model || ''}`
           : `ML: ${photo.ml_error || 'nicht verfügbar'}`);
@@ -581,6 +668,92 @@
       }
     });
     actions.appendChild(adopt);
+    if (combined.kind === 'book' && payload.assign_url) {
+      const assignRow = document.createElement('div');
+      assignRow.className = 'col-12 d-flex flex-wrap gap-2 align-items-end mt-2';
+      const idWrap = document.createElement('div');
+      const idLabel = document.createElement('label');
+      idLabel.className = 'form-label small mb-1';
+      idLabel.textContent = 'Vorhandene Buch-ID';
+      const idInput = document.createElement('input');
+      idInput.className = 'form-control form-control-sm';
+      idInput.placeholder = 'z. B. #12';
+      idInput.setAttribute('aria-label', 'Vorhandene Buch-ID');
+      idWrap.appendChild(idLabel);
+      idWrap.appendChild(idInput);
+      assignRow.appendChild(idWrap);
+      const assignExisting = document.createElement('button');
+      assignExisting.type = 'button';
+      assignExisting.className = 'btn btn-sm btn-outline-success';
+      assignExisting.textContent = 'Ganze Gruppe vorhandenem Buch zuordnen';
+      assignExisting.addEventListener('click', async () => {
+        assignExisting.disabled = true;
+        state.textContent = '';
+        let result = null;
+        try {
+          const data = new FormData();
+          data.append('object_id', cleanText(idInput.value));
+          data.append('_csrf_token', csrf);
+          const response = await fetch(payload.assign_url, {method: 'POST', body: data, cache: 'no-store'});
+          result = await safeJson(response);
+          if (!response.ok || !result || result.ok !== true) {
+            state.textContent = cleanText(result && result.error) || 'Zuordnung fehlgeschlagen.';
+            assignExisting.disabled = false;
+            return;
+          }
+        } catch (_error) {
+          state.textContent = 'Netzwerkfehler — Zuordnung unbekannt, bitte erneut versuchen.';
+          assignExisting.disabled = false;
+          return;
+        }
+        const done = document.createElement('span');
+        done.textContent = `${cleanText(result.message) || 'Zugeordnet.'} `
+          + `(${result.assigned || 0}/${result.photo_count || 0} Fotos, ${result.attached || 0} übernommen) `;
+        if (result.detail_url) {
+          const link = document.createElement('a');
+          link.href = result.detail_url;
+          link.textContent = 'Öffnen';
+          done.appendChild(link);
+        }
+        state.appendChild(done);
+        const notices = result.notices || [];
+        notices.forEach((text) => {
+          const note = document.createElement('div');
+          note.className = 'alert alert-warning py-1 small mb-1 mt-1';
+          note.textContent = text;
+          state.appendChild(note);
+        });
+        if (notices.length > 0) {
+          const retryHint = document.createElement('div');
+          retryHint.className = 'alert alert-info py-1 small mb-1 mt-1';
+          retryHint.textContent = 'Nicht alle Fotos wurden übernommen — bei Bedarf erneut auf „Zuordnen“ klicken.';
+          state.appendChild(retryHint);
+          try {
+            await refreshAssignedCards(payload.batch_id);
+          } catch (_error) {
+            const warn = document.createElement('div');
+            warn.className = 'alert alert-warning py-1 small mb-1 mt-1';
+            warn.textContent = 'Anzeige konnte nicht aktualisiert werden — die Zuordnung wurde gespeichert.';
+            state.appendChild(warn);
+          }
+          assignExisting.disabled = false;
+          return;
+        }
+        try {
+          await refreshAssignedCards(payload.batch_id);
+        } catch (_error) {
+          const warn = document.createElement('div');
+          warn.className = 'alert alert-warning py-1 small mb-1 mt-1';
+          warn.textContent = 'Anzeige konnte nicht aktualisiert werden — die Zuordnung wurde gespeichert, Seite ggf. neu laden.';
+          state.appendChild(warn);
+          assignExisting.disabled = false;
+          return;
+        }
+        renderBatches();
+      });
+      assignRow.appendChild(assignExisting);
+      form.appendChild(assignRow);
+    }
     form.appendChild(actions);
     wrap.appendChild(form);
     wrap.appendChild(state);

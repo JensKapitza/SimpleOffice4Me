@@ -1135,3 +1135,106 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   10 Capture-Routen laden auf gemeinsamem inventory-Blueprint (start.bat-Pfad unverändert).
 - Offen: Korb-Suche (Ziel-, kein Kriterium), Geräte-/Browser-Livetests (Matrix in
   docs/CAMERA_DEVICE_MATRIX.md). Kein Commit/Push (Codex-Review ausstehend), `.t/` unberührt.
+
+## 30.10. – #658-Slice: Gruppen-Zuordnung + Fotorollen umgesetzt (Muse, uncommitted, Baseline 69732b3c)
+
+- Baseline anerkannt: `69732b3c feat(hackathon): improve Meta capture and model status`
+  (gepusht, HEAD). Historische Einträge unverändert; dieser Eintrag hängt an.
+- Umgesetzt (a): `POST /inventory/capture/batch/<id>/assign` ordnet eine ganze
+  Fotogruppe einem ausdrücklich gewählten vorhandenen Buch zu (UUID oder #ID,
+  nie ISBN-Auto-Match): Ziel-Existenz + Buchtyp validiert, Actor-Gruppe
+  geprüft, Konflikt bricht unmutiert ab (Foto auslagern, Retry), Anhang
+  best-effort mit Notices, Retry idempotent/digest-sicher. UI im Review-Block
+  (nur Buchgruppen) mit Ergebnis + Hinweisen.
+- Umgesetzt (b): optionale Fotorolle je Foto (Titelblatt/Impressum/Rücken/
+  Sonstiges/leer): sichtbar + korrigierbar im Eingangskorb, Route
+  `POST /inventory/capture/<id>/role`, serverseitig enum-validiert mit
+  Audit-Historie, beim Anhängen (neu + vorhanden) in Seitendaten erhalten.
+  Angehängte Kopien sind Rollen-Snapshots (Korrektur danach nur Korb-seitig).
+- Tests: neu `tests/test_inventory_capture_assign.py` (10 HTTP-Tests:
+  Erfolg/Mehrfoto, Nicht-Buch, unbekannt, fremder Actor, Retry, Konflikt,
+  Teilfehler, Rollen-CRUD/Historie, Rollenerhalt); Batch-Datei per Split
+  HEAD-identisch (Size-Gate). Suiten batch/assign/ui/inbox/persist/library:
+  grün; Adopt-Verhalten unverändert abgedeckt.
+- Gates: node --check, compileall, Policy/File-/Function-Size, Secret-Leak,
+  diff-check grün. Ollama-Modelle: llama3.2:1b erlaubt, qwen3-vl:* vorhanden
+  aber nie verwendet (Allowlist), kein Vision-Modell installiert.
+- Offen (nicht behauptet): (c) Regal-Handoff, echter Cloud-Smoke (kein
+  MODEL_API_KEY), Geräteprüfung. Issue #658 bleibt offen. Kein Commit/Push
+  (Codex reviewt/finalisiert), `.t/` unberührt.
+
+## 30.10. – #658 Codex-Review-Follow-up: Atomarität, Retry, Rollen-Sync (Muse, uncommitted, Baseline 69732b3c)
+
+- F1 atomar: neu `CaptureInboxStore.assign_many()` validiert alle
+  IDs, Actor und aktuelle Zuweisung unter einem Lock vor dem ersten
+  Write; Konflikt/fremder Actor/unbekannte ID → None bei
+  byte-identischem Index. Einträge am selben Ziel bleiben unberührt
+  (idempotent, keine neue Historie). `assign_batch()` nutzt sie;
+  ein Race danach wirft 400 („zwischenzeitlich …") statt
+  halb zu verlinken. Anhang bleibt best-effort mit Notices.
+- F2 Retry: `saveRole` und Gruppen-Zuordnung mit
+  try/catch/finally; Netzwerkfehler melden verständlichen Text und
+  geben Steuerelemente zurück. Erfolg mit Notices hält das Formular
+  mit Retry-Hinweis offen (statt es zu schließen); Refresh läuft
+  über `refreshAssignedCards`, Refresh-Fehler lassen Erfolg stehen
+  und warnen. Sauberer Erfolg schließt wie bisher. Kein
+  DOM-Harness für die IIFE vorhanden → keine Quasi-UI-Tests.
+- F3 Rollen: neu `photo_role_label()` als Template-Global;
+  `inventory/detail.html` + `library/object_care.html` zeigen
+  Badge + erweiterten Alt-Text (unbekannt/leer → nichts,
+  fail-closed). `set_entry_role()` schreibt die Rolle in den Korb
+  und synchronisiert sie per Foto-SHA idempotent in angehängte
+  Seitendaten (Actor-/Objektvalidierung, nur echte Änderung
+  schreibt); Route meldet `attached_role_updated`, JS zeigt dann
+  erweitertes ✓. Ersetzt „Snapshots nur Korb-seitig" von oben.
+- Tests: `tests/test_inventory_capture_assign.py` jetzt 25 OK
+  (15 neu: Atomarität inkl. Byte-Vergleich, Race-Mock,
+  Rollen-Sync/Clear/Repeat-Bytes/Fremd/Unbekannt, Label-Unit,
+  3 Template-Badge-Tests). 8er-Satz 152 OK + 2 Env-Skips
+  (148-Baseline auf diesem Baum nicht reproduzierbar, +4 aus
+  unberührten Dateien); + `test_object_care` (13) = 165 OK +
+  2 Skips. node --test capture_ml_status 6/6.
+- Gates: Policy/File-/Function-Size, compileall, Secret-Leak,
+  diff-check, node --check grün (inventory.py nach Kompaktierung
+  997 Zeilen). Kein Modell-/App-Live-Aufruf (reiner Daten-/
+  UI-Slice, keiner nötig); Meta-only unverändert.
+- Offen (nicht behauptet): (c) Regal-Handoff, echter Cloud-Smoke
+  (kein MODEL_API_KEY), Geräte-/Browser-Abnahme. Issue #658 bleibt
+  offen. Diff unstaged, kein Commit/Push, `.t/` unberührt.
+
+## 30.10. – #658 letzter Review-Fix: Link-zuerst + Batch-Bindung (Muse, uncommitted, Baseline 69732b3c)
+
+- `assign_batch()` weist erst atomar per `assign_many()` zu und
+  hängt Originale erst danach an; ein Race (400) mutiert jetzt
+  auch keine Fotos am Zielbuch mehr. Anhang-Fehler nach
+  erfolgreichem Link bleiben Notices und retrybar.
+- `assign_many()` prüft unter dem Lock optional
+  `expected_batch_id` (assign_batch übergibt es zwingend);
+  umgruppierte Gruppen bleiben byte-identisch unberührt.
+- Tests: assign-Suite 26/26 OK (Race-Test um „keine Fotos am
+  Ziel" erweitert, neu Regroup-Reject inkl. Byte-Vergleich +
+  Positivkontrolle, Argument-Validierung); 8er-Satz +
+  object_care 165 OK + 2 Env-Skips. Gates Policy/Size/
+  Function/Secret/compileall/diff-check/node --check grün.
+  Kein Modell-/App-Live-Aufruf, keine Secrets berührt.
+- Offen: (c) Regal-Handoff, Cloud-Smoke (kein Key), Geräte-/
+  Browser-Abnahme; #658 bleibt offen. Diff unstaged, kein
+  Commit/Push, `.t/` unberührt.
+
+## 30.10. – #658 Fehlerpfad-Fix: ehrlicher Rollen-Sync-Fehler (Muse, uncommitted, Baseline 69732b3c)
+
+- `set_entry_role()` liefert jetzt `(entry, attached_updated,
+  sync_error)`; Inbox-Rolle bleibt gespeichert, Sync-Fehler
+  (OSError/ValueError) melden fixen deutschen Hinweis ohne
+  Exception-Details. Route liefert `attached_role_error` nur bei
+  tatsächlichem Fehler. JS zeigt dann fette Warnung + Button
+  „Wiederholen", Auswahl bleibt, Resubmit versucht erneut
+  (idempotenter Role-Set + Sync pro Aufruf).
+- Tests: assign-Suite 27/27 OK (neu Sync-Failure mit Mock-
+  OSError: Inbox-Erfolg, Warn-Response ohne Detail-Leak, Retry
+  auf Erfolg); `test_object_care` 13/13 OK. Gates Policy/
+  Size/Function/Secret/compileall/diff-check/node --check grün.
+  Kein Modell-/App-Live-Aufruf, keine Secrets berührt.
+- Offen: (c) Regal-Handoff, Cloud-Smoke (kein Key), Geräte-/
+  Browser-Abnahme; #658 bleibt offen. Diff unstaged, kein
+  Commit/Push, `.t/` unberührt.
