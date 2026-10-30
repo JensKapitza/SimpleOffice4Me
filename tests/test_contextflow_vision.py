@@ -116,6 +116,13 @@ class VisionBackendTest(unittest.TestCase):
         self.assertIn("Mock", provider.label)
         self.assertIn("Mock", first["title"])
 
+    def test_mock_draft_reports_mock_model(self) -> None:
+        visit_id, asset_id = _visit_with_asset(self.root, self.actor)
+        draft = self._prepare(visit_id, asset_id)
+        self.assertEqual("mock", draft["provider"])
+        self.assertEqual("mock", draft["model"])
+        self.assertIn("Mock", draft["provider_label"])
+
     def test_image_validation(self) -> None:
         png = _png_bytes()
         self.assertEqual(

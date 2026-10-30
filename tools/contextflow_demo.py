@@ -17,6 +17,7 @@ import os
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import NoReturn
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
@@ -163,11 +164,11 @@ def main() -> None:
         summary = seed_demo(root, actor="demo")
 
     print("ContextFlow Demo bereit (alle Daten synthetisch).")
-    print(f"  URL im Browser oeffnen:")
+    print("  URL im Browser oeffnen:")
     print(f"    http://127.0.0.1:{args.port}/contextflow/")
-    print(f"  Benutzername (genau so, nicht admin):")
+    print("  Benutzername (genau so, nicht admin):")
     print(f"    {DEMO_USERNAME}")
-    print(f"  Passwort (genau so, nur Demo-Zugang, nur lokal):")
+    print("  Passwort (genau so, nur Demo-Zugang, nur lokal):")
     print(f"    {password}")
     print(f"  Root:     {root}")
     print(f"  Fall:     {summary['link_id']} (abgeschlossen {summary['completed_on']})")

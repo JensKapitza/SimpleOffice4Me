@@ -677,7 +677,7 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library"} or (request.blueprint == "federation_peer_admin" and request.endpoint == "federation_peer_admin.dashboard") else "camera=()"
+    camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library"} or (request.blueprint == "federation_peer_admin" and request.endpoint == "federation_peer_admin.dashboard") or (request.blueprint == "shopping" and request.endpoint == "shopping.index") else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
     response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=(), {display_policy}")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")

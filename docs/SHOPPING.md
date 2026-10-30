@@ -71,3 +71,9 @@ Grenzen:
 - Rechte werden serverseitig geprüft.
 - Barcode-Erkennung funktioniert lokal im Browser, sofern `BarcodeDetector` verfügbar ist;
   die manuelle Eingabe bleibt immer möglich.
+- Die Scanner-Seite sendet `Permissions-Policy: camera=(self)` (nur `shopping.index`,
+  übrige Shopping-Routen bleiben `camera=()`); der Stream läuft über den gemeinsamen
+  `camera_capture.js`-Helfer mit facingMode-Fallback, Neustart-Wache und Aufräumen bei
+  Stopp, Seitenwechsel und Verweigerungshinweis. EAN/UPC haben keinen lokalen
+  JS-Fallback-Decoder (jsQR liest nur QR), daher bleibt die manuelle Eingabe der
+  dokumentierte Fallback. Geräteabnahme siehe `docs/CAMERA_DEVICE_MATRIX.md`.

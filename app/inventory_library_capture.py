@@ -110,12 +110,14 @@ def _remember_capture_request(
     object_id: str,
     location_id: str,
     actor: str,
+    batch_id: str = "",
 ) -> None:
     receipts = _capture_receipts(path)
     receipts[token] = {
         "object_id": object_id,
         "location_id": location_id,
         "actor": actor,
+        "batch_id": batch_id,
         "created_at": utc_now(),
     }
     recent = sorted(receipts.items(), key=lambda item: item[1].get("created_at", ""))[-500:]

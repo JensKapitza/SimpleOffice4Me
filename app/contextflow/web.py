@@ -65,6 +65,7 @@ from .vision import (
     prepare_draft,
     suggest_inventory_object,
     validate_image,
+    vision_settings_from_mapping,
 )
 
 bp = Blueprint("contextflow", __name__, url_prefix="/contextflow")
@@ -386,18 +387,7 @@ def approve():
 
 def _vision_settings() -> dict[str, Any]:
     """Vision backend settings; Meta stays doubly gated (flag + checkbox)."""
-    return {
-        "provider": current_app.config.get("CONTEXTFLOW_VISION_PROVIDER", "local"),
-        "ollama_url": current_app.config.get(
-            "CONTEXTFLOW_OLLAMA_URL", "http://127.0.0.1:11434"
-        ),
-        "ollama_model": current_app.config.get("CONTEXTFLOW_OLLAMA_MODEL", ""),
-        "ollama_timeout": current_app.config.get("CONTEXTFLOW_OLLAMA_TIMEOUT", 60),
-        "meta_consent": bool(current_app.config.get("CONTEXTFLOW_META_CONSENT", False)),
-        "meta_api_key": os.environ.get("MODEL_API_KEY", ""),
-        "meta_endpoint": current_app.config.get("CONTEXTFLOW_META_ENDPOINT", ""),
-        "meta_model": current_app.config.get("CONTEXTFLOW_META_MODEL", ""),
-    }
+    return vision_settings_from_mapping(current_app.config, os.environ)
 
 
 @bp.get("/ml-status")
@@ -443,8 +433,8 @@ def inventory_suggest():
             settings=_vision_settings(),
             consent_meta=False,
         )
-    except PermissionError:
-        abort(403)
+    except PermissionError as exc:
+        return {"error": str(exc)}, 403
     except InferenceUnavailable as exc:
         payload: dict[str, object] = {"error": str(exc)}
         if isinstance(exc, InferenceTimeoutError):
@@ -566,8 +556,8 @@ def contact_suggest():
             consent_meta=request.form.get("consent_meta") == "yes",
             root=_root(),
         )
-    except PermissionError:
-        abort(403)
+    except PermissionError as exc:
+        return {"ok": False, "error": str(exc)}, 403
     except InferenceUnavailable as exc:
         payload: dict[str, object] = {"ok": False, "error": str(exc)}
         if isinstance(exc, InferenceTimeoutError):
@@ -722,8 +712,8 @@ def suggest():
             consent_meta=form.get("consent_meta") == "yes",
             settings=_vision_settings(),
         )
-    except PermissionError:
-        abort(403)
+    except PermissionError as exc:
+        abort(403, description=str(exc))
     except ValueError as exc:
         abort(400, description=str(exc))
     return render_template("contextflow/suggest.html", draft=draft)

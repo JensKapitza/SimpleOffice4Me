@@ -235,6 +235,40 @@ def document_image_bytes(*, root: object, actor: str, document: dict[str, Any]) 
         raise DocTagError(f"Das Bild ist ungültig ({exc})") from None
 
 
+# Token budget for tag completions: five short suggestions fit in
+# ~300 tokens; 768 leaves headroom while keeping the NDJSON stream
+# (one JSON envelope per token) safely below the 256 KiB cap that
+# a full 2048-token answer would burst on CPU-only small models.
+TAG_NUM_PREDICT = 768
+# Greedy decoding for tag extraction only: same document text should
+# yield the same candidates; all other callers keep model default.
+TAG_TEMPERATURE = 0
+
+# Ollama structured-output schema for tag suggestions (subset:
+# type/properties/required/items only). Enforces that every list
+# entry is an object with tag/reason/evidence — small models
+# otherwise answer with bare strings that validation must drop.
+# Shape only; truth stays with validate_tag_suggestions().
+TAG_JSON_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "tags": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tag": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "evidence": {"type": "string"},
+                },
+                "required": ["tag", "reason", "evidence"],
+            },
+        },
+    },
+    "required": ["tags"],
+}
+
+
 def build_tag_prompt(*, filename: str, tags: list[str], folder_hint: str, text: str) -> str:
     """Build the local tag prompt from metadata plus extracted text."""
     existing = ", ".join(tags) if tags else "keine"
@@ -246,7 +280,9 @@ def build_tag_prompt(*, filename: str, tags: list[str], folder_hint: str, text: 
         f"Textauszug:\n{excerpt}\n\n"
         "Welche Tags würdest du hinzufügen? Antworte NUR mit einem "
         'JSON-Objekt {"tags": [{"tag": "...", "reason": "...", "evidence": "..."}]} '
-        "mit höchstens 5 Vorschlägen. Jeder Tag ist deutsch, kurz (max. 60 "
+        "mit höchstens 5 Vorschlägen. Jeder Listeneintrag ist ein Objekt "
+        "mit genau den Schlüsseln tag, reason und evidence — niemals nur "
+        "eine Zeichenkette. Jeder Tag ist deutsch, kurz (max. 60 "
         "Zeichen), hochwertig und eigenständig: keine Varianten, keine "
         "Plural- oder Synonym-Dubletten, keine Füllwörter (aus, und, mit), "
         "keine reinen Dateinamen-Floskeln (Notizen, Scan, Foto). "
@@ -258,13 +294,59 @@ def build_tag_prompt(*, filename: str, tags: list[str], folder_hint: str, text: 
     )
 
 
-def complete_text(provider: Any, prompt: str) -> dict[str, Any]:
-    """Run one short streaming text-only JSON completion (capped)."""
+def _parse_json_object(answer: str) -> dict[str, Any]:
+    """Parse one model answer; tolerate fences, never invent content.
+
+    Accepts a plain JSON object, a fenced code block, or an object
+    embedded in surrounding prose (first '{' to last '}'). Anything
+    else raises VisionError; callers validate the parsed payload.
+    """
+    candidates = [answer]
+    stripped = answer.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        candidates.append("\n".join(lines[1:]))
+        candidates.append("\n".join(lines[1:]).strip())
+    start, end = answer.find("{"), answer.rfind("}")
+    if 0 <= start < end:
+        candidates.append(answer[start : end + 1])
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except ValueError:
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+    raise VisionError("lokale Inferenz lieferte kein JSON-Objekt")
+
+
+def complete_text(
+    provider: Any,
+    prompt: str,
+    *,
+    json_schema: dict[str, Any] | None = None,
+    num_predict: int = vision.OLLAMA_NUM_PREDICT,
+    temperature: float | None = None,
+) -> dict[str, Any]:
+    """Run one short streaming text-only JSON completion (capped).
+
+    Pass ``json_schema`` (Ollama structured outputs) to enforce the
+    object shape server-side; the default "json" keeps callers like
+    contact suggestions on the plain JSON mode. ``num_predict``
+    bounds generation (and stream bytes); ``temperature`` stays at
+    the model default unless a caller pins it. Validation of the
+    parsed payload always stays with the caller.
+    """
     model = vision.resolve_local_model(provider.base_url, provider.model, provider.timeout)
     provider.resolved_model = model
     body = vision.ollama_chat_body(
         model=model,
         messages=[{"role": "user", "content": prompt}],
+        format=json_schema if json_schema is not None else "json",
+        num_predict=num_predict,
+        temperature=temperature,
     )
     request = urllib.request.Request(
         provider.base_url + "/api/chat",
@@ -288,13 +370,7 @@ def complete_text(provider: Any, prompt: str) -> dict[str, Any]:
         ) from None
     except (urllib.error.URLError, OSError) as exc:
         raise InferenceUnavailable(f"lokale Inferenz nicht erreichbar ({exc})") from None
-    try:
-        parsed = json.loads(answer)
-    except ValueError as exc:
-        raise VisionError(f"lokale Inferenz lieferte kein JSON ({exc})") from None
-    if not isinstance(parsed, dict):
-        raise VisionError("lokale Inferenz lieferte kein JSON-Objekt")
-    return parsed
+    return _parse_json_object(answer)
 
 
 def _evidence_key(text: str) -> str:
@@ -750,7 +826,12 @@ def suggest_tags_for_document(
     existing = [str(tag).strip() for tag in document.get("tags", []) if str(tag).strip()]
     prompt = build_tag_prompt(filename=filename, tags=existing, folder_hint=folder_hint, text=text)
     suggestions = validate_tag_suggestions(
-        complete_text(provider, prompt), existing,
+        complete_text(
+            provider, prompt,
+            json_schema=TAG_JSON_SCHEMA, num_predict=TAG_NUM_PREDICT,
+            temperature=TAG_TEMPERATURE,
+        ),
+        existing,
         filename=filename, body_text=text,
     )
     return {

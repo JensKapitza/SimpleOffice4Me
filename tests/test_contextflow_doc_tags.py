@@ -19,6 +19,7 @@ from app import app
 from app import db as database
 from app.contextflow.doc_tags import (
     IMAGE_INSTRUCTION,
+    TAG_NUM_PREDICT,
     DocTagError,
     build_tag_prompt,
     document_image_bytes,
@@ -524,8 +525,10 @@ class DocTagSuggestContracts(unittest.TestCase):
             set(bodies[0]),
         )
         self.assertIs(True, bodies[0]["stream"])
-        self.assertEqual("json", bodies[0]["format"])
-        self.assertEqual({"num_predict": 2048}, bodies[0]["options"])
+        schema = bodies[0]["format"]
+        self.assertEqual(["tags"], schema["required"])
+        self.assertEqual({"tag", "reason", "evidence"}, set(schema["properties"]["tags"]["items"]["required"]))
+        self.assertEqual({"num_predict": TAG_NUM_PREDICT, "temperature": 0}, bodies[0]["options"])
         self.assertNotIn("think", bodies[0])
         self.assertNotIn("think", bodies[0]["options"])
         self.assertEqual(1, len(bodies[0]["messages"]))

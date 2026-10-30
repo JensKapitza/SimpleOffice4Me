@@ -11,6 +11,7 @@
     <a class="btn btn-primary" href="#bulk-scan"><i class="fa-solid fa-camera me-1" aria-hidden="true"></i>Massen-Scan starten</a>
     {% if g.user and g.user["is_admin"] and not g.user["is_disabled"] %}<a class="btn btn-outline-primary" href="{{ url_for('library.export_books_csv') }}"><i class="fa-solid fa-file-export me-1" aria-hidden="true"></i>CSV</a><a class="btn btn-outline-secondary" href="{{ url_for('library.export_books_ris') }}">RIS (Zitavi)</a><a class="btn btn-outline-secondary" href="{{ url_for('library.export_books_bibtex') }}">BibTeX</a><a class="btn btn-outline-secondary" href="{{ url_for('library.export_books_calibre') }}">Calibre CSV/OPF</a>{% endif %}
     <a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}"><i class="fa-solid fa-barcode me-1" aria-hidden="true"></i>Inventar-Schnellerfassung</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('inventory.capture_inbox') }}"><i class="fa-solid fa-camera me-1" aria-hidden="true"></i>Fotoeingang</a>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}

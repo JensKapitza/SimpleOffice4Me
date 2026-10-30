@@ -24,6 +24,36 @@ SimpleOffice4Me ist eine selbst betriebene Office-, Dokumenten- und
 CRM-Anwendung auf Basis von Python und Flask. Sie bündelt Dokumente, Kontakte,
 Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
 
+## Büroengel / ContextFlow (Hackathon, Meta-only)
+
+Der Büroengel bereitet reale Büroabläufe als prüffähige Entwürfe mit Quellen
+vor (Foto-Befunde, Kontakt- und Objektvorschläge, Aufgaben mit Freigabe):
+Menschen prüfen und übernehmen ausdrücklich – keine automatische Buchung,
+keine automatische Mail, keine Geld- oder Außenaktion ohne Freigabe.
+
+Die Wettbewerbsfassung (Branch `hackathon/contextflow-mvp`) läuft
+ausschließlich mit Meta-Modellen: Cloud-Pin exakt
+`muse-spark-1.3-contributor` über die Meta Model API (nur synthetische
+Demo-Daten, nur mit Einwilligung); lokal nur allowlist-gelockte
+Meta-Ollama-Modelle (Text: Llama 3.2 1B/3B, Bildanalyse: freigegebenes
+Vision-Modell wie `llama3.2-vision` oder Muse Glimmer). Fremdmodelle
+(z. B. Qwen) werden bereits bei der Konfiguration abgewiesen. Die Demo
+zeigt Modellstatus und Modell-ID offen an (`/contextflow/ml-status`,
+Statuszeilen, Ergebnis-Pills).
+
+Kurzstart (lokal, synthetisch, `127.0.0.1`):
+
+```bat
+start.bat demo --port 5088
+```
+
+Details, 3-Minuten-Demo und Grenzen:
+[ContextFlow-Hackathon-README](docs/hackathon/contextflow/README.md).
+Der Cloud-Pfad braucht `MODEL_API_KEY` (Prozess-Umgebung oder `.env`
+direkt oberhalb des Repo-Ordners, außerhalb von Git – nie Schlüssel in
+README oder Code); ohne Schlüssel läuft nur die lokale/Mock-Demo, ein
+Cloud-Live-Erfolg wird nicht behauptet.
+
 ## Funktionen
 
 - Dokumentenverwaltung mit Eingangskorb, Volltextindex, Vorschauen, Versionen,
