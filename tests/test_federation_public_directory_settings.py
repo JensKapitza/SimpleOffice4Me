@@ -194,6 +194,12 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
                 )
 
     def test_public_profile_url_is_migrated_validated_and_used_without_network_access(self):
+        page = self.admin.get("/admin/settings/integrations")
+        self.assertEqual(200, page.status_code)
+        self.assertEqual(
+            1,
+            page.get_data(as_text=True).count('id="federation-public-url"'),
+        )
         store = SettingsStore(self.root)
         with patch.dict(
             os.environ,
