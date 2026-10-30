@@ -8,6 +8,7 @@ from .admin import admin_required
 from .settings_store import (
     DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
     DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+    DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
     MAX_FEDERATION_AUTOSCAN_SECONDS,
     MIN_FEDERATION_AUTOSCAN_SECONDS,
     SettingsStore,
@@ -86,4 +87,48 @@ def save_federation_discovery_settings():
     except OSError as exc:
         current_app.logger.warning("Federation autoscan settings save failed: %s", type(exc).__name__)
         flash("Federation-Autoscan-Einstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/federation-public-directory")
+@admin_required
+def save_federation_public_directory_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"][
+            "federation_public_directory_enabled"
+        ]
+        if reset_defaults:
+            enabled = DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED
+        else:
+            raw = request.form.get("federation_public_directory_enabled")
+            if raw is None:
+                enabled = current
+            elif raw not in {"0", "1"}:
+                raise ValueError("Bitte das öffentliche Federation-Verzeichnis aktivieren oder deaktivieren.")
+            else:
+                enabled = raw == "1"
+        store.save(
+            {"integrations": {"federation_public_directory_enabled": enabled}},
+            str(g.user["username"]),
+        )
+        audit(
+            "federation_public_directory_settings_updated",
+            "settings",
+            "integrations.federation_public_directory_enabled",
+            detail={"enabled": enabled, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "Öffentliches Federation-Verzeichnis auf Standard zurückgesetzt."
+            if reset_defaults else "Einstellung für das öffentliche Federation-Verzeichnis gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Federation public-directory preference rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning(
+            "Federation public-directory preference save failed: %s", type(exc).__name__,
+        )
+        flash("Federation-Verzeichniseinstellung konnte nicht gespeichert werden.")
     return redirect(url_for("admin.integration_settings"))

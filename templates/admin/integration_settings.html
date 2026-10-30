@@ -88,6 +88,28 @@
       </form>
     </div>
   </section>
+  <section class="card mb-3">
+    <div class="card-header"><strong>Öffentliches Federation-Verzeichnis</strong></div>
+    <div class="card-body">
+      <p>Wenn aktiviert, dürfen nicht angemeldete Clients ausschließlich die explizit veröffentlichten öffentlichen Peer-Profile abfragen. Dazu gehören Peer-ID, Anzeigename, öffentliche Basis-URL, Land, Fingerprint und öffentlicher Schlüssel. Registrierung, Auflösung, Trust und Rendezvous bleiben weiterhin authentifiziert. Standardmäßig ist die Veröffentlichung deaktiviert.</p>
+      <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_public_directory_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="federation-public-directory-enabled">Öffentliche Abfrage veröffentlichter Peer-Profile</label>
+          <select class="form-select" id="federation-public-directory-enabled" name="federation_public_directory_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="1" {% if integrations.federation_public_directory_enabled %}selected{% endif %}>Aktiviert</option>
+            <option value="0" {% if not integrations.federation_public_directory_enabled %}selected{% endif %}>Deaktiviert (Standard)</option>
+          </select>
+          <div class="form-text">Gilt sofort. <code>SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1</code> dient nur bis zur ersten Speicherung als Legacy-Opt-in; danach ist die persistente Einstellung maßgeblich.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
   <section class="card mt-3">
     <div class="card-header"><strong>PrinterShare-Aufbewahrungsbereinigung</strong></div>
     <div class="card-body">
