@@ -365,7 +365,12 @@ FEATURE_BLUEPRINTS = {
 
 @bp.app_context_processor
 def feature_permission_context():
-    return {"feature_enabled": lambda feature: has_feature(g.get("user"), feature)}
+    from .capture_inbox_store import photo_role_label
+
+    return {
+        "feature_enabled": lambda feature: has_feature(g.get("user"), feature),
+        "photo_role_label": photo_role_label,
+    }
 
 
 @bp.before_app_request

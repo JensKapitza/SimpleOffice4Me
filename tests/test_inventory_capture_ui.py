@@ -30,6 +30,20 @@ class CaptureUiWiringTests(unittest.TestCase):
         inventory = (ROOT / "templates/inventory/index.html").read_text(encoding="utf-8")
         self.assertIn("inventory.capture_inbox", inventory)
 
+    def test_photo_role_select_posts_to_role_url(self) -> None:
+        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertIn("Fotorolle", script)
+        self.assertIn("ROLE_LABELS", script)
+        self.assertIn("entry.role_url", script)
+        self.assertIn("Buchrücken", script)
+
+    def test_batch_review_assigns_group_to_existing_book(self) -> None:
+        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertIn("Vorhandene Buch-ID", script)
+        self.assertIn("Ganze Gruppe vorhandenem Buch zuordnen", script)
+        self.assertIn("payload.assign_url", script)
+        self.assertIn("Fotos, ", script)
+
     def test_ml_status_uses_shared_formatter_with_text_assignment(self) -> None:
         template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
         helper_pos = template.index("js/capture_ml_status.js")

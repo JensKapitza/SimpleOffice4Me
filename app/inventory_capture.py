@@ -267,6 +267,7 @@ def public_entry(entry: dict[str, Any], preview_url: str) -> dict[str, Any]:
     return {
         "entry_id": str(entry.get("entry_id", "")),
         "batch_id": str(entry.get("batch_id", "") or ""),
+        "photo_role": str(entry.get("photo_role", "") or ""),
         "status": str(entry.get("status", "")),
         "created_at": str(entry.get("created_at", "")),
         "updated_at": str(entry.get("updated_at", "")),
@@ -300,6 +301,65 @@ def reanalyze_entry(entry_id: str, actor: str, root: str) -> dict[str, Any]:
     return updated
 
 
+ATTACHED_ROLE_SYNC_ERROR = (
+    "Rolle im Eingangskorb gespeichert, "
+    "am zugeordneten Foto nicht aktualisiert."
+)
+
+
+def set_entry_role(
+    entry_id: str, actor: str, role: str, root: str
+) -> tuple[dict[str, Any] | None, bool, str]:
+    """Set an inbox photo role; propagate it to an attached photo by SHA.
+
+    Returns (entry, attached_updated, sync_error). The entry is None
+    when it is unknown or owned by another actor. Unknown roles raise
+    ValueError without mutating anything. When the entry is already
+    assigned to a book/object and its original SHA matches an
+    attached inventory photo, that photo row is updated idempotently
+    (True only when a row actually changed); roles set before
+    attaching apply at attach time. The sync runs on every call, so
+    resubmitting the same role retries a failed update. The inbox
+    role stays saved when the sync fails; sync_error then carries a
+    fixed German hint without exception details, else "".
+    """
+    from .capture_inbox_store import CaptureInboxStore
+    from .inventory import InventoryEnrichmentStore
+
+    store = CaptureInboxStore(root)
+    if store.get(entry_id, actor) is None:
+        return None, False, ""
+    updated = store.set_photo_role(entry_id, actor, role)
+    if updated is None:
+        return None, False, ""
+    assignment = updated.get("assignment", {})
+    if not isinstance(assignment, dict):
+        return updated, False, ""
+    target = str(assignment.get("object_id", "") or "")
+    if not target:
+        return updated, False, ""
+    original = updated.get("original", {})
+    digest = str(original.get("sha256", "") or "") if isinstance(original, dict) else ""
+    if not digest:
+        return updated, False, ""
+    try:
+        changed = InventoryEnrichmentStore(root).set_photo_role_by_sha(
+            target, digest, str(updated.get("photo_role", "") or ""), actor)
+    except (OSError, ValueError):
+        return updated, False, ATTACHED_ROLE_SYNC_ERROR
+    return updated, changed, ""
+
+
+def _resolve_target(root: str, object_id: str) -> dict[str, Any]:
+    """Resolve a UUID or #sequence reference; fail closed when unknown."""
+    from .object_store import ObjectStore
+
+    try:
+        return ObjectStore(root).object(object_id)
+    except (OSError, ValueError) as exc:
+        raise ValueError("Zielobjekt ist nicht verfügbar") from exc
+
+
 def _attach_entry_original(
     entry_id: str, object_id: str, actor: str, root: str
 ) -> tuple[bool, str]:
@@ -330,8 +390,12 @@ def _attach_entry_original(
         attached_digests = set()
     if digest in attached_digests:
         return False, ""
+    owned = store.get(entry_id, actor) or {}
+    role = str(owned.get("photo_role", "") or "")
     try:
-        sidecar.save_photo(object_id, _BatchPhotoUpload(entry_id, raw), actor)
+        sidecar.save_photo(
+            object_id, _BatchPhotoUpload(entry_id, raw), actor,
+            photo_role=role)
     except (OSError, ValueError) as exc:
         return False, f"Foto nicht übernommen: {exc}"
     return True, ""
@@ -352,12 +416,8 @@ def assign_entry(
     """
     from .capture_inbox_store import CaptureInboxStore
     from .inventory import BOOK_TYPE_NAMES
-    from .object_store import ObjectStore
 
-    try:
-        item = ObjectStore(root).object(object_id)
-    except (OSError, ValueError) as exc:
-        raise ValueError("Zielobjekt ist nicht verfügbar") from exc
+    item = _resolve_target(root, object_id)
     item_type = str(item.get("type", "") or "").strip().casefold()
     wants_book = str(kind or "").strip().casefold() == "book"
     if wants_book != (item_type in BOOK_TYPE_NAMES):
@@ -381,6 +441,83 @@ def assign_entry(
     attached, notice = _attach_entry_original(
         entry_id, str(item.get("object_id", "")), actor, root)
     return updated, attached, notice
+
+
+def assign_batch(
+    batch_id: str, actor: str, object_id: str, root: str
+) -> dict[str, Any]:
+    """Assign a whole photo book group to one existing book (idempotent).
+
+    The target is resolved from an explicit UUID or #sequence reference
+    and must exist and be a book; nothing is ever matched by ISBN here.
+    Group entries owned by the actor are pre-checked first: entries
+    already linked elsewhere abort the whole call (move the photo out
+    and retry). The link itself is then written atomically in one
+    locked store step, bound to the expected batch, so a concurrent
+    change cannot half-link a group; a race raises instead of
+    writing anything, before any photo is attached. Photo attach
+    problems after a successful link are collected as notices
+    instead of raising, and a retry completes missing photos
+    without duplicates (digest-skipped).
+    """
+    from .capture_inbox_store import CaptureInboxStore
+    from .inventory import BOOK_TYPE_NAMES
+
+    item = _resolve_target(root, object_id)
+    item_type = str(item.get("type", "") or "").strip().casefold()
+    if item_type not in BOOK_TYPE_NAMES:
+        raise ValueError("Zielobjekt passt nicht zur Zuordnung (Buch erwartet)")
+    target_id = str(item.get("object_id", ""))
+    store = CaptureInboxStore(root)
+    entries = store.list_batch(actor, batch_id)
+    if not entries:
+        raise ValueError("Buchgruppe ist leer oder unbekannt.")
+    for entry in entries:
+        assignment = entry.get("assignment", {})
+        if not isinstance(assignment, dict):
+            assignment = {}
+        linked = str(assignment.get("object_id", "") or "")
+        if linked and (linked != target_id or assignment.get("kind") != "book"):
+            raise ValueError(
+                f"Eintrag {str(entry.get('entry_id', ''))[:8]} ist bereits "
+                "anders zugeordnet; bitte Foto auslagern und erneut versuchen."
+            )
+    entry_ids = [str(entry.get("entry_id", "")) for entry in entries]
+    updated = store.assign_many(
+        entry_ids, actor, "book", target_id,
+        display_id=str(item.get("display_id", "")),
+        name=str(item.get("name", "")),
+        expected_batch_id=batch_id,
+    )
+    if updated is None:
+        raise ValueError(
+            "Gruppe wurde zwischenzeitlich geändert oder entfernt; "
+            "nichts wurde zugeordnet. Bitte Seite neu laden und wiederholen."
+        )
+    assigned = len(updated)
+    attached = 0
+    notices: list[str] = []
+    for entry_id in entry_ids:
+        done, notice = _attach_entry_original(entry_id, target_id, actor, root)
+        if done:
+            attached += 1
+        elif notice:
+            notices.append(f"Foto {entry_id[:8]}: {notice}")
+    return {
+        "ok": True,
+        "object_id": target_id,
+        "display_id": str(item.get("display_id", "")),
+        "name": str(item.get("name", "")),
+        "detail_url": url_for("inventory.item_detail", object_id=target_id),
+        "assigned": assigned,
+        "photo_count": len(entries),
+        "attached": attached,
+        "notices": notices,
+        "message": (
+            f"Buchgruppe zugeordnet: #{item.get('display_id', '')} "
+            f"{item.get('name', '')}."
+        ),
+    }
 
 
 def parse_batch_consent(value: Any) -> bool:
@@ -498,9 +635,11 @@ def _batch_photo_notices(
             continue
         if hashlib.sha256(raw).hexdigest() in attached_digests:
             continue
+        role = str(entry.get("photo_role", "") or "") if isinstance(entry, dict) else ""
         try:
             sidecar.save_photo(
-                item_id, _BatchPhotoUpload(entry_id, raw), actor)
+                item_id, _BatchPhotoUpload(entry_id, raw), actor,
+                photo_role=role)
         except (OSError, ValueError) as exc:
             notices.append(f"Foto {entry_id[:8]} nicht gespeichert: {exc}")
             continue

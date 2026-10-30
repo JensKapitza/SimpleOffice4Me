@@ -59,6 +59,8 @@ def capture_inbox():
             "inventory.capture_reanalyze", entry_id=stored["entry_id"])
         item["batch_url"] = url_for(
             "inventory.capture_move", entry_id=stored["entry_id"])
+        item["role_url"] = url_for(
+            "inventory.capture_role", entry_id=stored["entry_id"])
         entries.append(item)
     return render_template(
         "inventory/capture.html",
@@ -124,6 +126,8 @@ def capture_upload():
         "inventory.capture_reanalyze", entry_id=entry["entry_id"])
     item["batch_url"] = url_for(
         "inventory.capture_move", entry_id=entry["entry_id"])
+    item["role_url"] = url_for(
+        "inventory.capture_role", entry_id=entry["entry_id"])
     return jsonify({
         "ok": True,
         "duplicate": duplicate,
@@ -268,6 +272,8 @@ def _public_batch_entries(
             "inventory.capture_reanalyze", entry_id=entry_id)
         item["batch_url"] = url_for(
             "inventory.capture_move", entry_id=entry_id)
+        item["role_url"] = url_for(
+            "inventory.capture_role", entry_id=entry_id)
         items.append(item)
     return items
 
@@ -299,6 +305,8 @@ def capture_batch(batch_id: str):
             "inventory.capture_batch_analyze", batch_id=clean_batch),
         "adopt_url": url_for(
             "inventory.capture_batch_adopt", batch_id=clean_batch),
+        "assign_url": url_for(
+            "inventory.capture_batch_assign", batch_id=clean_batch),
     }), 200
 
 
@@ -390,6 +398,34 @@ def capture_batch_adopt(batch_id: str):
     return jsonify(payload), 200
 
 
+@bp.post("/capture/batch/<batch_id>/assign")
+@login_required
+def capture_batch_assign(batch_id: str):
+    """Assign a whole photo book group to one existing book (no creation).
+
+    The target book is chosen explicitly (UUID or #sequence); nothing
+    is ever matched by ISBN here. Validation is all-or-nothing per
+    call, photo attach problems arrive as notices, and a retry
+    completes missing photos without duplicates.
+    """
+    from .inventory_capture import assign_batch
+
+    actor = str(g.user["username"])
+    root = current_app.config["DOCUMENT_ROOT"]
+    data = request.get_json(silent=True) or request.form
+    try:
+        payload = assign_batch(
+            batch_id, actor, str(data.get("object_id", "")), root)
+    except CaptureInboxIndexError:
+        return jsonify({"ok": False, "error": INDEX_ERROR}), 503
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Buchgruppe ist leer oder unbekannt.":
+            abort(404)
+        return jsonify({"ok": False, "error": message}), 400
+    return jsonify(payload), 200
+
+
 @bp.post("/capture/<entry_id>/batch")
 @login_required
 def capture_move(entry_id: str):
@@ -428,3 +464,49 @@ def capture_move(entry_id: str):
     item["batch_url"] = url_for(
         "inventory.capture_move", entry_id=entry_id)
     return jsonify({"ok": True, "entry": item}), 200
+
+
+@bp.post("/capture/<entry_id>/role")
+@login_required
+def capture_role(entry_id: str):
+    """Set or clear the professional role of one inbox photo.
+
+    Only title/imprint/spine/other (or empty to clear) are accepted;
+    unknown roles fail without mutation. Idempotent per role. When
+    the photo is already attached to a book/object, the attached row
+    is updated by SHA as well (see attached_role_updated). A failed
+    attached update keeps the saved inbox role and reports
+    attached_role_error; resubmitting retries the sync.
+    """
+    from .inventory_capture import public_entry, set_entry_role
+
+    actor = str(g.user["username"])
+    root = current_app.config["DOCUMENT_ROOT"]
+    data = request.get_json(silent=True) or request.form
+    try:
+        updated, attached_updated, sync_error = set_entry_role(
+            entry_id, actor, str(data.get("role", "")), root)
+    except CaptureInboxIndexError:
+        return jsonify({"ok": False, "error": INDEX_ERROR}), 503
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    if updated is None:
+        abort(404)
+    item = public_entry(
+        updated, url_for("inventory.capture_preview", entry_id=entry_id))
+    item["assign_url"] = url_for(
+        "inventory.capture_assign", entry_id=entry_id)
+    item["analyze_url"] = url_for(
+        "inventory.capture_reanalyze", entry_id=entry_id)
+    item["batch_url"] = url_for(
+        "inventory.capture_move", entry_id=entry_id)
+    item["role_url"] = url_for(
+        "inventory.capture_role", entry_id=entry_id)
+    response = {
+        "ok": True,
+        "entry": item,
+        "attached_role_updated": attached_updated,
+    }
+    if sync_error:
+        response["attached_role_error"] = sync_error
+    return jsonify(response), 200
