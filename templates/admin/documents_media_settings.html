@@ -121,6 +121,13 @@
           <div class="form-text">Begrenzt die Zahl der Einträge, deren Inhalt je Archiv durchsucht wird; der Namenskatalog bleibt davon unabhängig. Standard 500; zulässig 1–10.000.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="archive-max-compression-ratio">Maximales Kompressionsverhältnis (unkomprimiert/komprimiert)</label>
+          <input class="form-control" id="archive-max-compression-ratio" type="number"
+                 name="archive_max_compression_ratio" value="{{ media.archive_max_compression_ratio }}"
+                 min="10" max="10000" step="1" required>
+          <div class="form-text">Einträge über dem Verhältnis werden nicht entpackt, bleiben aber im Namenskatalog. Gilt ab 1 MiB unkomprimierter Größe. Standard 200; zulässig 10–10.000. Begrenzungen für Dateigröße und Textbudget gelten zusätzlich.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>

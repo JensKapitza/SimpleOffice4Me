@@ -55,7 +55,8 @@ ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstel
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_max_text_per_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
 | `media.archive_max_content_files` (persistente Admin-Einstellung) | `500` | Höchstzahl der Einträge für Inhaltsverarbeitung; `1–10000` |
 | `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | `500` | Gilt nur bis `media.archive_max_content_files` gespeichert wurde; Ausreißer werden begrenzt |
-| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | `200` | Begrenzung des Kompressionsverhältnisses; 10–10000 |
+| `media.archive_max_compression_ratio` (persistente Admin-Einstellung) | `200` | Verhältnis unkomprimierter zu komprimierter Größe; `10–10000`; greift ab 1 MiB je Eintrag |
+| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` (Legacy-Migration) | `200` | Gilt nur bis `media.archive_max_compression_ratio` gespeichert wurde; Ausreißer werden begrenzt |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Legacy-Startwert bis `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gespeichert wird; optionale OCR für unterstützte Bild-Einträge |
 
 Erzwungene tiefe Indexierung hebt nicht Größen-, Pfad-, Scratch- oder
