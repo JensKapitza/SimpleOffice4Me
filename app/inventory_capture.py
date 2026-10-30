@@ -17,6 +17,11 @@ from typing import Any
 from flask import current_app, has_app_context, url_for
 
 from .book_metadata_cache import BookMetadataCache
+from .inventory_capture_shelf import (
+    SHELF_ASSIGN_ERROR,
+    _ensure_adopt_shelf,
+    _shelf_notices,
+)
 from .capture_analysis import (
     combine_batch_analyses,
     extract_year,
@@ -656,6 +661,7 @@ def adopt_batch(
     capture_request_id: str,
     *,
     allow_duplicate: bool = False,
+    location_id: str = "",
 ) -> dict[str, Any]:
     """Create ONE inventory item from a reviewed book group (idempotent).
 
@@ -666,13 +672,17 @@ def adopt_batch(
     call with the same capture token for the same book group returns
     the same item and completes missing assignments without
     duplicating photos. The same token for another group is rejected
-    so photos are never attached across groups.
+    so photos are never attached across groups. An optional
+    location_id links the new book to an existing library shelf
+    (validated before creation; a later shelf failure keeps the book
+    and is retryable with the same token).
     Raises ValueError for invalid input, PermissionError when the
     capture token belongs to another session.
     """
     import re
 
     from .capture_inbox_store import CaptureInboxStore
+    from .library.store import LibraryStore
 
     store = CaptureInboxStore(root)
     entries = store.list_batch(actor, batch_id)
@@ -682,6 +692,9 @@ def adopt_batch(
     if not re.fullmatch(r"[0-9a-f]{32}", token):
         raise ValueError(
             "Erfassungskennung ungültig. Bitte die Erfassungsseite neu laden.")
+    shelf = str(location_id or "").strip()
+    if shelf:
+        LibraryStore(root).location(shelf)
     combined = summarize_batch(entries)
     kind = str(fields.get("item_type", "") or "").strip().lower()
     if kind not in {"book", "object"}:
@@ -690,7 +703,7 @@ def adopt_batch(
         kind = "object"
     return _adopt_batch_locked(
         store, entries, combined, kind, actor, root, fields,
-        token, allow_duplicate, batch_id)
+        token, allow_duplicate, batch_id, shelf)
 
 
 def _adopt_batch_locked(
@@ -704,6 +717,7 @@ def _adopt_batch_locked(
     token: str,
     allow_duplicate: bool,
     batch_id: str,
+    location_id: str,
 ) -> dict[str, Any]:
     """Batch adoption under the shared capture-receipts lock."""
     from .file_lock import exclusive_file_lock
@@ -734,11 +748,15 @@ def _adopt_batch_locked(
                     item["object_id"], entries, actor, root)
                 assigned, assign_notices = _assign_batch_entries(
                     store, entries, kind, item, actor)
+                shelf, shelf_error = _ensure_adopt_shelf(
+                    item["object_id"], location_id, actor, root)
+                notices = photo_notices + assign_notices + _shelf_notices(
+                    shelf, shelf_error, bool(location_id))
                 message = (
                     "Diese Buchgruppe wurde bereits gespeichert: "
                     f"#{item.get('display_id', '')} {item.get('name', '')}."
                 )
-                return {
+                response: dict[str, Any] = {
                     "ok": True, "saved": False, "retried": True,
                     "duplicate": False, "assigned": assigned == len(entries),
                     "object_id": item["object_id"],
@@ -750,12 +768,16 @@ def _adopt_batch_locked(
                     "attached": attached,
                     "assigned_count": assigned,
                     "photo_count": len(entries),
-                    "notices": photo_notices + assign_notices,
+                    "notices": notices,
                     "message": message,
+                    "shelf": shelf,
                 }
+                if shelf_error:
+                    response["shelf_error"] = shelf_error
+                return response
         return _create_batch_item(
             store, entries, combined, kind, actor, root, fields,
-            token, receipts_path, allow_duplicate, batch_id)
+            token, receipts_path, allow_duplicate, batch_id, location_id)
 
 
 def _assign_batch_entries(
@@ -800,6 +822,7 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
     receipts_path: Any,
     allow_duplicate: bool,
     batch_id: str,
+    location_id: str,
 ) -> dict[str, Any]:
     """Validate corrected fields, create the item, attach, assign."""
     from .inventory import BOOK_TYPE_NAMES
@@ -832,6 +855,11 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
             f"Bereits vorhanden: #{duplicate.get('display_id', '')} "
             f"{duplicate.get('name', '')}. Kein Duplikat angelegt."
         )
+        shelf, _ = _ensure_adopt_shelf(
+            duplicate["object_id"], "", actor, root)
+        notices = ["Buch existiert bereits; Regal nicht geändert."]
+        if shelf:
+            notices.extend(_shelf_notices(shelf, "", False))
         return {
             "ok": True, "saved": False, "duplicate": True,
             "assigned": False,
@@ -842,8 +870,9 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
                 "inventory.item_detail",
                 object_id=duplicate["object_id"]),
             "attached": 0, "assigned_count": 0,
-            "photo_count": len(entries), "notices": [],
+            "photo_count": len(entries), "notices": notices,
             "message": message,
+            "shelf": shelf,
         }
     authors = fields.get("authors", "")
     if isinstance(authors, list):
@@ -887,14 +916,17 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
         item["object_id"], entries, actor, root)
     assigned, assign_notices = _assign_batch_entries(
         store, entries, kind, item, actor)
-    notices = photo_notices + assign_notices
+    shelf, shelf_error = _ensure_adopt_shelf(
+        item["object_id"], location_id, actor, root)
+    notices = photo_notices + assign_notices + _shelf_notices(
+        shelf, shelf_error, bool(location_id))
     label = "Buch" if kind == "book" else "Gegenstand"
     message = (
         f"{label} #{item.get('display_id', '')} {item.get('name', '')} "
         f"aus {len(entries)} Fotos gespeichert "
         f"({attached} Fotos, {assigned} Zuordnungen)."
     )
-    return {
+    response: dict[str, Any] = {
         "ok": True, "saved": True, "duplicate": False,
         "assigned": assigned == len(entries),
         "object_id": item["object_id"],
@@ -905,7 +937,11 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
         "attached": attached, "assigned_count": assigned,
         "photo_count": len(entries), "notices": notices,
         "message": message,
+        "shelf": shelf,
     }
+    if shelf_error:
+        response["shelf_error"] = shelf_error
+    return response
 
 
 def _inventory_module():  # type: ignore[no-untyped-def]
