@@ -13,7 +13,7 @@ from .auth import login_required
 from .document_store import DocumentStore
 from .epub_reader import EpubBook, MAX_EPUB_BYTES
 from .pdf_limits import MAX_PDF_BYTES
-from .reading_store import ReadingStateStore, reader_version
+from .reading_store import ReaderVersionChanged, ReadingStateStore, reader_version
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import storage_for
 
@@ -37,6 +37,14 @@ def _documents() -> DocumentStore:
 
 def _reading() -> ReadingStateStore:
     return ReadingStateStore(current_app.config["DOCUMENT_ROOT"])
+
+
+def _invalid_reader_input(operation: str, message: str, error: ValueError):
+    """Return a fixed client message while logging only safe error metadata."""
+    current_app.logger.info(
+        "Reader %s request rejected: %s", operation, type(error).__name__,
+    )
+    return jsonify({"error": message}), 400
 
 
 def _book(document_id: str) -> tuple[dict[str, Any], str]:
@@ -362,9 +370,12 @@ def save_progress(document_id: str):
             document_id, _actor(), data.get("locator"), data.get("percent", 0),
             str(data.get("document_version", "")),
         )
+    except ReaderVersionChanged:
+        return jsonify({"error": "Das Dokument wurde geändert. Bitte lade den Reader neu."}), 409
     except ValueError as exc:
-        code = 409 if "version changed" in str(exc) else 400
-        return jsonify({"error": str(exc)}), code
+        return _invalid_reader_input(
+            "progress", "Ungültige Leseposition oder Fortschrittsangabe.", exc,
+        )
     audit(
         "document_reader_progress", "document", document_id,
         detail={"format": state["format"], "percent": state["percent"]},
@@ -387,9 +398,12 @@ def add_annotation(document_id: str):
             annotation_kind=str(data.get("kind", "note")),
             quote=str(data.get("quote", "")),
         )
+    except ReaderVersionChanged:
+        return jsonify({"error": "Das Dokument wurde geändert. Bitte lade den Reader neu."}), 409
     except ValueError as exc:
-        code = 409 if "version changed" in str(exc) else 400
-        return jsonify({"error": str(exc)}), code
+        return _invalid_reader_input(
+            "annotation", "Ungültige Leseposition oder Anmerkung.", exc,
+        )
     audit("document_reader_annotation", "document", document_id, detail={"annotation_id": row["annotation_id"]})
     return jsonify(row), 201
 

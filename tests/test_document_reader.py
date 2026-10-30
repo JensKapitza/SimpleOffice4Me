@@ -11,7 +11,7 @@ from app import app
 from app import db as database
 from app.document_store import DocumentStore
 from app.epub_reader import EpubBook
-from app.reading_store import ReadingStateStore, reader_version
+from app.reading_store import ReaderVersionChanged, ReadingStateStore, reader_version
 from app.pdf_limits import MAX_PDF_BYTES
 
 
@@ -371,6 +371,52 @@ class ReaderRoutesTests(unittest.TestCase):
         page = self.client.get(f"/documents/reader/{broken['document_id']}")
         self.assertEqual(422, page.status_code)
         self.assertIn("nicht im Reader", page.get_data(as_text=True))
+
+    def test_reader_api_does_not_return_internal_validation_error_text(self):
+        version = reader_version(DocumentStore(self.documents).get_document(
+            self.document["document_id"],
+        ))
+        secret = "private internal path /srv/private/reader-state.json"
+        with patch("app.reader_routes._reading") as reading:
+            reading.return_value.save_progress.side_effect = ValueError(secret)
+            progress = self.client.post(
+                f"/documents/reader/api/{self.document['document_id']}/progress",
+                json={"locator": {"chapter": "0"}, "percent": 5, "document_version": version},
+                headers=self.headers,
+            )
+            reading.return_value.add_annotation.side_effect = ValueError(secret)
+            annotation = self.client.post(
+                f"/documents/reader/api/{self.document['document_id']}/annotations",
+                json={"locator": {"chapter": "0"}, "text": "Note", "document_version": version},
+                headers=self.headers,
+            )
+
+        self.assertEqual(400, progress.status_code)
+        self.assertEqual("Ungültige Leseposition oder Fortschrittsangabe.", progress.json["error"])
+        self.assertNotIn(secret, progress.get_data(as_text=True))
+        self.assertEqual(400, annotation.status_code)
+        self.assertEqual("Ungültige Leseposition oder Anmerkung.", annotation.json["error"])
+        self.assertNotIn(secret, annotation.get_data(as_text=True))
+
+    def test_reader_api_keeps_document_version_conflicts_as_safe_409(self):
+        version = reader_version(DocumentStore(self.documents).get_document(
+            self.document["document_id"],
+        ))
+        with patch("app.reader_routes._reading") as reading:
+            reading.return_value.save_progress.side_effect = ReaderVersionChanged(
+                "document version changed",
+            )
+            response = self.client.post(
+                f"/documents/reader/api/{self.document['document_id']}/progress",
+                json={"locator": {"chapter": "0"}, "percent": 5, "document_version": version},
+                headers=self.headers,
+            )
+
+        self.assertEqual(409, response.status_code)
+        self.assertEqual(
+            "Das Dokument wurde geändert. Bitte lade den Reader neu.",
+            response.json["error"],
+        )
 
     def test_epub_chapter_with_excessive_xml_depth_fails_closed(self):
         deeply_nested = "<html><body>" + "<span>" * 257 + "text" + "</span>" * 257 + "</body></html>"
