@@ -75,7 +75,7 @@ class MetaModelsTests(unittest.TestCase):
         self.assertIn("nicht gelistet", error)
 
     def test_transport_failure_never_leaks_key(self) -> None:
-        secret = "sk-live-key-must-never-leak"
+        secret = "test-only-dummy-meta-key-never-real-01"
         with mock.patch(
             "app.contextflow.vision.urllib.request.build_opener",
             side_effect=urllib.error.URLError("down"),
@@ -110,6 +110,48 @@ class MetaModelsTests(unittest.TestCase):
             status = ml_status({**base, "meta_api_key": ""})
             self.assertIsNone(status["meta"]["model_listed"])
         check.assert_not_called()
+
+    def test_status_allows_text_model_and_keeps_spark_intact(self) -> None:
+        tags = mock.MagicMock()
+        tags.read.return_value = json.dumps(
+            {"models": [{"name": "llama3.2:1b"}]}
+        ).encode("utf-8")
+        context = mock.MagicMock()
+        context.__enter__.return_value = tags
+        context.__exit__.return_value = False
+        with mock.patch(
+            "app.contextflow.vision.local_urlopen", return_value=context
+        ) as probed:
+            status = ml_status(
+                {
+                    "provider": "local",
+                    "ollama_url": "http://127.0.0.1:11434",
+                    "ollama_model": "llama3.2:1b",
+                }
+            )
+        probed.assert_called_once()
+        self.assertTrue(status["ollama"]["model_allowed"])
+        self.assertTrue(status["ollama"]["model_seen"])
+        with (
+            mock.patch("app.contextflow.vision.local_urlopen") as probed,
+            mock.patch(
+                "app.contextflow.vision.check_meta_model",
+                return_value=(True, ""),
+            ),
+        ):
+            status = ml_status(
+                {
+                    "provider": "meta",
+                    "ollama_url": "http://127.0.0.1:11434",
+                    "ollama_model": "qwen3-vl:2b",
+                    "meta_api_key": "k",
+                    "meta_consent": True,
+                }
+            )
+        probed.assert_not_called()
+        self.assertFalse(status["ollama"]["model_allowed"])
+        self.assertTrue(status["meta"]["model_listed"])
+        self.assertEqual(status["meta"]["model"], "muse-spark-1.3-contributor")
 
     def test_incomplete_response_fails_closed(self) -> None:
         provider = MetaVisionProvider(

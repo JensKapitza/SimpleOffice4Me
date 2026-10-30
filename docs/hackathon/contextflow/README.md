@@ -14,8 +14,8 @@ stehen weiter unten.
 - Für lokale Textaufgaben ist `llama3.2:1b` (oder `llama3.2:3b`) via Ollama
   zugelassen. Diese Llama-3.2-Modelle sind text-only. Bildanalyse braucht
   `llama3.2-vision` oder `muse-glimmer`.
-- Die sichtbare Meta-Cloud-Demo ruft `muse-spark-1.3-contributor` über den offiziellen Responses-Endpunkt
-  Meta Model API-Endpunkt auf. Sie braucht `MODEL_API_KEY`, die ausdrückliche
+- Die sichtbare Meta-Cloud-Demo ruft `muse-spark-1.3-contributor` über den offiziellen
+  Meta-Model-API-Responses-Endpunkt auf. Sie braucht `MODEL_API_KEY`, die ausdrückliche
   Einwilligung im Formular und den isolierten synthetischen Demo-Root.
   Echtdaten werden für diesen Pfad abgelehnt.
 - Contributor-Modus (`muse-spark-1.3-contributor`): Inhalte können laut
@@ -23,9 +23,10 @@ stehen weiter unten.
   kennzeichnet das direkt an der Einwilligung; Cloud-Läufe sind auf
   synthetische Demo-Daten beschränkt, echte Kontaktdaten erreichen
   diesen Pfad nie.
-- Das verwendete Modell steht im Startprotokoll und im Ergebnis der Bildanalyse.
-  Die Meta-AI-Tooling-Wertung (25 %) wird nur mit einem tatsächlichen Meta-Aufruf
-  belegt; der Mock ist ein Bedien-Dummy und zählt nicht als KI-Nachweis.
+- Das verwendete Modell steht im Startprotokoll, im Ergebnis der Bildanalyse und in der
+  ML-Statusanzeige (`/contextflow/ml-status`, Badge-Titel, Fotoeingang-Zeile: exakte
+  Modell-ID). Die Meta-AI-Tooling-Wertung (25 %) wird nur mit einem tatsächlichen
+  Meta-Aufruf belegt; der Mock ist ein Bedien-Dummy und zählt nicht als KI-Nachweis.
 - Modellnachweise: [Meta Model API](https://dev.meta.ai/docs/overview),
   [Llama 3.2 Textmodelle](https://ollama.com/library/llama3.2),
   [Llama 3.2 Vision](https://registry.ollama.com/blog/llama3.2-vision),
@@ -166,8 +167,10 @@ start.bat demo --port 5088
 ### 3-Minuten-Jury-Demo: tatsächliche Meta-Inferenz zeigen
 
 Die Meta-AI-Tooling-Wertung beträgt 25 %. Für den sichtbaren Cloud-Aufruf
-ein neues PowerShell-Terminal verwenden und den API-Schlüssel nur als
-Prozess-Umgebungsvariable setzen (nicht in Dateien oder Git speichern):
+ein neues PowerShell-Terminal verwenden und den API-Schlüssel als
+Prozess-Umgebungsvariable setzen oder in die `.env`-Datei direkt oberhalb
+des Repo-Ordners eintragen (außerhalb von Git, nur `MODEL_API_KEY`; nie in
+Git-Dateien, README oder Code speichern):
 
 ```powershell
 $env:CONTEXTFLOW_VISION_PROVIDER = "meta"
@@ -180,7 +183,8 @@ Browser unter `http://127.0.0.1:5088/contextflow/` anmelden (`demo` /
 `demo-contextflow-1`) und in drei Minuten zeigen:
 
 1. **0:00–0:30:** Startausgabe und UI-Modellkennung `Meta Muse Spark 1.3 Contributor`
-   zeigen. Demo-Root und Beispieldaten sind synthetisch.
+   zeigen (exakte ID `muse-spark-1.3-contributor` im Badge-Titel und Ergebnis).
+   Demo-Root und Beispieldaten sind synthetisch.
 2. **0:30–1:30:** Im Foto-Formular einen synthetischen Ortstermin wählen,
    ein unkritisches Demo-Bild auswählen, Meta-Cloud-Einwilligung markieren
    und den Vorschlag starten. Das Ergebnis nennt als Provider

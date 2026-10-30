@@ -7,7 +7,7 @@
     <div class="cf-hero-text">
       <h1>Vorschlag prüfen</h1>
       <p class="cf-lead">Entwurf für <strong>{{ draft.visit_title }}</strong>{% if draft.asset_name %} · Gerät <strong>{{ draft.asset_name }}</strong>{% endif %}.</p>
-      <p class="cf-pills"><span class="cf-pill" role="note">{{ draft.provider_label }}</span></p>
+      <p class="cf-pills"><span class="cf-pill" role="note">{{ draft.provider_label }}</span> <span class="cf-pill" role="note">Modell: {{ draft.model or 'unbekannt' }}</span></p>
     </div>
   </header>
 

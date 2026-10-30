@@ -342,6 +342,9 @@ class ContactMetaWebTest(unittest.TestCase):
                 },
             )
         self.assertEqual(403, response.status_code)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertIn("consent", payload["error"])
 
     def test_cloud_with_consent_refused_outside_demo_root(self) -> None:
         with mock.patch.dict(os.environ, {"MODEL_API_KEY": "k"}), mock.patch(
@@ -356,6 +359,9 @@ class ContactMetaWebTest(unittest.TestCase):
                 },
             )
         self.assertEqual(403, response.status_code)
+        payload = response.get_json()
+        self.assertFalse(payload["ok"])
+        self.assertIn("synthetic demo root", payload["error"])
         transport.assert_not_called()
 
     def test_cloud_with_consent_answers_on_demo_root(self) -> None:

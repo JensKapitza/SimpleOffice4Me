@@ -139,8 +139,8 @@
       if (!rows.length) {
         setStatus('Keine belegbaren Tag-Vorschläge gefunden.', 'warning');
       } else {
-        const label = cleanText(payload.provider_label);
-        setStatus(label ? `Vorschläge bereit (${label}). Bitte prüfen und bestätigen.` : 'Vorschläge bereit. Bitte prüfen und bestätigen.', 'success');
+        const who = [cleanText(payload.provider_label), cleanText(payload.model)].filter(Boolean).join(' · ');
+        setStatus(who ? `Vorschläge bereit (${who}). Bitte prüfen und bestätigen.` : 'Vorschläge bereit. Bitte prüfen und bestätigen.', 'success');
       }
       renderTagRows(slot, payload);
     } catch (_error) {

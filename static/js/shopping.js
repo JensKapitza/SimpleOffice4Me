@@ -29,6 +29,7 @@
   let scanning = false;
   let detector = null;
   let lastDetection = 0;
+  let cameraGeneration = 0;
 
   const setStatus = (message, kind = 'secondary') => {
     if (!status) return;
@@ -52,6 +53,7 @@
   };
 
   const stopCamera = () => {
+    cameraGeneration += 1;
     scanning = false;
     if (stream) {
       stream.getTracks().forEach((track) => track.stop());
@@ -110,8 +112,8 @@
     }
   };
 
-  const detectLoop = async (timestamp) => {
-    if (!scanning || !detector || !video) return;
+  const detectLoop = async (timestamp, generation) => {
+    if (!scanning || generation !== cameraGeneration || !detector || !video) return;
     if (timestamp - lastDetection >= 250 && video.readyState >= 2) {
       lastDetection = timestamp;
       try {
@@ -127,12 +129,14 @@
         setStatus('Kamera konnte den Barcode nicht lesen. Du kannst ihn weiterhin manuell eingeben.', 'warning');
       }
     }
-    if (scanning) window.requestAnimationFrame(detectLoop);
+    if (scanning && generation === cameraGeneration) {
+      window.requestAnimationFrame((next) => detectLoop(next, generation));
+    }
   };
 
   const startCamera = async () => {
     if (!barcode || !video || !navigator.mediaDevices?.getUserMedia) {
-      setStatus('Kamera-Scan wird von diesem Browser nicht unterstützt. Barcode bitte manuell eingeben.', 'warning');
+      setStatus('Kamera-Scan wird von diesem Browser nicht unterstützt (HTTPS kann erforderlich sein). Barcode bitte manuell eingeben.', 'warning');
       return;
     }
     if (!('BarcodeDetector' in window)) {
@@ -140,6 +144,7 @@
       return;
     }
     stopCamera();
+    const generation = cameraGeneration;
     try {
       const desired = ['ean_13', 'ean_8', 'upc_a', 'upc_e'];
       let formats = desired;
@@ -149,21 +154,33 @@
       }
       if (!formats.length) throw new Error('no-supported-barcode-format');
       detector = new window.BarcodeDetector({formats});
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {facingMode: {ideal: 'environment'}},
-        audio: false,
-      });
+      const requestedStream = await window.SimpleOfficeCamera.openCameraStream(
+        navigator.mediaDevices,
+        () => generation === cameraGeneration,
+      );
+      if (!requestedStream || generation !== cameraGeneration) {
+        requestedStream?.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = requestedStream;
       video.srcObject = stream;
       await video.play();
+      if (generation !== cameraGeneration) return;
       cameraBox.hidden = false;
       stopButton.hidden = false;
       scanning = true;
       lastDetection = 0;
       setStatus('Kamera aktiv. EAN/UPC-Code in den Bildausschnitt halten.', 'primary');
-      window.requestAnimationFrame(detectLoop);
-    } catch (_error) {
+      window.requestAnimationFrame((next) => detectLoop(next, generation));
+    } catch (error) {
+      if (generation !== cameraGeneration) return;
       stopCamera();
-      setStatus('Kamera oder Barcode-Erkennung ist nicht verfügbar. Manuelle Eingabe bleibt möglich.', 'warning');
+      setStatus(
+        error?.name === 'NotAllowedError'
+          ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
+          : 'Kamera oder Barcode-Erkennung ist nicht verfügbar (HTTPS oder Browserberechtigung prüfen). Manuelle Eingabe bleibt möglich.',
+        'warning',
+      );
     }
   };
 

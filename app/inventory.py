@@ -942,3 +942,10 @@ def inventory_media(object_id: str, filename: str):
     response = send_file(path, conditional=True)
     response.headers["Cache-Control"] = "private, max-age=3600"
     return response
+
+
+# Registers the capture-inbox routes on the shared blueprint above.
+# Bottom module import on purpose: the routes module needs the finished
+# `bp`, and a name import here would break if the routes module is
+# imported first (partial circular import).
+from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401

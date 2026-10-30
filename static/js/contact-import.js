@@ -362,12 +362,15 @@
       parts.push("ML: Demo-Platzhalter (keine echte Analyse)");
     } else if (provider === "meta") {
       const key = meta.key_present ? "Schlüssel hinterlegt" : "kein API-Schlüssel";
-      const listed = meta.model_listed === true ? " · Modell gelistet" : (meta.model_listed === false ? " · Modell nicht bestätigt" : "");
+      const listed = meta.model_listed === true ? " · Modell gelistet" : (meta.model_listed === false ? " · Modell nicht bestätigt" : " · Modell nicht geprüft");
       parts.push(`ML: ${meta.label || "Meta-Modell"} · ${key}${listed}`);
+      mlBadge.title = `Modell: ${meta.model || "unbekannt"}`;
     } else if (!ollama.model) {
       parts.push("ML: kein Modell konfiguriert");
+    } else if (ollama.model_allowed !== true) {
+      parts.push(`ML: Modell nicht freigegeben · ${ollama.model}`);
     } else if (ollama.reachable && ollama.model_seen) {
-      parts.push(`ML aktiv · ${ollama.model}`);
+      parts.push(`ML aktiv · Meta-Modell lokal via Ollama · ${ollama.model}`);
     } else if (ollama.reachable) {
       parts.push(`ML erreichbar, Modell fehlt · ${ollama.model}`);
     } else {

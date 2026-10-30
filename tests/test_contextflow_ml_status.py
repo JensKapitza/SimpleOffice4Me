@@ -56,7 +56,7 @@ class MlStatusTests(unittest.TestCase):
             CONTEXTFLOW_ENABLED=True,
             CONTEXTFLOW_VISION_PROVIDER="local",
             CONTEXTFLOW_OLLAMA_URL="http://127.0.0.1:11434",
-            CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision-test",
+            CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision:11b",
             CONTEXTFLOW_META_CONSENT=False,
         )
         with app.app_context():
@@ -94,7 +94,7 @@ class MlStatusTests(unittest.TestCase):
         return client
 
     def test_local_reachable_reports_model_seen(self) -> None:
-        tags = {"models": [{"name": "llama3.2-vision-test:latest"}]}
+        tags = {"models": [{"name": "llama3.2-vision:11b"}]}
         with mock.patch(
             "app.contextflow.vision.local_urlopen",
             return_value=FakeTagsResponse(tags),
@@ -106,7 +106,8 @@ class MlStatusTests(unittest.TestCase):
         self.assertEqual(payload["provider"], "local")
         self.assertTrue(payload["ollama"]["reachable"])
         self.assertTrue(payload["ollama"]["model_seen"])
-        self.assertEqual(payload["ollama"]["model"], "llama3.2-vision-test")
+        self.assertTrue(payload["ollama"]["model_allowed"])
+        self.assertEqual(payload["ollama"]["model"], "llama3.2-vision:11b")
         self.assertIn("rapidocr", payload["ocr"])
         self.assertIn("tesseract", payload["ocr"])
 
@@ -120,8 +121,26 @@ class MlStatusTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(payload["ollama"]["reachable"])
         self.assertFalse(payload["ollama"]["model_seen"])
+        self.assertTrue(payload["ollama"]["model_allowed"])
         self.assertIn("nicht erreichbar", payload["ollama"]["error"])
         self.assertNotIn("refused", response.get_data(as_text=True))
+
+    def test_unapproved_model_is_never_probed(self) -> None:
+        for bad_model in ("qwen3-vl:2b", "my-llama-alias"):
+            with self.subTest(model=bad_model):
+                app.config.update(CONTEXTFLOW_OLLAMA_MODEL=bad_model)
+                with mock.patch(
+                    "app.contextflow.vision.local_urlopen"
+                ) as urlopen:
+                    response = self.client.get("/contextflow/ml-status")
+                urlopen.assert_not_called()
+                payload = response.get_json()
+                self.assertEqual(response.status_code, 200)
+                self.assertFalse(payload["ollama"]["model_allowed"])
+                self.assertFalse(payload["ollama"]["reachable"])
+                self.assertFalse(payload["ollama"]["model_seen"])
+                self.assertEqual(bad_model, payload["ollama"]["model"])
+                self.assertIn("nicht freigegeben", payload["ollama"]["error"])
 
     def test_non_loopback_url_is_never_probed(self) -> None:
         app.config.update(CONTEXTFLOW_OLLAMA_URL="http://ollama.lan:11434")
@@ -144,6 +163,7 @@ class MlStatusTests(unittest.TestCase):
         self.assertIn(
             "kein Modell", response.get_json()["ollama"]["error"]
         )
+        self.assertFalse(response.get_json()["ollama"]["model_allowed"])
 
     def test_mock_provider_reports_placeholder(self) -> None:
         app.config.update(CONTEXTFLOW_VISION_PROVIDER="mock")
@@ -155,7 +175,7 @@ class MlStatusTests(unittest.TestCase):
         self.assertEqual(response.get_json()["provider"], "mock")
 
     def test_meta_key_presence_never_leaks_value(self) -> None:
-        secret = "sk-test-secret-value-12345"
+        secret = "test-only-dummy-meta-key-never-real-02"
         with mock.patch.dict("os.environ", {"MODEL_API_KEY": secret}):
             response = self.client.get("/contextflow/ml-status")
         payload = response.get_json()
@@ -187,6 +207,35 @@ class MlStatusTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('id="ml-status-badge"', body)
         self.assertIn("/contextflow/ml-status", body)
+
+
+class MlBadgeRenderingTests(unittest.TestCase):
+    """Header badge honors model_allowed fail-closed (static wiring)."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cls.script = (root / "static/js/contact-import.js").read_text(encoding="utf-8")
+
+    def test_unapproved_guard_precedes_active_label(self) -> None:
+        guard = "ollama.model_allowed !== true"
+        self.assertIn(guard, self.script)
+        self.assertLess(
+            self.script.index(guard), self.script.index("ML aktiv")
+        )
+        self.assertIn("ML: Modell nicht freigegeben · ${ollama.model}", self.script)
+
+    def test_allowed_local_model_shows_provider_and_id(self) -> None:
+        self.assertIn(
+            "ML aktiv · Meta-Modell lokal via Ollama · ${ollama.model}",
+            self.script,
+        )
+
+    def test_meta_branch_shows_honest_key_listing_and_exact_id(self) -> None:
+        self.assertIn("kein API-Schlüssel", self.script)
+        self.assertIn("Modell nicht bestätigt", self.script)
+        self.assertIn("Modell nicht geprüft", self.script)
+        self.assertIn("mlBadge.title = `Modell: ${meta.model", self.script)
 
 
 if __name__ == "__main__":

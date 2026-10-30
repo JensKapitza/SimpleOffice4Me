@@ -148,9 +148,14 @@ class ShoppingWebTests(unittest.TestCase):
         self.assertTrue(photo_path.is_file())
 
         photo = self.client.get(f"/shopping/photos/{photo_id}")
-        self.assertEqual(200, photo.status_code)
-        self.assertEqual("image/jpeg", photo.mimetype)
-        self.assertIn("private", photo.headers.get("Cache-Control", ""))
+        try:
+            self.assertEqual(200, photo.status_code)
+            self.assertEqual("image/jpeg", photo.mimetype)
+            self.assertIn("private", photo.headers.get("Cache-Control", ""))
+        finally:
+            # send_file keeps the image open until close; release it also on
+            # assertion failure so TemporaryDirectory.cleanup() can rmtree.
+            photo.close()
 
         lookup = self.client.get("/shopping/barcode?code=4006381333931").get_json()
         self.assertTrue(lookup["known"])

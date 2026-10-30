@@ -19,7 +19,7 @@ import time
 import urllib.error
 import urllib.request
 from io import BytesIO
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Mapping
 from urllib.parse import urlsplit
 
 from PIL import Image
@@ -226,19 +226,23 @@ def suggest_inventory_object(
     hint: dict[str, str],
     settings: dict[str, Any],
     consent_meta: bool = False,
+    root: object = None,
 ) -> dict[str, Any]:
     """Suggest an inventory object name; writes nothing, stores nothing.
 
     The optional scan hint (barcode/isbn, short strings) only guides the
     model and is never persisted. Cloud backends stay gated by
-    ``select_provider``; the inventory UI offers no consent element, so
-    callers there pass ``consent_meta=False`` and cloud is refused.
+    ``select_provider``; single-photo callers pass
+    ``consent_meta=False`` and cloud is refused. Batch callers may pass
+    an explicit per-request consent plus the document root; Meta cloud
+    then still requires the server flag, a key, and a verified
+    synthetic demo root — real roots are refused.
     """
     clean_hint = {
         key: str(hint.get(key, "") or "").strip()[:120]
         for key in ("barcode", "isbn")
     }
-    provider = select_provider(settings, consent_meta, None)
+    provider = select_provider(settings, consent_meta, root)
     if provider.name == "mock":
         raise MockBlockedError(
             "Für Inventar-Vorschläge ist kein Meta-Modell verfügbar "
@@ -345,6 +349,8 @@ def ollama_chat_body(
     model: str,
     messages: list[dict[str, Any]],
     num_predict: int = OLLAMA_NUM_PREDICT,
+    format: str | dict[str, Any] = "json",
+    temperature: float | None = None,
 ) -> bytes:
     """Build one local /api/chat request body (streaming, bounded).
 
@@ -355,17 +361,22 @@ def ollama_chat_body(
     ``num_predict`` cap: 2048 tokens leave room for reasoning plus
     the concise JSON answer inside a 4096-token window, given the
     bounded prompts (text excerpt at most 4000 chars, short
-    templates, short scan hints).
+    templates, short scan hints). ``format`` accepts a JSON Schema
+    dict for structured outputs (object shape enforced by Ollama).
+    ``temperature`` stays unset (model default) unless given.
     """
+    options: dict[str, Any] = {
+        "num_predict": max(1, min(int(num_predict), OLLAMA_NUM_PREDICT))
+    }
+    if temperature is not None:
+        options["temperature"] = float(temperature)
     return json.dumps(
         {
             "model": model,
             "messages": messages,
             "stream": True,
-            "format": "json",
-            "options": {
-                "num_predict": max(1, min(int(num_predict), OLLAMA_NUM_PREDICT))
-            },
+            "format": format,
+            "options": options,
         }
     ).encode("utf-8")
 
@@ -723,6 +734,23 @@ class MetaVisionProvider(VisionProvider):
         return self._post_response([{"type": "input_text", "text": str(prompt)}])
 
 
+def vision_settings_from_mapping(
+    config: Mapping[str, Any], environ: Mapping[str, str]
+) -> dict[str, Any]:
+    """Vision backend settings; Meta stays doubly gated (flag + checkbox)."""
+    get = config.get
+    return {
+        "provider": get("CONTEXTFLOW_VISION_PROVIDER", "local"),
+        "ollama_url": get("CONTEXTFLOW_OLLAMA_URL", "http://127.0.0.1:11434"),
+        "ollama_model": get("CONTEXTFLOW_OLLAMA_MODEL", ""),
+        "ollama_timeout": get("CONTEXTFLOW_OLLAMA_TIMEOUT", 60),
+        "meta_consent": bool(get("CONTEXTFLOW_META_CONSENT", False)),
+        "meta_api_key": environ.get("MODEL_API_KEY", ""),
+        "meta_endpoint": get("CONTEXTFLOW_META_ENDPOINT", ""),
+        "meta_model": get("CONTEXTFLOW_META_MODEL", ""),
+    }
+
+
 def select_provider(
     settings: dict[str, Any],
     consent_meta: bool,
@@ -799,22 +827,23 @@ def ml_status(settings: dict[str, Any]) -> dict[str, Any]:
     whether the configured Meta model is installed, and Meta cloud
     readiness as booleans only — never keys, URLs with credentials,
     or tracebacks. When the Meta provider is selected and a key
-    is present, the pinned model is verified once via GET /v1/models.
+    is present, the pinned model is verified once via GET /v1/models;
+    Ollama is probed only for allowlisted Meta models (model_allowed).
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     model = str(settings.get("ollama_model", "") or "").strip()
     url = str(settings.get("ollama_url", "") or "").strip()
-    ollama: dict[str, Any] = {
-        "url": url,
-        "model": model,
-        "reachable": False,
-        "model_seen": False,
-        "error": "",
-    }
-    if choice == "local" and url and model:
+    try:
+        require_meta_ollama_model(model)
+        allowed = True
+    except VisionError:
+        allowed = False
+    ollama: dict[str, Any] = {"url": url, "model": model, "reachable": False,
+                              "model_seen": False, "model_allowed": allowed, "error": ""}
+    if choice == "local" and url and allowed:
         ollama.update(_ollama_probe(url, model))
-    elif choice == "local" and not model:
-        ollama["error"] = "kein Modell konfiguriert"
+    elif choice == "local" and (not model or not allowed):
+        ollama["error"] = "kein Modell konfiguriert" if not model else "Modell nicht freigegeben"
     key = str(settings.get("meta_api_key", "") or "")
     meta: dict[str, Any] = {
         "model": META_MODEL_API_MODEL,
@@ -894,6 +923,11 @@ def prepare_draft(
         "draft": draft,
         "fingerprint": draft_fingerprint(visit_id, asset, draft),
         "provider": provider.name,
+        "model": (
+            getattr(provider, "resolved_model", None)
+            or getattr(provider, "model", "")
+            or ("mock" if provider.name == "mock" else "")
+        ),
         "provider_label": (
             f"{provider.label} · "
             f"{getattr(provider, 'resolved_model', None) or provider.model}"

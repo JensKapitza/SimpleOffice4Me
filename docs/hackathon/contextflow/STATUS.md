@@ -15,6 +15,147 @@ Demo-Seeding: 4 synthetische Dateien + Vorschau-Vorabgenerierung, idempotent
 Backend/Key; Browser/Kamera und echte Inferenz bleiben Eigentümer-Schritte.
 Nachbarn: 47 OK; mail-privacy V2 12 Errors umgebungsbedingt (Sandbox-Scratch
 ohne instance/), 1 vorbestehender ClamAV-Pfadfehler. Gates grün.
+**Stand (29.10., Fotoeingang #658/#767, uncommitted):** `GET
+/inventory/capture` + `POST /inventory/capture/analyze` (OCR,
+ISBN-Weiche mit Pruefsumme, lokales ML-Label ohne Consent-Element,
+Dubletten aus Inventar/Bibliothek, Fehlfeldliste; speichert nichts) +
+`capture.html`/`capture_inbox.js` (Kamera `capture=environment` oder
+Auswahl, Foto-ID-Zuordnung, Adopt/Korrektur über bestehende
+`/inventory/items` + `/books` mit Token-Idempotenz und
+`response_format=json`); neu `app/capture_analysis.py` und
+`app/inventory_capture.py` (Größen-Gate), `vision.py`-Settings-Refactor
+ohne `allow_real_root`-Bypass. 14 Testmethoden neu
+(`tests/test_inventory_capture_inbox.py`: Helfer, Routen, Adopt-Replay,
+Mock-Ehrlichkeit). Korrekturlauf: ISBN mit Bindestrichen/Leerzeichen
+wird erkannt (lose Muster + Shared-Prüfziffer), `capture_ml_label` läuft
+ohne Flask-Kontext (explizite Settings oder Defaults); eigene
+Test-ISBN-10-Erwartung an Shared-Kanonik (ISBN-13) angepasst. Verifiziert:
+22/22 OK (7,3 s, Muse-Lauf in Workspace-Scratch-Kopie außerhalb von git,
+Eigentümer-Befund 3 FAIL + 2 ERROR damit behoben); compile/py_compile +
+Function-Size grün. `git diff --check` und Browser/Kamera-Abnahme weiter
+eigentümerseitig offen. Kein Commit/Push.
+**Stand (29.10., persistenter Korb #767, uncommitted):** `CaptureInboxStore`
+(Sidecar-Architektur wie Inventar: `capture-inbox.json` + `media/inbox/`,
+atomic/lock/sha256, actor-scoped): `POST /inventory/capture/upload`
+speichert Original sofort (ID, Zeit, Urheber, Hash-Idempotenz, Status),
+`GET /capture/<id>/preview` (Owner, no-store), `POST .../assign`
+(idempotent, Ziel muss existieren, Original + Historie bleiben), `POST
+.../analyze` (Re-Analyse); Seite rendert Korb nach Reload, „Noch nicht
+zugeordnet"-Badge, Adopt verlinkt statt Doppel-Upload. Validierung:
+JPEG/PNG/WebP per Magic Bytes (HEIC ehrlich abgelehnt), 12 MiB, CSRF,
+Login; Originale byte-identisch (EXIF bleibt), keine externen Transfers.
+`inventory.py` auf `inventory_capture_routes.py` aufgeteilt (gleicher
+Blueprint/Endpoints, keine fachliche Änderung, File-Size-Gate grün).
+Spark-Testpfad: Draft-`model`-Key + „Modell:"-Pill (Mock zeigt „mock",
+nie als Spark-Erfolg), JSON-403 mit Begründung (contact-/inventory-
+suggest) bzw. 403-Seite mit Grund (/suggest). Pfad: `MODEL_API_KEY` in
+`../.env` eintragen, Demo mit `CONTEXTFLOW_VISION_PROVIDER=meta`
+starten, Einwilligung pro Anfrage setzen, Modell aus Antwort/Pill
+ablesen. Verifiziert: Inventar-Discover 115 OK, ContextFlow-Discover 293
+OK + 2 Env-Skips (der 1 Vorrunden-Failure war fehlende pyproject.toml
+in der Scratch-Kopie, kein Codefehler), alle Gates grün. Echter
+Spark-Aufruf weiter blockiert (Schlüssel leer); Browser/Kamera +
+diff-check eigentümerseitig offen. Kein Commit/Push.
+**Review-Fix (29.10., fail-closed + Kind-Prüfung, uncommitted):**
+`CaptureInboxStore` wirft bei korruptem/unlesbarem Index
+`CaptureInboxIndexError` (nur fehlende Datei = leere Inbox); Routen
+antworten verständlich (Seite mit Banner, JSON-500, Preview-500),
+nichts wird überschrieben. `assign_entry` prüft kind=book nur auf
+Buch-Typen (`book`/`buch`), kind=object nur auf Rest; Neuzuordnung
+behält Original + Historie inkl. Vorgänger. 9 Regressionstests neu
+(bytegleicher Index-Erhalt, 500-Pfade, Kind-Mismatch, Reassign).
+Verifiziert: Capture-Module 53/53 OK, Gates grün. Kein Commit/Push.
+**Folge (29.10., 503-Mapping, uncommitted):** `CaptureInboxIndexError`
+auf allen Korb-Endpunkten einheitlich als 503 „vorübergehend nicht
+verfügbar" (Upload, Preview, Assign, Re-Analyse; Seite weiter 200 mit
+Banner); nur FileNotFound gilt als leere Inbox, Decode-/I/O-/
+Schemafehler bleiben fail-closed; Tests auf 503 + Begründung +
+No-Orphan-Medien gehärtet. Verifiziert: Capture-Module 53/53 OK.
+Kein Commit/Push.
+**Modell/Runtime-Check (29.10., statisch verifiziert, live blockiert):**
+`META_MODEL_API_MODEL = "muse-spark-1.3-contributor"` gepinnt
+(`vision.py:43`), Provider erzwingt exakt Modell + offiziellen Endpunkt,
+Demo-Root-Pflicht + Key-Präsenz serverseitig; `/ml-status` liefert nur
+Modellname + `key_present`-Bool (kein Secret); Badge + nicht
+vorausgewählte Contributor-Einwilligung in Kontakt-/Capture-UI vorhanden.
+Live-Start in Muse-Sandbox belegt blockiert (`instance/session-secret`
+lesegesperrt); echter App-Aufruf zusätzlich blockiert, weil
+`../.env` `MODEL_API_KEY=` leer ist. Nächster Schritt: Schlüssel
+eigentümerseitig eintragen, Demo mit Meta-Provider starten, Anfrage mit
+Einwilligung senden, Modell aus Antwort/`model`-Feld belegen.
+**Modell/Runtime-Check (29.10., Fortsetzung, live blockiert):**
+Prozess-Env `MODEL_API_KEY` leer, `../.env`-Keyzeile vorhanden aber leer
+geprüft (nur Präsenz/Leere, kein Wert); Loader lädt folgerichtig nichts;
+`ml_status` meldet `key_present=False`, `model_listed=None` (kein
+Netzaufruf ohne Key); Ollama-Loopback nicht erreichbar. Pin
+`muse-spark-1.3-contributor` + Responses-Endpunkt statisch bestätigt.
+Echter Spark-Aufruf weiter blockiert — nichts als Live-Erfolg behauptet.
+**Gates (29.10., uncommitted):** Secret-Gate war rot durch zwei
+`sk-`-förmige Dummy-Fixtures (committed, keine echten Schlüssel) →
+detektorfreie Dummies (`test-only-dummy-…`), Gate grün; Ruff 0.16.9
+(CI-Pin) war rot durch 4 Befunde in `tools/contextflow_demo.py`
+(`NoReturn`-Import, 3× f-Präfix) → behoben, `ruff check` grün,
+`--help` intakt. JS `node --check` grün. Review-Notizen (kein Edit):
+`capture_inbox.js` sauber (kein innerHTML, CSRF/Token ok); Label ohne
+`for`-Bindung (A11y-Nit); zwei Test-Subklassen wiederholen schwere
+Eltern-Tests (nur Laufzeitkosten). Verifiziert: Inventar-Discover 132
+OK, ContextFlow-Discover 293 OK + 2 Env-Skips, fokussiert 114 OK,
+Policy/File-/Function-Size/compileall/diff-check grün. Kein Commit/Push.
+**Folge (30.10., Token/Digest-Konflikt #767, uncommitted):** `create()`
+wertete gleichen Actor+Token auch bei anderem SHA-256 als Duplikat;
+Upload analysierte dann neue Bytes bei altem Original. Fix: gleicher
+Token + gleicher Digest = Replay; gleicher Token + anderer Digest =
+`CaptureInboxConflict` (deutsch, ohne Write/Overwrite/Orphan), Route
+409, Content-Dedup (gleicher Digest, anderer Token) bleibt; Actor-
+Isolierung + Lock unverändert. 3 Regressionstests neu (Store-Konflikt
+ohne Write inkl. Index-/Media-/Analyse-Vergleich, token-gleicher
+Fremd-Actor, Route-409 + Replay + Fremd-Actor). Verifiziert: Persist-
+Modul 35/35 OK, Inbox-Modul 22/22 OK, Policy/File-/Function-Size/
+compileall/diff-check grün. Pin `muse-spark-1.3-contributor` + Meta-
+only unverändert; Spark-Live-Erfolg nicht behauptet (`../.env`
+`MODEL_API_KEY` leer geprüft). Kein Commit/Push, `.t/` unberührt.
+**Folge (30.10., Buchgruppen #658, uncommitted, Kern-Slice):**
+Mehrere Telefonfotos eines Buchs (Titel, Impressum, Rücken) bleiben als
+explizite Buchgruppe (`batch_id`, 32-hex, Client-generiert) zusammen:
+Upload akzeptiert `batch_id`, Content-Dedup ist batch-scharf (gleiche
+Bytes in anderer Gruppe = neues Buch, kein Treffer), Token-Replay
+gruppiert nie still um, `POST .../batch` korrigiert Fehlzuordnungen
+(idempotent, Original+Analyse+Historie bleiben), Limit 12 Fotos/Gruppe,
+Actor-Isolierung + Fail-closed-503 wie bisher. Gemeinsame Analyse:
+`GET /capture/batch/<id>` (Fotos in Aufnahmereihenfolge + kombinierter
+Entwurf: erste ISBN gewinnt, ISBN-Konflikt leert Feld + Warnung,
+Titel/Autoren/Jahr/Verlag erste Werte, Titelzeilen deduped, Duplikate
+vereinigt, ehrliche ML-Modelliste, Foto-Einzelaufschlüsselung) +
+`POST .../analyze` (alle Originale neu, explizite `consent_meta`-
+Checkbox für Meta-Cloud, Standard lokal; Einzel-Fehler behalten
+Vorab-Analyse + werden pro Foto gemeldet). Übernahme:
+`POST .../adopt` prüft korrigierte Felder, erzeugt GENAU EIN Buch über
+bestehende `ObjectStore`-/Inventar-Sidecar-Pfade (kein zweites
+Medien-Backend), hängt ALLE Gruppen-Originale als Inventarfotos an
+(SHA-Retry-sicher, kein Duplikat) und weist alle Einträge zu; Token-
+Idempotenz über bestehende Capture-Receipts (Retry vollendet,
+Fremd-Actor 403), Duplikat-ISBN ohne `allow_duplicate` legt nichts an
+(Gruppe bleibt unzugeordnet). ML-Ehrlichkeit: Mock bleibt für Inventar
+blockiert, Meta nur mit Checkbox + Server-Flag + Key + verifiziertem
+Demo-Root, Pin `muse-spark-1.3-contributor` + Responses-Endpunkt
+unverändert; ohne Key/Backend ehrliche Fehler, nie Erfolgsbehauptung.
+UI: „Neues Buch beginnen"/„Ohne Buchgruppe", Gruppen-Badges,
+Gruppen-Prüfkarte mit Korrekturformular + Checkbox (exakter Modellname,
+Demo-Root-Hinweis, Standard aus). 27 Regressionstests neu
+(`tests/test_inventory_capture_batch.py`: Combine 5, Store 8, Routen 14
+inkl. Anti-Mix A/B, Actor-Trennung, Adopt-Retry ohne Foto-Duplikat,
+Consent-Ehrlichkeit, 503-Fail-closed). Verifiziert: Batch-Modul 27/27
+OK, Nachbarn Inbox+Persist+Vision+Meta+Demo+ML 128/128 OK, Policy/File-
+/Function-Size/compileall/diff-check/CRA/JS grün; Ruff nicht verfügbar
+(kein Modul/Binär in .venv). Volle #658-Abnahme NICHT behauptet,
+Issue bleibt offen — Rest siehe unten. Kein Commit/Push, `.t/`
+unberührt.
+**Rest #658 (offen, nach diesem Slice):** (1) Gruppen-Zuweisung an
+bestehendes Buch ohne Neuanlage (Batch-Assign, derzeit nur einzeln);
+(2) optionale Foto-Rollen (Titel/Impressum/Rücken) je Foto; (3)
+Regalzuweisung für Batch-Bücher (Library-Handoff); (4) echte
+Spark-Live-Inferenz (Schlüssel fehlt, `MODEL_API_KEY` leer);
+(5) Browser-/Kamera-Abnahme auf Endgerät (Eigentümer-Schritt).
 ## Arbeitsplan: Issues auf null + Meta-API (29.10., laufend)
 
 - **Phase 1 – Stabilisieren (Regressionen grün 29.10.):** Baum sauber bis auf
@@ -975,3 +1116,22 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 - Kein Meta-API-Schlüssel vorhanden: kein echter Modellaufruf — kein
   Meta-Modellnachweis in dieser Runde. Kein Commit/Push; `.t/`
   unangetastet.
+
+## 30.10. – #767-Audit: Assign hängt Original an, Duplikat-Link, Upload-Robustheit (Muse, uncommitted)
+
+- Audit gegen alle 6 #767-Kriterien: Korb/Reload/Analyse/Batch/Adopt, ML-/OCR-Transparenz,
+  Meta-only-Gates, Befunde-ohne-Raum + Filter vorhanden und getestet; 4 Lücken klein geschlossen.
+- Fix A: `assign_entry` hängt das Korb-Original als Inventarfoto ans Ziel (Digest-Skip,
+  Retry-sicher, Link nie blockiert); Route meldet `attached`/`notices`, JS zeigt
+  „Foto übernommen". Zuvor blieb das Original nur im Korb (Detailseite zeigt keine Korb-Links).
+- Fix B: Duplikat-Adopt bietet „Trotzdem zuordnen" (vorher Sackgasse: Objekt da, Eintrag
+  unzugeordnet, Foto nirgends). Fix C: Mehrfach-Upload läuft nach Einzelfehlern weiter und
+  fasst Fehler pro Datei zusammen. Fix D: Bibliothekskopf verlinkt den Fotoeingang.
+- Tests: 2 HTTP-Tests (Attach-Idempotenz, Duplikat-Link-Flow) + `test_inventory_capture_ui.py`
+  (3 statische Verdrahtungs-Tests); Suiten capture/batch/inbox/persist/ui + library-capture +
+  site_visits + qa736 + library-nav/contact: grün bis auf 1 vorbestehenden site-visits-PDF-
+  WinError-32 (per Stash-Gegenprobe ohne eigene Änderung reproduziert, unberührt gelassen).
+- Gates: node --check, compileall, Policy/Size/Function/Secret-Leak, diff-check grün;
+  10 Capture-Routen laden auf gemeinsamem inventory-Blueprint (start.bat-Pfad unverändert).
+- Offen: Korb-Suche (Ziel-, kein Kriterium), Geräte-/Browser-Livetests (Matrix in
+  docs/CAMERA_DEVICE_MATRIX.md). Kein Commit/Push (Codex-Review ausstehend), `.t/` unberührt.
