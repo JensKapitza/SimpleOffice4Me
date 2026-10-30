@@ -11,12 +11,10 @@ from .settings_store import (
     DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
     DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
     DEFAULT_FEDERATION_PUBLIC_URL,
-    DEFAULT_FEDERATION_PUBLIC_URL,
     MAX_FEDERATION_AUTOSCAN_SECONDS,
     MIN_FEDERATION_AUTOSCAN_SECONDS,
     SettingsStore,
 )
-from .integration_settings import normalize_federation_public_url
 
 
 bp = Blueprint("admin_federation_discovery", __name__, url_prefix="/admin")
