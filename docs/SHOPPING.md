@@ -75,5 +75,8 @@ Grenzen:
   übrige Shopping-Routen bleiben `camera=()`); der Stream läuft über den gemeinsamen
   `camera_capture.js`-Helfer mit facingMode-Fallback, Neustart-Wache und Aufräumen bei
   Stopp, Seitenwechsel und Verweigerungshinweis. EAN/UPC haben keinen lokalen
-  JS-Fallback-Decoder (jsQR liest nur QR), daher bleibt die manuelle Eingabe der
-  dokumentierte Fallback. Geräteabnahme siehe `docs/CAMERA_DEVICE_MATRIX.md`.
+  JS-Fallback-Decoder (jsQR liest nur QR): Wo `BarcodeDetector` existiert, wird ein
+  gewähltes Produktfoto zusätzlich lokal auf EAN/UPC geprüft und bei Treffer direkt
+  übernommen; sonst bleibt die manuelle Eingabe der dokumentierte Fallback. Alles
+  läuft lokal im Browser, ohne externen Barcode-Dienst. Geräteabnahme siehe
+  `docs/CAMERA_DEVICE_MATRIX.md`.

@@ -112,6 +112,33 @@
     }
   };
 
+  const decodePhotoFile = async (file) => {
+    if (!file || !barcode || barcode.value.trim()) return false;
+    if (!("BarcodeDetector" in window)) return false;
+    let bitmap = null;
+    try {
+      bitmap = await createImageBitmap(file);
+      let formats = ["ean_13", "ean_8", "upc_a", "upc_e"];
+      if (typeof window.BarcodeDetector.getSupportedFormats === "function") {
+        const supported = await window.BarcodeDetector.getSupportedFormats();
+        formats = formats.filter((value) => supported.includes(value));
+      }
+      if (!formats.length) return false;
+      const detector = new window.BarcodeDetector({formats});
+      const codes = await detector.detect(bitmap);
+      const found = (codes || []).find((entry) => String(entry.rawValue || "").trim());
+      if (!found) return false;
+      barcode.value = String(found.rawValue).trim();
+      setStatus(`Barcode aus dem Foto gelesen: ${barcode.value}. Bitte kurz prüfen.`, "success");
+      await lookup();
+      return true;
+    } catch (_error) {
+      return false;
+    } finally {
+      bitmap?.close?.();
+    }
+  };
+
   const detectLoop = async (timestamp, generation) => {
     if (!scanning || generation !== cameraGeneration || !detector || !video) return;
     if (timestamp - lastDetection >= 250 && video.readyState >= 2) {
@@ -178,6 +205,10 @@
       setStatus(
         error?.name === 'NotAllowedError'
           ? 'Kamerazugriff verweigert. Bitte die Kameraberechtigung im Browser freigeben.'
+          : error?.name === 'NotFoundError'
+          ? 'Keine Kamera gefunden. Barcode bitte manuell eingeben oder als Foto wählen.'
+          : error?.name === 'NotReadableError'
+          ? 'Kamera ist belegt (anderer Tab?). Barcode bitte manuell eingeben oder als Foto wählen.'
           : 'Kamera oder Barcode-Erkennung ist nicht verfügbar (HTTPS oder Browserberechtigung prüfen). Manuelle Eingabe bleibt möglich.',
         'warning',
       );
@@ -340,7 +371,9 @@
       photoPreview.hidden = true;
     }
     if (photoClear) photoClear.hidden = false;
-    setStatus(`Produktfoto ausgewählt: ${file.name}. Es wird beim Hinzufügen lokal gespeichert.`, 'info');
+    decodePhotoFile(file).then((found) => {
+      if (!found) setStatus(`Produktfoto ausgewählt: ${file.name}. Es wird beim Hinzufügen lokal gespeichert.`, 'info');
+    });
   });
   photoClear?.addEventListener('click', () => {
     if (photoInput) photoInput.value = '';

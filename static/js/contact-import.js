@@ -306,40 +306,64 @@
     }
   });
 
+  const decodeQrBitmap = (bitmap) => {
+    if (typeof window.jsQR !== "function") return "";
+    const width = bitmap.width;
+    const height = bitmap.height;
+    if (!width || !height) return "";
+    const scale = Math.min(1, 1200 / Math.max(width, height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(width * scale));
+    canvas.height = Math.max(1, Math.round(height * scale));
+    const context = canvas.getContext("2d", {willReadFrequently: true});
+    if (!context) return "";
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+    const decoded = window.jsQR(frame.data, frame.width, frame.height, {inversionAttempts: "attemptBoth"});
+    return decoded?.data ? String(decoded.data).trim() : "";
+  };
+
   qrScanButton?.addEventListener("click", async () => {
     if (!(qrImage instanceof HTMLInputElement) || !qrImage.files?.length) {
       setStatus("Bitte zuerst ein QR-Code-Bild auswählen oder mit der Kamera aufnehmen.", "warning");
       return;
     }
-    if (!("BarcodeDetector" in window)) {
+    const canUseNative = "BarcodeDetector" in window;
+    const canUseLocalQr = typeof window.jsQR === "function";
+    if (!canUseNative && !canUseLocalQr) {
       setStatus("Dieser Browser kann QR-Codes nicht direkt aus Bildern lesen. Du kannst den QR-Inhalt unten manuell einfügen.", "warning");
       return;
     }
 
     qrScanButton.disabled = true;
     setStatus("QR-Code wird lokal im Browser gelesen …", "secondary");
+    let bitmap = null;
     try {
-      if (typeof BarcodeDetector.getSupportedFormats === "function") {
-        const supported = await BarcodeDetector.getSupportedFormats();
-        if (!supported.includes("qr_code")) {
-          throw new Error("Der Browser unterstützt Barcode-Erkennung, aber keine QR-Codes.");
+      bitmap = await createImageBitmap(qrImage.files[0]);
+      let rawValue = "";
+      if (canUseNative) {
+        try {
+          if (typeof BarcodeDetector.getSupportedFormats === "function") {
+            const supported = await BarcodeDetector.getSupportedFormats();
+            if (!supported.includes("qr_code")) {
+              throw new Error("Der Browser unterstützt Barcode-Erkennung, aber keine QR-Codes.");
+            }
+          }
+          const detector = new BarcodeDetector({formats: ["qr_code"]});
+          const detections = await detector.detect(bitmap);
+          rawValue = detections.find((item) => String(item.rawValue || "").trim())?.rawValue || "";
+        } catch (error) {
+          if (!canUseLocalQr) throw error;
         }
       }
-      const bitmap = await createImageBitmap(qrImage.files[0]);
-      let detections;
-      try {
-        const detector = new BarcodeDetector({formats: ["qr_code"]});
-        detections = await detector.detect(bitmap);
-      } finally {
-        bitmap.close?.();
-      }
-      const rawValue = detections.find((item) => String(item.rawValue || "").trim())?.rawValue || "";
-      if (!rawValue) throw new Error("Auf dem Bild wurde kein QR-Code erkannt.");
+      if (!rawValue && canUseLocalQr) rawValue = decodeQrBitmap(bitmap);
+      if (!rawValue) throw new Error("Auf dem Bild wurde kein QR-Code erkannt. Du kannst den Inhalt unten manuell einfügen.");
       if (qrText instanceof HTMLTextAreaElement) qrText.value = rawValue;
       await submitQrPayload();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error), "danger");
     } finally {
+      bitmap?.close?.();
       qrScanButton.disabled = false;
     }
   });
