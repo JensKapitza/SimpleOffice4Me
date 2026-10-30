@@ -19,6 +19,8 @@ from app.archive_indexer import (
 )
 from app.archive_settings import (
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+    DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_TEXT_MB,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
@@ -234,6 +236,16 @@ class ArchiveIndexerTest(unittest.TestCase):
                 DEFAULT_ARCHIVE_MAX_MEMBERS,
             ),
             (
+                "SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB",
+                "archive_max_member_mb", 1024, 1, 8192,
+                DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+            ),
+            (
+                "SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES",
+                "archive_max_content_files", 300, 1, 10000,
+                DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+            ),
+            (
                 "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB",
                 "archive_max_text_mb", 12, 1, 64,
                 DEFAULT_ARCHIVE_MAX_TEXT_MB,
@@ -384,6 +396,61 @@ class ArchiveIndexerTest(unittest.TestCase):
                 expanded = index_archive(store, archive_path)
             self.assertIn(marker, expanded["search_text"])
             self.assertEqual(2, expanded["resource_policy"]["max_text_mb"])
+
+    def test_member_size_and_content_count_limits_control_extraction_and_reindex(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
+                "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
+            },
+        ):
+            root = Path(temporary)
+            archive_path = root / "extraction-limits.zip"
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
+                archive.writestr("first.txt", "FIRST_CONTENT_MARKER")
+                archive.writestr(
+                    "large.txt", ("B" * (2 * 1024 * 1024)) + "LARGE_CONTENT_MARKER",
+                )
+                archive.writestr("last.txt", "LAST_CONTENT_MARKER")
+            store = DocumentStore(root)
+            store.scan()
+            settings = SettingsStore(root)
+            settings.save(
+                {"media": {
+                    "archive_max_member_mb": 1,
+                    "archive_max_content_files": 2,
+                }},
+                "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                first = index_archive(store, archive_path)
+            self.assertEqual(2, first["content_files_indexed"])
+            self.assertEqual(1, first["skipped_large"])
+            self.assertIn("FIRST_CONTENT_MARKER", first["search_text"])
+            self.assertIn("LAST_CONTENT_MARKER", first["search_text"])
+            self.assertNotIn("LARGE_CONTENT_MARKER", first["search_text"])
+            self.assertEqual(1, first["resource_policy"]["max_member_mb"])
+            self.assertEqual(2, first["resource_policy"]["max_content_files"])
+
+            settings.save(
+                {"media": {
+                    "archive_max_member_mb": 2,
+                    "archive_max_content_files": 1,
+                }},
+                "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                second = index_archive(store, archive_path)
+            self.assertEqual(1, second["content_files_indexed"])
+            self.assertIn("FIRST_CONTENT_MARKER", second["search_text"])
+            self.assertNotIn("LAST_CONTENT_MARKER", second["search_text"])
+            self.assertEqual(2, second["resource_policy"]["max_member_mb"])
+            self.assertEqual(1, second["resource_policy"]["max_content_files"])
 
     def test_text_budget_truncation_never_splits_utf8_sequences(self):
         self.assertEqual("éé", _truncate_utf8_bytes("ééé", 5))

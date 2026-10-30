@@ -406,6 +406,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     member_yield_ms = media_settings["archive_member_yield_ms"]
     max_members = media_settings["archive_max_members"]
     max_text_mb = media_settings["archive_max_text_mb"]
+    max_member_mb = media_settings["archive_max_member_mb"]
+    max_content_files = media_settings["archive_max_content_files"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
@@ -436,6 +438,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         and previous_policy.get("disk_reserve_mb") == disk_reserve_mb
         and previous_policy.get("max_members") == max_members
         and previous_policy.get("max_text_mb") == max_text_mb
+        and previous_policy.get("max_member_mb") == max_member_mb
+        and previous_policy.get("max_content_files") == max_content_files
     )
     if (
         previous.get("source_sha256") == digest
@@ -450,10 +454,9 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     busy, busy_reason = system_busy(
         deep_index_enabled, max_load_per_cpu, min_free_memory_mb,
     )
-    max_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB", 512, 1, 8192) * 1024 * 1024
+    max_member = max_member_mb * 1024 * 1024
     max_text = max_text_mb * 1024 * 1024
     max_text_per_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB", 2, 1, 32) * 1024 * 1024
-    max_content_files = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES", 500, 1, 10000)
     ratio_limit = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO", 200, 10, 10000)
 
     scratch = _scratch_parent(store)
@@ -561,6 +564,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "member_yield_ms": member_yield_ms,
             "max_members": max_members,
             "max_text_mb": max_text_mb,
+            "max_member_mb": max_member_mb,
+            "max_content_files": max_content_files,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,

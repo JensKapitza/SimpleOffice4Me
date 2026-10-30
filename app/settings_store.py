@@ -22,6 +22,8 @@ from .archive_settings import (
     legacy_archive_disk_reserve_mb,
     legacy_archive_deep_index_enabled,
     legacy_archive_max_load_per_cpu,
+    legacy_archive_max_content_files,
+    legacy_archive_max_member_mb,
     legacy_archive_max_members,
     legacy_archive_max_text_mb,
     legacy_archive_member_yield_ms,
@@ -701,6 +703,8 @@ class SettingsStore:
             "archive_min_free_memory_mb": legacy_archive_min_free_memory_mb(),
             "archive_disk_reserve_mb": legacy_archive_disk_reserve_mb(),
             "archive_max_members": legacy_archive_max_members(),
+            "archive_max_member_mb": legacy_archive_max_member_mb(),
+            "archive_max_content_files": legacy_archive_max_content_files(),
             "archive_max_text_mb": legacy_archive_max_text_mb(),
             "archive_member_yield_ms": legacy_archive_member_yield_ms(),
         }

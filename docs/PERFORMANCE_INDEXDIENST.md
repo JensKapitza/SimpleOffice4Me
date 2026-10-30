@@ -101,6 +101,12 @@ Archiv beträgt standardmäßig 8 MiB und ist auf 1–64 MiB konfigurierbar. Än
 gleichen den abgeleiteten Suchtext beim nächsten Indexlauf an; die bisherige
 `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB`-Variable gilt nur bis zum Speichern der
 persistenten Einstellung.
+Die maximale Eintragsgröße für Inhaltsverarbeitung (512 MiB, zulässig 1–8.192
+MiB) und die Zahl inhaltlich verarbeiteter Einträge (500, zulässig 1–10.000) sind
+ebenfalls konfigurierbar. Größere und überzählige Einträge bleiben im Namenskatalog;
+ihre Inhalte werden nicht extrahiert. `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` und
+`SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` gelten nur bis zum Speichern der
+persistent verwalteten Werte.
 „Nur Katalog indexieren“ hält Dateinamen und
 Archivstruktur suchbar, entfernt den abgeleiteten Inhaltsindex beim nächsten
 Archivlauf und verändert keine Originaldateien. Speicher- und Datenträgergrenzen
