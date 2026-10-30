@@ -12,6 +12,24 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .archive_settings import (
+    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED as DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB as DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_MEMBERS as DEFAULT_ARCHIVE_MAX_MEMBERS,
+    DEFAULT_ARCHIVE_MEMBER_YIELD_MS as DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
+    DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU as DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB as DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+    legacy_archive_disk_reserve_mb,
+    legacy_archive_deep_index_enabled,
+    legacy_archive_max_load_per_cpu,
+    legacy_archive_max_content_files,
+    legacy_archive_max_member_mb,
+    legacy_archive_max_members,
+    legacy_archive_max_text_mb,
+    legacy_archive_max_text_per_member_mb,
+    legacy_archive_member_yield_ms,
+    legacy_archive_min_free_memory_mb,
+)
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .finance_settings import (
     DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
@@ -70,6 +88,26 @@ from .integration_settings import (
     validate_integration_settings,
 )
 from .revision_history import RevisionHistory
+from .media_settings import (
+    DEFAULT_ARCHIVE_OCR_ENABLED as DEFAULT_ARCHIVE_OCR_ENABLED,
+    DEFAULT_MEDIA_SETTINGS,
+    DEFAULT_PREVIEW_ENABLED as DEFAULT_PREVIEW_ENABLED,
+    DEFAULT_PREVIEW_MAX_BYTES as DEFAULT_PREVIEW_MAX_BYTES,
+    DEFAULT_PREVIEW_MAX_PIXELS as DEFAULT_PREVIEW_MAX_PIXELS,
+    DEFAULT_PREVIEW_TIMEOUT_SECONDS as DEFAULT_PREVIEW_TIMEOUT_SECONDS,
+    DEFAULT_VIDEO_PREVIEW_FRAMES as DEFAULT_VIDEO_PREVIEW_FRAMES,
+    LEGACY_VIDEO_PREVIEW_SETTINGS_FILE,
+    MAX_PREVIEW_MAX_BYTES as MAX_PREVIEW_MAX_BYTES,
+    MAX_PREVIEW_MAX_PIXELS as MAX_PREVIEW_MAX_PIXELS,
+    MAX_PREVIEW_TIMEOUT_SECONDS as MAX_PREVIEW_TIMEOUT_SECONDS,
+    MAX_VIDEO_PREVIEW_FRAMES as MAX_VIDEO_PREVIEW_FRAMES,
+    MIN_PREVIEW_MAX_BYTES as MIN_PREVIEW_MAX_BYTES,
+    MIN_PREVIEW_MAX_PIXELS as MIN_PREVIEW_MAX_PIXELS,
+    MIN_PREVIEW_TIMEOUT_SECONDS as MIN_PREVIEW_TIMEOUT_SECONDS,
+    MIN_VIDEO_PREVIEW_FRAMES as MIN_VIDEO_PREVIEW_FRAMES,
+    normalize_media_settings,
+    validate_media_settings,
+)
 from .settings_limits import (
     DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
     DEFAULT_UPLOAD_LIMIT_MIB,
@@ -77,7 +115,7 @@ from .settings_limits import (
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
     DEFAULT_WEBDAV_QUOTA_MIB,
-    MIN_CHAT_ATTACHMENT_BYTES,
+    MIN_CHAT_ATTACHMENT_BYTES as MIN_CHAT_ATTACHMENT_BYTES,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_UPLOAD_LIMIT_MIB,
@@ -90,21 +128,6 @@ from .settings_limits import (
 
 _SETTINGS_LOCK = threading.RLock()
 _LOGGER = logging.getLogger(__name__)
-DEFAULT_VIDEO_PREVIEW_FRAMES = 10
-MIN_VIDEO_PREVIEW_FRAMES = 1
-MAX_VIDEO_PREVIEW_FRAMES = 30
-LEGACY_VIDEO_PREVIEW_SETTINGS_FILE = "video-preview-settings.json"
-DEFAULT_ARCHIVE_OCR_ENABLED = False
-DEFAULT_PREVIEW_ENABLED = True
-DEFAULT_PREVIEW_TIMEOUT_SECONDS = 45
-MIN_PREVIEW_TIMEOUT_SECONDS = 5
-MAX_PREVIEW_TIMEOUT_SECONDS = 300
-DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024 * 1024
-MIN_PREVIEW_MAX_BYTES = 1024
-MAX_PREVIEW_MAX_BYTES = 2 * 1024 * 1024 * 1024
-DEFAULT_PREVIEW_MAX_PIXELS = 80_000_000
-MIN_PREVIEW_MAX_PIXELS = 1_000_000
-MAX_PREVIEW_MAX_PIXELS = 250_000_000
 DEFAULT_RSYNC_TIMEOUT_SECONDS = 3600
 MIN_RSYNC_TIMEOUT_SECONDS = 30
 MAX_RSYNC_TIMEOUT_SECONDS = 86400
@@ -154,16 +177,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "rsync_max_bytes": DEFAULT_RSYNC_MAX_BYTES,
         "rsync_max_files": DEFAULT_RSYNC_MAX_FILES,
     },
-    "media": {
-        "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
-        "chat_attachment_max_bytes": DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
-        "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
-        "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
-        "preview_enabled": DEFAULT_PREVIEW_ENABLED,
-        "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
-        "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
-        "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
-    },
+    "media": dict(DEFAULT_MEDIA_SETTINGS),
     "integrations": {
         "osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS,
         "osm_filter_timeout_seconds": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
@@ -701,6 +715,18 @@ class SettingsStore:
             "archive_ocr_enabled": os.environ.get(
                 "SIMPLEOFFICE_ARCHIVE_OCR", "0",
             ).strip().casefold() in {"1", "true", "yes", "on"},
+            # This legacy option can only enable automatic resource-aware indexing;
+            # it no longer bypasses CPU or memory safeguards.
+            "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
+            "archive_max_load_per_cpu": legacy_archive_max_load_per_cpu(),
+            "archive_min_free_memory_mb": legacy_archive_min_free_memory_mb(),
+            "archive_disk_reserve_mb": legacy_archive_disk_reserve_mb(),
+            "archive_max_members": legacy_archive_max_members(),
+            "archive_max_member_mb": legacy_archive_max_member_mb(),
+            "archive_max_content_files": legacy_archive_max_content_files(),
+            "archive_max_text_mb": legacy_archive_max_text_mb(),
+            "archive_max_text_per_member_mb": legacy_archive_max_text_per_member_mb(),
+            "archive_member_yield_ms": legacy_archive_member_yield_ms(),
         }
 
     @classmethod
@@ -733,53 +759,7 @@ class SettingsStore:
 
     @staticmethod
     def _normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
-        normalized = dict(media)
-        if not isinstance(normalized.get("preview_enabled"), bool):
-            _LOGGER.warning("Invalid stored document preview enable setting; using default")
-            normalized["preview_enabled"] = DEFAULT_PREVIEW_ENABLED
-        if not isinstance(normalized.get("archive_ocr_enabled"), bool):
-            _LOGGER.warning("Invalid stored archive OCR setting; using default")
-            normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
-        ranges = {
-            "upload_limit_mib": (
-                DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
-            ),
-            "chat_attachment_max_bytes": (
-                DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
-                MIN_CHAT_ATTACHMENT_BYTES,
-                MAX_CHAT_ATTACHMENT_BYTES,
-            ),
-            "video_preview_frames": (
-                DEFAULT_VIDEO_PREVIEW_FRAMES,
-                MIN_VIDEO_PREVIEW_FRAMES,
-                MAX_VIDEO_PREVIEW_FRAMES,
-            ),
-            "preview_timeout_seconds": (
-                DEFAULT_PREVIEW_TIMEOUT_SECONDS,
-                MIN_PREVIEW_TIMEOUT_SECONDS,
-                MAX_PREVIEW_TIMEOUT_SECONDS,
-            ),
-            "preview_max_bytes": (
-                DEFAULT_PREVIEW_MAX_BYTES,
-                MIN_PREVIEW_MAX_BYTES,
-                MAX_PREVIEW_MAX_BYTES,
-            ),
-            "preview_max_pixels": (
-                DEFAULT_PREVIEW_MAX_PIXELS,
-                MIN_PREVIEW_MAX_PIXELS,
-                MAX_PREVIEW_MAX_PIXELS,
-            ),
-        }
-        for key, (default, minimum, maximum) in ranges.items():
-            value = normalized.get(key)
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not minimum <= value <= maximum
-            ):
-                _LOGGER.warning("Invalid stored media setting %s; using default", key)
-                normalized[key] = default
-        return normalized
+        return normalize_media_settings(media)
 
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
@@ -855,58 +835,7 @@ class SettingsStore:
         if not isinstance(integrations, dict):
             raise ValueError("integration settings must be an object")
         integrations = validate_integration_settings(integrations)
-        video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
-        upload_limit_mib = media.get("upload_limit_mib", DEFAULT_UPLOAD_LIMIT_MIB)
-        if (
-            isinstance(upload_limit_mib, bool)
-            or not isinstance(upload_limit_mib, int)
-            or not MIN_UPLOAD_LIMIT_MIB <= upload_limit_mib <= MAX_UPLOAD_LIMIT_MIB
-        ):
-            raise ValueError("upload limit must be between 1 and 4096 MiB")
-        chat_attachment_max_bytes = media.get(
-            "chat_attachment_max_bytes", DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
-        )
-        if (
-            isinstance(chat_attachment_max_bytes, bool)
-            or not isinstance(chat_attachment_max_bytes, int)
-            or not MIN_CHAT_ATTACHMENT_BYTES
-            <= chat_attachment_max_bytes
-            <= MAX_CHAT_ATTACHMENT_BYTES
-        ):
-            raise ValueError("chat attachment limit must be 0 or between 1 byte and 4 GiB")
-        if (
-            isinstance(video_preview_frames, bool)
-            or not isinstance(video_preview_frames, int)
-            or not MIN_VIDEO_PREVIEW_FRAMES <= video_preview_frames <= MAX_VIDEO_PREVIEW_FRAMES
-        ):
-            raise ValueError("video preview frame count must be between 1 and 30")
-        preview_enabled = media.get("preview_enabled", DEFAULT_PREVIEW_ENABLED)
-        if not isinstance(preview_enabled, bool):
-            raise ValueError("document previews enabled must be boolean")
-        archive_ocr_enabled = media.get("archive_ocr_enabled", DEFAULT_ARCHIVE_OCR_ENABLED)
-        if not isinstance(archive_ocr_enabled, bool):
-            raise ValueError("archive OCR enabled must be boolean")
-        preview_timeout = media.get("preview_timeout_seconds", DEFAULT_PREVIEW_TIMEOUT_SECONDS)
-        if (
-            isinstance(preview_timeout, bool)
-            or not isinstance(preview_timeout, int)
-            or not MIN_PREVIEW_TIMEOUT_SECONDS <= preview_timeout <= MAX_PREVIEW_TIMEOUT_SECONDS
-        ):
-            raise ValueError("preview timeout must be between 5 and 300 seconds")
-        preview_max_bytes = media.get("preview_max_bytes", DEFAULT_PREVIEW_MAX_BYTES)
-        if (
-            isinstance(preview_max_bytes, bool)
-            or not isinstance(preview_max_bytes, int)
-            or not MIN_PREVIEW_MAX_BYTES <= preview_max_bytes <= MAX_PREVIEW_MAX_BYTES
-        ):
-            raise ValueError("preview byte limit is outside the allowed range")
-        preview_max_pixels = media.get("preview_max_pixels", DEFAULT_PREVIEW_MAX_PIXELS)
-        if (
-            isinstance(preview_max_pixels, bool)
-            or not isinstance(preview_max_pixels, int)
-            or not MIN_PREVIEW_MAX_PIXELS <= preview_max_pixels <= MAX_PREVIEW_MAX_PIXELS
-        ):
-            raise ValueError("preview pixel limit is outside the allowed range")
+        media = validate_media_settings(media)
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "de"))
@@ -944,16 +873,7 @@ class SettingsStore:
                 "rsync_max_bytes": rsync_max_bytes,
                 "rsync_max_files": rsync_max_files,
             },
-            "media": {
-                "upload_limit_mib": upload_limit_mib,
-                "chat_attachment_max_bytes": chat_attachment_max_bytes,
-                "archive_ocr_enabled": archive_ocr_enabled,
-                "video_preview_frames": video_preview_frames,
-                "preview_enabled": preview_enabled,
-                "preview_timeout_seconds": preview_timeout,
-                "preview_max_bytes": preview_max_bytes,
-                "preview_max_pixels": preview_max_pixels,
-            },
+            "media": media,
             "integrations": {
                 **integrations,
             },

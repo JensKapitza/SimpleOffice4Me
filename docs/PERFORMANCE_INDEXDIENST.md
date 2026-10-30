@@ -79,6 +79,49 @@ nachts laufender Indexierung kann `SIMPLEOFFICE_INDEX_YIELD_MS=0` den
 Gesamtdurchsatz erhöhen. Auf langsamen Netzspeichern sind 2 bis 10 ms sinnvoll,
 wenn die Oberfläche wichtiger als eine kurze Scanzeit ist.
 
+Der Archiv-Inhaltstiefenindex wird unter **Einstellungen → Dokumente & Medien →
+Inhaltstiefenindex für Archive** ein- oder ausgeschaltet. Standardmäßig
+entscheidet die automatische CPU-/Speicherprüfung, ob Inhalte extrahiert werden.
+Die Admin-Lastschwelle beträgt standardmäßig 0,75 pro CPU und ist auf 0,1–8,0
+begrenzt. Die Mindestmenge freien Arbeitsspeichers (384 MiB, zulässig 64–65.536)
+und die Datenträgerreserve (2.048 MiB, zulässig 128–1.048.576) sind dort ebenfalls
+persistent konfigurierbar. Verfügbarer Arbeitsspeicher wird unter Linux/Android
+aus `/proc/meminfo` und unter Windows über `GlobalMemoryStatusEx` ermittelt.
+Die Pause je Archiveintrag (2 ms, zulässig 0–100 ms) lässt sich ebenfalls unter
+**Admin → Einstellungen → Dokumente & Medien** konfigurieren: höhere Werte geben
+anderen Arbeiten mehr Gelegenheit, 0 maximiert den Durchsatz.
+`SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum Speichern der persistenten
+Einstellung als Legacy-Startwert verwendet; Änderungen gelten für neu gestartete
+Archivindexläufe.
+Die Kataloggröße (20.000 Einträge, zulässig 100–200.000) ist dort ebenfalls
+konfigurierbar. Archive mit mehr Einträgen erhalten einen Teilindex; die
+Legacy-Variable `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` wird nur bis zum Speichern des
+persistenten Grenzwerts als Startwert verwendet. Das gesamte Volltextbudget je
+Archiv beträgt standardmäßig 8 MiB und ist auf 1–64 MiB konfigurierbar. Änderungen
+gleichen den abgeleiteten Suchtext beim nächsten Indexlauf an; die bisherige
+`SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB`-Variable gilt nur bis zum Speichern der
+persistenten Einstellung. Das Textbudget je Eintrag ist standardmäßig 2 MiB
+(zulässig 1–32 MiB) und begrenzt die extrahierte UTF-8-Ausgabe pro Mitglied.
+`SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` gilt bis zum Speichern der
+persistent verwalteten Einstellung nur als Legacy-Startwert.
+Die maximale Eintragsgröße für Inhaltsverarbeitung (512 MiB, zulässig 1–8.192
+MiB) und die Zahl inhaltlich verarbeiteter Einträge (500, zulässig 1–10.000) sind
+ebenfalls konfigurierbar. Größere und überzählige Einträge bleiben im Namenskatalog;
+ihre Inhalte werden nicht extrahiert. `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` und
+`SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` gelten nur bis zum Speichern der
+persistent verwalteten Werte.
+„Nur Katalog indexieren“ hält Dateinamen und
+Archivstruktur suchbar, entfernt den abgeleiteten Inhaltsindex beim nächsten
+Archivlauf und verändert keine Originaldateien. Speicher- und Datenträgergrenzen
+werden unabhängig geprüft.
+`SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` und
+`SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` sowie die Legacy-Werte
+`SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` und
+`SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` werden nur gelesen, solange der jeweilige
+persistent verwaltete Wert noch fehlt. Ein alter `DEEP_INDEX=1`-Wert umgeht
+keine Ressourcenprüfung. Änderungen an den Ressourcenwerten gleichen betroffene
+vollständige abgeleitete Indizes beim nächsten Indexlauf an.
+
 ## Login, Dashboard und Inbox
 
 Der Login prüft weiterhin nur die Authentifizierungsdaten. Sein Redirect zum
