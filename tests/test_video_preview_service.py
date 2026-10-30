@@ -71,6 +71,8 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_member_yield_ms": 15,
                     "archive_max_members": 25000,
                     "archive_max_text_mb": 6,
+                    "archive_max_member_mb": 128,
+                    "archive_max_content_files": 20,
                 }},
                 "tester",
             )
@@ -94,6 +96,8 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_member_yield_ms": 15,
                     "archive_max_members": 25000,
                     "archive_max_text_mb": 6,
+                    "archive_max_member_mb": 128,
+                    "archive_max_content_files": 20,
                 },
                 store.settings()["media"],
             )
