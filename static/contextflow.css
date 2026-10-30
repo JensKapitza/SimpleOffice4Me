@@ -380,6 +380,42 @@ summary:focus-visible {
   font-weight: 400;
 }
 
+.cf-quiet-banner,
+.cf-digest {
+  border: 1px solid #b9a06a;
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  background: var(--bs-body-bg, #fffdf8);
+  font-size: 0.92rem;
+}
+
+.cf-prefs {
+  margin: 1.75rem 0 0;
+  border: 1px dashed #b9a06a;
+  border-radius: 12px;
+  padding: 0.9rem 1.1rem;
+  background: var(--bs-body-bg, #fffdf8);
+}
+
+.cf-prefs summary {
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cf-prefs label {
+  display: block;
+  margin: 0.55rem 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.cf-prefs input {
+  display: block;
+  margin-top: 0.25rem;
+  max-width: 100%;
+  font-weight: 400;
+}
+
 .cf-draft {
   display: grid;
   grid-template-columns: 9rem 1fr;
