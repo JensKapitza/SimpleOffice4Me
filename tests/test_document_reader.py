@@ -418,6 +418,44 @@ class ReaderRoutesTests(unittest.TestCase):
             response.json["error"],
         )
 
+    def test_reader_page_does_not_render_internal_parse_errors(self):
+        secret = "private parser path /srv/private/documents/source.epub"
+        with patch("app.reader_routes._verified_bytes", side_effect=OSError(secret)):
+            response = self.client.get(
+                f"/documents/reader/{self.document['document_id']}",
+            )
+
+        self.assertEqual(422, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn(
+            "Das Dokument konnte nicht sicher verarbeitet werden und wird nicht im Reader angezeigt.",
+            response.get_data(as_text=True),
+        )
+
+    def test_grayscale_pdf_flash_does_not_include_conversion_error_details(self):
+        document = DocumentStore(self.documents).import_upload(
+            io.BytesIO(b"%PDF-1.4\nreader"), "Conversion.pdf", "admin",
+        )
+        secret = "private converter path /srv/private/tmp/conversion.pdf"
+        for failure in (ValueError(secret), OSError(secret), RuntimeError(secret)):
+            with self.subTest(error=type(failure).__name__):
+                with patch(
+                    "app.reader_routes._verified_bytes", return_value=b"pdf",
+                ), patch(
+                    "app.pdf_conversion.make_grayscale_searchable_pdf",
+                    side_effect=failure,
+                ):
+                    response = self.client.post(
+                        f"/documents/reader/{document['document_id']}/pdf/grayscale",
+                        headers=self.headers,
+                    )
+                self.assertEqual(302, response.status_code)
+                with self.client.session_transaction() as session:
+                    messages = [message for _category, message in session.get("_flashes", [])]
+                    session.pop("_flashes", None)
+                self.assertTrue(messages)
+                self.assertNotIn(secret, " ".join(messages))
+
     def test_epub_chapter_with_excessive_xml_depth_fails_closed(self):
         deeply_nested = "<html><body>" + "<span>" * 257 + "text" + "</span>" * 257 + "</body></html>"
         document = DocumentStore(self.documents).import_upload(
