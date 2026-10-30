@@ -1,9 +1,13 @@
 import os
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from app.archive_settings import DEFAULT_ARCHIVE_MEMBER_YIELD_MS
+from app.archive_settings import (
+    DEFAULT_ARCHIVE_MAX_MEMBERS,
+    DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
+)
 from app.documents_media_settings_form import media_settings_from_form
 from app.settings_store import SettingsStore
 
@@ -20,6 +24,7 @@ class ArchiveSettingsFormTests(unittest.TestCase):
             "archive_min_free_memory_mb": "384",
             "archive_disk_reserve_mb": "2048",
             "archive_member_yield_ms": str(DEFAULT_ARCHIVE_MEMBER_YIELD_MS),
+            "archive_max_members": str(DEFAULT_ARCHIVE_MAX_MEMBERS),
             "preview_enabled": "1",
             "preview_timeout_seconds": "45",
             "preview_max_bytes": str(256 * 1024 * 1024),
@@ -74,6 +79,47 @@ class ArchiveSettingsFormTests(unittest.TestCase):
                     store.save({"media": {"archive_member_yield_ms": invalid}}, "archive-admin")
             reset = media_settings_from_form(store, {}, reset_defaults=True)
             self.assertEqual(DEFAULT_ARCHIVE_MEMBER_YIELD_MS, reset["archive_member_yield_ms"])
+
+    def test_archive_member_limit_migrates_persists_and_preserves_old_forms(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = SettingsStore(temporary)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS": "15000"}):
+                self.assertEqual(15000, store.settings()["media"]["archive_max_members"])
+                store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS": "100"}):
+                self.assertEqual(15000, store.settings()["media"]["archive_max_members"])
+
+            form = self._valid_form()
+            form["archive_max_members"] = "100"
+            parsed = media_settings_from_form(store, form, reset_defaults=False)
+            self.assertEqual(100, parsed["archive_max_members"])
+            for invalid in ("99", "200001", "1.5", "invalid"):
+                with self.subTest(invalid=invalid):
+                    invalid_form = self._valid_form()
+                    invalid_form["archive_max_members"] = invalid
+                    with self.assertRaises(ValueError):
+                        media_settings_from_form(store, invalid_form, reset_defaults=False)
+            older_form = self._valid_form()
+            older_form.pop("archive_max_members")
+            self.assertEqual(
+                15000,
+                media_settings_from_form(store, older_form, reset_defaults=False)[
+                    "archive_max_members"
+                ],
+            )
+            store.save({"media": parsed}, "archive-admin")
+            self.assertEqual(100, store.settings()["media"]["archive_max_members"])
+            for invalid in (True, 99, 200001):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    store.save({"media": {"archive_max_members": invalid}}, "archive-admin")
+            reset = media_settings_from_form(store, {}, reset_defaults=True)
+            self.assertEqual(DEFAULT_ARCHIVE_MAX_MEMBERS, reset["archive_max_members"])
+
+    def test_archive_member_limit_is_exposed_with_bounded_admin_input(self):
+        template = Path(__file__).parents[1] / "templates/admin/documents_media_settings.html"
+        html = template.read_text(encoding="utf-8")
+        self.assertIn('name="archive_max_members"', html)
+        self.assertIn('min="100" max="200000" step="1"', html)
 
 
 if __name__ == "__main__":

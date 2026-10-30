@@ -69,6 +69,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_min_free_memory_mb": 1024,
                     "archive_disk_reserve_mb": 8192,
                     "archive_member_yield_ms": 15,
+                    "archive_max_members": 25000,
                 }},
                 "tester",
             )
@@ -90,6 +91,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_min_free_memory_mb": 1024,
                     "archive_disk_reserve_mb": 8192,
                     "archive_member_yield_ms": 15,
+                    "archive_max_members": 25000,
                 },
                 store.settings()["media"],
             )

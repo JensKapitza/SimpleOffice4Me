@@ -18,6 +18,7 @@ from app.archive_indexer import (
 )
 from app.archive_settings import (
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
 from app.document_store import DocumentStore
@@ -225,6 +226,11 @@ class ArchiveIndexerTest(unittest.TestCase):
                 "archive_disk_reserve_mb", 8192, 128, 1048576,
                 DEFAULT_ARCHIVE_DISK_RESERVE_MB,
             ),
+            (
+                "SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS",
+                "archive_max_members", 25000, 100, 200000,
+                DEFAULT_ARCHIVE_MAX_MEMBERS,
+            ),
         )
         for env_name, key, configured, minimum, maximum, default in cases:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as temporary:
@@ -291,6 +297,56 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual(4096, budget.call_args.args[1])
             self.assertEqual(1024, second["resource_policy"]["min_free_memory_mb"])
             self.assertEqual(4096, second["resource_policy"]["disk_reserve_mb"])
+
+    def test_maximum_archive_members_limits_catalog_and_reindexes_policy_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive_path = root / "catalog-limit.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for index in range(100):
+                    archive.writestr(f"binary/member-{index:03}.bin", b"x")
+            store = DocumentStore(root)
+            store.scan()
+            settings = SettingsStore(root)
+            settings.save(
+                {"media": {
+                    "archive_deep_index_enabled": True,
+                    "archive_member_yield_ms": 0,
+                    "archive_max_members": 100,
+                }},
+                "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")) as busy, patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                first = index_archive(store, archive_path)
+            busy.assert_called_once()
+            self.assertEqual("complete", first["status"])
+            self.assertFalse(first["catalog_truncated"])
+            self.assertEqual(100, len(first["catalog"]))
+            self.assertEqual(100, first["resource_policy"]["max_members"])
+
+            settings.save({"media": {"archive_max_members": 150}}, "archive-admin")
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")) as busy, patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                second = index_archive(store, archive_path)
+            busy.assert_called_once()
+            self.assertEqual("complete", second["status"])
+            self.assertEqual(150, second["resource_policy"]["max_members"])
+
+            oversized_path = root / "oversized-catalog.zip"
+            with zipfile.ZipFile(oversized_path, "w") as archive:
+                for index in range(151):
+                    archive.writestr(f"binary/oversized-{index:03}.bin", b"x")
+            store.scan()
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                partial = index_archive(store, oversized_path)
+            self.assertEqual("partial", partial["status"])
+            self.assertTrue(partial["catalog_truncated"])
+            self.assertEqual(150, len(partial["catalog"]))
 
     def test_memory_threshold_and_disk_reserve_fail_closed_at_configured_limits(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
