@@ -24,7 +24,7 @@ class ErrorReportingSettingsTests(unittest.TestCase):
             key: app.config.get(key)
             for key in (
                 "DATABASE", "DOCUMENT_ROOT", "SECRET_KEY", "TESTING",
-                "TEST_CSRF_PROTECTION",
+                "TEST_CSRF_PROTECTION", "PROPAGATE_EXCEPTIONS",
             )
         }
         app.config.update(
@@ -163,3 +163,24 @@ class ErrorReportingSettingsTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 load_config(reporting_enabled=1)
+
+    def test_exception_handler_passes_persisted_optout_to_outbound_reporter(self):
+        SettingsStore(self.root).save(
+            {"integrations": {"error_reporting_enabled": False}},
+            "report-admin",
+        )
+        app.config["PROPAGATE_EXCEPTIONS"] = False
+        application_module = __import__("app", fromlist=["unhandled_application_error"])
+        with app.test_request_context("/documents/example", method="GET"):
+            from flask import g
+
+            g.request_id = "privacy-preference-request"
+            with patch("app.github_error_reporter.report_error", return_value=None) as report:
+                response, status = application_module.unhandled_application_error(
+                    RuntimeError("synthetic test exception"),
+                )
+
+        self.assertEqual(500, status)
+        self.assertIsNotNone(response)
+        reporter_config = report.call_args.kwargs["config"]
+        self.assertFalse(reporter_config.enabled)
