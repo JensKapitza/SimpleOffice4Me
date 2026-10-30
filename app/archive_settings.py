@@ -29,6 +29,12 @@ MAX_ARCHIVE_MAX_MEMBERS = 200000
 DEFAULT_ARCHIVE_MAX_TEXT_MB = 8
 MIN_ARCHIVE_MAX_TEXT_MB = 1
 MAX_ARCHIVE_MAX_TEXT_MB = 64
+DEFAULT_ARCHIVE_MAX_MEMBER_MB = 512
+MIN_ARCHIVE_MAX_MEMBER_MB = 1
+MAX_ARCHIVE_MAX_MEMBER_MB = 8192
+DEFAULT_ARCHIVE_MAX_CONTENT_FILES = 500
+MIN_ARCHIVE_MAX_CONTENT_FILES = 1
+MAX_ARCHIVE_MAX_CONTENT_FILES = 10000
 
 
 def legacy_archive_deep_index_enabled() -> bool:
@@ -124,6 +130,24 @@ def legacy_archive_max_text_mb() -> int:
         DEFAULT_ARCHIVE_MAX_TEXT_MB,
         MIN_ARCHIVE_MAX_TEXT_MB,
         MAX_ARCHIVE_MAX_TEXT_MB,
+    )
+
+
+def legacy_archive_max_member_mb() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB",
+        DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+        MIN_ARCHIVE_MAX_MEMBER_MB,
+        MAX_ARCHIVE_MAX_MEMBER_MB,
+    )
+
+
+def legacy_archive_max_content_files() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES",
+        DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+        MIN_ARCHIVE_MAX_CONTENT_FILES,
+        MAX_ARCHIVE_MAX_CONTENT_FILES,
     )
 
 
@@ -253,6 +277,65 @@ def validate_archive_max_text_mb(media: dict[str, Any]) -> int:
     ):
         raise ValueError("archive text budget must be between 1 and 64 MiB")
     return value
+
+
+def normalize_archive_extraction_limits(media: dict[str, Any]) -> tuple[int, int]:
+    bounds = (
+        (
+            "archive_max_member_mb",
+            DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+            MIN_ARCHIVE_MAX_MEMBER_MB,
+            MAX_ARCHIVE_MAX_MEMBER_MB,
+        ),
+        (
+            "archive_max_content_files",
+            DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+            MIN_ARCHIVE_MAX_CONTENT_FILES,
+            MAX_ARCHIVE_MAX_CONTENT_FILES,
+        ),
+    )
+    result: list[int] = []
+    for key, default, minimum, maximum in bounds:
+        value = media.get(key, default)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            _LOGGER.warning("Invalid stored archive extraction limit %s; using default", key)
+            value = default
+        result.append(value)
+    return result[0], result[1]
+
+
+def validate_archive_extraction_limits(media: dict[str, Any]) -> tuple[int, int]:
+    bounds = (
+        (
+            "archive_max_member_mb",
+            DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+            MIN_ARCHIVE_MAX_MEMBER_MB,
+            MAX_ARCHIVE_MAX_MEMBER_MB,
+            "archive member size limit must be between 1 and 8,192 MiB",
+        ),
+        (
+            "archive_max_content_files",
+            DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+            MIN_ARCHIVE_MAX_CONTENT_FILES,
+            MAX_ARCHIVE_MAX_CONTENT_FILES,
+            "archive content file limit must be between 1 and 10,000",
+        ),
+    )
+    result: list[int] = []
+    for key, default, minimum, maximum, error in bounds:
+        value = media.get(key, default)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            raise ValueError(error)
+        result.append(value)
+    return result[0], result[1]
 
 
 def normalize_archive_index_settings(media: dict[str, Any]) -> tuple[bool, float]:
