@@ -6,12 +6,23 @@ normal resources without leaking saved credentials.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import BinaryIO, Iterable
 
 from .mail_client import MailStore, _owner_key
 from .resource_local import LocalResourceProvider
 from .resource_provider import ProviderCapabilities, ProviderError, ResourceEntry
+from .safe_paths import resolve_for_write_under
+
+_ACCOUNT_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
+
+
+def _validated_account_id(value: object) -> str:
+    account_id = str(value or "")
+    if not account_id.isascii() or _ACCOUNT_ID.fullmatch(account_id) is None:
+        raise ProviderError("E-Mail-Konto nicht gefunden")
+    return account_id
 
 
 class MailResourceProvider:
@@ -29,15 +40,30 @@ class MailResourceProvider:
         self.actor = actor
 
     def _account(self, account_id: str) -> dict:
+        account_id = _validated_account_id(account_id)
         account = next((a for a in self.store.accounts(self.actor) if a.get("id") == account_id), None)
         if account is None:
             raise ProviderError("E-Mail-Konto nicht gefunden")
         return account
 
     def _archive_provider(self, account_id: str) -> LocalResourceProvider:
+        account_id = _validated_account_id(account_id)
         self._account(account_id)
-        folder = self.root / "email" / _owner_key(self.actor) / account_id
-        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            self.root.mkdir(parents=True, exist_ok=True)
+            owner_key = _owner_key(self.actor)
+            email_root = resolve_for_write_under(self.root, "email")
+            email_root.mkdir(parents=True, exist_ok=True)
+            owner_root = resolve_for_write_under(
+                self.root, Path("email") / owner_key,
+            )
+            owner_root.mkdir(parents=True, exist_ok=True)
+            folder = resolve_for_write_under(
+                self.root, Path("email") / owner_key / account_id,
+            )
+            folder.mkdir(parents=True, exist_ok=True)
+        except (OSError, ValueError) as exc:
+            raise ProviderError("E-Mail-Archivpfad ist ungültig") from exc
         return LocalResourceProvider(folder)
 
     def list(self, path: str = "") -> Iterable[ResourceEntry]:

@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import tempfile
@@ -86,6 +87,21 @@ class MailClientTests(unittest.TestCase):
         token = box.encrypt("value")
         damaged = token[:-2] + ("AA" if token[-2:] != "AA" else "BB")
         with self.assertRaises(Exception): box.decrypt(damaged)
+
+    def test_outbound_archive_rejects_symlink_escape_before_writing(self):
+        owner_key = hashlib.sha256(b"alice").hexdigest()[:32]
+        email_root = self.root / "email"
+        email_root.mkdir(parents=True, exist_ok=True)
+        outside = Path(self.temp.name) / "outside-archive"
+        outside.mkdir()
+        try:
+            (email_root / owner_key).symlink_to(outside, target_is_directory=True)
+        except OSError as exc:
+            self.skipTest(f"directory symlink is unavailable: {type(exc).__name__}")
+
+        with self.assertRaisesRegex(ValueError, "inside the configured root"):
+            self.store.archive_outbound("alice", self.account["id"], MAIL, "sent", {})
+        self.assertEqual([], list(outside.iterdir()))
 
     def test_legacy_plaintext_password_is_migrated_without_blocking_login(self):
         payload = json.loads(self.store.accounts_path.read_text(encoding="utf-8"))
@@ -267,8 +283,14 @@ class MailClientTests(unittest.TestCase):
     def test_archive_uses_examine_and_never_mutating_imap_commands(self):
         fake = FakeImap()
         account = self.store.account("alice", self.account["id"])
+        account_config = {
+            key: account[key]
+            for key in ("id", "host", "port", "security", "username", "auth_method", "folder")
+        }
         with patch.object(ImapArchive, "_connect", return_value=fake):
-            first = ImapArchive(self.store).archive("alice", account)
+            first = ImapArchive(self.store).archive(
+                "alice", account["id"], account_config, account["plain_password"],
+            )
         self.assertEqual(1, first["archived"])
         self.assertTrue(any(call == ("select", "INBOX", True) for call in fake.calls))
         commands = [call[1].casefold() for call in fake.calls if call[0] == "uid"]
@@ -283,6 +305,46 @@ class MailClientTests(unittest.TestCase):
         vfs = VirtualFileSystem(self.root)
         self.assertTrue(vfs.allows("alice", f"email/{owner_key}/{self.account['id']}", "write"))
         self.assertFalse(vfs.allows("bob", f"email/{owner_key}/{self.account['id']}", "read"))
+
+    def test_archive_splits_credential_record_before_recovery_boundary(self):
+        account = self.store.account("alice", self.account["id"])
+        credential_record = {
+            **account,
+            "smtp_password": "encrypted-smtp-secret",
+            "smtp_plain_password": "separate-smtp-secret",
+        }
+
+        with patch("app.imap_archive_recovery.ArchiveRecovery") as recovery:
+            recovery.return_value.run.return_value = {"archived": 0}
+            result = ImapArchive(self.store).archive(
+                "alice", self.account["id"], credential_record, account["plain_password"],
+            )
+
+        self.assertEqual({"archived": 0}, result)
+        recovery_args = recovery.call_args.args
+        self.assertEqual(("alice", self.account["id"]), recovery_args[1:3])
+        self.assertEqual("secret-password", recovery_args[4])
+        self.assertEqual(
+            {"id", "host", "port", "security", "username", "auth_method", "folder"},
+            set(recovery_args[3]),
+        )
+        for secret in (
+            "plain_password", "password", "smtp_password", "smtp_plain_password",
+        ):
+            self.assertNotIn(secret, recovery_args[3])
+
+    def test_archive_rejects_mismatched_identity_or_missing_password(self):
+        account = self.store.account("alice", self.account["id"])
+        account_config = {
+            key: account[key]
+            for key in ("id", "host", "port", "security", "username", "auth_method", "folder")
+        }
+        archive = ImapArchive(self.store)
+
+        with self.assertRaisesRegex(ValueError, "does not match"):
+            archive.archive("alice", "other", account_config, account["plain_password"])
+        with self.assertRaisesRegex(ValueError, "password is required"):
+            archive.archive("alice", self.account["id"], account_config, "")
 
     def test_imap_authentication_diagnostic_names_method_and_safe_alternatives(self):
         account = self.store.account("alice", self.account["id"])
@@ -332,8 +394,27 @@ class MailClientTests(unittest.TestCase):
     def test_smtp_archives_exact_eml_before_sending_and_marks_sent(self):
         account = self.store.smtp_account("alice", self.account["id"])
         smtp = FakeSmtp()
-        with patch.object(SmtpSubmission, "_connect", return_value=smtp):
-            result = SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Termin", "Bitte teilnehmen", "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:one@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n")
+        with patch.object(SmtpSubmission, "_connect", return_value=smtp), patch.object(
+            self.store, "archive_outbound", wraps=self.store.archive_outbound,
+        ) as archive_outbound:
+            result = SmtpSubmission(self.store).send(
+                "alice", account, "bob@example.test", "Termin", "Bitte teilnehmen",
+                "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nUID:one@example.test\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+                account_id=self.account["id"],
+            )
+        self.assertTrue(account["smtp_plain_password"])
+        self.assertTrue(archive_outbound.call_args_list)
+        for call in archive_outbound.call_args_list:
+            self.assertEqual(self.account["id"], call.args[1])
+            self.assertIsInstance(call.args[1], str)
+        history_events = list((self.root / ".simpleoffice-history" / "events").glob("*.json"))
+        self.assertTrue(history_events)
+        history = "".join(
+            path.read_text(encoding="utf-8")
+            for path in history_events
+        )
+        self.assertIn("smtp_message_sent", history)
+        self.assertNotIn(account["smtp_plain_password"], history)
         self.assertEqual(1, result["recipients"])
         archived = self.root / result["path"]
         self.assertEqual(smtp.sent[0][2], archived.read_bytes())
@@ -346,7 +427,10 @@ class MailClientTests(unittest.TestCase):
         account = self.store.smtp_account("alice", self.account["id"])
         with patch.object(SmtpSubmission, "_connect", return_value=FakeSmtp(fail=True)):
             with self.assertRaises(SmtpDeliveryStateUnknown) as raised:
-                SmtpSubmission(self.store).send("alice", account, "bob@example.test", "Fehler", "Inhalt")
+                SmtpSubmission(self.store).send(
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id=self.account["id"],
+                )
         self.assertEqual("unknown", raised.exception.delivery_status)
         self.assertNotIn("unavailable", str(raised.exception))
         sent = list((self.root / "email").rglob("*.eml"))
@@ -359,6 +443,25 @@ class MailClientTests(unittest.TestCase):
         self.assertIn("smtp_message_pending", actions)
         self.assertIn("smtp_message_unknown", actions)
 
+    def test_smtp_send_rejects_identity_mismatch_before_io(self):
+        account = self.store.smtp_account("alice", self.account["id"])
+        with patch.object(SmtpSubmission, "_connect") as connect, patch.object(
+            self.store, "archive_outbound",
+        ) as archive_outbound:
+            with self.assertRaisesRegex(ValueError, "does not match"):
+                SmtpSubmission(self.store).send(
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id="other",
+                )
+            foreign_account = {**account, "owner": "bob"}
+            with self.assertRaises(PermissionError):
+                SmtpSubmission(self.store).send(
+                    "alice", foreign_account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id=self.account["id"],
+                )
+        connect.assert_not_called()
+        archive_outbound.assert_not_called()
+
     def test_smtp_authentication_response_is_not_persisted_in_archive_or_history(self):
         account = self.store.smtp_account("alice", self.account["id"])
         marker = "remote-secret-marker"
@@ -368,7 +471,8 @@ class MailClientTests(unittest.TestCase):
         with patch.object(SmtpSubmission, "_connect", side_effect=error):
             with self.assertRaises(__import__("smtplib").SMTPAuthenticationError):
                 SmtpSubmission(self.store).send(
-                    "alice", account, "bob@example.test", "Fehler", "Inhalt"
+                    "alice", account, "bob@example.test", "Fehler", "Inhalt",
+                    account_id=self.account["id"],
                 )
         sent = next((self.root / "email").rglob("*.eml"))
         document = DocumentStore(self.root).get_document(sent)

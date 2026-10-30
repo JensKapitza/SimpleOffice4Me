@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
+from functools import lru_cache
 import json
 import logging
 import os
@@ -11,48 +12,116 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .archive_settings import (
+    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED as DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB as DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_MEMBERS as DEFAULT_ARCHIVE_MAX_MEMBERS,
+    DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO as DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+    DEFAULT_ARCHIVE_MEMBER_YIELD_MS as DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
+    DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU as DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB as DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+    legacy_archive_disk_reserve_mb,
+    legacy_archive_deep_index_enabled,
+    legacy_archive_max_load_per_cpu,
+    legacy_archive_max_content_files,
+    legacy_archive_max_compression_ratio,
+    legacy_archive_max_member_mb,
+    legacy_archive_max_members,
+    legacy_archive_max_text_mb,
+    legacy_archive_max_text_per_member_mb,
+    legacy_archive_member_yield_ms,
+    legacy_archive_min_free_memory_mb,
+)
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
+from .integration_settings import (
+    DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+    DEFAULT_OSM_DOWNLOAD_RETRIES,
+    DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    DEFAULT_OSM_MAX_DOWNLOAD_GIB,
+    DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
+    DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+    DEFAULT_ERROR_REPORTING_ENABLED,
+    DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
+    MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+    MAX_OSM_DOWNLOAD_RETRIES as MAX_OSM_DOWNLOAD_RETRIES,
+    MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS as MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    MAX_OSM_FILTER_TIMEOUT_SECONDS as MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_MAX_DOWNLOAD_GIB as MAX_OSM_MAX_DOWNLOAD_GIB,
+    MAX_OSM_READ_TIMEOUT_SECONDS as MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_FEDERATION_AUTOSCAN_SECONDS as MAX_FEDERATION_AUTOSCAN_SECONDS,
+    MIN_CLAMAV_TIMEOUT_SECONDS as MIN_CLAMAV_TIMEOUT_SECONDS,
+    MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS as MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+    MIN_OSM_DOWNLOAD_RETRIES as MIN_OSM_DOWNLOAD_RETRIES,
+    MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS as MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+    MIN_OSM_FILTER_TIMEOUT_SECONDS as MIN_OSM_FILTER_TIMEOUT_SECONDS,
+    MIN_OSM_MAX_DOWNLOAD_GIB as MIN_OSM_MAX_DOWNLOAD_GIB,
+    MIN_OSM_READ_TIMEOUT_SECONDS as MIN_OSM_READ_TIMEOUT_SECONDS,
+    MIN_FEDERATION_AUTOSCAN_SECONDS as MIN_FEDERATION_AUTOSCAN_SECONDS,
+    legacy_clamav_timeout,
+    legacy_federation_autoscan_country,
+    legacy_federation_autoscan_seconds,
+    legacy_error_reporting_enabled,
+    legacy_federation_public_directory_enabled,
+    legacy_osm_download_retries,
+    legacy_osm_export_idle_timeout,
+    legacy_osm_filter_timeout,
+    legacy_osm_max_download_gib,
+    legacy_osm_read_timeout,
+    legacy_personnel_time_autosync_enabled,
+    legacy_personnel_time_autosync_seconds,
+    legacy_printershare_purge_interval_seconds,
+    normalize_integration_settings,
+    validate_integration_settings,
+)
 from .revision_history import RevisionHistory
+from .media_settings import (
+    DEFAULT_ARCHIVE_OCR_ENABLED as DEFAULT_ARCHIVE_OCR_ENABLED,
+    DEFAULT_MEDIA_SETTINGS,
+    DEFAULT_PREVIEW_ENABLED as DEFAULT_PREVIEW_ENABLED,
+    DEFAULT_PREVIEW_MAX_BYTES as DEFAULT_PREVIEW_MAX_BYTES,
+    DEFAULT_PREVIEW_MAX_PIXELS as DEFAULT_PREVIEW_MAX_PIXELS,
+    DEFAULT_PREVIEW_TIMEOUT_SECONDS as DEFAULT_PREVIEW_TIMEOUT_SECONDS,
+    DEFAULT_VIDEO_PREVIEW_FRAMES as DEFAULT_VIDEO_PREVIEW_FRAMES,
+    LEGACY_VIDEO_PREVIEW_SETTINGS_FILE,
+    MAX_PREVIEW_MAX_BYTES as MAX_PREVIEW_MAX_BYTES,
+    MAX_PREVIEW_MAX_PIXELS as MAX_PREVIEW_MAX_PIXELS,
+    MAX_PREVIEW_TIMEOUT_SECONDS as MAX_PREVIEW_TIMEOUT_SECONDS,
+    MAX_VIDEO_PREVIEW_FRAMES as MAX_VIDEO_PREVIEW_FRAMES,
+    MIN_PREVIEW_MAX_BYTES as MIN_PREVIEW_MAX_BYTES,
+    MIN_PREVIEW_MAX_PIXELS as MIN_PREVIEW_MAX_PIXELS,
+    MIN_PREVIEW_TIMEOUT_SECONDS as MIN_PREVIEW_TIMEOUT_SECONDS,
+    MIN_VIDEO_PREVIEW_FRAMES as MIN_VIDEO_PREVIEW_FRAMES,
+    normalize_media_settings,
+    validate_media_settings,
+)
 from .settings_limits import (
+    DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
+    DEFAULT_UPLOAD_LIMIT_MIB,
+    MAX_CHAT_ATTACHMENT_BYTES,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
     DEFAULT_WEBDAV_QUOTA_MIB,
+    MIN_CHAT_ATTACHMENT_BYTES as MIN_CHAT_ATTACHMENT_BYTES,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
+    MAX_UPLOAD_LIMIT_MIB,
     MAX_WEBDAV_QUOTA_MIB,
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
+    MIN_UPLOAD_LIMIT_MIB,
 )
 
 
 _SETTINGS_LOCK = threading.RLock()
 _LOGGER = logging.getLogger(__name__)
-DEFAULT_VIDEO_PREVIEW_FRAMES = 10
-MIN_VIDEO_PREVIEW_FRAMES = 1
-MAX_VIDEO_PREVIEW_FRAMES = 30
-LEGACY_VIDEO_PREVIEW_SETTINGS_FILE = "video-preview-settings.json"
-DEFAULT_PREVIEW_ENABLED = True
-DEFAULT_PREVIEW_TIMEOUT_SECONDS = 45
-MIN_PREVIEW_TIMEOUT_SECONDS = 5
-MAX_PREVIEW_TIMEOUT_SECONDS = 300
-DEFAULT_PREVIEW_MAX_BYTES = 256 * 1024 * 1024
-MIN_PREVIEW_MAX_BYTES = 1024
-MAX_PREVIEW_MAX_BYTES = 2 * 1024 * 1024 * 1024
-DEFAULT_PREVIEW_MAX_PIXELS = 80_000_000
-MIN_PREVIEW_MAX_PIXELS = 1_000_000
-MAX_PREVIEW_MAX_PIXELS = 250_000_000
-DEFAULT_OSM_READ_TIMEOUT_SECONDS = 300
-MIN_OSM_READ_TIMEOUT_SECONDS = 30
-MAX_OSM_READ_TIMEOUT_SECONDS = 3600
-DEFAULT_OSM_FILTER_TIMEOUT_SECONDS = 21600
-MIN_OSM_FILTER_TIMEOUT_SECONDS = 3600
-MAX_OSM_FILTER_TIMEOUT_SECONDS = 86400
-DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS = 1800
-MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS = 300
-MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS = 86400
-DEFAULT_CLAMAV_TIMEOUT_SECONDS = 120
-MIN_CLAMAV_TIMEOUT_SECONDS = 5
-MAX_CLAMAV_TIMEOUT_SECONDS = 900
 DEFAULT_RSYNC_TIMEOUT_SECONDS = 3600
 MIN_RSYNC_TIMEOUT_SECONDS = 30
 MAX_RSYNC_TIMEOUT_SECONDS = 86400
@@ -96,18 +165,21 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "rsync_max_bytes": DEFAULT_RSYNC_MAX_BYTES,
         "rsync_max_files": DEFAULT_RSYNC_MAX_FILES,
     },
-    "media": {
-        "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
-        "preview_enabled": DEFAULT_PREVIEW_ENABLED,
-        "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
-        "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
-        "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
-    },
+    "media": dict(DEFAULT_MEDIA_SETTINGS),
     "integrations": {
         "osm_download_read_timeout_seconds": DEFAULT_OSM_READ_TIMEOUT_SECONDS,
         "osm_filter_timeout_seconds": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
         "osm_export_idle_timeout_seconds": DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+        "osm_max_download_gib": DEFAULT_OSM_MAX_DOWNLOAD_GIB,
+        "osm_download_retries": DEFAULT_OSM_DOWNLOAD_RETRIES,
         "clamav_timeout_seconds": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+        "personnel_time_autosync_enabled": DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+        "personnel_time_autosync_seconds": DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        "printershare_purge_interval_seconds": DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        "federation_autoscan_country": DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
+        "federation_autoscan_seconds": DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+        "error_reporting_enabled": DEFAULT_ERROR_REPORTING_ENABLED,
+        "federation_public_directory_enabled": DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
     },
 }
 
@@ -406,6 +478,10 @@ class SettingsStore:
             for key, legacy_value in legacy_media.items():
                 if not isinstance(stored_media, dict) or key not in stored_media:
                     result["media"][key] = legacy_value
+        if not isinstance(stored_media, dict) or "chat_attachment_max_bytes" not in stored_media:
+            result["media"]["chat_attachment_max_bytes"] = (
+                self._legacy_chat_attachment_max_bytes()
+            )
         result["media"] = self._normalize_media_settings(result["media"])
         stored_network = stored.get("network") if isinstance(stored, dict) else None
         if not isinstance(stored_network, dict) or "webdav_quota_mib" not in stored_network:
@@ -423,25 +499,78 @@ class SettingsStore:
             or "osm_download_read_timeout_seconds" not in stored_integrations
         ):
             result["integrations"]["osm_download_read_timeout_seconds"] = (
-                self._legacy_osm_read_timeout()
+                legacy_osm_read_timeout()
             )
         if not isinstance(stored_integrations, dict) or "osm_filter_timeout_seconds" not in stored_integrations:
             result["integrations"]["osm_filter_timeout_seconds"] = (
-                self._legacy_osm_filter_timeout()
+                legacy_osm_filter_timeout()
             )
         if (
             not isinstance(stored_integrations, dict)
             or "osm_export_idle_timeout_seconds" not in stored_integrations
         ):
             result["integrations"]["osm_export_idle_timeout_seconds"] = (
-                self._legacy_osm_export_idle_timeout()
+                legacy_osm_export_idle_timeout()
             )
+        if not isinstance(stored_integrations, dict) or "osm_max_download_gib" not in stored_integrations:
+            result["integrations"]["osm_max_download_gib"] = legacy_osm_max_download_gib()
+        if not isinstance(stored_integrations, dict) or "osm_download_retries" not in stored_integrations:
+            result["integrations"]["osm_download_retries"] = legacy_osm_download_retries()
         if (
             not isinstance(stored_integrations, dict)
             or "clamav_timeout_seconds" not in stored_integrations
         ):
             result["integrations"]["clamav_timeout_seconds"] = (
-                self._legacy_clamav_timeout()
+                legacy_clamav_timeout()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "personnel_time_autosync_enabled" not in stored_integrations
+        ):
+            result["integrations"]["personnel_time_autosync_enabled"] = (
+                legacy_personnel_time_autosync_enabled()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "personnel_time_autosync_seconds" not in stored_integrations
+        ):
+            result["integrations"]["personnel_time_autosync_seconds"] = (
+                legacy_personnel_time_autosync_seconds()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "printershare_purge_interval_seconds" not in stored_integrations
+        ):
+            result["integrations"]["printershare_purge_interval_seconds"] = (
+                legacy_printershare_purge_interval_seconds()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_autoscan_country" not in stored_integrations
+        ):
+            result["integrations"]["federation_autoscan_country"] = (
+                legacy_federation_autoscan_country()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_autoscan_seconds" not in stored_integrations
+        ):
+            result["integrations"]["federation_autoscan_seconds"] = (
+                legacy_federation_autoscan_seconds()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "error_reporting_enabled" not in stored_integrations
+        ):
+            result["integrations"]["error_reporting_enabled"] = (
+                legacy_error_reporting_enabled()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_public_directory_enabled" not in stored_integrations
+        ):
+            result["integrations"]["federation_public_directory_enabled"] = (
+                legacy_federation_public_directory_enabled()
             )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
@@ -549,143 +678,8 @@ class SettingsStore:
         return value
 
     @staticmethod
-    def _legacy_osm_read_timeout() -> int:
-        """Read and bound the legacy environment value before it is persisted."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS",
-            str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 12 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy OSM read timeout; using the default")
-            return DEFAULT_OSM_READ_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_OSM_READ_TIMEOUT_SECONDS <= value <= MAX_OSM_READ_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy OSM read timeout outside range; clamping to supported limits")
-            return max(
-                MIN_OSM_READ_TIMEOUT_SECONDS,
-                min(MAX_OSM_READ_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
-    def _legacy_osm_filter_timeout() -> int:
-        """Read and bound the legacy OSM filter timeout until settings are saved."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_OSM_FILTER_TIMEOUT",
-            str(DEFAULT_OSM_FILTER_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy OSM filter timeout; using the default")
-            return DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
-        if len(raw) > 12:
-            _LOGGER.warning("Legacy OSM filter timeout outside range; clamping to supported limits")
-            return MIN_OSM_FILTER_TIMEOUT_SECONDS if raw.startswith("-") else MAX_OSM_FILTER_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_OSM_FILTER_TIMEOUT_SECONDS <= value <= MAX_OSM_FILTER_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy OSM filter timeout outside range; clamping to supported limits")
-            return max(
-                MIN_OSM_FILTER_TIMEOUT_SECONDS,
-                min(MAX_OSM_FILTER_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
-    def _legacy_osm_export_idle_timeout() -> int:
-        """Read and bound the OSM export watchdog until settings are saved."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT",
-            str(DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy OSM export idle timeout; using the default")
-            return DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        if len(raw) > 12:
-            _LOGGER.warning("Legacy OSM export idle timeout outside range; clamping to supported limits")
-            return (
-                MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-                if raw.startswith("-") else MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-            )
-        value = int(raw)
-        if not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS <= value <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy OSM export idle timeout outside range; clamping to supported limits")
-            return max(
-                MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-                min(MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
-    def _legacy_clamav_timeout() -> int:
-        """Migrate and bound the former environment-only scanner timeout."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_CLAMAV_TIMEOUT", str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 12 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy ClamAV timeout; using the default")
-            return DEFAULT_CLAMAV_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_CLAMAV_TIMEOUT_SECONDS <= value <= MAX_CLAMAV_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy ClamAV timeout outside range; clamping to supported limits")
-            return max(
-                MIN_CLAMAV_TIMEOUT_SECONDS,
-                min(MAX_CLAMAV_TIMEOUT_SECONDS, value),
-            )
-        return value
-
-    @staticmethod
     def _normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
-        timeout = integrations.get(
-            "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, int)
-            or not MIN_OSM_READ_TIMEOUT_SECONDS <= timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored OSM read timeout; using the default")
-            timeout = DEFAULT_OSM_READ_TIMEOUT_SECONDS
-        filter_timeout = integrations.get(
-            "osm_filter_timeout_seconds", DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(filter_timeout, bool)
-            or not isinstance(filter_timeout, int)
-            or not MIN_OSM_FILTER_TIMEOUT_SECONDS <= filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored OSM filter timeout; using the default")
-            filter_timeout = DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
-        export_idle_timeout = integrations.get(
-            "osm_export_idle_timeout_seconds", DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(export_idle_timeout, bool)
-            or not isinstance(export_idle_timeout, int)
-            or not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-            <= export_idle_timeout
-            <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored OSM export idle timeout; using the default")
-            export_idle_timeout = DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        clamav_timeout = integrations.get(
-            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(clamav_timeout, bool)
-            or not isinstance(clamav_timeout, int)
-            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
-        ):
-            _LOGGER.warning("Invalid stored ClamAV timeout; using the default")
-            clamav_timeout = DEFAULT_CLAMAV_TIMEOUT_SECONDS
-        return {
-            "osm_download_read_timeout_seconds": timeout,
-            "osm_filter_timeout_seconds": filter_timeout,
-            "osm_export_idle_timeout_seconds": export_idle_timeout,
-            "clamav_timeout_seconds": clamav_timeout,
-        }
+        return normalize_integration_settings(integrations)
 
     def _legacy_media_settings(self) -> dict[str, Any]:
         legacy_path = self.root / CONTROL_DIR / LEGACY_VIDEO_PREVIEW_SETTINGS_FILE
@@ -699,6 +693,10 @@ class SettingsStore:
             else os.environ.get("SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES", DEFAULT_VIDEO_PREVIEW_FRAMES)
         )
         return {
+            "upload_limit_mib": _bounded_setting(
+                os.environ.get("SIMPLEOFFICE_MAX_UPLOAD_MIB"),
+                DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
+            ),
             "video_preview_frames": _bounded_setting(
                 legacy_frames, DEFAULT_VIDEO_PREVIEW_FRAMES,
                 MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
@@ -718,46 +716,55 @@ class SettingsStore:
                 os.environ.get("SIMPLEOFFICE_PREVIEW_MAX_PIXELS"),
                 DEFAULT_PREVIEW_MAX_PIXELS, MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
             ),
+            "archive_ocr_enabled": os.environ.get(
+                "SIMPLEOFFICE_ARCHIVE_OCR", "0",
+            ).strip().casefold() in {"1", "true", "yes", "on"},
+            # This legacy option can only enable automatic resource-aware indexing;
+            # it no longer bypasses CPU or memory safeguards.
+            "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
+            "archive_max_load_per_cpu": legacy_archive_max_load_per_cpu(),
+            "archive_min_free_memory_mb": legacy_archive_min_free_memory_mb(),
+            "archive_disk_reserve_mb": legacy_archive_disk_reserve_mb(),
+            "archive_max_members": legacy_archive_max_members(),
+            "archive_max_member_mb": legacy_archive_max_member_mb(),
+            "archive_max_content_files": legacy_archive_max_content_files(),
+            "archive_max_compression_ratio": legacy_archive_max_compression_ratio(),
+            "archive_max_text_mb": legacy_archive_max_text_mb(),
+            "archive_max_text_per_member_mb": legacy_archive_max_text_per_member_mb(),
+            "archive_member_yield_ms": legacy_archive_member_yield_ms(),
         }
+
+    @classmethod
+    def _legacy_chat_attachment_max_bytes(cls) -> int:
+        """Read the old byte cap until a persistent setting exists; zero inherits."""
+        raw = os.environ.get("SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES", "").strip()
+        if len(raw) > 20:
+            raw = "<oversized>"
+        return cls._parse_legacy_chat_attachment_max_bytes(raw)
+
+    @staticmethod
+    @lru_cache(maxsize=16)
+    def _parse_legacy_chat_attachment_max_bytes(raw: str) -> int:
+        if not raw:
+            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
+        if not raw.isascii():
+            _LOGGER.warning("Invalid legacy chat attachment limit; inheriting global upload limit")
+            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
+        try:
+            requested = int(raw)
+        except ValueError:
+            _LOGGER.warning("Invalid legacy chat attachment limit; inheriting global upload limit")
+            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
+        if requested < 1:
+            return 1
+        if requested > MAX_CHAT_ATTACHMENT_BYTES:
+            _LOGGER.warning("Legacy chat attachment limit exceeds supported maximum; clamping")
+            return MAX_CHAT_ATTACHMENT_BYTES
+        return requested
 
     @staticmethod
     def _normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
-        normalized = dict(media)
-        if not isinstance(normalized.get("preview_enabled"), bool):
-            _LOGGER.warning("Invalid stored document preview enable setting; using default")
-            normalized["preview_enabled"] = DEFAULT_PREVIEW_ENABLED
-        ranges = {
-            "video_preview_frames": (
-                DEFAULT_VIDEO_PREVIEW_FRAMES,
-                MIN_VIDEO_PREVIEW_FRAMES,
-                MAX_VIDEO_PREVIEW_FRAMES,
-            ),
-            "preview_timeout_seconds": (
-                DEFAULT_PREVIEW_TIMEOUT_SECONDS,
-                MIN_PREVIEW_TIMEOUT_SECONDS,
-                MAX_PREVIEW_TIMEOUT_SECONDS,
-            ),
-            "preview_max_bytes": (
-                DEFAULT_PREVIEW_MAX_BYTES,
-                MIN_PREVIEW_MAX_BYTES,
-                MAX_PREVIEW_MAX_BYTES,
-            ),
-            "preview_max_pixels": (
-                DEFAULT_PREVIEW_MAX_PIXELS,
-                MIN_PREVIEW_MAX_PIXELS,
-                MAX_PREVIEW_MAX_PIXELS,
-            ),
-        }
-        for key, (default, minimum, maximum) in ranges.items():
-            value = normalized.get(key)
-            if (
-                isinstance(value, bool)
-                or not isinstance(value, int)
-                or not minimum <= value <= maximum
-            ):
-                _LOGGER.warning("Invalid stored media setting %s; using default", key)
-                normalized[key] = default
-        return normalized
+        return normalize_media_settings(media)
 
     def save(self, settings: dict[str, Any], actor: str) -> dict[str, Any]:
         if not actor.strip():
@@ -831,75 +838,8 @@ class SettingsStore:
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
             raise ValueError("integration settings must be an object")
-        osm_read_timeout = integrations.get(
-            "osm_download_read_timeout_seconds", DEFAULT_OSM_READ_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(osm_read_timeout, bool)
-            or not isinstance(osm_read_timeout, int)
-            or not MIN_OSM_READ_TIMEOUT_SECONDS <= osm_read_timeout <= MAX_OSM_READ_TIMEOUT_SECONDS
-        ):
-            raise ValueError("OSM read timeout must be between 30 and 3600 seconds")
-        osm_filter_timeout = integrations.get(
-            "osm_filter_timeout_seconds", DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(osm_filter_timeout, bool)
-            or not isinstance(osm_filter_timeout, int)
-            or not MIN_OSM_FILTER_TIMEOUT_SECONDS <= osm_filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS
-        ):
-            raise ValueError("OSM filter timeout must be between 3600 and 86,400 seconds")
-        osm_export_idle_timeout = integrations.get(
-            "osm_export_idle_timeout_seconds", DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(osm_export_idle_timeout, bool)
-            or not isinstance(osm_export_idle_timeout, int)
-            or not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-            <= osm_export_idle_timeout
-            <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        ):
-            raise ValueError("OSM export idle timeout must be between 300 and 86,400 seconds")
-        clamav_timeout = integrations.get(
-            "clamav_timeout_seconds", DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-        )
-        if (
-            isinstance(clamav_timeout, bool)
-            or not isinstance(clamav_timeout, int)
-            or not MIN_CLAMAV_TIMEOUT_SECONDS <= clamav_timeout <= MAX_CLAMAV_TIMEOUT_SECONDS
-        ):
-            raise ValueError("ClamAV timeout must be between 5 and 900 seconds")
-        video_preview_frames = media.get("video_preview_frames", DEFAULT_VIDEO_PREVIEW_FRAMES)
-        if (
-            isinstance(video_preview_frames, bool)
-            or not isinstance(video_preview_frames, int)
-            or not MIN_VIDEO_PREVIEW_FRAMES <= video_preview_frames <= MAX_VIDEO_PREVIEW_FRAMES
-        ):
-            raise ValueError("video preview frame count must be between 1 and 30")
-        preview_enabled = media.get("preview_enabled", DEFAULT_PREVIEW_ENABLED)
-        if not isinstance(preview_enabled, bool):
-            raise ValueError("document previews enabled must be boolean")
-        preview_timeout = media.get("preview_timeout_seconds", DEFAULT_PREVIEW_TIMEOUT_SECONDS)
-        if (
-            isinstance(preview_timeout, bool)
-            or not isinstance(preview_timeout, int)
-            or not MIN_PREVIEW_TIMEOUT_SECONDS <= preview_timeout <= MAX_PREVIEW_TIMEOUT_SECONDS
-        ):
-            raise ValueError("preview timeout must be between 5 and 300 seconds")
-        preview_max_bytes = media.get("preview_max_bytes", DEFAULT_PREVIEW_MAX_BYTES)
-        if (
-            isinstance(preview_max_bytes, bool)
-            or not isinstance(preview_max_bytes, int)
-            or not MIN_PREVIEW_MAX_BYTES <= preview_max_bytes <= MAX_PREVIEW_MAX_BYTES
-        ):
-            raise ValueError("preview byte limit is outside the allowed range")
-        preview_max_pixels = media.get("preview_max_pixels", DEFAULT_PREVIEW_MAX_PIXELS)
-        if (
-            isinstance(preview_max_pixels, bool)
-            or not isinstance(preview_max_pixels, int)
-            or not MIN_PREVIEW_MAX_PIXELS <= preview_max_pixels <= MAX_PREVIEW_MAX_PIXELS
-        ):
-            raise ValueError("preview pixel limit is outside the allowed range")
+        integrations = validate_integration_settings(integrations)
+        media = validate_media_settings(media)
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "de"))
@@ -936,17 +876,8 @@ class SettingsStore:
                 "rsync_max_bytes": rsync_max_bytes,
                 "rsync_max_files": rsync_max_files,
             },
-            "media": {
-                "video_preview_frames": video_preview_frames,
-                "preview_enabled": preview_enabled,
-                "preview_timeout_seconds": preview_timeout,
-                "preview_max_bytes": preview_max_bytes,
-                "preview_max_pixels": preview_max_pixels,
-            },
+            "media": media,
             "integrations": {
-                "osm_download_read_timeout_seconds": osm_read_timeout,
-                "osm_filter_timeout_seconds": osm_filter_timeout,
-                "osm_export_idle_timeout_seconds": osm_export_idle_timeout,
-                "clamav_timeout_seconds": clamav_timeout,
+                **integrations,
             },
         }

@@ -25,6 +25,12 @@ from app.v2.storage_runtime import create_or_verify_document
 
 FIRST = b"Subject: First\r\nMessage-ID: <same@example.test>\r\n\r\nFirst body\r\n"
 SECOND = b"Subject: Second\r\nMessage-ID: <same@example.test>\r\n\r\nSecond body\r\n"
+ARCHIVE_CONFIG_FIELDS = ("id", "host", "port", "security", "username", "auth_method", "folder")
+
+
+def _archive_request(account):
+    config = {key: account[key] for key in ARCHIVE_CONFIG_FIELDS}
+    return account["id"], config, account["plain_password"]
 
 
 class Mailbox:
@@ -95,8 +101,9 @@ class ArchiveRecoveryTests(unittest.TestCase):
     def run_archive(self, **kwargs):
         # Construct a fresh client/store each time: only durable state survives.
         store = MailStore(self.root, self.key)
+        account_id, config, password = _archive_request(self.account)
         with patch.object(ImapArchive, "_connect", return_value=self.mailbox):
-            return ImapArchive(store).archive("alice", self.account, **kwargs)
+            return ImapArchive(store).archive("alice", account_id, config, password, **kwargs)
 
     def messages(self):
         return sorted(read_archive_eml(self.store, "alice", "work", path)
@@ -184,13 +191,14 @@ from app.mail_client import ImapArchive, MailStore
 from app.v2.storage_runtime import create_or_verify_document
 store = MailStore(sys.argv[1], b"synthetic-recovery-master-key")
 account = store.account("alice", "work", "synthetic-password")
+account_config = {key: account[key] for key in ("id", "host", "port", "security", "username", "auth_method", "folder")}
 def crash(*args, **kwargs):
     create_or_verify_document(*args, **kwargs)
     os._exit(86)
 with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
     "app.imap_archive_recovery.create_or_verify_document", side_effect=crash
 ), patch("app.v2.storage_runtime.runtime_storage_master_key", return_value=b"k" * 32):
-    ImapArchive(store).archive("alice", account)
+    ImapArchive(store).archive("alice", "work", account_config, account["plain_password"])
 '''
         child = subprocess.run([sys.executable, "-c", script, str(self.root)],
                                cwd=Path(__file__).resolve().parents[1], capture_output=True, timeout=30)
@@ -281,6 +289,26 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
         self.assertEqual(0, self.run_archive()["examined"])
         self.assertEqual([FIRST], self.messages())
 
+    def test_archive_lock_identity_does_not_depend_on_password(self):
+        index_lock_name = self.store.index_path.with_suffix(".lock").name
+        self.run_archive()
+        original_lock_names = sorted(
+            path.name for path in self.store.control.glob("archive-*.lock")
+            if path.name != index_lock_name
+        )
+        self.assertEqual(1, len(original_lock_names))
+
+        self.account = {**self.account, "plain_password": "rotated-password"}
+        self.run_archive()
+
+        self.assertEqual(
+            original_lock_names,
+            sorted(
+                path.name for path in self.store.control.glob("archive-*.lock")
+                if path.name != index_lock_name
+            ),
+        )
+
     def test_folder_change_rescans_instead_of_reusing_other_folders_uid_progress(self):
         self.run_archive()
         self.store.save_account("alice", {**self.account, "folder": "Archive"}, "", False)
@@ -299,8 +327,9 @@ with patch.object(ImapArchive, "_connect", return_value=Mailbox()), patch(
         self.assertEqual([FIRST, SECOND], self.messages())
 
     def test_foreign_owner_cannot_archive_another_users_account(self):
+        account_id, config, password = _archive_request(self.account)
         with self.assertRaises(KeyError):
-            ImapArchive(self.store).archive("bob", self.account)
+            ImapArchive(self.store).archive("bob", account_id, config, password)
         self.assertEqual([], self.messages())
 
     def test_partial_attachment_failure_resumes_confirmed_work_without_duplicates(self):

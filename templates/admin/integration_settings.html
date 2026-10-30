@@ -12,19 +12,142 @@
       <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
       <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
       <a class="nav-link active" href="{{ url_for('admin.integration_settings') }}" aria-current="page">Integrationen &amp; Dienste</a>
+      <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">Drucker</a>
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card mb-3">
+    <div class="card-header"><strong>Automatische Fehlerberichte</strong></div>
+    <div class="card-body">
+      <p>Erlaubt ausschließlich datensparsame technische Diagnosen an den konfigurierten Fehler-Relay. Dokumentinhalte, Anfragen, Benutzerkennungen, Cookies und Zugangsdaten werden nicht übertragen. Deaktivieren stoppt nur den automatischen Versand; lokales Fehlerprotokoll und manuell erstellbare Fehlerberichte bleiben verfügbar. Das Fehler-Relay auf einem Master wird dadurch nicht abgeschaltet.</p>
+      <form method="post" action="{{ url_for('admin_error_reporting_settings.save_error_reporting_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="error-reporting-enabled">Ausgehende automatische Fehlerberichte</label>
+          <select class="form-select" id="error-reporting-enabled" name="error_reporting_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="1" {% if integrations.error_reporting_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
+            <option value="0" {% if not integrations.error_reporting_enabled %}selected{% endif %}>Deaktiviert</option>
+          </select>
+          <div class="form-text">Gilt für das nächste Fehlerereignis; ein Neustart ist nicht erforderlich. <code>SIMPLEOFFICE_ERROR_REPORTING=0</code> dient nur bis zur ersten Speicherung als Legacy-Opt-out. Eine gespeicherte Einstellung hat Vorrang.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <section class="card mb-3">
+    <div class="card-header"><strong>Personaldaten-Synchronisation</strong></div>
+    <div class="card-body">
+      <p>Steuert den Hintergrund-Worker für bereits ausdrücklich aktivierte Personalsynchronisationen. Die Freigabe je Peer und Person bleibt separat. Änderungen gelten spätestens beim nächsten Worker-Zyklus; <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC</code> und <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS</code> dienen nur als begrenzte Legacy-Startwerte, bis diese Einstellungen gespeichert wurden.</p>
+      <form method="post" action="{{ url_for('admin.save_personnel_time_autosync_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="personnel-time-autosync-enabled">Hintergrund-Synchronisation</label>
+          <select class="form-select" id="personnel-time-autosync-enabled" name="personnel_time_autosync_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="1" {% if integrations.personnel_time_autosync_enabled == 1 %}selected{% endif %}>Aktiviert</option>
+            <option value="0" {% if integrations.personnel_time_autosync_enabled == 0 %}selected{% endif %}>Deaktiviert</option>
+          </select>
+          <div class="form-text">Standard: aktiviert. Pro-Peer-/Person-Freigaben bleiben zusätzlich erforderlich.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="personnel-time-autosync-seconds">Worker-Prüfintervall (Sekunden)</label>
+          <input class="form-control" id="personnel-time-autosync-seconds" type="number" name="personnel_time_autosync_seconds" value="{{ integrations.personnel_time_autosync_seconds }}" min="{{ personnel_time_autosync_min }}" max="{{ personnel_time_autosync_max }}" step="1" required>
+          <div class="form-text">Standard: 300 Sekunden. Zulässig: 60–3600 Sekunden.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwerte zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <section class="card mb-3">
+    <div class="card-header"><strong>Föderationssuche</strong></div>
+    <div class="card-body">
+      <p>Die automatische Land-Suche ist optional und standardmäßig deaktiviert. Entdeckte Peers werden nur als Vorschläge gespeichert; sie werden dadurch weder aktiviert noch für Datenfreigaben autorisiert. Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam.</p>
+      <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_discovery_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="federation-autoscan-country">Land (ISO-3166 Alpha-2, leer = deaktiviert)</label>
+          <input class="form-control" id="federation-autoscan-country" type="text" name="federation_autoscan_country" value="{{ integrations.federation_autoscan_country }}" maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off">
+          <div class="form-text">Standardmäßig aus. Das frühere SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY wird bis zum Speichern als Legacy-Startwert übernommen.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="federation-autoscan-seconds">Suchintervall (Sekunden)</label>
+          <input class="form-control" id="federation-autoscan-seconds" type="number" name="federation_autoscan_seconds" value="{{ integrations.federation_autoscan_seconds }}" min="{{ federation_autoscan_min }}" max="{{ federation_autoscan_max }}" step="1" required>
+          <div class="form-text">Standard: 21.600 Sekunden (6 Stunden); zulässig: 3.600–604.800 Sekunden. Das frühere Environment-Intervall wird bis zum Speichern migriert.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwerte zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <section class="card mb-3">
+    <div class="card-header"><strong>Öffentliches Federation-Verzeichnis</strong></div>
+    <div class="card-body">
+      <p>Wenn aktiviert, dürfen nicht angemeldete Clients ausschließlich die explizit veröffentlichten öffentlichen Peer-Profile abfragen. Dazu gehören Peer-ID, Anzeigename, öffentliche Basis-URL, Land, Fingerprint und öffentlicher Schlüssel. Registrierung, Auflösung, Trust und Rendezvous bleiben weiterhin authentifiziert. Standardmäßig ist die Veröffentlichung deaktiviert.</p>
+      <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_public_directory_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="federation-public-directory-enabled">Öffentliche Abfrage veröffentlichter Peer-Profile</label>
+          <select class="form-select" id="federation-public-directory-enabled" name="federation_public_directory_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="1" {% if integrations.federation_public_directory_enabled %}selected{% endif %}>Aktiviert</option>
+            <option value="0" {% if not integrations.federation_public_directory_enabled %}selected{% endif %}>Deaktiviert (Standard)</option>
+          </select>
+          <div class="form-text">Gilt sofort. <code>SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1</code> dient nur bis zur ersten Speicherung als Legacy-Opt-in; danach ist die persistente Einstellung maßgeblich.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <section class="card mt-3">
+    <div class="card-header"><strong>PrinterShare-Aufbewahrungsbereinigung</strong></div>
+    <div class="card-body">
+      <p>Das Intervall steuert, wie oft abgelaufene Druckaufträge physisch bereinigt werden; es ändert nicht deren Aufbewahrungsfrist. Der gespeicherte Wert wird beim Start des Webprozesses übernommen. <code>SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL</code> dient als begrenzter Legacy-Startwert, bis die persistierte Einstellung gespeichert wurde.</p>
+      <form method="post" action="{{ url_for('admin.save_printershare_purge_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="printershare-purge-interval">Bereinigungsintervall (Sekunden)</label>
+          <input class="form-control" id="printershare-purge-interval" type="number" name="printershare_purge_interval_seconds" value="{{ integrations.printershare_purge_interval_seconds }}" min="{{ printershare_purge_interval_min }}" max="{{ printershare_purge_interval_max }}" step="1" required>
+          <div class="form-text">Standard: 60 Sekunden. Zulässig: 30–3600 Sekunden. Neustart erforderlich.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
   <section class="card">
     <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
     <div class="card-body">
-      <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Filter-Timeout begrenzt den lokalen <code>osmium tags-filter</code>-Prozess. Beide gelten für neu gestartete Vorgänge. Die bisherigen Environment-Werte werden als Startwerte übernommen, bis eine persistierte Einstellung gespeichert wurde.</p>
-      <form method="post" action="{{ url_for('admin.save_osm_settings') }}" class="row g-3 align-items-end">
+      <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Größenlimit schützt den lokalen Speicher, und die Versuchsanzahl begrenzt Wiederholungen bei vorübergehenden Netzwerkfehlern. Filter- und Export-Leerlauf-Timeouts begrenzen lokale <code>osmium</code>-Prozesse. Die Werte gelten für neu gestartete Vorgänge. Bisherige Environment-Werte werden als Startwerte übernommen, bis die jeweilige persistierte Einstellung gespeichert wurde.</p>
+      <form method="post" action="{{ url_for('admin_osm_settings.save_osm_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
           <label class="form-label" for="osm-read-timeout">Lese-Timeout (Sekunden)</label>
           <input class="form-control" id="osm-read-timeout" type="number" name="osm_download_read_timeout_seconds" value="{{ integrations.osm_download_read_timeout_seconds }}" min="30" max="3600" step="1" required>
           <div class="form-text">Standard: 300 Sekunden. Zulässig: 30–3600 Sekunden.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="osm-max-download-gib">Maximale Quelldatei (GiB)</label>
+          <input class="form-control" id="osm-max-download-gib" type="number" name="osm_max_download_gib" value="{{ integrations.osm_max_download_gib }}" min="0" max="64" step="1" required>
+          <div class="form-text">Standard: 8 GiB. Zulässig: 0–64 GiB; 0 deaktiviert OSM-Downloads. Schutz wird vor und während des Downloads angewendet.</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="osm-download-retries">Downloadversuche</label>
+          <input class="form-control" id="osm-download-retries" type="number" name="osm_download_retries" value="{{ integrations.osm_download_retries }}" min="1" max="10" step="1" required>
+          <div class="form-text">Standard: 5 Versuche. Zulässig: 1–10; Wartezeit zwischen Wiederholungen bleibt begrenzt.</div>
         </div>
         <div class="col-md-7">
           <label class="form-label" for="osm-filter-timeout">Filter-Timeout (Sekunden)</label>

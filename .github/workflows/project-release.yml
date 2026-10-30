@@ -1,23 +1,48 @@
 name: Project release
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - 'v*'
 
 permissions:
-  actions: write
-  contents: write
+  contents: read
 
 concurrency:
   group: project-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  dispatch:
+    name: Dispatch platform builds
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: write
+      contents: read
+    outputs:
+      started_at: ${{ steps.dispatched.outputs.started_at }}
+    steps:
+      - name: Dispatch existing platform build workflows
+        id: dispatched
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_REF: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          for workflow in desktop-build.yml android-apk-build.yml server-deb-build.yml docker-build.yml; do
+            gh workflow run "$workflow" --ref "$BUILD_REF"
+          done
+
   build:
     name: Build and collect installable packages
     runs-on: ubuntu-26.04
+    needs: dispatch
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -35,27 +60,13 @@ jobs:
           fi
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Dispatch existing platform build workflows
-        id: dispatched
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          BUILD_REF: ${{ github.ref }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          for workflow in desktop-build.yml android-apk-build.yml server-deb-build.yml docker-build.yml; do
-            gh workflow run "$workflow" --ref "$BUILD_REF"
-          done
-
       - name: Wait for platform builds and collect run IDs
         id: runs
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           BUILD_SHA: ${{ github.sha }}
-          STARTED_AT: ${{ steps.dispatched.outputs.started_at }}
+          STARTED_AT: ${{ needs.dispatch.outputs.started_at }}
         shell: bash
         run: |
           set -euo pipefail
@@ -128,7 +139,7 @@ jobs:
       - name: Generate release SBOM
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable '.[security,sbom]'
           python tools/generate_sbom.py --xml-output artifacts/sbom.cdx.xml
           python -m json.tool artifacts/sbom.cdx.json > /dev/null
@@ -174,30 +185,6 @@ jobs:
           tar -czf "SimpleOffice4Me-${VERSION}-Downloads.tar.gz" -C release-downloads .
           sha256sum "SimpleOffice4Me-${VERSION}-Downloads.tar.gz" > "SimpleOffice4Me-${VERSION}-Downloads.tar.gz.sha256"
 
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ steps.version.outputs.value }}
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_REF_TYPE" != tag ]]; then
-            echo "Publishing requires a version tag (v$VERSION)." >&2
-            exit 1
-          fi
-          mapfile -d '' RELEASE_FILES < <(find release-downloads -type f -print0)
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" \
-              --title "SimpleOffice4Me $VERSION" \
-              --generate-notes
-          fi
-          gh release upload "$GITHUB_REF_NAME" \
-            "SimpleOffice4Me-${VERSION}-Downloads.tar.gz" \
-            "SimpleOffice4Me-${VERSION}-Downloads.tar.gz.sha256" \
-            "${RELEASE_FILES[@]}" \
-            --clobber
-
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: simpleoffice4me-project-release-${{ steps.version.outputs.value }}
@@ -207,3 +194,50 @@ jobs:
             SimpleOffice4Me-${{ steps.version.outputs.value }}-Downloads.tar.gz.sha256
           if-no-files-found: error
           retention-days: 30
+
+  publish:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-26.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Download prepared release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${VERSION_TAG#v}"
+          artifact="simpleoffice4me-project-release-${version}"
+          gh run download "$GITHUB_RUN_ID" --name "$artifact" --dir release-payload
+          test -s "release-payload/SimpleOffice4Me-${version}-Downloads.tar.gz"
+          test -s "release-payload/SimpleOffice4Me-${version}-Downloads.tar.gz.sha256"
+
+      - name: Publish version-tagged release artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -d '' RELEASE_FILES < <(find release-payload/release-downloads -type f -print0)
+          if (( ${#RELEASE_FILES[@]} == 0 )); then
+            echo "Prepared release contains no platform artifacts" >&2
+            exit 1
+          fi
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" \
+              --title "SimpleOffice4Me ${VERSION#v}" \
+              --generate-notes
+          fi
+          gh release upload "$VERSION" \
+            "release-payload/SimpleOffice4Me-${VERSION#v}-Downloads.tar.gz" \
+            "release-payload/SimpleOffice4Me-${VERSION#v}-Downloads.tar.gz.sha256" \
+            "${RELEASE_FILES[@]}" \
+            --clobber

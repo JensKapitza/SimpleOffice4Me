@@ -9,7 +9,11 @@ from PIL import Image
 
 from app.preview_service import PreviewService
 from app.document_store import CONTROL_DIR
-from app.settings_store import SettingsStore
+from app.settings_store import (
+    DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
+    DEFAULT_UPLOAD_LIMIT_MIB,
+    SettingsStore,
+)
 from app.video_settings import save_video_preview_frame_count, video_preview_frame_count
 
 
@@ -60,6 +64,17 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "preview_max_bytes": 2 * 1024 * 1024,
                     "preview_max_pixels": 2_000_000,
                     "video_preview_frames": 12,
+                    "archive_deep_index_enabled": False,
+                    "archive_max_load_per_cpu": 1.5,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 8192,
+                    "archive_member_yield_ms": 15,
+                    "archive_max_members": 25000,
+                    "archive_max_text_mb": 6,
+                    "archive_max_text_per_member_mb": 10,
+                    "archive_max_member_mb": 128,
+                    "archive_max_content_files": 20,
+                    "archive_max_compression_ratio": 320,
                 }},
                 "tester",
             )
@@ -68,11 +83,25 @@ class VideoPreviewServiceTest(unittest.TestCase):
 
             self.assertEqual(
                 {
+                    "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
+                    "chat_attachment_max_bytes": DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
+                    "archive_ocr_enabled": False,
                     "preview_enabled": False,
                     "preview_timeout_seconds": 90,
                     "preview_max_bytes": 2 * 1024 * 1024,
                     "preview_max_pixels": 2_000_000,
                     "video_preview_frames": 7,
+                    "archive_deep_index_enabled": False,
+                    "archive_max_load_per_cpu": 1.5,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 8192,
+                    "archive_member_yield_ms": 15,
+                    "archive_max_members": 25000,
+                    "archive_max_text_mb": 6,
+                    "archive_max_text_per_member_mb": 10,
+                    "archive_max_member_mb": 128,
+                    "archive_max_content_files": 20,
+                    "archive_max_compression_ratio": 320,
                 },
                 store.settings()["media"],
             )

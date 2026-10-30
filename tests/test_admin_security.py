@@ -4,14 +4,17 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from pypdf import PdfReader
 from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
 from app.applogging import SecretRedactionFilter, redact
+from app.printershare_store import PrinterShareStore
 
 
 class AdminSecurityTest(unittest.TestCase):
@@ -182,7 +185,7 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertIn("Host- und Speicherverwaltung", body)
         with patch("app.admin.clear_runtime_inventory") as clear:
             refreshed = self.admin.post("/admin/inventory/refresh")
-        self.assertEqual(302, refreshed.status_code)
+            self.assertEqual(302, refreshed.status_code)
         clear.assert_called_once_with()
 
     def test_osm_index_service_is_managed_only_in_administration(self):
@@ -276,6 +279,197 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual(1, row["is_admin"])
         self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
         self.assertEqual(200, self.worker.get("/admin/users").status_code)
+
+    def test_printer_management_is_admin_only_and_forced_choice_applies_to_print_api(self):
+        standard = {
+            "printer_id": "a" * 24, "name": "Standard", "driver": "Test",
+            "port": "TEST:", "is_default": True, "kind": "normal", "backend": "test",
+        }
+        other = {**standard, "printer_id": "b" * 24, "name": "Other", "is_default": False}
+        with patch("app.printershare_store.discover_printers", return_value=[standard, other]):
+            self.assertEqual(403, self.worker.get("/admin/settings/printers").status_code)
+            self.assertEqual(403, self.worker.get("/library/printer/discover").status_code)
+            self.assertEqual(
+                403,
+                self.worker.post("/library/printer/settings", data={"uri": "tcp://192.168.1.50:9100"}).status_code,
+            )
+            page = self.admin.get("/admin/settings/printers")
+            self.assertEqual(200, page.status_code)
+            self.assertIn("Benutzerzuweisungen".encode("utf-8"), page.data)
+            saved = self.admin.post("/admin/settings/printers/worker", data={
+                "standard_mode": "forced",
+                "standard_printer_id": standard["printer_id"],
+                "label_mode": "none",
+                "label_printer_id": "",
+            })
+            self.assertEqual(302, saved.status_code)
+            store = PrinterShareStore(app.config["DOCUMENT_ROOT"], app.config["SECRET_KEY"])
+            self.assertEqual(
+                standard["printer_id"],
+                store.resolve_user_printer("worker", "standard")["printer_id"],
+            )
+            preference_change = self.worker.post("/printershare/preferences", data={
+                "standard_printer_id": other["printer_id"],
+                "label_printer_id": "",
+            })
+            self.assertEqual(302, preference_change.status_code)
+            self.assertEqual(
+                standard["printer_id"],
+                store.resolve_user_printer("worker", "standard")["printer_id"],
+            )
+            with self.worker.session_transaction() as state:
+                csrf_token = state.get("_csrf_token", "")
+            with patch("app.printershare_store.discover_printers", return_value=[standard, other]), \
+                 patch("app.printershare_store.spool_payload") as spool:
+                response = self.worker.post(
+                    "/printershare/jobs",
+                    data=b"sample print payload",
+                    content_type="application/pdf",
+                    headers={
+                        "X-CSRF-Token": csrf_token,
+                        "X-SimpleOffice-Printer": other["printer_id"],
+                        "X-SimpleOffice-Printer-Role": "standard",
+                    },
+                )
+            self.assertEqual(400, response.status_code)
+            spool.assert_not_called()
+
+    def test_printer_device_failure_does_not_reflect_os_secrets(self):
+        secret = "smb://admin:secret-password@printer/share"
+        with patch("app.printershare_store.PrinterShareStore.set_printer", side_effect=OSError(secret)):
+            response = self.admin.post(
+                "/admin/settings/printers/devices/" + "a" * 24,
+                data={"kind": "normal", "label": "Office"},
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Druckerprofil konnte nicht gespeichert werden", response.get_data(as_text=True))
+
+    def test_printershare_failure_paths_hide_sensitive_exception_messages(self):
+        secret = "smb://admin:secret-password@printer/share"
+        cases = (
+            ("/printershare/jobs/job-1/retry", "retry", "Druckauftrag konnte nicht erneut"),
+            ("/printershare/jobs/job-1/delete-copy", "delete_retained", "Druckdatei konnte nicht gelöscht"),
+        )
+        for endpoint, method, expected in cases:
+            with self.subTest(endpoint=endpoint):
+                with patch.object(PrinterShareStore, method, side_effect=ValueError(secret)):
+                    response = self.admin.post(endpoint, follow_redirects=True)
+                body = response.get_data(as_text=True)
+                self.assertEqual(200, response.status_code)
+                self.assertNotIn(secret, body)
+                self.assertIn(expected, body)
+
+        with patch.object(PrinterShareStore, "update_settings", side_effect=ValueError(secret)):
+            response = self.admin.post("/printershare/admin/settings", data={
+                "ttl_hours": "24", "max_job_mib": "64",
+            }, follow_redirects=True)
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("PrinterShare-Einstellungen konnten nicht gespeichert werden", response.get_data(as_text=True))
+
+    def test_printer_test_failure_hides_sensitive_validation_error(self):
+        secret = "ipp://admin:secret-password@printer.example/queue"
+        printer = {
+            "printer_id": "e" * 24, "name": "Office", "driver": "Test",
+            "port": "TEST:", "is_default": True, "kind": "normal", "backend": "cups",
+            "label": "Office Printer", "federation_shared": False,
+        }
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload", side_effect=ValueError(secret)):
+            response = self.admin.post(
+                f"/printershare/admin/printers/{printer['printer_id']}/test",
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Testauftrag konnte nicht an das Drucksystem übergeben werden", response.get_data(as_text=True))
+
+    def test_brother_printer_uri_rejects_credentials_and_is_not_reflected(self):
+        response = self.admin.post(
+            "/admin/settings/printers/brother",
+            data={
+                "uri": "tcp://operator:secret@192.168.1.50:9100",
+                "model": "QL-820NWB", "label": "62", "font_name": "DejaVuSans",
+                "font_size": "56", "color": "black", "align": "center",
+            },
+            follow_redirects=True,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertIn("Zugangsdaten".encode("utf-8"), response.data)
+        self.assertNotIn(b"secret", response.data)
+
+    def test_printer_policy_validation_error_hides_sensitive_details(self):
+        secret = "ipp://operator:synthetic-credential@printer.example/queue"
+        with patch.object(
+            PrinterShareStore, "set_user_printer_policies", side_effect=ValueError(secret),
+        ):
+            response = self.admin.post(
+                "/admin/settings/printers/owner",
+                data={"standard_mode": "none", "label_mode": "none"},
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertIn("Druckerrichtlinie konnte nicht gespeichert werden", response.get_data(as_text=True))
+
+    def test_brother_profile_save_error_hides_transport_credentials(self):
+        secret = "printer transport error: internal connection details"
+        with patch.object(PrinterShareStore, "set_brother_profile", side_effect=OSError(secret)):
+            response = self.admin.post(
+                "/admin/settings/printers/brother",
+                data={
+                    "uri": "tcp://192.168.1.50:9100",
+                    "model": "QL-820NWB", "label": "62",
+                    "font_name": "DejaVuSans", "font_size": "56",
+                    "color": "black", "align": "center",
+                },
+                follow_redirects=True,
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn(secret, response.get_data(as_text=True))
+        self.assertNotIn("internal connection details", response.get_data(as_text=True))
+        self.assertIn("Brother-Drucker konnte nicht gespeichert werden", response.get_data(as_text=True))
+
+    def test_printer_test_page_is_admin_only_and_spools_ephemerally(self):
+        printer = {
+            "printer_id": "c" * 24, "name": "Office", "driver": "Test",
+            "port": "TEST:", "is_default": True, "kind": "normal", "backend": "cups",
+            "label": "Office Printer", "federation_shared": False,
+        }
+        target = f"/printershare/admin/printers/{printer['printer_id']}/test"
+        with patch("app.printershare_store.discover_printers", return_value=[printer]):
+            self.assertEqual(403, self.worker.post(target).status_code)
+            with patch("app.printershare.spool_payload") as spool:
+                response = self.admin.post(target)
+
+        self.assertEqual(302, response.status_code)
+        spool.assert_called_once()
+        self.assertEqual(printer["printer_id"], spool.call_args.args[0]["printer_id"])
+        self.assertEqual("application/pdf", spool.call_args.kwargs["content_type"])
+        self.assertEqual("simpleoffice-druckertest.pdf", spool.call_args.kwargs["filename"])
+        page = PdfReader(BytesIO(spool.call_args.args[1])).pages[0]
+        self.assertIn("SimpleOffice4Me Druckertest", page.extract_text())
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload", side_effect=subprocess.TimeoutExpired(["lp"], 180)):
+            timed_out = self.admin.post(target, follow_redirects=True)
+        self.assertIn("Testauftrag konnte nicht an das Drucksystem übergeben werden", timed_out.get_data(as_text=True))
+
+    def test_generic_test_page_rejects_raw_printer_without_spooling(self):
+        printer = {
+            "printer_id": "d" * 24, "name": "RAW labeler", "driver": "ZPL",
+            "port": "TEST:", "is_default": False, "kind": "raw", "backend": "cups",
+            "label": "RAW labeler", "federation_shared": False,
+        }
+        target = f"/printershare/admin/printers/{printer['printer_id']}/test"
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload") as spool:
+            response = self.admin.post(target, follow_redirects=True)
+
+        self.assertIn("gerätespezifischen Testauftrag", response.get_data(as_text=True))
+        spool.assert_not_called()
 
     def test_self_lockout_is_rejected_and_audit_is_recorded(self):
         with app.app_context():

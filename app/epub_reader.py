@@ -20,7 +20,34 @@ MAX_TOTAL_UNCOMPRESSED = 200 * 1024 * 1024
 MAX_CHAPTERS = 1_000
 MAX_CHAPTER_TEXT = 2 * 1024 * 1024
 MAX_COVER_BYTES = 10 * 1024 * 1024
+MAX_XML_DEPTH = 256
+MAX_XML_NODES = 50_000
 SAFE_COVER_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+
+
+class _XmlStructureLimitError(ValueError):
+    """Raised when untrusted EPUB XML exceeds bounded parser structure."""
+
+
+class _BoundedTreeBuilder(ElementTree.TreeBuilder):
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.nodes = 0
+
+    def start(self, tag, attrs):
+        self.depth += 1
+        self.nodes += 1
+        if self.depth > MAX_XML_DEPTH:
+            raise _XmlStructureLimitError("EPUB XML nesting exceeds the supported limit")
+        if self.nodes > MAX_XML_NODES:
+            raise _XmlStructureLimitError("EPUB XML contains too many elements")
+        return super().start(tag, attrs)
+
+    def end(self, tag):
+        element = super().end(tag)
+        self.depth -= 1
+        return element
 
 
 def _safe_name(value: str) -> str:
@@ -100,7 +127,11 @@ class EpubBook:
     @staticmethod
     def _xml(data: bytes):
         try:
-            return SafeET.fromstring(data)
+            parser = SafeET.DefusedXMLParser(target=_BoundedTreeBuilder())
+            parser.feed(data)
+            return parser.close()
+        except _XmlStructureLimitError:
+            raise
         except (ElementTree.ParseError, DefusedXmlException) as exc:
             raise ValueError("EPUB contains invalid XML") from exc
 

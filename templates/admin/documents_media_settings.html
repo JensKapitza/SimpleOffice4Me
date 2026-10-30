@@ -5,7 +5,7 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <h1 class="h2 mb-1">Dokumente &amp; Medien</h1>
-      <p class="text-secondary mb-0">Globale, ressourcenbegrenzte Vorschau-Einstellungen. Änderungen gelten ohne Neustart für neue Vorschauaufträge.</p>
+      <p class="text-secondary mb-0">Globale Einstellungen für Uploads und ressourcenbegrenzte Vorschauen.</p>
     </div>
     <a class="btn btn-outline-secondary" href="{{ url_for('documents.settings') }}">Allgemeine Einstellungen</a>
   </div>
@@ -15,6 +15,7 @@
       <a class="nav-link active" href="{{ url_for('admin.documents_media_settings') }}" aria-current="page">Dokumente &amp; Medien</a>
       <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
       <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">Integrationen &amp; Dienste</a>
+      <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">Drucker</a>
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -25,6 +26,107 @@
       <p>Vorschauen laufen lokal und verwenden die vorhandenen Preview-Werkzeuge. Grenzwerte schützen Arbeitsspeicher, Laufzeit und Cache-Speicher. Deaktivieren verhindert neue Vorschaugenerierung; bereits erzeugte Dateien werden nicht gelöscht.</p>
       <form method="post" action="{{ url_for('admin.save_documents_media_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6">
+          <label class="form-label" for="upload-limit-mib">Maximale Größe je Upload-Anfrage (MiB)</label>
+          <input class="form-control" id="upload-limit-mib" type="number" name="upload_limit_mib"
+                 value="{{ media.upload_limit_mib }}" min="1" max="4096" step="1" required>
+          <div class="form-text">Begrenzt die gesamte Anfrage (bei mehreren Dateien zusammen). Standard 512 MiB; zulässig 1–4096 MiB. Gilt nach Neustart des Webprozesses; S3-Uploads bleiben zusätzlich durch ihr eigenes Limit begrenzt.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="chat-attachment-max-bytes">Maximale Größe je Chat-Anhang (Bytes; 0 = Upload-Limit übernehmen)</label>
+          <input class="form-control" id="chat-attachment-max-bytes" type="number" name="chat_attachment_max_bytes"
+                 value="{{ media.chat_attachment_max_bytes }}" min="0" max="{{ max_chat_attachment_bytes }}" step="1" required>
+          <div class="form-text">0 folgt dem globalen Upload-Limit. Ein eigener Grenzwert wird zusätzlich dadurch begrenzt. Maximal {{ max_chat_attachment_bytes }} Bytes (4096 MiB).</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-ocr-enabled">OCR für Archivinhalte</label>
+          <select class="form-select" id="archive-ocr-enabled" name="archive_ocr_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="0" {% if not media.archive_ocr_enabled %}selected{% endif %}>Deaktiviert (Standard)</option>
+            <option value="1" {% if media.archive_ocr_enabled %}selected{% endif %}>Aktiviert</option>
+          </select>
+          <div class="form-text">Erfordert lokal installiertes Tesseract. Gilt für neue bzw. erneut gestartete Archivindizes; fertige bestehende Indizes werden nicht rückwirkend verändert.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-deep-index-enabled">Inhaltstiefenindex für Archive</label>
+          <select class="form-select" id="archive-deep-index-enabled" name="archive_deep_index_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
+            <option value="1" {% if media.archive_deep_index_enabled %}selected{% endif %}>Automatisch, ressourcenabhängig (Standard)</option>
+            <option value="0" {% if not media.archive_deep_index_enabled %}selected{% endif %}>Nur Katalog indexieren</option>
+          </select>
+          <div class="form-text">Bei Aktivierung bleiben CPU-, Arbeitsspeicher- und Datenträger-Schutzgrenzen immer aktiv. „Nur Katalog“ lässt Datei- und Ordnernamen suchbar, entfernt aber beim nächsten Indexlauf den abgeleiteten Inhaltsindex. Originalarchive bleiben unverändert.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-load-threshold">Archivindex-Lastschwelle je CPU</label>
+          <input class="form-control" id="archive-load-threshold" type="number"
+                 name="archive_max_load_per_cpu" value="{{ media.archive_max_load_per_cpu }}"
+                 min="0.1" max="8.0" step="0.05" required>
+          <div class="form-text">Standard 0,75 je CPU; zulässig 0,1–8,0. Oberhalb der Schwelle wird tiefe Inhaltsuche verschoben. Arbeitsspeicher- und Datenträger-Schutzgrenzen bleiben unabhängig davon aktiv.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-min-free-memory">Freier Arbeitsspeicher für Archivindexierung (MiB)</label>
+          <input class="form-control" id="archive-min-free-memory" type="number"
+                 name="archive_min_free_memory_mb" value="{{ media.archive_min_free_memory_mb }}"
+                 min="64" max="65536" step="1" required>
+          <div class="form-text">Bei weniger verfügbarem RAM wird nur der Katalog indexiert. Standard 384 MiB; zulässig 64–65.536 MiB.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-disk-reserve">Freier Speicherplatz-Reserve für Archivindexierung (MiB)</label>
+          <input class="form-control" id="archive-disk-reserve" type="number"
+                 name="archive_disk_reserve_mb" value="{{ media.archive_disk_reserve_mb }}"
+                 min="128" max="1048576" step="1" required>
+          <div class="form-text">Tiefe Indexierung hält diesen freien Speicherplatz zusätzlich zur 10-%-Scratch-Grenze frei. Standard 2.048 MiB; zulässig 128–1.048.576 MiB. Änderungen gelten beim nächsten Indexlauf.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-member-yield">Pause je Archiveintrag (Millisekunden)</label>
+          <input class="form-control" id="archive-member-yield" type="number"
+                 name="archive_member_yield_ms" value="{{ media.archive_member_yield_ms }}"
+                 min="0" max="100" step="1" required>
+          <div class="form-text">Eine Pause priorisiert andere Arbeiten; 0 bevorzugt Indexdurchsatz. Standard 2 ms; zulässig 0–100 ms. Gilt für neu gestartete Archivindexläufe.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-max-members">Maximale Einträge im Archivkatalog</label>
+          <input class="form-control" id="archive-max-members" type="number"
+                 name="archive_max_members" value="{{ media.archive_max_members }}"
+                 min="100" max="200000" step="1" required>
+          <div class="form-text">Begrenzt katalogisierte Archivdateien; größere Archive erhalten einen Teilindex. Standard 20.000 Einträge; zulässig 100–200.000. Originalarchive bleiben unverändert.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-max-text">Gesamtes Textbudget für die Archivinhaltsuche (MiB)</label>
+          <input class="form-control" id="archive-max-text" type="number"
+                 name="archive_max_text_mb" value="{{ media.archive_max_text_mb }}"
+                 min="1" max="64" step="1" required>
+          <div class="form-text">Begrenzt den abgeleiteten Volltextspeicher je Archiv. Standard 8 MiB; zulässig 1–64 MiB. Eine Änderung passt den abgeleiteten Suchtext beim nächsten Indexlauf an; Originalarchive bleiben erhalten.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-text-per-member">Textbudget je Archiveintrag (MiB)</label>
+          <input class="form-control" id="archive-text-per-member" type="number"
+                 name="archive_max_text_per_member_mb"
+                 value="{{ media.archive_max_text_per_member_mb }}"
+                 min="1" max="32" step="1" required>
+          <div class="form-text">Begrenzt den Text eines einzelnen Eintrags, bevor er zum Archivbudget addiert wird. Standard 2 MiB; zulässig 1–32 MiB. Änderungen gelten beim nächsten Indexlauf.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-max-member">Maximale Größe je Archiveintrag (MiB)</label>
+          <input class="form-control" id="archive-max-member" type="number"
+                 name="archive_max_member_mb" value="{{ media.archive_max_member_mb }}"
+                 min="1" max="8192" step="1" required>
+          <div class="form-text">Größere Einträge bleiben im Katalog, ihr Inhalt wird nicht extrahiert. Standard 512 MiB; zulässig 1–8.192 MiB.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-max-content-files">Maximale Zahl von Archiveinträgen für Inhaltsindexierung</label>
+          <input class="form-control" id="archive-max-content-files" type="number"
+                 name="archive_max_content_files" value="{{ media.archive_max_content_files }}"
+                 min="1" max="10000" step="1" required>
+          <div class="form-text">Begrenzt die Zahl der Einträge, deren Inhalt je Archiv durchsucht wird; der Namenskatalog bleibt davon unabhängig. Standard 500; zulässig 1–10.000.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-max-compression-ratio">Maximales Kompressionsverhältnis (unkomprimiert/komprimiert)</label>
+          <input class="form-control" id="archive-max-compression-ratio" type="number"
+                 name="archive_max_compression_ratio" value="{{ media.archive_max_compression_ratio }}"
+                 min="10" max="10000" step="1" required>
+          <div class="form-text">Einträge über dem Verhältnis werden nicht entpackt, bleiben aber im Namenskatalog. Gilt ab 1 MiB unkomprimierter Größe. Standard 200; zulässig 10–10.000. Begrenzungen für Dateigröße und Textbudget gelten zusätzlich.</div>
+        </div>
         <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">

@@ -64,7 +64,7 @@
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('library.index') }}">Bibliothek</a></li>
             <li><a class="dropdown-item" href="{{ url_for('library.index') }}#bulk-scan">Massen-Scan</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">Drucken</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">Drucker</a></li>
             <li><a class="dropdown-item" href="{{ url_for('screen.index') }}">Bildschirm</a></li>
           </ul>
         </div>
@@ -89,6 +89,8 @@
               <li><a class="dropdown-item" href="{{ url_for('v3_health.index') }}">System Health 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}">Extensions 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a></li>
+            {% else %}
+              <li><a class="dropdown-item" href="{{ url_for('federation_status.shared_diagnostics') }}">Federation-Status</a></li>
             {% endif %}
           </ul>
         </div>

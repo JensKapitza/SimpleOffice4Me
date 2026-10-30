@@ -253,6 +253,8 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
             "Last-Modified": last_modified,
             "Accept-Ranges": "bytes",
             "Cache-Control": "private, no-cache",
+            "Content-Security-Policy": "sandbox",
+            "X-Content-Type-Options": "nosniff",
         }
         content_language = _content_language(username, property_path or path, document)
         if content_language:
@@ -351,8 +353,6 @@ def _download_response(path: Path, username: str, document: dict, media_type: st
                     "Content-Digest": _digest_value("sha-256", content_digest.digest()),
                     "Content-Type": f"multipart/byteranges; boundary={boundary}",
                     "Content-Length": str(total_length),
-                    "X-Content-Type-Options": "nosniff",
-                    "Content-Security-Policy": "sandbox",
                 },
             )
 

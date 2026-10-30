@@ -11,16 +11,32 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, db as database
+from app.personnel_time_analytics import (
+    _start_worker_if_needed,
+    auto_sync_runtime_enabled,
+    configured_poll_seconds,
+)
 from app.settings_store import (
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+    DEFAULT_OSM_DOWNLOAD_RETRIES,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+    DEFAULT_OSM_MAX_DOWNLOAD_GIB,
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+    MAX_OSM_DOWNLOAD_RETRIES,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
+    MAX_OSM_MAX_DOWNLOAD_GIB,
     MAX_OSM_READ_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_READ_TIMEOUT_SECONDS,
+    MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+    MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     SettingsStore,
 )
 
@@ -47,6 +63,11 @@ class OsmSettingsTests(unittest.TestCase):
             "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": str(DEFAULT_OSM_READ_TIMEOUT_SECONDS),
             "SIMPLEOFFICE_OSM_FILTER_TIMEOUT": str(DEFAULT_OSM_FILTER_TIMEOUT_SECONDS),
             "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": str(DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS),
+            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": str(DEFAULT_OSM_MAX_DOWNLOAD_GIB),
+            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": str(DEFAULT_OSM_DOWNLOAD_RETRIES),
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "1",
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": str(DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS),
+            "SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": str(DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS),
         })
         self.environment.start()
         with app.app_context():
@@ -89,12 +110,197 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertIn('name="osm_download_read_timeout_seconds"', html)
         self.assertIn('name="osm_filter_timeout_seconds"', html)
         self.assertIn('name="osm_export_idle_timeout_seconds"', html)
+        self.assertIn('name="osm_max_download_gib"', html)
+        self.assertIn('name="osm_download_retries"', html)
+        self.assertIn('action="/admin/settings/integrations/osm"', html)
         self.assertIn('name="clamav_timeout_seconds"', html)
+        self.assertIn('name="personnel_time_autosync_enabled"', html)
+        self.assertIn('name="personnel_time_autosync_seconds"', html)
+        self.assertIn('name="printershare_purge_interval_seconds"', html)
+        self.assertIn('<option value="" disabled>Bitte auswählen</option>', html)
         self.assertIn("30–3600 Sekunden", html)
         self.assertIn("3.600–86.400 Sekunden", html)
         self.assertIn("300–86.400 Sekunden", html)
+        self.assertIn("0–64 GiB", html)
+        self.assertIn("1–10", html)
         self.assertIn("5–900 Sekunden", html)
         self.assertIn('name="_csrf_token"', html)
+
+    def test_personnel_auto_sync_settings_are_admin_only_bounded_and_persistent(self):
+        path = "/admin/settings/integrations/personnel-time"
+        SettingsStore(self.root).save(
+            {"integrations": {"osm_download_read_timeout_seconds": 420}},
+            "osm-admin",
+        )
+        payload = {
+            "personnel_time_autosync_enabled": "0",
+            "personnel_time_autosync_seconds": "120",
+        }
+        self.assertEqual(403, self.user.post(path, data=payload).status_code)
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        saved = self.admin.post(path, data=payload, headers={"X-CSRF-Token": "a" * 40})
+        self.assertEqual(302, saved.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(0, settings["personnel_time_autosync_enabled"])
+        self.assertEqual(120, settings["personnel_time_autosync_seconds"])
+        for invalid in ("-1", "2", "true", "9" * 20):
+            with self.subTest(enabled=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={**payload, "personnel_time_autosync_enabled": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    0,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "personnel_time_autosync_enabled"
+                    ],
+                )
+        for invalid in (
+            str(MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS - 1),
+            str(MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS + 1), "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(seconds=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={**payload, "personnel_time_autosync_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    120,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "personnel_time_autosync_seconds"
+                    ],
+                )
+        with app.app_context():
+            self.assertFalse(auto_sync_runtime_enabled())
+            self.assertEqual(120, configured_poll_seconds())
+            testing = app.testing
+            app.testing = False
+            try:
+                with patch("app.personnel_time_analytics.threading.Thread") as thread:
+                    _start_worker_if_needed(app)
+                    thread.assert_not_called()
+                with patch("app.personnel_time_analytics._WORKER_STARTED", True), patch(
+                    "app.personnel_time_analytics.auto_sync_runtime_enabled",
+                ) as auto_enabled:
+                    _start_worker_if_needed(app)
+                    auto_enabled.assert_not_called()
+            finally:
+                app.testing = testing
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT target_id,detail FROM security_event WHERE action=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                ("personnel_time_autosync_settings_updated",),
+            ).fetchone()
+        self.assertEqual("integrations.personnel_time_autosync", row["target_id"])
+        self.assertFalse(json.loads(row["detail"])["reset_to_defaults"])
+
+        reset = self.admin.post(
+            path,
+            data={"reset": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        reset_integrations = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED, reset_integrations["personnel_time_autosync_enabled"])
+        self.assertEqual(DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS, reset_integrations["personnel_time_autosync_seconds"])
+        self.assertEqual(420, reset_integrations["osm_download_read_timeout_seconds"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT detail FROM security_event WHERE action=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                ("personnel_time_autosync_settings_updated",),
+            ).fetchone()
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_personnel_auto_sync_legacy_values_migrate_then_persist(self):
+        with patch.dict(os.environ, {
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "off",
+            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": "180",
+        }):
+            store = SettingsStore(self.root)
+            settings = store.settings()["integrations"]
+            self.assertEqual(0, settings["personnel_time_autosync_enabled"])
+            self.assertEqual(180, settings["personnel_time_autosync_seconds"])
+            store.save({"integrations": {"personnel_time_autosync_enabled": 1}}, "osm-admin")
+            with patch.dict(os.environ, {
+                "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "off",
+                "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": "240",
+            }):
+                persisted = store.settings()["integrations"]
+            self.assertEqual(1, persisted["personnel_time_autosync_enabled"])
+            self.assertEqual(180, persisted["personnel_time_autosync_seconds"])
+
+    def test_printershare_purge_interval_is_admin_only_bounded_resettable_and_audited(self):
+        path = "/admin/settings/integrations/printershare"
+        SettingsStore(self.root).save(
+            {"integrations": {"osm_download_read_timeout_seconds": 420}},
+            "osm-admin",
+        )
+        payload = {"printershare_purge_interval_seconds": "120"}
+        self.assertEqual(403, self.user.post(path, data=payload).status_code)
+        self.assertEqual(403, self.admin.post(path, data=payload).status_code)
+        saved = self.admin.post(path, data=payload, headers={"X-CSRF-Token": "a" * 40})
+        self.assertEqual(302, saved.status_code)
+        integrations = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(120, integrations["printershare_purge_interval_seconds"])
+        self.assertEqual(420, integrations["osm_download_read_timeout_seconds"])
+        for invalid in (
+            str(MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS - 1),
+            str(MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS + 1), "1.5", "-1", "9" * 20,
+        ):
+            with self.subTest(invalid=invalid):
+                rejected = self.admin.post(
+                    path,
+                    data={"printershare_purge_interval_seconds": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(302, rejected.status_code)
+                self.assertEqual(
+                    120,
+                    SettingsStore(self.root).settings()["integrations"][
+                        "printershare_purge_interval_seconds"
+                    ],
+                )
+        reset = self.admin.post(
+            path,
+            data={"reset": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        integrations = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS, integrations["printershare_purge_interval_seconds"])
+        self.assertEqual(420, integrations["osm_download_read_timeout_seconds"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("printershare_purge_interval_updated",),
+            ).fetchone()
+        self.assertEqual("osm-admin", row["actor_name"])
+        self.assertEqual("integrations.printershare_purge_interval_seconds", row["target_id"])
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
+
+    def test_printershare_purge_interval_migrates_legacy_environment_until_saved(self):
+        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "90"}):
+            store = SettingsStore(self.root)
+            self.assertEqual(
+                90,
+                store.settings()["integrations"]["printershare_purge_interval_seconds"],
+            )
+            store.save(
+                {"integrations": {"printershare_purge_interval_seconds": 180}},
+                "osm-admin",
+            )
+        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "300"}):
+            self.assertEqual(
+                180,
+                SettingsStore(self.root).settings()["integrations"]["printershare_purge_interval_seconds"],
+            )
 
     def test_download_timeout_retains_existing_admin_and_audit_contract(self):
         payload = {"osm_download_read_timeout_seconds": "420"}
@@ -270,6 +476,71 @@ class OsmSettingsTests(unittest.TestCase):
             SettingsStore(self.root).save(
                 {"integrations": {"osm_export_idle_timeout_seconds": True}}, "osm-admin",
             )
+
+    def test_osm_download_limits_are_admin_only_bounded_persistent_and_audited(self):
+        payload = {"osm_max_download_gib": "0", "osm_download_retries": "2"}
+        self.assertEqual(403, self.post_osm_settings(self.user, payload, token="u" * 40).status_code)
+        saved = self.post_osm_settings(self.admin, payload)
+        self.assertEqual(302, saved.status_code)
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(0, settings["osm_max_download_gib"])
+        self.assertEqual(2, settings["osm_download_retries"])
+        self.post_osm_settings(
+            self.admin, {"osm_download_read_timeout_seconds": "420"},
+        )
+        settings = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(0, settings["osm_max_download_gib"])
+        self.assertEqual(2, settings["osm_download_retries"])
+
+        for field, invalid in (
+            ("osm_max_download_gib", "-1"),
+            ("osm_max_download_gib", str(MAX_OSM_MAX_DOWNLOAD_GIB + 1)),
+            ("osm_max_download_gib", "9" * 20),
+            ("osm_download_retries", "0"),
+            ("osm_download_retries", str(MAX_OSM_DOWNLOAD_RETRIES + 1)),
+            ("osm_download_retries", "9" * 20),
+        ):
+            with self.subTest(field=field, invalid=invalid):
+                self.assertEqual(302, self.post_osm_settings(self.admin, {field: invalid}).status_code)
+                settings = SettingsStore(self.root).settings()["integrations"]
+                self.assertEqual(0, settings["osm_max_download_gib"])
+                self.assertEqual(2, settings["osm_download_retries"])
+
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT actor_name,target_id,detail FROM security_event "
+                "WHERE action=? ORDER BY rowid DESC LIMIT 1",
+                ("osm_download_limits_updated",),
+            ).fetchone()
+        self.assertEqual("osm-admin", row["actor_name"])
+        self.assertEqual("integrations.osm_download_limits", row["target_id"])
+        self.assertEqual(2, json.loads(row["detail"])["osm_download_retries"])
+
+        self.post_osm_settings(self.admin, {"reset": "1"})
+        reset = SettingsStore(self.root).settings()["integrations"]
+        self.assertEqual(DEFAULT_OSM_MAX_DOWNLOAD_GIB, reset["osm_max_download_gib"])
+        self.assertEqual(DEFAULT_OSM_DOWNLOAD_RETRIES, reset["osm_download_retries"])
+
+    def test_osm_download_limits_migrate_legacy_environment_until_saved(self):
+        env = {
+            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "0",
+            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "99",
+        }
+        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, env):
+            migrated = SettingsStore(root).settings()["integrations"]
+            self.assertEqual(0, migrated["osm_max_download_gib"])
+            self.assertEqual(MAX_OSM_DOWNLOAD_RETRIES, migrated["osm_download_retries"])
+            SettingsStore(root).save(
+                {"integrations": {"osm_download_read_timeout_seconds": 420}},
+                "osm-admin",
+            )
+            with patch.dict(os.environ, {
+                "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "32",
+                "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "3",
+            }):
+                persisted = SettingsStore(root).settings()["integrations"]
+            self.assertEqual(0, persisted["osm_max_download_gib"])
+            self.assertEqual(MAX_OSM_DOWNLOAD_RETRIES, persisted["osm_download_retries"])
 
 
 if __name__ == "__main__":

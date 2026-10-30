@@ -36,10 +36,14 @@ from flask.sessions import SecureCookieSessionInterface
 from jinja2 import TemplateNotFound, UndefinedError
 
 
-from .settings_limits import MIB, MAX_WEBDAV_QUOTA_MIB
+from .settings_limits import (
+    DEFAULT_UPLOAD_LIMIT_MIB,
+    MAX_UPLOAD_LIMIT_MIB,
+    MIN_UPLOAD_LIMIT_MIB,
+    MIB,
+    MAX_WEBDAV_QUOTA_MIB,
+)
 
-DEFAULT_UPLOAD_LIMIT_MIB = 512
-MAX_UPLOAD_LIMIT_MIB = 4096
 DEFAULT_WEBDAV_QUARANTINE_MIB = 1024
 MAX_WEBDAV_QUARANTINE_MIB = 64 * 1024
 
@@ -82,7 +86,27 @@ def configured_upload_limit_bytes() -> int:
         limit_mib = int(requested)
     except ValueError:
         limit_mib = DEFAULT_UPLOAD_LIMIT_MIB
-    return max(1, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
+    return max(MIN_UPLOAD_LIMIT_MIB, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
+
+
+def configured_s3_overlay_upload_limit_bytes(max_content_bytes: int) -> int:
+    """Return the S3 overlay cap bounded by the total request size."""
+    requested = os.environ.get(
+        'SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(max_content_bytes // MIB),
+    ).strip()
+    try:
+        limit_mib = int(requested)
+    except ValueError:
+        limit_mib = max_content_bytes // MIB
+    return min(max(1, limit_mib), max_content_bytes // MIB) * MIB
+
+
+def apply_upload_limit_settings(app_config: dict, upload_limit_mib: int) -> None:
+    """Apply the persisted global request cap and keep the S3 cap subordinate."""
+    app_config['MAX_CONTENT_LENGTH'] = upload_limit_mib * MIB
+    app_config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_bytes(
+        app_config['MAX_CONTENT_LENGTH'],
+    )
 
 
 def configured_webdav_quota_bytes(document_root: str | Path | None = None) -> int:
@@ -208,11 +232,9 @@ try:
 except ValueError:
     s3_overlay_clock_skew = 900
 app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, s3_overlay_clock_skew), 3600)
-try:
-    s3_overlay_upload_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(app.config['MAX_CONTENT_LENGTH'] // MIB)))
-except ValueError:
-    s3_overlay_upload_mib = app.config['MAX_CONTENT_LENGTH'] // MIB
-app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = min(max(1, s3_overlay_upload_mib), app.config['MAX_CONTENT_LENGTH'] // MIB) * MIB
+app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_bytes(
+    app.config['MAX_CONTENT_LENGTH'],
+)
 try:
     s3_overlay_staging_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_STAGING_MIB', '2048'))
 except ValueError:
@@ -276,6 +298,9 @@ fdb.init_app(app)
 
 from . import document_store as document_store
 document_store.init_app(app)
+from .settings_store import SettingsStore
+_startup_media_settings = SettingsStore(app.config['DOCUMENT_ROOT']).settings()['media']
+apply_upload_limit_settings(app.config, int(_startup_media_settings['upload_limit_mib']))
 
 from . import replication_store as replication_store
 replication_store.init_app(app)
@@ -328,6 +353,12 @@ app.register_blueprint(mail_reader_routes.bp)
 
 from . import admin
 app.register_blueprint(admin.bp)
+
+from . import admin_osm_settings
+app.register_blueprint(admin_osm_settings.bp)
+
+from . import admin_error_reporting_settings
+app.register_blueprint(admin_error_reporting_settings.bp)
 
 from . import v3_finance_routes
 app.register_blueprint(v3_finance_routes.bp)
@@ -496,7 +527,13 @@ def unhandled_application_error(error):
     manual_issue_href = ""
     sanitized_message = ""
     try:
-        from .github_error_reporter import issue_url, load_config, manual_issue_url, report_error, sanitize_text
+        from .github_error_reporter import (
+            issue_url,
+            load_config,
+            manual_issue_url,
+            report_error,
+            sanitize_text,
+        )
         sanitized_message = sanitize_text(error, 500)
         app_version = os.environ.get("SIMPLEOFFICE_VERSION", "")
         manual_issue_href = manual_issue_url(
@@ -509,6 +546,12 @@ def unhandled_application_error(error):
             app_version=app_version,
         )
         if fingerprint:
+            from .settings_store import SettingsStore
+
+            reporting_enabled = SettingsStore(
+                app.config["DOCUMENT_ROOT"],
+            ).settings()["integrations"]["error_reporting_enabled"]
+            reporter_config = load_config(reporting_enabled=reporting_enabled)
             issue_number = report_error(
                 exception_type=exception_type,
                 exception_message=sanitized_message,
@@ -518,9 +561,10 @@ def unhandled_application_error(error):
                 fingerprint=fingerprint,
                 frames=frames,
                 app_version=app_version,
+                config=reporter_config,
             )
             if issue_number is not None:
-                issue_href = issue_url(load_config(), issue_number)
+                issue_href = issue_url(reporter_config, issue_number)
     except Exception as reporter_error:
         app.logger.warning(
             "GitHub error reporter failed request_id=%s type=%s",

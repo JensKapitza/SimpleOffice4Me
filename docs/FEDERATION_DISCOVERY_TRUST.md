@@ -105,14 +105,15 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `SIMPLEOFFICE_FEDERATION_COUNTRY` – ISO-3166 Alpha-2 Land.
 - `SIMPLEOFFICE_FEDERATION_FINGERPRINT` – öffentlicher Fingerprint der Instanz/Identität.
 - `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` – kommaseparierte Directory-/Bootstrap-URLs.
-- `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1` – erlaubt öffentliche Leseabfragen des Directorys. Registrierung/Rendezvous bleiben authentifiziert.
+- `integrations.federation_public_directory_enabled` – Admin-Einstellung für öffentliche Leseabfragen des Directorys; standardmäßig deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1` ist nur ein Legacy-Opt-in bis zur ersten Speicherung. Registrierung/Rendezvous bleiben authentifiziert.
 - `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1` – erlaubt bei Hostnamen/DNS bewusst private Ziele für LAN/VPN. Explizit eingegebene RFC1918-/RFC6598-IPv4-Literale benötigen dieses globale Opt-in nicht; Link-Local und reservierte Ziele bleiben gesperrt.
 - `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK=1` – erlaubt Loopback-Ziele für lokale Entwicklung/Integrationstests. Standardmäßig ist Loopback gesperrt.
 - `SIMPLEOFFICE_FEDERATION_LAN_ADDRESS` – optional eine oder mehrere kommaseparierte lokale IPv4-Adressen, falls die aktive Host-/LAN-Adresse nicht automatisch erkannt wird. In Containern ist das nicht automatisch die Docker-Bridge-Adresse, die andere Geräte erreichen können.
 - `SIMPLEOFFICE_FEDERATION_LAN_PORTS` – optionale zusätzliche lokale SimpleOffice-Ports; maximal vier Ports werden geprüft.
 - Die **Scan-Basis / CIDR** wird im Admin-UI pro Scan angegeben, wenn die automatische Netzerkennung wegen Docker/Podman, Routing oder VPN nicht zum gewünschten Netz führt.
-- `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY=DE` – aktiviert automatisches Land-Discovery.
-- `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` – Intervall, mindestens eine Stunde; Standard 21600 Sekunden.
+- `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` und `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` sind Legacy-Startwerte bis zu einer gespeicherten Admin-Einstellung.
+- Land und Intervall lassen sich unter **Admin → Einstellungen → Integrationen & Dienste → Föderationssuche** konfigurieren. Ein leeres Land deaktiviert den automatischen Land-Scan; Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam. Der Standard ist deaktiviert und 21.600 Sekunden (6 Stunden); das Intervall muss zwischen 3.600 und 604.800 Sekunden liegen.
+- Die öffentliche Directory-Abfrage lässt sich separat unter **Admin → Einstellungen → Integrationen & Dienste → Öffentliches Federation-Verzeichnis** aktivieren. Sichtbar werden nur explizit publizierte öffentliche Profile; ein Opt-in aktiviert weder neue Registrierungen noch Trust oder Rendezvous.
 
 ## HTTP-Endpunkte
 

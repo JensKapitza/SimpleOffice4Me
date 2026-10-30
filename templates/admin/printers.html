@@ -1,0 +1,103 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4">
+    <h1 class="h2 mb-1">Druckerverwaltung</h1>
+    <p class="text-secondary mb-0">Systemdrucker, Brother-Etikettendruck und benutzerbezogene Druckerrichtlinien zentral verwalten.</p>
+  </div>
+  <nav aria-label="Einstellungsbereiche" class="mb-4">
+    <div class="nav nav-tabs">
+      <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
+      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
+      <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">Integrationen &amp; Dienste</a>
+      <a class="nav-link active" href="{{ url_for('admin.printer_settings') }}" aria-current="page">Drucker</a>
+    </div>
+  </nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+  <nav class="nav nav-tabs mb-4" aria-label="Druckerverwaltung" role="tablist">
+    <a class="nav-link active" id="devices-tab" href="#devices" data-bs-toggle="tab" role="tab" aria-controls="devices" aria-selected="true">Drucker &amp; Geräte</a>
+    <a class="nav-link" id="assignments-tab" href="#assignments" data-bs-toggle="tab" role="tab" aria-controls="assignments" aria-selected="false">Benutzerzuweisungen</a>
+  </nav>
+
+  <div class="tab-content">
+  <section class="tab-pane fade show active card mb-4" id="devices" role="tabpanel" aria-labelledby="devices-tab" tabindex="0">
+    <div class="card-header"><h2 class="h5 mb-0">Drucker &amp; Geräte</h2></div>
+    <div class="card-body">
+      <p class="text-secondary">CUPS-/Windows-Drucker werden aus dem Betriebssystem erkannt. Die bisherige Brother-QL-Verbindung und Etikettenoptionen bleiben erhalten und werden hier zentral verwaltet. Zugangsdaten sind in Drucker-URIs nicht erlaubt.</p>
+      {% if brother.uri_needs_review %}<div class="alert alert-warning" role="alert">Die gespeicherte Brother-Verbindung ist nicht mehr zulässig und wird aus Sicherheitsgründen nicht angezeigt. Bitte eine gültige lokale Verbindung neu eintragen.</div>{% endif %}
+      <div class="table-responsive mb-4">
+        <table class="table table-sm align-middle">
+          <thead><tr><th scope="col">Gerät</th><th scope="col">Typ</th><th scope="col">Federation</th><th scope="col">Status / Transport</th><th scope="col">Aktion</th></tr></thead>
+          <tbody>
+            {% for printer in printers %}
+            {% set form_id = 'printer-device-' ~ loop.index %}
+            <tr>
+              <td><input class="form-control form-control-sm" form="{{ form_id }}" name="label" value="{{ printer.label }}" maxlength="160" aria-label="Anzeigename für {{ printer.name }}">{% if printer.is_default %}<span class="badge text-bg-primary mt-1">Systemstandard</span>{% endif %}<div class="small text-secondary">{{ printer.name }}</div></td>
+              <td>{% if printer.backend == 'brother' %}<span class="badge text-bg-info">Etikett</span>{% else %}<select class="form-select form-select-sm" form="{{ form_id }}" name="kind" aria-label="Druckertyp für {{ printer.name }}"><option value="auto" {% if printer.configured_kind == 'auto' %}selected{% endif %}>Automatisch</option><option value="normal" {% if printer.configured_kind == 'normal' %}selected{% endif %}>Standard</option><option value="label" {% if printer.configured_kind == 'label' %}selected{% endif %}>Etikett</option><option value="raw" {% if printer.configured_kind == 'raw' %}selected{% endif %}>RAW/Etikett</option></select>{% endif %}</td>
+              <td>{% if printer.backend == 'brother' %}<span class="small text-secondary">Lokal</span>{% else %}<div class="form-check"><input class="form-check-input" form="{{ form_id }}" type="checkbox" name="federation_shared" value="1" id="share-{{ printer.printer_id }}" {% if printer.federation_shared %}checked{% endif %}><label class="form-check-label" for="share-{{ printer.printer_id }}">Freigeben</label></div>{% endif %}</td>
+              <td>{{ 'Konfiguriert' if printer.backend == 'brother' else 'Vom Betriebssystem erkannt' }}<div class="small text-secondary">{{ printer.driver }}{% if printer.port %} · {{ printer.port }}{% endif %}</div></td>
+               <td>
+                 {% if printer.backend == 'brother' %}
+                 <div class="d-flex flex-wrap align-items-center gap-2"><span class="small text-secondary">Im Brother-Profil</span><form method="post" action="{{ url_for('printershare.test_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Testetikett</button></form></div>
+                 {% else %}
+                 <div class="d-flex flex-wrap align-items-center gap-2"><form id="{{ form_id }}" method="post" action="{{ url_for('admin.save_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-primary" type="submit">Speichern</button></form>
+                   {% if printer.kind == 'raw' %}<button class="btn btn-sm btn-outline-secondary" type="button" disabled title="RAW-Drucker brauchen einen gerätespezifischen Testauftrag">Kein generischer Test</button>
+                   {% else %}<form method="post" action="{{ url_for('printershare.test_printer_device', printer_id=printer.printer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Testseite drucken</button></form>{% endif %}
+                 </div>
+                 {% endif %}
+               </td>
+            </tr>
+            {% else %}<tr><td colspan="5" class="text-secondary">Noch kein lokaler Drucker erkannt oder eingerichtet.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <form method="post" action="{{ url_for('admin.save_brother_printer_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6">
+          <label class="form-label" for="printer-uri">Brother-Verbindung (optional)</label>
+          <input class="form-control font-monospace" id="printer-uri" name="uri" value="{{ brother.uri }}" maxlength="300" placeholder="tcp://192.168.1.50:9100">
+          <div class="form-text">Unterstützt private TCP/9100-, USB- oder Bluetooth-Verbindungen. Leer lassen, um den alten Brother-Etikettendrucker zu entfernen.</div>
+        </div>
+        <div class="col-md-3"><label class="form-label" for="printer-model">Brother-Modell</label><select class="form-select" id="printer-model" name="model">{% for model in printer_models %}<option value="{{ model }}" {% if brother.model == model %}selected{% endif %}>{{ model }}</option>{% endfor %}</select></div>
+        <div class="col-md-3"><label class="form-label" for="printer-label">Standard-Etikett</label><select class="form-select" id="printer-label" name="label">{% for label in printer_labels %}<option value="{{ label }}" {% if brother.label == label %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+        <div class="col-md-4"><label class="form-label" for="printer-size">Schriftgröße</label><input class="form-control" id="printer-size" name="font_size" type="number" min="8" max="300" value="{{ brother.font_size }}" required></div>
+        <div class="col-md-4"><label class="form-label" for="printer-font">Schrift</label><input class="form-control" id="printer-font" name="font_name" value="{{ brother.font_name }}" maxlength="80"></div>
+        <div class="col-md-4"><label class="form-label" for="printer-color">Farbe</label><select class="form-select" id="printer-color" name="color"><option value="black" {% if brother.color == 'black' %}selected{% endif %}>Schwarz</option><option value="red" {% if brother.color == 'red' %}selected{% endif %}>Rot (QL-8xx + 62red)</option></select></div>
+        <div class="col-md-4"><label class="form-label" for="printer-align">Ausrichtung</label><select class="form-select" id="printer-align" name="align"><option value="left" {% if brother.align == 'left' %}selected{% endif %}>Links</option><option value="center" {% if brother.align == 'center' %}selected{% endif %}>Mitte</option><option value="right" {% if brother.align == 'right' %}selected{% endif %}>Rechts</option></select></div>
+        <div class="col-md-4 d-flex align-items-end gap-3 pb-2"><div class="form-check"><input class="form-check-input" type="checkbox" name="bold" value="1" id="printer-bold" {% if brother.bold %}checked{% endif %}><label class="form-check-label" for="printer-bold">Fett</label></div><div class="form-check"><input class="form-check-input" type="checkbox" name="cut" value="1" id="printer-cut" {% if brother.cut %}checked{% endif %}><label class="form-check-label" for="printer-cut">Schneiden</label></div></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">Brother-Profil speichern</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section class="tab-pane fade card" id="assignments" role="tabpanel" aria-labelledby="assignments-tab" tabindex="0">
+    <div class="card-header"><h2 class="h5 mb-0">Benutzerzuweisungen</h2></div>
+    <div class="card-body">
+      <p class="text-secondary">Standard- und Etikettendrucker werden getrennt verwaltet. Erzwungene Zuweisungen sperren die Benutzerauswahl serverseitig; Empfehlungen bleiben änderbar.</p>
+      <div class="table-responsive">
+        <table class="table align-middle">
+          <thead><tr><th scope="col">Benutzer</th><th scope="col">Standarddruck</th><th scope="col">Etikettendruck</th><th scope="col">Speichern</th></tr></thead>
+          <tbody>
+            {% for user in users %}
+            {% set policies = printer_settings.user_printer_policies.get(user.username, {}) %}
+            {% set standard = policies.get('standard', {'mode': 'none', 'printer_id': ''}) %}
+            {% set label = policies.get('label', {'mode': 'none', 'printer_id': ''}) %}
+            {% set form_id = 'printer-policy-' ~ loop.index %}
+            <tr>
+              <td>{{ user.username }}{% if user.is_disabled %}<div class="small text-secondary">deaktiviert</div>{% endif %}</td>
+              <td><div class="d-grid gap-1"><select class="form-select form-select-sm" form="{{ form_id }}" name="standard_mode" aria-label="Standarddruck-Richtlinie für {{ user.username }}"><option value="none" {% if standard.mode == 'none' %}selected{% endif %}>Keine Vorgabe</option><option value="recommended" {% if standard.mode == 'recommended' %}selected{% endif %}>Empfohlen</option><option value="forced" {% if standard.mode == 'forced' %}selected{% endif %}>Erzwungen</option></select><select class="form-select form-select-sm" form="{{ form_id }}" name="standard_printer_id" aria-label="Standarddrucker für {{ user.username }}"><option value="">System-Fallback</option>{% for printer in standard_printers %}<option value="{{ printer.printer_id }}" {% if standard.printer_id == printer.printer_id %}selected{% endif %}>{{ printer.label }}</option>{% endfor %}</select></div></td>
+              <td><div class="d-grid gap-1"><select class="form-select form-select-sm" form="{{ form_id }}" name="label_mode" aria-label="Etikettendruck-Richtlinie für {{ user.username }}"><option value="none" {% if label.mode == 'none' %}selected{% endif %}>Keine Vorgabe</option><option value="recommended" {% if label.mode == 'recommended' %}selected{% endif %}>Empfohlen</option><option value="forced" {% if label.mode == 'forced' %}selected{% endif %}>Erzwungen</option></select><select class="form-select form-select-sm" form="{{ form_id }}" name="label_printer_id" aria-label="Etikettendrucker für {{ user.username }}"><option value="">System-Fallback</option>{% for printer in label_printers %}<option value="{{ printer.printer_id }}" {% if label.printer_id == printer.printer_id %}selected{% endif %}>{{ printer.label }}</option>{% endfor %}</select></div></td>
+              <td><form id="{{ form_id }}" method="post" action="{{ url_for('admin.save_printer_policy', username=user.username) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-primary" type="submit">Speichern</button></form></td>
+            </tr>
+            {% else %}<tr><td colspan="4" class="text-secondary">Keine Benutzerkonten vorhanden.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  </div>
+</main>
+{% endblock %}

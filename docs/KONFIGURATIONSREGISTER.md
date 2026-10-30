@@ -27,59 +27,132 @@ Quellpfade aufgelistet, niemals tatsächlich konfigurierte Werte.
 
 ## Ergänzte Optionen und Verfeinerungen
 
+### Ausgehende Fehlerberichte
+
+Die automatische Übertragung datensparsamer Diagnosen ist unter **Admin →
+Einstellungen → Integrationen & Dienste → Automatische Fehlerberichte** persistent
+deaktivierbar. `integrations.error_reporting_enabled` ist das ausgehende Gesamt-Gate;
+es schaltet weder lokale Protokolle noch den Inbound-Collector auf einem Master ab.
+`SIMPLEOFFICE_ERROR_REPORTING` wird nur bis zum ersten Speichern als Legacy-Opt-out
+übernommen.
+
+### Öffentliches Federation-Verzeichnis
+
+`integrations.federation_public_directory_enabled` steuert die nicht
+authentifizierte Leseabfrage bereits explizit publizierter Peer-Profile. Der
+sichere Standard ist deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1`
+ist nur ein Legacy-Opt-in bis die persistente Admin-Einstellung gespeichert ist;
+Registrierung, Auflösung und Rendezvous bleiben separat authentifiziert.
+
 ### Tiefe Archivindexierung
 
-Diese Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
-ausgewertet. MB-Grenzen verwenden im Code `1024**2` Bytes.
+Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
+ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstellung
+`media.archive_deep_index_enabled` verfügbar. MB-Grenzen verwenden im Code
+`1024**2` Bytes.
 
 | Variable | Standard | Bedeutung / zulässige numerische Grenzen |
 |---|---|---|
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | `auto` | `0/false/no/off`: aus; `1/true/yes/on`: Last-/RAM-Prüfung übergehen; sonst automatische Last-/RAM-Prüfung |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | `0.75` | Lastschwelle pro CPU; effektiv mindestens `0.1` |
-| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` | `384` | Mindest-RAM; 64–65536 |
-| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` | `2048` | Freier Scratch-Speicher als Reserve; 128–1048576 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | `20000` | Maximal berücksichtigte Einträge; 100–200000 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | `512` | Maximalgröße eines Eintrags; 1–8192 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | `8` | Gesamtes Textbudget; 1–64 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | `2` | Textbudget je Eintrag; 1–32 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | `500` | Anzahl für Inhaltsverarbeitung; 1–10000 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | `200` | Begrenzung des Kompressionsverhältnisses; 10–10000 |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | `2` | Pause je Eintrag in ms; 0–100 |
-| `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Optionale OCR für unterstützte Bild-Einträge |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` (Legacy-Migration) | `auto` | Gilt nur bis `media.archive_deep_index_enabled` gespeichert wurde; enabled Werte umgehen niemals CPU-/RAM-Prüfungen |
+| `media.archive_max_load_per_cpu` (persistente Admin-Einstellung) | `0.75` | Lastschwelle pro CPU; `0.1–8.0` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` (Legacy-Migration) | `0.75` | Gilt nur bis `media.archive_max_load_per_cpu` gespeichert wurde; ungültige Werte nutzen den Standard, Ausreißer werden auf `0.1–8.0` begrenzt |
+| `media.archive_min_free_memory_mb` (persistente Admin-Einstellung) | `384` | Mindestmenge freien RAM; `64–65536 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | `384` | Gilt nur bis der persistente RAM-Grenzwert gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_disk_reserve_mb` (persistente Admin-Einstellung) | `2048` | Freier Speicherplatz, der neben der 10-%-Scratch-Grenze erhalten bleibt; `128–1048576 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | `2048` | Gilt nur bis die persistente Datenträgerreserve gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_member_yield_ms` (persistente Admin-Einstellung) | `2` | Pause je verarbeitetem Archiveintrag; `0–100 ms` |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_member_yield_ms` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_members` (persistente Admin-Einstellung) | `20000` | Maximale Zahl katalogisierter Archiveinträge; `100–200000` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | `20000` | Gilt nur bis `media.archive_max_members` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_member_mb` (persistente Admin-Einstellung) | `512` | Größter Eintrag, dessen Inhalt extrahiert wird; `1–8192 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | `512` | Gilt nur bis `media.archive_max_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_text_mb` (persistente Admin-Einstellung) | `8` | Gesamtes abgeleitetes Volltextbudget pro Archiv; `1–64 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | `8` | Gilt nur bis `media.archive_max_text_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_text_per_member_mb` (persistente Admin-Einstellung) | `2` | Textbudget je Eintrag; `1–32 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_max_text_per_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_content_files` (persistente Admin-Einstellung) | `500` | Höchstzahl der Einträge für Inhaltsverarbeitung; `1–10000` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | `500` | Gilt nur bis `media.archive_max_content_files` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_compression_ratio` (persistente Admin-Einstellung) | `200` | Verhältnis unkomprimierter zu komprimierter Größe; `10–10000`; greift ab 1 MiB je Eintrag |
+| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` (Legacy-Migration) | `200` | Gilt nur bis `media.archive_max_compression_ratio` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Legacy-Startwert bis `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gespeichert wird; optionale OCR für unterstützte Bild-Einträge |
 
 Erzwungene tiefe Indexierung hebt nicht Größen-, Pfad-, Scratch- oder
 Kompressionsschutz auf. Das Scratch-Budget nutzt höchstens ein Zehntel des
 freien Speichers und berücksichtigt zusätzlich die Reserve. Erhöhte Limits
 zuerst an repräsentativen, nicht produktiven Archiven prüfen.
 
+Mindest-RAM und Datenträgerreserve sind zusätzlich unter **Admin → Einstellungen
+→ Dokumente & Medien** persistent konfigurierbar. Die Legacy-Variablen
+`SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` und
+`SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` werden nur bis zum Speichern der jeweiligen
+Einstellung eingelesen; Änderungen gleichen vollständige abgeleitete
+Archivindizes beim nächsten Indexlauf an. Die Pause je Archiveintrag gilt für
+neu gestartete Indexläufe; `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum
+Speichern dieses Werts als Startwert verwendet. Die Kataloggrenze gilt beim
+nächsten Indexlauf; größere Archive werden als Teilindex markiert. Eintragsgröße
+und Inhaltsanzahl begrenzen nur die Textextraktion: übersprungene Einträge bleiben
+im Katalog und Originalarchive unverändert. Das Textbudget je Eintrag (Standard
+2 MiB; zulässig 1–32 MiB) ist unter **Dokumente & Medien** persistent einstellbar;
+die Legacy-Variable wird nur bis zum Speichern dieses Werts verwendet.
+
+Die optionale OCR für Bilddateien in Archiven ist unter **Admin → Einstellungen
+→ Dokumente & Medien** verfügbar. Sie ist standardmäßig deaktiviert und benötigt
+das lokal installierte Tesseract. Die Einstellung gilt für neue bzw. erneut
+gestartete Archivindizes; ein vorhandener vollständiger Index wird durch das
+Deaktivieren nicht rückwirkend geändert. `SIMPLEOFFICE_ARCHIVE_OCR` wird nur als
+Legacy-Startwert verwendet, bis die persistierte Medien-Einstellung gespeichert
+wird. Größen-, Laufzeit- und Scratch-Limits bleiben unabhängig davon aktiv.
+
 ### OSM, Personaldaten, Chat und Druckfreigaben
 
 | Variable | Standard / Grenze | Verwendung |
 |---|---|---|
-| `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | `5`, effektiv 1–10 | Downloadversuche; [OSM-Download](../app/osm_address_storage.py) |
-| `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | `8` | Maximaler Quelldownload in GiB; [OSM-Download](../app/osm_address_storage.py) |
+| `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES` | `5`, effektiv 1–10 | Legacy-Startwert bis eine persistierte Admin-Einstellung existiert; [OSM-Download](../app/osm_address_storage.py) |
+| `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | `8`, effektiv 0–64 | Legacy-Startwert; 0 deaktiviert OSM-Downloads, danach maßgeblich ist `integrations.osm_max_download_gib` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | `300`, effektiv 30–3600 | Legacy-Timeout bis eine persistierte Admin-Einstellung existiert; danach maßgeblich ist `integrations.osm_download_read_timeout_seconds` unter `/admin/settings/integrations`; [OSM-Download](../app/osm_address_storage.py) |
 | `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | Legacy-Startwert bis `integrations.osm_filter_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | Legacy-Startwert bis `integrations.osm_export_idle_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
-| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Runtime-Autosync; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
-| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Poll-Intervall; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
-| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Uploadlimit der App, Fallback 512 MiB | Chat-Anhangslimit in Bytes, mindestens 1 und höchstens das App-Uploadlimit; [Chatroute](../app/chat_routes.py) |
-| `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | `60`, effektiv 30–3600 | TTL-Bereinigung in Sekunden; [PrinterShare](../app/printershare.py) |
+| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | `1` | Legacy-Startwert bis `integrations.personnel_time_autosync_enabled` gespeichert wird; `0/false/no/off` deaktivieren; fachliche Freigaben bleiben erforderlich |
+| `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | `300`, effektiv 60–3600 | Legacy-Startwert bis `integrations.personnel_time_autosync_seconds` gespeichert wird; [Personalsynchronisierung](../app/personnel_time_analytics.py) |
+| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | Mindestens 1 Byte, höchstens 4 GiB; leer/ungültig bedeutet globales Upload-Limit | Legacy-Startwert für `media.chat_attachment_max_bytes`; nach Speicherung ist **Admin → Einstellungen → Dokumente & Medien** maßgeblich. |
+| `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | `60`, effektiv 30–3600 | Legacy-Startwert bis `integrations.printershare_purge_interval_seconds` gespeichert wird; [PrinterShare](../app/printershare.py) |
 
 Dies sind lokale Verarbeitungslimits, keine Zusage über tatsächliche
 Gesamtlaufzeit, RAM-Verbrauch, Netzleistung oder Mail-/Anhangsfreigabe.
 
-Der OSM-Lese-Timeout ist unter **Admin → Einstellungen → Integrationen &
-Dienste** persistent konfigurierbar. Die gespeicherte Einstellung
-gilt für neu gestartete Downloads und hat Vorrang vor
-`SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`. Der Environment-Wert wird nur
-verwendet, solange noch keine persistierte OSM-Einstellung vorliegt.
+OSM-Lese-Timeout, maximales Quelldownload-Limit und Downloadversuche sind unter
+**Admin → Einstellungen → Integrationen & Dienste** persistent konfigurierbar.
+Die Größenbegrenzung wird vor dem Request anhand der gemeldeten Dateigröße und
+erneut für jeden tatsächlich gelesenen Datenblock geprüft. Ein Limit von 0
+deaktiviert Downloads, bevor ein Netzwerkzugriff erfolgt. Die Retry-Anzahl
+begrenzt Wiederholungen; der bestehende exponentielle Warteplan bleibt auf
+höchstens 10 Sekunden begrenzt. Gespeicherte Einstellungen gelten für neue
+Downloads und haben Vorrang vor `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`,
+`SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` und `SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES`.
+Diese Environment-Werte werden nur bis zum Speichern der persistenten
+Einstellungen als begrenzte Legacy-Startwerte verwendet.
 
 Das ClamAV-Zeitlimit ist im Administrationsbereich **Integrationen & Dienste**
 unter **ClamAV-Sicherheitsprüfung** persistent konfigurierbar. Der gespeicherte
 Wert gilt für neu gestartete Prüfungen und hat Vorrang vor
 `SIMPLEOFFICE_CLAMAV_TIMEOUT`; der Environment-Wert dient nur der Migration,
 solange keine persistierte Einstellung existiert.
+
+Die globale Hintergrund-Synchronisation der Personaldaten und ihr Prüfintervall
+sind unter **Admin → Einstellungen → Integrationen & Dienste →
+Personaldaten-Synchronisation** persistent konfigurierbar. Die gespeicherten
+Werte haben Vorrang vor `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` und
+`SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS`; diese Variablen dienen nur als
+begrenzte Startwerte, solange die jeweilige Einstellung noch fehlt. Die
+Einstellung ersetzt nicht die separate Freigabe einer Synchronisation pro Peer
+und Person.
+
+Das PrinterShare-Bereinigungsintervall ist unter **Admin → Einstellungen →
+Integrationen & Dienste → PrinterShare-Aufbewahrungsbereinigung** persistent
+konfigurierbar. Es steuert nur den Prüfzyklus für bereits abgelaufene Druckjobs,
+nicht deren Aufbewahrungsfrist. Die Einstellung wird beim nächsten Start des
+Webprozesses übernommen; bis zur Speicherung dient
+`SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` als begrenzter Legacy-Startwert.
 
 ### Zugangsdaten, Geräte und Betriebsmetadaten
 
@@ -137,24 +210,24 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ANDROID_ACCOUNT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_PYTHON` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BACKGROUND_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_BUILD_BRANCH` | [software_distribution_core.py](../app/software_distribution_core.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_EPOCH` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_NUMBER` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_REVISION` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [chat_routes.py](../app/chat_routes.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [settings_store.py](../app/settings_store.py) | Legacy-Migration; die persistente Einstellung wird in [chat_routes.py](../app/chat_routes.py) angewendet |
 | `SIMPLEOFFICE_CLAMAV_SCANNER` | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CLAMAV_TIMEOUT` | `120`, effektiv 5–900 | Legacy-Startwert bis `integrations.clamav_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird; [ClamAV-Anhänge](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CONTAINER_ROLE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
@@ -168,13 +241,13 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_EBAY_CLIENT_SECRET` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_EBAY_MARKETPLACE_ID` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_ERROR_RELAY_ENABLED` | [ci.yml](../.github/workflows/ci.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
-| `SIMPLEOFFICE_ERROR_REPORTING` | [github_error_reporter.py](../app/github_error_reporter.py) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
+| `SIMPLEOFFICE_ERROR_REPORTING` (Legacy-Migration) | [github_error_reporter.py](../app/github_error_reporter.py) | Persistente Präferenz `integrations.error_reporting_enabled`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORT_URL` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` | [v3_extensions.py](../app/v3_extensions.py) | [V3_EXTENSIONS](V3_EXTENSIONS.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
-| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | [federation_discovery_runtime.py](../app/federation_discovery_runtime.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
-| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` | [federation_discovery_runtime.py](../app/federation_discovery_runtime.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | Legacy-Startwert für die optionale Admin-Einstellung `integrations.federation_autoscan_country` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` | `21600`, effektiv 3600–604800; Legacy-Startwert für `integrations.federation_autoscan_seconds` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` | [federation_discovery_service.py](../app/federation_discovery_service.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_COUNTRY` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN` | [federation_discovery_http.py](../app/federation_discovery_http.py) | Quelle und Ergänzungen oben |
@@ -183,7 +256,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_LAN_ADDRESS` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_FEDERATION_LAN_PORTS` | [federation_discovery_lan.py](../app/federation_discovery_lan.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_FEDERATION_PEER_ID` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHAT](CHAT.md) |
-| `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` | [federation_discovery_http.py](../app/federation_discovery_http.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` (Legacy-Migration) | [federation_discovery_http.py](../app/federation_discovery_http.py) | Persistente Präferenz `integrations.federation_public_directory_enabled`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` | [federation_local_profile.py](../app/federation_local_profile.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT` | [license_routes.py](../app/license_routes.py) | Quelle und Ergänzungen oben |

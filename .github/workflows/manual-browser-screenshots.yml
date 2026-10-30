@@ -7,10 +7,21 @@ on:
   pull_request:
     paths:
       - tests/browser/manual_screenshot_smoke.py
+      - tests/browser/peer_to_peer_smoke.py
+      - tests/test_federation_admin_ui.py
+      - tests/test_federation_diagnostics.py
       - .github/workflows/manual-browser-screenshots.yml
+      - requirements-ci-pip.in
+      - requirements-ci-pip.txt
+      - requirements-ci-browser.in
+      - requirements-ci-browser.txt
+      - requirements-ci-awscli.in
+      - requirements-ci-awscli.txt
       - app/chat*.py
       - app/documents_routes_upload.py
       - app/federation*.py
+      - templates/admin/federation.html
+      - docs/FEDERATION_PROTOCOL.md
       - app/v3_inbox*.py
       - templates/documents/index.html
   workflow_dispatch:
@@ -69,10 +80,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@v7.1.0
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
 
@@ -90,8 +101,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install 'playwright==1.55.0'
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-ci-browser.txt
           python -m playwright install --with-deps chromium
 
       - name: Build SimpleOffice4Me image
@@ -109,9 +120,11 @@ jobs:
             --name simpleoffice-browser-peer-a \
             --network simpleoffice-browser-p2p \
             --network-alias peer-a \
+            --volume "simpleoffice-browser-peer-a-${GITHUB_RUN_ID}:/var/lib/simpleoffice4me" \
             -p 127.0.0.1:8080:8080 \
             -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_A_TOKEN" \
             -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-a \
+            -e SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1 \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
@@ -137,9 +150,11 @@ jobs:
             --name simpleoffice-browser-peer-b \
             --network simpleoffice-browser-p2p \
             --network-alias peer-b \
+            --volume "simpleoffice-browser-peer-b-${GITHUB_RUN_ID}:/var/lib/simpleoffice4me" \
             -p 127.0.0.1:8081:8080 \
             -e SIMPLEOFFICE_FEDERATION_TOKEN="$BROWSER_PEER_B_TOKEN" \
             -e SIMPLEOFFICE_FEDERATION_PEER_ID=peer-b \
+            -e SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1 \
             -e SIMPLEOFFICE_BACKGROUND_INDEX=0 \
             -e SIMPLEOFFICE_OSM_INDEX=0 \
             -e SIMPLEOFFICE_DATALOGGER=0 \
@@ -189,12 +204,30 @@ jobs:
           docker logs simpleoffice-browser-peer-b || true
           exit 1
 
+      - name: Resolve peer container IPs for direct-path diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          peer_a_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' simpleoffice-browser-peer-a)"
+          peer_b_ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' simpleoffice-browser-peer-b)"
+          if [[ -z "$peer_a_ip" || -z "$peer_b_ip" ]]; then
+            echo "Could not resolve both live Docker peer IPs."
+            exit 1
+          fi
+          echo "BROWSER_PEER_A_IP=$peer_a_ip" >> "$GITHUB_ENV"
+          echo "BROWSER_PEER_B_IP=$peer_b_ip" >> "$GITHUB_ENV"
+
+      - name: Install hash-locked AWS CLI S3 test tool
+        if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.aws_s3_smoke)
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-ci-awscli.txt
+          aws --version
+
       - name: Real AWS CLI S3 compatibility smoke
         if: github.event_name == 'workflow_dispatch' && inputs.aws_s3_smoke
         shell: bash
         run: |
           set -euo pipefail
-          python -m pip install 'awscli==1.42.59'
           aws --version
           python tests/browser/aws_cli_s3_smoke.py
 
@@ -259,10 +292,11 @@ jobs:
         run: |
           docker rm -f simpleoffice-browser-peer-a simpleoffice-browser-peer-b >/dev/null 2>&1 || true
           docker network rm simpleoffice-browser-p2p >/dev/null 2>&1 || true
+          docker volume rm "simpleoffice-browser-peer-a-${GITHUB_RUN_ID}" "simpleoffice-browser-peer-b-${GITHUB_RUN_ID}" >/dev/null 2>&1 || true
 
       - name: Upload screenshots and diagnostics
         if: always()
-        uses: actions/upload-artifact@v7.0.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-peer-to-peer-${{ github.run_id }}
           path: test-results/browser/

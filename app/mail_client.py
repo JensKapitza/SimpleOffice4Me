@@ -28,6 +28,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .mail_env_credentials import environment_mail_password
 from .revision_history import RevisionHistory
+from .safe_paths import resolve_for_write_under
 from .v2.storage_runtime import create_document
 
 MAX_MESSAGE_BYTES = 100 * 1024 * 1024
@@ -501,8 +502,9 @@ class MailStore:
 
     def ensure_private_archive(self, actor: str, account_id: str) -> Path:
         """Create an ACL boundary so DAV/SFTP users only see their own mail tree."""
-        user_folder = self.root / "email" / _owner_key(actor)
-        folder = user_folder / _safe_id(account_id)
+        owner_key = _owner_key(actor)
+        user_folder = resolve_for_write_under(self.root, Path("email") / owner_key)
+        folder = resolve_for_write_under(self.root, Path("email") / owner_key / _safe_id(account_id))
         changed = False
         for boundary in (user_folder, folder):
             policy_path = DocumentStore(self.root).ensure_folder_policy(boundary, actor)
@@ -517,24 +519,25 @@ class MailStore:
             self.history.record("mail_archive_access_initialized", actor, "policies", hashlib.sha256(f"mail:{actor}:{account_id}".encode()).hexdigest(), {"account_id": account_id, "owner": actor, "role": "manage", "inherit": True})
         return folder
 
-    def archive_outbound(self, actor: str, account: dict[str, Any], raw: bytes, state: str, detail: dict[str, Any]) -> dict[str, Any]:
-        """Persist the exact submitted EML before transport and audit its state."""
+    def archive_outbound(self, actor: str, account_id: str, raw: bytes, state: str, detail: dict[str, Any]) -> dict[str, Any]:
+        """Persist the EML using only its account ID, never a credential record."""
+        account_id = _safe_id(account_id)
         if len(raw) > MAX_OUTBOUND_BYTES:
             raise ValueError("outbound message exceeds 25 MiB")
         digest = hashlib.sha512(raw).hexdigest()
-        self.ensure_private_archive(actor, account["id"])
+        self.ensure_private_archive(actor, account_id)
         year = datetime.now(timezone.utc).strftime("%Y")
-        path = f"email/{_owner_key(actor)}/{account['id']}/sent/{year}/{digest}.eml"
+        path = f"email/{_owner_key(actor)}/{account_id}/sent/{year}/{digest}.eml"
         documents = DocumentStore(self.root)
-        target = self.root / path
+        target = resolve_for_write_under(self.root, path)
         target.parent.mkdir(parents=True, exist_ok=True)
         documents.ensure_folder_policy(target.parent, actor)
         if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
             document = documents.get_document(path)
         else:
             document = create_document(documents.root, actor, path, raw, max_bytes=MAX_OUTBOUND_BYTES)
-            documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account['id']}"], actor)
-        origin = {"account_id": account["id"], "sha512": digest, "state": state, **detail}
+            documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account_id}"], actor)
+        origin = {"account_id": account_id, "sha512": digest, "state": state, **detail}
         documents.set_attribute(document["document_id"], "email_origin", origin, actor)
         self.history.record(f"smtp_message_{state}", actor, "mail-outbound", document["document_id"], origin)
         return {"document_id": document["document_id"], "path": path, "sha512": digest}
@@ -691,8 +694,14 @@ class SmtpSubmission:
     def send(
         self, actor: str, account: dict[str, Any], recipients: str, subject: str,
         body: str, calendar_data: str = "", *, cc: str = "", bcc: str = "",
-        attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
+        account_id: str, attachments: tuple[dict[str, Any], ...] | list[dict[str, Any]] = (),
     ) -> dict[str, Any]:
+        account_id = _safe_id(str(account_id))
+        if str(account.get("id") or "") != account_id:
+            raise ValueError("SMTP account configuration does not match its ID")
+        if str(account.get("owner") or "") != actor:
+            raise PermissionError("SMTP account is not owned by the sending user")
+        self.store._owned_row(actor, account_id)
         raw, targets, message_id = self.compose(
             account, recipients, subject, body, calendar_data,
             cc=cc, bcc=bcc, attachments=attachments,
@@ -706,12 +715,12 @@ class SmtpSubmission:
             "attachment_count": len(attachments),
             "at": utc_now(),
         }
-        archived = self.store.archive_outbound(actor, account, raw, "pending", detail)
+        archived = self.store.archive_outbound(actor, account_id, raw, "pending", detail)
 
         def archive_state(state: str, extra: dict[str, Any] | None = None) -> None:
             try:
                 self.store.archive_outbound(
-                    actor, account, raw, state, {**detail, **(extra or {})}
+                    actor, account_id, raw, state, {**detail, **(extra or {})}
                 )
             except Exception:
                 # The pending EML already exists. Do not turn an audit/storage
@@ -759,7 +768,7 @@ class SmtpSubmission:
                     pass
 
         try:
-            self.store.archive_outbound(actor, account, raw, "sent", detail)
+            self.store.archive_outbound(actor, account_id, raw, "sent", detail)
         except Exception as exc:
             raise SmtpDeliveryStateUnknown(
                 "accepted_unarchived",
@@ -780,9 +789,10 @@ class ImapArchive:
                 return item[1]
         raise RuntimeError("IMAP server returned no message body")
 
-    def _connect(self, account: dict[str, Any]):
+    def _connect(self, account: dict[str, Any], *, password: str | None = None):
         context = ssl.create_default_context()
         timeout = 30
+        credential = account["plain_password"] if password is None else password
         if account["security"] == "tls":
             connection = imaplib.IMAP4_SSL(account["host"], account["port"], ssl_context=context, timeout=timeout)
         else:
@@ -799,10 +809,10 @@ class ImapArchive:
         try:
             if method == "plain":
                 status, _ = connection.authenticate(
-                    "PLAIN", lambda _challenge: f"\0{account['username']}\0{account['plain_password']}".encode("utf-8")
+                    "PLAIN", lambda _challenge: f"\0{account['username']}\0{credential}".encode("utf-8")
                 )
             else:
-                status, _ = connection.login(account["username"], account["plain_password"])
+                status, _ = connection.login(account["username"], credential)
         except imaplib.IMAP4.error as exc:
             diagnostic = self.authentication_diagnostic(account, capabilities, exc, attempted)
             try: connection.logout()
@@ -844,10 +854,30 @@ class ImapArchive:
         finally:
             connection.logout()
 
-    def archive(self, actor: str, account: dict[str, Any], *, limit: int = 250, extract_attachments: bool = False) -> dict[str, Any]:
+    def archive(
+        self,
+        actor: str,
+        account_id: str,
+        account_config: dict[str, Any],
+        password: str,
+        *,
+        limit: int = 250,
+        extract_attachments: bool = False,
+    ) -> dict[str, Any]:
         from .imap_archive_recovery import ArchiveRecovery
 
-        return ArchiveRecovery(self, actor, account).run(
+        account_id = _safe_id(account_id)
+        if not isinstance(account_config, dict) or account_config.get("id") != account_id:
+            raise ValueError("IMAP archive account configuration does not match its ID")
+        if not isinstance(password, str) or not password:
+            raise ValueError("IMAP archive password is required")
+        public_fields = ("host", "port", "security", "username", "auth_method", "folder")
+        archive_config = {"id": account_id}
+        archive_config.update({key: account_config[key] for key in public_fields if key in account_config})
+        for key in ("host", "port", "security", "username", "folder"):
+            if key not in archive_config:
+                raise ValueError(f"IMAP archive account configuration is missing {key}")
+        return ArchiveRecovery(self, actor, account_id, archive_config, password).run(
             max(1, min(int(limit), MAX_MESSAGES_PER_RUN)), extract_attachments,
         )
 

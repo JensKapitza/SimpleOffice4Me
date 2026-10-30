@@ -384,7 +384,16 @@ def archive(account_id: str):
     try:
         store = _store()
         account = _account_with_effective_password(store, account_id)
-        result = ImapArchive(store).archive(_actor(), account, limit=int(request.form.get("limit", "250")), extract_attachments=request.form.get("extract_attachments") == "1")
+        archive_config = {
+            key: account[key]
+            for key in ("id", "host", "port", "security", "username", "auth_method", "folder")
+        }
+        password = account["plain_password"]
+        result = ImapArchive(store).archive(
+            _actor(), account_id, archive_config, password,
+            limit=int(request.form.get("limit", "250")),
+            extract_attachments=request.form.get("extract_attachments") == "1",
+        )
         flash(f"Archivlauf: {result['archived']} neue EML, {result['duplicates']} Duplikate, {result['attachments']} geprüfte Anhänge, {len(result['errors'])} Fehler. {result.get('pending', 0)} offene Wiederholungen.")
     except Exception as exc:
         current_app.logger.warning("IMAP archive failed for %s: %s", _actor(), type(exc).__name__)
@@ -420,6 +429,7 @@ def send(account_id: str):
         result = SmtpSubmission(store).send(
             _actor(), account, request.form.get("recipients", ""), request.form.get("subject", ""),
             request.form.get("body", ""), request.form.get("calendar_data", ""),
+            account_id=account_id,
         )
         flash(f"Nachricht an {result['recipients']} Empfänger versandt und als unveränderte EML archiviert.")
     except MailReadOnlyError as exc:

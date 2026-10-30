@@ -8,6 +8,8 @@ real file path.
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import shutil
 import stat
@@ -17,8 +19,9 @@ import time
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO, Callable, Iterator
 
 
 ARCHIVE_SUFFIXES = (
@@ -40,14 +43,13 @@ PATH_EXTRACT_SUFFIXES = {
     ".pdf", ".docx", ".odt", ".xlsx", ".ods",
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
-
-
-def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.environ.get(name, str(default)).strip())
-    except ValueError:
-        value = default
-    return max(minimum, min(maximum, value))
+_ARCHIVE_INDEX_STATUS_TAGS = {
+    "archiv-inhalt-indexiert",
+    "archiv-catalog_only",
+    "archiv-partial",
+    "archiv-failed",
+}
+_LOGGER = logging.getLogger(__name__)
 
 
 def _archive_suffix(path: Path) -> str:
@@ -67,7 +69,9 @@ def _safe_member_name(name: str) -> str:
 
 
 def _free_memory_bytes() -> int | None:
-    """Best-effort Linux/Android available-memory probe without psutil."""
+    """Best-effort Linux/Android/Windows available-memory probe without psutil."""
+    if os.name == "nt":
+        return _windows_free_memory_bytes()
     try:
         for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
             if line.startswith("MemAvailable:"):
@@ -77,32 +81,129 @@ def _free_memory_bytes() -> int | None:
     return None
 
 
-def system_busy() -> tuple[bool, str]:
-    """Conservatively defer expensive extraction when the host is busy."""
-    forced = os.environ.get("SIMPLEOFFICE_ARCHIVE_DEEP_INDEX", "auto").strip().casefold()
-    if forced in {"0", "false", "no", "off"}:
-        return True, "deep archive indexing disabled"
-    if forced in {"1", "true", "yes", "on"}:
-        return False, "forced deep indexing"
+def _windows_free_memory_bytes(kernel32: Any | None = None) -> int | None:
+    """Read available physical memory through Windows' GlobalMemoryStatusEx API."""
+    import ctypes
+
+    memory_status_type, bool_type = _windows_memory_status_types()
+    try:
+        api = kernel32 or ctypes.windll.kernel32
+        status = memory_status_type()
+        status.dwLength = ctypes.sizeof(status)
+        query = api.GlobalMemoryStatusEx
+        if hasattr(query, "argtypes"):
+            query.argtypes = [ctypes.POINTER(memory_status_type)]
+            query.restype = bool_type
+        if not query(ctypes.byref(status)):
+            _LOGGER.warning("Windows available-memory probe failed")
+            return None
+        return int(status.ullAvailPhys)
+    except (AttributeError, OSError, TypeError):
+        _LOGGER.warning("Windows available-memory probe is unavailable")
+        return None
+
+
+@lru_cache(maxsize=1)
+def _windows_memory_status_types() -> tuple[type, Any]:
+    import ctypes
+    from ctypes import wintypes
+
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", wintypes.DWORD),
+            ("dwMemoryLoad", wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    return MemoryStatusEx, wintypes.BOOL
+
+
+def system_busy(
+    deep_index_enabled: bool = True,
+    max_load_per_cpu: float | None = None,
+    min_free_memory_mb: int | None = None,
+) -> tuple[bool, str]:
+    """Respect the saved opt-in while always enforcing host resource safeguards."""
+    from .archive_settings import (
+        DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+        DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+        MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+        MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
+        MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+        MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
+    )
+
+    if not isinstance(deep_index_enabled, bool):
+        return True, "deep archive indexing setting is invalid"
+    if not deep_index_enabled:
+        return True, "deep archive indexing disabled in settings"
+    if max_load_per_cpu is None:
+        max_load_per_cpu = DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU
+    if isinstance(max_load_per_cpu, bool) or not isinstance(max_load_per_cpu, (int, float)):
+        return True, "archive load threshold is invalid"
+    try:
+        threshold = float(max_load_per_cpu)
+    except (TypeError, ValueError, OverflowError):
+        return True, "archive load threshold is invalid"
+    if (
+        not math.isfinite(threshold)
+        or not MIN_ARCHIVE_MAX_LOAD_PER_CPU <= threshold <= MAX_ARCHIVE_MAX_LOAD_PER_CPU
+    ):
+        return True, "archive load threshold is invalid"
+    if min_free_memory_mb is None:
+        min_free_memory_mb = DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB
+    if (
+        isinstance(min_free_memory_mb, bool)
+        or not isinstance(min_free_memory_mb, int)
+        or not MIN_ARCHIVE_MIN_FREE_MEMORY_MB
+        <= min_free_memory_mb
+        <= MAX_ARCHIVE_MIN_FREE_MEMORY_MB
+    ):
+        return True, "archive memory threshold is invalid"
     cpus = max(1, os.cpu_count() or 1)
     try:
         load = os.getloadavg()[0]
-        threshold = float(os.environ.get("SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU", "0.75"))
-        if load > cpus * max(0.1, threshold):
+        if not math.isfinite(load):
+            return True, "system load is invalid"
+        if load > cpus * threshold:
             return True, f"system load {load:.2f} exceeds archive threshold"
     except (AttributeError, OSError, ValueError):
         pass
     available = _free_memory_bytes()
-    minimum = _env_int("SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB", 384, 64, 65536) * 1024 * 1024
-    if available is not None and available < minimum:
+    if available is None:
+        return True, "available memory could not be determined"
+    minimum = min_free_memory_mb * 1024 * 1024
+    if available < minimum:
         return True, "available memory is below archive threshold"
     return False, "resources available"
 
 
-def _disk_budget(path: Path) -> tuple[int, int]:
+def _disk_budget(path: Path, reserve_mb: int | None = None) -> tuple[int, int]:
     """Allow at most ten percent of free scratch storage and keep a reserve."""
+    from .archive_settings import (
+        DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+        MAX_ARCHIVE_DISK_RESERVE_MB,
+        MIN_ARCHIVE_DISK_RESERVE_MB,
+    )
+
+    if reserve_mb is None:
+        reserve_mb = DEFAULT_ARCHIVE_DISK_RESERVE_MB
+    if (
+        isinstance(reserve_mb, bool)
+        or not isinstance(reserve_mb, int)
+        or not MIN_ARCHIVE_DISK_RESERVE_MB <= reserve_mb <= MAX_ARCHIVE_DISK_RESERVE_MB
+    ):
+        _LOGGER.warning("Invalid archive disk reserve; deep indexing disabled for this pass")
+        usage = shutil.disk_usage(path)
+        return usage.free, 0
     usage = shutil.disk_usage(path)
-    reserve = _env_int("SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB", 2048, 128, 1048576) * 1024 * 1024
+    reserve = reserve_mb * 1024 * 1024
     budget = min(usage.free // 10, max(0, usage.free - reserve))
     return usage.free, max(0, budget)
 
@@ -184,6 +285,16 @@ def _decode_text(source: BinaryIO, max_bytes: int) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _truncate_utf8_bytes(value: str, max_bytes: int) -> str:
+    """Cap searchable text by encoded bytes without returning broken UTF-8."""
+    if max_bytes <= 0:
+        return ""
+    encoded = value.encode("utf-8", errors="replace")
+    if len(encoded) <= max_bytes:
+        return value
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
 def _member_suffix(name: str) -> str:
     return Path(name).suffix.casefold()
 
@@ -193,21 +304,31 @@ def _interesting_for_content(name: str) -> bool:
     return suffix in PLAIN_TEXT_SUFFIXES or suffix in PATH_EXTRACT_SUFFIXES or suffix in IMAGE_SUFFIXES
 
 
-def _extract_member_text(store: Any, source: BinaryIO, name: str, size: int, text_cap: int) -> tuple[str, str]:
+def _extract_member_text(
+    store: Any,
+    source: BinaryIO,
+    name: str,
+    size: int,
+    text_cap: int,
+    *,
+    archive_ocr_enabled: bool,
+) -> tuple[str, str]:
     suffix = _member_suffix(name)
     if suffix in PLAIN_TEXT_SUFFIXES:
-        return _decode_text(source, min(size, text_cap)), "plain_text"
+        text = _decode_text(source, min(size, text_cap))
+        return _truncate_utf8_bytes(text, text_cap), "plain_text"
     if suffix == ".pdf":
         with _private_member_file(store, source, suffix, size) as temporary:
-            return store._pdf_text(temporary)[:text_cap], "pdf"
+            text = store._pdf_text(temporary)[:text_cap]
+            return _truncate_utf8_bytes(text, text_cap), "pdf"
     if suffix in PATH_EXTRACT_SUFFIXES:
         with _private_member_file(store, source, suffix, size) as temporary:
             text, kind = store._file_text(temporary)
-            return text[:text_cap], kind
-    if suffix in IMAGE_SUFFIXES and os.environ.get("SIMPLEOFFICE_ARCHIVE_OCR", "0").strip().casefold() in {"1", "true", "yes", "on"}:
+            return _truncate_utf8_bytes(text[:text_cap], text_cap), kind
+    if suffix in IMAGE_SUFFIXES and archive_ocr_enabled:
         with _private_member_file(store, source, suffix, size) as temporary:
             text = store._image_ocr(temporary)
-            return text[:text_cap], "image_ocr"
+            return _truncate_utf8_bytes(text[:text_cap], text_cap), "image_ocr"
     return "", "catalog_only"
 
 
@@ -251,6 +372,16 @@ def _open_member(archive: Any, archive_kind: str, raw: Any) -> BinaryIO | None:
     return archive.extractfile(raw)
 
 
+def _yield_between_members(
+    delay_ms: int,
+    sleeper: Callable[[float], None] | None = None,
+) -> None:
+    """Yield between archive members; sleeper injection keeps tests thread-safe."""
+    if delay_ms <= 0:
+        return
+    (sleeper or time.sleep)(delay_ms / 1000)
+
+
 def _catalog_entry(member: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": member["name"],
@@ -268,23 +399,75 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     if not archive_suffix or not source_path.is_file() or source_path.is_symlink():
         return None
 
+    from .settings_store import SettingsStore
+
+    media_settings = SettingsStore(store.root).settings()["media"]
+    archive_ocr_enabled = media_settings["archive_ocr_enabled"]
+    deep_index_enabled = media_settings["archive_deep_index_enabled"]
+    max_load_per_cpu = media_settings["archive_max_load_per_cpu"]
+    min_free_memory_mb = media_settings["archive_min_free_memory_mb"]
+    disk_reserve_mb = media_settings["archive_disk_reserve_mb"]
+    member_yield_ms = media_settings["archive_member_yield_ms"]
+    max_members = media_settings["archive_max_members"]
+    max_text_mb = media_settings["archive_max_text_mb"]
+    max_text_per_member_mb = media_settings["archive_max_text_per_member_mb"]
+    max_member_mb = media_settings["archive_max_member_mb"]
+    max_content_files = media_settings["archive_max_content_files"]
+    max_compression_ratio = media_settings["archive_max_compression_ratio"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
-    if previous.get("source_sha256") == digest and previous.get("status") == "complete":
+    if not isinstance(previous, dict):
+        previous = {}
+    previous_policy = previous.get("resource_policy", {})
+    previous_deep_index_enabled = (
+        previous_policy.get("deep_index_enabled")
+        if isinstance(previous_policy, dict) else None
+    )
+    previous_max_members = (
+        previous_policy.get("max_members") if isinstance(previous_policy, dict) else None
+    )
+    previous_max_text_mb = (
+        previous_policy.get("max_text_mb") if isinstance(previous_policy, dict) else None
+    )
+    stable_catalog_only = (
+        not deep_index_enabled
+        and previous.get("status") == "catalog_only"
+        and previous_deep_index_enabled is False
+        and previous_max_members == max_members
+        and previous_max_text_mb == max_text_mb
+    )
+    resource_policy_unchanged = (
+        isinstance(previous_policy, dict)
+        and previous_policy.get("load_threshold_per_cpu") == max_load_per_cpu
+        and previous_policy.get("min_free_memory_mb") == min_free_memory_mb
+        and previous_policy.get("disk_reserve_mb") == disk_reserve_mb
+        and previous_policy.get("max_members") == max_members
+        and previous_policy.get("max_text_mb") == max_text_mb
+        and previous_policy.get("max_text_per_member_mb") == max_text_per_member_mb
+        and previous_policy.get("max_member_mb") == max_member_mb
+        and previous_policy.get("max_content_files") == max_content_files
+        and previous_policy.get("max_compression_ratio") == max_compression_ratio
+    )
+    if (
+        previous.get("source_sha256") == digest
+        and previous_deep_index_enabled is deep_index_enabled
+        and (
+            (previous.get("status") == "complete" and resource_policy_unchanged)
+            or stable_catalog_only
+        )
+    ):
         return previous
 
-    busy, busy_reason = system_busy()
-    max_members = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS", 20000, 100, 200000)
-    max_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB", 512, 1, 8192) * 1024 * 1024
-    max_text = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB", 8, 1, 64) * 1024 * 1024
-    max_text_per_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB", 2, 1, 32) * 1024 * 1024
-    max_content_files = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES", 500, 1, 10000)
-    ratio_limit = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO", 200, 10, 10000)
-    yield_ms = _env_int("SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS", 2, 0, 100)
+    busy, busy_reason = system_busy(
+        deep_index_enabled, max_load_per_cpu, min_free_memory_mb,
+    )
+    max_member = max_member_mb * 1024 * 1024
+    max_text = max_text_mb * 1024 * 1024
+    max_text_per_member = max_text_per_member_mb * 1024 * 1024
 
     scratch = _scratch_parent(store)
-    free_bytes, disk_budget = _disk_budget(scratch)
+    free_bytes, disk_budget = _disk_budget(scratch, disk_reserve_mb)
     deep_allowed = not busy and disk_budget > 0
     status = "complete" if deep_allowed else "catalog_only"
     reason = busy_reason if busy else ("scratch reserve reached" if disk_budget <= 0 else "resources available")
@@ -321,7 +504,11 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 skipped_encrypted += 1
                 continue
             compressed = member.get("compressed_size")
-            if compressed is not None and size > 1024 * 1024 and size / max(1, int(compressed)) > ratio_limit:
+            if (
+                compressed is not None
+                and size > 1024 * 1024
+                and size / max(1, int(compressed)) > max_compression_ratio
+            ):
                 skipped_suspicious += 1
                 continue
             if size < 0 or size > max_member or size > disk_budget or processed_bytes + size > disk_budget:
@@ -333,19 +520,25 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 continue
             try:
                 with handle:
-                    text, kind = _extract_member_text(store, handle, name, size, max_text_per_member)
+                    text, kind = _extract_member_text(
+                        store,
+                        handle,
+                        name,
+                        size,
+                        max_text_per_member,
+                        archive_ocr_enabled=archive_ocr_enabled,
+                    )
                 processed_bytes += size
                 if text and text_bytes < max_text:
                     prefix = f"\n[{name} | {kind}]\n"
                     available = max_text - text_bytes
-                    value = (prefix + text)[:available]
+                    value = _truncate_utf8_bytes(prefix + text, available)
                     text_parts.append(value)
                     text_bytes += len(value.encode("utf-8", errors="replace"))
                 indexed_content += 1
             except (OSError, RuntimeError, ValueError, zipfile.BadZipFile, tarfile.TarError):
                 extraction_errors += 1
-            if yield_ms:
-                time.sleep(yield_ms / 1000)
+            _yield_between_members(member_yield_ms)
     except (OSError, zipfile.BadZipFile, tarfile.TarError) as exc:
         status = "failed"
         reason = f"archive could not be read: {exc}"
@@ -372,8 +565,19 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         "skipped_encrypted": skipped_encrypted,
         "extraction_errors": extraction_errors,
         "catalog": catalog,
-        "search_text": "".join(text_parts)[:max_text],
+        "search_text": _truncate_utf8_bytes("".join(text_parts), max_text),
         "resource_policy": {
+            "deep_index_enabled": deep_index_enabled,
+            "load_threshold_per_cpu": max_load_per_cpu,
+            "min_free_memory_mb": min_free_memory_mb,
+            "disk_reserve_mb": disk_reserve_mb,
+            "member_yield_ms": member_yield_ms,
+            "max_members": max_members,
+            "max_text_mb": max_text_mb,
+            "max_text_per_member_mb": max_text_per_member_mb,
+            "max_member_mb": max_member_mb,
+            "max_content_files": max_content_files,
+            "max_compression_ratio": max_compression_ratio,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,
@@ -382,7 +586,9 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "ramdisk_small_members_only": False,
         },
     }
-    current_tags = list(metadata.get("tags", []))
+    current_tags = [
+        tag for tag in metadata.get("tags", []) if tag not in _ARCHIVE_INDEX_STATUS_TAGS
+    ]
     generated = ["archiv", f"archiv-{payload['archive_format']}"]
     generated.append("archiv-inhalt-indexiert" if status == "complete" else f"archiv-{status}")
     store.update_metadata(

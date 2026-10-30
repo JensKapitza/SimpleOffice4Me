@@ -88,6 +88,57 @@ class FederationStore:
                     checked_at INTEGER NOT NULL,
                     FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS federation_network_diagnostic(
+                    peer_id TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    checked_at INTEGER NOT NULL,
+                    last_success_at INTEGER,
+                    status TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '',
+                    latency_ms INTEGER NOT NULL DEFAULT 0,
+                    detail_json TEXT NOT NULL DEFAULT '{}',
+                    PRIMARY KEY(peer_id,direction,source),
+                    FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS federation_diagnostic_attempt(
+                    peer_id TEXT NOT NULL,
+                    attempted_at INTEGER NOT NULL,
+                    FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS federation_diagnostic_attempt_time_idx
+                    ON federation_diagnostic_attempt(peer_id,attempted_at);
+                CREATE TABLE IF NOT EXISTS federation_network_diagnostic_history(
+                    diagnostic_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    peer_id TEXT NOT NULL,
+                    direction TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    checked_at INTEGER NOT NULL,
+                    status TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT '',
+                    latency_ms INTEGER NOT NULL DEFAULT 0,
+                    detail_json TEXT NOT NULL DEFAULT '{}',
+                    FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS federation_network_diagnostic_history_key_idx
+                    ON federation_network_diagnostic_history(peer_id,direction,source,diagnostic_id DESC);
+                CREATE TABLE IF NOT EXISTS federation_network_manual_confirmation(
+                    peer_id TEXT PRIMARY KEY,
+                    actor TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    confirmed_at INTEGER NOT NULL,
+                    FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS federation_network_manual_history(
+                    confirmation_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    peer_id TEXT NOT NULL,
+                    actor TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    confirmed_at INTEGER NOT NULL,
+                    FOREIGN KEY(peer_id) REFERENCES federation_peer(peer_id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS federation_network_manual_history_peer_idx
+                    ON federation_network_manual_history(peer_id,confirmation_id DESC);
                 CREATE TABLE IF NOT EXISTS federation_transfer(
                     transfer_id TEXT PRIMARY KEY,
                     direction TEXT NOT NULL,
@@ -253,6 +304,217 @@ class FederationStore:
                     "UPDATE federation_peer SET last_error=?,updated_at=? WHERE peer_id=?",
                     (str(error)[:1000], _now(), peer_id),
                 )
+
+    def claim_diagnostic_attempt(
+        self, peer_id: str, *, limit: int = 10, window_seconds: int = 60,
+        now: int | None = None,
+    ) -> bool:
+        peer_id = sanitize_peer_id(peer_id)
+        timestamp = _now() if now is None else int(now)
+        limit = max(1, min(int(limit), 60))
+        window_seconds = max(1, min(int(window_seconds), 3600))
+        with self._db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute(
+                "DELETE FROM federation_diagnostic_attempt WHERE attempted_at<?",
+                (timestamp - window_seconds,),
+            )
+            count = db.execute(
+                "SELECT COUNT(*) FROM federation_diagnostic_attempt WHERE peer_id=? AND attempted_at>=?",
+                (peer_id, timestamp - window_seconds),
+            ).fetchone()[0]
+            if int(count) >= limit:
+                return False
+            db.execute(
+                "INSERT INTO federation_diagnostic_attempt(peer_id,attempted_at) VALUES(?,?)",
+                (peer_id, timestamp),
+            )
+        return True
+
+    def record_network_diagnostic(
+        self, peer_id: str, *, direction: str, source: str, status: str,
+        category: str = "", latency_ms: int = 0, detail: dict[str, Any] | None = None,
+        checked_at: int | None = None,
+    ) -> dict[str, Any]:
+        peer_id = sanitize_peer_id(peer_id)
+        if direction not in {"inbound", "outbound"} or status not in {"success", "failure"}:
+            raise ValueError("invalid federation diagnostic state")
+        source = str(source or "")[:128]
+        if not source:
+            raise ValueError("diagnostic source is required")
+        timestamp = _now() if checked_at is None else int(checked_at)
+        clean_detail = detail if isinstance(detail, dict) else {}
+        serialized = _json(clean_detail)
+        if len(serialized.encode("utf-8")) > 2048:
+            raise ValueError("federation diagnostic detail is too large")
+        with self._db() as db:
+            db.execute(
+                """INSERT INTO federation_network_diagnostic(
+                       peer_id,direction,source,checked_at,last_success_at,status,category,latency_ms,detail_json
+                   ) VALUES(?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(peer_id,direction,source) DO UPDATE SET
+                       checked_at=excluded.checked_at,
+                       last_success_at=CASE WHEN excluded.status='success' THEN excluded.checked_at
+                                            ELSE federation_network_diagnostic.last_success_at END,
+                       status=excluded.status,category=excluded.category,
+                       latency_ms=excluded.latency_ms,detail_json=excluded.detail_json""",
+                (
+                    peer_id, direction, source, timestamp,
+                    timestamp if status == "success" else None,
+                    status, str(category or "")[:80], max(0, min(int(latency_ms), 300_000)), serialized,
+                ),
+            )
+            db.execute(
+                """INSERT INTO federation_network_diagnostic_history(
+                       peer_id,direction,source,checked_at,status,category,latency_ms,detail_json
+                   ) VALUES(?,?,?,?,?,?,?,?)""",
+                (peer_id, direction, source, timestamp, status, str(category or "")[:80],
+                 max(0, min(int(latency_ms), 300_000)), serialized),
+            )
+            db.execute(
+                """DELETE FROM federation_network_diagnostic_history
+                   WHERE peer_id=? AND direction=? AND source=? AND diagnostic_id NOT IN (
+                       SELECT diagnostic_id FROM federation_network_diagnostic_history
+                       WHERE peer_id=? AND direction=? AND source=?
+                       ORDER BY diagnostic_id DESC LIMIT 20
+                   )""",
+                (peer_id, direction, source, peer_id, direction, source),
+            )
+        return self.network_diagnostic(peer_id, direction=direction, source=source) or {}
+
+    def network_diagnostic(
+        self, peer_id: str, *, direction: str, source: str = "local",
+    ) -> dict[str, Any] | None:
+        peer_id = sanitize_peer_id(peer_id)
+        if direction not in {"inbound", "outbound"}:
+            raise ValueError("invalid federation diagnostic direction")
+        with self._db() as db:
+            row = db.execute(
+                "SELECT * FROM federation_network_diagnostic WHERE peer_id=? AND direction=? AND source=?",
+                (peer_id, direction, str(source or "")[:128]),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "peer_id": str(row["peer_id"]), "direction": str(row["direction"]),
+            "source": str(row["source"]), "checked_at": int(row["checked_at"]),
+            "last_success_at": int(row["last_success_at"]) if row["last_success_at"] is not None else None,
+            "status": str(row["status"]), "category": str(row["category"]),
+            "latency_ms": int(row["latency_ms"]), "detail": _load(row["detail_json"], {}),
+        }
+
+    def network_diagnostics(self, peer_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        ids = list(dict.fromkeys(sanitize_peer_id(value) for value in peer_ids if str(value or "")))
+        if not ids:
+            return {}
+        with self._db() as db:
+            db.execute("CREATE TEMP TABLE selected_diagnostic_peers(peer_id TEXT PRIMARY KEY)")
+            db.executemany(
+                "INSERT INTO selected_diagnostic_peers(peer_id) VALUES(?)",
+                ((peer_id,) for peer_id in ids),
+            )
+            rows = db.execute(
+                """SELECT diagnostic.* FROM federation_network_diagnostic AS diagnostic
+                   JOIN selected_diagnostic_peers AS selected USING(peer_id)
+                   ORDER BY diagnostic.peer_id,diagnostic.direction,diagnostic.source""",
+            ).fetchall()
+        result = {peer_id: [] for peer_id in ids}
+        for row in rows:
+            detail = _load(row["detail_json"], {})
+            result[str(row["peer_id"])].append({
+                "direction": str(row["direction"]), "source": str(row["source"]),
+                "checked_at": int(row["checked_at"]),
+                "last_success_at": int(row["last_success_at"]) if row["last_success_at"] is not None else None,
+                "status": str(row["status"]), "category": str(row["category"]),
+                "latency_ms": int(row["latency_ms"]), "detail": detail if isinstance(detail, dict) else {},
+            })
+        return result
+
+    def network_diagnostic_history(
+        self, peer_id: str, *, direction: str, source: str = "local", limit: int = 5,
+    ) -> list[dict[str, Any]]:
+        peer_id = sanitize_peer_id(peer_id)
+        if direction not in {"inbound", "outbound"}:
+            raise ValueError("invalid federation diagnostic direction")
+        limit = max(1, min(int(limit), 20))
+        with self._db() as db:
+            rows = db.execute(
+                """SELECT checked_at,status,category,latency_ms,detail_json
+                   FROM federation_network_diagnostic_history
+                   WHERE peer_id=? AND direction=? AND source=?
+                   ORDER BY diagnostic_id DESC LIMIT ?""",
+                (peer_id, direction, str(source or "")[:128], limit),
+            ).fetchall()
+        return [
+            {
+                "checked_at": int(row["checked_at"]), "status": str(row["status"]),
+                "category": str(row["category"]), "latency_ms": int(row["latency_ms"]),
+                "detail": _load(row["detail_json"], {}),
+            }
+            for row in rows
+        ]
+
+    def record_manual_network_confirmation(
+        self, peer_id: str, *, actor: str, outcome: str, confirmed_at: int | None = None,
+    ) -> dict[str, Any]:
+        peer_id = sanitize_peer_id(peer_id)
+        actor = str(actor or "").strip()[:128]
+        if not actor or outcome not in {"reachable", "unreachable"}:
+            raise ValueError("invalid manual network confirmation")
+        timestamp = _now() if confirmed_at is None else int(confirmed_at)
+        with self._db() as db:
+            db.execute(
+                """INSERT INTO federation_network_manual_confirmation(peer_id,actor,outcome,confirmed_at)
+                   VALUES(?,?,?,?) ON CONFLICT(peer_id) DO UPDATE SET
+                   actor=excluded.actor,outcome=excluded.outcome,confirmed_at=excluded.confirmed_at""",
+                (peer_id, actor, outcome, timestamp),
+            )
+            db.execute(
+                "INSERT INTO federation_network_manual_history(peer_id,actor,outcome,confirmed_at) VALUES(?,?,?,?)",
+                (peer_id, actor, outcome, timestamp),
+            )
+            db.execute(
+                """DELETE FROM federation_network_manual_history WHERE peer_id=? AND confirmation_id NOT IN (
+                   SELECT confirmation_id FROM federation_network_manual_history
+                   WHERE peer_id=? ORDER BY confirmation_id DESC LIMIT 20
+                )""",
+                (peer_id, peer_id),
+            )
+        return self.manual_network_confirmation(peer_id) or {}
+
+    def manual_network_confirmation(self, peer_id: str) -> dict[str, Any] | None:
+        peer_id = sanitize_peer_id(peer_id)
+        with self._db() as db:
+            row = db.execute(
+                "SELECT actor,outcome,confirmed_at FROM federation_network_manual_confirmation WHERE peer_id=?",
+                (peer_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {"actor": str(row["actor"]), "outcome": str(row["outcome"]), "confirmed_at": int(row["confirmed_at"])}
+
+    def manual_network_confirmations(self, peer_ids: list[str]) -> dict[str, dict[str, Any]]:
+        ids = list(dict.fromkeys(sanitize_peer_id(value) for value in peer_ids if str(value or "")))
+        if not ids:
+            return {}
+        with self._db() as db:
+            db.execute("CREATE TEMP TABLE selected_manual_confirmation_peers(peer_id TEXT PRIMARY KEY)")
+            db.executemany(
+                "INSERT INTO selected_manual_confirmation_peers(peer_id) VALUES(?)",
+                ((peer_id,) for peer_id in ids),
+            )
+            rows = db.execute(
+                """SELECT confirmation.peer_id,confirmation.actor,confirmation.outcome,confirmation.confirmed_at
+                   FROM federation_network_manual_confirmation AS confirmation
+                   JOIN selected_manual_confirmation_peers AS selected USING(peer_id)""",
+            ).fetchall()
+        return {
+            str(row["peer_id"]): {
+                "actor": str(row["actor"]), "outcome": str(row["outcome"]),
+                "confirmed_at": int(row["confirmed_at"]),
+            }
+            for row in rows
+        }
 
     def create_transfer(
         self,

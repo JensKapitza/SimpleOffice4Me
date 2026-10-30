@@ -32,7 +32,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install static analyzer
-        run: python -m pip install --disable-pip-version-check ruff==0.16.9
+        run: python -m pip install --require-hashes -r requirements-ci-ruff.txt
       - name: Run Python static analysis
         run: ruff check app tools tests *.py
       - name: Compile all first-party Python

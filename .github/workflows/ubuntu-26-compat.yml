@@ -15,6 +15,15 @@ on:
       - 'Dockerfile'
       - '.dockerignore'
       - 'pyproject.toml'
+      - 'requirements-ci-tools.txt'
+      - 'requirements-ci-android-apk.in'
+      - 'requirements-ci-android-apk.txt'
+      - 'requirements-ci-android-wheels.in'
+      - 'requirements-ci-android-wheels.txt'
+      - 'requirements-ci-pip.in'
+      - 'requirements-ci-pip.txt'
+      - 'requirements-ci-browser.in'
+      - 'requirements-ci-browser.txt'
       - 'build-dep.sh'
   workflow_dispatch:
 
@@ -41,7 +50,7 @@ jobs:
           cache: pip
       - name: Install project
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --require-hashes --upgrade -r requirements-ci-pip.txt
           python -m pip install --editable ".[security,sftp]"
       - name: Run policy, compile and unit-test gates
         run: |
@@ -97,19 +106,19 @@ jobs:
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-Pillow-wheel
           path: android/apk/app/wheelhouse
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-cryptography-wheel
           path: android/apk/app/wheelhouse
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-cffi-wheel
           path: android/apk/app/wheelhouse
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: android-cp315-arm64-argon2-cffi-bindings-wheel
           path: android/apk/app/wheelhouse
@@ -130,7 +139,7 @@ jobs:
         run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
       - name: Preflight Android wheels and install ReportLab wheel
         run: |
-          python -m pip install 'packaging==26.3'
+          python -m pip install --require-hashes -r requirements-ci-tools.txt
           python tools/check_chaquopy_wheels.py \
             --python "$SIMPLEOFFICE_ANDROID_PYTHON" \
             --abi "$SIMPLEOFFICE_ANDROID_ABI" \
@@ -166,7 +175,7 @@ jobs:
           python-version: '3.12'
       - name: Install pinned Playwright and Chromium dependencies
         run: |
-          python -m pip install 'playwright==1.55.0' 'Jinja2>=3.1.2,<4'
+          python -m pip install --require-hashes --only-binary=:all: -r requirements-ci-browser.txt
           python -m playwright install --with-deps chromium
           python -m playwright install --list
       - name: Resource Commander browser regressions

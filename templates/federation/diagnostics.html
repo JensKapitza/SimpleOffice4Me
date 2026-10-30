@@ -1,0 +1,27 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <h1 class="h2 mb-2">Federation-Status</h1>
+  <p class="text-secondary">Diese Übersicht enthält nur Statusdaten, die Administratoren ausdrücklich für angemeldete Nutzer freigegeben haben. Sie zeigt keine Peer-Adressen, technischen Fehlerdetails oder Netzwerkwege.</p>
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table align-middle mb-0">
+        <thead><tr><th scope="col">Peer</th><th scope="col">Server → Peer</th><th scope="col">Peer → Server</th></tr></thead>
+        <tbody>
+          {% for peer in peers %}
+          <tr>
+            <th scope="row">{{ peer.label }}</th>
+            <td>{{ peer.outbound.label }}</td>
+            <td>{{ peer.inbound.label }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-secondary text-center py-4">Kein Diagnosestatus für Nutzer freigegeben.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <p class="small text-secondary mt-3 mb-0">Browserprüfungen und manuelle Bestätigungen gelten nicht als technische Server-Erreichbarkeit.</p>
+</main>
+{% endblock %}

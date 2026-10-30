@@ -10,9 +10,24 @@ from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
-from app import app, configured_webdav_quota_bytes, db as database
+from app import (
+    app,
+    apply_upload_limit_settings,
+    configured_s3_overlay_upload_limit_bytes,
+    configured_webdav_quota_bytes,
+    db as database,
+)
 from app.attachment_security import AttachmentSecurity
+from app.chat_routes import _file_limit
+from app.archive_settings import (
+    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+    DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+)
 from app.settings_store import (
+    DEFAULT_ARCHIVE_OCR_ENABLED,
+    DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
@@ -23,7 +38,11 @@ from app.settings_store import (
     DEFAULT_PREVIEW_TIMEOUT_SECONDS,
     DEFAULT_PREVIEW_ENABLED,
     DEFAULT_VIDEO_PREVIEW_FRAMES,
+    DEFAULT_UPLOAD_LIMIT_MIB,
     MAX_WEBDAV_QUOTA_MIB,
+    MAX_CHAT_ATTACHMENT_BYTES,
+    MAX_UPLOAD_LIMIT_MIB,
+    MIN_UPLOAD_LIMIT_MIB,
     MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_RSYNC_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
@@ -42,7 +61,10 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.config = {
             key: app.config.get(key)
-            for key in ("DATABASE", "DOCUMENT_ROOT", "SECRET_KEY", "TESTING", "TEST_CSRF_PROTECTION")
+            for key in (
+                "DATABASE", "DOCUMENT_ROOT", "SECRET_KEY", "TESTING", "TEST_CSRF_PROTECTION",
+                "MAX_CONTENT_LENGTH", "S3_OVERLAY_MAX_UPLOAD_BYTES",
+            )
         }
         app.config.update(
             DATABASE=str(self.root / "auth.sqlite3"),
@@ -55,11 +77,15 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             os.environ,
             {
                 "SIMPLEOFFICE_PREVIEWS": "1",
+                "SIMPLEOFFICE_MAX_UPLOAD_MIB": str(DEFAULT_UPLOAD_LIMIT_MIB),
                 "SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_PREVIEW_MAX_BYTES": str(DEFAULT_PREVIEW_MAX_BYTES),
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
                 "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": str(DEFAULT_VIDEO_PREVIEW_FRAMES),
                 "SIMPLEOFFICE_CLAMAV_TIMEOUT": str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
+                "SIMPLEOFFICE_ARCHIVE_OCR": "0",
+                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "auto",
+                "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": str(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU),
                 "SIMPLEOFFICE_RSYNC_TIMEOUT": str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_RSYNC_MAX_BYTES": str(DEFAULT_RSYNC_MAX_BYTES),
                 "SIMPLEOFFICE_RSYNC_MAX_FILES": str(DEFAULT_RSYNC_MAX_FILES),
@@ -93,6 +119,13 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
     @staticmethod
     def form_values(**overrides):
         values = {
+            "upload_limit_mib": str(DEFAULT_UPLOAD_LIMIT_MIB),
+            "chat_attachment_max_bytes": str(DEFAULT_CHAT_ATTACHMENT_MAX_BYTES),
+            "archive_ocr_enabled": "0",
+            "archive_deep_index_enabled": "1",
+            "archive_max_load_per_cpu": str(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU),
+            "archive_min_free_memory_mb": str(DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB),
+            "archive_disk_reserve_mb": str(DEFAULT_ARCHIVE_DISK_RESERVE_MB),
             "preview_enabled": "1",
             "preview_timeout_seconds": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
             "preview_max_bytes": str(DEFAULT_PREVIEW_MAX_BYTES),
@@ -110,6 +143,30 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn('name="_csrf_token"', html)
         self.assertIn('name="preview_timeout_seconds"', html)
+        self.assertIn('name="upload_limit_mib"', html)
+        self.assertIn('name="chat_attachment_max_bytes"', html)
+        self.assertEqual(1, html.count('id="chat-attachment-max-bytes"'))
+        self.assertIn('value="0" min="0"', html)
+        self.assertIn("Standard 512 MiB; zulässig 1–4096 MiB", html)
+        self.assertIn('name="archive_ocr_enabled"', html)
+        self.assertIn('name="archive_deep_index_enabled"', html)
+        self.assertIn("CPU-, Arbeitsspeicher- und Datenträger-Schutzgrenzen immer aktiv", html)
+        self.assertEqual(1, html.count('id="archive-deep-index-enabled"'))
+        self.assertIn(
+            '<select class="form-select" id="archive-deep-index-enabled" '
+            'name="archive_deep_index_enabled" required>\n'
+            '            <option value="" disabled>Bitte auswählen</option>',
+            html,
+        )
+        self.assertIn('name="archive_max_load_per_cpu"', html)
+        self.assertIn('min="0.1" max="8.0" step="0.05"', html)
+        self.assertEqual(1, html.count('id="archive-load-threshold"'))
+        self.assertIn('name="archive_min_free_memory_mb"', html)
+        self.assertIn('min="64" max="65536" step="1"', html)
+        self.assertIn('name="archive_disk_reserve_mb"', html)
+        self.assertIn('min="128" max="1048576" step="1"', html)
+        self.assertIn('name="archive_member_yield_ms"', html)
+        self.assertIn('min="0" max="100" step="1"', html)
         self.assertIn('name="preview_max_bytes"', html)
         self.assertIn('name="preview_max_pixels"', html)
         self.assertIn('name="video_preview_frames"', html)
@@ -630,20 +687,34 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             path,
             data=self.form_values(
                 preview_enabled="0",
+                archive_ocr_enabled="1",
+                archive_deep_index_enabled="0",
+                archive_max_load_per_cpu="1.5",
+                archive_min_free_memory_mb="1024",
+                archive_disk_reserve_mb="8192",
                 preview_timeout_seconds="90",
                 preview_max_bytes="2000000",
                 preview_max_pixels="120000000",
                 video_preview_frames="8",
+                upload_limit_mib="1024",
+                chat_attachment_max_bytes=str(100 * 1024 * 1024),
             ),
             headers={"X-CSRF-Token": "a" * 40},
         )
         self.assertEqual(302, response.status_code)
         media = SettingsStore(self.root).settings()["media"]
         self.assertFalse(media["preview_enabled"])
+        self.assertTrue(media["archive_ocr_enabled"])
+        self.assertFalse(media["archive_deep_index_enabled"])
+        self.assertEqual(1.5, media["archive_max_load_per_cpu"])
+        self.assertEqual(1024, media["archive_min_free_memory_mb"])
+        self.assertEqual(8192, media["archive_disk_reserve_mb"])
         self.assertEqual(90, media["preview_timeout_seconds"])
         self.assertEqual(2_000_000, media["preview_max_bytes"])
         self.assertEqual(120_000_000, media["preview_max_pixels"])
         self.assertEqual(8, media["video_preview_frames"])
+        self.assertEqual(1024, media["upload_limit_mib"])
+        self.assertEqual(100 * 1024 * 1024, media["chat_attachment_max_bytes"])
         with app.app_context():
             row = database.get_db().execute(
                 "SELECT actor_name,target_id,detail FROM security_event WHERE action=?",
@@ -651,17 +722,34 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual("media-admin", row["actor_name"])
         self.assertEqual("media.preview_settings", row["target_id"])
-        self.assertEqual(2_000_000, json.loads(row["detail"])["preview_max_bytes"])
+        detail = json.loads(row["detail"])
+        self.assertEqual(2_000_000, detail["preview_max_bytes"])
+        self.assertFalse(detail["archive_deep_index_enabled"])
+        self.assertEqual(1.5, detail["archive_max_load_per_cpu"])
 
     def test_invalid_media_values_do_not_overwrite_settings_and_reset_restores_defaults(self):
         path = "/admin/settings/documents-media"
         invalid_values = (
             {"preview_timeout_seconds": "301"},
+            {"archive_ocr_enabled": "maybe"},
+            {"archive_deep_index_enabled": "maybe"},
+            {"archive_max_load_per_cpu": "nan"},
+            {"archive_max_load_per_cpu": "inf"},
+            {"archive_max_load_per_cpu": "0.09"},
+            {"archive_max_load_per_cpu": "8.01"},
+            {"archive_min_free_memory_mb": "63"},
+            {"archive_min_free_memory_mb": "65537"},
+            {"archive_disk_reserve_mb": "127"},
+            {"archive_disk_reserve_mb": "1048577"},
             {"preview_max_bytes": "1023"},
             {"preview_max_bytes": "2147483649"},
             {"preview_max_pixels": "999999"},
             {"preview_max_pixels": "250000001"},
             {"video_preview_frames": "31"},
+            {"upload_limit_mib": "0"},
+            {"upload_limit_mib": "4097"},
+            {"chat_attachment_max_bytes": "-1"},
+            {"chat_attachment_max_bytes": str(MAX_CHAT_ATTACHMENT_BYTES + 1)},
         )
         for invalid in invalid_values:
             with self.subTest(invalid=invalid):
@@ -686,19 +774,220 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(302, reset.status_code)
         media = SettingsStore(self.root).settings()["media"]
         self.assertEqual(DEFAULT_PREVIEW_ENABLED, media["preview_enabled"])
+        self.assertEqual(DEFAULT_ARCHIVE_OCR_ENABLED, media["archive_ocr_enabled"])
+        self.assertEqual(DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED, media["archive_deep_index_enabled"])
+        self.assertEqual(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU, media["archive_max_load_per_cpu"])
+        self.assertEqual(DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB, media["archive_min_free_memory_mb"])
+        self.assertEqual(DEFAULT_ARCHIVE_DISK_RESERVE_MB, media["archive_disk_reserve_mb"])
         self.assertEqual(DEFAULT_PREVIEW_TIMEOUT_SECONDS, media["preview_timeout_seconds"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_BYTES, media["preview_max_bytes"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_PIXELS, media["preview_max_pixels"])
         self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, media["video_preview_frames"])
+        self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB, media["upload_limit_mib"])
+        self.assertEqual(DEFAULT_CHAT_ATTACHMENT_MAX_BYTES, media["chat_attachment_max_bytes"])
+
+    def test_legacy_archive_ocr_environment_value_migrates_once(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_OCR": "yes"}):
+                self.assertTrue(store.settings()["media"]["archive_ocr_enabled"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_OCR": "0"}):
+                media = SettingsStore(legacy_root).settings()["media"]
+            self.assertTrue(media["archive_ocr_enabled"])
+            self.assertFalse(media["preview_enabled"])
+
+    def test_legacy_archive_deep_index_environment_migrates_once_and_settings_win(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "0"}):
+                self.assertFalse(store.settings()["media"]["archive_deep_index_enabled"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1"}):
+                media = SettingsStore(legacy_root).settings()["media"]
+            self.assertFalse(media["archive_deep_index_enabled"])
+            self.assertFalse(media["preview_enabled"])
+
+        with tempfile.TemporaryDirectory() as legacy_root:
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "invalid"}):
+                self.assertEqual(
+                    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+                    SettingsStore(legacy_root).settings()["media"]["archive_deep_index_enabled"],
+                )
+
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1"}):
+                self.assertTrue(store.settings()["media"]["archive_deep_index_enabled"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "0"}):
+                self.assertTrue(
+                    SettingsStore(legacy_root).settings()["media"]["archive_deep_index_enabled"],
+                )
+
+    def test_legacy_archive_load_threshold_migrates_once_and_is_bounded(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "2.5"}):
+                self.assertEqual(2.5, store.settings()["media"]["archive_max_load_per_cpu"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "0.5"}):
+                self.assertEqual(2.5, store.settings()["media"]["archive_max_load_per_cpu"])
+
+        expectations = {
+            "invalid": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+            "nan": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+            "1e999": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+            "0": 0.1,
+            "1000": 8.0,
+        }
+        for raw, expected in expectations.items():
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as legacy_root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": raw}):
+                    actual = SettingsStore(legacy_root).settings()["media"][
+                        "archive_max_load_per_cpu"
+                    ]
+                self.assertEqual(expected, actual)
+
+    def test_legacy_upload_limit_environment_value_migrates_once(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "256"}):
+                self.assertEqual(256, store.settings()["media"]["upload_limit_mib"])
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}):
+                media = SettingsStore(legacy_root).settings()["media"]
+            self.assertEqual(256, media["upload_limit_mib"])
+
+    def test_legacy_chat_attachment_limit_migrates_once(self):
+        with tempfile.TemporaryDirectory() as legacy_root:
+            store = SettingsStore(legacy_root)
+            old_limit = 100 * 1024 * 1024
+            with patch.dict(os.environ, {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(old_limit)}):
+                self.assertEqual(
+                    old_limit,
+                    store.settings()["media"]["chat_attachment_max_bytes"],
+                )
+                store.save({"media": {"preview_enabled": False}}, "media-admin")
+            with patch.dict(
+                os.environ,
+                {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(200 * 1024 * 1024)},
+            ):
+                self.assertEqual(
+                    old_limit,
+                    SettingsStore(legacy_root).settings()["media"]["chat_attachment_max_bytes"],
+                )
+
+    def test_invalid_legacy_chat_attachment_limit_inherits_or_clamps_safely(self):
+        for value, expected in (
+            ("invalid", DEFAULT_CHAT_ATTACHMENT_MAX_BYTES),
+            ("0", 1),
+            ("-10", 1),
+            ("999999999999", MAX_CHAT_ATTACHMENT_BYTES),
+        ):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as legacy_root:
+                with patch.dict(os.environ, {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": value}):
+                    media = SettingsStore(legacy_root).settings()["media"]
+                self.assertEqual(expected, media["chat_attachment_max_bytes"])
+
+    def test_chat_attachment_limit_is_persisted_and_clamped_by_global_request_limit(self):
+        store = SettingsStore(self.root)
+        with app.app_context():
+            app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
+            with patch.dict(
+                os.environ,
+                {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(1024 * 1024)},
+            ):
+                store.save(
+                    {"media": {"chat_attachment_max_bytes": 50 * 1024 * 1024}},
+                    "media-admin",
+                )
+                self.assertEqual(50 * 1024 * 1024, _file_limit())
+                app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
+                self.assertEqual(25 * 1024 * 1024, _file_limit())
+                store.save({"media": {"chat_attachment_max_bytes": 0}}, "media-admin")
+                self.assertEqual(25 * 1024 * 1024, _file_limit())
+                app.config["MAX_CONTENT_LENGTH"] = None
+                self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB * 1024 * 1024, _file_limit())
+
+    def test_persisted_upload_limit_applies_to_request_and_s3_caps(self):
+        config = {}
+        with patch.dict(
+            os.environ, {"SIMPLEOFFICE_S3_MAX_UPLOAD_MIB": "2048"}, clear=True,
+        ):
+            apply_upload_limit_settings(config, 1024)
+        self.assertEqual(1024 * 1024 * 1024, config["MAX_CONTENT_LENGTH"])
+        self.assertEqual(config["MAX_CONTENT_LENGTH"], config["S3_OVERLAY_MAX_UPLOAD_BYTES"])
+        self.assertEqual(
+            1024 * 1024 * 1024,
+            configured_s3_overlay_upload_limit_bytes(config["MAX_CONTENT_LENGTH"]),
+        )
+
+    def test_upload_limit_accepts_supported_endpoints(self):
+        store = SettingsStore(self.root)
+        for limit in (MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB):
+            with self.subTest(limit=limit):
+                settings = store.save({"media": {"upload_limit_mib": limit}}, "media-admin")
+                self.assertEqual(limit, settings["media"]["upload_limit_mib"])
+
+    def test_older_media_form_submission_preserves_archive_ocr_setting(self):
+        SettingsStore(self.root).save(
+            {
+                "media": {
+                    "archive_ocr_enabled": True,
+                    "archive_deep_index_enabled": False,
+                    "archive_max_load_per_cpu": 2.5,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 8192,
+                    "chat_attachment_max_bytes": 100 * 1024 * 1024,
+                },
+            },
+            "media-admin",
+        )
+        old_form = self.form_values()
+        old_form.pop("archive_ocr_enabled")
+        old_form.pop("archive_deep_index_enabled")
+        old_form.pop("archive_max_load_per_cpu")
+        old_form.pop("archive_min_free_memory_mb")
+        old_form.pop("archive_disk_reserve_mb")
+        old_form.pop("chat_attachment_max_bytes")
+        response = self.admin.post(
+            "/admin/settings/documents-media",
+            data=old_form,
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, response.status_code)
+        media = SettingsStore(self.root).settings()["media"]
+        self.assertTrue(media["archive_ocr_enabled"])
+        self.assertFalse(media["archive_deep_index_enabled"])
+        self.assertEqual(2.5, media["archive_max_load_per_cpu"])
+        self.assertEqual(1024, media["archive_min_free_memory_mb"])
+        self.assertEqual(8192, media["archive_disk_reserve_mb"])
+        self.assertEqual(100 * 1024 * 1024, media["chat_attachment_max_bytes"])
 
     def test_settings_store_rejects_invalid_preview_types_and_bounds(self):
         store = SettingsStore(self.root)
         invalid_media = (
             {"preview_enabled": "0"},
+            {"archive_ocr_enabled": "1"},
+            {"archive_deep_index_enabled": "1"},
+            {"archive_max_load_per_cpu": True},
+            {"archive_max_load_per_cpu": float("nan")},
+            {"archive_max_load_per_cpu": 8.01},
+            {"archive_min_free_memory_mb": True},
+            {"archive_min_free_memory_mb": 63},
+            {"archive_min_free_memory_mb": 65537},
+            {"archive_disk_reserve_mb": True},
+            {"archive_disk_reserve_mb": 127},
+            {"archive_disk_reserve_mb": 1048577},
             {"preview_timeout_seconds": True},
             {"preview_max_bytes": 2 * 1024 * 1024 * 1024 + 1},
             {"preview_max_pixels": 999_999},
             {"video_preview_frames": False},
+            {"upload_limit_mib": MAX_UPLOAD_LIMIT_MIB + 1},
+            {"upload_limit_mib": True},
+            {"chat_attachment_max_bytes": MAX_CHAT_ATTACHMENT_BYTES + 1},
+            {"chat_attachment_max_bytes": True},
         )
         for values in invalid_media:
             with self.subTest(values=values):

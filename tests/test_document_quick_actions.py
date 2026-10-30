@@ -133,6 +133,53 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.assertEqual(("stream.txt", b"stream me", True), calls[0][:3])
         self.assertEqual(app.config["MAX_CONTENT_LENGTH"], calls[0][3])
 
+    def test_upload_exceptions_hide_internal_details_from_response_and_inbox(self):
+        class FakeStorage:
+            def __init__(self, error):
+                self.error = error
+
+            def import_stream(self, stream, filename, *, archive=False, max_bytes=0):
+                raise self.error
+
+        class FakeSettings:
+            @staticmethod
+            def settings():
+                return {"documents": {"default_tags": [], "default_state": "new"}}
+
+        sensitive_detail = "/srv/private/documents/internal-error.json"
+        for error in (
+            OSError(f"permission denied: {sensitive_detail}"),
+            ValueError(f"invalid storage metadata: {sensitive_detail}"),
+        ):
+            failed = []
+            with self.subTest(error=type(error).__name__), \
+                 patch("app.documents_routes_upload._storage", return_value=FakeStorage(error)), \
+                 patch("app.documents_routes_upload._settings", return_value=FakeSettings()), \
+                 patch(
+                     "app.documents_routes_upload.begin_web_inbox_upload",
+                     return_value={"error": "", "item": {"item_id": "inbox-item"}},
+                 ), \
+                 patch(
+                     "app.documents_routes_upload.fail_web_inbox_upload",
+                     side_effect=lambda *args: failed.append(args),
+                 ):
+                response = self.client.post(
+                    "/documents/upload",
+                    data={
+                        "batch_upload": "1",
+                        "files": (io.BytesIO(b"payload"), "upload.txt"),
+                    },
+                    content_type="multipart/form-data",
+                )
+
+            body = response.get_data(as_text=True)
+            self.assertEqual(409, response.status_code)
+            self.assertNotIn(sensitive_detail, body)
+            self.assertEqual(1, len(failed))
+            expected_reason = "storage failure" if isinstance(error, OSError) else "file import failure"
+            self.assertEqual(expected_reason, failed[0][2])
+            self.assertNotIn(sensitive_detail, failed[0][2])
+
     def test_folder_upload_preserves_multiple_roots_and_reports_partial_failures(self):
         imported = []
         failed = []

@@ -14,39 +14,36 @@ from .access_control import FEATURES, activity_for, audit, is_admin, permissions
 from .auth import login_required
 from .contact_owner_admin import assign_ownerless_contacts, ownerless_contacts
 from .db import get_db
+from .documents_media_settings_form import media_settings_from_form
 from .osm_address import GEOFABRIK_REGIONS, LocalAddressIndex
 from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .settings_store import (
     DEFAULT_SETTINGS,
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
+    DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
-    DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-    DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_CLAMAV_TIMEOUT_SECONDS,
-    MAX_OSM_READ_TIMEOUT_SECONDS,
+    MAX_CHAT_ATTACHMENT_BYTES,
+    MAX_FEDERATION_AUTOSCAN_SECONDS,
+    MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
     MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
-    MAX_PREVIEW_MAX_BYTES,
-    MAX_PREVIEW_MAX_PIXELS,
-    MAX_PREVIEW_TIMEOUT_SECONDS,
-    MAX_VIDEO_PREVIEW_FRAMES,
-    MAX_WEBDAV_QUOTA_MIB,
-    DEFAULT_WEBDAV_QUOTA_MIB,
-    MIN_PREVIEW_MAX_BYTES,
-    MIN_PREVIEW_MAX_PIXELS,
-    MIN_PREVIEW_TIMEOUT_SECONDS,
-    MIN_VIDEO_PREVIEW_FRAMES,
-    MIN_OSM_READ_TIMEOUT_SECONDS,
+    MAX_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_CLAMAV_TIMEOUT_SECONDS,
+    MIN_FEDERATION_AUTOSCAN_SECONDS,
+    MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+    MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     MIN_RSYNC_MAX_BYTES,
-    MIN_RSYNC_MAX_FILES,
-    MIN_RSYNC_TIMEOUT_SECONDS,
+    MIN_RSYNC_MAX_FILES, MIN_RSYNC_TIMEOUT_SECONDS,
     SettingsStore,
 )
 from .system_identity import system_info
@@ -174,6 +171,171 @@ def users():
 @admin_required
 def inventory():
     return render_template("admin/inventory.html", inventory=runtime_inventory())
+
+
+@bp.get("/settings/printers")
+@admin_required
+def printer_settings():
+    from .library.printer import LABELS, MODELS
+    from .printershare_store import PrinterShareStore
+
+    store = PrinterShareStore(current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"])
+    printers = store.printers()
+    users = get_db().execute(
+        "SELECT username, is_disabled FROM user ORDER BY username COLLATE NOCASE"
+    ).fetchall()
+    brother = store.brother_profile()
+    needs_review = bool(brother.get("uri_needs_review"))
+    try:
+        brother["uri"] = _validated_brother_uri(brother.get("uri", ""))
+        brother["uri_needs_review"] = needs_review
+    except ValueError:
+        # Never reflect credentials or malformed legacy URI content into HTML.
+        brother["uri"] = ""
+        brother["uri_needs_review"] = True
+    return render_template(
+        "admin/printers.html",
+        printers=printers,
+        standard_printers=[item for item in printers if store._compatible(item, "standard")],
+        label_printers=[item for item in printers if store._compatible(item, "label")],
+        printer_settings=store.settings(),
+        users=users,
+        brother=brother,
+        printer_models=sorted(MODELS),
+        printer_labels=sorted(LABELS, key=lambda value: (len(value), value)),
+    )
+
+
+@bp.post("/settings/printers/<username>")
+@admin_required
+def save_printer_policy(username: str):
+    from .printershare_store import PRINTER_ROLES, PrinterShareStore
+
+    target = get_db().execute(
+        "SELECT username FROM user WHERE username = ?", (username,),
+    ).fetchone()
+    if target is None:
+        abort(404)
+    policies = {
+        role: {
+            "mode": request.form.get(f"{role}_mode", "none"),
+            "printer_id": request.form.get(f"{role}_printer_id", ""),
+        }
+        for role in PRINTER_ROLES
+    }
+    try:
+        saved = PrinterShareStore(
+            current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+        ).set_user_printer_policies(username, policies)
+        audit(
+            "printer_policy_updated", "user", username,
+            detail={
+                role: {"mode": value["mode"], "printer_id": value["printer_id"]}
+                for role, value in saved.items()
+            },
+        )
+        flash(f"Druckerrichtlinien für {username} gespeichert.")
+    except ValueError as exc:
+        current_app.logger.warning("Printer policy validation failed (%s)", type(exc).__name__)
+        flash("Druckerrichtlinie konnte nicht gespeichert werden. Bitte Auswahl prüfen.")
+    except OSError as exc:
+        current_app.logger.warning(
+            "Printer policy update could not be persisted (%s)", type(exc).__name__,
+        )
+        flash("Druckerrichtlinie konnte nicht gespeichert werden. Bitte erneut versuchen.")
+    return redirect(url_for("admin.printer_settings"))
+
+
+@bp.post("/settings/printers/devices/<printer_id>")
+@admin_required
+def save_printer_device(printer_id: str):
+    from .printershare_store import PrinterShareStore
+
+    try:
+        saved = PrinterShareStore(
+            current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+        ).set_printer(
+            printer_id,
+            kind=request.form.get("kind", "auto"),
+            federation_shared=request.form.get("federation_shared") == "1",
+            label=request.form.get("label", ""),
+        )
+        audit(
+            "printer_device_updated", "printer", printer_id,
+            detail={
+                "kind": saved["kind"],
+                "federation_shared": saved["federation_shared"],
+                "label": saved["label"],
+            },
+        )
+        flash("Druckerprofil gespeichert.")
+    except (OSError, ValueError) as exc:
+        current_app.logger.warning("Printer device update failed (%s)", type(exc).__name__)
+        flash("Druckerprofil konnte nicht gespeichert werden. Bitte Eingaben prüfen.")
+    return redirect(url_for("admin.printer_settings"))
+
+
+def _validated_brother_uri(value: object) -> str:
+    from .library.printer import PrinterError, validate_printer_uri
+
+    try:
+        return validate_printer_uri(str(value or "").strip()[:300])
+    except PrinterError as exc:
+        raise ValueError(str(exc)) from exc
+
+
+@bp.post("/settings/printers/brother")
+@admin_required
+def save_brother_printer_settings():
+    from .library.printer import LABELS, MODELS
+    from .library.store import LibraryStore
+    from .printershare_store import PrinterShareStore
+
+    values = {
+        "uri": request.form.get("uri", ""),
+        "model": request.form.get("model", "").strip().upper(),
+        "label": request.form.get("label", "").strip().lower(),
+        "font_name": request.form.get("font_name", ""),
+        "font_size": request.form.get("font_size", ""),
+        "color": request.form.get("color", "black"),
+        "align": request.form.get("align", "center"),
+        "bold": request.form.get("bold") == "1",
+        "cut": request.form.get("cut") == "1",
+    }
+    try:
+        values["uri"] = _validated_brother_uri(values["uri"])
+        if values["model"] not in MODELS:
+            raise ValueError("Unbekanntes Brother-Druckermodell.")
+        if values["label"] not in LABELS:
+            raise ValueError("Unbekannte Etikettengröße.")
+        store = PrinterShareStore(
+            current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+        )
+        updated = store.set_brother_profile(values)
+        try:
+            # Keep the previous LibraryStore profile synchronized for rollback to older app builds.
+            LibraryStore(current_app.config["DOCUMENT_ROOT"]).update_printer_settings(
+                updated, str(g.user["username"]),
+            )
+        except (OSError, ValueError) as exc:
+            current_app.logger.warning(
+                "Brother printer compatibility profile could not be synchronized (%s)",
+                type(exc).__name__,
+            )
+            flash("Zentrale Druckereinstellung gespeichert; Kompatibilitätskopie konnte nicht aktualisiert werden.")
+        audit(
+            "printer_profile_updated", "printer", "library-brother-label",
+            detail={
+                "model": updated["model"], "label": updated["label"],
+                "uri_configured": bool(updated["uri"]),
+                "font_size": updated["font_size"], "color": updated["color"],
+            },
+        )
+        flash("Brother-Etikettendrucker wurde in der zentralen Druckerverwaltung gespeichert.")
+    except (OSError, ValueError) as exc:
+        current_app.logger.warning("Brother printer profile save failed (%s)", type(exc).__name__)
+        flash("Brother-Drucker konnte nicht gespeichert werden. Bitte Einstellungen prüfen.")
+    return redirect(url_for("admin.printer_settings"))
 
 
 @bp.post("/inventory/refresh")
@@ -434,16 +596,6 @@ def resolve_error(error_id: int):
     return redirect(url_for("admin.logs"))
 
 
-def _bounded_media_integer(name: str, minimum: int, maximum: int) -> int:
-    raw = request.form.get(name, "")
-    if len(raw) > len(str(maximum)) or not raw.isascii() or not raw.isdigit():
-        raise ValueError("Bitte einen gültigen ganzzahligen Medienwert eingeben.")
-    value = int(raw)
-    if not minimum <= value <= maximum:
-        raise ValueError("Ein Medienwert liegt außerhalb des zulässigen Bereichs.")
-    return value
-
-
 @bp.get("/settings/documents-media")
 @admin_required
 def documents_media_settings():
@@ -451,6 +603,7 @@ def documents_media_settings():
     return render_template(
         "admin/documents_media_settings.html",
         media=media,
+        max_chat_attachment_bytes=MAX_CHAT_ATTACHMENT_BYTES,
     )
 
 
@@ -481,6 +634,12 @@ def integration_settings():
         osm_filter_timeout_max=MAX_OSM_FILTER_TIMEOUT_SECONDS,
         osm_export_idle_timeout_min=MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
         osm_export_idle_timeout_max=MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+        personnel_time_autosync_min=MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        personnel_time_autosync_max=MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
+        printershare_purge_interval_min=MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        printershare_purge_interval_max=MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+        federation_autoscan_min=MIN_FEDERATION_AUTOSCAN_SECONDS,
+        federation_autoscan_max=MAX_FEDERATION_AUTOSCAN_SECONDS,
     )
 
 
@@ -621,116 +780,6 @@ def save_network_settings():
     return redirect(url_for("admin.network_settings"))
 
 
-@bp.post("/settings/integrations/osm")
-@admin_required
-def save_osm_settings():
-    reset_defaults = request.form.get("reset") == "1"
-    try:
-        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
-        current = store.settings()["integrations"]
-        raw = str(DEFAULT_SETTINGS["integrations"]["osm_download_read_timeout_seconds"])
-        if not reset_defaults:
-            raw = request.form.get(
-                "osm_download_read_timeout_seconds",
-                str(current["osm_download_read_timeout_seconds"]),
-            )
-        if (
-            not raw.isascii()
-            or not raw.isdigit()
-            or len(raw) > len(str(MAX_OSM_READ_TIMEOUT_SECONDS))
-        ):
-            raise ValueError("Bitte einen ganzzahligen OSM-Lese-Timeout eingeben.")
-        timeout = int(raw)
-        if not MIN_OSM_READ_TIMEOUT_SECONDS <= timeout <= MAX_OSM_READ_TIMEOUT_SECONDS:
-            raise ValueError("Der OSM-Lese-Timeout muss zwischen 30 und 3600 Sekunden liegen.")
-        filter_raw = request.form.get("osm_filter_timeout_seconds")
-        if reset_defaults and filter_raw is not None:
-            filter_timeout = DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
-        elif filter_raw is None:
-            filter_timeout = current["osm_filter_timeout_seconds"]
-        else:
-            if (
-                not filter_raw.isascii()
-                or not filter_raw.isdigit()
-                or len(filter_raw) > len(str(MAX_OSM_FILTER_TIMEOUT_SECONDS))
-            ):
-                raise ValueError("Bitte einen ganzzahligen OSM-Filter-Timeout eingeben.")
-            filter_timeout = int(filter_raw)
-            if not MIN_OSM_FILTER_TIMEOUT_SECONDS <= filter_timeout <= MAX_OSM_FILTER_TIMEOUT_SECONDS:
-                raise ValueError(
-                    "Der OSM-Filter-Timeout muss zwischen 3600 und 86400 Sekunden liegen."
-                )
-        export_idle_raw = request.form.get("osm_export_idle_timeout_seconds")
-        if reset_defaults and export_idle_raw is not None:
-            export_idle_timeout = DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
-        elif export_idle_raw is None:
-            export_idle_timeout = current["osm_export_idle_timeout_seconds"]
-        else:
-            if (
-                not export_idle_raw.isascii()
-                or not export_idle_raw.isdigit()
-                or len(export_idle_raw) > len(str(MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS))
-            ):
-                raise ValueError("Bitte einen ganzzahligen OSM-Export-Leerlauf-Timeout eingeben.")
-            export_idle_timeout = int(export_idle_raw)
-            if not MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS <= export_idle_timeout <= MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS:
-                raise ValueError(
-                    "Der OSM-Export-Leerlauf-Timeout muss zwischen 300 und 86400 Sekunden liegen."
-                )
-        integrations = {
-            "osm_download_read_timeout_seconds": timeout,
-            "osm_filter_timeout_seconds": filter_timeout,
-            "osm_export_idle_timeout_seconds": export_idle_timeout,
-        }
-        read_timeout_changed = (
-            timeout != current["osm_download_read_timeout_seconds"]
-        )
-        filter_timeout_changed = (
-            filter_timeout != current["osm_filter_timeout_seconds"]
-        )
-        export_idle_timeout_changed = (
-            export_idle_timeout != current["osm_export_idle_timeout_seconds"]
-        )
-        store.save({"integrations": integrations}, str(g.user["username"]))
-        if read_timeout_changed or not (filter_timeout_changed or export_idle_timeout_changed):
-            audit(
-                "osm_download_settings_updated",
-                "settings",
-                "integrations.osm_download_read_timeout_seconds",
-                detail={"osm_download_read_timeout_seconds": timeout,
-                        "reset_to_defaults": reset_defaults},
-            )
-        if filter_timeout_changed:
-            audit(
-                "osm_filter_settings_updated",
-                "settings",
-                "integrations.osm_filter_timeout_seconds",
-                detail={"osm_filter_timeout_seconds": filter_timeout,
-                        "reset_to_defaults": reset_defaults,
-                        "restart_required": False},
-            )
-        if export_idle_timeout_changed:
-            audit(
-                "osm_export_idle_timeout_updated",
-                "settings",
-                "integrations.osm_export_idle_timeout_seconds",
-                detail={"osm_export_idle_timeout_seconds": export_idle_timeout,
-                        "reset_to_defaults": reset_defaults,
-                        "restart_required": False},
-            )
-        flash(
-            "OSM-Einstellungen auf Standard zurückgesetzt."
-            if reset_defaults else "OSM-Einstellungen gespeichert."
-        )
-    except ValueError as exc:
-        current_app.logger.info("OSM setting rejected: %s", type(exc).__name__)
-        flash(str(exc))
-    except OSError as exc:
-        current_app.logger.warning("OSM settings save failed: %s", type(exc).__name__)
-        flash("OSM-Download-Einstellungen konnten nicht gespeichert werden.")
-    return redirect(url_for("admin.integration_settings"))
-
-
 @bp.post("/settings/integrations/clamav")
 @admin_required
 def save_clamav_settings():
@@ -771,35 +820,119 @@ def save_clamav_settings():
     return redirect(url_for("admin.integration_settings"))
 
 
+@bp.post("/settings/integrations/personnel-time")
+@admin_required
+def save_personnel_time_autosync_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]
+        if reset_defaults:
+            enabled = DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED
+            interval = DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS
+        else:
+            raw_enabled = request.form.get("personnel_time_autosync_enabled")
+            if raw_enabled is None:
+                enabled = current["personnel_time_autosync_enabled"]
+            elif raw_enabled not in {"0", "1"}:
+                raise ValueError("Bitte die Personaldaten-Synchronisation aktivieren oder deaktivieren.")
+            else:
+                enabled = int(raw_enabled)
+
+            raw_interval = request.form.get("personnel_time_autosync_seconds")
+            if raw_interval is None:
+                interval = current["personnel_time_autosync_seconds"]
+            else:
+                if (
+                    not raw_interval.isascii()
+                    or not raw_interval.isdigit()
+                    or len(raw_interval) > len(str(MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS))
+                ):
+                    raise ValueError("Bitte ein ganzzahliges Personaldaten-Synchronisationsintervall eingeben.")
+                interval = int(raw_interval)
+                if not MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS <= interval <= MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS:
+                    raise ValueError("Das Intervall muss zwischen 60 und 3600 Sekunden liegen.")
+
+        integrations = {
+            "personnel_time_autosync_enabled": enabled,
+            "personnel_time_autosync_seconds": interval,
+        }
+        store.save({"integrations": integrations}, str(g.user["username"]))
+        audit(
+            "personnel_time_autosync_settings_updated",
+            "settings",
+            "integrations.personnel_time_autosync",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "Personaldaten-Synchronisationseinstellungen auf Standard zurückgesetzt."
+            if reset_defaults else "Personaldaten-Synchronisationseinstellungen gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Personnel auto-sync setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Personnel auto-sync settings save failed: %s", type(exc).__name__)
+        flash("Personaldaten-Synchronisationseinstellungen konnten nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/printershare")
+@admin_required
+def save_printershare_purge_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]
+        if reset_defaults:
+            interval = DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS
+        else:
+            raw_interval = request.form.get("printershare_purge_interval_seconds")
+            if raw_interval is None:
+                interval = current["printershare_purge_interval_seconds"]
+            else:
+                if (
+                    not raw_interval.isascii()
+                    or not raw_interval.isdigit()
+                    or len(raw_interval) > len(str(MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS))
+                ):
+                    raise ValueError("Bitte ein ganzzahliges PrinterShare-Bereinigungsintervall eingeben.")
+                interval = int(raw_interval)
+                if not MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS <= interval <= MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS:
+                    raise ValueError("Das PrinterShare-Bereinigungsintervall muss zwischen 30 und 3600 Sekunden liegen.")
+
+        integrations = {"printershare_purge_interval_seconds": interval}
+        store.save({"integrations": integrations}, str(g.user["username"]))
+        audit(
+            "printershare_purge_interval_updated",
+            "settings",
+            "integrations.printershare_purge_interval_seconds",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "PrinterShare-Bereinigungsintervall auf Standard zurückgesetzt."
+            if reset_defaults else "PrinterShare-Bereinigungsintervall gespeichert."
+        )
+        flash("Die Änderung gilt nach einem Neustart des Webprozesses.")
+    except ValueError as exc:
+        current_app.logger.info("PrinterShare purge setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("PrinterShare purge setting save failed: %s", type(exc).__name__)
+        flash("PrinterShare-Bereinigungsintervall konnte nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
 @bp.post("/settings/documents-media")
 @admin_required
 def save_documents_media_settings():
     reset_defaults = request.form.get("reset") == "1"
     try:
-        if reset_defaults:
-            media = dict(DEFAULT_SETTINGS["media"])
-        else:
-            enabled = request.form.get("preview_enabled", "")
-            if enabled not in {"0", "1"}:
-                raise ValueError("Bitte wählen, ob Dokumentvorschauen aktiviert sind.")
-            media = {
-                "preview_enabled": enabled == "1",
-                "preview_timeout_seconds": _bounded_media_integer(
-                    "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS, MAX_PREVIEW_TIMEOUT_SECONDS,
-                ),
-                "preview_max_bytes": _bounded_media_integer(
-                    "preview_max_bytes", MIN_PREVIEW_MAX_BYTES, MAX_PREVIEW_MAX_BYTES,
-                ),
-                "preview_max_pixels": _bounded_media_integer(
-                    "preview_max_pixels", MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
-                ),
-                "video_preview_frames": _bounded_media_integer(
-                    "video_preview_frames", MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
-                ),
-            }
-        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
-            {"media": media}, str(g.user["username"]),
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        media = media_settings_from_form(
+            store, request.form, reset_defaults=reset_defaults,
         )
+        store.save({"media": media}, str(g.user["username"]))
         audit(
             "documents_media_settings_updated",
             "settings",
@@ -810,6 +943,7 @@ def save_documents_media_settings():
             "Dokument- und Medienwerte auf Standard zurückgesetzt."
             if reset_defaults else "Dokument- und Medien-Einstellungen gespeichert."
         )
+        flash("Änderungen am Upload-Limit gelten nach einem Neustart des Webprozesses.")
     except ValueError as exc:
         current_app.logger.info("Document/media setting rejected: %s", type(exc).__name__)
         flash(str(exc))

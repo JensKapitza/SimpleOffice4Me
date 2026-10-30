@@ -21,11 +21,8 @@ from ..access_control import audit, is_admin
 from ..object_store import ObjectStore
 from ..document_store import CONTROL_DIR
 from .printer import (
-    LABELS,
-    MODELS,
     PrinterError,
     cut_feed,
-    discover_printers,
     preview_png,
     print_image,
     render_barcode,
@@ -64,6 +61,40 @@ def _root() -> Path:
 
 def _store() -> LibraryStore:
     return LibraryStore(_root())
+
+
+def _label_render_settings() -> dict[str, Any]:
+    from ..printershare_store import PrinterShareStore
+
+    return PrinterShareStore(_root(), current_app.config["SECRET_KEY"]).brother_profile()
+
+
+def _label_printer_configuration():
+    """Resolve the authenticated user's effective central label printer."""
+    from ..printershare_store import PrinterShareStore
+
+    share = PrinterShareStore(_root(), current_app.config["SECRET_KEY"])
+    printer = share.resolve_user_printer(_actor(), "label")
+    settings = share.brother_profile()
+    if printer.get("backend") == "brother":
+        settings["uri"] = printer["uri"]
+        settings["model"] = printer["model"]
+    return share, printer, settings
+
+
+def _send_label_image(image, share, printer: dict[str, Any], settings: dict[str, Any]) -> int:
+    if printer.get("backend") == "brother":
+        return print_image(image, settings)
+    result = share.submit(
+        printer["printer_id"],
+        preview_png(image),
+        content_type="image/png",
+        filename="etikett.png",
+        source="web",
+        source_peer=_actor(),
+        retention_ceiling="no_store",
+    )
+    return int(result.get("payload_size") or 0)
 
 
 def _objects() -> ObjectStore:
@@ -226,6 +257,11 @@ def index():
                     **candidate,
                     "library_location_path": _store().location_path(assignment.get("location_id", "")),
                 }
+    from ..printershare_store import PrinterShareStore
+
+    printer_context = PrinterShareStore(
+        current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
+    ).user_printer_context(_actor())
     return render_template(
         "library/index.html",
         locations=locations,
@@ -233,9 +269,7 @@ def index():
         captured_item=captured_item,
         author_filter=request.args.get("author", "").strip(),
         genre_filter=request.args.get("genre", "").strip(),
-        printer=_store().printer_settings(),
-        models=sorted(MODELS),
-        labels=sorted(LABELS, key=lambda value: (len(value), value)),
+        printer_context=printer_context,
         books=_books_with_assignments(
             request.args.get("q", ""), 80,
             author=request.args.get("author", ""),
@@ -243,7 +277,6 @@ def index():
             location_id=selected_location,
         ),
         events=_store().recent_events(25),
-        discovered=discover_printers(),
         ocr_available=bool(shutil.which("tesseract")),
         pdf_available=bool(shutil.which("pdftoppm")),
     )
@@ -389,12 +422,12 @@ def print_location(location_id: str):
     library = _store()
     try:
         location = library.location(location_id)
-        settings = library.printer_settings()
+        share, printer, settings = _label_printer_configuration()
         image = render_barcode(str(location["code"]), settings, caption=library.location_path(location_id))
-        byte_count = print_image(image, settings)
+        byte_count = _send_label_image(image, share, printer, settings)
         library.record_print(_actor(), kind="location", status="printed", summary=f"{location['code']} {location['name']}", byte_count=byte_count)
-        flash(f"Regaletikett {location['code']} wurde gedruckt.")
-    except (OSError, PrinterError, ValueError) as exc:
+        flash(f"Regaletikett {location['code']} wurde an {printer['label']} gesendet.")
+    except (OSError, PrinterError, RuntimeError, ValueError) as exc:
         library.record_print(_actor(), kind="location", status="failed", summary=location_id, error=str(exc))
         flash("Etikett konnte nicht gedruckt werden. Bitte Druckereinstellungen prüfen.")
     return redirect(url_for("library.index", location=location_id) + "#locations")
@@ -453,7 +486,16 @@ def print_book_labels():
         return error
 
     library = _store()
-    settings = library.printer_settings()
+    try:
+        share, printer, settings = _label_printer_configuration()
+    except ValueError as exc:
+        current_app.logger.warning(
+            "Book-label printer selection failed (%s)", type(exc).__name__,
+        )
+        return jsonify({
+            "ok": False,
+            "error": "Etikettendrucker nicht verfügbar oder durch eine Druckerrichtlinie gesperrt.",
+        }), 503
     printed = 0
     for item, value, caption in items:
         try:
@@ -464,13 +506,14 @@ def print_book_labels():
                 caption=caption if style in {"with_text", "qr_with_text"} else "",
                 show_text=style in {"with_text", "qr_with_text"},
             )
-            byte_count = print_image(image, settings)
-        except (OSError, PrinterError, ValueError) as exc:
+            byte_count = _send_label_image(image, share, printer, settings)
+        except (OSError, PrinterError, RuntimeError, ValueError) as exc:
             library.record_print(
                 _actor(), kind="book-label", status="failed",
                 summary=str(item.get("display_id") or item["object_id"]),
-                error=str(exc),
+                error="Etikettendruck fehlgeschlagen; Details im geschützten Serverprotokoll.",
             )
+            logger.warning("Book-label print failed after %d of %d labels (exception type: %s)", printed, len(items), type(exc).__name__)
             return jsonify({
                 "ok": False,
                 "printed": printed,
@@ -506,7 +549,7 @@ def export_book_labels_pdf():
     ]
 
     try:
-        payload = book_labels_pdf(labels, _store().printer_settings(), style=style, layout=layout)
+        payload = book_labels_pdf(labels, _label_render_settings(), style=style, layout=layout)
     except (OSError, PrinterError, ValueError):
         return jsonify({"ok": False, "error": "PDF-Etiketten konnten mit der gewählten Größe nicht erstellt werden."}), 400
     return send_file(
@@ -533,7 +576,7 @@ def preview_book_labels():
     try:
         image = (render_qr_code if qr_style else render_barcode)(
             str(item["object_id"]) if qr_style else value,
-            _store().printer_settings(),
+            _label_render_settings(),
             caption=caption if style in {"with_text", "qr_with_text"} else "",
             show_text=style in {"with_text", "qr_with_text"},
         )
@@ -546,29 +589,10 @@ def preview_book_labels():
 @bp.post("/printer/settings")
 @login_required
 def printer_settings():
-    values = {
-        "uri": request.form.get("uri", ""),
-        "model": request.form.get("model", ""),
-        "label": request.form.get("label", ""),
-        "font_name": request.form.get("font_name", ""),
-        "font_size": request.form.get("font_size", ""),
-        "color": request.form.get("color", "black"),
-        "align": request.form.get("align", "center"),
-        "bold": request.form.get("bold") == "1",
-        "cut": request.form.get("cut") == "1",
-    }
-    if values["model"].upper() not in MODELS:
-        flash("Unbekanntes Brother-Druckermodell.")
-        return redirect(url_for("library.index") + "#printer")
-    if values["label"].lower() not in LABELS:
-        flash("Unbekannte Etikettengröße.")
-        return redirect(url_for("library.index") + "#printer")
-    try:
-        _store().update_printer_settings(values, _actor())
-        flash("Druckeinstellungen gespeichert und werden für die nächsten Drucke weiterverwendet.")
-    except ValueError as exc:
-        flash(str(exc))
-    return redirect(url_for("library.index") + "#printer")
+    if not is_admin(g.user):
+        abort(403)
+    flash("Drucker und Etikettenprofile werden zentral in den Administrations-Einstellungen verwaltet.")
+    return redirect(url_for("admin.printer_settings"))
 
 
 def _csv_cell(value):

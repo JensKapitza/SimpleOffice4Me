@@ -1,6 +1,8 @@
 """WebDAV tests part 1 of 5."""
 from __future__ import annotations
 
+import io
+
 if __package__:
     from .webdav_test_base import *
 else:
@@ -493,6 +495,43 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertIn(b"\r\n\r\nfirst\r\n", response.data)
         self.assertIn(b"\r\n\r\nversion\r\n", response.data)
 
+    def test_html_download_responses_are_sandboxed_for_full_range_and_head_requests(self):
+        payload = b"<html><script>document.body.dataset.xss='yes'</script></html>"
+        document = self.store.import_upload(
+            io.BytesIO(payload), "untrusted.html", "jens",
+        )
+        urls = (
+            (f"{self.files}/{document['last_path']}", "text/html"),
+            (
+                f"/webdav/documents/jens/{document['document_id']}--untrusted.html",
+                "application/octet-stream",
+            ),
+        )
+        for url, expected_mimetype in urls:
+            with self.subTest(url=url):
+                full = self.client.get(url, headers=self.auth)
+                single_range = self.client.get(
+                    url, headers={**self.auth, "Range": "bytes=0-5"},
+                )
+                multiple_ranges = self.client.get(
+                    url, headers={**self.auth, "Range": "bytes=0-5,20-30"},
+                )
+                head = self.client.head(url, headers=self.auth)
+                self.assertEqual(200, full.status_code)
+                not_modified = self.client.get(
+                    url, headers={**self.auth, "If-None-Match": full.headers["ETag"]},
+                )
+
+                for response in (full, single_range, multiple_ranges, head, not_modified):
+                    self.assertEqual("sandbox", response.headers.get("Content-Security-Policy"))
+                    self.assertEqual("nosniff", response.headers.get("X-Content-Type-Options"))
+                self.assertEqual(expected_mimetype, full.mimetype)
+                self.assertEqual(payload, full.data)
+                self.assertEqual(206, single_range.status_code)
+                self.assertEqual(206, multiple_ranges.status_code)
+                self.assertEqual(200, head.status_code)
+                self.assertEqual(304, not_modified.status_code)
+
     def test_unsatisfiable_invalid_overlapping_and_excessive_ranges_return_416(self):
         headers = [
             "bytes=99-100",
@@ -879,4 +918,3 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         retention = self.client.open(target, method="PROPPATCH", data=body.replace("review", "changed"), headers=self.auth)
 
         self.assertEqual([403, 423, 207, 404, 423], [read_only.status_code, missing_token.status_code, accepted.status_code, foreign.status_code, retention.status_code])
-

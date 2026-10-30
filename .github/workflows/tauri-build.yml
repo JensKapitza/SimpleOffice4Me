@@ -12,6 +12,7 @@ on:
       - 'static/vendor/bootstrap-5.3.8/css/bootstrap.min.css'
       - 'docs/assets/simpleoffice-documentation-logo.png'
       - 'pyproject.toml'
+      - 'requirements-ci-tools.txt'
       - '.github/workflows/tauri-build.yml'
   workflow_dispatch:
 permissions:
@@ -23,16 +24,16 @@ jobs:
       run:
         working-directory: desktop/tauri
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.14'
       - name: Install pinned SBOM packaging helper
-        run: python -m pip install 'packaging==26.3'
-      - uses: actions/setup-node@v7
+        run: python -m pip install --require-hashes -r ../../requirements-ci-tools.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (2026-10-29)
       - name: Install WebKit and build tools
         working-directory: .
         run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev librsvg2-dev libayatana-appindicator3-dev patchelf webkit2gtk-driver xvfb xdotool dbus-x11
@@ -73,14 +74,14 @@ jobs:
             --input-format json --input-version v1_6 --fail-on-errors
           "$validator" validate --input-file artifacts/tauri-npm-sbom.cdx.xml \
             --input-format xml --input-version v1_6 --fail-on-errors
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tauri-npm-sbom
           path: |
             artifacts/tauri-npm-sbom.cdx.json
             artifacts/tauri-npm-sbom.cdx.xml
           if-no-files-found: error
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tauri-rust-sbom
           path: |
@@ -91,7 +92,7 @@ jobs:
         run: |
           cargo install cargo-audit --version 0.22.2 --locked
           cargo audit --file src-tauri/Cargo.lock --json > ../../artifacts/tauri-rust-audit.json
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: tauri-rust-audit
@@ -102,7 +103,7 @@ jobs:
       - name: Test actual native client navigation and server selection
         working-directory: .
         run: xvfb-run -a dbus-run-session -- env WEBKIT_DISABLE_DMABUF_RENDERER=1 LIBGL_ALWAYS_SOFTWARE=1 python tools/smoke_tauri_client.py desktop/tauri/src-tauri/target/release/simpleoffice4me_tauri
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tauri-linux
           path: desktop/tauri/src-tauri/target/release/bundle/
@@ -113,16 +114,16 @@ jobs:
       run:
         working-directory: desktop/tauri
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
       # Ubuntu GitHub-hosted runners already provide Android SDK command-line tools.
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (2026-10-29)
         with:
           targets: aarch64-linux-android
       - name: Install SDK components
@@ -150,7 +151,7 @@ jobs:
           test -n "$APK"
           python tools/check_tauri_apk.py "$APK"
           "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 -v 4 "$APK"
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tauri-android-arm64
           path: desktop/tauri/src-tauri/gen/android/app/build/outputs/apk/**/*.apk
@@ -163,15 +164,15 @@ jobs:
       run:
         working-directory: desktop/tauri
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
-      - uses: actions/setup-java@v6
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin
           java-version: '17'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable (2026-10-29)
         with:
           targets: x86_64-linux-android
       - name: Install Android build tools
@@ -185,7 +186,7 @@ jobs:
       - name: Build signed debug APK for emulator runtime validation
         run: npm run android:build -- --debug --target x86_64 -- --locked
       - name: Install existing safe XML parser for accessibility evidence
-        run: python -m pip install 'defusedxml==0.7.1'
+        run: python -m pip install --require-hashes -r ../../requirements-ci-tools.txt
       - name: Enable runner user access to supplied KVM device
         working-directory: .
         run: sudo setfacl -m "u:$(id -un):rw" /dev/kvm
@@ -197,7 +198,7 @@ jobs:
           target: google_apis
           disable-animations: true
           script: python tools/smoke_tauri_android.py "$(find desktop/tauri/src-tauri/gen/android/app/build/outputs/apk -path '*/debug/*.apk' -print -quit)"
-      - uses: actions/upload-artifact@v7.0.2
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: tauri-android-ui-evidence
