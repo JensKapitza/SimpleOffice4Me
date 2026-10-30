@@ -3,6 +3,17 @@
 **Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
+**Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
+`origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
+(9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5
+parallele Commits (`984443f7`, `a56cb2b8`, `6616550c`, `de7cf44c`,
+`d6f16357`).
+Merge-Wechselwirkung: ZUGFeRD-Fallback `not_created` vs. Main-Template
+`not_recorded` → `f729d1f7` (Fallback + 2 Branch-Tests angeglichen,
+Stored-Draft-Status unberührt). Re-verifiziert auf HEAD: 190 Tests OK
+(hints 30, web 14, invoice 17, attach 7, batch, qa736, gaps,
+mail_draft, doc_tags 47), Gates grün; `node --check` fehlt (kein node
+in Sandbox). Push eigentümerseitig (inkl. Merge).
 **Stand (30.10., aktualisiert mit `a56cb2b8`):**
 Ruhezeiten + Hinweise-pro-Tag (Prefs-Store, atomares Tages-Budget,
 Dashboard-Banner mit ehrlich zurückgestellten Hinweisen, Prefs-Formular);
