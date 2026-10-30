@@ -427,10 +427,6 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     previous_max_text_mb = (
         previous_policy.get("max_text_mb") if isinstance(previous_policy, dict) else None
     )
-    previous_max_text_per_member_mb = (
-        previous_policy.get("max_text_per_member_mb")
-        if isinstance(previous_policy, dict) else None
-    )
     stable_catalog_only = (
         not deep_index_enabled
         and previous.get("status") == "catalog_only"

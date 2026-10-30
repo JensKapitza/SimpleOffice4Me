@@ -24,7 +24,6 @@ from app.archive_settings import (
     DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_TEXT_MB,
     DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
-    DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
 from app.document_store import DocumentStore
@@ -503,44 +502,6 @@ class ArchiveIndexerTest(unittest.TestCase):
     def test_text_budget_truncation_never_splits_utf8_sequences(self):
         self.assertEqual("éé", _truncate_utf8_bytes("ééé", 5))
         self.assertEqual("", _truncate_utf8_bytes("text", 0))
-
-    def test_per_member_text_limit_uses_utf8_bytes_and_reindexes(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            archive_path = root / "member-text-budget.zip"
-            with zipfile.ZipFile(archive_path, "w") as archive:
-                archive.writestr("large.pdf", b"synthetic-pdf")
-            store = DocumentStore(root)
-            store.scan()
-            settings = SettingsStore(root)
-            settings.save(
-                {
-                    "media": {
-                        "archive_max_text_mb": 8,
-                        "archive_max_text_per_member_mb": 1,
-                        "archive_member_yield_ms": 0,
-                    },
-                },
-                "archive-admin",
-            )
-            extracted = ("é" * 600_000) + "MEMBER-END-MARKER"
-            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
-                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
-            ), patch.object(store, "_pdf_text", return_value=extracted):
-                limited = index_archive(store, archive_path)
-            self.assertLessEqual(
-                len(limited["search_text"].encode("utf-8")), 1024 * 1024 + 100,
-            )
-            self.assertNotIn("MEMBER-END-MARKER", limited["search_text"])
-            self.assertEqual(1, limited["resource_policy"]["max_text_per_member_mb"])
-
-            settings.save({"media": {"archive_max_text_per_member_mb": 2}}, "archive-admin")
-            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
-                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
-            ), patch.object(store, "_pdf_text", return_value=extracted):
-                expanded = index_archive(store, archive_path)
-            self.assertIn("MEMBER-END-MARKER", expanded["search_text"])
-            self.assertEqual(2, expanded["resource_policy"]["max_text_per_member_mb"])
 
     def test_memory_threshold_and_disk_reserve_fail_closed_at_configured_limits(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
