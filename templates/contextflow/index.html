@@ -14,14 +14,19 @@
     </span>
     <div class="cf-hero-text">
       <h1>Büroengel – belegte Hinweise</h1>
-      <p class="cf-lead">Der Engel klopft nur an, wenn wirklich etwas liegengeblieben ist –
-        mit Quelle, Grund und genau einer freizugebenden Aktion.</p>
+      <p class="cf-lead">{{ greeting|default('Der Engel klopft nur an, wenn wirklich etwas liegengeblieben ist – mit Quelle, Grund und genau einer freizugebenden Aktion.', true) }}</p>
       <p class="cf-pills">
         <span class="cf-pill" role="note">Lokaler Regelbetrieb · keine Cloud · keine KI-Abfrage</span>
         <span class="cf-pill cf-pill-quiet">Standard: ausgeschaltet, bis du es aktivierst</span>
       </p>
     </div>
   </header>
+
+  {% if quiet|default(false) %}
+  <p class="cf-quiet-banner" role="status">Ruhezeit aktiv ({{ prefs.quiet_start }}–{{ prefs.quiet_end }} Uhr) – {{ digest_count }} Hinweis(e) warten in der Sammelliste.</p>
+  {% elif digest_count|default(0) %}
+  <p class="cf-digest" role="status">Tageslimit erreicht ({{ prefs.daily_limit }} pro Tag) – {{ digest_count }} weitere Hinweise in der Sammelliste.</p>
+  {% endif %}
 
   {% if cards %}
   <section aria-label="Offene Hinweise" class="cf-worklist">
@@ -131,6 +136,17 @@
   {% else %}
   <p>Noch keine bestätigten Fälle. Lege unten eine Zuordnung an – bereits verknüpfte Vorgänge stehen dort nicht mehr zur Auswahl. Die <a href="{{ url_for('contextflow.agent_form') }}">Meta-Demo-Analyse</a> startet, sobald ein Fall bestätigt ist.</p>
   {% endif %}
+
+  <details class="cf-prefs">
+    <summary>Ruhezeiten &amp; Hinweise pro Tag</summary>
+    <form method="post" action="{{ url_for('contextflow.hint_prefs') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <label>Ruhezeit von <input type="time" name="quiet_start" value="{{ prefs.quiet_start }}" required></label>
+      <label>bis <input type="time" name="quiet_end" value="{{ prefs.quiet_end }}" required></label>
+      <label>Hinweise pro Tag <input type="number" name="daily_limit" value="{{ prefs.daily_limit }}" min="1" max="10" required></label>
+      <button class="cf-btn" type="submit">Speichern</button>
+    </form>
+  </details>
 
   <details class="cf-confirm">
     <summary>Befund-Vorschlag aus Foto (Entwurf, {{ vision_label }})</summary>

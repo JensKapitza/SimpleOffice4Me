@@ -53,7 +53,8 @@ from .doc_tags import (
 from .evaluator import FollowupEvaluator
 from .contact_suggest import MAX_PHOTOS as MAX_CONTACT_PHOTOS
 from .contact_suggest import suggest_contact_fields
-from .hints import HintStates
+from .hints import HintBudget, HintPrefs, HintStates, is_quiet_time
+from .local_rewrite import RULE_GREETING, rewrite_hint_lead
 from .inventory_match import (
     AmbiguousMatchError,
     EmptyIdentifierError,
@@ -235,7 +236,12 @@ def dashboard():
     root = _root()
     store = CaseLinkStore(root)
     states = HintStates(root)
-    today = _now().date().isoformat()
+    prefs = HintPrefs(root).get(actor)
+    now = _now()
+    today = now.date().isoformat()
+    quiet = is_quiet_time(
+        now.strftime("%H:%M"), prefs["quiet_start"], prefs["quiet_end"]
+    )
     links = store.list_links(actor)
     linked_cases = {
         str(link.get("mail_case_id", "")) for link in links if isinstance(link, dict)
@@ -252,23 +258,43 @@ def dashboard():
         if isinstance(row, dict)
     }
     cards = []
-    for link in links:
-        link_id = str(link.get("link_id", ""))
-        if not states.is_visible(actor, link_id, today):
-            continue
-        try:
-            hint = FollowupEvaluator(root).evaluate(actor, link_id, _now())
-        except (PermissionError, ValueError, KeyError):
-            continue
-        cards.append(
-            _card(
-                root,
-                actor,
-                link,
-                hint,
-                case_title=case_titles.get(str(link.get("mail_case_id", "")), ""),
-            )
+    digest_count = 0
+    shown: list[str] = []
+    if quiet:
+        digest_count = sum(
+            1
+            for link in links
+            if isinstance(link, dict)
+            and states.is_visible(actor, str(link.get("link_id", "")), today)
         )
+    else:
+        budget = HintBudget(root)
+        for link in links:
+            link_id = str(link.get("link_id", ""))
+            if not states.is_visible(actor, link_id, today):
+                continue
+            if not budget.allow(actor, link_id, today, prefs["daily_limit"]):
+                digest_count += 1
+                continue
+            try:
+                hint = FollowupEvaluator(root).evaluate(actor, link_id, now)
+            except (PermissionError, ValueError, KeyError):
+                continue
+            cards.append(
+                _card(
+                    root,
+                    actor,
+                    link,
+                    hint,
+                    case_title=case_titles.get(str(link.get("mail_case_id", "")), ""),
+                )
+            )
+            shown.append(link_id)
+        if shown:
+            budget.record(actor, shown, today)
+    greeting, _greeting_rewritten = rewrite_hint_lead(
+        RULE_GREETING, settings=_vision_settings(), root=root
+    )
     cases = [
         {"id": case_id, "title": title}
         for case_id, title in case_titles.items()
@@ -338,6 +364,10 @@ def dashboard():
         vision_assets=vision_assets,
         vision_label=vision_labels.get(vision_provider, vision_labels["local"]),
         back_to_inventory=request.args.get("origin", "") == "inventory",
+        greeting=greeting,
+        quiet=quiet,
+        digest_count=digest_count,
+        prefs=prefs,
     )
 
 
@@ -932,6 +962,27 @@ def dismiss():
     try:
         CaseLinkStore(_root()).get(actor, link_id)
         HintStates(_root()).set(actor, link_id, "dismissed")
+    except PermissionError:
+        abort(403)
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    return redirect(url_for("contextflow.dashboard"))
+
+
+@bp.post("/hint-prefs")
+@login_required
+def hint_prefs():
+    """Save the actor's quiet hours and hints-per-day preference."""
+    _gate()
+    actor = _actor()
+    form = request.form
+    try:
+        HintPrefs(_root()).set(
+            actor,
+            str(form.get("quiet_start", "")),
+            str(form.get("quiet_end", "")),
+            str(form.get("daily_limit", "")),
+        )
     except PermissionError:
         abort(403)
     except ValueError as exc:
