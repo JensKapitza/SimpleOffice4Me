@@ -64,6 +64,20 @@
           <div class="form-text">Standard 0,75 je CPU; zulässig 0,1–8,0. Oberhalb der Schwelle wird tiefe Inhaltsuche verschoben. Arbeitsspeicher- und Datenträger-Schutzgrenzen bleiben unabhängig davon aktiv.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="archive-min-free-memory">Freier Arbeitsspeicher für Archivindexierung (MiB)</label>
+          <input class="form-control" id="archive-min-free-memory" type="number"
+                 name="archive_min_free_memory_mb" value="{{ media.archive_min_free_memory_mb }}"
+                 min="64" max="65536" step="1" required>
+          <div class="form-text">Bei weniger verfügbarem RAM wird nur der Katalog indexiert. Standard 384 MiB; zulässig 64–65.536 MiB.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-disk-reserve">Freier Speicherplatz-Reserve für Archivindexierung (MiB)</label>
+          <input class="form-control" id="archive-disk-reserve" type="number"
+                 name="archive_disk_reserve_mb" value="{{ media.archive_disk_reserve_mb }}"
+                 min="128" max="1048576" step="1" required>
+          <div class="form-text">Tiefe Indexierung hält diesen freien Speicherplatz zusätzlich zur 10-%-Scratch-Grenze frei. Standard 2.048 MiB; zulässig 128–1.048.576 MiB. Änderungen gelten beim nächsten Indexlauf.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>

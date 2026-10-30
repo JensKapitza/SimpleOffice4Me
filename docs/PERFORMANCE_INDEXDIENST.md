@@ -83,13 +83,21 @@ Der Archiv-Inhaltstiefenindex wird unter **Einstellungen → Dokumente & Medien 
 Inhaltstiefenindex für Archive** ein- oder ausgeschaltet. Standardmäßig
 entscheidet die automatische CPU-/Speicherprüfung, ob Inhalte extrahiert werden.
 Die Admin-Lastschwelle beträgt standardmäßig 0,75 pro CPU und ist auf 0,1–8,0
-begrenzt. „Nur Katalog indexieren“ hält Dateinamen und Archivstruktur suchbar,
-entfernt den abgeleiteten Inhaltsindex beim nächsten Archivlauf und verändert
-keine Originaldateien. Speicher- und Datenträger-Schutzgrenzen gelten immer.
+begrenzt. Die Mindestmenge freien Arbeitsspeichers (384 MiB, zulässig 64–65.536)
+und die Datenträgerreserve (2.048 MiB, zulässig 128–1.048.576) sind dort ebenfalls
+persistent konfigurierbar. Verfügbarer Arbeitsspeicher wird unter Linux/Android
+aus `/proc/meminfo` und unter Windows über `GlobalMemoryStatusEx` ermittelt.
+„Nur Katalog indexieren“ hält Dateinamen und
+Archivstruktur suchbar, entfernt den abgeleiteten Inhaltsindex beim nächsten
+Archivlauf und verändert keine Originaldateien. Speicher- und Datenträgergrenzen
+werden unabhängig geprüft.
 `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` und
-`SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` werden nur noch als Migrationsvorgaben
-gelesen, solange kein persistenter Wert gespeichert ist; ein alter `1`-Wert
-umgeht die Ressourcenprüfung nicht mehr.
+`SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` sowie die Legacy-Werte
+`SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` und
+`SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` werden nur gelesen, solange der jeweilige
+persistent verwaltete Wert noch fehlt. Ein alter `DEEP_INDEX=1`-Wert umgeht
+keine Ressourcenprüfung. Änderungen an den Ressourcenwerten gleichen betroffene
+vollständige abgeleitete Indizes beim nächsten Indexlauf an.
 
 ## Login, Dashboard und Inbox
 

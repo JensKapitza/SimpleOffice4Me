@@ -6,9 +6,20 @@ import time
 import unittest
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.archive_indexer import cleanup_stale_scratch, index_archive, system_busy
+from app.archive_indexer import (
+    _disk_budget,
+    _windows_free_memory_bytes,
+    cleanup_stale_scratch,
+    index_archive,
+    system_busy,
+)
+from app.archive_settings import (
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+)
 from app.document_store import DocumentStore
 from app.settings_store import SettingsStore
 
@@ -201,6 +212,128 @@ class ArchiveIndexerTest(unittest.TestCase):
         self.assertEqual(0.75, media["archive_max_load_per_cpu"])
         self.assertTrue(busy)
         self.assertIn("system load", reason)
+
+    def test_memory_and_disk_limits_migrate_persist_and_bound_legacy_values(self):
+        cases = (
+            (
+                "SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB",
+                "archive_min_free_memory_mb", 1024, 64, 65536,
+                DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+            ),
+            (
+                "SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB",
+                "archive_disk_reserve_mb", 8192, 128, 1048576,
+                DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+            ),
+        )
+        for env_name, key, configured, minimum, maximum, default in cases:
+            with self.subTest(key=key), tempfile.TemporaryDirectory() as temporary:
+                store = SettingsStore(temporary)
+                with patch.dict(os.environ, {env_name: str(configured)}):
+                    self.assertEqual(configured, store.settings()["media"][key])
+                    store.save({"media": {"preview_enabled": False}}, "archive-admin")
+                with patch.dict(os.environ, {env_name: str(default)}):
+                    self.assertEqual(configured, store.settings()["media"][key])
+
+            for raw, expected in (
+                (str(minimum - 1), minimum),
+                (str(maximum + 1), maximum),
+                ("invalid", default),
+                ("9" * 30, default),
+            ):
+                with self.subTest(key=key, raw=raw), tempfile.TemporaryDirectory() as temporary:
+                    with patch.dict(os.environ, {env_name: raw}):
+                        self.assertEqual(
+                            expected, SettingsStore(temporary).settings()["media"][key],
+                        )
+
+    def test_resource_settings_are_used_and_changes_reindex_existing_archives(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive_path = root / "resource-policy.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("document.txt", "resource policy marker")
+            store = DocumentStore(root)
+            store.scan()
+            settings = SettingsStore(root)
+            settings.save(
+                {"media": {
+                    "archive_deep_index_enabled": True,
+                    "archive_max_load_per_cpu": 0.75,
+                    "archive_min_free_memory_mb": 512,
+                    "archive_disk_reserve_mb": 8192,
+                }},
+                "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")) as busy, patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ) as budget:
+                first = index_archive(store, archive_path)
+            busy.assert_called_once_with(True, 0.75, 512)
+            self.assertEqual(8192, budget.call_args.args[1])
+            self.assertEqual(512, first["resource_policy"]["min_free_memory_mb"])
+            self.assertEqual(8192, first["resource_policy"]["disk_reserve_mb"])
+
+            settings.save(
+                {"media": {
+                    "archive_deep_index_enabled": True,
+                    "archive_max_load_per_cpu": 0.75,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 4096,
+                }},
+                "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")) as busy, patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ) as budget:
+                second = index_archive(store, archive_path)
+            busy.assert_called_once_with(True, 0.75, 1024)
+            self.assertEqual(4096, budget.call_args.args[1])
+            self.assertEqual(1024, second["resource_policy"]["min_free_memory_mb"])
+            self.assertEqual(4096, second["resource_policy"]["disk_reserve_mb"])
+
+    def test_memory_threshold_and_disk_reserve_fail_closed_at_configured_limits(self):
+        with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
+            "app.archive_indexer.os.getloadavg", return_value=(0.0, 0.0, 0.0),
+        ), patch("app.archive_indexer._free_memory_bytes", return_value=128 * 1024 * 1024):
+            self.assertEqual((False, "resources available"), system_busy(True, 0.75, 64))
+            busy, reason = system_busy(True, 0.75, 256)
+            self.assertTrue(busy)
+            self.assertIn("memory", reason)
+            self.assertEqual(
+                (True, "archive memory threshold is invalid"),
+                system_busy(True, 0.75, True),
+            )
+        with patch("app.archive_indexer._free_memory_bytes", return_value=None):
+            self.assertEqual(
+                (True, "available memory could not be determined"),
+                system_busy(True, 0.75, 512),
+            )
+
+        usage = SimpleNamespace(free=10 * 1024 * 1024 * 1024)
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "app.archive_indexer.shutil.disk_usage", return_value=usage,
+        ):
+            free, budget = _disk_budget(Path(temporary), 9728)
+            self.assertEqual(usage.free, free)
+            self.assertEqual(512 * 1024 * 1024, budget)
+            self.assertEqual((usage.free, 0), _disk_budget(Path(temporary), True))
+
+    def test_windows_available_memory_probe_reads_physical_memory_and_handles_failure(self):
+        class MemoryStatusApi:
+            def __init__(self, available, result=True):
+                self.available = available
+                self.result = result
+
+            def GlobalMemoryStatusEx(self, status_pointer):
+                status_pointer._obj.ullAvailPhys = self.available
+                return self.result
+
+        self.assertEqual(
+            512 * 1024 * 1024,
+            _windows_free_memory_bytes(MemoryStatusApi(512 * 1024 * 1024)),
+        )
+        self.assertIsNone(_windows_free_memory_bytes(MemoryStatusApi(0, result=False)))
 
     def test_suspicious_compression_ratio_is_catalogued_but_not_inflated_for_text(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(

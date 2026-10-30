@@ -14,11 +14,17 @@ from typing import Any
 
 from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+    legacy_archive_disk_reserve_mb,
     legacy_archive_deep_index_enabled,
     legacy_archive_max_load_per_cpu,
+    legacy_archive_min_free_memory_mb,
     normalize_archive_index_settings,
+    normalize_archive_resource_settings,
     validate_archive_index_settings,
+    validate_archive_resource_settings,
 )
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .integration_settings import (
@@ -150,6 +156,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
         "archive_deep_index_enabled": DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
         "archive_max_load_per_cpu": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+        "archive_min_free_memory_mb": DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+        "archive_disk_reserve_mb": DEFAULT_ARCHIVE_DISK_RESERVE_MB,
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
         "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
@@ -697,6 +705,8 @@ class SettingsStore:
             # it no longer bypasses CPU or memory safeguards.
             "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
             "archive_max_load_per_cpu": legacy_archive_max_load_per_cpu(),
+            "archive_min_free_memory_mb": legacy_archive_min_free_memory_mb(),
+            "archive_disk_reserve_mb": legacy_archive_disk_reserve_mb(),
         }
 
     @classmethod
@@ -740,6 +750,10 @@ class SettingsStore:
             normalized["archive_deep_index_enabled"],
             normalized["archive_max_load_per_cpu"],
         ) = normalize_archive_index_settings(normalized)
+        (
+            normalized["archive_min_free_memory_mb"],
+            normalized["archive_disk_reserve_mb"],
+        ) = normalize_archive_resource_settings(normalized)
         ranges = {
             "upload_limit_mib": (
                 DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
@@ -888,6 +902,9 @@ class SettingsStore:
         archive_deep_index_enabled, archive_load_threshold = (
             validate_archive_index_settings(media)
         )
+        archive_min_free_memory_mb, archive_disk_reserve_mb = (
+            validate_archive_resource_settings(media)
+        )
         preview_timeout = media.get("preview_timeout_seconds", DEFAULT_PREVIEW_TIMEOUT_SECONDS)
         if (
             isinstance(preview_timeout, bool)
@@ -951,6 +968,8 @@ class SettingsStore:
                 "archive_ocr_enabled": archive_ocr_enabled,
                 "archive_deep_index_enabled": archive_deep_index_enabled,
                 "archive_max_load_per_cpu": archive_load_threshold,
+                "archive_min_free_memory_mb": archive_min_free_memory_mb,
+                "archive_disk_reserve_mb": archive_disk_reserve_mb,
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
                 "preview_timeout_seconds": preview_timeout,
