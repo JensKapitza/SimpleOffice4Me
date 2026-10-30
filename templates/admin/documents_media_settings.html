@@ -92,6 +92,13 @@
           <div class="form-text">Begrenzt katalogisierte Archivdateien; größere Archive erhalten einen Teilindex. Standard 20.000 Einträge; zulässig 100–200.000. Originalarchive bleiben unverändert.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="archive-max-text">Gesamtes Textbudget für die Archivinhaltsuche (MiB)</label>
+          <input class="form-control" id="archive-max-text" type="number"
+                 name="archive_max_text_mb" value="{{ media.archive_max_text_mb }}"
+                 min="1" max="64" step="1" required>
+          <div class="form-text">Begrenzt den abgeleiteten Volltextspeicher je Archiv. Standard 8 MiB; zulässig 1–64 MiB. Eine Änderung passt den abgeleiteten Suchtext beim nächsten Indexlauf an; Originalarchive bleiben erhalten.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>

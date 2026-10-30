@@ -293,6 +293,16 @@ def _decode_text(source: BinaryIO, max_bytes: int) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _truncate_utf8_bytes(value: str, max_bytes: int) -> str:
+    """Cap searchable text by encoded bytes without returning broken UTF-8."""
+    if max_bytes <= 0:
+        return ""
+    encoded = value.encode("utf-8", errors="replace")
+    if len(encoded) <= max_bytes:
+        return value
+    return encoded[:max_bytes].decode("utf-8", errors="ignore")
+
+
 def _member_suffix(name: str) -> str:
     return Path(name).suffix.casefold()
 
@@ -395,6 +405,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     disk_reserve_mb = media_settings["archive_disk_reserve_mb"]
     member_yield_ms = media_settings["archive_member_yield_ms"]
     max_members = media_settings["archive_max_members"]
+    max_text_mb = media_settings["archive_max_text_mb"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
@@ -408,11 +419,15 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     previous_max_members = (
         previous_policy.get("max_members") if isinstance(previous_policy, dict) else None
     )
+    previous_max_text_mb = (
+        previous_policy.get("max_text_mb") if isinstance(previous_policy, dict) else None
+    )
     stable_catalog_only = (
         not deep_index_enabled
         and previous.get("status") == "catalog_only"
         and previous_deep_index_enabled is False
         and previous_max_members == max_members
+        and previous_max_text_mb == max_text_mb
     )
     resource_policy_unchanged = (
         isinstance(previous_policy, dict)
@@ -420,6 +435,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         and previous_policy.get("min_free_memory_mb") == min_free_memory_mb
         and previous_policy.get("disk_reserve_mb") == disk_reserve_mb
         and previous_policy.get("max_members") == max_members
+        and previous_policy.get("max_text_mb") == max_text_mb
     )
     if (
         previous.get("source_sha256") == digest
@@ -435,7 +451,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         deep_index_enabled, max_load_per_cpu, min_free_memory_mb,
     )
     max_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB", 512, 1, 8192) * 1024 * 1024
-    max_text = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB", 8, 1, 64) * 1024 * 1024
+    max_text = max_text_mb * 1024 * 1024
     max_text_per_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB", 2, 1, 32) * 1024 * 1024
     max_content_files = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES", 500, 1, 10000)
     ratio_limit = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO", 200, 10, 10000)
@@ -502,7 +518,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 if text and text_bytes < max_text:
                     prefix = f"\n[{name} | {kind}]\n"
                     available = max_text - text_bytes
-                    value = (prefix + text)[:available]
+                    value = _truncate_utf8_bytes(prefix + text, available)
                     text_parts.append(value)
                     text_bytes += len(value.encode("utf-8", errors="replace"))
                 indexed_content += 1
@@ -536,7 +552,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         "skipped_encrypted": skipped_encrypted,
         "extraction_errors": extraction_errors,
         "catalog": catalog,
-        "search_text": "".join(text_parts)[:max_text],
+        "search_text": _truncate_utf8_bytes("".join(text_parts), max_text),
         "resource_policy": {
             "deep_index_enabled": deep_index_enabled,
             "load_threshold_per_cpu": max_load_per_cpu,
@@ -544,6 +560,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "disk_reserve_mb": disk_reserve_mb,
             "member_yield_ms": member_yield_ms,
             "max_members": max_members,
+            "max_text_mb": max_text_mb,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,

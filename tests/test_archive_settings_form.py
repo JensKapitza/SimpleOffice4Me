@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from app.archive_settings import (
     DEFAULT_ARCHIVE_MAX_MEMBERS,
+    DEFAULT_ARCHIVE_MAX_TEXT_MB,
     DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
 )
 from app.documents_media_settings_form import media_settings_from_form
@@ -25,6 +26,7 @@ class ArchiveSettingsFormTests(unittest.TestCase):
             "archive_disk_reserve_mb": "2048",
             "archive_member_yield_ms": str(DEFAULT_ARCHIVE_MEMBER_YIELD_MS),
             "archive_max_members": str(DEFAULT_ARCHIVE_MAX_MEMBERS),
+            "archive_max_text_mb": str(DEFAULT_ARCHIVE_MAX_TEXT_MB),
             "preview_enabled": "1",
             "preview_timeout_seconds": "45",
             "preview_max_bytes": str(256 * 1024 * 1024),
@@ -120,6 +122,47 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         html = template.read_text(encoding="utf-8")
         self.assertIn('name="archive_max_members"', html)
         self.assertIn('min="100" max="200000" step="1"', html)
+
+    def test_total_text_budget_migrates_validates_and_preserves_old_forms(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = SettingsStore(temporary)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB": "12"}):
+                self.assertEqual(12, store.settings()["media"]["archive_max_text_mb"])
+                store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB": "1"}):
+                self.assertEqual(12, store.settings()["media"]["archive_max_text_mb"])
+
+            form = self._valid_form()
+            form["archive_max_text_mb"] = "1"
+            parsed = media_settings_from_form(store, form, reset_defaults=False)
+            self.assertEqual(1, parsed["archive_max_text_mb"])
+            older_form = self._valid_form()
+            older_form.pop("archive_max_text_mb")
+            self.assertEqual(
+                12,
+                media_settings_from_form(store, older_form, reset_defaults=False)[
+                    "archive_max_text_mb"
+                ],
+            )
+            for invalid in ("0", "65", "1.5", "invalid"):
+                with self.subTest(invalid=invalid):
+                    invalid_form = self._valid_form()
+                    invalid_form["archive_max_text_mb"] = invalid
+                    with self.assertRaises(ValueError):
+                        media_settings_from_form(store, invalid_form, reset_defaults=False)
+            store.save({"media": parsed}, "archive-admin")
+            self.assertEqual(1, store.settings()["media"]["archive_max_text_mb"])
+            for invalid in (True, 0, 65):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    store.save({"media": {"archive_max_text_mb": invalid}}, "archive-admin")
+            reset = media_settings_from_form(store, {}, reset_defaults=True)
+            self.assertEqual(DEFAULT_ARCHIVE_MAX_TEXT_MB, reset["archive_max_text_mb"])
+
+    def test_total_text_budget_is_exposed_with_bounded_admin_input(self):
+        template = Path(__file__).parents[1] / "templates/admin/documents_media_settings.html"
+        html = template.read_text(encoding="utf-8")
+        self.assertIn('name="archive_max_text_mb"', html)
+        self.assertIn('min="1" max="64" step="1"', html)
 
 
 if __name__ == "__main__":
