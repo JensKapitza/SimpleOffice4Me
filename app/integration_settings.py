@@ -39,6 +39,7 @@ DEFAULT_FEDERATION_AUTOSCAN_SECONDS = 21600
 MIN_FEDERATION_AUTOSCAN_SECONDS = 3600
 MAX_FEDERATION_AUTOSCAN_SECONDS = 7 * 86400
 DEFAULT_ERROR_REPORTING_ENABLED = True
+DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED = False
 
 
 def _legacy_integer(
@@ -185,6 +186,12 @@ def legacy_error_reporting_enabled() -> bool:
     return value not in {"0", "false", "no", "off"}
 
 
+def legacy_federation_public_directory_enabled() -> bool:
+    """Migrate the prior public-directory opt-in without changing its default."""
+    value = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY", "0")
+    return value.strip().casefold() in {"1", "true", "yes", "on"}
+
+
 def normalize_integration_settings(
     integrations: dict[str, Any],
 ) -> dict[str, int | str | bool]:
@@ -272,6 +279,14 @@ def normalize_integration_settings(
         _LOGGER.warning("Invalid stored error-reporting preference; using the default")
         error_reporting_enabled = DEFAULT_ERROR_REPORTING_ENABLED
     result["error_reporting_enabled"] = error_reporting_enabled
+    public_directory_enabled = integrations.get(
+        "federation_public_directory_enabled",
+        DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    )
+    if not isinstance(public_directory_enabled, bool):
+        _LOGGER.warning("Invalid stored federation public-directory preference; using the default")
+        public_directory_enabled = DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED
+    result["federation_public_directory_enabled"] = public_directory_enabled
     return result
 
 
@@ -328,4 +343,11 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str | bo
     if not isinstance(error_reporting_enabled, bool):
         raise ValueError("error reporting enabled must be a boolean")
     values["error_reporting_enabled"] = error_reporting_enabled
+    public_directory_enabled = integrations.get(
+        "federation_public_directory_enabled",
+        DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    )
+    if not isinstance(public_directory_enabled, bool):
+        raise ValueError("federation public-directory enabled must be a boolean")
+    values["federation_public_directory_enabled"] = public_directory_enabled
     return values
