@@ -91,44 +91,49 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
             'name="federation_public_directory_enabled"',
             page.get_data(as_text=True),
         )
-        self.assertEqual(401, app.test_client().get(
-            "/federation/v1/discovery/peers",
-        ).status_code)
+        testing = app.testing
+        app.testing = False  # Federation auth has a deliberate no-token test-mode bypass.
+        try:
+            self.assertEqual(401, app.test_client().get(
+                "/federation/v1/discovery/peers",
+            ).status_code)
 
-        path = "/admin/settings/integrations/federation-public-directory"
-        self.assertEqual(403, self.user.post(path, data={
-            "federation_public_directory_enabled": "1",
-        }).status_code)
-        self.assertEqual(403, self.admin.post(path, data={
-            "federation_public_directory_enabled": "1",
-        }).status_code)
+            path = "/admin/settings/integrations/federation-public-directory"
+            self.assertEqual(403, self.user.post(path, data={
+                "federation_public_directory_enabled": "1",
+            }).status_code)
+            self.assertEqual(403, self.admin.post(path, data={
+                "federation_public_directory_enabled": "1",
+            }).status_code)
 
-        saved = self.post_setting(
-            self.admin, {"federation_public_directory_enabled": "1"},
-        )
-        self.assertEqual(302, saved.status_code)
-        self.assertTrue(
-            SettingsStore(self.root).settings()["integrations"][
-                "federation_public_directory_enabled"
-            ],
-        )
-        public_client = app.test_client()
-        response = public_client.get("/federation/v1/discovery/peers")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual([], response.get_json()["peers"])
-        self.assertEqual(
-            401,
-            public_client.post("/federation/v1/discovery/register", json={}).status_code,
-        )
+            saved = self.post_setting(
+                self.admin, {"federation_public_directory_enabled": "1"},
+            )
+            self.assertEqual(302, saved.status_code)
+            self.assertTrue(
+                SettingsStore(self.root).settings()["integrations"][
+                    "federation_public_directory_enabled"
+                ],
+            )
+            public_client = app.test_client()
+            response = public_client.get("/federation/v1/discovery/peers")
+            self.assertEqual(200, response.status_code)
+            self.assertEqual([], response.get_json()["peers"])
+            self.assertEqual(
+                401,
+                public_client.post("/federation/v1/discovery/register", json={}).status_code,
+            )
 
-        disabled = self.post_setting(
-            self.admin, {"federation_public_directory_enabled": "0"},
-        )
-        self.assertEqual(302, disabled.status_code)
-        self.assertEqual(
-            401,
-            public_client.get("/federation/v1/discovery/peers").status_code,
-        )
+            disabled = self.post_setting(
+                self.admin, {"federation_public_directory_enabled": "0"},
+            )
+            self.assertEqual(302, disabled.status_code)
+            self.assertEqual(
+                401,
+                public_client.get("/federation/v1/discovery/peers").status_code,
+            )
+        finally:
+            app.testing = testing
         with app.app_context():
             row = database.get_db().execute(
                 "SELECT target_id,detail FROM security_event WHERE action=? "
