@@ -27,7 +27,11 @@ def _root():
 
 
 def _public_directory():
-    return os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY", "0").strip().casefold() in {"1", "true", "yes", "on"}
+    from .settings_store import SettingsStore
+
+    return SettingsStore(_root()).settings()["integrations"][
+        "federation_public_directory_enabled"
+    ]
 
 
 def _directory_authorized(public=False):

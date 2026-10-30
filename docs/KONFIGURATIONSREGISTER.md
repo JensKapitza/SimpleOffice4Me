@@ -36,6 +36,14 @@ es schaltet weder lokale Protokolle noch den Inbound-Collector auf einem Master 
 `SIMPLEOFFICE_ERROR_REPORTING` wird nur bis zum ersten Speichern als Legacy-Opt-out
 übernommen.
 
+### Öffentliches Federation-Verzeichnis
+
+`integrations.federation_public_directory_enabled` steuert die nicht
+authentifizierte Leseabfrage bereits explizit publizierter Peer-Profile. Der
+sichere Standard ist deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1`
+ist nur ein Legacy-Opt-in bis die persistente Admin-Einstellung gespeichert ist;
+Registrierung, Auflösung und Rendezvous bleiben separat authentifiziert.
+
 ### Tiefe Archivindexierung
 
 Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
@@ -248,7 +256,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_LAN_ADDRESS` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_FEDERATION_LAN_PORTS` | [federation_discovery_lan.py](../app/federation_discovery_lan.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_FEDERATION_PEER_ID` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHAT](CHAT.md) |
-| `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` | [federation_discovery_http.py](../app/federation_discovery_http.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` (Legacy-Migration) | [federation_discovery_http.py](../app/federation_discovery_http.py) | Persistente Präferenz `integrations.federation_public_directory_enabled`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` | [federation_local_profile.py](../app/federation_local_profile.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT` | [license_routes.py](../app/license_routes.py) | Quelle und Ergänzungen oben |
