@@ -514,9 +514,10 @@ class SiteVisitStore:
 
     def attachment_path(self, visit_id: str, actor: str, attachment_id: str) -> tuple[Path, dict[str, Any]]:
         record = self._owned(visit_id, actor)
+        visit_id = _identifier(visit_id)
         attachment_id = _identifier(attachment_id)
         item = self._find(record, "attachments", "attachment_id", attachment_id)
-        path = (self.directory / visit_id / item["relative_path"]).resolve()
+        path = (self.directory / item["relative_path"]).resolve()
         expected = (self.directory / visit_id / "attachments").resolve()
         if expected not in path.parents or not path.is_file():
             raise ValueError("Anhang nicht gefunden")
