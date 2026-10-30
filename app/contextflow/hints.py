@@ -7,6 +7,7 @@ state alone never decides this; the state lives next to the domain data.
 from __future__ import annotations
 
 import json
+import threading
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,10 @@ BUDGET_KEEP_DAYS = 7
 
 PREFS_FILE = "contextflow-hint-prefs.json"
 BUDGET_FILE = "contextflow-hint-budget.json"
+
+# File locks do not exclude threads of the same process, so budget
+# writes take this process lock first (threaded web servers).
+_BUDGET_WRITE_LOCK = threading.Lock()
 
 
 def parse_hhmm(value: str) -> tuple[int, int]:
@@ -74,8 +79,10 @@ class HintStates:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"version": 1, "states": []}
-        if not isinstance(data, dict) or not isinstance(data.get("states", []), list):
+        if not isinstance(data, dict):
             return {"version": 1, "states": []}
+        if not isinstance(data.get("states"), list):
+            data["states"] = []
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -160,8 +167,10 @@ class HintPrefs:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"version": 1, "prefs": []}
-        if not isinstance(data, dict) or not isinstance(data.get("prefs", []), list):
+        if not isinstance(data, dict):
             return {"version": 1, "prefs": []}
+        if not isinstance(data.get("prefs"), list):
+            data["prefs"] = []
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -245,8 +254,10 @@ class HintBudget:
             data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"version": 1, "days": []}
-        if not isinstance(data, dict) or not isinstance(data.get("days", []), list):
+        if not isinstance(data, dict):
             return {"version": 1, "days": []}
+        if not isinstance(data.get("days"), list):
+            data["days"] = []
         return data
 
     def _write(self, data: dict[str, Any]) -> None:
@@ -294,37 +305,92 @@ class HintBudget:
             return True
         return len(shown) < int(limit)
 
+    @staticmethod
+    def _shown_of(mine: dict[str, Any]) -> list[str]:
+        """Return the row's shown ids; a damaged value reads as empty."""
+        shown = mine.get("shown", [])
+        if not isinstance(shown, list):
+            return []
+        return [str(item) for item in shown if str(item).strip()]
+
+    @staticmethod
+    def _prune(data: dict[str, Any], actor: str) -> None:
+        """Keep only the actor's newest days; drop unreadable rows."""
+        rows = [row for row in data["days"] if isinstance(row, dict)]
+        mine_days = sorted(
+            {str(row.get("day", "")) for row in rows if row.get("owner") == actor}
+        )[-BUDGET_KEEP_DAYS:]
+        data["days"] = [
+            row
+            for row in rows
+            if row.get("owner") != actor or str(row.get("day", "")) in mine_days
+        ]
+
+    def _mine(self, data: dict[str, Any], actor: str, day: str) -> dict[str, Any]:
+        """Return the actor's day row, creating it when missing."""
+        mine: dict[str, Any] | None = None
+        for row in data["days"]:
+            if (
+                isinstance(row, dict)
+                and row.get("owner") == actor
+                and row.get("day") == day
+            ):
+                mine = row
+                break
+        if mine is None:
+            mine = {"owner": actor, "day": day, "shown": []}
+            data["days"].append(mine)
+        return mine
+
     def record(self, actor: str, link_ids: list[str], today: str) -> list[str]:
         """Append rendered link ids to the actor's day; prune old days."""
         actor = _require_actor(actor)
         day = self._checked_day(today)
         fresh = [str(item).strip() for item in link_ids if str(item).strip()]
-        with exclusive_file_lock(self.lock):
-            data = self._read()
-            days = data["days"]
-            kept: list[dict[str, Any]] = []
-            mine: dict[str, Any] | None = None
-            for row in days:
-                if not isinstance(row, dict):
-                    continue
-                if row.get("owner") == actor and row.get("day") == day:
-                    mine = row
-                kept.append(row)
-            if mine is None:
-                mine = {"owner": actor, "day": day, "shown": []}
-                kept.append(mine)
-            seen = [str(item) for item in mine.get("shown", []) if str(item).strip()]
-            for link_id in fresh:
-                if link_id not in seen:
-                    seen.append(link_id)
-            mine["shown"] = seen
-            mine_days = sorted(
-                {str(row.get("day", "")) for row in kept if row.get("owner") == actor}
-            )[-BUDGET_KEEP_DAYS:]
-            data["days"] = [
-                row
-                for row in kept
-                if row.get("owner") != actor or str(row.get("day", "")) in mine_days
-            ]
-            self._write(data)
+        with _BUDGET_WRITE_LOCK:
+            with exclusive_file_lock(self.lock):
+                data = self._read()
+                mine = self._mine(data, actor, day)
+                seen = self._shown_of(mine)
+                for link_id in fresh:
+                    if link_id not in seen:
+                        seen.append(link_id)
+                mine["shown"] = seen
+                self._prune(data, actor)
+                self._write(data)
         return list(seen)
+
+    def reserve(self, actor: str, link_id: str, today: str, limit: int) -> bool:
+        """Atomically reserve one display slot for today.
+
+        Check and append happen under the file lock (plus the process
+        lock above, since file locks do not exclude threads of the
+        same process): already-reserved ids stay reserved so reloads
+        render stably; new ids are admitted only while fewer than
+        ``limit`` distinct ids are shown. Garbage input fails closed
+        (no slot). Call only after the hint evaluated successfully —
+        failed evaluations must never consume budget.
+        """
+        try:
+            actor = _require_actor(actor)
+            day = self._checked_day(today)
+            link = str(link_id or "").strip()
+            if not link or isinstance(limit, bool) or int(limit) < 1:
+                return False
+            cap = int(limit)
+        except (ValueError, TypeError):
+            return False
+        with _BUDGET_WRITE_LOCK:
+            with exclusive_file_lock(self.lock):
+                data = self._read()
+                mine = self._mine(data, actor, day)
+                seen = self._shown_of(mine)
+                if link in seen:
+                    return True
+                if len(seen) >= cap:
+                    return False
+                seen.append(link)
+                mine["shown"] = seen
+                self._prune(data, actor)
+                self._write(data)
+        return True

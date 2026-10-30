@@ -54,7 +54,6 @@ from .evaluator import FollowupEvaluator
 from .contact_suggest import MAX_PHOTOS as MAX_CONTACT_PHOTOS
 from .contact_suggest import suggest_contact_fields
 from .hints import HintBudget, HintPrefs, HintStates, is_quiet_time
-from .local_rewrite import RULE_GREETING, rewrite_hint_lead
 from .inventory_match import (
     AmbiguousMatchError,
     EmptyIdentifierError,
@@ -226,6 +225,15 @@ def _card(
     }
 
 
+# Static dashboard greeting: rule text only. The dashboard never starts
+# model inference (no greeting rewrite, no probe); local Meta inference
+# stays reserved for explicit photo, document, and inventory actions.
+RULE_GREETING = (
+    "Der Engel klopft nur an, wenn wirklich etwas liegengeblieben ist – "
+    "mit Quelle, Grund und genau einer freizugebenden Aktion."
+)
+
+
 @bp.get("")
 @bp.get("/")
 @login_required
@@ -259,7 +267,6 @@ def dashboard():
     }
     cards = []
     digest_count = 0
-    shown: list[str] = []
     if quiet:
         digest_count = sum(
             1
@@ -273,28 +280,25 @@ def dashboard():
             link_id = str(link.get("link_id", ""))
             if not states.is_visible(actor, link_id, today):
                 continue
-            if not budget.allow(actor, link_id, today, prefs["daily_limit"]):
-                digest_count += 1
-                continue
             try:
                 hint = FollowupEvaluator(root).evaluate(actor, link_id, now)
             except (PermissionError, ValueError, KeyError):
                 continue
-            cards.append(
-                _card(
-                    root,
-                    actor,
-                    link,
-                    hint,
-                    case_title=case_titles.get(str(link.get("mail_case_id", "")), ""),
-                )
+            card = _card(
+                root,
+                actor,
+                link,
+                hint,
+                case_title=case_titles.get(str(link.get("mail_case_id", "")), ""),
             )
-            shown.append(link_id)
-        if shown:
-            budget.record(actor, shown, today)
-    greeting, _greeting_rewritten = rewrite_hint_lead(
-        RULE_GREETING, settings=_vision_settings(), root=root
-    )
+            # Reserve only after successful evaluation: the first GET
+            # with more links than the daily limit shows at most the
+            # limit, and reserved ids render stably on reload.
+            if not budget.reserve(actor, link_id, today, prefs["daily_limit"]):
+                digest_count += 1
+                continue
+            cards.append(card)
+    greeting = RULE_GREETING
     cases = [
         {"id": case_id, "title": title}
         for case_id, title in case_titles.items()

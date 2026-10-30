@@ -16,16 +16,16 @@
       <h1>Büroengel – belegte Hinweise</h1>
       <p class="cf-lead">{{ greeting|default('Der Engel klopft nur an, wenn wirklich etwas liegengeblieben ist – mit Quelle, Grund und genau einer freizugebenden Aktion.', true) }}</p>
       <p class="cf-pills">
-        <span class="cf-pill" role="note">Lokaler Regelbetrieb · keine Cloud · keine KI-Abfrage</span>
+        <span class="cf-pill" role="note">Lokaler Regelbetrieb · Regeltext, keine KI-Abfrage</span>
         <span class="cf-pill cf-pill-quiet">Standard: ausgeschaltet, bis du es aktivierst</span>
       </p>
     </div>
   </header>
 
   {% if quiet|default(false) %}
-  <p class="cf-quiet-banner" role="status">Ruhezeit aktiv ({{ prefs.quiet_start }}–{{ prefs.quiet_end }} Uhr) – {{ digest_count }} Hinweis(e) warten in der Sammelliste.</p>
+  <p class="cf-quiet-banner" role="status">Ruhezeit aktiv ({{ prefs.quiet_start }}–{{ prefs.quiet_end }} Uhr) – {{ digest_count }} Hinweis(e) zurückgestellt (derzeit nicht angezeigt).</p>
   {% elif digest_count|default(0) %}
-  <p class="cf-digest" role="status">Tageslimit erreicht ({{ prefs.daily_limit }} pro Tag) – {{ digest_count }} weitere Hinweise in der Sammelliste.</p>
+  <p class="cf-digest" role="status">Tageslimit erreicht ({{ prefs.daily_limit }} pro Tag) – {{ digest_count }} weitere Hinweise zurückgestellt (derzeit nicht angezeigt).</p>
   {% endif %}
 
   {% if cards %}
