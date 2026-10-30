@@ -177,7 +177,7 @@ def load_relay_config() -> GitHubReporterConfig:
     )
 
 
-def load_config() -> GitHubReporterConfig:
+def load_config(*, reporting_enabled: bool | None = None) -> GitHubReporterConfig:
     """Load client reporter config; the baked master is the zero-config default."""
     explicit_relay = os.environ.get("SIMPLEOFFICE_ERROR_REPORT_URL", "").strip()
     direct_enabled = _enabled(os.environ.get("SIMPLEOFFICE_GITHUB_ERROR_REPORTING", "0"))
@@ -190,7 +190,11 @@ def load_config() -> GitHubReporterConfig:
     else:
         relay_url = master_error_report_url()
 
-    enabled = not _reporting_disabled() and (direct_enabled or bool(relay_url))
+    if reporting_enabled is None:
+        reporting_enabled = not _reporting_disabled()
+    elif not isinstance(reporting_enabled, bool):
+        raise ValueError("error reporting enabled must be a boolean")
+    enabled = reporting_enabled and (direct_enabled or bool(relay_url))
     token = _read_token() if enabled and direct_enabled else ""
     if not enabled:
         relay_url = ""
@@ -506,8 +510,9 @@ def _remember_local_issue(fingerprint: str, issue_number: int) -> None:
 
 def report_error(*, exception_type: str, exception_message: str, endpoint: str,
                  method: str, request_id: str, fingerprint: str,
-                 frames: Sequence[Mapping[str, object]], app_version: str = "") -> int | None:
-    config = load_config()
+                 frames: Sequence[Mapping[str, object]], app_version: str = "",
+                 config: GitHubReporterConfig | None = None) -> int | None:
+    config = config or load_config()
     if not config.enabled:
         return None
     payload = build_report_payload(

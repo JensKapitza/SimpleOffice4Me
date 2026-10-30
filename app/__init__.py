@@ -358,6 +358,9 @@ app.register_blueprint(admin.bp)
 from . import admin_osm_settings
 app.register_blueprint(admin_osm_settings.bp)
 
+from . import admin_error_reporting_settings
+app.register_blueprint(admin_error_reporting_settings.bp)
+
 from . import v3_finance_routes
 app.register_blueprint(v3_finance_routes.bp)
 
@@ -525,7 +528,13 @@ def unhandled_application_error(error):
     manual_issue_href = ""
     sanitized_message = ""
     try:
-        from .github_error_reporter import issue_url, load_config, manual_issue_url, report_error, sanitize_text
+        from .github_error_reporter import (
+            issue_url,
+            load_config,
+            manual_issue_url,
+            report_error,
+            sanitize_text,
+        )
         sanitized_message = sanitize_text(error, 500)
         app_version = os.environ.get("SIMPLEOFFICE_VERSION", "")
         manual_issue_href = manual_issue_url(
@@ -538,6 +547,12 @@ def unhandled_application_error(error):
             app_version=app_version,
         )
         if fingerprint:
+            from .settings_store import SettingsStore
+
+            reporting_enabled = SettingsStore(
+                app.config["DOCUMENT_ROOT"],
+            ).settings()["integrations"]["error_reporting_enabled"]
+            reporter_config = load_config(reporting_enabled=reporting_enabled)
             issue_number = report_error(
                 exception_type=exception_type,
                 exception_message=sanitized_message,
@@ -547,9 +562,10 @@ def unhandled_application_error(error):
                 fingerprint=fingerprint,
                 frames=frames,
                 app_version=app_version,
+                config=reporter_config,
             )
             if issue_number is not None:
-                issue_href = issue_url(load_config(), issue_number)
+                issue_href = issue_url(reporter_config, issue_number)
     except Exception as reporter_error:
         app.logger.warning(
             "GitHub error reporter failed request_id=%s type=%s",

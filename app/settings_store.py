@@ -45,6 +45,7 @@ from .integration_settings import (
     DEFAULT_OSM_READ_TIMEOUT_SECONDS,
     DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
     DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+    DEFAULT_ERROR_REPORTING_ENABLED,
     MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -66,6 +67,7 @@ from .integration_settings import (
     legacy_clamav_timeout,
     legacy_federation_autoscan_country,
     legacy_federation_autoscan_seconds,
+    legacy_error_reporting_enabled,
     legacy_osm_download_retries,
     legacy_osm_export_idle_timeout,
     legacy_osm_filter_timeout,
@@ -174,6 +176,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "printershare_purge_interval_seconds": DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
         "federation_autoscan_country": DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
         "federation_autoscan_seconds": DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
+        "error_reporting_enabled": DEFAULT_ERROR_REPORTING_ENABLED,
     },
 }
 
@@ -551,6 +554,13 @@ class SettingsStore:
         ):
             result["integrations"]["federation_autoscan_seconds"] = (
                 legacy_federation_autoscan_seconds()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "error_reporting_enabled" not in stored_integrations
+        ):
+            result["integrations"]["error_reporting_enabled"] = (
+                legacy_error_reporting_enabled()
             )
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
