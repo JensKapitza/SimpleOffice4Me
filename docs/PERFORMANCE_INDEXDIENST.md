@@ -100,7 +100,10 @@ persistenten Grenzwerts als Startwert verwendet. Das gesamte Volltextbudget je
 Archiv beträgt standardmäßig 8 MiB und ist auf 1–64 MiB konfigurierbar. Änderungen
 gleichen den abgeleiteten Suchtext beim nächsten Indexlauf an; die bisherige
 `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB`-Variable gilt nur bis zum Speichern der
-persistenten Einstellung.
+persistenten Einstellung. Das Textbudget je Eintrag ist standardmäßig 2 MiB
+(zulässig 1–32 MiB) und begrenzt die extrahierte UTF-8-Ausgabe pro Mitglied.
+`SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` gilt bis zum Speichern der
+persistent verwalteten Einstellung nur als Legacy-Startwert.
 Die maximale Eintragsgröße für Inhaltsverarbeitung (512 MiB, zulässig 1–8.192
 MiB) und die Zahl inhaltlich verarbeiteter Einträge (500, zulässig 1–10.000) sind
 ebenfalls konfigurierbar. Größere und überzählige Einträge bleiben im Namenskatalog;

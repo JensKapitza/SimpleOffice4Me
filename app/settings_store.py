@@ -26,6 +26,7 @@ from .archive_settings import (
     legacy_archive_max_member_mb,
     legacy_archive_max_members,
     legacy_archive_max_text_mb,
+    legacy_archive_max_text_per_member_mb,
     legacy_archive_member_yield_ms,
     legacy_archive_min_free_memory_mb,
 )
@@ -706,6 +707,7 @@ class SettingsStore:
             "archive_max_member_mb": legacy_archive_max_member_mb(),
             "archive_max_content_files": legacy_archive_max_content_files(),
             "archive_max_text_mb": legacy_archive_max_text_mb(),
+            "archive_max_text_per_member_mb": legacy_archive_max_text_per_member_mb(),
             "archive_member_yield_ms": legacy_archive_member_yield_ms(),
         }
 

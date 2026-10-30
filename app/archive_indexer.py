@@ -323,18 +323,20 @@ def _extract_member_text(
 ) -> tuple[str, str]:
     suffix = _member_suffix(name)
     if suffix in PLAIN_TEXT_SUFFIXES:
-        return _decode_text(source, min(size, text_cap)), "plain_text"
+        text = _decode_text(source, min(size, text_cap))
+        return _truncate_utf8_bytes(text, text_cap), "plain_text"
     if suffix == ".pdf":
         with _private_member_file(store, source, suffix, size) as temporary:
-            return store._pdf_text(temporary)[:text_cap], "pdf"
+            text = store._pdf_text(temporary)[:text_cap]
+            return _truncate_utf8_bytes(text, text_cap), "pdf"
     if suffix in PATH_EXTRACT_SUFFIXES:
         with _private_member_file(store, source, suffix, size) as temporary:
             text, kind = store._file_text(temporary)
-            return text[:text_cap], kind
+            return _truncate_utf8_bytes(text[:text_cap], text_cap), kind
     if suffix in IMAGE_SUFFIXES and archive_ocr_enabled:
         with _private_member_file(store, source, suffix, size) as temporary:
             text = store._image_ocr(temporary)
-            return text[:text_cap], "image_ocr"
+            return _truncate_utf8_bytes(text[:text_cap], text_cap), "image_ocr"
     return "", "catalog_only"
 
 
@@ -406,6 +408,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     member_yield_ms = media_settings["archive_member_yield_ms"]
     max_members = media_settings["archive_max_members"]
     max_text_mb = media_settings["archive_max_text_mb"]
+    max_text_per_member_mb = media_settings["archive_max_text_per_member_mb"]
     max_member_mb = media_settings["archive_max_member_mb"]
     max_content_files = media_settings["archive_max_content_files"]
     metadata = store.get_document(source_path)
@@ -424,6 +427,10 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     previous_max_text_mb = (
         previous_policy.get("max_text_mb") if isinstance(previous_policy, dict) else None
     )
+    previous_max_text_per_member_mb = (
+        previous_policy.get("max_text_per_member_mb")
+        if isinstance(previous_policy, dict) else None
+    )
     stable_catalog_only = (
         not deep_index_enabled
         and previous.get("status") == "catalog_only"
@@ -438,6 +445,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         and previous_policy.get("disk_reserve_mb") == disk_reserve_mb
         and previous_policy.get("max_members") == max_members
         and previous_policy.get("max_text_mb") == max_text_mb
+        and previous_policy.get("max_text_per_member_mb") == max_text_per_member_mb
         and previous_policy.get("max_member_mb") == max_member_mb
         and previous_policy.get("max_content_files") == max_content_files
     )
@@ -456,7 +464,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     )
     max_member = max_member_mb * 1024 * 1024
     max_text = max_text_mb * 1024 * 1024
-    max_text_per_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB", 2, 1, 32) * 1024 * 1024
+    max_text_per_member = max_text_per_member_mb * 1024 * 1024
     ratio_limit = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO", 200, 10, 10000)
 
     scratch = _scratch_parent(store)
@@ -564,6 +572,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "member_yield_ms": member_yield_ms,
             "max_members": max_members,
             "max_text_mb": max_text_mb,
+            "max_text_per_member_mb": max_text_per_member_mb,
             "max_member_mb": max_member_mb,
             "max_content_files": max_content_files,
             "deep_index_allowed": deep_allowed,

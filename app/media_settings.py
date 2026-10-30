@@ -13,18 +13,21 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_TEXT_MB,
+    DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
     normalize_archive_index_settings,
     normalize_archive_max_members,
     normalize_archive_extraction_limits,
     normalize_archive_max_text_mb,
+    normalize_archive_max_text_per_member_mb,
     normalize_archive_member_yield,
     normalize_archive_resource_settings,
     validate_archive_index_settings,
     validate_archive_max_members,
     validate_archive_extraction_limits,
     validate_archive_max_text_mb,
+    validate_archive_max_text_per_member_mb,
     validate_archive_member_yield,
     validate_archive_resource_settings,
 )
@@ -66,6 +69,7 @@ DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "archive_disk_reserve_mb": DEFAULT_ARCHIVE_DISK_RESERVE_MB,
     "archive_max_members": DEFAULT_ARCHIVE_MAX_MEMBERS,
     "archive_max_text_mb": DEFAULT_ARCHIVE_MAX_TEXT_MB,
+    "archive_max_text_per_member_mb": DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     "archive_max_member_mb": DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     "archive_max_content_files": DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
     "archive_member_yield_ms": DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
@@ -96,6 +100,9 @@ def normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
     ) = normalize_archive_resource_settings(normalized)
     normalized["archive_max_members"] = normalize_archive_max_members(normalized)
     normalized["archive_max_text_mb"] = normalize_archive_max_text_mb(normalized)
+    normalized["archive_max_text_per_member_mb"] = (
+        normalize_archive_max_text_per_member_mb(normalized)
+    )
     (
         normalized["archive_max_member_mb"],
         normalized["archive_max_content_files"],
@@ -183,6 +190,7 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
     archive_member_yield_ms = validate_archive_member_yield(media)
     archive_max_members = validate_archive_max_members(media)
     archive_max_text_mb = validate_archive_max_text_mb(media)
+    archive_max_text_per_member_mb = validate_archive_max_text_per_member_mb(media)
     archive_max_member_mb, archive_max_content_files = (
         validate_archive_extraction_limits(media)
     )
@@ -217,6 +225,7 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         "archive_disk_reserve_mb": archive_disk_reserve_mb,
         "archive_max_members": archive_max_members,
         "archive_max_text_mb": archive_max_text_mb,
+        "archive_max_text_per_member_mb": archive_max_text_per_member_mb,
         "archive_max_member_mb": archive_max_member_mb,
         "archive_max_content_files": archive_max_content_files,
         "archive_member_yield_ms": archive_member_yield_ms,

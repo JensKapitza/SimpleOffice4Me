@@ -29,6 +29,9 @@ MAX_ARCHIVE_MAX_MEMBERS = 200000
 DEFAULT_ARCHIVE_MAX_TEXT_MB = 8
 MIN_ARCHIVE_MAX_TEXT_MB = 1
 MAX_ARCHIVE_MAX_TEXT_MB = 64
+DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB = 2
+MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB = 1
+MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB = 32
 DEFAULT_ARCHIVE_MAX_MEMBER_MB = 512
 MIN_ARCHIVE_MAX_MEMBER_MB = 1
 MAX_ARCHIVE_MAX_MEMBER_MB = 8192
@@ -130,6 +133,15 @@ def legacy_archive_max_text_mb() -> int:
         DEFAULT_ARCHIVE_MAX_TEXT_MB,
         MIN_ARCHIVE_MAX_TEXT_MB,
         MAX_ARCHIVE_MAX_TEXT_MB,
+    )
+
+
+def legacy_archive_max_text_per_member_mb() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB",
+        DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+        MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+        MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     )
 
 
@@ -276,6 +288,35 @@ def validate_archive_max_text_mb(media: dict[str, Any]) -> int:
         or not MIN_ARCHIVE_MAX_TEXT_MB <= value <= MAX_ARCHIVE_MAX_TEXT_MB
     ):
         raise ValueError("archive text budget must be between 1 and 64 MiB")
+    return value
+
+
+def normalize_archive_max_text_per_member_mb(media: dict[str, Any]) -> int:
+    value = media.get(
+        "archive_max_text_per_member_mb", DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+    )
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB
+        <= value <= MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB
+    ):
+        _LOGGER.warning("Invalid stored per-member archive text budget; using default")
+        return DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB
+    return value
+
+
+def validate_archive_max_text_per_member_mb(media: dict[str, Any]) -> int:
+    value = media.get(
+        "archive_max_text_per_member_mb", DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+    )
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB
+        <= value <= MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB
+    ):
+        raise ValueError("per-member archive text budget must be between 1 and 32 MiB")
     return value
 
 
