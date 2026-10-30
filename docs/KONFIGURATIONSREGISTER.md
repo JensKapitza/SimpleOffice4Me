@@ -27,6 +27,15 @@ Quellpfade aufgelistet, niemals tatsächlich konfigurierte Werte.
 
 ## Ergänzte Optionen und Verfeinerungen
 
+### Ausgehende Fehlerberichte
+
+Die automatische Übertragung datensparsamer Diagnosen ist unter **Admin →
+Einstellungen → Integrationen & Dienste → Automatische Fehlerberichte** persistent
+deaktivierbar. `integrations.error_reporting_enabled` ist das ausgehende Gesamt-Gate;
+es schaltet weder lokale Protokolle noch den Inbound-Collector auf einem Master ab.
+`SIMPLEOFFICE_ERROR_REPORTING` wird nur bis zum ersten Speichern als Legacy-Opt-out
+übernommen.
+
 ### Tiefe Archivindexierung
 
 Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
@@ -224,7 +233,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_EBAY_CLIENT_SECRET` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_EBAY_MARKETPLACE_ID` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_ERROR_RELAY_ENABLED` | [ci.yml](../.github/workflows/ci.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
-| `SIMPLEOFFICE_ERROR_REPORTING` | [github_error_reporter.py](../app/github_error_reporter.py) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
+| `SIMPLEOFFICE_ERROR_REPORTING` (Legacy-Migration) | [github_error_reporter.py](../app/github_error_reporter.py) | Persistente Präferenz `integrations.error_reporting_enabled`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORT_URL` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` | [v3_extensions.py](../app/v3_extensions.py) | [V3_EXTENSIONS](V3_EXTENSIONS.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
