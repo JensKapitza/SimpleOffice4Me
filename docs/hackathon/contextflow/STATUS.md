@@ -3,6 +3,14 @@
 **Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
+**Stand (30.10., P0-C/P0-F + Capture-Lücken, committed `0c85fea0` + `11ed193c`):**
+Ruhezeiten + Hinweise-pro-Tag (Prefs-Store, Tages-Budget mit Sammelzähler,
+Dashboard-Banner, Prefs-Formular) + lokale Gruß-Umschreibung via Ollama
+(Meta-only, Fallback auf Regeltext, nie Mock/Fakten); Capture-Routenlücken
+L1–L4 (Oversize-400 je Route, 503 Batch-Assign/Role, Orphan-Asserts,
+Login-302/CSRF-403-Matrix). Verifiziert: neu 24/24 + 9/9 OK, Nachbarn
+Web 14/14 OK, Gates grün (Scratch-Kopien, danach entfernt). Matrix C+F
+jetzt umgesetzt. Push eigentümerseitig.
 **Stand (29.10., OCR/ML/Vorschau):** OCR-Fehler nennen Windows-Installschritte
 (venv-Extra, ensurepip, Tesseract/PATH) + `ocr_availability`-Helper (4 Tests OK);
 `GET /contextflow/ml-status` (Provider, Ollama-Erreichbarkeit/Modell, Meta-Key
@@ -767,10 +775,10 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 |---|---|---|
 | A verknüpfter Servicefall | umgesetzt | bestätigte Links, actor-scoped Adapter, keine Namensraterei; Tests grün |
 | B 5-Tage-Follow-up | umgesetzt | Berlin-Evaluator, DST, unknown-Rechnung, injizierbare Uhr; Tests grün |
-| C Engel-Hinweis | teilweise | Karte + Quellen + Später/Nicht-mehr umgesetzt; Ruhezeiten/Hinweise-pro-Tag fehlen |
+| C Engel-Hinweis | umgesetzt | Karte + Quellen + Später/Nicht-mehr + Ruhezeiten + Hinweise-pro-Tag (Prefs-UI, Sammel-Banner, Budget-Log); 24 Tests grün (`0c85fea0`) |
 | D sichere Aktion | umgesetzt | Aufgabe genau einmal (replay-sicher); Editor-Link mit Manage-Gate; nichts erfunden |
 | E Mail-Entwurf | umgesetzt | belegter Entwurf via MailCase-Vertrag (Freigabe, Stale-/Replay-Schutz, nie versendet); Tests grün |
-| F lokale Betriebsart | teilweise | Regeln ohne KI; Ollama live für Foto-Klassifikation; Hinweis-Umschreibung fehlt |
+| F lokale Betriebsart | umgesetzt | Regeln ohne KI (Default); optionale lokale Gruß-Umschreibung via Ollama (Meta-only, strikter Fallback auf Regeltext, nie Mock/Fakten); Tests grün (`0c85fea0`) |
 | G Meta-Runtime-Agent | umgesetzt | Echter Tool-Loop (4 Read-only-Tools, max 5 Schritte, Evidence-Validierung, nur Vorschlag) + 1 synthetischer Live-Lauf (2 Schritte, 4/4 Tools, 10,2 s); 44 Tests + Gates grün; Editor-Link mit Manage-Gate |
 | H Security/QA/Alt-Neu | umgesetzt | Rechte/CSRF/Idempotenz/Revision, Tests + Gates grün (Zahlen im Kopf), Alt/Neu-Doku |
 | Jury-Demo (3 Min) | FEHLT | Plan vorhanden, Video nicht produziert |
@@ -781,8 +789,8 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 | Erw.: Import-Tag-Engel | TEILWEISE | Routen/UI + lokale Tag-Vorschläge mit Begründung + Bildbeschreibung/Objekte + Bestätigungs-Übernahme + Bild-Route entkoppelt + Ollama-Streaming + Model-Guard + Bild-Fallback + Grounding-Pflicht + Qualitätsfilter (46 Tests OK/1 Skip; Live VOR Filtern: Text A 400/26,56 s, Text B 200/18,82 s mit „aus"/„notizen", Bild 200/63,1 s leer → 200-leer, Stoppwort-/Stamm-/Teile-Filter); finale Abnahme: Text 200/29,67 s [Rechnung, 2024, Euro], Bild 200/62,76 s leer + warmer Retry 200/5,31 s [Bank] behalten, diff-check Exit 0 — enge Route live-verifiziert; Bild-Mismatch (Holzbrett-Satz/[Bank]) → Label-Abgleich per Tests (47 OK/1 Skip); UI meldet Timeout/Fehler/Leere ehrlich; Konsistenz-Abnahme: Text 200/34,39 s [Rechnung, 2024], Bank 200/55,38 s [Stuhl] + 200/60,06 s [Bank], Mismatch per Test abgewiesen — enge Route verifiziert (Mehrdeutigkeit: anderes/kein Label); fehlen: Browser-Abnahme (Automation gestoppt, Neustart abgelehnt), breitere Integration |
 | Erw.: Freund-Check | FEHLT | Nachschub-Anfrage bei Freunden (Peers mit Datenteilung); keine Umsetzung |
 
-- Bekannte T-Lücken (update2.md §10): T13 Ruhezeit (siehe C),
-  T19 Canary-Test, T20 Meta-Live-Anteil. G ist Jury-Stufe-1-Gate
+- Bekannte T-Lücken (update2.md §10): T13 Ruhezeit erledigt (`0c85fea0`);
+  offen: T19 Canary-Test, T20 Meta-Live-Anteil. G ist Jury-Stufe-1-Gate
   (tatsächliche Meta-Nutzung, Pass/Fail).
 - Matrix per Code-Read geprüft (28.10., Muse); Ausführung: Codex-Lauf nach Transfer-Korrektur (Isolation 3, Entry 8, Vision 26, Inventar 58 OK; node/policy/size/diff-Gates OK, kein Browser-Test) — Details im Arbeitslog. Erweiterung: update2.md §13.
 

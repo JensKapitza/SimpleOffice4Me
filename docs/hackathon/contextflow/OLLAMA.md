@@ -17,6 +17,8 @@
 3. Demo mit Modell starten (Repo-Root, Projekt-venv):
    `$env:CONTEXTFLOW_OLLAMA_MODEL="llama3.2-vision"` (PowerShell),
    dann `.venv/Scripts/python.exe tools/contextflow_demo.py --port 5091`
+   (Beispiel-Port; frei wählbar. Ports 5089–5091 in STATUS sind
+   protokollierte Live-Läufe, keine Vorgabe.)
 
 Optional: `CONTEXTFLOW_OLLAMA_URL` (Default `http://127.0.0.1:11434`),
 `CONTEXTFLOW_OLLAMA_TIMEOUT` in Sekunden (Default `180`).

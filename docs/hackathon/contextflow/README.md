@@ -201,9 +201,15 @@ Browser unter `http://127.0.0.1:5088/contextflow/` anmelden (`demo` /
    `Meta Muse Spark 1.3 Contributor (Meta Model API)`.
 3. **1:30–2:00:** Titel, Befundart und Sicherheit prüfen; ohne Bestätigung
    wird nichts gespeichert. Den Entwurf danach ausdrücklich übernehmen.
-4. **2:00–3:00:** Die bestätigte Arbeit mit Quellen im Büroengel zeigen,
+4. **2:00–2:40:** Die bestätigte Arbeit mit Quellen im Büroengel zeigen,
    eine freigegebene Aufgabe anlegen und die einmalige Ausführung erklären.
    Geld- oder externe Aktionen werden nicht automatisch ausgelöst.
+5. **2:40–3:00 (Negativfall, entschieden: 403 ohne Einwilligung):** Auf
+   `/contextflow/agent` denselben Fall wählen, die Meta-Einwilligung
+   **nicht** markieren und starten — die Seite antwortet 403 mit
+   Begründung statt einer Analyse. Alternativen (nicht im Video):
+   Doppelstart → 409, beschädigter Eingangskorb-Index → 503.
+   Abschluss: `git diff af5a600b..HEAD --stat` + Alt/Neu-Tabelle unten.
 
 Ohne Meta-API-Schlüssel darf die Jury-Demo nicht als echte Meta-Inferenz
 bezeichnet werden. Als lokale Alternative für die Bildaufgabe kann `muse-glimmer`
@@ -222,6 +228,18 @@ erstellt oder versendet (`requires_approval=true`). Die Seite zeigt Modell,
 Tool-Aufrufe, Belege, Unbekanntes und ehrliche Fehler. Live-Beleg: 2
 Schritte, 4/4 Tools OK, 3 Befunde, 8 Beleg-IDs, 10,2 s, nur synthetische
 Demo-Daten.
+
+### Fehlercodes (Abgrenzung, alle mit Tests belegt)
+
+| Code | Bedeutung | Beispiel |
+|---|---|---|
+| 400 | Eingabe/Format ungültig | Foto > 12 MiB, kein Bild, unbekannte Rolle, leere Buchgruppe |
+| 403 | Einwilligung/Recht fehlt (bewusst verweigert) | Agent-Start ohne Meta-Checkbox, fremder Akteur, fehlendes Manage-Recht |
+| 404 | Beleg/Route unbekannt | fremde Entry-ID, leere Buchgruppe, ContextFlow-Flag aus |
+| 409 | Gleichzeitigkeit/Token-Konflikt | Agent-Doppelstart, gleicher Token + anderer Digest |
+| 429 | Throttle | > 5 Agent-Läufe/300 s je Akteur |
+| 502 | Meta-Modellfehler (transportiert, nie erfunden) | Timeouts/Fehler der Model-API im Agent-Lauf |
+| 503 | Backend/Index vorübergehend kaputt (fail-closed) | beschädigter Korb-Index, Mock statt Modell, Ollama down |
 
 ## Tests
 
@@ -260,6 +278,77 @@ set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
   Vorschlagsbereich, Fotoauswahl und externe Meta-Checkbox.
 - Kein Meta-API-Schlüssel vorhanden: kein echter Modellaufruf.
   Der Mock zählt nicht als Meta-Modellnachweis (vgl. Laufzeitregel oben).
+
+## Alt/Neu-Abgrenzung (gegen Baseline `af5a600b`)
+
+Stand 30.10. (Kernstand `0c85fea0`, nur Doku danach): 145 Dateien im
+Branch-Diff, nachprüfbar mit `git diff --stat af5a600b..HEAD` und
+`git diff --name-status af5a600b..HEAD`. Architektur:
+[architecture.svg](architecture.svg).
+
+**Neu** (Auswahl, vollständig per `git diff --diff-filter=A`):
+`app/contextflow/*` (19 Module), `app/capture_analysis.py`,
+`app/capture_inbox_store.py`, `app/inventory_capture*.py`,
+`app/mail_case_drafts.py`, `app/invoice_access.py`,
+`app/invoice_display.py`, `tools/contextflow_demo.py`,
+`tools/local_env.py`, `templates/contextflow/*`,
+`static/contextflow.css` + Engel-JS, `tests/test_contextflow_*` +
+Capture-Suiten, `docs/hackathon/contextflow/*`.
+
+**Geänderte Bestandsdateien** (48, je mit Einzeiler):
+
+Registrierung/Build/Doku-Root (funktionsneutral):
+
+- `app/__init__.py` (+4/−1): ContextFlow-Blueprint registriert; Kamera-Policy für `shopping.index` (#736)
+- `pyproject.toml` (1/1): `app.contextflow` ins Packaging
+- `start.bat` (+34/−1): `demo`-Befehl für den synthetischen Demo-Start
+- `tools/launcher.py` (+2): `.env`-Loader aus dem Elternordner
+- `AGENTS.md` (+13): Meta-only-Laufzeitregel dokumentiert
+- `README.md` (+30): Büroengel-Runtime-Abschnitt
+- `android/apk/app/build.gradle` (+76/−2), `android/apk/README.md` (+39/−5): Release-Signing-Pfad + Doku
+
+Refactor (funktionsneutral, per Tests belegt):
+
+- `app/mail_case_store.py` (+12/−379): Draft-Methoden in Mixin `app/mail_case_drafts.py` ausgelagert
+- `app/business_documents.py` (+5/−13): Rechnungs-Fassaden nach `invoice_access`/`invoice_display` ausgelagert
+- `app/inventory.py` (+55/−2): Capture-Anhang-Helfer (Fotos ans Ziel, Digest-Skip) + Medien-Route
+
+Capture-Anbindung (#767/#658):
+
+- `app/inventory_library_capture.py` (+123/−18): JSON-Antworten + Token-Idempotenz für Adopt
+- `app/library/routes.py` (+6/−3): `root`-Parameter für testbare Regalzuweisung
+- `app/auth.py` (+6/−1): Template-Helper `photo_role_label`
+- `static/js/inventory.js` (+491/−2): Fotoeingang-/Adopt-Verdrahtung
+- `static/js/shopping.js` (+28/−11): Kamera-Helfer (FacingMode, Neustart-Wache, #736)
+- `templates/library/index.html` (+1): Fotoeingang-Button
+- `templates/library/object_care.html` (+3/−2): Fotorollen-Badge
+- `templates/inventory/index.html` (+37/−2), `templates/inventory/detail.html` (+14/−1): Korb-Links, Gruppen, Rollen
+- `templates/shopping/index.html` (1/1): EAN-Scan-Verdrahtung (#736)
+
+Kontakt/OCR/Vision-Anbindung:
+
+- `static/js/contact-import.js` (+248): Kontakt-Import-UI (Engel-Vorschläge, Adress-Übernahme)
+- `app/object_vision.py` (+26/−3): OCR-Verfügbarkeits-Helper + Installhinweise
+- `app/documents_routes_workflows.py` (+53/−9): Scanner-Name-Parametrisierung + manuelle Adress-Übernahme
+- `templates/documents/contacts.html` (+26/−1): Vorschlagsbereich
+- `templates/documents/detail.html` (+15/−4): Bildanalyse-Anzeige
+- `templates/documents/attachments.html` (+3/−3): Vorschau-Links
+- `templates/documents/security.html` (+5/−4): Scanner-Name
+- `templates/documents/smart_folders.html` (+13): Tag-Bestätigungs-UI
+- `templates/documents/nav.html` (+1): Büroengel-Menüpunkt (nur bei Flag)
+- `templates/site_visits/detail.html` (1/1): Medienvorschau (#813)
+
+Sicherheit/Plattform (Zweig-Arbeit, keine Jury-Demo):
+
+- `app/attachment_security.py` (+256/−6): Defender-Start-MpScan-Provider (`c5df24f9`)
+- `app/federation_trust_store.py` (+10): `list_trust`-Lesemethode
+- `static/css/app.css` (+12): Login-QR-Styles
+- `templates/auth/login.html` (+5/−5): QR-Anmeldung als aufklappbares Details
+
+Doku/Testpflege:
+
+- `docs/ANHAENGE_CLAMAV.md`, `docs/KONFIGURATIONSREGISTER.md`, `docs/OBJECT_MODEL.md`, `docs/SHOPPING.md`: nachgeführt
+- 9 Testdateien erweitert/gepflegt (`test_mail_case_store` +166 für P0-E, `test_qa_736_camera_policy`, `test_shopping_web`, `test_site_visits`, `test_video_preview_http`, `test_library_scan_session_http`, `test_admin_security`, `test_attachment_security`, `test_invoice_relations`)
 
 ## Grenzen (ehrlich)
 
