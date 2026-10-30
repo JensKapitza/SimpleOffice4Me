@@ -52,14 +52,6 @@ _ARCHIVE_INDEX_STATUS_TAGS = {
 _LOGGER = logging.getLogger(__name__)
 
 
-def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    try:
-        value = int(os.environ.get(name, str(default)).strip())
-    except ValueError:
-        value = default
-    return max(minimum, min(maximum, value))
-
-
 def _archive_suffix(path: Path) -> str:
     name = path.name.casefold()
     return next((suffix for suffix in ARCHIVE_SUFFIXES if name.endswith(suffix)), "")
@@ -421,6 +413,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     max_text_per_member_mb = media_settings["archive_max_text_per_member_mb"]
     max_member_mb = media_settings["archive_max_member_mb"]
     max_content_files = media_settings["archive_max_content_files"]
+    max_compression_ratio = media_settings["archive_max_compression_ratio"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
@@ -454,6 +447,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         and previous_policy.get("max_text_per_member_mb") == max_text_per_member_mb
         and previous_policy.get("max_member_mb") == max_member_mb
         and previous_policy.get("max_content_files") == max_content_files
+        and previous_policy.get("max_compression_ratio") == max_compression_ratio
     )
     if (
         previous.get("source_sha256") == digest
@@ -471,7 +465,6 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     max_member = max_member_mb * 1024 * 1024
     max_text = max_text_mb * 1024 * 1024
     max_text_per_member = max_text_per_member_mb * 1024 * 1024
-    ratio_limit = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO", 200, 10, 10000)
 
     scratch = _scratch_parent(store)
     free_bytes, disk_budget = _disk_budget(scratch, disk_reserve_mb)
@@ -511,7 +504,11 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 skipped_encrypted += 1
                 continue
             compressed = member.get("compressed_size")
-            if compressed is not None and size > 1024 * 1024 and size / max(1, int(compressed)) > ratio_limit:
+            if (
+                compressed is not None
+                and size > 1024 * 1024
+                and size / max(1, int(compressed)) > max_compression_ratio
+            ):
                 skipped_suspicious += 1
                 continue
             if size < 0 or size > max_member or size > disk_budget or processed_bytes + size > disk_budget:
@@ -580,6 +577,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "max_text_per_member_mb": max_text_per_member_mb,
             "max_member_mb": max_member_mb,
             "max_content_files": max_content_files,
+            "max_compression_ratio": max_compression_ratio,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,

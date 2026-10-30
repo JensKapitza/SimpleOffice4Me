@@ -576,6 +576,39 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual(0, result["content_files_indexed"])
             self.assertTrue(store.search("huge.txt"))
 
+    def test_persisted_compression_ratio_controls_extraction_and_reindexing(self):
+        environment = {
+            "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
+            "SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "200",
+            "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
+        }
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, environment):
+            root = Path(temporary)
+            archive_path = root / "ratio.zip"
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("ratio.txt", "compression-ratio-marker " + "A" * (2 * 1024 * 1024))
+
+            store = DocumentStore(root)
+            store.scan()
+            settings = SettingsStore(root)
+            settings.save({"media": {"archive_max_compression_ratio": 10}}, "archive-admin")
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test resources")), patch(
+                "app.archive_indexer._disk_budget",
+                return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                skipped = index_archive(store, archive_path)
+                settings.save(
+                    {"media": {"archive_max_compression_ratio": 10000}}, "archive-admin",
+                )
+                indexed = index_archive(store, archive_path)
+
+            self.assertEqual(10, skipped["resource_policy"]["max_compression_ratio"])
+            self.assertEqual(1, skipped["skipped_suspicious_compression"])
+            self.assertEqual(0, skipped["content_files_indexed"])
+            self.assertEqual(10000, indexed["resource_policy"]["max_compression_ratio"])
+            self.assertEqual(1, indexed["content_files_indexed"])
+            self.assertIn("compression-ratio-marker", indexed["search_text"])
+
     def test_persisted_member_yield_controls_archive_index_pause(self):
         environment = {
             "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
