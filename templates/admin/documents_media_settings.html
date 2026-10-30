@@ -50,6 +50,7 @@
         <div class="col-md-6">
           <label class="form-label" for="archive-deep-index-enabled">Inhaltstiefenindex für Archive</label>
           <select class="form-select" id="archive-deep-index-enabled" name="archive_deep_index_enabled" required>
+            <option value="" disabled>Bitte auswählen</option>
             <option value="1" {% if media.archive_deep_index_enabled %}selected{% endif %}>Automatisch, ressourcenabhängig (Standard)</option>
             <option value="0" {% if not media.archive_deep_index_enabled %}selected{% endif %}>Nur Katalog indexieren</option>
           </select>

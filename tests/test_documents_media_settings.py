@@ -148,6 +148,12 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertIn('name="archive_deep_index_enabled"', html)
         self.assertIn("CPU-, Arbeitsspeicher- und Datenträger-Schutzgrenzen immer aktiv", html)
         self.assertEqual(1, html.count('id="archive-deep-index-enabled"'))
+        self.assertIn(
+            '<select class="form-select" id="archive-deep-index-enabled" '
+            'name="archive_deep_index_enabled" required>\n'
+            '            <option value="" disabled>Bitte auswählen</option>',
+            html,
+        )
         self.assertIn('name="archive_max_load_per_cpu"', html)
         self.assertIn('min="0.1" max="8.0" step="0.05"', html)
         self.assertEqual(1, html.count('id="archive-load-threshold"'))
