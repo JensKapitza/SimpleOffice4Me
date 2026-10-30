@@ -1,10 +1,11 @@
-"""ContextFlow P0-C/P0-F: quiet hours, daily budget, prefs, local rewrite."""
+"""ContextFlow P0-C: quiet hours, daily hint budget, prefs."""
 
 from __future__ import annotations
 
 import re
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
@@ -14,11 +15,11 @@ from app import app
 from app.contextflow.hints import (
     HintBudget,
     HintPrefs,
+    HintStates,
     is_quiet_time,
     parse_hhmm,
 )
-from app.contextflow.local_rewrite import RULE_GREETING, rewrite_hint_lead
-from app.contextflow.vision import InferenceTimeoutError, VisionError
+from app.contextflow.web import RULE_GREETING
 from app.db import ensure_auth_database, get_db
 from app.password_security import hash_password
 
@@ -139,85 +140,85 @@ class HintBudgetTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.budget.record("anna", ["l1"], "gestern")
 
+    def test_reserve_admits_up_to_limit(self) -> None:
+        self.assertTrue(self.budget.reserve("anna", "l1", self.day, 2))
+        self.assertTrue(self.budget.reserve("anna", "l2", self.day, 2))
+        self.assertFalse(self.budget.reserve("anna", "l3", self.day, 2))
+        self.assertEqual(["l1", "l2"], self.budget.shown_today("anna", self.day))
 
-class RewriteTests(unittest.TestCase):
-    settings_local = {
-        "provider": "local",
-        "ollama_url": "http://127.0.0.1:11434",
-        "ollama_model": "llama3.2:1b",
-        "ollama_timeout": 60,
-    }
+    def test_reserve_is_stable_for_known_ids(self) -> None:
+        self.assertTrue(self.budget.reserve("anna", "l1", self.day, 1))
+        self.assertTrue(self.budget.reserve("anna", "l1", self.day, 1))
+        self.assertFalse(self.budget.reserve("anna", "l2", self.day, 1))
 
-    def test_non_local_provider_keeps_rule_text(self) -> None:
-        for provider in ("rules_only", "mock", "meta", ""):
-            settings = dict(self.settings_local, provider=provider or "rules_only")
-            with (
-                self.subTest(provider=provider),
-                mock.patch(
-                    "app.contextflow.local_rewrite.complete_text"
-                ) as completed,
-            ):
-                text, rewritten = rewrite_hint_lead(
-                    RULE_GREETING, settings=settings, root="/tmp/none"
-                )
-                self.assertEqual(RULE_GREETING, text)
-                self.assertFalse(rewritten)
-                completed.assert_not_called()
+    def test_reserve_actor_isolation(self) -> None:
+        self.assertTrue(self.budget.reserve("anna", "l1", self.day, 1))
+        self.assertFalse(self.budget.reserve("anna", "l2", self.day, 1))
+        self.assertTrue(self.budget.reserve("bob", "l9", self.day, 1))
+        self.assertEqual(["l1"], self.budget.shown_today("anna", self.day))
+        self.assertEqual(["l9"], self.budget.shown_today("bob", self.day))
 
-    def test_local_success_rewrites(self) -> None:
-        with mock.patch(
-            "app.contextflow.local_rewrite.complete_text",
-            return_value={"text": "  Ruhig Blut – der Engel hat alles im Blick.  "},
-        ):
-            text, rewritten = rewrite_hint_lead(
-                RULE_GREETING, settings=self.settings_local, root="/tmp/none"
-            )
-        self.assertTrue(rewritten)
-        self.assertEqual("Ruhig Blut – der Engel hat alles im Blick.", text)
+    def test_reserve_garbage_fails_closed(self) -> None:
+        self.assertFalse(self.budget.reserve("anna", "", self.day, 2))
+        self.assertFalse(self.budget.reserve("anna", "l1", "gestern", 2))
+        self.assertFalse(self.budget.reserve("anna", "l1", self.day, 0))
+        self.assertFalse(self.budget.reserve("anna", "l1", self.day, True))
+        self.assertEqual([], self.budget.shown_today("anna", self.day))
 
-    def test_local_failures_fall_back_to_rule_text(self) -> None:
-        failures = [
-            VisionError("kaputt"),
-            InferenceTimeoutError("zu langsam"),
-            OSError("down"),
-            ValueError("kein JSON"),
-            KeyError("x"),
-        ]
-        for failure in failures:
-            with (
-                self.subTest(failure=type(failure).__name__),
-                mock.patch(
-                    "app.contextflow.local_rewrite.complete_text",
-                    side_effect=failure,
-                ),
-            ):
-                text, rewritten = rewrite_hint_lead(
-                    RULE_GREETING, settings=self.settings_local, root="/tmp/none"
-                )
-                self.assertEqual(RULE_GREETING, text)
-                self.assertFalse(rewritten)
+    def test_reserve_concurrent_threads_share_limit(self) -> None:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            futures = [
+                pool.submit(self.budget.reserve, "anna", f"t{index}", self.day, 3)
+                for index in range(8)
+            ]
+            results = [future.result() for future in futures]
+        self.assertEqual(3, sum(1 for admitted in results if admitted))
+        shown = self.budget.shown_today("anna", self.day)
+        self.assertEqual(3, len(shown))
+        self.assertEqual(3, len(set(shown)))
 
-    def test_empty_or_oversize_answer_rejected(self) -> None:
-        for answer in ("", "   ", "x" * 281):
-            with (
-                self.subTest(answer=answer[:8]),
-                mock.patch(
-                    "app.contextflow.local_rewrite.complete_text",
-                    return_value={"text": answer},
-                ),
-            ):
-                text, rewritten = rewrite_hint_lead(
-                    RULE_GREETING, settings=self.settings_local, root="/tmp/none"
-                )
-                self.assertEqual(RULE_GREETING, text)
-                self.assertFalse(rewritten)
 
-    def test_empty_input_stays_empty(self) -> None:
-        text, rewritten = rewrite_hint_lead(
-            "  ", settings=self.settings_local, root="/tmp/none"
-        )
-        self.assertEqual("", text)
-        self.assertFalse(rewritten)
+class StoreRobustnessTests(unittest.TestCase):
+    """Partial or damaged store files must never crash set/record/get."""
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name) / "documents"
+
+    def tearDown(self) -> None:
+        self.temp.cleanup()
+
+    def test_hint_states_partial_file(self) -> None:
+        states = HintStates(self.root)
+        states.path.parent.mkdir(parents=True, exist_ok=True)
+        for damaged in ("{}", '{"version": 1}', '{"states": {}}', "[1, 2]", "{kaputt"):
+            with self.subTest(damaged=damaged):
+                states.path.write_text(damaged, encoding="utf-8")
+                self.assertEqual("visible", states.get("anna", "l1")["state"])
+                row = states.set("anna", "l1", "dismissed")
+                self.assertEqual("dismissed", row["state"])
+                self.assertEqual("dismissed", states.get("anna", "l1")["state"])
+
+    def test_hint_prefs_partial_file(self) -> None:
+        prefs = HintPrefs(self.root)
+        prefs.path.parent.mkdir(parents=True, exist_ok=True)
+        for damaged in ("{}", '{"version": 1}', '{"prefs": {}}', "[1, 2]", "{kaputt"):
+            with self.subTest(damaged=damaged):
+                prefs.path.write_text(damaged, encoding="utf-8")
+                self.assertEqual(3, prefs.get("anna")["daily_limit"])
+                saved = prefs.set("anna", "21:00", "06:00", 2)
+                self.assertEqual(2, saved["daily_limit"])
+                self.assertEqual(saved, prefs.get("anna"))
+
+    def test_hint_budget_partial_file(self) -> None:
+        budget = HintBudget(self.root)
+        budget.path.parent.mkdir(parents=True, exist_ok=True)
+        for damaged in ("{}", '{"version": 1}', '{"days": "x"}', "[1, 2]", "{kaputt"):
+            with self.subTest(damaged=damaged):
+                budget.path.write_text(damaged, encoding="utf-8")
+                self.assertEqual([], budget.shown_today("anna", "2026-10-29"))
+                self.assertTrue(budget.reserve("anna", "l1", "2026-10-29", 1))
+                self.assertEqual(["l1"], budget.shown_today("anna", "2026-10-29"))
 
 
 class HintPrefsRouteTests(unittest.TestCase):
@@ -303,6 +304,30 @@ class HintPrefsRouteTests(unittest.TestCase):
             now=NOW,
         )
 
+    def seed_links(self, count: int) -> list[str]:
+        """Confirm several distinct links for the dashboard budget tests."""
+        ids = []
+        for index in range(count):
+            contact_id = str(fx.make_contact(self.root, "admin")["contact_id"])
+            case_id = fx.make_mail_case(
+                self.root,
+                "admin",
+                title=f"{fx.CASE_TITLE} {index}",
+                mail_reference=f"cf-mail-seed-{index}",
+            )
+            visit_id = fx.make_visit(self.root, "admin", completed=True)
+            link = fx.confirm_link(
+                self.root,
+                "admin",
+                case_id=case_id,
+                contact_id=contact_id,
+                visit_id=visit_id,
+                completed_on=(NOW - timedelta(days=5)).date().isoformat(),
+                now=NOW,
+            )
+            ids.append(link["link_id"])
+        return ids
+
     def test_prefs_roundtrip(self) -> None:
         response = self.admin.post(
             "/contextflow/hint-prefs",
@@ -344,6 +369,19 @@ class HintPrefsRouteTests(unittest.TestCase):
         self.assertNotIn("Ruhezeit aktiv", body)
         self.assertNotIn("Tageslimit erreicht", body)
 
+    def test_dashboard_triggers_no_inference_and_shows_rule_text(self) -> None:
+        self.seed_link()
+        with mock.patch(
+            "app.contextflow.vision.local_urlopen",
+            side_effect=AssertionError("dashboard must not call inference"),
+        ):
+            page = self.admin.get("/contextflow/")
+        self.assertEqual(200, page.status_code)
+        body = page.get_data(as_text=True)
+        self.assertIn(RULE_GREETING, body)
+        self.assertIn("Regeltext, keine KI-Abfrage", body)
+        self.assertNotIn("Sammelliste", body)
+
     def test_dashboard_quiet_hides_cards_into_digest(self) -> None:
         link = self.seed_link()
         HintPrefs(self.root).set("admin", "11:00", "13:00", 3)
@@ -351,7 +389,9 @@ class HintPrefsRouteTests(unittest.TestCase):
         self.assertEqual(200, page.status_code)
         body = page.get_data(as_text=True)
         self.assertIn("Ruhezeit aktiv", body)
-        self.assertIn("1 Hinweis(e) warten in der Sammelliste", body)
+        self.assertIn("1 Hinweis(e) zurückgestellt", body)
+        self.assertIn("derzeit nicht angezeigt", body)
+        self.assertNotIn("Sammelliste", body)
         self.assertNotIn(link["link_id"], body)
 
     def test_dashboard_budget_overflow_shows_digest(self) -> None:
@@ -363,17 +403,41 @@ class HintPrefsRouteTests(unittest.TestCase):
         self.assertEqual(200, page.status_code)
         body = page.get_data(as_text=True)
         self.assertIn("Tageslimit erreicht", body)
-        self.assertIn("1 weitere Hinweise in der Sammelliste", body)
+        self.assertIn("1 weitere Hinweise zurückgestellt", body)
+        self.assertIn("derzeit nicht angezeigt", body)
+        self.assertNotIn("Sammelliste", body)
         self.assertNotIn(link["link_id"], body)
 
-    def test_dashboard_rewritten_greeting(self) -> None:
-        self.seed_link()
-        with mock.patch(
-            "app.contextflow.web.rewrite_hint_lead",
-            return_value=("Engel grüßt freundlich.", True),
-        ):
-            page = self.admin.get("/contextflow/")
-        self.assertIn("Engel grüßt freundlich.", page.get_data(as_text=True))
+    def test_dashboard_first_get_respects_daily_limit(self) -> None:
+        ids = self.seed_links(4)
+        HintPrefs(self.root).set("admin", "22:00", "07:00", 2)
+        page = self.admin.get("/contextflow/")
+        self.assertEqual(200, page.status_code)
+        body = page.get_data(as_text=True)
+        self.assertIn("Tageslimit erreicht", body)
+        shown = [link_id for link_id in ids if link_id in body]
+        hidden = [link_id for link_id in ids if link_id not in body]
+        self.assertEqual(2, len(shown))
+        self.assertEqual(2, len(hidden))
+
+    def test_dashboard_reload_renders_same_cards(self) -> None:
+        ids = self.seed_links(4)
+        HintPrefs(self.root).set("admin", "22:00", "07:00", 2)
+        first = self.admin.get("/contextflow/").get_data(as_text=True)
+        second = self.admin.get("/contextflow/").get_data(as_text=True)
+        first_ids = [link_id for link_id in ids if link_id in first]
+        second_ids = [link_id for link_id in ids if link_id in second]
+        self.assertEqual(2, len(first_ids))
+        self.assertEqual(first_ids, second_ids)
+
+    def test_dashboard_equal_quiet_bounds_show_cards(self) -> None:
+        link = self.seed_link()
+        HintPrefs(self.root).set("admin", "09:00", "09:00", 3)
+        page = self.admin.get("/contextflow/")
+        self.assertEqual(200, page.status_code)
+        body = page.get_data(as_text=True)
+        self.assertNotIn("Ruhezeit aktiv", body)
+        self.assertIn(link["link_id"], body)
 
 
 if __name__ == "__main__":
