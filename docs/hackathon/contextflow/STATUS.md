@@ -1343,3 +1343,21 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 - Offen: Android-WebView-/Gerätetest; 1201-Dateien-Test
   (Sandbox zu langsam, braucht CI). Kein Commit/Push,
   `.t/` unberührt.
+
+## 30.10. – Meta-Spark-Live-Smoke über App-Pfad (Muse, uncommitted)
+
+- Echter Cloud-Smoke im echten Repo: `vision_config_from_env`
+  + `prepare_draft` auf temporärem, markiertem synthetischem
+  Demo-Root (synth. PNG, explizite Meta-Einwilligung).
+  POST-Inferenz OK: provider=meta,
+  model=muse-spark-1.3-contributor, Meta Model API, 31,1s.
+  Key nicht-leer in ../.env (außerhalb Git), Wert nie
+  ausgegeben. Kein Mock.
+- Antwort: strukturierter Entwurf (sinngemäß kein
+  Drucker-/Objektbefund, evidence_class=observed,
+  confidence=100); nichts gespeichert, Temp-Root gelöscht.
+- Abgrenzung: Nur App-Pfad `prepare_draft` direkt getestet,
+  keine Browser-/Formular-E2E. Separater direkter
+  Muse-Aufruf aus der Sandbox scheiterte (90s
+  URLError-Timeout, auch GET /v1/models, ohne Key-Leak).
+  Kein Commit/Push, `.t/` unberührt.
