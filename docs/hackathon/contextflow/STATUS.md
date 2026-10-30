@@ -150,12 +150,16 @@ OK, Nachbarn Inbox+Persist+Vision+Meta+Demo+ML 128/128 OK, Policy/File-
 (kein Modul/Binär in .venv). Volle #658-Abnahme NICHT behauptet,
 Issue bleibt offen — Rest siehe unten. Kein Commit/Push, `.t/`
 unberührt.
-**Rest #658 (offen, nach diesem Slice):** (1) Gruppen-Zuweisung an
-bestehendes Buch ohne Neuanlage (Batch-Assign, derzeit nur einzeln);
-(2) optionale Foto-Rollen (Titel/Impressum/Rücken) je Foto; (3)
-Regalzuweisung für Batch-Bücher (Library-Handoff); (4) echte
-Spark-Live-Inferenz (Schlüssel fehlt, `MODEL_API_KEY` leer);
-(5) Browser-/Kamera-Abnahme auf Endgerät (Eigentümer-Schritt).
+**Rest #658 (Stand 30.10., aktualisiert):** (1) Gruppen-Zuweisung an
+bestehendes Buch ohne Neuanlage — IMPLEMENTIERT (Commit `ab4b05d9`);
+(2) optionale Foto-Rollen (Titel/Impressum/Rücken) je Foto inkl.
+Anzeige/Synchronisierung — IMPLEMENTIERT (Commit `ab4b05d9`);
+(3) Regalzuweisung für Batch-Bücher (Library-Handoff) — IMPLEMENTIERT
+(unstaged im Arbeitsbaum, noch nicht gepusht); weiterhin offen:
+(4) echte Spark-Live-Inferenz (Schlüssel fehlt, `MODEL_API_KEY`
+leer); (5) echte Browser-/Kamera-/Geräteabnahme
+(Eigentümer-Schritt). Issue #658 bleibt offen — keine volle
+Erledigung behauptet.
 ## Arbeitsplan: Issues auf null + Meta-API (29.10., laufend)
 
 - **Phase 1 – Stabilisieren (Regressionen grün 29.10.):** Baum sauber bis auf
@@ -1237,4 +1241,62 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Kein Modell-/App-Live-Aufruf, keine Secrets berührt.
 - Offen: (c) Regal-Handoff, Cloud-Smoke (kein Key), Geräte-/
   Browser-Abnahme; #658 bleibt offen. Diff unstaged, kein
+  Commit/Push, `.t/` unberührt.
+
+## 30.10. – #658 Regal-Handoff umgesetzt + Size-Refactor (Muse, uncommitted)
+
+- (c) Regal-Handoff: `adopt_batch(..., location_id)` validiert
+  das Regal vor Anlage (400, kein Buch bei unbekannter ID);
+  `_ensure_adopt_shelf()` vergibt idempotent, „ohne Regal"
+  ändert nie, Fehler → fixer Hinweis + Retry mit gleichem
+  Token (Buch bleibt erhalten). Duplikat: Regal unberührt,
+  aktuelle Platzierung gemeldet. Review-GET liefert `shelves`;
+  UI-Select nur für Buchgruppen, Erfolgs-/Fehlerzeilen,
+  Retry per erneutem Übernehmen.
+- Codex-Verifikation: 56/56 OK (shelf, batch,
+  library_capture_http, library); node/compileall/diff-check/
+  Policy grün; File-Size rot (inventory_capture.py 1019).
+- Refactor: Shelf-Helfer unverändert nach
+  `app/inventory_capture_shelf.py` verschoben, Re-Export in
+  `app/inventory_capture.py` (Imports/Verhalten/Fehlerpfade
+  identisch). Rerun 56/56 OK (byte-identische Scratch-Kopie,
+  Sandbox-ACL/MAX_PATH-Workaround); alle Gates grün.
+  Kein Live-Aufruf, keine Secrets berührt.
+- Offen (nicht behauptet): echter Cloud-Smoke (kein
+  MODEL_API_KEY), Browser-/Geräteabnahme. #658 bleibt offen.
+  Diff unstaged, kein Commit/Push, `.t/` unberührt.
+
+## 30.10. – #658 Direkt-Verifikation im Projektbaum (Codex, unabhängig)
+
+- Direktlauf in Projekt-venv/Arbeitsbaum (davon getrennt der
+  obige Muse-Lauf per Scratch-Kopie): 56/56 OK (shelf, batch,
+  library_capture_http, library); `node --check`,
+  `compileall`, Projekt-Policy-, File-/Function-Size-,
+  Secret- und diff-check-Gates exit 0.
+- Hinweis: Übermittelt wurden 863 Zeilen für
+  `app/inventory_capture.py`; Nachmessung im Arbeitsbaum
+  ergibt 950 Rohzeilen (Gate-Limit 1000 damit grün,
+  per Tool-Lauf exit 0 bestätigt). Differenz ungeklärt,
+  hier nichts beschönigt.
+- Offen (nicht behauptet): echter Cloud-Smoke (kein
+  MODEL_API_KEY), echte Browser-/Kamera-/Geräteabnahme.
+  #658 bleibt offen. Kein Commit/Push, `.t/` unberührt.
+
+## 30.10. – Scan-Suite WinError-32-Fix + Session-Voreinstellung (Muse, uncommitted)
+
+- Ursache (belegt): `test_library_scan_session_http::setUp`
+  nutzte plain `sqlite3.connect()` im `with`-Block, der nie
+  schließt; Handle überlebte bis `TemporaryDirectory.cleanup()`
+  → 6× WinError 32. Fix im Test-Setup via `sqlite_connect`
+  (ClosingConnection); keine DB-Infrastruktur geändert.
+- Session-Voreinstellung: Review-GET liefert
+  `default_location_id` aus aktiver/pausierter Actor-Sitzung
+  (nur existierendes Regal, nie fremder Actor); JS wählt
+  passende Option vor, sonst „Ohne Regal".
+- Tests: scan_http 6/6 OK; gesamt 73/73 OK (scan_http,
+  shelf 14, batch, library_capture_http, library,
+  scan_sessions; Scratch-Kopie, Sandbox-ACL-Workaround).
+  Alle Gates grün. Kein Live-Aufruf, keine Secrets berührt.
+- Offen: Cloud-Smoke (kein Key), Browser-/Kamera-/
+  Geräteabnahme; #658 bleibt offen. Diff unstaged, kein
   Commit/Push, `.t/` unberührt.

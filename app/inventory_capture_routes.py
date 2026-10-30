@@ -284,6 +284,8 @@ def capture_batch(batch_id: str):
     """Review one book group: photos in capture order + combined draft."""
     from .capture_inbox_store import CaptureInboxStore
     from .inventory_capture import public_entry, summarize_batch
+    from .inventory_capture_shelf import default_shelf_for_actor
+    from .library.store import LibraryStore
 
     actor = str(g.user["username"])
     root = current_app.config["DOCUMENT_ROOT"]
@@ -296,11 +298,24 @@ def capture_batch(batch_id: str):
     if not stored_entries:
         abort(404)
     clean_batch = str(batch_id or "").strip().lower()
+    library = LibraryStore(root)
+    shelves = [
+        {
+            "location_id": str(row.get("location_id", "")),
+            "code": str(row.get("code", "") or ""),
+            "name": str(row.get("name", "") or ""),
+            "path": library.location_path(str(row.get("location_id", ""))),
+        }
+        for row in library.locations()
+        if isinstance(row, dict) and row.get("location_id")
+    ]
     return jsonify({
         "ok": True,
         "batch_id": clean_batch,
         "entries": _public_batch_entries(stored_entries, public_entry),
         "combined": summarize_batch(stored_entries),
+        "shelves": shelves,
+        "default_location_id": default_shelf_for_actor(root, actor),
         "analyze_url": url_for(
             "inventory.capture_batch_analyze", batch_id=clean_batch),
         "adopt_url": url_for(
@@ -360,7 +375,10 @@ def capture_batch_adopt(batch_id: str):
     item_type) are validated; the call is idempotent per
     book group + ``capture_request_id`` and safe to retry. A token
     from another group is rejected. All group originals are
-    attached as inventory photos and all entries are assigned.
+    attached as inventory photos and all entries are assigned. An
+    optional ``location_id`` links the new book to an existing
+    library shelf (validated first; a later shelf failure keeps
+    the book and is retryable with the same token).
     """
     from .inventory_capture import adopt_batch
 
@@ -385,6 +403,7 @@ def capture_batch_adopt(batch_id: str):
             batch_id, actor, root, fields,
             str(get("capture_request_id", "")),
             allow_duplicate=str(get("allow_duplicate", "")).strip() == "1",
+            location_id=str(get("location_id", "")),
         )
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503

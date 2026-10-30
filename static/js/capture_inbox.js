@@ -586,6 +586,67 @@
       hint.textContent = `Bitte ergänzen: ${missing}`;
       form.appendChild(hint);
     }
+    let shelfSelect = null;
+    if (combined.kind === 'book') {
+      const shelfWrap = document.createElement('div');
+      shelfWrap.className = 'col-12';
+      const shelfLabel = document.createElement('label');
+      shelfLabel.className = 'form-label small mb-1';
+      shelfLabel.textContent = 'Regal/Standort: ';
+      shelfSelect = document.createElement('select');
+      shelfSelect.className = 'form-select';
+      shelfSelect.setAttribute('aria-label', 'Regal oder Standort wählen');
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'Ohne Regal übernehmen';
+      shelfSelect.appendChild(none);
+      (payload.shelves || []).forEach((row) => {
+        if (!row || !row.location_id) return;
+        const option = document.createElement('option');
+        option.value = row.location_id;
+        const code = cleanText(row.code);
+        const path = cleanText(row.path) || cleanText(row.name);
+        option.textContent = code ? `${code} — ${path || code}` : (path || row.location_id);
+        shelfSelect.appendChild(option);
+      });
+      const preselect = cleanText(payload.default_location_id);
+      if (preselect) {
+        const known = Array.from(shelfSelect.options).some((option) => option.value === preselect);
+        if (known) shelfSelect.value = preselect;
+      }
+      shelfLabel.appendChild(shelfSelect);
+      shelfWrap.appendChild(shelfLabel);
+      if ((payload.shelves || []).length === 0) {
+        const hint = document.createElement('p');
+        hint.className = 'small text-secondary mb-0';
+        hint.textContent = 'Keine Regale vorhanden — erst in der Bibliothek anlegen, oder ohne Regal übernehmen.';
+        shelfWrap.appendChild(hint);
+      }
+      form.appendChild(shelfWrap);
+    }
+    const renderShelfState = (result) => {
+      if (!result || combined.kind !== 'book') return;
+      if (result.shelf_error) {
+        const warn = document.createElement('div');
+        warn.className = 'alert alert-warning py-1 small mb-1 mt-1';
+        warn.textContent = `${cleanText(result.shelf_error)} Zum Wiederholen erneut auf „Übernehmen“ klicken.`;
+        state.appendChild(warn);
+        return;
+      }
+      const shelf = result.shelf || null;
+      const line = document.createElement('div');
+      line.className = `alert py-1 small mb-1 mt-1 ${shelf ? 'alert-success' : 'alert-info'}`;
+      if (shelf) {
+        const code = cleanText(shelf.code);
+        const path = cleanText(shelf.path);
+        line.textContent = `Regal: ${code || '–'}${path ? ` — ${path}` : ''}`;
+      } else {
+        line.textContent = result.duplicate
+          ? 'Regal nicht geändert (Buch existiert bereits).'
+          : 'Ohne Regal übernommen.';
+      }
+      state.appendChild(line);
+    };
     const state = document.createElement('p');
     state.className = 'small mt-2 mb-0';
     state.setAttribute('role', 'status');
@@ -620,8 +681,10 @@
     adopt.type = 'button';
     adopt.className = 'btn btn-success';
     adopt.textContent = combined.kind === 'book' ? 'Als ein Buch übernehmen' : 'Als Gegenstand übernehmen';
+    const adoptToken = nextToken();
     adopt.addEventListener('click', async () => {
       adopt.disabled = true;
+      state.textContent = '';
       const data = new FormData();
       const get = (name) => (inputs[name] ? cleanText(inputs[name].value) : '');
       data.append('title', get('title'));
@@ -631,16 +694,24 @@
         data.append('published_date', get('published_date'));
         data.append('publisher', get('publisher'));
         data.append('item_type', 'book');
+        data.append('location_id', shelfSelect ? cleanText(shelfSelect.value) : '');
       } else {
         data.append('item_type', 'object');
       }
-      data.append('capture_request_id', nextToken());
+      data.append('capture_request_id', adoptToken);
       data.append('_csrf_token', csrf);
       const target = `${batchUrlFor(payload.batch_id)}/adopt`;
-      const response = await fetch(target, {method: 'POST', body: data, cache: 'no-store'});
-      const result = await safeJson(response);
-      if (!response.ok || !result || result.ok !== true) {
-        state.textContent = cleanText(result && result.error) || 'Speichern fehlgeschlagen.';
+      let result = null;
+      try {
+        const response = await fetch(target, {method: 'POST', body: data, cache: 'no-store'});
+        result = await safeJson(response);
+        if (!response.ok || !result || result.ok !== true) {
+          state.textContent = cleanText(result && result.error) || 'Speichern fehlgeschlagen.';
+          adopt.disabled = false;
+          return;
+        }
+      } catch (_error) {
+        state.textContent = 'Netzwerkfehler — bitte erneut versuchen.';
         adopt.disabled = false;
         return;
       }
@@ -654,15 +725,21 @@
         done.appendChild(link);
       }
       state.appendChild(done);
+      renderShelfState(result);
+      if (result.shelf_error) {
+        adopt.disabled = false;
+        return;
+      }
       if (!result.duplicate) {
-        const fresh = await fetch(batchUrlFor(payload.batch_id), {cache: 'no-store'});
-        const reloaded = await safeJson(fresh);
-        if (fresh.ok && reloaded && reloaded.ok) {
-          (reloaded.entries || []).forEach((entry) => {
-            knownEntries.set(entry.entry_id, entry);
-            const col = cards.querySelector(`[data-entry-id="${entry.entry_id}"]`);
-            if (col) col.replaceWith(renderEntry(entry));
-          });
+        try {
+          await refreshAssignedCards(payload.batch_id);
+        } catch (_error) {
+          const warn = document.createElement('div');
+          warn.className = 'alert alert-warning py-1 small mb-1 mt-1';
+          warn.textContent = 'Anzeige konnte nicht aktualisiert werden — die Übernahme wurde gespeichert, Seite ggf. neu laden.';
+          state.appendChild(warn);
+          adopt.disabled = false;
+          return;
         }
         renderBatches();
       }
