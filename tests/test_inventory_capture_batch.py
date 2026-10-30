@@ -467,6 +467,62 @@ class BatchRouteTests(unittest.TestCase):
         self.assertEqual(400, response.status_code)
         self.assertIn("Buchgruppe", response.get_json()["error"])
 
+    def test_upload_rejects_oversize_photo_without_side_effects(self) -> None:
+        from app.inventory import InventoryEnrichmentStore, MAX_PHOTO_BYTES
+        from app.object_store import ObjectStore
+
+        big = b"\x89PNG\r\n\x1a\n" + b"\x00" * (MAX_PHOTO_BYTES + 1 - 8)
+        self.assertEqual(MAX_PHOTO_BYTES + 1, len(big))
+        response = self.upload(big, BATCH_A)
+        self.assertEqual(400, response.status_code)
+        self.assertIn("12 MiB", response.get_json()["error"])
+        store = CaptureInboxStore(self.documents)
+        self.assertEqual([], store.list("anna"))
+        self.assertEqual([], store.list_batch("anna", BATCH_A))
+        media_root = (Path(self.documents) / CONTROL_DIR / "inventory"
+                      / "media" / "inbox")
+        leftovers = ([path for path in media_root.rglob("*")
+                      if path.is_file()] if media_root.exists() else [])
+        self.assertEqual([], leftovers)
+        self.assertEqual(
+            {}, InventoryEnrichmentStore(self.documents).object_metas())
+        self.assertEqual([], ObjectStore(self.documents).objects())
+
+    def test_upload_rejects_unsupported_or_mismatched_photo(self) -> None:
+        from app.inventory import InventoryEnrichmentStore
+        from app.object_store import ObjectStore
+
+        cases = [
+            (b"dies-ist-kein-bild" * 64, "foto.png", "image/png"),
+            (b"GIF89a" + b"\x00" * 64, "foto.jpg", "image/jpeg"),
+        ]
+        for data, filename, mimetype in cases:
+            with self.subTest(filename=filename, mimetype=mimetype):
+                form = {
+                    "photo": (io.BytesIO(data), filename, mimetype),
+                    "client_request_id": self.next_token(),
+                    "_csrf_token": self.csrf(),
+                    "batch_id": BATCH_A,
+                }
+                response = self.client.post(
+                    "/inventory/capture/upload",
+                    data=form,
+                    content_type="multipart/form-data",
+                )
+                self.assertEqual(400, response.status_code)
+                self.assertIn("JPEG, PNG", response.get_json()["error"])
+                store = CaptureInboxStore(self.documents)
+                self.assertEqual([], store.list("anna"))
+                self.assertEqual([], store.list_batch("anna", BATCH_A))
+        media_root = (Path(self.documents) / CONTROL_DIR / "inventory"
+                      / "media" / "inbox")
+        leftovers = ([path for path in media_root.rglob("*")
+                      if path.is_file()] if media_root.exists() else [])
+        self.assertEqual([], leftovers)
+        self.assertEqual(
+            {}, InventoryEnrichmentStore(self.documents).object_metas())
+        self.assertEqual([], ObjectStore(self.documents).objects())
+
     def test_batch_analyze_saves_per_photo_and_combines(self) -> None:
         first = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]
         second = self.upload(PNG_RED_1PX, BATCH_A).get_json()["entry"]
