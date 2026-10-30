@@ -396,6 +396,7 @@ def capture_batch_adopt(batch_id: str):
         "barcode": get("barcode", ""),
         "item_type": get("item_type", ""),
         "description": get("description", ""),
+        "tags": get("tags", ""),
         "location": get("location", ""),
     }
     try:

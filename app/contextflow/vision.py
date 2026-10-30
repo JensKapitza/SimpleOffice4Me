@@ -25,12 +25,16 @@ from urllib.parse import urlsplit
 from PIL import Image
 from PIL.Image import DecompressionBombError
 
-from ..inventory import normalize_isbn
 from ..site_visit_store import EVIDENCE_CLASSES, SiteVisitStore
 from .actions import ApprovalStale
 from .adapters import _require_actor
 from .contracts import SuggestionDraft
 from .demo import is_verified_demo_root
+from .object_suggest import (
+    VisionError,
+    object_instruction,
+    validate_object_suggestion,
+)
 
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_MIME = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
@@ -59,10 +63,6 @@ META_OLLAMA_VISION_MODELS = frozenset(
     }
 )
 META_OLLAMA_MODELS = META_OLLAMA_TEXT_MODELS | META_OLLAMA_VISION_MODELS
-
-
-class VisionError(ValueError):
-    """Invalid image, invalid suggestion output, or unusable backend."""
 
 
 class InferenceUnavailable(VisionError):
@@ -161,65 +161,6 @@ def validate_suggestion(payload: object) -> SuggestionDraft:
     }
 
 
-OBJECT_ITEM_TYPES = frozenset(
-    {
-        "object", "book", "tool", "electrical-device", "machine", "vehicle",
-        "it-device", "measuring-device", "ladder", "key", "furniture",
-        "document", "spare-part", "consumable",
-    }
-)
-OBJECT_NAME_LIMIT = 120
-OBJECT_NOTE_LIMIT = 500
-
-
-def validate_object_suggestion(payload: object) -> dict[str, Any]:
-    """Validate one inventory object suggestion (never trusts the model)."""
-    if not isinstance(payload, dict):
-        raise VisionError("suggestion output must be a JSON object")
-    name = str(payload.get("object_name", "") or "").strip()
-    if not name or len(name) > OBJECT_NAME_LIMIT:
-        raise VisionError("suggestion needs an object name of 1-120 characters")
-    item_type = str(payload.get("item_type", "") or "").strip().lower()
-    if item_type not in OBJECT_ITEM_TYPES:
-        item_type = "object"
-    confidence = payload.get("confidence", 0)
-    if isinstance(confidence, bool) or not isinstance(confidence, int):
-        raise VisionError("suggestion confidence must be an integer 0-100")
-    if not 0 <= confidence <= 100:
-        raise VisionError("suggestion confidence must be an integer 0-100")
-    note = str(payload.get("note", "") or "").strip()
-    if len(note) > OBJECT_NOTE_LIMIT:
-        raise VisionError("suggestion note is too long")
-    raw_isbn = payload.get("isbn", "")
-    try:
-        isbn = normalize_isbn(raw_isbn) if str(raw_isbn or "").strip() else ""
-    except ValueError:
-        isbn = ""
-    return {
-        "object_name": name,
-        "item_type": item_type,
-        "confidence": confidence,
-        "note": note,
-        "isbn": isbn,
-    }
-
-
-def _object_instruction(hint: dict[str, str]) -> str:
-    scanned = hint.get("isbn") or hint.get("barcode") or ""
-    scanned_part = f" Gescannte Kennung (nur Hinweis, nie in den Namen übernehmen): {scanned}." if scanned else ""
-    return (
-        "Benenne den Hauptgegenstand auf dem Foto für ein Inventar. Antworte "
-        "NUR mit einem JSON-Objekt mit den Schlüsseln object_name (deutscher "
-        "Gegenstandsname, max 120 Zeichen, z. B. Hammer), item_type (genau "
-        "einer: object, book, tool, electrical-device, machine, vehicle, "
-        "it-device, measuring-device, ladder, key, furniture, document, "
-        "spare-part, consumable), confidence (0-100), note (kurz, deutsch), "
-        "isbn (nur exakt sichtbare ISBN-Zeichen aus dem Bild, sonst leerer "
-        "String; eine ISBN niemals raten, ableiten oder ergänzen)."
-        + scanned_part
-    )
-
-
 def suggest_inventory_object(
     image: bytes,
     mime: str,
@@ -251,7 +192,7 @@ def suggest_inventory_object(
         )
     context = {
         "mode": "object",
-        "instruction": _object_instruction(clean_hint),
+        "instruction": object_instruction(clean_hint),
         "barcode": clean_hint["barcode"],
         "isbn": clean_hint["isbn"],
     }

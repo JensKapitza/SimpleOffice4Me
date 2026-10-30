@@ -311,6 +311,8 @@
     } else {
       addField('Name', 'title', prefill.name);
     }
+    addField('Beschreibung', 'description', prefill.description);
+    addField('Tags (Komma-getrennt)', 'tags', Array.isArray(prefill.tags) ? prefill.tags.join(', ') : '');
     const missing = (analysis.missing_fields || []).join(', ');
     if (missing) {
       const hint = document.createElement('p');
@@ -346,6 +348,8 @@
     } else {
       data.append('item_type', 'object');
     }
+    data.append('description', get('description'));
+    data.append('tags', get('tags'));
     data.append('response_format', 'json');
     data.append('capture_request_id', nextToken());
     data.append('_csrf_token', csrf);
@@ -554,12 +558,15 @@
       const line = document.createElement('p');
       line.className = 'small text-secondary mb-0';
       const role = rolesByPhoto[photo.photo_id] || '';
+      const photoTags = Array.isArray(photo.ml_tags) ? photo.ml_tags.filter((tag) => cleanText(tag)).join(', ') : '';
       line.textContent = `Foto ${String(photo.photo_id || '').slice(0, 8)}: `
         + `${photo.kind || '–'}${photo.isbn ? ` · ISBN ${photo.isbn}` : ''}`
         + `${role && ROLE_LABELS[role] ? ` · Rolle: ${ROLE_LABELS[role]}` : ''} · `
         + (photo.ml_available
           ? `ML ${photo.ml_label || ''} · ${photo.ml_provider_label || ''} · ${photo.ml_model || ''}`
-          : `ML: ${photo.ml_error || 'nicht verfügbar'}`);
+          : `ML: ${photo.ml_error || 'nicht verfügbar'}`)
+        + `${photo.ml_note ? ` · Notiz: ${cleanText(photo.ml_note).slice(0, 120)}` : ''}`
+        + `${photoTags ? ` · Tags: ${photoTags.slice(0, 120)}` : ''}`;
       wrap.appendChild(line);
     });
     const form = document.createElement('div');
@@ -579,6 +586,8 @@
     } else {
       addField('Name', 'title', prefill.name);
     }
+    addField('Beschreibung', 'description', prefill.description);
+    addField('Tags (Komma-getrennt)', 'tags', Array.isArray(prefill.tags) ? prefill.tags.join(', ') : '');
     const missing = (combined.missing_fields || []).join(', ');
     if (missing) {
       const hint = document.createElement('p');
@@ -698,6 +707,8 @@
       } else {
         data.append('item_type', 'object');
       }
+      data.append('description', get('description'));
+      data.append('tags', get('tags'));
       data.append('capture_request_id', adoptToken);
       data.append('_csrf_token', csrf);
       const target = `${batchUrlFor(payload.batch_id)}/adopt`;

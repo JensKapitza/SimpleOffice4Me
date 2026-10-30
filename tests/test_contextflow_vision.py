@@ -410,7 +410,7 @@ class ObjectSuggestionTest(unittest.TestCase):
         self.assertEqual(
             good,
             {"object_name": "Hammer", "item_type": "tool",
-             "confidence": 80, "note": "n", "isbn": ""},
+             "confidence": 80, "note": "n", "isbn": "", "tags": []},
         )
         self.assertEqual(
             validate_object_suggestion({"object_name": "X"})["item_type"],

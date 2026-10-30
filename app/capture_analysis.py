@@ -21,6 +21,7 @@ _ISBN10_LOOSE_RE = re.compile(r"(?<!\d)(\d(?:[\- ]?\d){8}[\- ]?[0-9Xx])(?!\d)")
 _SEP_RE = re.compile(r"[\- ]")
 _YEAR_RE = re.compile(r"(?<!\d)((?:1[5-9]|20)\d{2})(?!\d)")
 _MAX_LINE = 120
+_MAX_MERGED_TAGS = 12
 _MAX_TITLE_LINES = 3
 
 
@@ -116,9 +117,11 @@ def combine_batch_analyses(analyses: list[dict[str, Any]]) -> dict[str, Any]:
     ``isbn_conflict`` and clear the merged ISBN so the user must pick
     the correct one. Titles, authors, year and publisher take the
     first non-empty value in capture order; title lines are deduped
-    across photos. Duplicates are merged by object id, ML models are
-    listed honestly per photo, and every photo keeps its own
-    breakdown — nothing is silently dropped.
+    across photos. The description prefill takes the first non-empty
+    photo note, tags are unioned deduplicated (capped); every photo
+    keeps its own note/tags breakdown so the merge stays reviewable.
+    Duplicates are merged by object id, ML models are
+    listed honestly per photo — nothing is silently dropped.
     """
     rows = [row for row in (analyses or []) if isinstance(row, dict)]
     photos: list[dict[str, Any]] = []
@@ -127,6 +130,9 @@ def combine_batch_analyses(analyses: list[dict[str, Any]]) -> dict[str, Any]:
     authors: list[str] = []
     years: list[str] = []
     publishers: list[str] = []
+    notes: list[str] = []
+    merged_tags: list[str] = []
+    seen_tags: set[str] = set()
     merged_lines: list[str] = []
     duplicates: dict[str, dict[str, Any]] = {}
     models: list[str] = []
@@ -156,6 +162,23 @@ def combine_batch_analyses(analyses: list[dict[str, Any]]) -> dict[str, Any]:
         publisher = str(prefill.get("publisher", "") or "").strip()
         if publisher:
             publishers.append(publisher)
+        note = str(prefill.get("description", "") or "").strip()
+        if note and note not in notes:
+            notes.append(note)
+        photo_tags = prefill.get("tags", [])
+        if isinstance(photo_tags, list):
+            for tag in photo_tags:
+                if not isinstance(tag, str):
+                    continue
+                clean_tag = " ".join(tag.split())
+                if not clean_tag:
+                    continue
+                key = clean_tag.casefold()
+                if key in seen_tags:
+                    continue
+                seen_tags.add(key)
+                if len(merged_tags) < _MAX_MERGED_TAGS:
+                    merged_tags.append(clean_tag)
         for line in prefill.get("title_lines", []) or []:
             clean = " ".join(str(line or "").split())[:_MAX_LINE].strip()
             if clean and clean not in merged_lines and not isbn_from_text(clean):
@@ -174,6 +197,11 @@ def combine_batch_analyses(analyses: list[dict[str, Any]]) -> dict[str, Any]:
         ocr = row.get("ocr", {})
         if not isinstance(ocr, dict):
             ocr = {}
+        photo_note = str(prefill.get("description", "") or "").strip()
+        photo_tag_list = prefill.get("tags", [])
+        photo_tag_list = [
+            tag for tag in photo_tag_list if isinstance(tag, str)
+        ] if isinstance(photo_tag_list, list) else []
         photos.append({
             "photo_id": photo_id,
             "isbn": isbn,
@@ -181,6 +209,8 @@ def combine_batch_analyses(analyses: list[dict[str, Any]]) -> dict[str, Any]:
             "kind_reason": str(row.get("kind_reason", "") or ""),
             "ml_available": bool(ml.get("available")),
             "ml_label": str(ml.get("label", "") or ""),
+            "ml_note": photo_note,
+            "ml_tags": photo_tag_list,
             "ml_model": model,
             "ml_provider_label": str(ml.get("provider_label", "") or ""),
             "ml_error": str(ml.get("error", "") or ""),
@@ -215,7 +245,11 @@ def combine_batch_analyses(analyses: list[dict[str, Any]]) -> dict[str, Any]:
     else:
         kind = {"kind": "object", "reason": "manuell einordnen",
                 "needs_name": True}
-    prefill_merged: dict[str, Any] = {"isbn": isbn}
+    prefill_merged: dict[str, Any] = {
+        "isbn": isbn,
+        "description": notes[0] if notes else "",
+        "tags": merged_tags,
+    }
     if kind["kind"] == "book":
         prefill_merged.update({
             "title": titles[0] if titles else "",
