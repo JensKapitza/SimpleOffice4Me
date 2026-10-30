@@ -87,6 +87,12 @@ begrenzt. Die Mindestmenge freien Arbeitsspeichers (384 MiB, zulässig 64–65.5
 und die Datenträgerreserve (2.048 MiB, zulässig 128–1.048.576) sind dort ebenfalls
 persistent konfigurierbar. Verfügbarer Arbeitsspeicher wird unter Linux/Android
 aus `/proc/meminfo` und unter Windows über `GlobalMemoryStatusEx` ermittelt.
+Die Pause je Archiveintrag (2 ms, zulässig 0–100 ms) lässt sich ebenfalls unter
+**Admin → Einstellungen → Dokumente & Medien** konfigurieren: höhere Werte geben
+anderen Arbeiten mehr Gelegenheit, 0 maximiert den Durchsatz.
+`SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum Speichern der persistenten
+Einstellung als Legacy-Startwert verwendet; Änderungen gelten für neu gestartete
+Archivindexläufe.
 „Nur Katalog indexieren“ hält Dateinamen und
 Archivstruktur suchbar, entfernt den abgeleiteten Inhaltsindex beim nächsten
 Archivlauf und verändert keine Originaldateien. Speicher- und Datenträgergrenzen

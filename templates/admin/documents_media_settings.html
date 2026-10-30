@@ -78,6 +78,13 @@
           <div class="form-text">Tiefe Indexierung hält diesen freien Speicherplatz zusätzlich zur 10-%-Scratch-Grenze frei. Standard 2.048 MiB; zulässig 128–1.048.576 MiB. Änderungen gelten beim nächsten Indexlauf.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="archive-member-yield">Pause je Archiveintrag (Millisekunden)</label>
+          <input class="form-control" id="archive-member-yield" type="number"
+                 name="archive_member_yield_ms" value="{{ media.archive_member_yield_ms }}"
+                 min="0" max="100" step="1" required>
+          <div class="form-text">Eine Pause priorisiert andere Arbeiten; 0 bevorzugt Indexdurchsatz. Standard 2 ms; zulässig 0–100 ms. Gilt für neu gestartete Archivindexläufe.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>

@@ -20,6 +20,9 @@ MAX_ARCHIVE_MIN_FREE_MEMORY_MB = 65536
 DEFAULT_ARCHIVE_DISK_RESERVE_MB = 2048
 MIN_ARCHIVE_DISK_RESERVE_MB = 128
 MAX_ARCHIVE_DISK_RESERVE_MB = 1048576
+DEFAULT_ARCHIVE_MEMBER_YIELD_MS = 2
+MIN_ARCHIVE_MEMBER_YIELD_MS = 0
+MAX_ARCHIVE_MEMBER_YIELD_MS = 100
 
 
 def legacy_archive_deep_index_enabled() -> bool:
@@ -91,6 +94,15 @@ def legacy_archive_disk_reserve_mb() -> int:
     )
 
 
+def legacy_archive_member_yield_ms() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS",
+        DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
+        MIN_ARCHIVE_MEMBER_YIELD_MS,
+        MAX_ARCHIVE_MEMBER_YIELD_MS,
+    )
+
+
 def normalize_archive_resource_settings(media: dict[str, Any]) -> tuple[int, int]:
     values = (
         (
@@ -148,6 +160,29 @@ def validate_archive_resource_settings(media: dict[str, Any]) -> tuple[int, int]
             raise ValueError(error)
         result.append(value)
     return result[0], result[1]
+
+
+def normalize_archive_member_yield(media: dict[str, Any]) -> int:
+    value = media.get("archive_member_yield_ms", DEFAULT_ARCHIVE_MEMBER_YIELD_MS)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MEMBER_YIELD_MS <= value <= MAX_ARCHIVE_MEMBER_YIELD_MS
+    ):
+        _LOGGER.warning("Invalid stored archive member-yield setting; using default")
+        return DEFAULT_ARCHIVE_MEMBER_YIELD_MS
+    return value
+
+
+def validate_archive_member_yield(media: dict[str, Any]) -> int:
+    value = media.get("archive_member_yield_ms", DEFAULT_ARCHIVE_MEMBER_YIELD_MS)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MEMBER_YIELD_MS <= value <= MAX_ARCHIVE_MEMBER_YIELD_MS
+    ):
+        raise ValueError("archive member yield must be between 0 and 100 milliseconds")
+    return value
 
 
 def normalize_archive_index_settings(media: dict[str, Any]) -> tuple[bool, float]:
