@@ -393,6 +393,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     max_load_per_cpu = media_settings["archive_max_load_per_cpu"]
     min_free_memory_mb = media_settings["archive_min_free_memory_mb"]
     disk_reserve_mb = media_settings["archive_disk_reserve_mb"]
+    member_yield_ms = media_settings["archive_member_yield_ms"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
@@ -433,7 +434,6 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     max_text_per_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB", 2, 1, 32) * 1024 * 1024
     max_content_files = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES", 500, 1, 10000)
     ratio_limit = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO", 200, 10, 10000)
-    yield_ms = _env_int("SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS", 2, 0, 100)
 
     scratch = _scratch_parent(store)
     free_bytes, disk_budget = _disk_budget(scratch, disk_reserve_mb)
@@ -503,8 +503,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 indexed_content += 1
             except (OSError, RuntimeError, ValueError, zipfile.BadZipFile, tarfile.TarError):
                 extraction_errors += 1
-            if yield_ms:
-                time.sleep(yield_ms / 1000)
+            if member_yield_ms:
+                time.sleep(member_yield_ms / 1000)
     except (OSError, zipfile.BadZipFile, tarfile.TarError) as exc:
         status = "failed"
         reason = f"archive could not be read: {exc}"
@@ -537,6 +537,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "load_threshold_per_cpu": max_load_per_cpu,
             "min_free_memory_mb": min_free_memory_mb,
             "disk_reserve_mb": disk_reserve_mb,
+            "member_yield_ms": member_yield_ms,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,

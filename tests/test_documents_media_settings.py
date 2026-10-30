@@ -165,6 +165,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertIn('min="64" max="65536" step="1"', html)
         self.assertIn('name="archive_disk_reserve_mb"', html)
         self.assertIn('min="128" max="1048576" step="1"', html)
+        self.assertIn('name="archive_member_yield_ms"', html)
+        self.assertIn('min="0" max="100" step="1"', html)
         self.assertIn('name="preview_max_bytes"', html)
         self.assertIn('name="preview_max_pixels"', html)
         self.assertIn('name="video_preview_frames"', html)

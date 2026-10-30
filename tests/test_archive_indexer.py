@@ -364,6 +364,33 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual(0, result["content_files_indexed"])
             self.assertTrue(store.search("huge.txt"))
 
+    def test_persisted_member_yield_controls_archive_index_pause(self):
+        environment = {
+            "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
+            "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "0.75",
+            "SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB": "384",
+            "SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB": "2048",
+            "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
+        }
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, environment):
+            root = Path(temporary)
+            archive_path = root / "yield.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("one.txt", "first member")
+                archive.writestr("two.txt", "second member")
+            store = DocumentStore(root)
+            store.scan()
+            SettingsStore(root).save(
+                {"media": {"archive_member_yield_ms": 10}}, "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ), patch("app.archive_indexer.time.sleep") as sleep:
+                result = index_archive(store, archive_path)
+
+        self.assertEqual(10, result["resource_policy"]["member_yield_ms"])
+        self.assertEqual([0.01, 0.01], [call.args[0] for call in sleep.call_args_list])
+
     def test_stale_private_scratch_is_removed_after_interrupted_run(self):
         with tempfile.TemporaryDirectory() as temp:
             store = DocumentStore(temp)

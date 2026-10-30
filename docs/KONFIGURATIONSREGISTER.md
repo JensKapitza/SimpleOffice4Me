@@ -43,13 +43,14 @@ ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstel
 | `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | `384` | Gilt nur bis der persistente RAM-Grenzwert gespeichert wurde; Ausreißer werden begrenzt |
 | `media.archive_disk_reserve_mb` (persistente Admin-Einstellung) | `2048` | Freier Speicherplatz, der neben der 10-%-Scratch-Grenze erhalten bleibt; `128–1048576 MiB` |
 | `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | `2048` | Gilt nur bis die persistente Datenträgerreserve gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_member_yield_ms` (persistente Admin-Einstellung) | `2` | Pause je verarbeitetem Archiveintrag; `0–100 ms` |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_member_yield_ms` gespeichert wurde; Ausreißer werden begrenzt |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | `20000` | Maximal berücksichtigte Einträge; 100–200000 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | `512` | Maximalgröße eines Eintrags; 1–8192 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | `8` | Gesamtes Textbudget; 1–64 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | `2` | Textbudget je Eintrag; 1–32 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | `500` | Anzahl für Inhaltsverarbeitung; 1–10000 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | `200` | Begrenzung des Kompressionsverhältnisses; 10–10000 |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | `2` | Pause je Eintrag in ms; 0–100 |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Legacy-Startwert bis `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gespeichert wird; optionale OCR für unterstützte Bild-Einträge |
 
 Erzwungene tiefe Indexierung hebt nicht Größen-, Pfad-, Scratch- oder
@@ -62,7 +63,9 @@ Mindest-RAM und Datenträgerreserve sind zusätzlich unter **Admin → Einstellu
 `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` und
 `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` werden nur bis zum Speichern der jeweiligen
 Einstellung eingelesen; Änderungen gleichen vollständige abgeleitete
-Archivindizes beim nächsten Indexlauf an.
+Archivindizes beim nächsten Indexlauf an. Die Pause je Archiveintrag gilt für
+neu gestartete Indexläufe; `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum
+Speichern dieses Werts als Startwert verwendet.
 
 Die optionale OCR für Bilddateien in Archiven ist unter **Admin → Einstellungen
 → Dokumente & Medien** verfügbar. Sie ist standardmäßig deaktiviert und benötigt
@@ -188,7 +191,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BACKGROUND_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
