@@ -13,6 +13,7 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_TEXT_MB,
+    DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
@@ -22,6 +23,7 @@ from .archive_settings import (
     MAX_ARCHIVE_MAX_MEMBER_MB,
     MAX_ARCHIVE_MAX_MEMBERS,
     MAX_ARCHIVE_MAX_TEXT_MB,
+    MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     MAX_ARCHIVE_MEMBER_YIELD_MS,
     MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
     MIN_ARCHIVE_DISK_RESERVE_MB,
@@ -30,6 +32,7 @@ from .archive_settings import (
     MIN_ARCHIVE_MAX_MEMBER_MB,
     MIN_ARCHIVE_MAX_MEMBERS,
     MIN_ARCHIVE_MAX_TEXT_MB,
+    MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     MIN_ARCHIVE_MEMBER_YIELD_MS,
     MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
@@ -195,6 +198,18 @@ def media_settings_from_form(
             MAX_ARCHIVE_MAX_TEXT_MB,
         )
     )
+    archive_max_text_per_member_mb = (
+        current.get(
+            "archive_max_text_per_member_mb", DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+        )
+        if form.get("archive_max_text_per_member_mb") is None
+        else _bounded_media_integer(
+            form,
+            "archive_max_text_per_member_mb",
+            MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+            MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+        )
+    )
     archive_max_member_mb = (
         current.get("archive_max_member_mb", DEFAULT_ARCHIVE_MAX_MEMBER_MB)
         if form.get("archive_max_member_mb") is None
@@ -223,6 +238,7 @@ def media_settings_from_form(
         "archive_member_yield_ms": archive_member_yield_ms,
         "archive_max_members": archive_max_members,
         "archive_max_text_mb": archive_max_text_mb,
+        "archive_max_text_per_member_mb": archive_max_text_per_member_mb,
         "archive_max_member_mb": archive_max_member_mb,
         "archive_max_content_files": archive_max_content_files,
         "preview_enabled": enabled == "1",

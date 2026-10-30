@@ -99,6 +99,14 @@
           <div class="form-text">Begrenzt den abgeleiteten Volltextspeicher je Archiv. Standard 8 MiB; zulässig 1–64 MiB. Eine Änderung passt den abgeleiteten Suchtext beim nächsten Indexlauf an; Originalarchive bleiben erhalten.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="archive-text-per-member">Textbudget je Archiveintrag (MiB)</label>
+          <input class="form-control" id="archive-text-per-member" type="number"
+                 name="archive_max_text_per_member_mb"
+                 value="{{ media.archive_max_text_per_member_mb }}"
+                 min="1" max="32" step="1" required>
+          <div class="form-text">Begrenzt den Text eines einzelnen Eintrags, bevor er zum Archivbudget addiert wird. Standard 2 MiB; zulässig 1–32 MiB. Änderungen gelten beim nächsten Indexlauf.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="archive-max-member">Maximale Größe je Archiveintrag (MiB)</label>
           <input class="form-control" id="archive-max-member" type="number"
                  name="archive_max_member_mb" value="{{ media.archive_max_member_mb }}"

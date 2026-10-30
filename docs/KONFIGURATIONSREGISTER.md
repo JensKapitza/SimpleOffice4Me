@@ -51,7 +51,8 @@ ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstel
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | `512` | Gilt nur bis `media.archive_max_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
 | `media.archive_max_text_mb` (persistente Admin-Einstellung) | `8` | Gesamtes abgeleitetes Volltextbudget pro Archiv; `1–64 MiB` |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | `8` | Gilt nur bis `media.archive_max_text_mb` gespeichert wurde; Ausreißer werden begrenzt |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | `2` | Textbudget je Eintrag; 1–32 |
+| `media.archive_max_text_per_member_mb` (persistente Admin-Einstellung) | `2` | Textbudget je Eintrag; `1–32 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_max_text_per_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
 | `media.archive_max_content_files` (persistente Admin-Einstellung) | `500` | Höchstzahl der Einträge für Inhaltsverarbeitung; `1–10000` |
 | `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | `500` | Gilt nur bis `media.archive_max_content_files` gespeichert wurde; Ausreißer werden begrenzt |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | `200` | Begrenzung des Kompressionsverhältnisses; 10–10000 |
@@ -72,7 +73,9 @@ neu gestartete Indexläufe; `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis 
 Speichern dieses Werts als Startwert verwendet. Die Kataloggrenze gilt beim
 nächsten Indexlauf; größere Archive werden als Teilindex markiert. Eintragsgröße
 und Inhaltsanzahl begrenzen nur die Textextraktion: übersprungene Einträge bleiben
-im Katalog und Originalarchive unverändert.
+im Katalog und Originalarchive unverändert. Das Textbudget je Eintrag (Standard
+2 MiB; zulässig 1–32 MiB) ist unter **Dokumente & Medien** persistent einstellbar;
+die Legacy-Variable wird nur bis zum Speichern dieses Werts verwendet.
 
 Die optionale OCR für Bilddateien in Archiven ist unter **Admin → Einstellungen
 → Dokumente & Medien** verfügbar. Sie ist standardmäßig deaktiviert und benötigt
@@ -197,7 +200,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
