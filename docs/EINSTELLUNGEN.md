@@ -9,6 +9,7 @@ Enthalten sind derzeit:
 - Standardzustand, Standard-Tags und Archiv-Vorauswahl für Web-Uploads.
 - Termin-Sichtbarkeit, externer Hinweistext und Standarddauer.
 - Ablaufzeit neuer passwortgeschützter HTTPS-Freigaben.
+- Admin-only: ausgehende automatische Fehlerberichte im Reiter **Integrationen & Dienste** aktivieren oder deaktivieren. Es werden nur freigegebene technische Diagnosedaten übertragen; lokale Fehlerprotokolle und manuelle Fehlerberichte bleiben unabhängig davon verfügbar.
 - Admin-only: maximale Uploadgröße im Reiter **Dokumente & Medien** (Standard 512 MiB, zulässig 1–4096 MiB). Sie begrenzt die gesamte HTTP-Anfrage und damit auch Uploadpfade, die dieses zentrale Limit verwenden; S3-Uploads können zusätzlich enger begrenzt sein.
 - Admin-only: Vorschau-, Archiv-OCR- und ressourcenabhängige Archiv-Inhaltssuche im Reiter **Dokumente & Medien**. Konfigurierbar sind Lastschwelle je CPU (0,1–8,0), Mindestmenge freien Arbeitsspeichers (64–65.536 MiB), Datenträgerreserve (128–1.048.576 MiB), Pause je Archiveintrag (0–100 ms; Standard 2 ms), maximale Kataloggröße (100–200.000 Einträge; Standard 20.000), Volltextbudget pro Archiv (1–64 MiB; Standard 8 MiB), Eintragsgröße für Inhaltsverarbeitung (1–8.192 MiB; Standard 512 MiB), Höchstzahl inhaltlich verarbeiteter Einträge (1–10.000; Standard 500), Textbudget je Archiveintrag (1–32 MiB; Standard 2 MiB) und maximales Kompressionsverhältnis (10–10.000; Standard 200).
 

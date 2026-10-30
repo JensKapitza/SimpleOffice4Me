@@ -38,6 +38,7 @@ DEFAULT_FEDERATION_AUTOSCAN_COUNTRY = ""
 DEFAULT_FEDERATION_AUTOSCAN_SECONDS = 21600
 MIN_FEDERATION_AUTOSCAN_SECONDS = 3600
 MAX_FEDERATION_AUTOSCAN_SECONDS = 7 * 86400
+DEFAULT_ERROR_REPORTING_ENABLED = True
 
 
 def _legacy_integer(
@@ -178,7 +179,15 @@ def legacy_federation_autoscan_seconds() -> int:
     )
 
 
-def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
+def legacy_error_reporting_enabled() -> bool:
+    """Keep the historic environment opt-out until the setting is persisted."""
+    value = os.environ.get("SIMPLEOFFICE_ERROR_REPORTING", "1").strip().casefold()
+    return value not in {"0", "false", "no", "off"}
+
+
+def normalize_integration_settings(
+    integrations: dict[str, Any],
+) -> dict[str, int | str | bool]:
     ranges = {
         "osm_download_read_timeout_seconds": (
             DEFAULT_OSM_READ_TIMEOUT_SECONDS,
@@ -231,7 +240,7 @@ def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, An
             MAX_FEDERATION_AUTOSCAN_SECONDS,
         ),
     }
-    result: dict[str, int | str] = {}
+    result: dict[str, int | str | bool] = {}
     for key, (default, minimum, maximum) in ranges.items():
         value = integrations.get(key, default)
         if (
@@ -256,10 +265,17 @@ def normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, An
             _LOGGER.warning("Invalid stored federation autoscan country; disabling automatic discovery")
             country = DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
     result["federation_autoscan_country"] = country
+    error_reporting_enabled = integrations.get(
+        "error_reporting_enabled", DEFAULT_ERROR_REPORTING_ENABLED,
+    )
+    if not isinstance(error_reporting_enabled, bool):
+        _LOGGER.warning("Invalid stored error-reporting preference; using the default")
+        error_reporting_enabled = DEFAULT_ERROR_REPORTING_ENABLED
+    result["error_reporting_enabled"] = error_reporting_enabled
     return result
 
 
-def validate_integration_settings(integrations: Any) -> dict[str, int | str]:
+def validate_integration_settings(integrations: Any) -> dict[str, int | str | bool]:
     if not isinstance(integrations, dict):
         raise ValueError("integration settings must be an object")
     values = normalize_integration_settings(integrations)
@@ -306,4 +322,10 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str]:
     if country and (len(country) != 2 or not country.isascii() or not country.isalpha()):
         raise ValueError("Federation autoscan country must be empty or ISO-3166 alpha-2")
     values["federation_autoscan_country"] = country
+    error_reporting_enabled = integrations.get(
+        "error_reporting_enabled", DEFAULT_ERROR_REPORTING_ENABLED,
+    )
+    if not isinstance(error_reporting_enabled, bool):
+        raise ValueError("error reporting enabled must be a boolean")
+    values["error_reporting_enabled"] = error_reporting_enabled
     return values
