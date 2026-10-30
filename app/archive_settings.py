@@ -38,6 +38,9 @@ MAX_ARCHIVE_MAX_MEMBER_MB = 8192
 DEFAULT_ARCHIVE_MAX_CONTENT_FILES = 500
 MIN_ARCHIVE_MAX_CONTENT_FILES = 1
 MAX_ARCHIVE_MAX_CONTENT_FILES = 10000
+DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO = 200
+MIN_ARCHIVE_MAX_COMPRESSION_RATIO = 10
+MAX_ARCHIVE_MAX_COMPRESSION_RATIO = 10000
 
 
 def legacy_archive_deep_index_enabled() -> bool:
@@ -160,6 +163,15 @@ def legacy_archive_max_content_files() -> int:
         DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
         MIN_ARCHIVE_MAX_CONTENT_FILES,
         MAX_ARCHIVE_MAX_CONTENT_FILES,
+    )
+
+
+def legacy_archive_max_compression_ratio() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO",
+        DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+        MIN_ARCHIVE_MAX_COMPRESSION_RATIO,
+        MAX_ARCHIVE_MAX_COMPRESSION_RATIO,
     )
 
 
@@ -377,6 +389,35 @@ def validate_archive_extraction_limits(media: dict[str, Any]) -> tuple[int, int]
             raise ValueError(error)
         result.append(value)
     return result[0], result[1]
+
+
+def normalize_archive_max_compression_ratio(media: dict[str, Any]) -> int:
+    value = media.get(
+        "archive_max_compression_ratio", DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+    )
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_COMPRESSION_RATIO
+        <= value <= MAX_ARCHIVE_MAX_COMPRESSION_RATIO
+    ):
+        _LOGGER.warning("Invalid stored archive compression-ratio limit; using default")
+        return DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO
+    return value
+
+
+def validate_archive_max_compression_ratio(media: dict[str, Any]) -> int:
+    value = media.get(
+        "archive_max_compression_ratio", DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+    )
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_COMPRESSION_RATIO
+        <= value <= MAX_ARCHIVE_MAX_COMPRESSION_RATIO
+    ):
+        raise ValueError("archive compression-ratio limit must be between 10 and 10,000")
+    return value
 
 
 def normalize_archive_index_settings(media: dict[str, Any]) -> tuple[bool, float]:

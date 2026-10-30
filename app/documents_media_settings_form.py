@@ -10,6 +10,7 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
     DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+    DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
     DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_TEXT_MB,
@@ -19,6 +20,7 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
     MAX_ARCHIVE_DISK_RESERVE_MB,
     MAX_ARCHIVE_MAX_CONTENT_FILES,
+    MAX_ARCHIVE_MAX_COMPRESSION_RATIO,
     MAX_ARCHIVE_MAX_LOAD_PER_CPU,
     MAX_ARCHIVE_MAX_MEMBER_MB,
     MAX_ARCHIVE_MAX_MEMBERS,
@@ -28,6 +30,7 @@ from .archive_settings import (
     MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
     MIN_ARCHIVE_DISK_RESERVE_MB,
     MIN_ARCHIVE_MAX_CONTENT_FILES,
+    MIN_ARCHIVE_MAX_COMPRESSION_RATIO,
     MIN_ARCHIVE_MAX_LOAD_PER_CPU,
     MIN_ARCHIVE_MAX_MEMBER_MB,
     MIN_ARCHIVE_MAX_MEMBERS,
@@ -226,6 +229,18 @@ def media_settings_from_form(
             MAX_ARCHIVE_MAX_CONTENT_FILES,
         )
     )
+    archive_max_compression_ratio = (
+        current.get(
+            "archive_max_compression_ratio", DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+        )
+        if form.get("archive_max_compression_ratio") is None
+        else _bounded_media_integer(
+            form,
+            "archive_max_compression_ratio",
+            MIN_ARCHIVE_MAX_COMPRESSION_RATIO,
+            MAX_ARCHIVE_MAX_COMPRESSION_RATIO,
+        )
+    )
 
     return {
         "upload_limit_mib": upload_limit,
@@ -241,6 +256,7 @@ def media_settings_from_form(
         "archive_max_text_per_member_mb": archive_max_text_per_member_mb,
         "archive_max_member_mb": archive_max_member_mb,
         "archive_max_content_files": archive_max_content_files,
+        "archive_max_compression_ratio": archive_max_compression_ratio,
         "preview_enabled": enabled == "1",
         "preview_timeout_seconds": _bounded_media_integer(
             form, "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS,

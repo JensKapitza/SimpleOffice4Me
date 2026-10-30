@@ -9,6 +9,7 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
     DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+    DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
     DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
@@ -18,6 +19,7 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
     normalize_archive_index_settings,
     normalize_archive_max_members,
+    normalize_archive_max_compression_ratio,
     normalize_archive_extraction_limits,
     normalize_archive_max_text_mb,
     normalize_archive_max_text_per_member_mb,
@@ -25,6 +27,7 @@ from .archive_settings import (
     normalize_archive_resource_settings,
     validate_archive_index_settings,
     validate_archive_max_members,
+    validate_archive_max_compression_ratio,
     validate_archive_extraction_limits,
     validate_archive_max_text_mb,
     validate_archive_max_text_per_member_mb,
@@ -72,6 +75,7 @@ DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "archive_max_text_per_member_mb": DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     "archive_max_member_mb": DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     "archive_max_content_files": DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+    "archive_max_compression_ratio": DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
     "archive_member_yield_ms": DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
     "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
     "preview_enabled": DEFAULT_PREVIEW_ENABLED,
@@ -108,6 +112,9 @@ def normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         normalized["archive_max_content_files"],
     ) = normalize_archive_extraction_limits(normalized)
     normalized["archive_member_yield_ms"] = normalize_archive_member_yield(normalized)
+    normalized["archive_max_compression_ratio"] = (
+        normalize_archive_max_compression_ratio(normalized)
+    )
     ranges = {
         "upload_limit_mib": (
             DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
@@ -188,6 +195,7 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         validate_archive_resource_settings(media)
     )
     archive_member_yield_ms = validate_archive_member_yield(media)
+    archive_max_compression_ratio = validate_archive_max_compression_ratio(media)
     archive_max_members = validate_archive_max_members(media)
     archive_max_text_mb = validate_archive_max_text_mb(media)
     archive_max_text_per_member_mb = validate_archive_max_text_per_member_mb(media)
@@ -229,6 +237,7 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         "archive_max_member_mb": archive_max_member_mb,
         "archive_max_content_files": archive_max_content_files,
         "archive_member_yield_ms": archive_member_yield_ms,
+        "archive_max_compression_ratio": archive_max_compression_ratio,
         "video_preview_frames": video_preview_frames,
         "preview_enabled": preview_enabled,
         "preview_timeout_seconds": preview_timeout,
