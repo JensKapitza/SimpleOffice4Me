@@ -20,6 +20,7 @@ INVOICE_TYPE = "invoice"
 MAIL_CASE_URL = "/documents/mail/reader?case={case_id}&mode=case#mail-case"
 VISIT_URL = "/site-visits/{visit_id}"
 INVOICE_URL = "/documents/business/invoices/{invoice_id}"
+INVOICE_EDITOR_URL = "/documents/business/contacts/{contact_id}/invoice"
 TASKS_URL = "/tasks/"
 
 LINK_TYPE = "case_link"

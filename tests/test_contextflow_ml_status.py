@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 from app import app
+from app.contextflow.demo import DEMO_MARKER, DEMO_TOOL_TAG
 from app.db import ensure_auth_database, get_db
 from app.password_security import hash_password
 
@@ -188,6 +189,65 @@ class MlStatusTests(unittest.TestCase):
             os.environ.pop("MODEL_API_KEY", None)
             response = self.client.get("/contextflow/ml-status")
         self.assertFalse(response.get_json()["meta"]["key_present"])
+
+    def test_meta_probe_needs_server_consent(self) -> None:
+        app.config.update(CONTEXTFLOW_VISION_PROVIDER="meta")
+        with (
+            mock.patch.dict("os.environ", {"MODEL_API_KEY": "k"}),
+            mock.patch(
+                "app.contextflow.vision.check_meta_model"
+            ) as check,
+        ):
+            response = self.client.get("/contextflow/ml-status")
+        check.assert_not_called()
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["meta"]["key_present"])
+        self.assertIsNone(payload["meta"]["model_listed"])
+        self.assertIn("nicht freigegeben", payload["meta"]["models_error"])
+
+    def test_meta_probe_needs_demo_root(self) -> None:
+        app.config.update(
+            CONTEXTFLOW_VISION_PROVIDER="meta",
+            CONTEXTFLOW_META_CONSENT=True,
+        )
+        with (
+            mock.patch.dict("os.environ", {"MODEL_API_KEY": "k"}),
+            mock.patch(
+                "app.contextflow.vision.check_meta_model"
+            ) as check,
+        ):
+            response = self.client.get("/contextflow/ml-status")
+        check.assert_not_called()
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(payload["meta"]["model_listed"])
+        self.assertIn("nicht freigegeben", payload["meta"]["models_error"])
+
+    def test_meta_probe_runs_on_consented_demo_root(self) -> None:
+        root = Path(app.config["DOCUMENT_ROOT"])
+        root.mkdir(parents=True, exist_ok=True)
+        (root / DEMO_MARKER).write_text(
+            json.dumps({"synthetic": True, "tool": DEMO_TOOL_TAG}) + "\n",
+            encoding="utf-8",
+        )
+        app.config.update(
+            CONTEXTFLOW_VISION_PROVIDER="meta",
+            CONTEXTFLOW_META_CONSENT=True,
+        )
+        with (
+            mock.patch.dict("os.environ", {"MODEL_API_KEY": "k"}),
+            mock.patch(
+                "app.contextflow.vision.check_meta_model",
+                return_value=(True, ""),
+            ) as check,
+        ):
+            response = self.client.get("/contextflow/ml-status")
+        check.assert_called_once_with("k")
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(payload["meta"]["model_listed"])
+        self.assertEqual(payload["meta"]["models_error"], "")
 
     def test_flag_off_404_and_login_required(self) -> None:
         app.config.update(CONTEXTFLOW_ENABLED=False)

@@ -72,6 +72,7 @@
         <a href="{{ card.visit_url }}">Ortstermin öffnen</a>
         <a href="{{ card.tasks_url }}">Aufgaben-Board öffnen</a>
         {% if card.editor_url %}<a href="{{ card.editor_url }}">Rechnungseditor öffnen</a>{% endif %}
+        <a href="{{ url_for('contextflow.agent_form', link_id=card.link_id) }}">Meta-Demo-Analyse</a>
       </nav>
       {% for proposal in card.proposals %}
       <form id="cf-approve-{{ card.link_id }}" class="cf-approve" method="post" action="{{ url_for('contextflow.approve') }}">
@@ -91,6 +92,16 @@
         <button class="cf-btn cf-primary" type="submit">Jetzt Aufgabe erstellen</button>
       </form>
       {% endfor %}
+      <form class="cf-approve" method="post" action="{{ url_for('contextflow.mail_draft') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="link_id" value="{{ card.link_id }}">
+        <input type="hidden" name="expected_hint_id" value="{{ card.hint_id }}">
+        <label class="cf-check">
+          <input type="checkbox" name="approved" value="yes" required>
+          E-Mail-Entwurf vorbereiten – wird nicht automatisch versendet
+        </label>
+        <button class="cf-btn" type="submit">Entwurf vorbereiten</button>
+      </form>
       <div class="cf-secondary">
         <form method="post" action="{{ url_for('contextflow.snooze') }}">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -110,14 +121,15 @@
       <nav class="cf-links" aria-label="Weiter im bestehenden Ablauf">
         <a href="{{ card.mail_url }}">Mail-Vorgang</a> ·
         <a href="{{ card.visit_url }}">Ortstermin</a> ·
-        <a href="{{ card.tasks_url }}">Aufgaben-Board</a>
+        <a href="{{ card.tasks_url }}">Aufgaben-Board</a> ·
+        <a href="{{ url_for('contextflow.agent_form', link_id=card.link_id) }}">Meta-Demo-Analyse</a>
       </nav>
       {% endif %}
     </article>
     {% endfor %}
   </section>
   {% else %}
-  <p>Noch keine bestätigten Fälle. Lege unten eine Zuordnung an – bereits verknüpfte Vorgänge stehen dort nicht mehr zur Auswahl.</p>
+  <p>Noch keine bestätigten Fälle. Lege unten eine Zuordnung an – bereits verknüpfte Vorgänge stehen dort nicht mehr zur Auswahl. Die <a href="{{ url_for('contextflow.agent_form') }}">Meta-Demo-Analyse</a> startet, sobald ein Fall bestätigt ist.</p>
   {% endif %}
 
   <details class="cf-confirm">

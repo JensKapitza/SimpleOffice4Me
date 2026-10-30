@@ -76,7 +76,17 @@ try {
 } catch (java.time.format.DateTimeParseException exc) {
     throw new GradleException("Invalid build date: ${buildDate}", exc)
 }
-def rawBuildSequence = (System.getenv('SIMPLEOFFICE_BUILD_SEQUENCE') ?: '1').trim()
+def rawBuildSequenceEnv = (System.getenv('SIMPLEOFFICE_BUILD_SEQUENCE') ?: '').trim()
+def rawBuildSequence
+if (rawBuildSequenceEnv) {
+    rawBuildSequence = rawBuildSequenceEnv
+} else {
+    // Local builds without an explicit sequence use a deterministic UTC
+    // time slot so versionCode increases across same-day rebuilds.
+    // Slots are 10 seconds wide: 1..8640 always fits 1..9999.
+    def secondsOfDayUtc = java.time.Instant.now().epochSecond % 86400
+    rawBuildSequence = (secondsOfDayUtc.intdiv(10) + 1).toString()
+}
 if (!(rawBuildSequence ==~ /[1-9]\d{0,3}/)) {
     throw new GradleException('SIMPLEOFFICE_BUILD_SEQUENCE must be 1..9999')
 }
@@ -86,13 +96,38 @@ if (daysSinceEpoch < 0 || daysSinceEpoch > 200000) {
     throw new GradleException('Build date is outside the supported range')
 }
 // Android versionCode must increase for upgrades and fit into a signed int.
-// Sequence is the GitHub workflow run number, not an issue number or commit hash.
+// Sequence is the GitHub workflow run number (or a local UTC time slot
+// when unset), not an issue number or commit hash.
 def calculatedVersionCode = daysSinceEpoch * 10000L + buildSequence
 if (calculatedVersionCode <= 0 || calculatedVersionCode > 2_100_000_000L) {
     throw new GradleException("Android versionCode is outside the supported range: ${calculatedVersionCode}")
 }
 def appVersionCode = calculatedVersionCode.toInteger()
 def appVersionName = "${versionMajor}.${buildDate}.${buildSequence}"
+
+// Release signing material comes from user-level Gradle properties
+// (~/.gradle/gradle.properties) or environment variables only. Values
+// must never be committed to the repository, and credential values are
+// never printed: failure messages name only the missing setting.
+def releaseKeystorePath = (findProperty('simpleofficeReleaseKeystore') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEYSTORE') ?: '').toString().trim()
+def releaseKeystorePassword = (findProperty('simpleofficeReleaseKeystorePassword') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD') ?: '').toString()
+def releaseKeyAlias = (findProperty('simpleofficeReleaseKeyAlias') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEY_ALIAS') ?: '').toString().trim()
+def releaseKeyPassword = (findProperty('simpleofficeReleaseKeyPassword') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEY_PASSWORD') ?: '').toString()
+def missingReleaseSigning = []
+if (!releaseKeystorePath) {
+    missingReleaseSigning << 'keystore path (simpleofficeReleaseKeystore / SIMPLEOFFICE_RELEASE_KEYSTORE)'
+}
+if (!releaseKeystorePassword) {
+    missingReleaseSigning << 'keystore password (simpleofficeReleaseKeystorePassword / SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD)'
+}
+if (!releaseKeyAlias) {
+    missingReleaseSigning << 'key alias (simpleofficeReleaseKeyAlias / SIMPLEOFFICE_RELEASE_KEY_ALIAS)'
+}
+if (!releaseKeyPassword) {
+    missingReleaseSigning << 'key password (simpleofficeReleaseKeyPassword / SIMPLEOFFICE_RELEASE_KEY_PASSWORD)'
+}
+def releaseSigningConfigured = missingReleaseSigning.isEmpty()
+def releaseSigningPartial = !releaseSigningConfigured && missingReleaseSigning.size() < 4
 
 tasks.named('cyclonedxDirectBom') {
     projectType = org.cyclonedx.model.Component.Type.APPLICATION
@@ -134,10 +169,24 @@ android {
         buildConfig true
     }
 
+    signingConfigs {
+        if (releaseSigningConfigured) {
+            release {
+                storeFile file(releaseKeystorePath)
+                storePassword releaseKeystorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (releaseSigningConfigured) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 
@@ -228,6 +277,31 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
             min_sdk: 24,
             target_sdk: 36,
         ])
+    }
+}
+
+// Fail closed: without a complete release signing configuration Gradle
+// would otherwise produce an unsigned, non-distributeable release APK.
+// Debug builds and task-graph inspection stay unaffected.
+gradle.taskGraph.whenReady { graph ->
+    if (graph.hasTask("${project.path}:assembleRelease")) {
+        if (!releaseSigningConfigured) {
+            if (releaseSigningPartial) {
+                throw new GradleException(
+                    'Release signing is only partially configured; refusing to build an unsigned release APK. Missing: '
+                    + missingReleaseSigning.join(', ')
+                )
+            }
+            throw new GradleException(
+                'Release signing is not configured. Refusing to build an unsigned release APK. '
+                + 'Set all four settings as user-level Gradle properties or environment variables '
+                + '(see android/apk/README.md); signing material never belongs into the repository.'
+            )
+        }
+        def releaseKeystoreFile = file(releaseKeystorePath)
+        if (!releaseKeystoreFile.isFile()) {
+            throw new GradleException("Release keystore is not a readable file: ${releaseKeystoreFile}")
+        }
     }
 }
 

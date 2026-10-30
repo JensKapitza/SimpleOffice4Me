@@ -130,6 +130,13 @@ class ContextflowWebTest(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertIn("/auth/login", response.headers.get("Location", ""))
 
+    def test_empty_dashboard_links_agent(self) -> None:
+        response = self.berta.get("/contextflow/")
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn("Noch keine bestätigten Fälle", body)
+        self.assertIn("/contextflow/agent", body)
+
     def test_dashboard_happy(self) -> None:
         link = self.seed_link()
         response = self.admin.get("/contextflow/")

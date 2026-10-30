@@ -87,7 +87,7 @@ class MetaModelsTests(unittest.TestCase):
         self.assertFalse(listed)
         self.assertIn("kein API-Schlüssel", error)
 
-    def test_ml_status_probes_models_only_for_meta_with_key(self) -> None:
+    def test_ml_status_probes_models_only_when_allowed(self) -> None:
         base = {
             "provider": "meta",
             "ollama_url": "http://127.0.0.1:11434",
@@ -98,7 +98,7 @@ class MetaModelsTests(unittest.TestCase):
         with mock.patch(
             "app.contextflow.vision.check_meta_model", return_value=(True, "")
         ) as check:
-            status = ml_status(dict(base))
+            status = ml_status(dict(base), models_probe_allowed=True)
         check.assert_called_once_with("k")
         self.assertTrue(status["meta"]["model_listed"])
         self.assertEqual(status["meta"]["model"], "muse-spark-1.3-contributor")
@@ -108,6 +108,24 @@ class MetaModelsTests(unittest.TestCase):
             status = ml_status({**base, "provider": "local"})
             self.assertIsNone(status["meta"]["model_listed"])
             status = ml_status({**base, "meta_api_key": ""})
+            self.assertIsNone(status["meta"]["model_listed"])
+        check.assert_not_called()
+
+    def test_ml_status_models_probe_denied_fail_closed(self) -> None:
+        base = {
+            "provider": "meta",
+            "ollama_url": "http://127.0.0.1:11434",
+            "ollama_model": "",
+            "meta_api_key": "k",
+            "meta_consent": True,
+        }
+        with mock.patch(
+            "app.contextflow.vision.check_meta_model"
+        ) as check:
+            status = ml_status(dict(base))
+            self.assertIsNone(status["meta"]["model_listed"])
+            self.assertIn("nicht freigegeben", status["meta"]["models_error"])
+            status = ml_status(dict(base), models_probe_allowed=False)
             self.assertIsNone(status["meta"]["model_listed"])
         check.assert_not_called()
 
@@ -146,7 +164,8 @@ class MetaModelsTests(unittest.TestCase):
                     "ollama_model": "qwen3-vl:2b",
                     "meta_api_key": "k",
                     "meta_consent": True,
-                }
+                },
+                models_probe_allowed=True,
             )
         probed.assert_not_called()
         self.assertFalse(status["ollama"]["model_allowed"])

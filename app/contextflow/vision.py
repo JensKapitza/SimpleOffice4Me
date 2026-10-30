@@ -761,15 +761,19 @@ def _ollama_probe(url: str, model: str, timeout: float = 3.0) -> dict[str, Any]:
     return {"reachable": True, "model_seen": seen, "error": ""}
 
 
-def ml_status(settings: dict[str, Any]) -> dict[str, Any]:
+def ml_status(
+    settings: dict[str, Any], *, models_probe_allowed: bool = False
+) -> dict[str, Any]:
     """Summarize ML backend state for the header badge (no secrets).
 
     Reports the configured provider, loopback Ollama reachability plus
     whether the configured Meta model is installed, and Meta cloud
     readiness as booleans only — never keys, URLs with credentials,
-    or tracebacks. When the Meta provider is selected and a key
-    is present, the pinned model is verified once via GET /v1/models;
-    Ollama is probed only for allowlisted Meta models (model_allowed).
+    or tracebacks. The pinned model is verified via GET /v1/models
+    only when the caller explicitly allows it (server consent plus
+    documents permission plus verified synthetic demo root); the
+    default refuses the external request fail-closed. Ollama is
+    probed only for allowlisted Meta models (model_allowed).
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     model = str(settings.get("ollama_model", "") or "").strip()
@@ -794,10 +798,12 @@ def ml_status(settings: dict[str, Any]) -> dict[str, Any]:
         "model_listed": None,
         "models_error": "",
     }
-    if choice == "meta" and key:
+    if choice == "meta" and key and models_probe_allowed is True:
         listed, models_error = check_meta_model(key)
         meta["model_listed"] = listed
         meta["models_error"] = models_error
+    elif choice == "meta" and key:
+        meta["models_error"] = "Meta-Modellprüfung nicht freigegeben"
     return {
         "provider": choice,
         "ollama": ollama,
