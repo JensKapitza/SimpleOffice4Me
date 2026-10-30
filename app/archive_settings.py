@@ -23,6 +23,9 @@ MAX_ARCHIVE_DISK_RESERVE_MB = 1048576
 DEFAULT_ARCHIVE_MEMBER_YIELD_MS = 2
 MIN_ARCHIVE_MEMBER_YIELD_MS = 0
 MAX_ARCHIVE_MEMBER_YIELD_MS = 100
+DEFAULT_ARCHIVE_MAX_MEMBERS = 20000
+MIN_ARCHIVE_MAX_MEMBERS = 100
+MAX_ARCHIVE_MAX_MEMBERS = 200000
 
 
 def legacy_archive_deep_index_enabled() -> bool:
@@ -100,6 +103,15 @@ def legacy_archive_member_yield_ms() -> int:
         DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
         MIN_ARCHIVE_MEMBER_YIELD_MS,
         MAX_ARCHIVE_MEMBER_YIELD_MS,
+    )
+
+
+def legacy_archive_max_members() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS",
+        DEFAULT_ARCHIVE_MAX_MEMBERS,
+        MIN_ARCHIVE_MAX_MEMBERS,
+        MAX_ARCHIVE_MAX_MEMBERS,
     )
 
 
@@ -182,6 +194,29 @@ def validate_archive_member_yield(media: dict[str, Any]) -> int:
         or not MIN_ARCHIVE_MEMBER_YIELD_MS <= value <= MAX_ARCHIVE_MEMBER_YIELD_MS
     ):
         raise ValueError("archive member yield must be between 0 and 100 milliseconds")
+    return value
+
+
+def normalize_archive_max_members(media: dict[str, Any]) -> int:
+    value = media.get("archive_max_members", DEFAULT_ARCHIVE_MAX_MEMBERS)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_MEMBERS <= value <= MAX_ARCHIVE_MAX_MEMBERS
+    ):
+        _LOGGER.warning("Invalid stored archive member-count limit; using default")
+        return DEFAULT_ARCHIVE_MAX_MEMBERS
+    return value
+
+
+def validate_archive_max_members(media: dict[str, Any]) -> int:
+    value = media.get("archive_max_members", DEFAULT_ARCHIVE_MAX_MEMBERS)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_MEMBERS <= value <= MAX_ARCHIVE_MAX_MEMBERS
+    ):
+        raise ValueError("archive member limit must be between 100 and 200,000")
     return value
 
 

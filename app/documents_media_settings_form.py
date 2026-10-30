@@ -9,15 +9,18 @@ from typing import Any
 from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
     MAX_ARCHIVE_DISK_RESERVE_MB,
     MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+    MAX_ARCHIVE_MAX_MEMBERS,
     MAX_ARCHIVE_MEMBER_YIELD_MS,
     MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
     MIN_ARCHIVE_DISK_RESERVE_MB,
     MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+    MIN_ARCHIVE_MAX_MEMBERS,
     MIN_ARCHIVE_MEMBER_YIELD_MS,
     MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
@@ -167,6 +170,14 @@ def media_settings_from_form(
             MAX_ARCHIVE_MEMBER_YIELD_MS,
         )
     )
+    archive_max_members = (
+        current.get("archive_max_members", DEFAULT_ARCHIVE_MAX_MEMBERS)
+        if form.get("archive_max_members") is None
+        else _bounded_media_integer(
+            form, "archive_max_members", MIN_ARCHIVE_MAX_MEMBERS,
+            MAX_ARCHIVE_MAX_MEMBERS,
+        )
+    )
 
     return {
         "upload_limit_mib": upload_limit,
@@ -177,6 +188,7 @@ def media_settings_from_form(
         "archive_min_free_memory_mb": archive_min_free_memory_mb,
         "archive_disk_reserve_mb": archive_disk_reserve_mb,
         "archive_member_yield_ms": archive_member_yield_ms,
+        "archive_max_members": archive_max_members,
         "preview_enabled": enabled == "1",
         "preview_timeout_seconds": _bounded_media_integer(
             form, "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS,

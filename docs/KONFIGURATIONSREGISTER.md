@@ -45,7 +45,8 @@ ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstel
 | `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | `2048` | Gilt nur bis die persistente Datenträgerreserve gespeichert wurde; Ausreißer werden begrenzt |
 | `media.archive_member_yield_ms` (persistente Admin-Einstellung) | `2` | Pause je verarbeitetem Archiveintrag; `0–100 ms` |
 | `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_member_yield_ms` gespeichert wurde; Ausreißer werden begrenzt |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | `20000` | Maximal berücksichtigte Einträge; 100–200000 |
+| `media.archive_max_members` (persistente Admin-Einstellung) | `20000` | Maximale Zahl katalogisierter Archiveinträge; `100–200000` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | `20000` | Gilt nur bis `media.archive_max_members` gespeichert wurde; Ausreißer werden begrenzt |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | `512` | Maximalgröße eines Eintrags; 1–8192 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | `8` | Gesamtes Textbudget; 1–64 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | `2` | Textbudget je Eintrag; 1–32 |
@@ -65,7 +66,9 @@ Mindest-RAM und Datenträgerreserve sind zusätzlich unter **Admin → Einstellu
 Einstellung eingelesen; Änderungen gleichen vollständige abgeleitete
 Archivindizes beim nächsten Indexlauf an. Die Pause je Archiveintrag gilt für
 neu gestartete Indexläufe; `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum
-Speichern dieses Werts als Startwert verwendet.
+Speichern dieses Werts als Startwert verwendet. Die Kataloggrenze gilt beim
+nächsten Indexlauf; größere Archive werden als Teilindex markiert und die
+Originalarchive bleiben unverändert.
 
 Die optionale OCR für Bilddateien in Archiven ist unter **Admin → Einstellungen
 → Dokumente & Medien** verfügbar. Sie ist standardmäßig deaktiviert und benötigt
@@ -187,7 +190,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |

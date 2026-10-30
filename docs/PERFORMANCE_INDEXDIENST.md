@@ -93,6 +93,10 @@ anderen Arbeiten mehr Gelegenheit, 0 maximiert den Durchsatz.
 `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum Speichern der persistenten
 Einstellung als Legacy-Startwert verwendet; Änderungen gelten für neu gestartete
 Archivindexläufe.
+Die Kataloggröße (20.000 Einträge, zulässig 100–200.000) ist dort ebenfalls
+konfigurierbar. Archive mit mehr Einträgen erhalten einen Teilindex; die
+Legacy-Variable `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` wird nur bis zum Speichern des
+persistenten Grenzwerts als Startwert verwendet.
 „Nur Katalog indexieren“ hält Dateinamen und
 Archivstruktur suchbar, entfernt den abgeleiteten Inhaltsindex beim nächsten
 Archivlauf und verändert keine Originaldateien. Speicher- und Datenträgergrenzen
