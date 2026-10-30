@@ -27,13 +27,15 @@ Die Fehler-API ist technisch getrennt von der authentifizierten Federation. Eine
 
 ## Priorität der Konfiguration
 
-Die Auswahl des Meldewegs erfolgt in dieser Reihenfolge:
+Die Admin-Einstellung **Integrationen & Dienste → Automatische Fehlerberichte** ist das ausgehende Gesamt-Gate. Ist sie deaktiviert, wird unabhängig von einem Relay oder direkten GitHub-Modus nichts automatisch gesendet. `SIMPLEOFFICE_ERROR_REPORTING=0` bleibt ein Legacy-Opt-out, bis die persistente Einstellung erstmals gespeichert wird; danach hat die Einstellung Vorrang. Manuell erstellbare Issue-Links und die lokale Fehlerprotokollierung bleiben davon unberührt. Das Inbound-Collector-Gate `SIMPLEOFFICE_ERROR_RELAY_ENABLED` ist getrennt.
+
+Die Auswahl des Meldewegs erfolgt anschließend in dieser Reihenfolge:
 
 1. `SIMPLEOFFICE_ERROR_REPORT_URL` – optionaler expliziter/custom Relay-Override.
 2. Expliziter direkter GitHub-Modus mit `SIMPLEOFFICE_GITHUB_ERROR_REPORTING=1` – für kontrollierte Einzelserver.
 3. Ohne beides automatisch die buildfeste globale `LICENSE_MASTER_URL`.
 
-Mit
+Vor der ersten persistenten Einstellung kann mit
 
 ```bash
 SIMPLEOFFICE_ERROR_REPORTING=0
