@@ -15,7 +15,7 @@ Demo-Seeding: 4 synthetische Dateien + Vorschau-Vorabgenerierung, idempotent
 Backend/Key; Browser/Kamera und echte Inferenz bleiben Eigentümer-Schritte.
 Nachbarn: 47 OK; mail-privacy V2 12 Errors umgebungsbedingt (Sandbox-Scratch
 ohne instance/), 1 vorbestehender ClamAV-Pfadfehler. Gates grün.
-**Stand (29.10., Fotoeingang #658/#767, uncommitted):** `GET
+**Stand (29.10., Fotoeingang #658/#767, committed `69732b3c`):** `GET
 /inventory/capture` + `POST /inventory/capture/analyze` (OCR,
 ISBN-Weiche mit Pruefsumme, lokales ML-Label ohne Consent-Element,
 Dubletten aus Inventar/Bibliothek, Fehlfeldliste; speichert nichts) +
@@ -34,7 +34,7 @@ Test-ISBN-10-Erwartung an Shared-Kanonik (ISBN-13) angepasst. Verifiziert:
 Eigentümer-Befund 3 FAIL + 2 ERROR damit behoben); compile/py_compile +
 Function-Size grün. `git diff --check` und Browser/Kamera-Abnahme weiter
 eigentümerseitig offen. Kein Commit/Push.
-**Stand (29.10., persistenter Korb #767, uncommitted):** `CaptureInboxStore`
+**Stand (29.10., persistenter Korb #767, committed `69732b3c`):** `CaptureInboxStore`
 (Sidecar-Architektur wie Inventar: `capture-inbox.json` + `media/inbox/`,
 atomic/lock/sha256, actor-scoped): `POST /inventory/capture/upload`
 speichert Original sofort (ID, Zeit, Urheber, Hash-Idempotenz, Status),
@@ -56,7 +56,7 @@ OK + 2 Env-Skips (der 1 Vorrunden-Failure war fehlende pyproject.toml
 in der Scratch-Kopie, kein Codefehler), alle Gates grün. Echter
 Spark-Aufruf weiter blockiert (Schlüssel leer); Browser/Kamera +
 diff-check eigentümerseitig offen. Kein Commit/Push.
-**Stand (30.10., P0-E Mail-Entwurf, uncommitted):** `app/contextflow/
+**Stand (30.10., P0-E Mail-Entwurf, committed `518f8261`):** `app/contextflow/
 mail_draft.py` bereitet aus belegtem Hinweis einen editierbaren Entwurf
 über `MailCaseStore.create_draft_idempotent` (compose-Recht,
 Pflichtfelder, atomarer Client-Token, UNIQUE-Index); Token erscheint
@@ -88,7 +88,7 @@ Windows-MAX_PATH-Umgebungsfehler im Send-Archiv
 Store-Stellen, keine P0-E-Codepfade beteiligt, keine Browser-E2E.
 `git diff --check` (Sandbox sperrt git) + Browser eigentümerseitig
 offen. Kein Commit/Push.
-**Review-Fix (29.10., fail-closed + Kind-Prüfung, uncommitted):**
+**Review-Fix (29.10., fail-closed + Kind-Prüfung, committed `69732b3c`):**
 `CaptureInboxStore` wirft bei korruptem/unlesbarem Index
 `CaptureInboxIndexError` (nur fehlende Datei = leere Inbox); Routen
 antworten verständlich (Seite mit Banner, JSON-500, Preview-500),
@@ -97,7 +97,7 @@ Buch-Typen (`book`/`buch`), kind=object nur auf Rest; Neuzuordnung
 behält Original + Historie inkl. Vorgänger. 9 Regressionstests neu
 (bytegleicher Index-Erhalt, 500-Pfade, Kind-Mismatch, Reassign).
 Verifiziert: Capture-Module 53/53 OK, Gates grün. Kein Commit/Push.
-**Folge (29.10., 503-Mapping, uncommitted):** `CaptureInboxIndexError`
+**Folge (29.10., 503-Mapping, committed `69732b3c`):** `CaptureInboxIndexError`
 auf allen Korb-Endpunkten einheitlich als 503 „vorübergehend nicht
 verfügbar" (Upload, Preview, Assign, Re-Analyse; Seite weiter 200 mit
 Banner); nur FileNotFound gilt als leere Inbox, Decode-/I/O-/
@@ -122,7 +122,7 @@ geprüft (nur Präsenz/Leere, kein Wert); Loader lädt folgerichtig nichts;
 Netzaufruf ohne Key); Ollama-Loopback nicht erreichbar. Pin
 `muse-spark-1.3-contributor` + Responses-Endpunkt statisch bestätigt.
 Echter Spark-Aufruf weiter blockiert — nichts als Live-Erfolg behauptet.
-**Gates (29.10., uncommitted):** Secret-Gate war rot durch zwei
+**Gates (29.10., committed `69732b3c`):** Secret-Gate war rot durch zwei
 `sk-`-förmige Dummy-Fixtures (committed, keine echten Schlüssel) →
 detektorfreie Dummies (`test-only-dummy-…`), Gate grün; Ruff 0.16.9
 (CI-Pin) war rot durch 4 Befunde in `tools/contextflow_demo.py`
@@ -133,7 +133,7 @@ detektorfreie Dummies (`test-only-dummy-…`), Gate grün; Ruff 0.16.9
 Eltern-Tests (nur Laufzeitkosten). Verifiziert: Inventar-Discover 132
 OK, ContextFlow-Discover 293 OK + 2 Env-Skips, fokussiert 114 OK,
 Policy/File-/Function-Size/compileall/diff-check grün. Kein Commit/Push.
-**Folge (30.10., Token/Digest-Konflikt #767, uncommitted):** `create()`
+**Folge (30.10., Token/Digest-Konflikt #767, committed `69732b3c`):** `create()`
 wertete gleichen Actor+Token auch bei anderem SHA-256 als Duplikat;
 Upload analysierte dann neue Bytes bei altem Original. Fix: gleicher
 Token + gleicher Digest = Replay; gleicher Token + anderer Digest =
@@ -146,7 +146,7 @@ Modul 35/35 OK, Inbox-Modul 22/22 OK, Policy/File-/Function-Size/
 compileall/diff-check grün. Pin `muse-spark-1.3-contributor` + Meta-
 only unverändert; Spark-Live-Erfolg nicht behauptet (`../.env`
 `MODEL_API_KEY` leer geprüft). Kein Commit/Push, `.t/` unberührt.
-**Folge (30.10., Buchgruppen #658, uncommitted, Kern-Slice):**
+**Folge (30.10., Buchgruppen #658, committed `69732b3c`, Kern-Slice):**
 Mehrere Telefonfotos eines Buchs (Titel, Impressum, Rücken) bleiben als
 explizite Buchgruppe (`batch_id`, 32-hex, Client-generiert) zusammen:
 Upload akzeptiert `batch_id`, Content-Dedup ist batch-scharf (gleiche
@@ -1153,7 +1153,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Meta-Modellnachweis in dieser Runde. Kein Commit/Push; `.t/`
   unangetastet.
 
-## 30.10. – #767-Audit: Assign hängt Original an, Duplikat-Link, Upload-Robustheit (Muse, uncommitted)
+## 30.10. – #767-Audit: Assign hängt Original an, Duplikat-Link, Upload-Robustheit (Muse, committed `69732b3c`)
 
 - Audit gegen alle 6 #767-Kriterien: Korb/Reload/Analyse/Batch/Adopt, ML-/OCR-Transparenz,
   Meta-only-Gates, Befunde-ohne-Raum + Filter vorhanden und getestet; 4 Lücken klein geschlossen.
@@ -1172,7 +1172,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 - Offen: Korb-Suche (Ziel-, kein Kriterium), Geräte-/Browser-Livetests (Matrix in
   docs/CAMERA_DEVICE_MATRIX.md). Kein Commit/Push (Codex-Review ausstehend), `.t/` unberührt.
 
-## 30.10. – #658-Slice: Gruppen-Zuordnung + Fotorollen umgesetzt (Muse, uncommitted, Baseline 69732b3c)
+## 30.10. – #658-Slice: Gruppen-Zuordnung + Fotorollen umgesetzt (Muse, committed `ab4b05d9`, Baseline 69732b3c)
 
 - Baseline anerkannt: `69732b3c feat(hackathon): improve Meta capture and model status`
   (gepusht, HEAD). Historische Einträge unverändert; dieser Eintrag hängt an.
@@ -1199,7 +1199,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   MODEL_API_KEY), Geräteprüfung. Issue #658 bleibt offen. Kein Commit/Push
   (Codex reviewt/finalisiert), `.t/` unberührt.
 
-## 30.10. – #658 Codex-Review-Follow-up: Atomarität, Retry, Rollen-Sync (Muse, uncommitted, Baseline 69732b3c)
+## 30.10. – #658 Codex-Review-Follow-up: Atomarität, Retry, Rollen-Sync (Muse, committed `ab4b05d9`, Baseline 69732b3c)
 
 - F1 atomar: neu `CaptureInboxStore.assign_many()` validiert alle
   IDs, Actor und aktuelle Zuweisung unter einem Lock vor dem ersten
@@ -1238,7 +1238,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   (kein MODEL_API_KEY), Geräte-/Browser-Abnahme. Issue #658 bleibt
   offen. Diff unstaged, kein Commit/Push, `.t/` unberührt.
 
-## 30.10. – #658 letzter Review-Fix: Link-zuerst + Batch-Bindung (Muse, uncommitted, Baseline 69732b3c)
+## 30.10. – #658 letzter Review-Fix: Link-zuerst + Batch-Bindung (Muse, committed `ab4b05d9`, Baseline 69732b3c)
 
 - `assign_batch()` weist erst atomar per `assign_many()` zu und
   hängt Originale erst danach an; ein Race (400) mutiert jetzt
@@ -1257,7 +1257,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Browser-Abnahme; #658 bleibt offen. Diff unstaged, kein
   Commit/Push, `.t/` unberührt.
 
-## 30.10. – #658 Fehlerpfad-Fix: ehrlicher Rollen-Sync-Fehler (Muse, uncommitted, Baseline 69732b3c)
+## 30.10. – #658 Fehlerpfad-Fix: ehrlicher Rollen-Sync-Fehler (Muse, committed `ab4b05d9`, Baseline 69732b3c)
 
 - `set_entry_role()` liefert jetzt `(entry, attached_updated,
   sync_error)`; Inbox-Rolle bleibt gespeichert, Sync-Fehler
@@ -1275,7 +1275,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Browser-Abnahme; #658 bleibt offen. Diff unstaged, kein
   Commit/Push, `.t/` unberührt.
 
-## 30.10. – #658 Regal-Handoff umgesetzt + Size-Refactor (Muse, uncommitted)
+## 30.10. – #658 Regal-Handoff umgesetzt + Size-Refactor (Muse, committed `99d728b1`)
 
 - (c) Regal-Handoff: `adopt_batch(..., location_id)` validiert
   das Regal vor Anlage (400, kein Buch bei unbekannter ID);
@@ -1314,7 +1314,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   MODEL_API_KEY), echte Browser-/Kamera-/Geräteabnahme.
   #658 bleibt offen. Kein Commit/Push, `.t/` unberührt.
 
-## 30.10. – #813 Medienvorschau: Tests-only, kein Bug (Muse, uncommitted)
+## 30.10. – #813 Medienvorschau: Tests-only, kein Bug (Muse, committed `17fca310`)
 
 - Kette Upload/Folder-Import → Store/Preview → Detail → Media
   geprüft: Video nie als `<img>` (Player + preload + Fallback),
@@ -1330,7 +1330,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 - Offen: Android-WebView-/Gerätetest nie durchgeführt.
   Kein Commit/Push, `.t/` unberührt.
 
-## 30.10. – #813 Rest-Suiten nachgeholt (Muse, uncommitted)
+## 30.10. – #813 Rest-Suiten nachgeholt (Muse, committed `17fca310`)
 
 - Folder-Import: 8/8 OK (namentlich, ohne 1201-Dateien-Test:
   sprengt Sandbox-Zeitbudget, unberührter Durchsatz-Test);
@@ -1340,7 +1340,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Breadcrumb-MAX_PATH brauchen echte Umgebung/CI.
   Kein Commit/Push, `.t/` unberührt.
 
-## 30.10. – Scan-Suite WinError-32-Fix + Session-Voreinstellung (Muse, uncommitted)
+## 30.10. – Scan-Suite WinError-32-Fix + Session-Voreinstellung (Muse, committed `99d728b1`)
 
 - Ursache (belegt): `test_library_scan_session_http::setUp`
   nutzte plain `sqlite3.connect()` im `with`-Block, der nie
@@ -1359,7 +1359,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Geräteabnahme; #658 bleibt offen. Diff unstaged, kein
   Commit/Push, `.t/` unberührt.
 
-## 30.10. – #813 Breadcrumb-Fixture-Fix verifiziert (Muse, uncommitted)
+## 30.10. – #813 Breadcrumb-Fixture-Fix verifiziert (Muse, committed `17fca310`)
 
 - Korrektur zu oben: Die anfänglichen 8 Errors waren
   MAX_PATH-Fixture-Fehler der alten Breadcrumb-Tests (kein
@@ -1376,7 +1376,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   (Sandbox zu langsam, braucht CI). Kein Commit/Push,
   `.t/` unberührt.
 
-## 30.10. – Meta-Spark-Live-Smoke über App-Pfad (Muse, uncommitted)
+## 30.10. – Meta-Spark-Live-Smoke über App-Pfad (Muse, committed `ed786c38`)
 
 - Echter Cloud-Smoke im echten Repo: `vision_config_from_env`
   + `prepare_draft` auf temporärem, markiertem synthetischem
@@ -1394,7 +1394,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   URLError-Timeout, auch GET /v1/models, ohne Key-Leak).
   Kein Commit/Push, `.t/` unberührt.
 
-## 30.10. – Vorschlag-Tags + Notiz-Übernahme (Muse, uncommitted)
+## 30.10. – Vorschlag-Tags + Notiz-Übernahme (Muse, committed `5d2ae394`)
 
 - Schema: `validate_object_suggestion` liefert `tags` (max 6,
   max 40 Zeichen, dedup, Nicht-Strings/Überlange verworfen,
@@ -1430,7 +1430,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   stehen. Browser-E2E weiter offen (Computer Use konnte
   die Edge-URL nicht sicher bestimmen und stoppte).
 
-## 30.10. – Capture-Prefill Beschreibung/Tags (Muse, uncommitted)
+## 30.10. – Capture-Prefill Beschreibung/Tags (Muse, committed `5d2ae394`)
 
 - `capture_ml_label` reicht validierte Note/Tags durch;
   `analyze_photo`-Prefill (Objekt + Buch) enthält
@@ -1459,7 +1459,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   stehen. Keine UI-E2E behauptet (Computer Use stoppte,
   Edge-URL unsicher).
 
-## 30.10. – Android Release-Signing-Pfad (Muse, uncommitted)
+## 30.10. – Android Release-Signing-Pfad (Muse, committed `518f8261`)
 
 - Nur Quellseite, keine Key-Material-Erzeugung: `build.gradle`
   lädt 4 Signing-Einstellungen aus User-Properties oder Env,
@@ -1486,7 +1486,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   wiederholtes Update-APK daher noch nicht praktisch geprüft.
   Kein Commit/Push, `.t/` unberührt.
 
-## 30.10. – P0-G Meta-Agent mit Tool-Loop (Muse, uncommitted)
+## 30.10. – P0-G Meta-Agent mit Tool-Loop (Muse, committed `518f8261`)
 
 - Neu `app/contextflow/meta_agent.py`: echter Responses-Tool-Loop
   mit Pin `muse-spark-1.3-contributor` + offiziellem Endpunkt
@@ -1523,7 +1523,7 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   3 Vorschläge, requires_approval true, 2152/784 Tokens,
   10,2 s. Diagnose unterwegs: Reasoning-Anteil gemessen
   (trivial 319, Schritt 1 ohne Tuning 246 von 502 Tokens).
-- Folge (30.10., uncommitted): Rechnungseditor-Deep-Link auf
+- Folge (30.10., committed `518f8261`): Rechnungseditor-Deep-Link auf
   der Ergebnisseite (Dashboard-Regel: nur mit Kontakt-Manage-
   Recht, sonst unsichtbar; Fremd-User sieht keine Folge-Links).
   Tests +2 (ohne Manage, fremder Actor); Test-Split Loop/Web
