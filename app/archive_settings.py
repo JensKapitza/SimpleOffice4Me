@@ -26,6 +26,9 @@ MAX_ARCHIVE_MEMBER_YIELD_MS = 100
 DEFAULT_ARCHIVE_MAX_MEMBERS = 20000
 MIN_ARCHIVE_MAX_MEMBERS = 100
 MAX_ARCHIVE_MAX_MEMBERS = 200000
+DEFAULT_ARCHIVE_MAX_TEXT_MB = 8
+MIN_ARCHIVE_MAX_TEXT_MB = 1
+MAX_ARCHIVE_MAX_TEXT_MB = 64
 
 
 def legacy_archive_deep_index_enabled() -> bool:
@@ -112,6 +115,15 @@ def legacy_archive_max_members() -> int:
         DEFAULT_ARCHIVE_MAX_MEMBERS,
         MIN_ARCHIVE_MAX_MEMBERS,
         MAX_ARCHIVE_MAX_MEMBERS,
+    )
+
+
+def legacy_archive_max_text_mb() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB",
+        DEFAULT_ARCHIVE_MAX_TEXT_MB,
+        MIN_ARCHIVE_MAX_TEXT_MB,
+        MAX_ARCHIVE_MAX_TEXT_MB,
     )
 
 
@@ -217,6 +229,29 @@ def validate_archive_max_members(media: dict[str, Any]) -> int:
         or not MIN_ARCHIVE_MAX_MEMBERS <= value <= MAX_ARCHIVE_MAX_MEMBERS
     ):
         raise ValueError("archive member limit must be between 100 and 200,000")
+    return value
+
+
+def normalize_archive_max_text_mb(media: dict[str, Any]) -> int:
+    value = media.get("archive_max_text_mb", DEFAULT_ARCHIVE_MAX_TEXT_MB)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_TEXT_MB <= value <= MAX_ARCHIVE_MAX_TEXT_MB
+    ):
+        _LOGGER.warning("Invalid stored archive text budget; using default")
+        return DEFAULT_ARCHIVE_MAX_TEXT_MB
+    return value
+
+
+def validate_archive_max_text_mb(media: dict[str, Any]) -> int:
+    value = media.get("archive_max_text_mb", DEFAULT_ARCHIVE_MAX_TEXT_MB)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not MIN_ARCHIVE_MAX_TEXT_MB <= value <= MAX_ARCHIVE_MAX_TEXT_MB
+    ):
+        raise ValueError("archive text budget must be between 1 and 64 MiB")
     return value
 
 

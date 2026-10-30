@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from app.archive_indexer import (
     _disk_budget,
+    _truncate_utf8_bytes,
     _windows_free_memory_bytes,
     cleanup_stale_scratch,
     index_archive,
@@ -19,6 +20,7 @@ from app.archive_indexer import (
 from app.archive_settings import (
     DEFAULT_ARCHIVE_DISK_RESERVE_MB,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
+    DEFAULT_ARCHIVE_MAX_TEXT_MB,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
 from app.document_store import DocumentStore
@@ -231,6 +233,11 @@ class ArchiveIndexerTest(unittest.TestCase):
                 "archive_max_members", 25000, 100, 200000,
                 DEFAULT_ARCHIVE_MAX_MEMBERS,
             ),
+            (
+                "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB",
+                "archive_max_text_mb", 12, 1, 64,
+                DEFAULT_ARCHIVE_MAX_TEXT_MB,
+            ),
         )
         for env_name, key, configured, minimum, maximum, default in cases:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as temporary:
@@ -347,6 +354,40 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual("partial", partial["status"])
             self.assertTrue(partial["catalog_truncated"])
             self.assertEqual(150, len(partial["catalog"]))
+
+    def test_persisted_text_budget_caps_utf8_bytes_and_reindexes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive_path = root / "text-budget.zip"
+            marker = "TEXT-END-MARKER"
+            with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
+                archive.writestr("large.txt", ("é" * 600_000) + marker)
+            store = DocumentStore(root)
+            store.scan()
+            settings = SettingsStore(root)
+            settings.save(
+                {"media": {"archive_max_text_mb": 1, "archive_member_yield_ms": 0}},
+                "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                limited = index_archive(store, archive_path)
+            self.assertLessEqual(len(limited["search_text"].encode("utf-8")), 1024 * 1024)
+            self.assertNotIn(marker, limited["search_text"])
+            self.assertEqual(1, limited["resource_policy"]["max_text_mb"])
+
+            settings.save({"media": {"archive_max_text_mb": 2}}, "archive-admin")
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
+                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
+            ):
+                expanded = index_archive(store, archive_path)
+            self.assertIn(marker, expanded["search_text"])
+            self.assertEqual(2, expanded["resource_policy"]["max_text_mb"])
+
+    def test_text_budget_truncation_never_splits_utf8_sequences(self):
+        self.assertEqual("éé", _truncate_utf8_bytes("ééé", 5))
+        self.assertEqual("", _truncate_utf8_bytes("text", 0))
 
     def test_memory_threshold_and_disk_reserve_fail_closed_at_configured_limits(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(

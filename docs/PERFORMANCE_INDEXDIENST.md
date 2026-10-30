@@ -96,7 +96,11 @@ Archivindexläufe.
 Die Kataloggröße (20.000 Einträge, zulässig 100–200.000) ist dort ebenfalls
 konfigurierbar. Archive mit mehr Einträgen erhalten einen Teilindex; die
 Legacy-Variable `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` wird nur bis zum Speichern des
-persistenten Grenzwerts als Startwert verwendet.
+persistenten Grenzwerts als Startwert verwendet. Das gesamte Volltextbudget je
+Archiv beträgt standardmäßig 8 MiB und ist auf 1–64 MiB konfigurierbar. Änderungen
+gleichen den abgeleiteten Suchtext beim nächsten Indexlauf an; die bisherige
+`SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB`-Variable gilt nur bis zum Speichern der
+persistenten Einstellung.
 „Nur Katalog indexieren“ hält Dateinamen und
 Archivstruktur suchbar, entfernt den abgeleiteten Inhaltsindex beim nächsten
 Archivlauf und verändert keine Originaldateien. Speicher- und Datenträgergrenzen
