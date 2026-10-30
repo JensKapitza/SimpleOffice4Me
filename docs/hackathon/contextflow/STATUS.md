@@ -56,6 +56,38 @@ OK + 2 Env-Skips (der 1 Vorrunden-Failure war fehlende pyproject.toml
 in der Scratch-Kopie, kein Codefehler), alle Gates grün. Echter
 Spark-Aufruf weiter blockiert (Schlüssel leer); Browser/Kamera +
 diff-check eigentümerseitig offen. Kein Commit/Push.
+**Stand (30.10., P0-E Mail-Entwurf, uncommitted):** `app/contextflow/
+mail_draft.py` bereitet aus belegtem Hinweis einen editierbaren Entwurf
+über `MailCaseStore.create_draft_idempotent` (compose-Recht,
+Pflichtfelder, atomarer Client-Token, UNIQUE-Index); Token erscheint
+nirgends in Betreff/Body, `get_case`/`begin_draft_send` geben ihn
+nicht heraus. `POST /contextflow/mail-draft` + Dashboard-Formular mit
+Freigabe-Checkbox, Redirect in den vorhandenen Mail-Reader. Nur belegte
+Fakten (Befund-IDs/Titel, Abschlussdatum, Kontakt-E-Mail); „erstellt"
+nur bei verknüpfter Rechnung mit Status `open` + Nummer (einzigem
+finalize_invoice-Endzustand), sonst ehrliche Ungeklärte-Aussage;
+fehlende E-Mail verweigert statt Empfänger zu erfinden. Garantien wie
+approve_task (literale Freigabe, Hint-Fingerprint, frische Rechte-
+prüfung) plus Doppel-Evaluierung unmittelbar vor dem Insert (fail
+closed bei Auseinanderlaufen) und atomare Replay-Auflösung ohne
+Überschreiben von Nutzer-Edits; Versandpfad wird nie berührt (per
+Test gemockt-verboten). Fremd-Links melden „case link not found"
+(leckfrei, wie Bestand), Totalentzug folgt Bestands-ValueError-
+Semantik. Draft-Methoden nach `app/mail_case_drafts.py` ausgelagert
+(Mixin, keine Fachänderung, File-Size-Gate grün). Fork-A-Review
+(Freigabe, 6 niedrig): Non-Dict-Rechnungsfallback an ehrlichen Satz
+angezogen + 2 Tests (Token-Strip bei begin_draft_send, Edit-Erhalt
+bei Replay via prepare_hint_draft); Orakel-/400-/Slice-Hinweise
+begründet akzeptiert (Token nicht ratbar, fail-closed, Slice nach
+Validierung No-op). Verifiziert: Module 58/58 OK (mail_draft 21 +
+mail_case_store 37), ContextFlow-Discover 333 OK + 2 Env-Skips (nach
+Split bestätigt), Policy/File-/Function-Size/compileall grün.
+Mail-Routen-Send-Tests 5/7: 2 Fehler sind vorbestehender
+Windows-MAX_PATH-Umgebungsfehler im Send-Archiv
+(296-Zeichen-.partial-Pfad), unverändert auch mit revertierten
+Store-Stellen, keine P0-E-Codepfade beteiligt, keine Browser-E2E.
+`git diff --check` (Sandbox sperrt git) + Browser eigentümerseitig
+offen. Kein Commit/Push.
 **Review-Fix (29.10., fail-closed + Kind-Prüfung, uncommitted):**
 `CaptureInboxStore` wirft bei korruptem/unlesbarem Index
 `CaptureInboxIndexError` (nur fehlende Datei = leere Inbox); Routen
@@ -737,9 +769,9 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 | B 5-Tage-Follow-up | umgesetzt | Berlin-Evaluator, DST, unknown-Rechnung, injizierbare Uhr; Tests grün |
 | C Engel-Hinweis | teilweise | Karte + Quellen + Später/Nicht-mehr umgesetzt; Ruhezeiten/Hinweise-pro-Tag fehlen |
 | D sichere Aktion | umgesetzt | Aufgabe genau einmal (replay-sicher); Editor-Link mit Manage-Gate; nichts erfunden |
-| E Mail-Entwurf | FEHLT | keine Entwurfs-Erstellung aus Hinweis (Code-Read 28.10.) |
+| E Mail-Entwurf | umgesetzt | belegter Entwurf via MailCase-Vertrag (Freigabe, Stale-/Replay-Schutz, nie versendet); Tests grün |
 | F lokale Betriebsart | teilweise | Regeln ohne KI; Ollama live für Foto-Klassifikation; Hinweis-Umschreibung fehlt |
-| G Meta-Runtime-Agent | teilweise | Provider + Doppel-Gates umgesetzt/getestet; echter Agent + Live-Call fehlen |
+| G Meta-Runtime-Agent | umgesetzt | Echter Tool-Loop (4 Read-only-Tools, max 5 Schritte, Evidence-Validierung, nur Vorschlag) + 1 synthetischer Live-Lauf (2 Schritte, 4/4 Tools, 10,2 s); 44 Tests + Gates grün; Editor-Link mit Manage-Gate |
 | H Security/QA/Alt-Neu | umgesetzt | Rechte/CSRF/Idempotenz/Revision, Tests + Gates grün (Zahlen im Kopf), Alt/Neu-Doku |
 | Jury-Demo (3 Min) | FEHLT | Plan vorhanden, Video nicht produziert |
 | P1/P2 | offen per Plan | erst nach stabilem P0 / nach Hackathon |
@@ -1426,3 +1458,162 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Muse-Scratch-Lauf 237/237 bleibt als separater Lauf
   stehen. Keine UI-E2E behauptet (Computer Use stoppte,
   Edge-URL unsicher).
+
+## 30.10. – Android Release-Signing-Pfad (Muse, uncommitted)
+
+- Nur Quellseite, keine Key-Material-Erzeugung: `build.gradle`
+  lädt 4 Signing-Einstellungen aus User-Properties oder Env,
+  `signingConfigs.release` nur bei Vollständigkeit;
+  `assembleRelease` ohne/teilweise/unlesbar bricht per
+  taskGraph-Guard mit klarer Meldung ab (kein stilles
+  Unsigned-APK); keine Credential-Werte im Log.
+- Lokale `versionCode`-Sequenz ohne Env: deterministischer
+  UTC-10s-Slot (1..8640); explizite CI-Sequenz gewinnt,
+  Datums-/Run-Reproduzierbarkeit bleibt.
+- README (Build, engl.): Key-Lage außerhalb Repo, Backup-
+  Warnung, per-user Properties, assembleRelease, apksigner
+  SHA-256, Uninstall-bei-Zertifikatswechsel, CI-Debug-Arte-
+  fakte als development-only markiert.
+- Tests: neu 9/9 + Nachbarn gesamt 51/51 OK (direkt,
+  kein Scratch nötig); Policy/Size/Function/Secret grün.
+- Persistenter Release-Keystore und User-Gradle-Properties
+  außerhalb des Repos erstellt; SHA-256-Zertifikatsfingerprint
+  ausgelesen. Kein APK-Build: lokal liegt nur Gradle 9.4.1
+  vor (Projekt/CI erwartet 8.13); der Versuch mit 9.4.1
+  scheiterte bereits beim Start mit „Unable to establish
+  loopback connection“. Der 8.13-Download wurde wegen sehr
+  niedriger Übertragungsrate abgebrochen. Signatur und
+  wiederholtes Update-APK daher noch nicht praktisch geprüft.
+  Kein Commit/Push, `.t/` unberührt.
+
+## 30.10. – P0-G Meta-Agent mit Tool-Loop (Muse, uncommitted)
+
+- Neu `app/contextflow/meta_agent.py`: echter Responses-Tool-Loop
+  mit Pin `muse-spark-1.3-contributor` + offiziellem Endpunkt
+  (Konstanten aus `vision.py`, keine Duplikate); Gates Provider
+  meta + Server-Consent + literale Request-Einwilligung + Key +
+  verifizierter Demo-Root VOR jedem Aufruf; 4 Read-only-Tools
+  (Fall, Befunde, Rechnung, Kalender) mit Link-Bindung, strikten
+  Argumenten und frischen Actor-Rechten; max 5 Schritte, 60 s/Call,
+  2048 Output-Tokens + minimales Reasoning (live gemessen: 246→39
+  Tokens); finale JSON-Schemavalidierung, Evidence-IDs nur aus
+  diesem Lauf, `requires_approval` immer true; keine Schreib-/
+  Sende-Pfade, keine Redirects, keine Secrets in Fehlern.
+- UI `GET /agent` + `POST /agent/run` + `templates/contextflow/
+  agent.html` (vom Dashboard verlinkt, Starter druckt URL):
+  Fallwahl mit Vorauswahl, unmarkierte Contributor-Checkbox,
+  ehrliche Provider/Key/Root-Pills, Tool-Tabelle mit Details,
+  Belege, Unbekanntes, Vorschläge, Weiter-Links, Fehlerseite mit
+  Status, Doppelklick-Sperre (`static/contextflow-agent.js`),
+  Dauerhinweis. Demo-Seed um widersprüchlichen Ersatzteil-Befund
+  erweitert (3 offene Befunde).
+- Tests neu `tests/test_contextflow_meta_agent.py` (42): Loop mit
+  Fake-Transport, Grenzen/ungültige Tools/Argumente, Modell-/
+  Endpunkt-Pins, Consent/Root-Sperren, Output-Validierung,
+  Canary (Sentinel + Key nie in Bodies), kein Write, Web-Routen
+  inkl. CSRF/Flag-off/502 + HTTP-E2E mit skriptiertem Transport.
+- Reviews: Fork A Security Freigabe (4 niedrig → beantwortete
+  Budget-Calls + strikte Argumente umgesetzt, Clip/Fehlertext
+  begründet akzeptiert); Fork B Demo 8 Lücken (Link, Pills,
+  Fehlerseite, Details, Folge-Links, E2E, Doppelklick umgesetzt,
+  Doku hiermit, Async/Editor-Links offen).
+- LIVE (30.10., synthetisch, Key nur Präsenz geprüft, nie
+  ausgegeben): 2 Schritte, 4/4 Tools OK (Fall, Befunde,
+  Rechnung, Kalender), 3 Befunde, 8 validierte Beleg-IDs,
+  3 Vorschläge, requires_approval true, 2152/784 Tokens,
+  10,2 s. Diagnose unterwegs: Reasoning-Anteil gemessen
+  (trivial 319, Schritt 1 ohne Tuning 246 von 502 Tokens).
+- Folge (30.10., uncommitted): Rechnungseditor-Deep-Link auf
+  der Ergebnisseite (Dashboard-Regel: nur mit Kontakt-Manage-
+  Recht, sonst unsichtbar; Fremd-User sieht keine Folge-Links).
+  Tests +2 (ohne Manage, fremder Actor); Test-Split Loop/Web
+  wegen File-Size-Gate (658/412 Zeilen). Async-Fortschritt
+  bewusst zurückgestellt (keine update2-Anforderung; Live-Lauf
+  10,2 s, Doppelklick-Sperre + Dauerhinweis aktiv). Keine Forks
+  (kleiner Muster-Reuse, neue Tests decken die Gates ab).
+- Verifiziert: Modul 44/44 OK (Loop + Web), Discover 377 OK +
+  2 Env-Skips, Policy/File-/Function-Size/compileall grün,
+  Starter-`--help` ok. Kein neuer Live-Call (kein Modell-
+  verhalten geändert). Kein Commit/Push, `.t/` unberührt.
+- Offen (nicht behauptet): Browser-E2E, Async-Fortschritt,
+  wiederholter Live-Dauerbetrieb; `git diff --check`
+  eigentümerseitig (Sandbox sperrt git).
+
+## 2026-10-30 – Security-Fork 1–3 + Demo-Acceptance (Muse)
+
+- Security 1: `ml_status(models_probe_allowed=False)` ruft ohne
+  Opt-in nichts auf; Route fordert documents-Feature +
+  Server-Consent + verifizierten Demo-Root (sonst nur sicherer
+  Status/Grund). 3 Regressionstests (Key ohne Consent → 0
+  Requests, echter Root → 0, Demo+Consent → dokumentiert);
+  Secrets nie ausgegeben.
+- Security 2: `contact_suggest`-Docstrings korrigiert (Meta-Cloud
+  nur mit Zustimmung + Serverflag + Key + verifiziertem
+  Demo-Root; reale Roots 403).
+- Security 3: `/agent/run` mit Actor-Throttle (5 Läufe/300 s,
+  429 + Retry-After, In-Memory je Prozess) + Single-Flight (409),
+  Freigabe in `finally` (Muster aus github_error_reporter).
+- Demo: lesbare Falltitel (Auswahl + Ergebnis), In-/Out-Tokens +
+  Laufzeit + ehrlicher Max-Laufzeittext, Tool-Zusammenfassungen,
+  Beleg-Deep-Links (Mail/Ortstermin#findings/Editor, nur
+  verifiziert, sonst Klartext), Consent-Pill, KeyError →
+  kontrollierter 500er, Fallauswahl bleibt bei Fehlern,
+  Screenreader-Status + Fokus, Stylesheet in `<head>`,
+  Agent-Link bei leerem Dashboard. Doppel-JS
+  `static/contextflow-agent.js` gelöscht (Guard aus global_ui.js
+  ist einzige Quelle).
+- Refactor (File-Size-Gate): Agent-View-Helfer nach
+  `app/contextflow/agent_web.py` (221 Zeilen), `web.py` 1115 →
+  939; `INVOICE_EDITOR_URL` nach `contracts.py`. Keine
+  Fachänderung, nur Umzug + `root`-Parameter.
+- Verifiziert: Loop/Web 50/50 OK, gezielte Runde 127/127 OK,
+  Discover 388 OK + 2 Env-Skips (467,6 s), Policy/File-/
+  Function-Size/compileall grün, `git diff --check` Exit 0
+  (via `-c safe.directory`, ohne globale Config-Änderung).
+  Branch `hackathon/contextflow-mvp` bestätigt. Kein neuer
+  Live-Call (kein Modellverhalten geändert). Kein Commit/Push,
+  `.t/` und Android-Dateien unberührt.
+- Offen (nicht behauptet): Browser-E2E, Async-Fortschritt,
+  wiederholter Live-Dauerbetrieb; Throttle-Semantik bei
+  Mehrprozess-Betrieb beachten (Zähler je Prozess).
+
+## 2026-10-30 – Guard-Nachweis Agent-Formular (Muse)
+
+- 1 Regressionstest versiegelt den Doppelklick-Schutz nach der
+  JS-Löschung: Formular ohne `data-allow-multiple-submit`, mit
+  Submit-Knopf, `global_ui.js` auf der Seite (Guard dort +
+  Layout-Einbindung per Review bestätigt, unverändert).
+- Verifiziert: neuer Test 1/1 OK, Mutations-Gegenprobe FAIL
+  (Opt-out simuliert), Modul Web+global_ui 19/19 OK,
+  Policy/File-/Function-Size/compileall + `git diff --check`
+  grün. Kein Commit/Push, `.t/`/Android unberührt.
+
+## 2026-10-30 – Live-Startpfad + Port-Preflight (Muse)
+
+- `start.bat demo` bis zum Socket verifiziert (Workspace-Kopie,
+  Port 5100, synthetischer Root): venv-Checks, Seeding (Fall +
+  4 Demo-Dateien), Bereit-Banner, Mock, kein Cloud-Versand.
+- Blocker belegt (alle Sandbox, kein Repo-Fehler): Hidden-
+  Start ungültig, `instance/`-Secret lesegesperrt,
+  `%TEMP%`-Schreiben verweigert (Zielordner nie angelegt),
+  `listen()` → WinError 10013 bei freiem `bind()`. Kein
+  HTTP-Server aus der Sandbox möglich; 5099 belegt, aber ohne
+  HTTP-Antwort (Fremdprozess, unberührt). Eigentümer-Befehl:
+  `start.bat demo --port 5100 --root
+  %TEMP%\contextflow-live-supervision-20261030`.
+- Fix im Start-Scope: Port-Preflight (bind+listen, Fail-fast
+  vor Seeding, klare `--port`-Meldung statt Werkzeug-Kurztext).
+- Verifiziert: demo_vision 14/14 OK (4 neu), Gates +
+  `git diff --check` grün. Kein Commit/Push.
+
+## 2026-10-30 – Live-HTTP verifiziert (Eigentümer-Nachweis)
+
+- Echter `start.bat demo`-Boot außerhalb der Muse-Sandbox
+  (Port 5100, frischer synthetischer Root): Login-POST 302,
+  `GET /contextflow/` 200 (21.974 Bytes),
+  `GET /contextflow/agent` 200 (14.836 Bytes). Keine
+  Meta-API-Inferenz, nur synthetische Demo-Daten. Server läuft
+  auf 127.0.0.1:5100 für Browser-Tests; Port 5099 unberührt.
+- Damit ist der HTTP-Livepfad verifiziert; der dokumentierte
+  Sandbox-`listen()`-Block (WinError 10013) gilt nur für
+  Serverstarts innerhalb der Muse-Sandbox.

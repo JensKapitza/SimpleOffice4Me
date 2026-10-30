@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -126,6 +127,38 @@ def prepare_root(path: Path, fresh: bool) -> Path:
     return path
 
 
+def _preflight_port(port: int) -> None:
+    """Fail early with guidance if the loopback port cannot be served.
+
+    Werkzeug converts bind failures into a bare message plus
+    ``SystemExit(1)``, so ``flask_app.run`` cannot be wrapped
+    usefully. A short bind+listen probe detects busy and forbidden
+    ports first. A tiny rebind race remains; worst case is
+    werkzeug's own message, never a traceback.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", port))
+        probe.listen(1)
+    except OSError as exc:
+        _fail(
+            f"cannot listen on 127.0.0.1:{port} ({exc}); "
+            "is the port already in use or forbidden? "
+            "Retry with another --port."
+        )
+    finally:
+        probe.close()
+
+
+def serve(flask_app, port: int) -> None:
+    """Serve on loopback after the port preflight (see above).
+
+    KeyboardInterrupt still stops the server normally.
+    """
+    _preflight_port(port)
+    flask_app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+
+
 def main() -> None:
     from tools.local_env import load_parent_env_file
     load_parent_env_file()
@@ -134,6 +167,7 @@ def main() -> None:
     parser.add_argument("--root", default=str(DEFAULT_DIR))
     parser.add_argument("--fresh", action="store_true")
     args = parser.parse_args()
+    _preflight_port(args.port)
 
     root = prepare_root(Path(args.root).expanduser(), args.fresh)
 
@@ -166,6 +200,8 @@ def main() -> None:
     print("ContextFlow Demo bereit (alle Daten synthetisch).")
     print("  URL im Browser oeffnen:")
     print(f"    http://127.0.0.1:{args.port}/contextflow/")
+    print(f"  Meta-Demo-Analyse (nur mit Einwilligung, synthetisch):")
+    print(f"    http://127.0.0.1:{args.port}/contextflow/agent")
     print("  Benutzername (genau so, nicht admin):")
     print(f"    {DEMO_USERNAME}")
     print("  Passwort (genau so, nur Demo-Zugang, nur lokal):")
@@ -195,7 +231,7 @@ def main() -> None:
     else:
         print("Keine Worker oder externen Nachrichten.")
     print("Bei 'Zu viele Versuche': kurz warten oder mit --fresh neu starten.")
-    flask_app.run(host="127.0.0.1", port=args.port, debug=False, use_reloader=False)
+    serve(flask_app, args.port)
 
 
 if __name__ == "__main__":

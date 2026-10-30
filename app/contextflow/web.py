@@ -3,12 +3,14 @@
 The blueprint is registered unconditionally but every route answers 404
 unless ContextFlow is explicitly enabled. All reads stay actor-scoped and
 authorized; writes are limited to explicit confirmations. No invoice
-finalization, no SMTP, no model calls in this module.
+finalization, no SMTP. Model calls happen only through the doubly-gated
+Meta agent route on verified synthetic demo roots.
 """
 
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -33,8 +35,15 @@ from ..mail_case_store import MailCaseStore
 from ..object_vision import ocr_availability
 from ..site_visit_store import SiteVisitStore
 from .actions import ApprovalStale, approve_task
+from .agent_web import render_agent
 from .case_links import BERLIN, CaseLinkStore
-from .contracts import MAIL_CASE_URL, TASKS_URL, VISIT_URL
+from .contracts import (
+    INVOICE_EDITOR_URL,
+    MAIL_CASE_URL,
+    TASKS_URL,
+    VISIT_URL,
+)
+from .demo import is_verified_demo_root
 from .doc_tags import (
     DocumentNotFoundError,
     apply_tag_confirmation,
@@ -69,7 +78,6 @@ from .vision import (
 )
 
 bp = Blueprint("contextflow", __name__, url_prefix="/contextflow")
-INVOICE_EDITOR_URL = "/documents/business/contacts/{contact_id}/invoice"
 
 
 def _enabled() -> bool:
@@ -385,6 +393,129 @@ def approve():
     return redirect(url_for("contextflow.dashboard"))
 
 
+@bp.post("/mail-draft")
+@login_required
+def mail_draft():
+    """Prepare one editable mail draft from a reviewed hint (never sends)."""
+    from .mail_draft import prepare_hint_draft
+
+    _gate()
+    actor = _actor()
+    form = request.form
+    try:
+        result = prepare_hint_draft(
+            actor,
+            str(form.get("link_id", "")),
+            str(form.get("expected_hint_id", "")),
+            form.get("approved") == "yes",
+            _now(),
+            _root(),
+        )
+    except ApprovalStale as exc:
+        abort(409, description=str(exc))
+    except PermissionError:
+        abort(403)
+    except ValueError as exc:
+        abort(400, description=str(exc))
+    return redirect(str(result["mail_url"]))
+
+
+@bp.get("/agent")
+@login_required
+def agent_form():
+    """Show the Meta demo-analysis form for one confirmed case."""
+    _gate()
+    actor = _actor()
+    settings = _vision_settings()
+    preselected = str(request.args.get("link_id", "") or "")
+    return render_agent(actor, _root(), settings, None, None, 200, preselected)
+
+
+@bp.post("/agent/run")
+@login_required
+def agent_run():
+    """Run the Meta tool loop once; the result stays a proposal."""
+    from .meta_agent import (
+        MetaAgentError,
+        release_agent_run,
+        reserve_agent_run,
+        run_agent,
+    )
+
+    _gate()
+    actor = _actor()
+    form = request.form
+    settings = _vision_settings()
+    submitted = str(form.get("link_id", ""))
+    slot, retry_after = reserve_agent_run(actor)
+    if slot == "limited":
+        body, code = render_agent(
+            actor,
+            _root(),
+            settings,
+            None,
+            "Zu viele Analysen in kurzer Zeit – bitte später erneut versuchen.",
+            429,
+            submitted,
+        )
+        return body, code, {"Retry-After": str(retry_after or 60)}
+    if slot == "busy":
+        return render_agent(
+            actor,
+            _root(),
+            settings,
+            None,
+            "Für diesen Benutzer läuft bereits eine Analyse – bitte abwarten.",
+            409,
+            submitted,
+        )
+    start = time.monotonic()
+    try:
+        try:
+            result = run_agent(
+                actor=actor,
+                link_id=submitted,
+                consent_meta=form.get("consent_meta") == "yes",
+                settings=settings,
+                root=_root(),
+                now=_now(),
+            )
+        except PermissionError as exc:
+            return render_agent(
+                actor,
+                _root(),
+                settings,
+                None,
+                str(exc) or "Keine Berechtigung",
+                403,
+                submitted,
+            )
+        except ValueError as exc:
+            return render_agent(
+                actor, _root(), settings, None, str(exc), 400, submitted
+            )
+        except KeyError:
+            return render_agent(
+                actor,
+                _root(),
+                settings,
+                None,
+                "Analyse gestört, bitte erneut versuchen.",
+                500,
+                submitted,
+            )
+        except MetaAgentError as exc:
+            return render_agent(
+                actor, _root(), settings, None, str(exc), 502, submitted
+            )
+        run_seconds = time.monotonic() - start
+        return render_agent(
+            actor, _root(), settings, result, None, 200, submitted, run_seconds
+        )
+    finally:
+        release_agent_run(actor)
+
+
 def _vision_settings() -> dict[str, Any]:
     """Vision backend settings; Meta stays doubly gated (flag + checkbox)."""
     return vision_settings_from_mapping(current_app.config, os.environ)
@@ -397,10 +528,27 @@ def ml_status_route():
 
     Login is required, but no object rights: the payload carries
     availability booleans and configured model names only — never API
-    keys, credentials, or tracebacks.
+    keys, credentials, or tracebacks. The external Meta models probe
+    runs only with documents permission, server consent, and a
+    verified synthetic demo root; otherwise only safe local state
+    is reported and no external request happens.
     """
     _gate()
-    status = ml_status(_vision_settings())
+    settings = _vision_settings()
+    user = g.get("user")
+    name = ""
+    if user is not None:
+        try:
+            name = str(user["username"] or "")
+        except (KeyError, IndexError, TypeError):
+            name = ""
+    permitted = bool(name) and has_feature(user, "documents")
+    probe_allowed = (
+        permitted
+        and settings.get("meta_consent") is True
+        and is_verified_demo_root(_root())
+    )
+    status = ml_status(settings, models_probe_allowed=probe_allowed)
     status["ocr"] = ocr_availability()
     return {"ok": True, **status}, 200
 

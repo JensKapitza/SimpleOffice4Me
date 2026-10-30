@@ -227,9 +227,10 @@ def _require_provider(
 
     Local Ollama is the default. The Meta cloud backend additionally
     needs explicit per-request consent, the server-side consent flag,
-    and an API key. Unlike the photo-finding flow it runs on the real
-    contact root too: only pasted text plus local OCR text reach the
-    single text-only Meta call, photo bytes never leave the machine.
+    an API key, and a verified synthetic demo root; real data roots
+    stay excluded (PermissionError, routed as 403). Only pasted text
+    plus local OCR text reach the single text-only Meta call, photo
+    bytes never leave the machine.
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     if choice == "local" and not str(settings.get("ollama_model", "") or "").strip():
@@ -260,7 +261,8 @@ def suggest_contact_fields(
     sent to any model); exactly one Meta text call structures the combined
     sources. Local Ollama answers by default; the Meta Model API path
     additionally needs explicit per-request consent, the server-side
-    consent flag, and an API key, otherwise it is refused. Mock answers
+    consent flag, an API key, and a verified synthetic demo root
+    (real roots are refused), otherwise it is refused. Mock answers
     are refused with 503.
     """
     if len(photos) > MAX_PHOTOS:

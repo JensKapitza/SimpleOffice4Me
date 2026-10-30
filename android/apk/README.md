@@ -72,7 +72,39 @@ The debug APK is signed automatically with the Android debug key and is directly
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-A normal `assembleRelease` without a configured release signing key creates an unsigned APK and must not be distributed as an installable package.
+A normal `assembleRelease` without a complete release signing configuration fails with a clear error instead of producing an unsigned APK. Debug builds are unaffected.
+
+## Release signing (persistent update-stable key)
+
+CI debug APKs are development-only artifacts: every ephemeral runner signs with its own debug key, so they are not update-stable across runs or machines. For installable releases that support in-place updates, create one persistent release key once and keep it outside the repository:
+
+1. Generate the keystore once, outside the repository (for example `~/.android/simpleoffice-release.jks` on Linux/macOS or `%USERPROFILE%\.android\simpleoffice-release.jks` on Windows). **Back it up securely and separately: losing the keystore or its passwords permanently ends the update chain for this certificate — a replacement key requires all users to uninstall and reinstall.**
+2. Configure the four settings as per-user Gradle properties in `~/.gradle/gradle.properties` (or the equivalent Windows path), or as environment variables. Never commit them:
+
+   ```properties
+   simpleofficeReleaseKeystore=/home/user/.android/simpleoffice-release.jks
+   simpleofficeReleaseKeystorePassword=<keystore password>
+   simpleofficeReleaseKeyAlias=<key alias>
+   simpleofficeReleaseKeyPassword=<key password>
+   ```
+
+   Environment equivalents: `SIMPLEOFFICE_RELEASE_KEYSTORE`, `SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD`, `SIMPLEOFFICE_RELEASE_KEY_ALIAS`, `SIMPLEOFFICE_RELEASE_KEY_PASSWORD`. The build reads only these user-level properties or environment variables — never repository files — and never prints credential values.
+3. Build the signed release from `android/apk`:
+
+   ```bash
+   gradle assembleRelease
+   ```
+
+   The build refuses to run when any of the four settings is missing or the keystore file is unreadable.
+4. Verify the certificate SHA-256 fingerprint of the produced APK:
+
+   ```bash
+   apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+   ```
+
+   Compare the SHA-256 digest against the fingerprint recorded at key creation before distributing the APK.
+
+Signature migration: if a device has a previously installed APK signed with a different certificate (for example a CI debug APK), Android requires uninstalling it once before the first release install — certificates cannot be migrated. Thereafter, the same release certificate plus a higher `versionCode` enables in-place updates. No CI update-signature stability is promised: CI currently uploads debug artifacts only and holds no release signing secret.
 
 GitHub Actions builds and verifies the supported architecture. The APK filename includes the UTC
 build date and GitHub Actions workflow run number:
@@ -85,14 +117,16 @@ simpleoffice4me-android-installable/
 
 The Android package displays a version such as `2.20261021.123` (major project
 version, UTC date, build sequence). `versionCode` is an independent, increasing
-integer computed from the date and sequence. Local builds default to sequence 1;
-set `SIMPLEOFFICE_BUILD_DATE=YYYYMMDD` and
-`SIMPLEOFFICE_BUILD_SEQUENCE=123` to reproduce a particular CI version.
+integer computed from the date and sequence. Local builds without an explicit
+sequence use a deterministic UTC time slot (10-second slots, 1..8640) so
+same-day rebuilds increase `versionCode`; set `SIMPLEOFFICE_BUILD_DATE=YYYYMMDD`
+and `SIMPLEOFFICE_BUILD_SEQUENCE=123` to reproduce a particular CI version —
+an explicit sequence always wins.
 
 **Update signing:** CI debug APKs use a debug signing key that may differ between
 workflow runs or machines. A higher `versionCode` alone does not permit an
 in-place update: Android also requires the same signing certificate and
-application ID. Configure a persistent protected release signing key before
+application ID. Use the persistent release signing key above before
 promising upgrades without reinstalling; never commit signing credentials.
 
 CI verifies that the APK contains only the requested native ABI and checks the signature with `apksigner`. ARM64 is checked for 16 KiB native-library alignment.

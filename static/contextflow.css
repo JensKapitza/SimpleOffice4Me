@@ -212,6 +212,34 @@
   font-weight: 600;
 }
 
+.cf-checkbox {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0.45rem 0.6rem;
+  margin: 0 -0.6rem;
+  cursor: pointer;
+}
+
+.cf-checkbox:hover {
+  background: #edf4f2;
+  border-color: #cfddd8;
+}
+
+.cf-checkbox input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.2rem;
+  accent-color: #0f766e;
+  flex: 0 0 auto;
+}
+
+.cf-checkbox input[type="checkbox"]:checked + span {
+  font-weight: 600;
+}
+
 .cf-muted {
   color: var(--bs-secondary-color, #6b6257);
   font-weight: 400;

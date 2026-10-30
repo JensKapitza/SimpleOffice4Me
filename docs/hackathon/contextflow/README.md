@@ -68,9 +68,9 @@ stehen weiter unten.
 - P0-Umfang: verknüpfter Servicefall (A), 5-Tage-Follow-up (B),
   Engel-Hinweis mit Quellen (C), Aufgabe-genau-einmal +
   Rechnungseditor-Link (D), Mail-Entwurf ohne Autoversand (E),
-  kostenlose lokale Betriebsart (F), echter Meta-Modell-Aufruf im
-  Foto-Befundfluss (G; mehrstufige Werkzeugnutzung bleibt offen),
-  Security/QA/Alt-Neu (H); danach 3-Minuten-Jury-Demo.
+  kostenlose lokale Betriebsart (F), echter mehrstufiger Meta-Agent
+  mit Tool-Loop im isolierten Demo-Fall (G; live-verifiziert, Details
+  unten), Security/QA/Alt-Neu (H); danach 3-Minuten-Jury-Demo.
 - Abnahme: P0-A–H je umgesetzt, getestet und in der Demo
   nachgewiesen (nur synthetische Daten, nur neue Arbeit); keine
   erfundenen Fakten, keine Autonomie bei Geld/Externem.
@@ -129,6 +129,15 @@ stehen weiter unten.
 - `app/__init__.py` + `pyproject.toml`: nur Registrierung/Paket (kein Altcode geändert)
 - `app/contextflow/vision.py` + `templates/contextflow/suggest.html`
   (Foto→Entwurf/Vorschlag, lokal/Mock/Meta-Gates)
+- `app/contextflow/meta_agent.py` (P0-G Tool-Loop: 4 Read-only-Tools,
+  max. 5 Schritte, Evidence-Validierung, nur Vorschlag, Actor-Throttle
+  5/300 s + Single-Flight), `app/contextflow/agent_web.py` (View-Helfer:
+  Falltitel, Beleg-Deep-Links, Provider-Status),
+  `templates/contextflow/agent.html` (Analyse-Seite inkl.
+  Manage-gegatetem Rechnungseditor-Link; Doppelklick-Guard aus
+  global_ui.js, kein Seiten-JS),
+  `tests/test_contextflow_meta_agent.py` +
+  `tests/test_contextflow_meta_agent_web.py` (50 Tests, Loop/Web getrennt)
 - `docs/hackathon/contextflow/OLLAMA.md` (lokale Modell-Einrichtung)
 - `tests/test_contextflow_demo_vision.py` (Demo-Startkonfiguration)
 - Inventar-UI geändert: `templates/inventory/index.html`,
@@ -152,8 +161,9 @@ start.bat demo --port 5088
 
 - Legt `.runtime-tools/contextflow-demo/` an (mit Demo-Marker, sonst verweigert
   das Skript fremde/nicht-leere Roots und löscht nichts).
-- Seeder erstellt Kontakt, Mail-Vorgang, abgeschlossenen Ortstermin mit zwei
-  offenen Befunden, Rechnungsentwurf und bestätigten Link (5 Tage zurück).
+- Seeder erstellt Kontakt, Mail-Vorgang, abgeschlossenen Ortstermin mit drei
+  offenen Befunden (davon ein widersprüchlicher Ersatzteil-Befund),
+  Rechnungsentwurf und bestätigten Link (5 Tage zurück).
 - Eigene Demo-User-DB im Demo-Root, Benutzer `demo` (nicht `admin`),
   festes Demo-Passwort `demo-contextflow-1` (nur Demo-Zugang, nur `127.0.0.1`).
   Bei Anmelde-Sperre kurz warten oder mit `--fresh` neu starten.
@@ -200,12 +210,25 @@ bezeichnet werden. Als lokale Alternative für die Bildaufgabe kann `muse-glimme
 oder `llama3.2-vision` über Ollama laufen; der Mock ist nur für UI- und
 Workflow-Durchläufe.
 
+### Meta-Agent mit Tool-Loop (P0-G, live-verifiziert 30.10.)
+
+Start wie oben mit `CONTEXTFLOW_VISION_PROVIDER=meta` und Schlüssel, dann
+`http://127.0.0.1:5088/contextflow/agent` öffnen (auch vom Dashboard
+verlinkt). Nach Fallwahl und ausdrücklicher Einwilligung ruft der echte
+`muse-spark-1.3-contributor` mindestens zwei Read-only-Werkzeuge auf
+(Fallkontext, Befunde, Rechnungsstand, Kalender), erkennt Lücken oder
+Widersprüche und liefert einen Vorschlag mit belegten IDs — nichts wird
+erstellt oder versendet (`requires_approval=true`). Die Seite zeigt Modell,
+Tool-Aufrufe, Belege, Unbekanntes und ehrliche Fehler. Live-Beleg: 2
+Schritte, 4/4 Tools OK, 3 Befunde, 8 Beleg-IDs, 10,2 s, nur synthetische
+Demo-Daten.
+
 ## Tests
 
 ```bat
 set TEMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
-.venv\Scripts\python.exe -m unittest tests.test_contextflow_adapters tests.test_contextflow_links tests.test_contextflow_evaluator tests.test_contextflow_actions tests.test_contextflow_web tests.test_contextflow_device_prefill tests.test_contextflow_vision tests.test_contextflow_model_guard tests.test_contextflow_doc_tags tests.test_contextflow_demo_reset tests.test_contextflow_demo_vision tests.test_contextflow_inventory_entry -v
+.venv\Scripts\python.exe -m unittest tests.test_contextflow_adapters tests.test_contextflow_links tests.test_contextflow_evaluator tests.test_contextflow_actions tests.test_contextflow_web tests.test_contextflow_device_prefill tests.test_contextflow_vision tests.test_contextflow_model_guard tests.test_contextflow_doc_tags tests.test_contextflow_demo_reset tests.test_contextflow_demo_vision tests.test_contextflow_inventory_entry tests.test_contextflow_meta_agent tests.test_contextflow_meta_agent_web -v
 .venv\Scripts\python.exe -m unittest tests.test_auth_login_qr tests.test_invoice_relations -v
 .venv\Scripts\python.exe -m compileall -q app tools
 .venv\Scripts\python.exe tools/check_project_policy.py .
@@ -240,12 +263,16 @@ set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 
 ## Grenzen (ehrlich)
 
-- Der neue Meta-Pfad ist durch feste Endpoint-/Modell-Gates und
-  transportgemockte Tests abgesichert. Ein Live-Aufruf mit echtem
-  `MODEL_API_KEY` ist in dieser Arbeitsrunde nicht erfolgt.
-- Der Meta-Aufruf ist derzeit eine einzelne Fotoanalyse, die einen
-  überprüfbaren Befundentwurf liefert. Ein allgemeiner, mehrstufiger
-  Meta-Agent mit Tool-Aufrufen ist damit noch nicht nachgewiesen.
+- Der Meta-Agent (P0-G) ist durch feste Endpoint-/Modell-Gates,
+  transportgemockte Tests (50) und genau einen synthetischen Live-Lauf
+  belegt (2 Schritte, 4/4 Tools, 10,2 s); kein wiederholter
+  Live-Dauerbetrieb, keine Browser-E2E.
+- Der Agent läuft synchron (bis 5×60 s Budget) mit Actor-Throttle
+  (5 Läufe/300 s, In-Memory je Prozess) und Single-Flight; die Seite
+  sperrt den Startknopf per Skript und nennt Tokens und Dauer. Echte
+  Async-Fortschritte fehlen noch (keine update2-Anforderung; bewusst
+  zurückgestellt). Die Ergebnisseite verlinkt verifizierte Belege
+  (Mail/Ortstermin/Befunde; Editor nur mit Kontakt-Manage-Recht).
 - Llama 3.2 1B/3B sind nur Textmodelle; lokale Bildanalyse braucht ein
   Vision-Modell. Meta-Cloud-Bildanalyse ist nur im isolierten synthetischen
   Demo-Root nach Einwilligung freigegeben.

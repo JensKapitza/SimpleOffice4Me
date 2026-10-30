@@ -225,6 +225,19 @@ def seed_demo(root: str | Path, actor: str = "demo") -> dict[str, Any]:
             "observed_at": completed_on + "T11:00",
         },
     )
+    visits.add_finding(
+        visit_id,
+        actor,
+        {
+            "title": "Ersatzteilstatus widersprüchlich (synthetisch)",
+            "description": (
+                "Servicenotiz: Einzugsrolle angeblich bestellt, aber keine "
+                "Bestellnummer auffindbar; Bestand unklar (synthetisch)"
+            ),
+            "observed_at": completed_on + "T11:30",
+            "asset_id": scanner_id,
+        },
+    )
     visits.update(visit_id, actor, {"status": "completed"})
 
     rows = [
