@@ -8,6 +8,8 @@ real file path.
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import shutil
 import stat
@@ -40,6 +42,13 @@ PATH_EXTRACT_SUFFIXES = {
     ".pdf", ".docx", ".odt", ".xlsx", ".ods",
 }
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".tif", ".tiff", ".bmp"}
+_ARCHIVE_INDEX_STATUS_TAGS = {
+    "archiv-inhalt-indexiert",
+    "archiv-catalog_only",
+    "archiv-partial",
+    "archiv-failed",
+}
+_LOGGER = logging.getLogger(__name__)
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -77,18 +86,40 @@ def _free_memory_bytes() -> int | None:
     return None
 
 
-def system_busy() -> tuple[bool, str]:
-    """Conservatively defer expensive extraction when the host is busy."""
-    forced = os.environ.get("SIMPLEOFFICE_ARCHIVE_DEEP_INDEX", "auto").strip().casefold()
-    if forced in {"0", "false", "no", "off"}:
-        return True, "deep archive indexing disabled"
-    if forced in {"1", "true", "yes", "on"}:
-        return False, "forced deep indexing"
+def system_busy(
+    deep_index_enabled: bool = True,
+    max_load_per_cpu: float | None = None,
+) -> tuple[bool, str]:
+    """Respect the saved opt-in while always enforcing host resource safeguards."""
+    from .archive_settings import (
+        DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+        MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+        MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+    )
+
+    if not isinstance(deep_index_enabled, bool):
+        return True, "deep archive indexing setting is invalid"
+    if not deep_index_enabled:
+        return True, "deep archive indexing disabled in settings"
+    if max_load_per_cpu is None:
+        max_load_per_cpu = DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU
+    if isinstance(max_load_per_cpu, bool) or not isinstance(max_load_per_cpu, (int, float)):
+        return True, "archive load threshold is invalid"
+    try:
+        threshold = float(max_load_per_cpu)
+    except (TypeError, ValueError, OverflowError):
+        return True, "archive load threshold is invalid"
+    if (
+        not math.isfinite(threshold)
+        or not MIN_ARCHIVE_MAX_LOAD_PER_CPU <= threshold <= MAX_ARCHIVE_MAX_LOAD_PER_CPU
+    ):
+        return True, "archive load threshold is invalid"
     cpus = max(1, os.cpu_count() or 1)
     try:
         load = os.getloadavg()[0]
-        threshold = float(os.environ.get("SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU", "0.75"))
-        if load > cpus * max(0.1, threshold):
+        if not math.isfinite(load):
+            return True, "system load is invalid"
+        if load > cpus * threshold:
             return True, f"system load {load:.2f} exceeds archive threshold"
     except (AttributeError, OSError, ValueError):
         pass
@@ -276,16 +307,35 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     if not archive_suffix or not source_path.is_file() or source_path.is_symlink():
         return None
 
+    from .settings_store import SettingsStore
+
+    media_settings = SettingsStore(store.root).settings()["media"]
+    archive_ocr_enabled = media_settings["archive_ocr_enabled"]
+    deep_index_enabled = media_settings["archive_deep_index_enabled"]
+    max_load_per_cpu = media_settings["archive_max_load_per_cpu"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
-    if previous.get("source_sha256") == digest and previous.get("status") == "complete":
+    if not isinstance(previous, dict):
+        previous = {}
+    previous_policy = previous.get("resource_policy", {})
+    previous_deep_index_enabled = (
+        previous_policy.get("deep_index_enabled")
+        if isinstance(previous_policy, dict) else None
+    )
+    stable_catalog_only = (
+        not deep_index_enabled
+        and previous.get("status") == "catalog_only"
+        and previous_deep_index_enabled is False
+    )
+    if (
+        previous.get("source_sha256") == digest
+        and previous_deep_index_enabled is deep_index_enabled
+        and (previous.get("status") == "complete" or stable_catalog_only)
+    ):
         return previous
 
-    from .settings_store import SettingsStore
-
-    archive_ocr_enabled = SettingsStore(store.root).settings()["media"]["archive_ocr_enabled"]
-    busy, busy_reason = system_busy()
+    busy, busy_reason = system_busy(deep_index_enabled, max_load_per_cpu)
     max_members = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS", 20000, 100, 200000)
     max_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB", 512, 1, 8192) * 1024 * 1024
     max_text = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB", 8, 1, 64) * 1024 * 1024
@@ -392,6 +442,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         "catalog": catalog,
         "search_text": "".join(text_parts)[:max_text],
         "resource_policy": {
+            "deep_index_enabled": deep_index_enabled,
+            "load_threshold_per_cpu": max_load_per_cpu,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,
@@ -400,7 +452,9 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
             "ramdisk_small_members_only": False,
         },
     }
-    current_tags = list(metadata.get("tags", []))
+    current_tags = [
+        tag for tag in metadata.get("tags", []) if tag not in _ARCHIVE_INDEX_STATUS_TAGS
+    ]
     generated = ["archiv", f"archiv-{payload['archive_format']}"]
     generated.append("archiv-inhalt-indexiert" if status == "complete" else f"archiv-{status}")
     store.update_metadata(

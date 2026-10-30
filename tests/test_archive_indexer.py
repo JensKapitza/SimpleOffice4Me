@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from app.archive_indexer import cleanup_stale_scratch, index_archive
+from app.archive_indexer import cleanup_stale_scratch, index_archive, system_busy
 from app.document_store import DocumentStore
 from app.settings_store import SettingsStore
 
@@ -23,7 +23,7 @@ class ArchiveIndexerTest(unittest.TestCase):
                 "SIMPLEOFFICE_ARCHIVE_OCR": "0",
             },
             clear=False,
-        ):
+        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
             root = Path(temp)
             store = DocumentStore(root)
             first_archive = root / "ocr-disabled.zip"
@@ -52,7 +52,7 @@ class ArchiveIndexerTest(unittest.TestCase):
             os.environ,
             {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1", "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0"},
             clear=False,
-        ):
+        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
             root = Path(temp)
             archive_path = root / "kundenunterlagen.zip"
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -82,7 +82,7 @@ class ArchiveIndexerTest(unittest.TestCase):
             os.environ,
             {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1", "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0"},
             clear=False,
-        ):
+        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
             root = Path(temp)
             archive_path = root / "export.tar.gz"
             payload = b"Interner Suchbegriff Albatros-987"
@@ -122,6 +122,86 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual("complete", result["status"])
             self.assertTrue(store.search("Mondsichel-123"))
 
+    def test_persisted_setting_disables_deep_index_even_with_legacy_environment_enabled(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1"}, clear=False,
+        ):
+            root = Path(temporary)
+            archive_path = root / "vertrag.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("unterlagen/vertrag.txt", "Geheimer Suchbegriff Rotkehlchen")
+            store = DocumentStore(root)
+            store.scan()
+            SettingsStore(root).save(
+                {"media": {"archive_deep_index_enabled": True}}, "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
+                indexed = index_archive(store, archive_path)
+            self.assertEqual("complete", indexed["status"])
+            self.assertTrue(store.search("Rotkehlchen"))
+
+            SettingsStore(root).save(
+                {"media": {"archive_deep_index_enabled": False}}, "archive-admin",
+            )
+            result = index_archive(store, archive_path)
+
+            self.assertEqual("catalog_only", result["status"])
+            self.assertEqual(0, result["content_files_indexed"])
+            self.assertTrue(store.search("vertrag.txt"))
+            self.assertFalse(store.search("Rotkehlchen"))
+            self.assertTrue(archive_path.is_file())
+            tags = store.get_document(archive_path)["tags"]
+            self.assertIn("archiv-catalog_only", tags)
+            self.assertNotIn("archiv-inhalt-indexiert", tags)
+
+            SettingsStore(root).save(
+                {"media": {"archive_deep_index_enabled": True}}, "archive-admin",
+            )
+            with patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
+                restored = index_archive(store, archive_path)
+            self.assertEqual("complete", restored["status"])
+            self.assertTrue(store.search("Rotkehlchen"))
+            tags = store.get_document(archive_path)["tags"]
+            self.assertIn("archiv-inhalt-indexiert", tags)
+            self.assertNotIn("archiv-catalog_only", tags)
+
+    def test_admin_load_threshold_is_applied_and_bounded(self):
+        with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
+            "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0),
+        ), patch("app.archive_indexer._free_memory_bytes", return_value=1024 * 1024 * 1024):
+            busy, reason = system_busy(True, 0.75)
+            self.assertTrue(busy)
+            self.assertIn("system load", reason)
+            self.assertEqual((False, "resources available"), system_busy(True, 8.0))
+            for invalid in (True, 0.09, 8.01, float("nan"), float("inf")):
+                with self.subTest(invalid=invalid):
+                    self.assertEqual(
+                        (True, "archive load threshold is invalid"),
+                        system_busy(True, invalid),
+                    )
+
+    def test_legacy_enable_maps_to_resource_aware_indexing(self):
+        with tempfile.TemporaryDirectory() as temporary, patch.dict(
+            os.environ,
+            {
+                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
+                "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "0.75",
+            },
+        ):
+            media = SettingsStore(temporary).settings()["media"]
+            with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
+                "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0),
+            ), patch("app.archive_indexer._free_memory_bytes", return_value=1024 * 1024 * 1024):
+                busy, reason = system_busy(
+                    media["archive_deep_index_enabled"],
+                    media["archive_max_load_per_cpu"],
+                )
+
+        self.assertTrue(media["archive_deep_index_enabled"])
+        self.assertEqual(0.75, media["archive_max_load_per_cpu"])
+        self.assertTrue(busy)
+        self.assertIn("system load", reason)
+
     def test_suspicious_compression_ratio_is_catalogued_but_not_inflated_for_text(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(
             os.environ,
@@ -131,7 +211,7 @@ class ArchiveIndexerTest(unittest.TestCase):
                 "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
             },
             clear=False,
-        ):
+        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
             root = Path(temp)
             archive_path = root / "bomb-like.zip"
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:

@@ -79,6 +79,18 @@ nachts laufender Indexierung kann `SIMPLEOFFICE_INDEX_YIELD_MS=0` den
 Gesamtdurchsatz erhöhen. Auf langsamen Netzspeichern sind 2 bis 10 ms sinnvoll,
 wenn die Oberfläche wichtiger als eine kurze Scanzeit ist.
 
+Der Archiv-Inhaltstiefenindex wird unter **Einstellungen → Dokumente & Medien →
+Inhaltstiefenindex für Archive** ein- oder ausgeschaltet. Standardmäßig
+entscheidet die automatische CPU-/Speicherprüfung, ob Inhalte extrahiert werden.
+Die Admin-Lastschwelle beträgt standardmäßig 0,75 pro CPU und ist auf 0,1–8,0
+begrenzt. „Nur Katalog indexieren“ hält Dateinamen und Archivstruktur suchbar,
+entfernt den abgeleiteten Inhaltsindex beim nächsten Archivlauf und verändert
+keine Originaldateien. Speicher- und Datenträger-Schutzgrenzen gelten immer.
+`SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` und
+`SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` werden nur noch als Migrationsvorgaben
+gelesen, solange kein persistenter Wert gespeichert ist; ein alter `1`-Wert
+umgeht die Ressourcenprüfung nicht mehr.
+
 ## Login, Dashboard und Inbox
 
 Der Login prüft weiterhin nur die Authentifizierungsdaten. Sein Redirect zum
