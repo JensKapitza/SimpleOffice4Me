@@ -1282,6 +1282,32 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   MODEL_API_KEY), echte Browser-/Kamera-/Geräteabnahme.
   #658 bleibt offen. Kein Commit/Push, `.t/` unberührt.
 
+## 30.10. – #813 Medienvorschau: Tests-only, kein Bug (Muse, uncommitted)
+
+- Kette Upload/Folder-Import → Store/Preview → Detail → Media
+  geprüft: Video nie als `<img>` (Player + preload + Fallback),
+  Bild/PDF/Audio nativ, unbekannt mit Icon + Öffnen/Download,
+  fehlende Vorschau ohne Broken-Image, Breadcrumb mit Umbruch,
+  MIME/Range/ACL/CSP korrekt. Kein belegter Bug → kein Fix.
+- Neu `tests/test_issue_813_media_preview.py`: 5/5 OK
+  (verschachteltes MP4 via Folder-Import + Range, gemischter
+  Batch, PDF-iframe, Failed-Vorschau-Fallback, Thumbnail).
+  Angrenzend: 69/77 OK; 8 Errors nur in den beiden alten
+  Breadcrumb-Tests aller Modi (MAX_PATH der Sandbox-TMP-Pfade,
+  kein Codefehler, Datei unberührt). Alle Gates grün.
+- Offen: Android-WebView-/Gerätetest nie durchgeführt.
+  Kein Commit/Push, `.t/` unberührt.
+
+## 30.10. – #813 Rest-Suiten nachgeholt (Muse, uncommitted)
+
+- Folder-Import: 8/8 OK (namentlich, ohne 1201-Dateien-Test:
+  sprengt Sandbox-Zeitbudget, unberührter Durchsatz-Test);
+  `test_preview_service` 8/8 OK. Alle Gates erneut exit 0.
+  Kein App-Code geändert (weiter Tests-only).
+- Offen: Android-WebView-/Gerätetest; 1201-Dateien-Test und
+  Breadcrumb-MAX_PATH brauchen echte Umgebung/CI.
+  Kein Commit/Push, `.t/` unberührt.
+
 ## 30.10. – Scan-Suite WinError-32-Fix + Session-Voreinstellung (Muse, uncommitted)
 
 - Ursache (belegt): `test_library_scan_session_http::setUp`
@@ -1300,3 +1326,20 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 - Offen: Cloud-Smoke (kein Key), Browser-/Kamera-/
   Geräteabnahme; #658 bleibt offen. Diff unstaged, kein
   Commit/Push, `.t/` unberührt.
+
+## 30.10. – #813 Breadcrumb-Fixture-Fix verifiziert (Muse, uncommitted)
+
+- Korrektur zu oben: Die anfänglichen 8 Errors waren
+  MAX_PATH-Fixture-Fehler der alten Breadcrumb-Tests (kein
+  Preview-Codefehler; Historie bleibt stehen). Fixtures
+  gekürzt (≥100 Relativpfad-Zeichen, 3 Ordner, Umbruchklasse
+  geprüft); keine abgeschwächten Assertions, kein
+  Produktionscode geändert.
+- Direkt-Verifikation im echten Repo: 82 Tests, OK (skipped=1);
+  der 1 Skip ist der Playwright-Browser-Test, die
+  Breadcrumb-Fixture-Tests selbst liefen ohne Skips;
+  Policy-, File-/Function-Size-, Secret- und diff-check-
+  Gates exit 0. Breadcrumb-Fixture-Thema damit erledigt.
+- Offen: Android-WebView-/Gerätetest; 1201-Dateien-Test
+  (Sandbox zu langsam, braucht CI). Kein Commit/Push,
+  `.t/` unberührt.
