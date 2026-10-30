@@ -64,6 +64,8 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "preview_max_bytes": 2 * 1024 * 1024,
                     "preview_max_pixels": 2_000_000,
                     "video_preview_frames": 12,
+                    "archive_deep_index_enabled": False,
+                    "archive_max_load_per_cpu": 1.5,
                 }},
                 "tester",
             )
@@ -80,6 +82,8 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "preview_max_bytes": 2 * 1024 * 1024,
                     "preview_max_pixels": 2_000_000,
                     "video_preview_frames": 7,
+                    "archive_deep_index_enabled": False,
+                    "archive_max_load_per_cpu": 1.5,
                 },
                 store.settings()["media"],
             )
