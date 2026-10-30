@@ -3,8 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import math
 from typing import Any
 
+from .archive_settings import (
+    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+    MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+    MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+)
 from .settings_store import (
     DEFAULT_ARCHIVE_OCR_ENABLED,
     DEFAULT_PREVIEW_ENABLED,
@@ -34,6 +41,25 @@ def _bounded_media_integer(
     value = int(raw)
     if not minimum <= value <= maximum:
         raise ValueError("Ein Medienwert liegt außerhalb des zulässigen Bereichs.")
+    return value
+
+
+def _bounded_media_float(
+    form: Mapping[str, str], name: str, minimum: float, maximum: float,
+) -> float:
+    raw = str(form.get(name, "")).strip()
+    if not raw or len(raw) > 32 or not raw.isascii():
+        raise ValueError(
+            "Bitte einen gültigen Dezimalwert für die Medienressource eingeben."
+        )
+    try:
+        value = float(raw)
+    except (ValueError, OverflowError) as exc:
+        raise ValueError(
+            "Bitte einen gültigen Dezimalwert für die Medienressource eingeben."
+        ) from exc
+    if not math.isfinite(value) or not minimum <= value <= maximum:
+        raise ValueError("Der Medienwert liegt außerhalb des zulässigen Bereichs.")
     return value
 
 
@@ -79,10 +105,35 @@ def media_settings_from_form(
     else:
         archive_ocr_enabled = archive_ocr == "1"
 
+    archive_deep_index = form.get("archive_deep_index_enabled")
+    if archive_deep_index is None:
+        archive_deep_index_enabled = current.get(
+            "archive_deep_index_enabled", DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+        )
+    elif archive_deep_index not in {"0", "1"}:
+        raise ValueError("Bitte wählen, ob der Archivinhaltsindex aktiviert ist.")
+    else:
+        archive_deep_index_enabled = archive_deep_index == "1"
+
+    archive_load_threshold = form.get("archive_max_load_per_cpu")
+    if archive_load_threshold is None:
+        archive_max_load_per_cpu = current.get(
+            "archive_max_load_per_cpu", DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+        )
+    else:
+        archive_max_load_per_cpu = _bounded_media_float(
+            form,
+            "archive_max_load_per_cpu",
+            MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+            MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+        )
+
     return {
         "upload_limit_mib": upload_limit,
         "chat_attachment_max_bytes": chat_attachment_limit,
         "archive_ocr_enabled": archive_ocr_enabled,
+        "archive_deep_index_enabled": archive_deep_index_enabled,
+        "archive_max_load_per_cpu": archive_max_load_per_cpu,
         "preview_enabled": enabled == "1",
         "preview_timeout_seconds": _bounded_media_integer(
             form, "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS,

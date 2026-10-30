@@ -29,13 +29,16 @@ Quellpfade aufgelistet, niemals tatsächlich konfigurierte Werte.
 
 ### Tiefe Archivindexierung
 
-Diese Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
-ausgewertet. MB-Grenzen verwenden im Code `1024**2` Bytes.
+Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
+ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstellung
+`media.archive_deep_index_enabled` verfügbar. MB-Grenzen verwenden im Code
+`1024**2` Bytes.
 
 | Variable | Standard | Bedeutung / zulässige numerische Grenzen |
 |---|---|---|
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | `auto` | `0/false/no/off`: aus; `1/true/yes/on`: Last-/RAM-Prüfung übergehen; sonst automatische Last-/RAM-Prüfung |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | `0.75` | Lastschwelle pro CPU; effektiv mindestens `0.1` |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` (Legacy-Migration) | `auto` | Gilt nur bis `media.archive_deep_index_enabled` gespeichert wurde; enabled Werte umgehen niemals CPU-/RAM-Prüfungen |
+| `media.archive_max_load_per_cpu` (persistente Admin-Einstellung) | `0.75` | Lastschwelle pro CPU; `0.1–8.0` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` (Legacy-Migration) | `0.75` | Gilt nur bis `media.archive_max_load_per_cpu` gespeichert wurde; ungültige Werte nutzen den Standard, Ausreißer werden auf `0.1–8.0` begrenzt |
 | `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` | `384` | Mindest-RAM; 64–65536 |
 | `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` | `2048` | Freier Scratch-Speicher als Reserve; 128–1048576 |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | `20000` | Maximal berücksichtigte Einträge; 100–200000 |
@@ -167,11 +170,11 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ANDROID_ACCOUNT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_PYTHON` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |

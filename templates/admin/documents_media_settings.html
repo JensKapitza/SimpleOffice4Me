@@ -48,6 +48,21 @@
           <div class="form-text">Erfordert lokal installiertes Tesseract. Gilt für neue bzw. erneut gestartete Archivindizes; fertige bestehende Indizes werden nicht rückwirkend verändert.</div>
         </div>
         <div class="col-md-6">
+          <label class="form-label" for="archive-deep-index-enabled">Inhaltstiefenindex für Archive</label>
+          <select class="form-select" id="archive-deep-index-enabled" name="archive_deep_index_enabled" required>
+            <option value="1" {% if media.archive_deep_index_enabled %}selected{% endif %}>Automatisch, ressourcenabhängig (Standard)</option>
+            <option value="0" {% if not media.archive_deep_index_enabled %}selected{% endif %}>Nur Katalog indexieren</option>
+          </select>
+          <div class="form-text">Bei Aktivierung bleiben CPU-, Arbeitsspeicher- und Datenträger-Schutzgrenzen immer aktiv. „Nur Katalog“ lässt Datei- und Ordnernamen suchbar, entfernt aber beim nächsten Indexlauf den abgeleiteten Inhaltsindex. Originalarchive bleiben unverändert.</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="archive-load-threshold">Archivindex-Lastschwelle je CPU</label>
+          <input class="form-control" id="archive-load-threshold" type="number"
+                 name="archive_max_load_per_cpu" value="{{ media.archive_max_load_per_cpu }}"
+                 min="0.1" max="8.0" step="0.05" required>
+          <div class="form-text">Standard 0,75 je CPU; zulässig 0,1–8,0. Oberhalb der Schwelle wird tiefe Inhaltsuche verschoben. Arbeitsspeicher- und Datenträger-Schutzgrenzen bleiben unabhängig davon aktiv.</div>
+        </div>
+        <div class="col-md-6">
           <label class="form-label" for="preview-enabled">Dokumentvorschauen</label>
           <select class="form-select" id="preview-enabled" name="preview_enabled">
             <option value="1" {% if media.preview_enabled %}selected{% endif %}>Aktiviert (Standard)</option>

@@ -12,6 +12,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from .archive_settings import (
+    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+    legacy_archive_deep_index_enabled,
+    legacy_archive_max_load_per_cpu,
+    normalize_archive_index_settings,
+    validate_archive_index_settings,
+)
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .integration_settings import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
@@ -140,6 +148,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
         "chat_attachment_max_bytes": DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
         "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
+        "archive_deep_index_enabled": DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+        "archive_max_load_per_cpu": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
         "video_preview_frames": DEFAULT_VIDEO_PREVIEW_FRAMES,
         "preview_enabled": DEFAULT_PREVIEW_ENABLED,
         "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
@@ -683,6 +693,10 @@ class SettingsStore:
             "archive_ocr_enabled": os.environ.get(
                 "SIMPLEOFFICE_ARCHIVE_OCR", "0",
             ).strip().casefold() in {"1", "true", "yes", "on"},
+            # This legacy option can only enable automatic resource-aware indexing;
+            # it no longer bypasses CPU or memory safeguards.
+            "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
+            "archive_max_load_per_cpu": legacy_archive_max_load_per_cpu(),
         }
 
     @classmethod
@@ -722,6 +736,10 @@ class SettingsStore:
         if not isinstance(normalized.get("archive_ocr_enabled"), bool):
             _LOGGER.warning("Invalid stored archive OCR setting; using default")
             normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
+        (
+            normalized["archive_deep_index_enabled"],
+            normalized["archive_max_load_per_cpu"],
+        ) = normalize_archive_index_settings(normalized)
         ranges = {
             "upload_limit_mib": (
                 DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
@@ -867,6 +885,9 @@ class SettingsStore:
         archive_ocr_enabled = media.get("archive_ocr_enabled", DEFAULT_ARCHIVE_OCR_ENABLED)
         if not isinstance(archive_ocr_enabled, bool):
             raise ValueError("archive OCR enabled must be boolean")
+        archive_deep_index_enabled, archive_load_threshold = (
+            validate_archive_index_settings(media)
+        )
         preview_timeout = media.get("preview_timeout_seconds", DEFAULT_PREVIEW_TIMEOUT_SECONDS)
         if (
             isinstance(preview_timeout, bool)
@@ -928,6 +949,8 @@ class SettingsStore:
                 "upload_limit_mib": upload_limit_mib,
                 "chat_attachment_max_bytes": chat_attachment_max_bytes,
                 "archive_ocr_enabled": archive_ocr_enabled,
+                "archive_deep_index_enabled": archive_deep_index_enabled,
+                "archive_max_load_per_cpu": archive_load_threshold,
                 "video_preview_frames": video_preview_frames,
                 "preview_enabled": preview_enabled,
                 "preview_timeout_seconds": preview_timeout,
