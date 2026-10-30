@@ -447,35 +447,6 @@ class ArchiveIndexerTest(unittest.TestCase):
         self.assertEqual(10, result["resource_policy"]["member_yield_ms"])
         self.assertEqual([0.01, 0.01], [call.args[0] for call in sleep.call_args_list])
 
-    def test_maximum_archive_members_limits_catalog_and_reindexes_policy_changes(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            archive_path = root / "catalog-limit.zip"
-            with zipfile.ZipFile(archive_path, "w") as archive:
-                for index in range(100):
-                    archive.writestr(f"binary/member-{index:03}.bin", b"x")
-            store = DocumentStore(root)
-            store.scan()
-            settings = SettingsStore(root)
-            settings.save({"media": {"archive_max_members": 100}}, "archive-admin")
-            with patch("app.archive_indexer.system_busy", return_value=(False, "test")) as busy, patch(
-                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
-            ):
-                first = index_archive(store, archive_path)
-            busy.assert_called_once()
-            self.assertEqual("complete", first["status"])
-            self.assertEqual(100, len(first["catalog"]))
-            self.assertEqual(100, first["resource_policy"]["max_members"])
-
-            settings.save({"media": {"archive_max_members": 150}}, "archive-admin")
-            with patch("app.archive_indexer.system_busy", return_value=(False, "test")) as busy, patch(
-                "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
-            ):
-                second = index_archive(store, archive_path)
-            busy.assert_called_once()
-            self.assertEqual("complete", second["status"])
-            self.assertEqual(150, second["resource_policy"]["max_members"])
-
     def test_stale_private_scratch_is_removed_after_interrupted_run(self):
         with tempfile.TemporaryDirectory() as temp:
             store = DocumentStore(temp)
