@@ -12,6 +12,7 @@ from unittest.mock import patch
 from app.archive_indexer import (
     _disk_budget,
     _truncate_utf8_bytes,
+    _yield_between_members,
     _windows_free_memory_bytes,
     cleanup_stale_scratch,
     index_archive,
@@ -596,11 +597,19 @@ class ArchiveIndexerTest(unittest.TestCase):
             )
             with patch("app.archive_indexer.system_busy", return_value=(False, "test")), patch(
                 "app.archive_indexer._disk_budget", return_value=(10_000_000_000, 1_000_000_000),
-            ), patch("app.archive_indexer.time.sleep") as sleep:
+            ), patch("app.archive_indexer._yield_between_members") as yield_between_members:
                 result = index_archive(store, archive_path)
 
         self.assertEqual(10, result["resource_policy"]["member_yield_ms"])
-        self.assertEqual([0.01, 0.01], [call.args[0] for call in sleep.call_args_list])
+        self.assertEqual([10, 10], [call.args[0] for call in yield_between_members.call_args_list])
+
+    def test_member_yield_converts_milliseconds_without_global_sleep_patch(self):
+        delays = []
+
+        _yield_between_members(10, delays.append)
+        _yield_between_members(0, delays.append)
+
+        self.assertEqual([0.01], delays)
 
     def test_stale_private_scratch_is_removed_after_interrupted_run(self):
         with tempfile.TemporaryDirectory() as temp:
