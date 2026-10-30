@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
-from typing import Any, BinaryIO, Iterator
+from typing import Any, BinaryIO, Callable, Iterator
 
 
 ARCHIVE_SUFFIXES = (
@@ -380,6 +380,16 @@ def _open_member(archive: Any, archive_kind: str, raw: Any) -> BinaryIO | None:
     return archive.extractfile(raw)
 
 
+def _yield_between_members(
+    delay_ms: int,
+    sleeper: Callable[[float], None] | None = None,
+) -> None:
+    """Yield between archive members; sleeper injection keeps tests thread-safe."""
+    if delay_ms <= 0:
+        return
+    (sleeper or time.sleep)(delay_ms / 1000)
+
+
 def _catalog_entry(member: dict[str, Any]) -> dict[str, Any]:
     return {
         "path": member["name"],
@@ -531,8 +541,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
                 indexed_content += 1
             except (OSError, RuntimeError, ValueError, zipfile.BadZipFile, tarfile.TarError):
                 extraction_errors += 1
-            if member_yield_ms:
-                time.sleep(member_yield_ms / 1000)
+            _yield_between_members(member_yield_ms)
     except (OSError, zipfile.BadZipFile, tarfile.TarError) as exc:
         status = "failed"
         reason = f"archive could not be read: {exc}"
