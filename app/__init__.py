@@ -660,6 +660,17 @@ def safe_calendar_html(value):
     return sanitize_calendar_html(str(value or ""))
 
 
+# Only routes that render a live camera scanner receive camera permission.
+# File-photo inputs and manual entry do not require a camera grant.
+CAMERA_SCANNER_ENDPOINTS = frozenset({
+    "inventory.index",
+    "library.index",
+    "federation_peer_admin.dashboard",
+    "shopping.index",
+    "site_visits.detail",
+})
+
+
 @app.after_request
 def add_header(response):
     """Add caching headers for static assets when not in debug mode."""
@@ -677,7 +688,7 @@ def add_header(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
     response.headers.setdefault("Referrer-Policy", "same-origin")
-    camera_policy = "camera=(self)" if request.blueprint in {"inventory", "library"} or (request.blueprint == "federation_peer_admin" and request.endpoint == "federation_peer_admin.dashboard") or (request.blueprint == "shopping" and request.endpoint == "shopping.index") else "camera=()"
+    camera_policy = "camera=(self)" if request.endpoint in CAMERA_SCANNER_ENDPOINTS else "camera=()"
     display_policy = "display-capture=(self)" if request.blueprint == "screen" else "display-capture=()"
     response.headers.setdefault("Permissions-Policy", f"{camera_policy}, microphone=(), geolocation=(), {display_policy}")
     response.headers.setdefault("Cross-Origin-Opener-Policy", "same-origin")
