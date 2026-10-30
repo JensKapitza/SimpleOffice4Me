@@ -11,6 +11,9 @@
   const nfc = $('nfc-id');
   const type = $('item-type');
   const title = $('title');
+  const description = $('description');
+  const tags = $('tags');
+  const suggestionHelpers = (typeof window !== 'undefined' && window.SimpleOfficeSuggestionFields) || null;
   const form = $('inventory-form');
   const findForm = $('inventory-find-form');
   const findInput = $('inventory-find');
@@ -406,6 +409,7 @@
   const suggestedName = $('suggested-name');
   const suggestedType = $('suggested-type');
   const suggestedNote = $('suggested-note');
+  const suggestedTags = $('suggested-tags');
   const suggestedProvider = $('suggested-provider');
   const isbnTitleHint = $('isbn-title-hint');
   let pendingSuggestion = null;
@@ -419,6 +423,7 @@
     if (suggestedName) suggestedName.textContent = cleanText(suggestion.object_name);
     if (suggestedType) suggestedType.textContent = suggestion.item_type && suggestion.item_type !== 'object' ? `(${suggestion.item_type})` : '';
     if (suggestedNote) suggestedNote.textContent = cleanText(suggestion.note);
+    if (suggestedTags) suggestedTags.textContent = suggestionHelpers ? suggestionHelpers.formatSuggestionTags(suggestion.tags) : '';
     if (suggestedProvider) suggestedProvider.textContent = cleanText(payload.provider_label);
     suggestionBox.hidden = false;
     suggestionBox.scrollIntoView({block: 'nearest'});
@@ -457,13 +462,24 @@
       if (analyzeButton) { analyzeButton.disabled = false; analyzeButton.removeAttribute('aria-busy'); }
     }
   };
-  const adoptSuggestion = () => {
-    if (!pendingSuggestion || !title) { hideObjectSuggestion(); return; }
-    title.value = cleanText(pendingSuggestion.object_name);
-    const suggested = cleanText(pendingSuggestion.item_type);
+  // Shared by single-photo adopt and series transfer: fills name/type plus
+  // note-as-description (only into an empty field) and suggested tags
+  // (deduplicated append). Never saves; the user reviews and saves manually.
+  const applySuggestionToForm = (suggestion) => {
+    if (!suggestion || !title) return;
+    title.value = cleanText(suggestion.object_name);
+    const suggested = cleanText(suggestion.item_type);
     if (suggested && suggested !== 'object' && type && (!cleanText(type.value) || cleanText(type.value) === 'object')) {
       type.value = suggested; objectTypeWasAutoBook = false; updateMode();
     }
+    if (suggestionHelpers) {
+      if (description) description.value = suggestionHelpers.suggestionDescription(description.value, suggestion.note);
+      if (tags) tags.value = suggestionHelpers.mergeTags(tags.value, suggestion.tags, tags.maxLength);
+    }
+  };
+  const adoptSuggestion = () => {
+    if (!pendingSuggestion || !title) { hideObjectSuggestion(); return; }
+    applySuggestionToForm(pendingSuggestion);
     hideObjectSuggestion();
     setStatus('Vorschlag übernommen. Bitte Felder prüfen, dann speichern.', 'success');
     title.focus();
@@ -563,7 +579,8 @@
     const boxEl = card.querySelector('[data-part="suggestion"]');
     if (item.suggestion) {
       boxEl.hidden = false;
-      boxEl.textContent = `${cleanText(item.suggestion.object_name)}${item.suggestion.item_type && item.suggestion.item_type !== 'object' ? ` (${item.suggestion.item_type})` : ''}${item.suggestion.note ? ` – ${cleanText(item.suggestion.note)}` : ''}`;
+      const tagLine = suggestionHelpers ? suggestionHelpers.formatSuggestionTags(item.suggestion.tags) : '';
+      boxEl.textContent = `${cleanText(item.suggestion.object_name)}${item.suggestion.item_type && item.suggestion.item_type !== 'object' ? ` (${item.suggestion.item_type})` : ''}${item.suggestion.note ? ` – ${cleanText(item.suggestion.note)}` : ''}${tagLine ? ` · ${tagLine}` : ''}`;
     } else { boxEl.hidden = true; boxEl.textContent = ''; }
     const isbnRow = card.querySelector('[data-part="isbn-row"]');
     const isbnValue = item.suggestion ? cleanText(item.suggestion.isbn) : '';
@@ -662,11 +679,7 @@
   const seriesTransfer = (id) => {
     const item = seriesItems.find((entry) => entry.id === id);
     if (!item || !item.suggestion || !title || !photo || item.saved) return;
-    title.value = cleanText(item.suggestion.object_name);
-    const suggested = cleanText(item.suggestion.item_type);
-    if (suggested && suggested !== 'object' && type && (!cleanText(type.value) || cleanText(type.value) === 'object')) {
-      type.value = suggested; objectTypeWasAutoBook = false; updateMode();
-    }
+    applySuggestionToForm(item.suggestion);
     const ownCode = cleanText(item.identifier);
     const ownIsbn = normalizeIsbn(ownCode);
     if (isbn) isbn.value = '';

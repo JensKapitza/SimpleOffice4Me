@@ -81,7 +81,8 @@ def capture_ml_label(
     )
 
     base: dict[str, Any] = {"available": False, "label": "", "item_type": "",
-                            "isbn": "", "provider": "", "provider_label": "",
+                            "isbn": "", "note": "", "tags": [],
+                            "provider": "", "provider_label": "",
                             "model": "", "error": ""}
     if len(png) > MAX_IMAGE_BYTES:
         base["error"] = "Bild für ML-Analyse zu groß."
@@ -98,11 +99,16 @@ def capture_ml_label(
         base["error"] = str(exc)[:300]
         return base
     suggestion = answer.get("suggestion", {})
+    raw_tags = suggestion.get("tags", [])
+    tags = [tag for tag in raw_tags if isinstance(tag, str)] \
+        if isinstance(raw_tags, list) else []
     base.update({
         "available": True,
         "label": str(suggestion.get("object_name", "") or ""),
         "item_type": str(suggestion.get("item_type", "") or ""),
         "isbn": str(suggestion.get("isbn", "") or ""),
+        "note": str(suggestion.get("note", "") or ""),
+        "tags": tags,
         "provider": str(answer.get("provider", "") or ""),
         "provider_label": str(answer.get("provider_label", "") or ""),
         "model": str(answer.get("model", "") or ""),
@@ -201,7 +207,14 @@ def analyze_photo(
     lines = title_lines(text)
     year = str(metadata.get("year", "") or "") or extract_year(text)
     title = str(metadata.get("title", "") or "") or (lines[0] if lines else "")
-    prefill: dict[str, Any] = {"isbn": isbn}
+    ml_tags = ml_result.get("tags", [])
+    ml_tags = [tag for tag in ml_tags if isinstance(tag, str)] \
+        if isinstance(ml_tags, list) else []
+    prefill: dict[str, Any] = {
+        "isbn": isbn,
+        "description": str(ml_result.get("note", "") or ""),
+        "tags": ml_tags,
+    }
     if route["kind"] == "book":
         prefill.update({
             "title": title,
@@ -887,6 +900,9 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
     }
     stored_fields = inventory_module._object_fields(form_like, isbn)
     tags = {"Inventar"}
+    tags.update(inventory_module._single_line(
+        str(fields.get("tags", "") or ""), 500).split(","))
+    tags = {tag.strip() for tag in tags if tag.strip()}
     if kind in BOOK_TYPE_NAMES or isbn:
         tags.add("Buch")
     if isbn:

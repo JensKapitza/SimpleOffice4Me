@@ -1361,3 +1361,68 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Muse-Aufruf aus der Sandbox scheiterte (90s
   URLError-Timeout, auch GET /v1/models, ohne Key-Leak).
   Kein Commit/Push, `.t/` unberührt.
+
+## 30.10. – Vorschlag-Tags + Notiz-Übernahme (Muse, uncommitted)
+
+- Schema: `validate_object_suggestion` liefert `tags` (max 6,
+  max 40 Zeichen, dedup, Nicht-Strings/Überlange verworfen,
+  leer erlaubt); Prompt fordert nur direkt sichtbare
+  Merkmale, verbietet Marken/Modelle/Preise/Kennungen. ISBN-
+  Checksummen-Regel unverändert.
+- Extrakt: Objektschema + `VisionError` nach
+  `app/contextflow/object_suggest.py` (File-Size-Gate;
+  `vision.py` re-exportiert, alle Importpfade kompatibel).
+- UI: `applySuggestionToForm` in `inventory.js` für Foto-
+  Adopt + Serientransfer (Name/Typ, Notiz nur in leere
+  Beschreibung, Tags dedup-ergänzt, nie Autosave); Helfer in
+  `suggestion_fields.js` (node-testbar); Template zeigt
+  Tags-Zeile, Skript vor `inventory.js`.
+- Kein Architekturbruch: Tags speichert `ObjectStore` als
+  Kommastring, `#tags`/`#description` existieren. Preis/
+  Marketplace + Fundbestand unverändert (echte Suche/exakte
+  Kennung, nichts aus dem Modell).
+- Tests: 163/163 OK (10 Suiten, Scratch, byte-verifiziert)
+  + 56/56 Nachbarn (VisionError-Importeure); node --test
+  5/5; Policy/Size/Function/Secret/compileall/node/diff
+  grün. Ein echter Test fand Nicht-String-Tag-Bug, gefixt.
+- Offen: Browser-/Klick-Abnahme, echte Modellantwort auf
+  neuen Prompt (keine Live-Inferenz in diesem Slice).
+  Kein Commit/Push, `.t/` unberührt.
+- Unabhängiger Direktlauf (Projekt, kein Scratch): 265/265
+  Python-Tests OK (14 Module: Vision/ModelGuard/ObjectTags/
+  SuggestionFields/Adopt/CapturePrefill/Capture Assign+Batch+
+  Inbox+Persist+Shelf+UI + Meta-Nachbarn); node --test 6/6;
+  node --check (inventory/suggestion_fields/capture_inbox),
+  compileall/policy/size/secret/diff exit 0. Früherer
+  Muse-Scratch-Lauf 237/237 bleibt als separater Lauf
+  stehen. Browser-E2E weiter offen (Computer Use konnte
+  die Edge-URL nicht sicher bestimmen und stoppte).
+
+## 30.10. – Capture-Prefill Beschreibung/Tags (Muse, uncommitted)
+
+- `capture_ml_label` reicht validierte Note/Tags durch;
+  `analyze_photo`-Prefill (Objekt + Buch) enthält
+  `description`/`tags`; Buchdatenflow (Titel/Autoren/Jahr/
+  Verlag/ISBN) unverändert, Felder nie missing-pflichtig.
+- `combine_batch_analyses`: erste Notiz gewinnt, Tags
+  union/dedup/cap-12, pro Foto ml_note/ml_tags-Breakdown;
+  alte Analysen ohne Keys mergen leer (kompatibel).
+- Review-UI: Einzel + Gruppe zeigen editierbare
+  Beschreibung/Tags, nur Klick auf Übernehmen sendet sie
+  per bestehendem Form-POST; Batch-Adopt validiert Tags
+  serverseitig (500er-Schnitt, Pflicht-Tags bleiben).
+  Einzel-Adopt nutzt validierte Items/Books-Routen.
+- Consent-/Demo-Root-Gates unverändert; keine zweite
+  Datenquelle (ObjectStore description/tags), kein Autosave.
+- Tests: neu 18/18 + gesamt 237/237 OK (15 Suiten,
+  Scratch, byte-verifiziert); node --check, compileall,
+  Policy/Size/Function/Secret/diff grün.
+- Offen: mobile Browser-/Klick-Abnahme, echte Modellnotes.
+  Kein Commit/Push, `.t/` unberührt.
+- Unabhängiger Direktlauf (Projekt, kein Scratch): 265/265
+  Python-Tests OK (14 Module, s. Abschnitt oben);
+  node --test 6/6; node --check (3 JS-Dateien),
+  compileall/policy/size/secret/diff exit 0. Früherer
+  Muse-Scratch-Lauf 237/237 bleibt als separater Lauf
+  stehen. Keine UI-E2E behauptet (Computer Use stoppte,
+  Edge-URL unsicher).
