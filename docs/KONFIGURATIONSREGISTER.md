@@ -29,28 +29,53 @@ Quellpfade aufgelistet, niemals tatsächlich konfigurierte Werte.
 
 ### Tiefe Archivindexierung
 
-Diese Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
-ausgewertet. MB-Grenzen verwenden im Code `1024**2` Bytes.
+Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
+ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstellung
+`media.archive_deep_index_enabled` verfügbar. MB-Grenzen verwenden im Code
+`1024**2` Bytes.
 
 | Variable | Standard | Bedeutung / zulässige numerische Grenzen |
 |---|---|---|
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | `auto` | `0/false/no/off`: aus; `1/true/yes/on`: Last-/RAM-Prüfung übergehen; sonst automatische Last-/RAM-Prüfung |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | `0.75` | Lastschwelle pro CPU; effektiv mindestens `0.1` |
-| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` | `384` | Mindest-RAM; 64–65536 |
-| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` | `2048` | Freier Scratch-Speicher als Reserve; 128–1048576 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | `20000` | Maximal berücksichtigte Einträge; 100–200000 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | `512` | Maximalgröße eines Eintrags; 1–8192 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | `8` | Gesamtes Textbudget; 1–64 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | `2` | Textbudget je Eintrag; 1–32 |
-| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | `500` | Anzahl für Inhaltsverarbeitung; 1–10000 |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` (Legacy-Migration) | `auto` | Gilt nur bis `media.archive_deep_index_enabled` gespeichert wurde; enabled Werte umgehen niemals CPU-/RAM-Prüfungen |
+| `media.archive_max_load_per_cpu` (persistente Admin-Einstellung) | `0.75` | Lastschwelle pro CPU; `0.1–8.0` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` (Legacy-Migration) | `0.75` | Gilt nur bis `media.archive_max_load_per_cpu` gespeichert wurde; ungültige Werte nutzen den Standard, Ausreißer werden auf `0.1–8.0` begrenzt |
+| `media.archive_min_free_memory_mb` (persistente Admin-Einstellung) | `384` | Mindestmenge freien RAM; `64–65536 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | `384` | Gilt nur bis der persistente RAM-Grenzwert gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_disk_reserve_mb` (persistente Admin-Einstellung) | `2048` | Freier Speicherplatz, der neben der 10-%-Scratch-Grenze erhalten bleibt; `128–1048576 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | `2048` | Gilt nur bis die persistente Datenträgerreserve gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_member_yield_ms` (persistente Admin-Einstellung) | `2` | Pause je verarbeitetem Archiveintrag; `0–100 ms` |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_member_yield_ms` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_members` (persistente Admin-Einstellung) | `20000` | Maximale Zahl katalogisierter Archiveinträge; `100–200000` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | `20000` | Gilt nur bis `media.archive_max_members` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_member_mb` (persistente Admin-Einstellung) | `512` | Größter Eintrag, dessen Inhalt extrahiert wird; `1–8192 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | `512` | Gilt nur bis `media.archive_max_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_text_mb` (persistente Admin-Einstellung) | `8` | Gesamtes abgeleitetes Volltextbudget pro Archiv; `1–64 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | `8` | Gilt nur bis `media.archive_max_text_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_text_per_member_mb` (persistente Admin-Einstellung) | `2` | Textbudget je Eintrag; `1–32 MiB` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_max_text_per_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `media.archive_max_content_files` (persistente Admin-Einstellung) | `500` | Höchstzahl der Einträge für Inhaltsverarbeitung; `1–10000` |
+| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | `500` | Gilt nur bis `media.archive_max_content_files` gespeichert wurde; Ausreißer werden begrenzt |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | `200` | Begrenzung des Kompressionsverhältnisses; 10–10000 |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | `2` | Pause je Eintrag in ms; 0–100 |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Legacy-Startwert bis `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gespeichert wird; optionale OCR für unterstützte Bild-Einträge |
 
 Erzwungene tiefe Indexierung hebt nicht Größen-, Pfad-, Scratch- oder
 Kompressionsschutz auf. Das Scratch-Budget nutzt höchstens ein Zehntel des
 freien Speichers und berücksichtigt zusätzlich die Reserve. Erhöhte Limits
 zuerst an repräsentativen, nicht produktiven Archiven prüfen.
+
+Mindest-RAM und Datenträgerreserve sind zusätzlich unter **Admin → Einstellungen
+→ Dokumente & Medien** persistent konfigurierbar. Die Legacy-Variablen
+`SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` und
+`SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` werden nur bis zum Speichern der jeweiligen
+Einstellung eingelesen; Änderungen gleichen vollständige abgeleitete
+Archivindizes beim nächsten Indexlauf an. Die Pause je Archiveintrag gilt für
+neu gestartete Indexläufe; `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` wird nur bis zum
+Speichern dieses Werts als Startwert verwendet. Die Kataloggrenze gilt beim
+nächsten Indexlauf; größere Archive werden als Teilindex markiert. Eintragsgröße
+und Inhaltsanzahl begrenzen nur die Textextraktion: übersprungene Einträge bleiben
+im Katalog und Originalarchive unverändert. Das Textbudget je Eintrag (Standard
+2 MiB; zulässig 1–32 MiB) ist unter **Dokumente & Medien** persistent einstellbar;
+die Legacy-Variable wird nur bis zum Speichern dieses Werts verwendet.
 
 Die optionale OCR für Bilddateien in Archiven ist unter **Admin → Einstellungen
 → Dokumente & Medien** verfügbar. Sie ist standardmäßig deaktiviert und benötigt
@@ -167,17 +192,17 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ANDROID_ACCOUNT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_PYTHON` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_OCR` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BACKGROUND_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_BUILD_BRANCH` | [software_distribution_core.py](../app/software_distribution_core.py) | Quelle und Ergänzungen oben |
