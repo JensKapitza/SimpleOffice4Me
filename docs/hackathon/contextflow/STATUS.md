@@ -3,10 +3,11 @@
 **Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
-**Stand (30.10., P0-C/P0-F + Capture-Lücken, committed `0c85fea0` + `11ed193c`):**
-Ruhezeiten + Hinweise-pro-Tag (Prefs-Store, Tages-Budget mit Sammelzähler,
-Dashboard-Banner, Prefs-Formular) + lokale Gruß-Umschreibung via Ollama
-(Meta-only, Fallback auf Regeltext, nie Mock/Fakten); Capture-Routenlücken
+**Stand (30.10., aktualisiert mit `a56cb2b8`):**
+Ruhezeiten + Hinweise-pro-Tag (Prefs-Store, atomares Tages-Budget,
+Dashboard-Banner mit ehrlich zurückgestellten Hinweisen, Prefs-Formular);
+Dashboard-Gruß ist statischer Regeltext ohne Modellaufruf. Lokale Meta-Inferenz
+bleibt an explizite Foto-/Dokument-/Inventaraktionen gebunden. Capture-Routenlücken
 L1–L4 (Oversize-400 je Route, 503 Batch-Assign/Role, Orphan-Asserts,
 Login-302/CSRF-403-Matrix). Verifiziert: neu 24/24 + 9/9 OK, Nachbarn
 Web 14/14 OK, Gates grün (Scratch-Kopien, danach entfernt). Matrix C+F
@@ -775,10 +776,10 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 |---|---|---|
 | A verknüpfter Servicefall | umgesetzt | bestätigte Links, actor-scoped Adapter, keine Namensraterei; Tests grün |
 | B 5-Tage-Follow-up | umgesetzt | Berlin-Evaluator, DST, unknown-Rechnung, injizierbare Uhr; Tests grün |
-| C Engel-Hinweis | umgesetzt | Karte + Quellen + Später/Nicht-mehr + Ruhezeiten + Hinweise-pro-Tag (Prefs-UI, Sammel-Banner, Budget-Log); 24 Tests grün (`0c85fea0`) |
+| C Engel-Hinweis | umgesetzt | Karte + Quellen + Später/Nicht-mehr + Ruhezeiten + atomare Hinweise-pro-Tag (Prefs-UI, ehrlicher Zurückstellungs-Banner); Dashboard ohne Modellaufruf; 30 Tests grün (`a56cb2b8`) |
 | D sichere Aktion | umgesetzt | Aufgabe genau einmal (replay-sicher); Editor-Link mit Manage-Gate; nichts erfunden |
 | E Mail-Entwurf | umgesetzt | belegter Entwurf via MailCase-Vertrag (Freigabe, Stale-/Replay-Schutz, nie versendet); Tests grün |
-| F lokale Betriebsart | umgesetzt | Regeln ohne KI (Default); optionale lokale Gruß-Umschreibung via Ollama (Meta-only, strikter Fallback auf Regeltext, nie Mock/Fakten); Tests grün (`0c85fea0`) |
+| F lokale Betriebsart | umgesetzt | Dashboard-Regeltext ohne Inferenz; lokale Meta-Inferenz nur bei expliziten Foto-/Dokument-/Inventaraktionen; 30 ContextFlow-Hinweistests grün (`a56cb2b8`) |
 | G Meta-Runtime-Agent | umgesetzt | Echter Tool-Loop (4 Read-only-Tools, max 5 Schritte, Evidence-Validierung, nur Vorschlag) + 1 synthetischer Live-Lauf (2 Schritte, 4/4 Tools, 10,2 s); 44 Tests + Gates grün; Editor-Link mit Manage-Gate |
 | H Security/QA/Alt-Neu | umgesetzt | Rechte/CSRF/Idempotenz/Revision, Tests + Gates grün (Zahlen im Kopf), Alt/Neu-Doku |
 | Jury-Demo (3 Min) | FEHLT | Plan vorhanden, Video nicht produziert |
