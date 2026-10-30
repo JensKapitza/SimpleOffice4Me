@@ -320,14 +320,20 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual((usage.free, 0), _disk_budget(Path(temporary), True))
 
     def test_windows_available_memory_probe_reads_physical_memory_and_handles_failure(self):
-        class MemoryStatusApi:
+        class MemoryStatusFunction:
             def __init__(self, available, result=True):
                 self.available = available
                 self.result = result
+                self.argtypes = None
+                self.restype = None
 
-            def GlobalMemoryStatusEx(self, status_pointer):
+            def __call__(self, status_pointer):
                 status_pointer._obj.ullAvailPhys = self.available
                 return self.result
+
+        class MemoryStatusApi:
+            def __init__(self, available, result=True):
+                self.GlobalMemoryStatusEx = MemoryStatusFunction(available, result)
 
         self.assertEqual(
             512 * 1024 * 1024,

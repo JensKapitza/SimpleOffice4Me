@@ -19,6 +19,7 @@ import time
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Iterator
 
@@ -91,9 +92,31 @@ def _free_memory_bytes() -> int | None:
 def _windows_free_memory_bytes(kernel32: Any | None = None) -> int | None:
     """Read available physical memory through Windows' GlobalMemoryStatusEx API."""
     import ctypes
+
+    memory_status_type, bool_type = _windows_memory_status_types()
+    try:
+        api = kernel32 or ctypes.windll.kernel32
+        status = memory_status_type()
+        status.dwLength = ctypes.sizeof(status)
+        query = api.GlobalMemoryStatusEx
+        if hasattr(query, "argtypes"):
+            query.argtypes = [ctypes.POINTER(memory_status_type)]
+            query.restype = bool_type
+        if not query(ctypes.byref(status)):
+            _LOGGER.warning("Windows available-memory probe failed")
+            return None
+        return int(status.ullAvailPhys)
+    except (AttributeError, OSError, TypeError):
+        _LOGGER.warning("Windows available-memory probe is unavailable")
+        return None
+
+
+@lru_cache(maxsize=1)
+def _windows_memory_status_types() -> tuple[type, Any]:
+    import ctypes
     from ctypes import wintypes
 
-    class _MemoryStatusEx(ctypes.Structure):
+    class MemoryStatusEx(ctypes.Structure):
         _fields_ = [
             ("dwLength", wintypes.DWORD),
             ("dwMemoryLoad", wintypes.DWORD),
@@ -106,21 +129,7 @@ def _windows_free_memory_bytes(kernel32: Any | None = None) -> int | None:
             ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
         ]
 
-    try:
-        api = kernel32 or ctypes.windll.kernel32
-        status = _MemoryStatusEx()
-        status.dwLength = ctypes.sizeof(status)
-        query = api.GlobalMemoryStatusEx
-        if hasattr(query, "argtypes"):
-            query.argtypes = [ctypes.POINTER(_MemoryStatusEx)]
-            query.restype = wintypes.BOOL
-        if not query(ctypes.byref(status)):
-            _LOGGER.warning("Windows available-memory probe failed")
-            return None
-        return int(status.ullAvailPhys)
-    except (AttributeError, OSError, TypeError):
-        _LOGGER.warning("Windows available-memory probe is unavailable")
-        return None
+    return MemoryStatusEx, wintypes.BOOL
 
 
 def system_busy(
