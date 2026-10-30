@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from app.archive_settings import (
     DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+    DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
     DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_MEMBER_MB,
     DEFAULT_ARCHIVE_MAX_TEXT_MB,
@@ -33,6 +34,7 @@ class ArchiveSettingsFormTests(unittest.TestCase):
             "archive_max_text_per_member_mb": str(DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB),
             "archive_max_member_mb": str(DEFAULT_ARCHIVE_MAX_MEMBER_MB),
             "archive_max_content_files": str(DEFAULT_ARCHIVE_MAX_CONTENT_FILES),
+            "archive_max_compression_ratio": str(DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO),
             "preview_enabled": "1",
             "preview_timeout_seconds": "45",
             "preview_max_bytes": str(256 * 1024 * 1024),
@@ -288,6 +290,74 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         self.assertIn('min="1" max="8192" step="1"', html)
         self.assertIn('name="archive_max_content_files"', html)
         self.assertIn('min="1" max="10000" step="1"', html)
+
+    def test_compression_ratio_migrates_validates_and_preserves_old_forms(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            store = SettingsStore(temporary)
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "250"}):
+                self.assertEqual(
+                    250, store.settings()["media"]["archive_max_compression_ratio"],
+                )
+                store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "500"}):
+                self.assertEqual(
+                    250, store.settings()["media"]["archive_max_compression_ratio"],
+                )
+
+            form = self._valid_form()
+            form["archive_max_compression_ratio"] = "10000"
+            parsed = media_settings_from_form(store, form, reset_defaults=False)
+            self.assertEqual(10000, parsed["archive_max_compression_ratio"])
+            older_form = self._valid_form()
+            older_form.pop("archive_max_compression_ratio")
+            self.assertEqual(
+                250,
+                media_settings_from_form(store, older_form, reset_defaults=False)[
+                    "archive_max_compression_ratio"
+                ],
+            )
+            for invalid in ("9", "10001", "1.5", "invalid", "9" * 20):
+                with self.subTest(invalid=invalid):
+                    invalid_form = self._valid_form()
+                    invalid_form["archive_max_compression_ratio"] = invalid
+                    with self.assertRaises(ValueError):
+                        media_settings_from_form(store, invalid_form, reset_defaults=False)
+
+            store.save({"media": parsed}, "archive-admin")
+            self.assertEqual(
+                10000, store.settings()["media"]["archive_max_compression_ratio"],
+            )
+            for invalid in (True, 9, 10001):
+                with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                    store.save(
+                        {"media": {"archive_max_compression_ratio": invalid}},
+                        "archive-admin",
+                    )
+            reset = media_settings_from_form(store, {}, reset_defaults=True)
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+                reset["archive_max_compression_ratio"],
+            )
+
+    def test_compression_ratio_setting_is_exposed_with_bounded_admin_input(self):
+        template = Path(__file__).parents[1] / "templates/admin/documents_media_settings.html"
+        html = template.read_text(encoding="utf-8")
+        self.assertIn('name="archive_max_compression_ratio"', html)
+        self.assertIn('min="10" max="10000" step="1"', html)
+
+    def test_invalid_legacy_compression_ratio_is_bounded_or_defaults(self):
+        for raw, expected in (("9", 10), ("10001", 10000), ("invalid", 200), ("9" * 21, 200)):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as temporary:
+                with patch.dict(
+                    os.environ,
+                    {"SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": raw},
+                ):
+                    self.assertEqual(
+                        expected,
+                        SettingsStore(temporary).settings()["media"][
+                            "archive_max_compression_ratio"
+                        ],
+                    )
 
 
 if __name__ == "__main__":
