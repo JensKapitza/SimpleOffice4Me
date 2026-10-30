@@ -14,8 +14,10 @@ from werkzeug.security import generate_password_hash
 from app import app, db as database
 from app.settings_store import (
     DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    DEFAULT_FEDERATION_PROFILE_COUNTRY,
     SettingsStore,
 )
+from app.federation_local_profile import local_profile
 
 
 class FederationPublicDirectorySettingsTests(unittest.TestCase):
@@ -40,6 +42,8 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
             "SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY": "0",
             "SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN": "",
             "SIMPLEOFFICE_FEDERATION_TOKEN": "",
+            "SIMPLEOFFICE_FEDERATION_COUNTRY": "",
+            "SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "",
         })
         self.environment.start()
         with app.app_context():
@@ -190,3 +194,76 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
                     {"integrations": {"federation_public_directory_enabled": invalid}},
                     "federation-admin",
                 )
+
+    def test_profile_country_is_admin_managed_persistent_and_used_in_public_profiles(self):
+        page = self.admin.get("/admin/settings/integrations")
+        self.assertIn('name="federation_profile_country"', page.get_data(as_text=True))
+        store = SettingsStore(self.root)
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_COUNTRY": "de"}):
+            self.assertEqual(
+                "DE", store.settings()["integrations"]["federation_profile_country"],
+            )
+            store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
+
+        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_COUNTRY": "FR"}):
+            self.assertEqual(
+                "DE", store.settings()["integrations"]["federation_profile_country"],
+            )
+            with patch(
+                "app.federation_local_profile.FederationIdentity.public_identity",
+                return_value={"public_key": "public-key", "fingerprint": "sha256:test"},
+            ):
+                self.assertEqual(
+                    "DE", local_profile(self.root, "https://profile.example")["country"],
+                )
+
+        path = "/admin/settings/integrations/federation-profile-country"
+        self.assertEqual(403, self.user.post(
+            path, data={"federation_profile_country": "FR"},
+        ).status_code)
+        self.assertEqual(403, self.admin.post(
+            path, data={"federation_profile_country": "FR"},
+        ).status_code)
+        saved = self.admin.post(
+            path,
+            data={"federation_profile_country": "fr"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        self.assertEqual(
+            "FR", store.settings()["integrations"]["federation_profile_country"],
+        )
+        with patch(
+            "app.federation_local_profile.FederationIdentity.public_identity",
+            return_value={"public_key": "public-key", "fingerprint": "sha256:test"},
+        ):
+            self.assertEqual("FR", local_profile(self.root, "https://profile.example")["country"])
+
+        for invalid in ("U", "USA", "1A", "ÅA"):
+            with self.subTest(invalid=invalid):
+                self.admin.post(
+                    path,
+                    data={"federation_profile_country": invalid},
+                    headers={"X-CSRF-Token": "a" * 40},
+                )
+                self.assertEqual(
+                    "FR", store.settings()["integrations"]["federation_profile_country"],
+                )
+
+        reset = self.admin.post(
+            path,
+            data={"reset": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, reset.status_code)
+        integrations = store.settings()["integrations"]
+        self.assertEqual(DEFAULT_FEDERATION_PROFILE_COUNTRY, integrations["federation_profile_country"])
+        self.assertEqual(10800, integrations["federation_autoscan_seconds"])
+        with app.app_context():
+            row = database.get_db().execute(
+                "SELECT target_id,detail FROM security_event WHERE action=? "
+                "ORDER BY rowid DESC LIMIT 1",
+                ("federation_profile_country_updated",),
+            ).fetchone()
+        self.assertEqual("integrations.federation_profile_country", row["target_id"])
+        self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])

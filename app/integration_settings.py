@@ -38,6 +38,7 @@ DEFAULT_FEDERATION_AUTOSCAN_COUNTRY = ""
 DEFAULT_FEDERATION_AUTOSCAN_SECONDS = 21600
 MIN_FEDERATION_AUTOSCAN_SECONDS = 3600
 MAX_FEDERATION_AUTOSCAN_SECONDS = 7 * 86400
+DEFAULT_FEDERATION_PROFILE_COUNTRY = ""
 DEFAULT_ERROR_REPORTING_ENABLED = True
 DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED = False
 
@@ -192,6 +193,16 @@ def legacy_federation_public_directory_enabled() -> bool:
     return value.strip().casefold() in {"1", "true", "yes", "on"}
 
 
+def legacy_federation_profile_country() -> str:
+    """Migrate the public profile country while preserving the old 2-char cap."""
+    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "")
+    country = raw.strip().upper()[:2]
+    if country and (len(country) != 2 or not country.isascii() or not country.isalpha()):
+        _LOGGER.warning("Invalid legacy federation profile country; using an empty country")
+        return DEFAULT_FEDERATION_PROFILE_COUNTRY
+    return country
+
+
 def normalize_integration_settings(
     integrations: dict[str, Any],
 ) -> dict[str, int | str | bool]:
@@ -287,6 +298,22 @@ def normalize_integration_settings(
         _LOGGER.warning("Invalid stored federation public-directory preference; using the default")
         public_directory_enabled = DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED
     result["federation_public_directory_enabled"] = public_directory_enabled
+    profile_country = integrations.get(
+        "federation_profile_country", DEFAULT_FEDERATION_PROFILE_COUNTRY,
+    )
+    if not isinstance(profile_country, str):
+        _LOGGER.warning("Invalid stored federation profile country; using the default")
+        profile_country = DEFAULT_FEDERATION_PROFILE_COUNTRY
+    else:
+        profile_country = profile_country.strip().upper()
+        if profile_country and (
+            len(profile_country) != 2
+            or not profile_country.isascii()
+            or not profile_country.isalpha()
+        ):
+            _LOGGER.warning("Invalid stored federation profile country; using the default")
+            profile_country = DEFAULT_FEDERATION_PROFILE_COUNTRY
+    result["federation_profile_country"] = profile_country
     return result
 
 
@@ -350,4 +377,17 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str | bo
     if not isinstance(public_directory_enabled, bool):
         raise ValueError("federation public-directory enabled must be a boolean")
     values["federation_public_directory_enabled"] = public_directory_enabled
+    profile_country = integrations.get(
+        "federation_profile_country", DEFAULT_FEDERATION_PROFILE_COUNTRY,
+    )
+    if not isinstance(profile_country, str):
+        raise ValueError("federation profile country must be empty or ISO-3166 alpha-2")
+    profile_country = profile_country.strip().upper()
+    if profile_country and (
+        len(profile_country) != 2
+        or not profile_country.isascii()
+        or not profile_country.isalpha()
+    ):
+        raise ValueError("federation profile country must be empty or ISO-3166 alpha-2")
+    values["federation_profile_country"] = profile_country
     return values

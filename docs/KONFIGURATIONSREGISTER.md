@@ -44,6 +44,12 @@ sichere Standard ist deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1`
 ist nur ein Legacy-Opt-in bis die persistente Admin-Einstellung gespeichert ist;
 Registrierung, Auflösung und Rendezvous bleiben separat authentifiziert.
 
+### Öffentliches Federation-Instanzprofil
+
+`integrations.federation_profile_country` steuert nur das optionale, öffentliche
+ISO-3166-Alpha-2-Land im lokalen Discovery-Profil. Der Standard ist leer;
+`SIMPLEOFFICE_FEDERATION_COUNTRY` wird nur bis zum ersten Speichern migriert.
+
 ### Tiefe Archivindexierung
 
 Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
@@ -249,7 +255,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | Legacy-Startwert für die optionale Admin-Einstellung `integrations.federation_autoscan_country` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` | `21600`, effektiv 3600–604800; Legacy-Startwert für `integrations.federation_autoscan_seconds` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` | [federation_discovery_service.py](../app/federation_discovery_service.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
-| `SIMPLEOFFICE_FEDERATION_COUNTRY` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_COUNTRY` (Legacy-Migration) | [federation_local_profile.py](../app/federation_local_profile.py) | Persistente Präferenz `integrations.federation_profile_country`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN` | [federation_discovery_http.py](../app/federation_discovery_http.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FEDERATION_FINGERPRINT` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_LABEL` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |

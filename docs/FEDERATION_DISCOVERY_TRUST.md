@@ -102,7 +102,7 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `SIMPLEOFFICE_FEDERATION_PEER_ID` – stabile lokale Peer-ID.
 - `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` – von anderen Peers erreichbare URL für veröffentlichte Profile/QR. Ein sicherer Reverse-Proxy-Basispfad ist zulässig, z. B. `https://office.example/simpleoffice`. Für einen direkten LAN-Well-Known-Aufruf wird die tatsächlich angesprochene lokale Adresse verwendet, wenn keine Public-URL gesetzt ist.
 - `SIMPLEOFFICE_FEDERATION_LABEL` – Anzeigename.
-- `SIMPLEOFFICE_FEDERATION_COUNTRY` – ISO-3166 Alpha-2 Land.
+- `integrations.federation_profile_country` – persistentes ISO-3166-Alpha-2-Land des lokalen öffentlichen Profils; leer = nicht angegeben. `SIMPLEOFFICE_FEDERATION_COUNTRY` dient nur bis zur ersten Speicherung als Legacy-Startwert.
 - `SIMPLEOFFICE_FEDERATION_FINGERPRINT` – öffentlicher Fingerprint der Instanz/Identität.
 - `SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS` – kommaseparierte Directory-/Bootstrap-URLs.
 - `integrations.federation_public_directory_enabled` – Admin-Einstellung für öffentliche Leseabfragen des Directorys; standardmäßig deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1` ist nur ein Legacy-Opt-in bis zur ersten Speicherung. Registrierung/Rendezvous bleiben authentifiziert.
@@ -114,6 +114,7 @@ TURN ist nicht Voraussetzung. TURN ist erst sinnvoll, wenn eine spätere WebRTC-
 - `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` und `SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS` sind Legacy-Startwerte bis zu einer gespeicherten Admin-Einstellung.
 - Land und Intervall lassen sich unter **Admin → Einstellungen → Integrationen & Dienste → Föderationssuche** konfigurieren. Ein leeres Land deaktiviert den automatischen Land-Scan; Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam. Der Standard ist deaktiviert und 21.600 Sekunden (6 Stunden); das Intervall muss zwischen 3.600 und 604.800 Sekunden liegen.
 - Die öffentliche Directory-Abfrage lässt sich separat unter **Admin → Einstellungen → Integrationen & Dienste → Öffentliches Federation-Verzeichnis** aktivieren. Sichtbar werden nur explizit publizierte öffentliche Profile; ein Opt-in aktiviert weder neue Registrierungen noch Trust oder Rendezvous.
+- Das optionale Land des lokalen Profils lässt sich unter **Admin → Einstellungen → Integrationen & Dienste → Öffentliches Federation-Instanzprofil** setzen. Es ist nur öffentliche Metadaten; die leere Standardeinstellung veröffentlicht kein Land.
 
 ## HTTP-Endpunkte
 
