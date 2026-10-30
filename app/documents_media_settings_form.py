@@ -8,9 +8,15 @@ from typing import Any
 
 from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+    MAX_ARCHIVE_DISK_RESERVE_MB,
     MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+    MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
+    MIN_ARCHIVE_DISK_RESERVE_MB,
     MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+    MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
 from .settings_store import (
     DEFAULT_ARCHIVE_OCR_ENABLED,
@@ -128,12 +134,35 @@ def media_settings_from_form(
             MAX_ARCHIVE_MAX_LOAD_PER_CPU,
         )
 
+    archive_min_free_memory_mb = (
+        current.get("archive_min_free_memory_mb", DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB)
+        if form.get("archive_min_free_memory_mb") is None
+        else _bounded_media_integer(
+            form,
+            "archive_min_free_memory_mb",
+            MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
+            MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
+        )
+    )
+    archive_disk_reserve_mb = (
+        current.get("archive_disk_reserve_mb", DEFAULT_ARCHIVE_DISK_RESERVE_MB)
+        if form.get("archive_disk_reserve_mb") is None
+        else _bounded_media_integer(
+            form,
+            "archive_disk_reserve_mb",
+            MIN_ARCHIVE_DISK_RESERVE_MB,
+            MAX_ARCHIVE_DISK_RESERVE_MB,
+        )
+    )
+
     return {
         "upload_limit_mib": upload_limit,
         "chat_attachment_max_bytes": chat_attachment_limit,
         "archive_ocr_enabled": archive_ocr_enabled,
         "archive_deep_index_enabled": archive_deep_index_enabled,
         "archive_max_load_per_cpu": archive_max_load_per_cpu,
+        "archive_min_free_memory_mb": archive_min_free_memory_mb,
+        "archive_disk_reserve_mb": archive_disk_reserve_mb,
         "preview_enabled": enabled == "1",
         "preview_timeout_seconds": _bounded_media_integer(
             form, "preview_timeout_seconds", MIN_PREVIEW_TIMEOUT_SECONDS,

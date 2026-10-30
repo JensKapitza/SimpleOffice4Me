@@ -66,6 +66,8 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "video_preview_frames": 12,
                     "archive_deep_index_enabled": False,
                     "archive_max_load_per_cpu": 1.5,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 8192,
                 }},
                 "tester",
             )
@@ -84,6 +86,8 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "video_preview_frames": 7,
                     "archive_deep_index_enabled": False,
                     "archive_max_load_per_cpu": 1.5,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 8192,
                 },
                 store.settings()["media"],
             )

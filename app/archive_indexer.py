@@ -19,6 +19,7 @@ import time
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Iterator
 
@@ -76,7 +77,9 @@ def _safe_member_name(name: str) -> str:
 
 
 def _free_memory_bytes() -> int | None:
-    """Best-effort Linux/Android available-memory probe without psutil."""
+    """Best-effort Linux/Android/Windows available-memory probe without psutil."""
+    if os.name == "nt":
+        return _windows_free_memory_bytes()
     try:
         for line in Path("/proc/meminfo").read_text(encoding="ascii").splitlines():
             if line.startswith("MemAvailable:"):
@@ -86,15 +89,62 @@ def _free_memory_bytes() -> int | None:
     return None
 
 
+def _windows_free_memory_bytes(kernel32: Any | None = None) -> int | None:
+    """Read available physical memory through Windows' GlobalMemoryStatusEx API."""
+    import ctypes
+
+    memory_status_type, bool_type = _windows_memory_status_types()
+    try:
+        api = kernel32 or ctypes.windll.kernel32
+        status = memory_status_type()
+        status.dwLength = ctypes.sizeof(status)
+        query = api.GlobalMemoryStatusEx
+        if hasattr(query, "argtypes"):
+            query.argtypes = [ctypes.POINTER(memory_status_type)]
+            query.restype = bool_type
+        if not query(ctypes.byref(status)):
+            _LOGGER.warning("Windows available-memory probe failed")
+            return None
+        return int(status.ullAvailPhys)
+    except (AttributeError, OSError, TypeError):
+        _LOGGER.warning("Windows available-memory probe is unavailable")
+        return None
+
+
+@lru_cache(maxsize=1)
+def _windows_memory_status_types() -> tuple[type, Any]:
+    import ctypes
+    from ctypes import wintypes
+
+    class MemoryStatusEx(ctypes.Structure):
+        _fields_ = [
+            ("dwLength", wintypes.DWORD),
+            ("dwMemoryLoad", wintypes.DWORD),
+            ("ullTotalPhys", ctypes.c_ulonglong),
+            ("ullAvailPhys", ctypes.c_ulonglong),
+            ("ullTotalPageFile", ctypes.c_ulonglong),
+            ("ullAvailPageFile", ctypes.c_ulonglong),
+            ("ullTotalVirtual", ctypes.c_ulonglong),
+            ("ullAvailVirtual", ctypes.c_ulonglong),
+            ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+        ]
+
+    return MemoryStatusEx, wintypes.BOOL
+
+
 def system_busy(
     deep_index_enabled: bool = True,
     max_load_per_cpu: float | None = None,
+    min_free_memory_mb: int | None = None,
 ) -> tuple[bool, str]:
     """Respect the saved opt-in while always enforcing host resource safeguards."""
     from .archive_settings import (
         DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+        DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
         MAX_ARCHIVE_MAX_LOAD_PER_CPU,
+        MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
         MIN_ARCHIVE_MAX_LOAD_PER_CPU,
+        MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
     )
 
     if not isinstance(deep_index_enabled, bool):
@@ -114,6 +164,16 @@ def system_busy(
         or not MIN_ARCHIVE_MAX_LOAD_PER_CPU <= threshold <= MAX_ARCHIVE_MAX_LOAD_PER_CPU
     ):
         return True, "archive load threshold is invalid"
+    if min_free_memory_mb is None:
+        min_free_memory_mb = DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB
+    if (
+        isinstance(min_free_memory_mb, bool)
+        or not isinstance(min_free_memory_mb, int)
+        or not MIN_ARCHIVE_MIN_FREE_MEMORY_MB
+        <= min_free_memory_mb
+        <= MAX_ARCHIVE_MIN_FREE_MEMORY_MB
+    ):
+        return True, "archive memory threshold is invalid"
     cpus = max(1, os.cpu_count() or 1)
     try:
         load = os.getloadavg()[0]
@@ -124,16 +184,34 @@ def system_busy(
     except (AttributeError, OSError, ValueError):
         pass
     available = _free_memory_bytes()
-    minimum = _env_int("SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB", 384, 64, 65536) * 1024 * 1024
-    if available is not None and available < minimum:
+    if available is None:
+        return True, "available memory could not be determined"
+    minimum = min_free_memory_mb * 1024 * 1024
+    if available < minimum:
         return True, "available memory is below archive threshold"
     return False, "resources available"
 
 
-def _disk_budget(path: Path) -> tuple[int, int]:
+def _disk_budget(path: Path, reserve_mb: int | None = None) -> tuple[int, int]:
     """Allow at most ten percent of free scratch storage and keep a reserve."""
+    from .archive_settings import (
+        DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+        MAX_ARCHIVE_DISK_RESERVE_MB,
+        MIN_ARCHIVE_DISK_RESERVE_MB,
+    )
+
+    if reserve_mb is None:
+        reserve_mb = DEFAULT_ARCHIVE_DISK_RESERVE_MB
+    if (
+        isinstance(reserve_mb, bool)
+        or not isinstance(reserve_mb, int)
+        or not MIN_ARCHIVE_DISK_RESERVE_MB <= reserve_mb <= MAX_ARCHIVE_DISK_RESERVE_MB
+    ):
+        _LOGGER.warning("Invalid archive disk reserve; deep indexing disabled for this pass")
+        usage = shutil.disk_usage(path)
+        return usage.free, 0
     usage = shutil.disk_usage(path)
-    reserve = _env_int("SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB", 2048, 128, 1048576) * 1024 * 1024
+    reserve = reserve_mb * 1024 * 1024
     budget = min(usage.free // 10, max(0, usage.free - reserve))
     return usage.free, max(0, budget)
 
@@ -313,6 +391,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     archive_ocr_enabled = media_settings["archive_ocr_enabled"]
     deep_index_enabled = media_settings["archive_deep_index_enabled"]
     max_load_per_cpu = media_settings["archive_max_load_per_cpu"]
+    min_free_memory_mb = media_settings["archive_min_free_memory_mb"]
+    disk_reserve_mb = media_settings["archive_disk_reserve_mb"]
     metadata = store.get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
@@ -328,14 +408,25 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         and previous.get("status") == "catalog_only"
         and previous_deep_index_enabled is False
     )
+    resource_policy_unchanged = (
+        isinstance(previous_policy, dict)
+        and previous_policy.get("load_threshold_per_cpu") == max_load_per_cpu
+        and previous_policy.get("min_free_memory_mb") == min_free_memory_mb
+        and previous_policy.get("disk_reserve_mb") == disk_reserve_mb
+    )
     if (
         previous.get("source_sha256") == digest
         and previous_deep_index_enabled is deep_index_enabled
-        and (previous.get("status") == "complete" or stable_catalog_only)
+        and (
+            (previous.get("status") == "complete" and resource_policy_unchanged)
+            or stable_catalog_only
+        )
     ):
         return previous
 
-    busy, busy_reason = system_busy(deep_index_enabled, max_load_per_cpu)
+    busy, busy_reason = system_busy(
+        deep_index_enabled, max_load_per_cpu, min_free_memory_mb,
+    )
     max_members = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS", 20000, 100, 200000)
     max_member = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB", 512, 1, 8192) * 1024 * 1024
     max_text = _env_int("SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB", 8, 1, 64) * 1024 * 1024
@@ -345,7 +436,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     yield_ms = _env_int("SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS", 2, 0, 100)
 
     scratch = _scratch_parent(store)
-    free_bytes, disk_budget = _disk_budget(scratch)
+    free_bytes, disk_budget = _disk_budget(scratch, disk_reserve_mb)
     deep_allowed = not busy and disk_budget > 0
     status = "complete" if deep_allowed else "catalog_only"
     reason = busy_reason if busy else ("scratch reserve reached" if disk_budget <= 0 else "resources available")
@@ -444,6 +535,8 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         "resource_policy": {
             "deep_index_enabled": deep_index_enabled,
             "load_threshold_per_cpu": max_load_per_cpu,
+            "min_free_memory_mb": min_free_memory_mb,
+            "disk_reserve_mb": disk_reserve_mb,
             "deep_index_allowed": deep_allowed,
             "free_scratch_bytes": free_bytes,
             "scratch_budget_bytes": disk_budget,

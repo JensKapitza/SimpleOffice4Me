@@ -14,6 +14,12 @@ DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED = True
 DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU = 0.75
 MIN_ARCHIVE_MAX_LOAD_PER_CPU = 0.1
 MAX_ARCHIVE_MAX_LOAD_PER_CPU = 8.0
+DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB = 384
+MIN_ARCHIVE_MIN_FREE_MEMORY_MB = 64
+MAX_ARCHIVE_MIN_FREE_MEMORY_MB = 65536
+DEFAULT_ARCHIVE_DISK_RESERVE_MB = 2048
+MIN_ARCHIVE_DISK_RESERVE_MB = 128
+MAX_ARCHIVE_DISK_RESERVE_MB = 1048576
 
 
 def legacy_archive_deep_index_enabled() -> bool:
@@ -49,6 +55,99 @@ def legacy_archive_max_load_per_cpu() -> float:
     if bounded != value:
         _LOGGER.warning("Legacy archive load threshold outside range; clamping")
     return bounded
+
+
+def _legacy_archive_integer(name: str, default: int, minimum: int, maximum: int) -> int:
+    raw = os.environ.get(name, str(default)).strip()
+    if len(raw) > 20 or not raw.isascii():
+        _LOGGER.warning("Invalid legacy archive resource limit; using default")
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        _LOGGER.warning("Invalid legacy archive resource limit; using default")
+        return default
+    bounded = max(minimum, min(maximum, value))
+    if bounded != value:
+        _LOGGER.warning("Legacy archive resource limit outside range; clamping")
+    return bounded
+
+
+def legacy_archive_min_free_memory_mb() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB",
+        DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+        MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
+        MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
+    )
+
+
+def legacy_archive_disk_reserve_mb() -> int:
+    return _legacy_archive_integer(
+        "SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB",
+        DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+        MIN_ARCHIVE_DISK_RESERVE_MB,
+        MAX_ARCHIVE_DISK_RESERVE_MB,
+    )
+
+
+def normalize_archive_resource_settings(media: dict[str, Any]) -> tuple[int, int]:
+    values = (
+        (
+            "archive_min_free_memory_mb",
+            DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+            MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
+            MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
+        ),
+        (
+            "archive_disk_reserve_mb",
+            DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+            MIN_ARCHIVE_DISK_RESERVE_MB,
+            MAX_ARCHIVE_DISK_RESERVE_MB,
+        ),
+    )
+    result: list[int] = []
+    for key, default, minimum, maximum in values:
+        value = media.get(key, default)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            _LOGGER.warning("Invalid stored archive resource limit %s; using default", key)
+            value = default
+        result.append(value)
+    return result[0], result[1]
+
+
+def validate_archive_resource_settings(media: dict[str, Any]) -> tuple[int, int]:
+    values = (
+        (
+            "archive_min_free_memory_mb",
+            DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+            MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
+            MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
+            "archive minimum free memory must be between 64 and 65,536 MiB",
+        ),
+        (
+            "archive_disk_reserve_mb",
+            DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+            MIN_ARCHIVE_DISK_RESERVE_MB,
+            MAX_ARCHIVE_DISK_RESERVE_MB,
+            "archive disk reserve must be between 128 and 1,048,576 MiB",
+        ),
+    )
+    result: list[int] = []
+    for key, default, minimum, maximum, error in values:
+        value = media.get(key, default)
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            raise ValueError(error)
+        result.append(value)
+    return result[0], result[1]
 
 
 def normalize_archive_index_settings(media: dict[str, Any]) -> tuple[bool, float]:

@@ -21,6 +21,8 @@ from app.attachment_security import AttachmentSecurity
 from app.chat_routes import _file_limit
 from app.archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+    DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
 )
 from app.settings_store import (
@@ -122,6 +124,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             "archive_ocr_enabled": "0",
             "archive_deep_index_enabled": "1",
             "archive_max_load_per_cpu": str(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU),
+            "archive_min_free_memory_mb": str(DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB),
+            "archive_disk_reserve_mb": str(DEFAULT_ARCHIVE_DISK_RESERVE_MB),
             "preview_enabled": "1",
             "preview_timeout_seconds": str(DEFAULT_PREVIEW_TIMEOUT_SECONDS),
             "preview_max_bytes": str(DEFAULT_PREVIEW_MAX_BYTES),
@@ -157,6 +161,10 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertIn('name="archive_max_load_per_cpu"', html)
         self.assertIn('min="0.1" max="8.0" step="0.05"', html)
         self.assertEqual(1, html.count('id="archive-load-threshold"'))
+        self.assertIn('name="archive_min_free_memory_mb"', html)
+        self.assertIn('min="64" max="65536" step="1"', html)
+        self.assertIn('name="archive_disk_reserve_mb"', html)
+        self.assertIn('min="128" max="1048576" step="1"', html)
         self.assertIn('name="preview_max_bytes"', html)
         self.assertIn('name="preview_max_pixels"', html)
         self.assertIn('name="video_preview_frames"', html)
@@ -680,6 +688,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 archive_ocr_enabled="1",
                 archive_deep_index_enabled="0",
                 archive_max_load_per_cpu="1.5",
+                archive_min_free_memory_mb="1024",
+                archive_disk_reserve_mb="8192",
                 preview_timeout_seconds="90",
                 preview_max_bytes="2000000",
                 preview_max_pixels="120000000",
@@ -695,6 +705,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertTrue(media["archive_ocr_enabled"])
         self.assertFalse(media["archive_deep_index_enabled"])
         self.assertEqual(1.5, media["archive_max_load_per_cpu"])
+        self.assertEqual(1024, media["archive_min_free_memory_mb"])
+        self.assertEqual(8192, media["archive_disk_reserve_mb"])
         self.assertEqual(90, media["preview_timeout_seconds"])
         self.assertEqual(2_000_000, media["preview_max_bytes"])
         self.assertEqual(120_000_000, media["preview_max_pixels"])
@@ -723,6 +735,10 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             {"archive_max_load_per_cpu": "inf"},
             {"archive_max_load_per_cpu": "0.09"},
             {"archive_max_load_per_cpu": "8.01"},
+            {"archive_min_free_memory_mb": "63"},
+            {"archive_min_free_memory_mb": "65537"},
+            {"archive_disk_reserve_mb": "127"},
+            {"archive_disk_reserve_mb": "1048577"},
             {"preview_max_bytes": "1023"},
             {"preview_max_bytes": "2147483649"},
             {"preview_max_pixels": "999999"},
@@ -759,6 +775,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_ARCHIVE_OCR_ENABLED, media["archive_ocr_enabled"])
         self.assertEqual(DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED, media["archive_deep_index_enabled"])
         self.assertEqual(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU, media["archive_max_load_per_cpu"])
+        self.assertEqual(DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB, media["archive_min_free_memory_mb"])
+        self.assertEqual(DEFAULT_ARCHIVE_DISK_RESERVE_MB, media["archive_disk_reserve_mb"])
         self.assertEqual(DEFAULT_PREVIEW_TIMEOUT_SECONDS, media["preview_timeout_seconds"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_BYTES, media["preview_max_bytes"])
         self.assertEqual(DEFAULT_PREVIEW_MAX_PIXELS, media["preview_max_pixels"])
@@ -917,6 +935,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                     "archive_ocr_enabled": True,
                     "archive_deep_index_enabled": False,
                     "archive_max_load_per_cpu": 2.5,
+                    "archive_min_free_memory_mb": 1024,
+                    "archive_disk_reserve_mb": 8192,
                     "chat_attachment_max_bytes": 100 * 1024 * 1024,
                 },
             },
@@ -926,6 +946,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         old_form.pop("archive_ocr_enabled")
         old_form.pop("archive_deep_index_enabled")
         old_form.pop("archive_max_load_per_cpu")
+        old_form.pop("archive_min_free_memory_mb")
+        old_form.pop("archive_disk_reserve_mb")
         old_form.pop("chat_attachment_max_bytes")
         response = self.admin.post(
             "/admin/settings/documents-media",
@@ -937,6 +959,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertTrue(media["archive_ocr_enabled"])
         self.assertFalse(media["archive_deep_index_enabled"])
         self.assertEqual(2.5, media["archive_max_load_per_cpu"])
+        self.assertEqual(1024, media["archive_min_free_memory_mb"])
+        self.assertEqual(8192, media["archive_disk_reserve_mb"])
         self.assertEqual(100 * 1024 * 1024, media["chat_attachment_max_bytes"])
 
     def test_settings_store_rejects_invalid_preview_types_and_bounds(self):
@@ -948,6 +972,12 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             {"archive_max_load_per_cpu": True},
             {"archive_max_load_per_cpu": float("nan")},
             {"archive_max_load_per_cpu": 8.01},
+            {"archive_min_free_memory_mb": True},
+            {"archive_min_free_memory_mb": 63},
+            {"archive_min_free_memory_mb": 65537},
+            {"archive_disk_reserve_mb": True},
+            {"archive_disk_reserve_mb": 127},
+            {"archive_disk_reserve_mb": 1048577},
             {"preview_timeout_seconds": True},
             {"preview_max_bytes": 2 * 1024 * 1024 * 1024 + 1},
             {"preview_max_pixels": 999_999},
