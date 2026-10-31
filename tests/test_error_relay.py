@@ -1,4 +1,5 @@
 import os
+import tempfile
 import unittest
 from collections import deque
 from unittest.mock import patch
@@ -30,12 +31,20 @@ class ErrorRelayTests(unittest.TestCase):
     def setUp(self):
         previous_testing = app.config.get("TESTING")
         previous_csrf = app.config.get("TEST_CSRF_PROTECTION")
+        previous_document_root = app.config.get("DOCUMENT_ROOT")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.addCleanup(app.config.update, DOCUMENT_ROOT=previous_document_root)
         self.addCleanup(
             app.config.update,
             TESTING=previous_testing,
             TEST_CSRF_PROTECTION=previous_csrf,
         )
-        app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True)
+        app.config.update(
+            DOCUMENT_ROOT=self.temp.name,
+            TESTING=True,
+            TEST_CSRF_PROTECTION=True,
+        )
         _issue_cache.clear()
         _rate_by_source.clear()
         _rate_global.clear()
