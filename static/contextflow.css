@@ -402,6 +402,78 @@ summary:focus-visible {
   cursor: pointer;
 }
 
+/* ---------- Büroengel avatar + suggestion dialog ---------- */
+
+.cf-angel-btn {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  line-height: 0;
+}
+
+.cf-angel-btn:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
+.cf-angel-img {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #eef5f1;
+  border: 2px solid #0f766e;
+  animation: cf-angel-float 4s ease-in-out infinite;
+}
+
+@keyframes cf-angel-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+.cf-engel-dialog {
+  max-width: 32rem;
+  border: 1px solid #b9a06a;
+  border-radius: 12px;
+  padding: 1.1rem 1.25rem;
+  background: var(--bs-body-bg, #fffdf8);
+  color: var(--bs-body-color, #2b2620);
+}
+
+.cf-engel-dialog::backdrop {
+  background: rgba(43, 38, 32, 0.45);
+}
+
+.cf-engel-dialog h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+.cf-engel-options {
+  margin: 0.5rem 0;
+  padding-left: 1.25rem;
+}
+
+.cf-engel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.cf-engel-actions form {
+  margin: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cf-angel-img {
+    animation: none;
+  }
+}
+
 .cf-prefs label {
   display: block;
   margin: 0.55rem 0;

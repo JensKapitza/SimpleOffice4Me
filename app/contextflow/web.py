@@ -989,6 +989,7 @@ def hint_prefs():
             str(form.get("quiet_start", "")),
             str(form.get("quiet_end", "")),
             str(form.get("daily_limit", "")),
+            form.get("angel_avatar", ""),
         )
     except PermissionError:
         abort(403)

@@ -187,6 +187,7 @@ class HintPrefs:
                         "quiet_start": "%02d:%02d" % parse_hhmm(row.get("quiet_start", "")),
                         "quiet_end": "%02d:%02d" % parse_hhmm(row.get("quiet_end", "")),
                         "daily_limit": self._checked_limit(row.get("daily_limit")),
+                        "angel_avatar": self._checked_avatar(row.get("angel_avatar", True)),
                     }
                 except ValueError:
                     break
@@ -194,6 +195,7 @@ class HintPrefs:
             "quiet_start": DEFAULT_QUIET_START,
             "quiet_end": DEFAULT_QUIET_END,
             "daily_limit": DEFAULT_DAILY_LIMIT,
+            "angel_avatar": True,
         }
 
     @staticmethod
@@ -207,23 +209,33 @@ class HintPrefs:
             raise ValueError("daily limit must be 1-10")
         return value
 
+    @staticmethod
+    def _checked_avatar(value: Any) -> bool:
+        """Coerce checkbox-style input; unknown values fail closed to hidden."""
+        if isinstance(value, bool):
+            return value
+        return str(value or "").strip().lower() in {"1", "on", "true", "yes"}
+
     def set(
         self,
         actor: str,
         quiet_start: str,
         quiet_end: str,
         daily_limit: Any,
+        angel_avatar: Any = True,
     ) -> dict[str, Any]:
         """Persist validated prefs for the actor's own account."""
         actor = _require_actor(actor)
         start = "%02d:%02d" % parse_hhmm(quiet_start)
         end = "%02d:%02d" % parse_hhmm(quiet_end)
         limit = self._checked_limit(daily_limit)
+        avatar = self._checked_avatar(angel_avatar)
         row = {
             "owner": actor,
             "quiet_start": start,
             "quiet_end": end,
             "daily_limit": limit,
+            "angel_avatar": avatar,
             "updated_at": utc_now(),
         }
         with exclusive_file_lock(self.lock):
@@ -236,7 +248,12 @@ class HintPrefs:
             else:
                 prefs.append(row)
             self._write(data)
-        return {"quiet_start": start, "quiet_end": end, "daily_limit": limit}
+        return {
+            "quiet_start": start,
+            "quiet_end": end,
+            "daily_limit": limit,
+            "angel_avatar": avatar,
+        }
 
 
 class HintBudget:
