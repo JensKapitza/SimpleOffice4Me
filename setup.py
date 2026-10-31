@@ -60,6 +60,7 @@ setup(
         "simpleoffice_media_upnp",
         "simpleoffice_service_lifecycle",
         "simpleoffice_sip_runtime",
+        "simpleoffice_sip_crypto",
     ],
     install_requires=RUNTIME_DEPENDENCIES,
     extras_require={

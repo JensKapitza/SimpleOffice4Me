@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
+from app import app as flask_app
 from app.telephony_profiles import TelephonyProfileStore, sip_digest_ha1
+from app.telephony_profiles import sip_digest_verifiers
+from simpleoffice_sip_crypto import decrypt_sip_digest_verifiers, sip_installation_key_path
 from simpleoffice_sip_runtime import SipRegistrarService, auto_sip_bind_host
+
+TEST_KEY = "test-installation-key-that-is-long-enough"
 
 
 def md5_hex(value: str) -> str:
@@ -56,38 +63,79 @@ def challenge_nonce(response: bytes) -> str:
     return match.group(1).decode("ascii")
 
 
-def auth(username: str, realm: str, password: str, nonce: str, method: str, uri: str, *, nc: int = 1) -> str:
+def auth(username: str, realm: str, password: str, nonce: str, method: str, uri: str, *, algorithm: str = "MD5", nc: int = 1) -> str:
     nc_text = f"{nc:08x}"
     cnonce = "simpleoffice-test"
-    ha1 = sip_digest_ha1(username, realm, password)
-    ha2 = md5_hex(f"{method}:{uri}")
-    response = md5_hex(f"{ha1}:{nonce}:{nc_text}:{cnonce}:auth:{ha2}")
+    if algorithm == "SHA-256":
+        digest = lambda value: hashlib.sha256(value.encode("utf-8")).hexdigest()
+    else:
+        digest = md5_hex
+    ha1 = sip_digest_ha1(username, realm, password, algorithm)
+    ha2 = digest(f"{method}:{uri}")
+    response = digest(f"{ha1}:{nonce}:{nc_text}:{cnonce}:auth:{ha2}")
     return (
         f'Digest username="{username}", realm="{realm}", nonce="{nonce}", '
-        f'uri="{uri}", response="{response}", algorithm=MD5, qop=auth, '
+        f'uri="{uri}", response="{response}", algorithm={algorithm}, qop=auth, '
         f'nc={nc_text}, cnonce="{cnonce}"'
     )
 
 
 class SipRuntimeTests(unittest.TestCase):
+    def test_worker_key_path_matches_flask_installation_key(self) -> None:
+        with patch.dict("os.environ", {"SIMPLEOFFICE_SECRET_KEY_FILE": ""}):
+            self.assertEqual(
+                Path(flask_app.instance_path) / "session-secret",
+                sip_installation_key_path(),
+            )
+
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.config = self.root / "mini-services.json"
-        self.telephony = TelephonyProfileStore(self.root / "telephony")
+        self.telephony = TelephonyProfileStore(self.root / "telephony", TEST_KEY)
         self.realm = "simpleoffice.local"
         self.password101 = "secret-for-101"
         self.password102 = "secret-for-102"
         self.telephony.create_profile(
-            "101", "Ziel", "enc:v1:test101", digest_ha1=sip_digest_ha1("101", self.realm, self.password101)
+            "101", "Ziel", "enc:v1:test101", digest_ha1=sip_digest_verifiers("101", self.realm, self.password101)
         )
         self.telephony.create_profile(
-            "102", "Anrufer", "enc:v1:test102", digest_ha1=sip_digest_ha1("102", self.realm, self.password102)
+            "102", "Anrufer", "enc:v1:test102", digest_ha1=sip_digest_verifiers("102", self.realm, self.password102)
         )
         patcher = patch("simpleoffice_sip_runtime.auto_sip_bind_host", return_value="192.168.10.10")
         self.addCleanup(patcher.stop)
         patcher.start()
-        self.service = SipRegistrarService(self.config)
+        self.service = SipRegistrarService(self.config, master_key=TEST_KEY)
+
+    def test_verifiers_are_encrypted_and_sha256_is_challenged_first(self) -> None:
+        with closing(sqlite3.connect(self.telephony.path)) as db:
+            stored = db.execute("SELECT digest_ha1 FROM telephony_profile WHERE extension='101'").fetchone()[0]
+        self.assertTrue(stored.startswith("enc:sip-ha1:v1:"))
+        self.assertEqual(
+            decrypt_sip_digest_verifiers("101", stored, TEST_KEY),
+            sip_digest_verifiers("101", self.realm, self.password101),
+        )
+        response = self.service.handle_datagram(
+            packet("REGISTER", "sip:192.168.10.10", call_id="sha-offer", cseq=1,
+                   to_uri="sip:101@simpleoffice.local"),
+            ("192.168.10.21", 5062),
+        ) or b""
+        self.assertLess(response.index(b"algorithm=SHA-256"), response.index(b"algorithm=MD5"))
+
+    def test_sha256_digest_authentication_succeeds(self) -> None:
+        uri = "sip:192.168.10.10"
+        challenge = self.service.handle_datagram(
+            packet("REGISTER", uri, call_id="sha-register", cseq=1, to_uri="sip:101@simpleoffice.local"),
+            ("192.168.10.21", 5062),
+        ) or b""
+        nonce = challenge_nonce(challenge)
+        response = self.service.handle_datagram(
+            packet("REGISTER", uri, call_id="sha-register", cseq=2, to_uri="sip:101@simpleoffice.local",
+                   authorization=auth("101", self.realm, self.password101, nonce, "REGISTER", uri, algorithm="SHA-256"),
+                   contact="<sip:101@192.168.10.21:5062>"),
+            ("192.168.10.21", 5062),
+        ) or b""
+        self.assertIn(b"200 OK", response)
 
     def test_bind_host_uses_loopback_when_socket_creation_is_denied(self) -> None:
         with patch.dict("os.environ", {"SIMPLEOFFICE_SIP_BIND": ""}), patch(

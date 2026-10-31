@@ -81,6 +81,7 @@ py-modules = [
   "simpleoffice_media_upnp",
   "simpleoffice_service_lifecycle",
   "simpleoffice_sip_runtime",
+  "simpleoffice_sip_crypto",
   "simpleoffice_network_boot",
   "simpleoffice_network_boot_dhcp",
   "simpleoffice_network_gateway",
