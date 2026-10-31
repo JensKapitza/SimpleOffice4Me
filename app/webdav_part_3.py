@@ -306,9 +306,10 @@ def _content_language(username: str, resource: Path, document: dict | None) -> s
     if not serialized:
         return ""
     try:
-        return (DefusedElementTree.fromstring(serialized).text or "").strip()
+        value = (DefusedElementTree.fromstring(serialized).text or "").strip()
     except (ElementTree.ParseError, DefusedXmlException):
         return ""
+    return value if DAV_CONTENT_LANGUAGE_RE.fullmatch(value) else ""
 
 
 def _xml_element(tag: str, text: str | None = None, child: ElementTree.Element | None = None) -> str:
