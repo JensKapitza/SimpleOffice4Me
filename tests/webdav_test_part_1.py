@@ -899,6 +899,35 @@ class WebDavDocumentTestPart1(WebDavTestBase):
         self.assertIn("424 Failed Dependency", invalid.get_data(as_text=True))
         self.assertIn("404 Not Found", check.get_data(as_text=True))
 
+    def test_invalid_persisted_content_language_is_not_reflected_in_response(self):
+        resource_key = f"jens:document:{self.document['document_id']}"
+        malicious_language = (
+            '<d:getcontentlanguage xmlns:d="DAV:">'
+            "en-US&lt;script&gt;alert(1)&lt;/script&gt;"
+            "</d:getcontentlanguage>"
+        )
+        properties_path = self.store.control / "webdav-properties.json"
+        properties_path.parent.mkdir(parents=True, exist_ok=True)
+        properties_path.write_text(
+            json.dumps({
+                "resources": {
+                    resource_key: {
+                        "{DAV:}getcontentlanguage": malicious_language,
+                    },
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        response = self.client.get(
+            f"{self.files}/angebot.odt", headers=self.auth,
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertNotIn("Content-Language", response.headers)
+        self.assertEqual(b"first office version", response.data)
+        self.assertNotIn(b"<script>", response.data)
+
     def test_proppatch_honors_read_scope_locks_retention_and_user_boundary(self):
         target = f"{self.files}/angebot.odt"
         body = '<d:propertyupdate xmlns:d="DAV:" xmlns:m="urn:simpleoffice:test"><d:set><d:prop><m:status>review</m:status></d:prop></d:set></d:propertyupdate>'
