@@ -39,7 +39,6 @@ from .agent_web import render_agent
 from .case_links import BERLIN, CaseLinkStore
 from .contracts import (
     INVOICE_EDITOR_URL,
-    INVOICE_EDITOR_URL,
     MAIL_CASE_URL,
     TASKS_URL,
     VISIT_URL,
