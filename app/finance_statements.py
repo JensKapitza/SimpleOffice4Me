@@ -24,8 +24,9 @@ from defusedxml import ElementTree as ET
 
 from .finance_schema import currency, normalize_iban, text, transaction_fingerprint
 from .finance_store import FinanceStore
+from .settings_store import MAX_FINANCE_IMPORT_LIMIT_BYTES
 
-_MAX_STATEMENT_BYTES = 25 * 1024 * 1024
+_MAX_STATEMENT_BYTES = MAX_FINANCE_IMPORT_LIMIT_BYTES
 _MAX_ROWS = 100_000
 _MONEY = Decimal("0.01")
 

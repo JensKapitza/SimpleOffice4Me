@@ -100,3 +100,42 @@ Mandantentrennung und Wiederholbarkeit:
 ```sh
 python -m unittest tests.test_finance_store
 ```
+
+## Browsergestützter Santander-Export
+
+Der Browser-Export ist als sichtbarer, nutzerinitiierter Ablauf konfiguriert. Die
+Bankbrowser-Einstellung, Export-Timeout, Importlimit und Vorschau-Aufbewahrung werden
+im Finance-Settings-Store gespeichert und revisionssicher auditiert. Das Timeout beträgt
+standardmäßig 300 Sekunden und kann zwischen 30 und 1800 Sekunden eingestellt werden.
+Das Importlimit beträgt standardmäßig 25 MiB; Administratoren können es auf 1 bis 25 MiB
+begrenzen. 25 MiB bleibt zusätzlich die feste Parser-Obergrenze. Vorschauen werden nach
+24 Stunden gelöscht; die Aufbewahrung ist zwischen 1 Stunde und 7 Tagen einstellbar und
+wird auch beim Import-Commit geprüft. Änderungen gelten ohne Neustart. Ein Browser kann
+nur lokal auf dem ausführenden Rechner gestartet werden; bei Serverbetrieb öffnet er sich
+nicht auf einem entfernten Client. Die Einstellungen lassen sich revisionssicher auf ihre
+Standardwerte zurücksetzen. Importformate bleiben auf CSV, CAMT.052/CAMT.053 und MT940
+beschränkt.
+Der Start-Endpunkt ist ausschließlich Administratoren zugänglich und nur bei
+Loopback-Client und Loopback-Host erreichbar. Login und Bankfreigabe erfolgen in
+einer sichtbaren, einmaligen Sitzung; Zugangsdaten und Cookies werden nicht
+dauerhaft gespeichert.
+
+Der Browser darf ausschließlich HTTPS-Navigationen und -Subrequests zu
+`santander.de` und dessen Subdomains senden. Externe MFA-Webseiten und andere
+Drittanbieterressourcen werden blockiert; die Freigabe muss in der Santander-App
+oder auf dem Mobiltelefon erfolgen. Falls die Bank den Export oder die Freigabe
+blockiert, bleibt der manuelle Dateiimport der vorgesehene Fallback.
+
+Alle Browser-TCP-Verbindungen laufen zusätzlich durch einen kurzlebigen,
+loopback-gebundenen CONNECT-Proxy. Der Proxy akzeptiert nur Port 443, löst den
+Santander-Host innerhalb von fünf Sekunden auf, lehnt jede DNS-Antwort mit
+nicht-öffentlichen Adressen ab und verbindet direkt mit einer geprüften
+numerischen Adresse; so führt eine zweite DNS-Auflösung beim Verbindungsaufbau
+nicht zu DNS-Rebinding.
+TLS-Zertifikatsprüfung und Hostname/SNI-Prüfung verbleiben beim Browser und
+werden nicht abgeschaltet. Pro Sitzung sind höchstens 16 gleichzeitige
+Proxyverbindungen und 100 MiB aggregierter Proxyverkehr erlaubt. Pro Prozess
+kann nur eine Banking-Browsersitzung gleichzeitig geöffnet sein; die Sitzung
+bleibt zusätzlich durch das konfigurierte Browser-Timeout begrenzt.
+Der Download wird vor der Vorschau validiert und erst danach im benutzergebundenen
+Staging abgelegt; abgelehnte Exporte hinterlassen keine Importvorschau.
