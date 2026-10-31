@@ -39,10 +39,12 @@ from .agent_web import render_agent
 from .case_links import BERLIN, CaseLinkStore
 from .contracts import (
     INVOICE_EDITOR_URL,
+    INVOICE_EDITOR_URL,
     MAIL_CASE_URL,
     TASKS_URL,
     VISIT_URL,
 )
+from .credit_hints import card_credit_hint
 from .demo import is_verified_demo_root
 from .doc_tags import (
     DocumentNotFoundError,
@@ -201,6 +203,7 @@ def _card(
             }
         )
     primary_device = devices[0] if devices else None
+    credit = card_credit_hint(root, actor, contact_id)
     return {
         "link_id": str(link.get("link_id", "")),
         "completed_on": str(link.get("completed_on", "")),
@@ -220,6 +223,7 @@ def _card(
         "proposals": proposals,
         "invoice_state": invoice_state,
         "invoice_display": invoice_display,
+        "credit": credit,
         "devices": devices,
         "primary_device": primary_device,
     }
