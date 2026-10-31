@@ -16,6 +16,8 @@ GRADLE = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
 README = Path("android/apk/README.md").read_text(encoding="utf-8")
 REPO_PROPERTIES = Path("android/apk/gradle.properties").read_text(encoding="utf-8")
 WORKFLOW = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
+RELEASE_WORKFLOW = Path(".github/workflows/android-apk-release.yml").read_text(encoding="utf-8")
+PROJECT_RELEASE_WORKFLOW = Path(".github/workflows/project-release.yml").read_text(encoding="utf-8")
 
 PROPERTY_KEYS = (
     "simpleofficeReleaseKeystore",
@@ -130,9 +132,41 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertIn("uninstalling it once", README)
         self.assertIn("same release certificate plus a higher `versionCode`", README)
         self.assertIn("development-only", README)
-        self.assertIn("holds no release signing secret", README)
+        self.assertIn("Working copies of the signing material live in GitHub Secrets", README)
+        self.assertIn("feature-branch dispatches are refused", README)
         self.assertIn("explicit sequence always wins", README)
         self.assertIn("fails with a clear error instead of producing an unsigned APK", README)
+
+    def test_signed_release_is_restricted_to_main_or_main_ancestor_version_tags(self) -> None:
+        self.assertIn(
+            "if: github.ref == 'refs/heads/main' || (github.ref_type == 'tag'",
+            RELEASE_WORKFLOW,
+        )
+        self.assertIn("git merge-base --is-ancestor", RELEASE_WORKFLOW)
+        self.assertIn("refs/remotes/origin/main", RELEASE_WORKFLOW)
+        self.assertIn('"$GITHUB_REF_NAME" != "v$version"', RELEASE_WORKFLOW)
+        self.assertIn("fetch-depth: 0", RELEASE_WORKFLOW)
+
+    def test_release_secrets_are_scoped_and_not_written_to_github_env(self) -> None:
+        self.assertIn(
+            "ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}",
+            RELEASE_WORKFLOW,
+        )
+        self.assertIn(
+            "SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}",
+            RELEASE_WORKFLOW,
+        )
+        self.assertIn(
+            "SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}",
+            RELEASE_WORKFLOW,
+        )
+        self.assertNotIn("SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD=${{ secrets.", RELEASE_WORKFLOW)
+        self.assertNotIn("SIMPLEOFFICE_RELEASE_KEY_PASSWORD=${{ secrets.", RELEASE_WORKFLOW)
+        self.assertNotIn("ANDROID_RELEASE_KEYSTORE_BASE64 }}\" | base64", RELEASE_WORKFLOW)
+
+    def test_project_release_collects_signed_android_artifact(self) -> None:
+        self.assertIn("android-apk-release.yml", PROJECT_RELEASE_WORKFLOW)
+        self.assertIn("steps.runs.outputs.android_apk_release", PROJECT_RELEASE_WORKFLOW)
 
 
 if __name__ == "__main__":

@@ -108,7 +108,7 @@ Signature migration: if a device has a previously installed APK signed with a di
 
 ## CI release builds (signed, update-stable)
 
-The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key and asserts the signer fingerprint, so a wrong key fails the build instead of silently breaking updates. It runs on manual dispatch and as part of every tag release (`project-release.yml`); the signed APK is published as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. Debug CI APKs remain reinstall-only test artifacts.
+The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key and asserts the signer fingerprint, so a wrong key fails the build instead of silently breaking updates. Signing is restricted to `main` and version tags whose commit is already reachable from `main`; feature-branch dispatches are refused before secrets are loaded. It runs on manual dispatch from `main` and as part of every valid tag release (`project-release.yml`); the signed APK is collected into the release package as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. Debug CI APKs remain reinstall-only test artifacts.
 
 Working copies of the signing material live in GitHub Secrets (`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_PASSWORD`; alias `simpleoffice-release`); the only backup is outside the repository — losing it ends the update chain (see above). Expected release certificate (public, verify before trusting an APK):
 
