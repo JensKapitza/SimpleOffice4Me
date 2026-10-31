@@ -8,6 +8,7 @@ already exists (no behavior change, same endpoint names).
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from flask import (
@@ -69,7 +70,14 @@ def capture_inbox():
         books_url=url_for("inventory.create_book"),
         items_url=url_for("inventory.create_item"),
         lookup_url=url_for("inventory.book_lookup"),
-        ml_status_url=url_for("contextflow.ml_status_route"),
+        ml_status_url=(
+            url_for("contextflow.ml_status_route")
+            if (
+                current_app.config.get("CONTEXTFLOW_ENABLED", False)
+                or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
+            )
+            else ""
+        ),
         batch_url_pattern=url_for(
             "inventory.capture_batch", batch_id="0" * 32).replace(
             "0" * 32, "__BATCH__"),

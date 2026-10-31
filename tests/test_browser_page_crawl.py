@@ -25,6 +25,18 @@ from route_inventory import browser_candidate  # noqa: E402
 
 
 class BrowserPageCrawlTests(unittest.TestCase):
+    def test_disabled_contextflow_routes_are_not_browser_crawl_candidates(self):
+        self.assertEqual(
+            (False, "feature-disabled"),
+            browser_candidate("/contextflow/", "contextflow.dashboard"),
+        )
+        self.assertEqual(
+            (True, ""),
+            browser_candidate(
+                "/contextflow/", "contextflow.dashboard", contextflow_enabled=True
+            ),
+        )
+
     def test_nested_api_routes_are_not_html_inventory_candidates(self):
         base = "http://127.0.0.1:8080"
         routes = (

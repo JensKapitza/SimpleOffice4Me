@@ -14,6 +14,7 @@ class GlobalQuickWinsTests(unittest.TestCase):
         self.assertIn("MutationObserver", script)
         self.assertIn('attributeFilter: ["disabled"]', script)
         self.assertIn("syncDisabledState", script)
+        self.assertNotIn('"street-address"', script)
 
 
 if __name__ == "__main__":

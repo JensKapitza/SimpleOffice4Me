@@ -47,6 +47,9 @@ from .integration_settings import (
     DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
     DEFAULT_ERROR_REPORTING_ENABLED,
     DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    DEFAULT_FEDERATION_PROFILE_COUNTRY,
+    DEFAULT_FEDERATION_PUBLIC_URL,
+    DEFAULT_ERROR_RELAY_MODE,
     MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -70,6 +73,9 @@ from .integration_settings import (
     legacy_federation_autoscan_seconds,
     legacy_error_reporting_enabled,
     legacy_federation_public_directory_enabled,
+    legacy_federation_profile_country,
+    legacy_federation_public_url,
+    legacy_error_relay_mode,
     legacy_osm_download_retries,
     legacy_osm_export_idle_timeout,
     legacy_osm_filter_timeout,
@@ -180,6 +186,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "federation_autoscan_seconds": DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
         "error_reporting_enabled": DEFAULT_ERROR_REPORTING_ENABLED,
         "federation_public_directory_enabled": DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+        "federation_profile_country": DEFAULT_FEDERATION_PROFILE_COUNTRY,
+        "federation_public_url": DEFAULT_FEDERATION_PUBLIC_URL,
+        "error_relay_mode": DEFAULT_ERROR_RELAY_MODE,
     },
 }
 
@@ -572,6 +581,25 @@ class SettingsStore:
             result["integrations"]["federation_public_directory_enabled"] = (
                 legacy_federation_public_directory_enabled()
             )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_profile_country" not in stored_integrations
+        ):
+            result["integrations"]["federation_profile_country"] = (
+                legacy_federation_profile_country()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "federation_public_url" not in stored_integrations
+        ):
+            result["integrations"]["federation_public_url"] = (
+                legacy_federation_public_url()
+            )
+        if (
+            not isinstance(stored_integrations, dict)
+            or "error_relay_mode" not in stored_integrations
+        ):
+            result["integrations"]["error_relay_mode"] = legacy_error_relay_mode()
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
         )

@@ -20,7 +20,7 @@
 </select></div>
 <div id="invoice-manual-address" class="mt-2">
 <label for="billing-street" class="form-label">Straße und Hausnummer</label>
-<input class="form-control mb-2" id="billing-street" name="billing_street" autocomplete="street-address" maxlength="250" value="{{ draft.buyer.street if draft and not draft.buyer.address_id else '' }}">
+<input class="form-control mb-2" id="billing-street" name="billing_street" maxlength="250" value="{{ draft.buyer.street if draft and not draft.buyer.address_id else '' }}">
 <div class="row g-2"><div class="col-5"><label for="billing-postal" class="form-label">PLZ</label><input class="form-control" id="billing-postal" name="billing_postal" autocomplete="postal-code" maxlength="250" value="{{ draft.buyer.postal if draft and not draft.buyer.address_id else '' }}"></div>
 <div class="col-7"><label for="billing-city" class="form-label">Ort</label><input class="form-control" id="billing-city" name="billing_city" autocomplete="address-level2" maxlength="250" value="{{ draft.buyer.city if draft and not draft.buyer.address_id else '' }}"></div></div>
 <label for="billing-country" class="form-label mt-2">Land (ISO-Code)</label><input class="form-control" id="billing-country" name="billing_country" maxlength="2" value="{{ draft.buyer.country if draft and not draft.buyer.address_id else 'DE' }}">
