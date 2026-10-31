@@ -249,7 +249,7 @@ jobs:
           test -s "$APK"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$APKSIGNER" && test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/release-apksigner.txt
+          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/release-apksigner.txt
           grep -F 'Verified using v1 scheme (JAR signing): true' /tmp/release-apksigner.txt
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/release-apksigner.txt
           grep -F 'lib/arm64-v8a/' <(unzip -l "$APK")
