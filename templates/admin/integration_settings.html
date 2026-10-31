@@ -46,7 +46,7 @@
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-8">
           <label class="form-label" for="error-relay-mode">Empfang eingehender Fehlerberichte</label>
-          <select class="form-select" id="error-relay-mode" name="error_relay_mode" required>
+          <select class="form-select" id="error-relay-mode" name="error_relay_mode">
             <option value="auto" {% if integrations.error_relay_mode == "auto" %}selected{% endif %}>Automatisch gemäß Build-Rolle (Standard)</option>
             <option value="enabled" {% if integrations.error_relay_mode == "enabled" %}selected{% endif %}>Aktiviert</option>
             <option value="disabled" {% if integrations.error_relay_mode == "disabled" %}selected{% endif %}>Deaktiviert</option>
