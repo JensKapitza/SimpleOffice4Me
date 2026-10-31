@@ -89,7 +89,9 @@ class ErrorRelaySettingsTests(unittest.TestCase):
     def test_admin_mode_toggle_requires_confirmation_and_controls_public_endpoints(self):
         page = self.admin.get("/admin/settings/integrations")
         self.assertEqual(200, page.status_code)
-        self.assertIn('name="error_relay_mode"', page.get_data(as_text=True))
+        page_html = page.get_data(as_text=True)
+        self.assertIn('name="error_relay_mode"', page_html)
+        self.assertNotIn('name="error_relay_mode" required', page_html)
         self.assertIn('name="confirm_public_relay"', page.get_data(as_text=True))
         path = "/admin/settings/integrations/error-relay"
         self.assertEqual(403, self.user.post(path, data={"error_relay_mode": "enabled"}).status_code)
