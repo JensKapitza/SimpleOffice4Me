@@ -81,7 +81,8 @@ def capture_ml_label(
     )
 
     base: dict[str, Any] = {"available": False, "label": "", "item_type": "",
-                            "isbn": "", "note": "", "tags": [],
+                            "isbn": "", "note": "", "subtitle": "",
+                            "authors": [], "tags": [],
                             "provider": "", "provider_label": "",
                             "model": "", "error": ""}
     if len(png) > MAX_IMAGE_BYTES:
@@ -108,6 +109,9 @@ def capture_ml_label(
         "item_type": str(suggestion.get("item_type", "") or ""),
         "isbn": str(suggestion.get("isbn", "") or ""),
         "note": str(suggestion.get("note", "") or ""),
+        "subtitle": str(suggestion.get("subtitle", "") or ""),
+        "authors": suggestion.get("authors", []) if isinstance(
+            suggestion.get("authors", []), list) else [],
         "tags": tags,
         "provider": str(answer.get("provider", "") or ""),
         "provider_label": str(answer.get("provider_label", "") or ""),
@@ -206,19 +210,28 @@ def analyze_photo(
     metadata = capture_metadata(isbn)
     lines = title_lines(text)
     year = str(metadata.get("year", "") or "") or extract_year(text)
-    title = str(metadata.get("title", "") or "") or (lines[0] if lines else "")
+    title = (
+        str(metadata.get("title", "") or "")
+        or str(ml_result.get("label", "") or "")
+        or (lines[0] if lines else "")
+    )
     ml_tags = ml_result.get("tags", [])
     ml_tags = [tag for tag in ml_tags if isinstance(tag, str)] \
         if isinstance(ml_tags, list) else []
+    description = str(ml_result.get("note", "") or "")
+    subtitle = str(ml_result.get("subtitle", "") or "").strip()
+    if subtitle and subtitle.casefold() not in description.casefold():
+        description = (description + "\nUntertitel: " + subtitle).strip()
     prefill: dict[str, Any] = {
         "isbn": isbn,
-        "description": str(ml_result.get("note", "") or ""),
+        "description": description,
         "tags": ml_tags,
     }
     if route["kind"] == "book":
         prefill.update({
             "title": title,
-            "authors": metadata.get("authors", []),
+            "authors": metadata.get("authors") or ml_result.get("authors", []),
+            "subtitle": subtitle,
             "year": year,
             "publisher": metadata.get("publisher", ""),
             "title_lines": lines,
