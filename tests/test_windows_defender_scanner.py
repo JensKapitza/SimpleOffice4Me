@@ -329,9 +329,10 @@ class DefaultScannerTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "not in PATH"):
                 scanner.executable()
 
-    def test_attachment_security_defaults_to_defender_on_windows(self):
-        with tempfile.TemporaryDirectory() as temp, _defender_env(), patch("os.name", "nt"), \
-             patch("app.attachment_security.shutil.which", return_value=None):
+    def test_attachment_security_uses_explicit_defender_selection(self):
+        with tempfile.TemporaryDirectory() as temp, _defender_env(
+            SIMPLEOFFICE_SCANNER="defender",
+        ):
             security = AttachmentSecurity(Path(temp))
         self.assertIsInstance(security.scanner, WindowsDefender)
         self.assertEqual(120, security.scanner.timeout)

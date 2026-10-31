@@ -1,4 +1,5 @@
 """Site-visit evidence downloads resolve stored attachments (issue #759)."""
+import json
 import tempfile
 import unittest
 from io import BytesIO
@@ -105,6 +106,22 @@ class SiteVisitAttachmentDownloadTests(unittest.TestCase):
             self.assertEqual(200, restored.status_code)
         finally:
             restored.close()
+
+    def test_tampered_relative_path_cannot_escape_visit_directory(self):
+        record_path = self.store._path(self.visit_id)
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        outside = Path(self.temp.name) / "private-outside.png"
+        outside.write_bytes(PNG_BYTES)
+        record["attachments"][0]["relative_path"] = "../../../../private-outside.png"
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "Anhang nicht gefunden"):
+            self.store.attachment_path(
+                self.visit_id, "visit-owner", self.attachment_id,
+            )
+        response = self.client.get(self._attachment_url())
+        self.assertEqual(404, response.status_code)
+        self.assertNotEqual(PNG_BYTES, response.data)
 
     def test_symlinked_attachment_is_rejected(self):
         path, _ = self.store.attachment_path(
