@@ -361,6 +361,9 @@ app.register_blueprint(admin_osm_settings.bp)
 from . import admin_error_reporting_settings
 app.register_blueprint(admin_error_reporting_settings.bp)
 
+from . import admin_error_relay_settings
+app.register_blueprint(admin_error_relay_settings.bp)
+
 from . import v3_finance_routes
 app.register_blueprint(v3_finance_routes.bp)
 
