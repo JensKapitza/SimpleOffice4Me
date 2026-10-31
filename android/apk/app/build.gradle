@@ -176,6 +176,8 @@ android {
                 storePassword releaseKeystorePassword
                 keyAlias releaseKeyAlias
                 keyPassword releaseKeyPassword
+                v1SigningEnabled true
+                v2SigningEnabled true
             }
         }
     }
