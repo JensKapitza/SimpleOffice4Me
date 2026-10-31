@@ -10,6 +10,7 @@ import hashlib
 import http.client
 import json
 import math
+import os
 import re
 import ssl
 import time
@@ -45,6 +46,7 @@ from .inventory_values import date_only as _date_only
 from .inventory_values import fields_text as _fields_text
 from .inventory_values import money as _money
 from .inventory_values import single_line as _single_line
+from .inventory_isbn import isbn_from_barcode, normalize_isbn
 from .object_store import ObjectStore
 from .todo_store import TodoStore
 
@@ -74,39 +76,6 @@ def _inventory() -> "InventoryEnrichmentStore":
 
 def _todos() -> TodoStore:
     return TodoStore(current_app.config["DOCUMENT_ROOT"])
-
-
-def _isbn13_checksum(prefix: str) -> str:
-    total = sum(int(char) * (1 if index % 2 == 0 else 3) for index, char in enumerate(prefix))
-    return str((10 - total % 10) % 10)
-
-
-def normalize_isbn(value: Any) -> str:
-    """Return a validated canonical ISBN-13, converting valid ISBN-10 values."""
-    raw = re.sub(r"[^0-9Xx]", "", str(value or ""))
-    if len(raw) == 13 and raw.isdigit():
-        if not raw.startswith(("978", "979")):
-            raise ValueError("ISBN-13 muss mit 978 oder 979 beginnen")
-        if _isbn13_checksum(raw[:12]) != raw[-1]:
-            raise ValueError("Ungültige ISBN-Prüfziffer")
-        return raw
-    if len(raw) == 10 and raw[:9].isdigit() and (raw[-1].isdigit() or raw[-1].upper() == "X"):
-        digits = [int(char) for char in raw[:9]] + [10 if raw[-1].upper() == "X" else int(raw[-1])]
-        if sum((10 - index) * digit for index, digit in enumerate(digits)) % 11:
-            raise ValueError("Ungültige ISBN-Prüfziffer")
-        prefix = "978" + raw[:9]
-        return prefix + _isbn13_checksum(prefix)
-    raise ValueError("ISBN muss eine gültige ISBN-10 oder ISBN-13 sein")
-
-
-def isbn_from_barcode(value: Any) -> str:
-    digits = re.sub(r"\D", "", str(value or ""))
-    if len(digits) == 13 and digits.startswith(("978", "979")):
-        try:
-            return normalize_isbn(digits)
-        except ValueError:
-            return ""
-    return ""
 
 
 def _http_json(url: str) -> dict[str, Any]:
@@ -789,6 +758,16 @@ def index():
 
     capture = capture_context_from_query(request.args)
     locations = capture_locations()
+    from .contextflow.demo import is_verified_demo_root
+    from .contextflow.vision import vision_settings_from_mapping
+
+    vision_settings = vision_settings_from_mapping(current_app.config, os.environ)
+    meta_photo_consent_available = bool(
+        str(vision_settings.get("provider", "")).strip().lower() == "meta"
+        and vision_settings.get("meta_consent") is True
+        and vision_settings.get("meta_api_key")
+        and is_verified_demo_root(Path(current_app.config["DOCUMENT_ROOT"]))
+    )
     return render_template(
         "inventory/index.html",
         inventory_rows=rows,
@@ -796,6 +775,7 @@ def index():
         capture_context=capture,
         library_locations=locations if capture.get("enabled") else [],
         series_locations=locations,
+        meta_photo_consent_available=meta_photo_consent_available,
     )
 
 

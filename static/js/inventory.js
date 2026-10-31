@@ -71,39 +71,9 @@
   };
   const cleanText = (value) => String(value || '').trim();
   const LOCAL_UNAVAILABLE_MESSAGE = 'Lokale Objekterkennung ist nicht eingerichtet. Bitte Ollama und ein Vision-Modell konfigurieren.';
-
-  // Navigation targets can come from JSON responses or data attributes. Never allow
-  // javascript:, data:, cross-origin, or malformed URLs to reach location APIs.
-  const safeLocalUrl = (value) => {
-    try {
-      const parsed = new URL(String(value || ''), window.location.origin);
-      if (parsed.origin !== window.location.origin) return '';
-      if (!['http:', 'https:'].includes(parsed.protocol)) return '';
-      return parsed.href;
-    } catch (_error) {
-      return '';
-    }
-  };
-  const safeMarketplaceUrl = (value) => {
-    try {
-      const parsed = new URL(String(value || ''));
-      if (parsed.protocol !== 'https:') return '';
-      const host = parsed.hostname.toLowerCase();
-      const allowed = host === 'amazon.de' || host.endsWith('.amazon.de') || host === 'ebay.de' || host.endsWith('.ebay.de');
-      return allowed ? parsed.href : '';
-    } catch (_error) {
-      return '';
-    }
-  };
-  const navigateLocal = (value) => {
-    const target = safeLocalUrl(value);
-    if (!target) {
-      setStatus('Unsicheres Navigationsziel wurde blockiert.', 'danger');
-      return false;
-    }
-    window.location.assign(target);
-    return true;
-  };
+  const navigation = window.SimpleOfficeInventoryNavigation;
+  const {safeLocalUrl, safeMarketplaceUrl} = navigation;
+  const navigateLocal = (value) => navigation.navigateLocal(value, setStatus);
 
   const isbn13CheckDigit = (prefix) => {
     let total = 0;
@@ -409,8 +379,10 @@
   const suggestedName = $('suggested-name');
   const suggestedType = $('suggested-type');
   const suggestedNote = $('suggested-note');
+  const suggestedBookDetails = $('suggested-book-details');
   const suggestedTags = $('suggested-tags');
   const suggestedProvider = $('suggested-provider');
+  const metaPhotoConsent = $('meta-photo-consent');
   const isbnTitleHint = $('isbn-title-hint');
   let pendingSuggestion = null;
   let analyzing = null;
@@ -423,6 +395,14 @@
     if (suggestedName) suggestedName.textContent = cleanText(suggestion.object_name);
     if (suggestedType) suggestedType.textContent = suggestion.item_type && suggestion.item_type !== 'object' ? `(${suggestion.item_type})` : '';
     if (suggestedNote) suggestedNote.textContent = cleanText(suggestion.note);
+    if (suggestedBookDetails) {
+      const details = [];
+      if (suggestion.subtitle) details.push(`Untertitel: ${cleanText(suggestion.subtitle)}`);
+      if (Array.isArray(suggestion.authors) && suggestion.authors.length) {
+        details.push(`Autor: ${suggestion.authors.map(cleanText).filter(Boolean).join(', ')}`);
+      }
+      suggestedBookDetails.textContent = details.join(' · ');
+    }
     if (suggestedTags) suggestedTags.textContent = suggestionHelpers ? suggestionHelpers.formatSuggestionTags(suggestion.tags) : '';
     if (suggestedProvider) suggestedProvider.textContent = cleanText(payload.provider_label);
     suggestionBox.hidden = false;
@@ -438,6 +418,7 @@
     const data = new FormData();
     data.append('photo', file, file.name || 'foto');
     data.append('_csrf_token', token);
+    if (metaPhotoConsent?.checked) data.append('consent_meta', 'yes');
     const code = cleanText(barcode?.value); if (code) data.append('barcode', code.slice(0, 120));
     const isbnCode = cleanText(isbn?.value); if (isbnCode) data.append('isbn', isbnCode.slice(0, 120));
     if (analyzeButton) { analyzeButton.disabled = true; analyzeButton.setAttribute('aria-busy', 'true'); }
@@ -473,8 +454,14 @@
       type.value = suggested; objectTypeWasAutoBook = false; updateMode();
     }
     if (suggestionHelpers) {
-      if (description) description.value = suggestionHelpers.suggestionDescription(description.value, suggestion.note);
+      const descriptionParts = [suggestion.note];
+      if (suggestion.subtitle) descriptionParts.push(`Untertitel: ${suggestion.subtitle}`);
+      if (description) description.value = suggestionHelpers.suggestionDescription(description.value, descriptionParts.filter(Boolean).join(' · '));
       if (tags) tags.value = suggestionHelpers.mergeTags(tags.value, suggestion.tags, tags.maxLength);
+    }
+    const authorsField = $('authors');
+    if (authorsField && !cleanText(authorsField.value) && Array.isArray(suggestion.authors)) {
+      authorsField.value = suggestion.authors.map(cleanText).filter(Boolean).join(', ');
     }
   };
   const adoptSuggestion = () => {

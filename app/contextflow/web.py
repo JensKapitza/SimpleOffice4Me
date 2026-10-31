@@ -592,10 +592,9 @@ def ml_status_route():
 def inventory_suggest():
     """Suggest an inventory object name from a photo (JSON, nothing stored).
 
-    No consent element exists on the inventory form, so cloud inference is
-    always refused here; only real local backends answer, while mock is
-    refused with 503 (no invented classifications). Saving still happens
-    exclusively via the normal inventory form.
+    Meta cloud inference requires explicit per-photo consent in the UI,
+    server configuration, and a verified synthetic demo root. Saving still
+    happens exclusively via the normal inventory form.
     """
     _gate()
     _actor()
@@ -613,7 +612,8 @@ def inventory_suggest():
                 "isbn": str(form.get("isbn", "") or ""),
             },
             settings=_vision_settings(),
-            consent_meta=False,
+            consent_meta=form.get("consent_meta") == "yes",
+            root=_root(),
         )
     except PermissionError as exc:
         return {"error": str(exc)}, 403

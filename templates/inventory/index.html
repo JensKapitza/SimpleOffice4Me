@@ -131,9 +131,16 @@
       <div class="col-12" id="engel-suggest-box">
         <button type="button" class="btn btn-outline-primary" id="analyze-photo">Foto analysieren – Objekt vorschlagen</button>
         <p class="form-text">Der Büroengel schlägt anhand des Fotos Name, Typ, Beschreibung und Tags vor. Erst dein Klick übernimmt sie ins Formular – bestehende Beschreibung bleibt erhalten, gespeichert wird wie gewohnt über „Objekt speichern“.</p>
+        {% if meta_photo_consent_available %}
+        <div class="form-check mt-2">
+          <input class="form-check-input" type="checkbox" value="yes" id="meta-photo-consent">
+          <label class="form-check-label" for="meta-photo-consent">Dieses Foto für die Analyse an Meta Muse Spark senden. Im Contributor-Modus können Inhalte zur Verbesserung künftiger Meta-Modelle verwendet werden.</label>
+        </div>
+        {% endif %}
         <div id="object-suggestion" class="alert alert-info py-2 mt-2" role="status" aria-live="polite" hidden>
           <strong id="suggested-name"></strong> <span id="suggested-type" class="small text-secondary"></span>
           <div class="small" id="suggested-note"></div>
+          <div class="small" id="suggested-book-details"></div>
           <div class="small text-secondary" id="suggested-tags"></div>
           <div class="small text-secondary" id="suggested-provider"></div>
           <div class="d-flex gap-2 mt-2">
@@ -188,5 +195,6 @@
 <script src="{{ url_for('static', filename='vendor/jsqr/jsQR.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/camera_capture.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/suggestion_fields.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/inventory_navigation.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/inventory.js') }}" data-module="static/js/inventory.js" defer></script>
 {% endblock %}

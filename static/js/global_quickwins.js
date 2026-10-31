@@ -17,8 +17,6 @@
     url: "url",
     company: "organization",
     organization: "organization",
-    street: "street-address",
-    address: "street-address",
     city: "address-level2",
     state: "address-level1",
     postal: "postal-code",

@@ -28,6 +28,8 @@ OBJECT_ITEM_TYPES = frozenset(
 )
 OBJECT_NAME_LIMIT = 120
 OBJECT_NOTE_LIMIT = 500
+OBJECT_SUBTITLE_LIMIT = 240
+OBJECT_AUTHORS_LIMIT = 6
 OBJECT_TAGS_LIMIT = 6
 OBJECT_TAG_LIMIT = 40
 
@@ -72,6 +74,20 @@ def validate_object_suggestion(payload: object) -> dict[str, Any]:
     note = str(payload.get("note", "") or "").strip()
     if len(note) > OBJECT_NOTE_LIMIT:
         raise VisionError("suggestion note is too long")
+    subtitle = " ".join(str(payload.get("subtitle", "") or "").split())
+    if len(subtitle) > OBJECT_SUBTITLE_LIMIT:
+        subtitle = subtitle[:OBJECT_SUBTITLE_LIMIT]
+    raw_authors = payload.get("authors", [])
+    authors: list[str] = []
+    if isinstance(raw_authors, list):
+        for author in raw_authors:
+            clean = " ".join(str(author or "").split())
+            if clean and len(clean) <= 120 and clean.casefold() not in {
+                value.casefold() for value in authors
+            }:
+                authors.append(clean)
+            if len(authors) >= OBJECT_AUTHORS_LIMIT:
+                break
     raw_isbn = payload.get("isbn", "")
     try:
         isbn = normalize_isbn(raw_isbn) if str(raw_isbn or "").strip() else ""
@@ -82,6 +98,8 @@ def validate_object_suggestion(payload: object) -> dict[str, Any]:
         "item_type": item_type,
         "confidence": confidence,
         "note": note,
+        "subtitle": subtitle,
+        "authors": authors,
         "isbn": isbn,
         "tags": normalize_object_tags(payload.get("tags", [])),
     }
@@ -92,9 +110,22 @@ def object_instruction(hint: dict[str, str]) -> str:
     scanned = hint.get("isbn") or hint.get("barcode") or ""
     scanned_part = f" Gescannte Kennung (nur Hinweis, nie in den Namen übernehmen): {scanned}." if scanned else ""
     return (
-        "Benenne den Hauptgegenstand auf dem Foto für ein Inventar. Antworte "
-        "NUR mit einem JSON-Objekt mit den Schlüsseln object_name (deutscher "
-        "Gegenstandsname, max 120 Zeichen, z. B. Hammer), item_type (genau "
+        "Analysiere das Foto sorgfältig für die Inventarerfassung. Lies bei "
+        "Büchern den gut lesbaren Haupttitel exakt ab und übernimm ihn in "
+        "object_name (vollständiger Buchtitel samt Untertitel statt nur 'Buch'); "
+        "gib den Untertitel zusätzlich separat in subtitle aus und erkannte "
+        "Autorennamen als Liste in authors; achte auf die "
+        "typografische Hierarchie: große/fette Schrift ist meist der Haupttitel, "
+        "kleinere Schrift kann Untertitel, Reihe, Edition oder Beschreibung sein. "
+        "Nenne im note-Feld erkannte Untertitel, Autor, Edition und auffällige "
+        "Schrift-Hierarchie, sofern lesbar. Lies sichtbare ISBN-Zeichen exakt. "
+        "Bei Gegenständen benenne konkret, was tatsächlich abgebildet ist "
+        "(z. B. Hammer statt 'Gegenstand'). Erfinde oder vervollständige keine "
+        "unleserlichen Wörter; kennzeichne Unsicherheit klar. Antworte NUR mit "
+        "einem JSON-Objekt mit den Schlüsseln object_name (deutscher Titel oder "
+        "Gegenstandsname, max 120 Zeichen), subtitle (sichtbarer Untertitel "
+        "oder leerer String), authors (Liste sichtbar gedruckter Autoren, sonst "
+        "leere Liste), item_type (genau "
         "einer: object, book, tool, electrical-device, machine, vehicle, "
         "it-device, measuring-device, ladder, key, furniture, document, "
         "spare-part, consumable), confidence (0-100), note (kurz, deutsch), "

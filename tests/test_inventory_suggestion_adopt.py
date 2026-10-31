@@ -36,7 +36,8 @@ class SuggestionAdoptTest(unittest.TestCase):
             "const adoptSuggestion = () => {",
         )
         self.assertIn("title.value = cleanText(suggestion.object_name)", body)
-        self.assertIn("suggestionDescription(description.value, suggestion.note)", body)
+        self.assertIn("suggestionDescription(description.value, descriptionParts.filter(Boolean).join(' · '))", body)
+        self.assertIn("suggestion.authors", body)
         self.assertIn("mergeTags(tags.value, suggestion.tags", body)
         self.assertIn("description.value = ", body)
         self.assertIn("tags.value = ", body)

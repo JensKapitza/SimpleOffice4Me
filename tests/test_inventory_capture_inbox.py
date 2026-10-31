@@ -72,7 +72,13 @@ class CaptureHelperTests(unittest.TestCase):
 
 class CaptureRouteTests(unittest.TestCase):
     password = "capture-inbox-test-password"
-    keys = ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")
+    keys = (
+        "DATABASE",
+        "DOCUMENT_ROOT",
+        "TESTING",
+        "TEST_CSRF_PROTECTION",
+        "CONTEXTFLOW_ENABLED",
+    )
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
@@ -82,6 +88,7 @@ class CaptureRouteTests(unittest.TestCase):
             DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
             TESTING=True,
             TEST_CSRF_PROTECTION=True,
+            CONTEXTFLOW_ENABLED=False,
         )
         with app.app_context():
             ensure_auth_database()
@@ -140,9 +147,16 @@ class CaptureRouteTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('id="capture-app"', body)
         self.assertIn("/inventory/capture/analyze", body)
-        self.assertIn("/contextflow/ml-status", body)
+        self.assertIn('data-ml-status-url=""', body)
+        self.assertNotIn("/contextflow/ml-status", body)
         self.assertIn("js/capture_inbox.js", body)
         self.assertIn('capture="environment"', body)
+
+    def test_capture_page_exposes_ml_status_when_contextflow_is_enabled(self) -> None:
+        app.config["CONTEXTFLOW_ENABLED"] = True
+        response = self.client.get("/inventory/capture")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'data-ml-status-url="/contextflow/ml-status"', response.data)
 
     def test_login_required(self) -> None:
         response = app.test_client().get("/inventory/capture")
@@ -197,6 +211,30 @@ class CaptureRouteTests(unittest.TestCase):
         self.assertEqual("Hammer", payload["prefill"]["name"])
         self.assertEqual([], payload["missing_fields"])
         self.assertEqual("llama3.2-vision", payload["ml"]["model"])
+
+    def test_book_cover_ml_title_and_author_prefill_when_ocr_has_no_text(self) -> None:
+        ocr = {"text": "", "engine": "rapidocr", "status": "no-text",
+               "characters": 0, "confidence": None, "error": ""}
+        ml = {"available": True,
+              "label": "Unnützes Wissen für kleine Klugscheißer",
+              "item_type": "book", "isbn": "",
+              "subtitle": "für kleine Klugscheißer",
+              "authors": ["Lena Hoffmann"],
+              "note": "Großer Haupttitel; kleinere Unterzeile; Mythologie Edition.",
+              "tags": ["Mythologie", "Buch"],
+              "provider": "meta", "provider_label": "Meta Muse Spark",
+              "model": "muse-spark-1.3-contributor", "error": ""}
+        with (
+            mock.patch("app.inventory_capture.capture_ocr", return_value=ocr),
+            mock.patch("app.inventory_capture.capture_ml_label", return_value=ml),
+            mock.patch("app.inventory_capture.capture_metadata", return_value={}),
+        ):
+            response = self.post_photo()
+        payload = response.get_json()
+        self.assertEqual("book", payload["kind"])
+        self.assertEqual(ml["label"], payload["prefill"]["title"])
+        self.assertEqual(["Lena Hoffmann"], payload["prefill"]["authors"])
+        self.assertIn("Untertitel: für kleine Klugscheißer", payload["prefill"]["description"])
 
     def test_degraded_analysis_without_backends(self) -> None:
         ocr = {"text": "", "engine": "", "status": "unavailable",
