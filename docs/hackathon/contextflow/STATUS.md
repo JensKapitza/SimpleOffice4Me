@@ -3,6 +3,17 @@
 **Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
+**Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
+`origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
+(9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5
+parallele Commits (`984443f7`, `a56cb2b8`, `6616550c`, `de7cf44c`,
+`d6f16357`).
+Merge-Wechselwirkung: ZUGFeRD-Fallback `not_created` vs. Main-Template
+`not_recorded` → `f729d1f7` (Fallback + 2 Branch-Tests angeglichen,
+Stored-Draft-Status unberührt). Re-verifiziert auf HEAD: 190 Tests OK
+(hints 30, web 14, invoice 17, attach 7, batch, qa736, gaps,
+mail_draft, doc_tags 47), Gates grün; `node --check` fehlt (kein node
+in Sandbox). Push eigentümerseitig (inkl. Merge).
 **Stand (30.10., aktualisiert mit `a56cb2b8`):**
 Ruhezeiten + Hinweise-pro-Tag (Prefs-Store, atomares Tages-Budget,
 Dashboard-Banner mit ehrlich zurückgestellten Hinweisen, Prefs-Formular);
@@ -790,9 +801,10 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 | Erw.: Import-Tag-Engel | TEILWEISE | Routen/UI + lokale Tag-Vorschläge mit Begründung + Bildbeschreibung/Objekte + Bestätigungs-Übernahme + Bild-Route entkoppelt + Ollama-Streaming + Model-Guard + Bild-Fallback + Grounding-Pflicht + Qualitätsfilter (46 Tests OK/1 Skip; Live VOR Filtern: Text A 400/26,56 s, Text B 200/18,82 s mit „aus"/„notizen", Bild 200/63,1 s leer → 200-leer, Stoppwort-/Stamm-/Teile-Filter); finale Abnahme: Text 200/29,67 s [Rechnung, 2024, Euro], Bild 200/62,76 s leer + warmer Retry 200/5,31 s [Bank] behalten, diff-check Exit 0 — enge Route live-verifiziert; Bild-Mismatch (Holzbrett-Satz/[Bank]) → Label-Abgleich per Tests (47 OK/1 Skip); UI meldet Timeout/Fehler/Leere ehrlich; Konsistenz-Abnahme: Text 200/34,39 s [Rechnung, 2024], Bank 200/55,38 s [Stuhl] + 200/60,06 s [Bank], Mismatch per Test abgewiesen — enge Route verifiziert (Mehrdeutigkeit: anderes/kein Label); fehlen: Browser-Abnahme (Automation gestoppt, Neustart abgelehnt), breitere Integration |
 | Erw.: Freund-Check | FEHLT | Nachschub-Anfrage bei Freunden (Peers mit Datenteilung); keine Umsetzung |
 
-- Bekannte T-Lücken (update2.md §10): T13 Ruhezeit erledigt (`0c85fea0`);
-  offen: T19 Canary-Test, T20 Meta-Live-Anteil. G ist Jury-Stufe-1-Gate
-  (tatsächliche Meta-Nutzung, Pass/Fail).
+- Bekannte T-Lücken (update2.md §10): T13 Ruhezeit erledigt (`0c85fea0`),
+  T19 Canary-Test erledigt (`hackai/t19-canary`); offen: T20
+  Meta-Live-Anteil. G ist Jury-Stufe-1-Gate (tatsächliche
+  Meta-Nutzung, Pass/Fail).
 - Matrix per Code-Read geprüft (28.10., Muse); Ausführung: Codex-Lauf nach Transfer-Korrektur (Isolation 3, Entry 8, Vision 26, Inventar 58 OK; node/policy/size/diff-Gates OK, kein Browser-Test) — Details im Arbeitslog. Erweiterung: update2.md §13.
 
 ## Match/Attach-Slice (implementiert, verifiziert)
