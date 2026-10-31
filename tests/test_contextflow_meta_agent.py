@@ -226,6 +226,34 @@ class MetaAgentLoopTest(unittest.TestCase):
         self.assertNotIn("Papierstau", first_text)
         self.assertNotIn(fx.CONTACT_EMAIL, first_text)
 
+    def test_response_model_echo_is_captured(self) -> None:
+        final = _text_payload(self._final())
+        final["model"] = META_MODEL_API_MODEL
+        call = _call_payload(
+            ("c1", "get_case_context", {"link_id": self.link_id}),
+            ("c2", "get_visit_findings", {"link_id": self.link_id}),
+        )
+        call["model"] = "proxy-should-be-overwritten-by-final-step"
+        transport = FakeTransport([call, final])
+        result = self._run(transport)
+        self.assertTrue(result["ok"])
+        self.assertEqual(META_MODEL_API_MODEL, result["model"])
+        self.assertEqual(META_MODEL_API_MODEL, result["response_model"])
+
+    def test_response_model_missing_stays_none(self) -> None:
+        transport = FakeTransport(
+            [
+                _call_payload(
+                    ("c1", "get_case_context", {"link_id": self.link_id}),
+                    ("c2", "get_visit_findings", {"link_id": self.link_id}),
+                ),
+                _text_payload(self._final()),
+            ]
+        )
+        result = self._run(transport)
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["response_model"])
+
     def test_invoice_and_calendar_tools(self) -> None:
         transport = FakeTransport(
             [

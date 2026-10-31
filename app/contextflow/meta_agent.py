@@ -618,6 +618,7 @@ def run_agent(
         {"role": "user", "content": [{"type": "input_text", "text": task}]},
     ]
     usage: dict[str, Any] = {}
+    response_model: str | None = None
     steps = 0
     for _ in range(max_steps):
         steps += 1
@@ -632,6 +633,9 @@ def run_agent(
         )
         if not isinstance(payload, dict):
             raise MetaAgentError("Meta-Antwort ist kein gültiges JSON")
+        reported = payload.get("model")
+        if isinstance(reported, str) and reported.strip():
+            response_model = reported.strip()
         for key_name in ("input_tokens", "output_tokens"):
             value = payload.get("usage", {}).get(key_name) if isinstance(
                 payload.get("usage"), dict
@@ -649,6 +653,7 @@ def run_agent(
                 "provider": "meta",
                 "provider_label": MetaVisionProvider.label,
                 "model": model,
+                "response_model": response_model,
                 "link_id": run.link_id,
                 "steps": steps,
                 "tool_calls": run.tool_calls,
