@@ -50,6 +50,7 @@ _STATUS_RE = re.compile(
     r"(?P<tools>\d+)\s+Werkzeugaufrufe\s*·\s*"
     r"Modell\s+(?P<model>[^·<(]+?)"
     r"(?:\s*\(Antwort:\s*(?P<response>[^)]+?)\))?"
+    r"(?:\s*·\s*Antwortmodelle:\s*(?P<responses>[^·]+?))?"
     r"(?:\s*·\s*Laufzeit:\s*(?P<seconds>[\d.]+)\s*s)?"
     r"(?:\s*·\s*Tokens\s+Ein/Aus:\s*(?P<tin>[\d–-]+)\s*/\s*(?P<tout>[\d–-]+))?"
     r"\s*</p>",
@@ -170,6 +171,11 @@ def parse_result(html: str) -> dict:
     evidence = _section_items(html, "Beleg-IDs")
     tokens_in = match.group("tin")
     tokens_out = match.group("tout")
+    response_models = [
+        model.strip()
+        for model in (match.group("responses") or "").split(",")
+        if model.strip()
+    ]
 
     def _tokens(value: str | None) -> int | None:
         return int(value) if value and value.isdigit() else None
@@ -180,6 +186,7 @@ def parse_result(html: str) -> dict:
         "tool_calls": int(match.group("tools")),
         "model": match.group("model").strip(),
         "response_model": (match.group("response") or "").strip() or None,
+        "response_models": response_models,
         "run_seconds": float(seconds) if seconds else None,
         "tokens_in": _tokens(tokens_in),
         "tokens_out": _tokens(tokens_out),
@@ -201,6 +208,13 @@ def check_t20(parsed: dict, expected_model: str = EXPECTED_MODEL) -> list[str]:
         failures.append("response model ID missing (server predates the capture?)")
     elif response != expected_model:
         failures.append(f"response model is {response!r}, expected {expected_model!r}")
+    response_models = parsed.get("response_models")
+    if not isinstance(response_models, list) or not response_models:
+        failures.append("per-step response model IDs missing")
+    elif any(model != expected_model for model in response_models):
+        failures.append(
+            f"per-step response models are {response_models!r}, expected only {expected_model!r}"
+        )
     if int(parsed.get("ok_tools", 0)) < MIN_OK_TOOLS:
         failures.append(
             f"only {parsed.get('ok_tools', 0)} successful tool calls, need {MIN_OK_TOOLS}+"
@@ -374,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         + f": steps={parsed['steps']} ok_tools={parsed['ok_tools']} "
         f"evidence={parsed['evidence']} model={parsed['model']} "
         f"response={parsed['response_model']} "
+        f"responses={','.join(parsed['response_models'])} "
         f"tokens={parsed['tokens_in']}/{parsed['tokens_out']} "
         f"seconds={parsed['run_seconds']}"
     )

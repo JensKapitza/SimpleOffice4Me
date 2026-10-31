@@ -50,7 +50,7 @@ AGENT_FORM_HTML = """<p class="cf-pills">
 <input type="checkbox" name="consent_meta" value="yes">
 </form>"""
 
-RESULT_HTML = """<p class="cf-status">2 Modellschritte · 3 Werkzeugaufrufe · Modell muse-spark-1.3-contributor (Antwort: muse-spark-1.3-contributor) · Laufzeit: 10.2 s · Tokens Ein/Aus: 1200 / 502</p>
+RESULT_HTML = """<p class="cf-status">2 Modellschritte · 3 Werkzeugaufrufe · Modell muse-spark-1.3-contributor (Antwort: muse-spark-1.3-contributor) · Antwortmodelle: muse-spark-1.3-contributor, muse-spark-1.3-contributor · Laufzeit: 10.2 s · Tokens Ein/Aus: 1200 / 502</p>
 <h3>Werkzeugaufrufe (alle lesend, alle serverseitig ausgeführt)</h3>
 <ul class="cf-evidence">
 <li><span class="cf-type">get_case_context</span>
@@ -136,6 +136,7 @@ class ParseResultTest(unittest.TestCase):
         self.assertEqual(3, parsed["tool_calls"])
         self.assertEqual(EXPECTED_MODEL, parsed["model"])
         self.assertEqual(EXPECTED_MODEL, parsed["response_model"])
+        self.assertEqual([EXPECTED_MODEL, EXPECTED_MODEL], parsed["response_models"])
         self.assertAlmostEqual(10.2, parsed["run_seconds"])
         self.assertEqual(1200, parsed["tokens_in"])
         self.assertEqual(502, parsed["tokens_out"])
@@ -159,9 +160,14 @@ class ParseResultTest(unittest.TestCase):
 
     def test_legacy_status_without_response_model(self) -> None:
         legacy = RESULT_HTML.replace(" (Antwort: muse-spark-1.3-contributor)", "")
+        legacy = legacy.replace(
+            " · Antwortmodelle: muse-spark-1.3-contributor, muse-spark-1.3-contributor",
+            "",
+        )
         parsed = parse_result(legacy)
         self.assertEqual(EXPECTED_MODEL, parsed["model"])
         self.assertIsNone(parsed["response_model"])
+        self.assertEqual([], parsed["response_models"])
 
 
 class CheckT20Test(unittest.TestCase):
@@ -179,10 +185,20 @@ class CheckT20Test(unittest.TestCase):
         parsed["response_model"] = None
         self.assertTrue(any("response model" in failure for failure in check_t20(parsed)))
 
+    def test_missing_per_step_response_models_fails(self) -> None:
+        parsed = parse_result(RESULT_HTML)
+        parsed["response_models"] = []
+        self.assertTrue(any("per-step response model" in failure for failure in check_t20(parsed)))
+
     def test_diverged_response_model_fails(self) -> None:
         parsed = parse_result(RESULT_HTML)
         parsed["response_model"] = "other-model"
         self.assertTrue(any("response model" in failure for failure in check_t20(parsed)))
+
+    def test_divergent_per_step_response_models_fail(self) -> None:
+        parsed = parse_result(RESULT_HTML)
+        parsed["response_models"] = [EXPECTED_MODEL, "other-model"]
+        self.assertTrue(any("per-step response models" in failure for failure in check_t20(parsed)))
 
     def test_single_tool_fails(self) -> None:
         parsed = parse_result(RESULT_HTML)
