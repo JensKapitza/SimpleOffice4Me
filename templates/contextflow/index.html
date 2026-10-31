@@ -33,6 +33,11 @@
     {% for card in cards %}
     <article class="cf-card" data-link-id="{{ card.link_id }}">
       <div class="cf-card-head">
+        {% if prefs.angel_avatar|default(true) %}
+        <button type="button" class="cf-angel-btn" data-engel-dialog="cf-engel-{{ card.link_id }}" aria-label="Büroengel-Vorschlag öffnen" title="Büroengel-Vorschlag öffnen">
+          <img class="cf-angel-img" src="{{ url_for('static', filename='icons/bueroengel.svg') }}" alt="" width="40" height="40" loading="lazy" decoding="async">
+        </button>
+        {% endif %}
         <h2>{% if card.case_title %}{{ card.case_title }}{% elif card.hint %}Offener Follow-up{% else %}Bestätigter Fall{% endif %}</h2>
         <span class="cf-date" title="Von dir bestätigtes Abschlussdatum">{{ card.completed_on }}</span>
       </div>
@@ -136,6 +141,30 @@
         <a href="{{ url_for('contextflow.agent_form', link_id=card.link_id) }}">Meta-Demo-Analyse</a>
       </nav>
       {% endif %}
+      <dialog class="cf-engel-dialog" id="cf-engel-{{ card.link_id }}" aria-labelledby="cf-engel-title-{{ card.link_id }}">
+        <h3 id="cf-engel-title-{{ card.link_id }}">Büroengel-Vorschlag</h3>
+        {% if card.hint %}
+        <p class="cf-hint-text">{{ card.reason }} · {{ card.days }} Tage seit Abschluss.</p>
+        {% else %}
+        <p class="cf-hint-text">Aktuell nichts fällig. Der Fall bleibt belegt.</p>
+        {% endif %}
+        {% if card.proposals %}
+        <ul class="cf-engel-options">
+          {% for proposal in card.proposals %}
+          <li>{{ proposal.title }} – einmalig erstellen</li>
+          {% endfor %}
+        </ul>
+        <p class="cf-hint-text">Zum Übernehmen auf der Karte das Häkchen setzen und bestätigen.</p>
+        {% endif %}
+        <div class="cf-engel-actions">
+          <form method="dialog"><button class="cf-btn" type="submit">Schließen</button></form>
+          <form method="post" action="{{ url_for('contextflow.dismiss') }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="link_id" value="{{ card.link_id }}">
+            <button class="cf-btn cf-quiet" type="submit">Nicht mehr zeigen</button>
+          </form>
+        </div>
+      </dialog>
     </article>
     {% endfor %}
   </section>
@@ -150,6 +179,7 @@
       <label>Ruhezeit von <input type="time" name="quiet_start" value="{{ prefs.quiet_start }}" required></label>
       <label>bis <input type="time" name="quiet_end" value="{{ prefs.quiet_end }}" required></label>
       <label>Hinweise pro Tag <input type="number" name="daily_limit" value="{{ prefs.daily_limit }}" min="1" max="10" required></label>
+      <label class="cf-check"><input type="checkbox" name="angel_avatar" value="yes"{% if prefs.angel_avatar|default(true) %} checked{% endif %}> Engel-Avatar anzeigen (nur Optik – Hinweise und Aktionen bleiben aktiv)</label>
       <button class="cf-btn" type="submit">Speichern</button>
     </form>
   </details>
@@ -215,4 +245,5 @@
     </form>
   </details>
 </main>
+<script src="{{ url_for('static', filename='js/angel.js') }}" data-module="static/js/angel.js" defer></script>
 {% endblock %}
