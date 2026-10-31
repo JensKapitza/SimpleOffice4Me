@@ -190,6 +190,11 @@ class CheckT20Test(unittest.TestCase):
         parsed["response_models"] = []
         self.assertTrue(any("per-step response model" in failure for failure in check_t20(parsed)))
 
+    def test_response_model_count_must_match_steps(self) -> None:
+        parsed = parse_result(RESULT_HTML)
+        parsed["response_models"] = [EXPECTED_MODEL]
+        self.assertTrue(any("response model count" in failure for failure in check_t20(parsed)))
+
     def test_diverged_response_model_fails(self) -> None:
         parsed = parse_result(RESULT_HTML)
         parsed["response_model"] = "other-model"

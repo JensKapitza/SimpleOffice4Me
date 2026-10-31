@@ -248,25 +248,27 @@ class MetaAgentLoopTest(unittest.TestCase):
         )
         self.assertEqual({"input_tokens": 40, "output_tokens": 60}, result["usage"])
 
-    def test_divergent_response_models_remain_visible_in_step_history(self) -> None:
-        final = _text_payload(self._final())
-        final["model"] = META_MODEL_API_MODEL
+    def test_unapproved_response_model_is_rejected_before_tools_run(self) -> None:
         call = _call_payload(
             ("c1", "get_case_context", {"link_id": self.link_id}),
             ("c2", "get_visit_findings", {"link_id": self.link_id}),
         )
         call["model"] = "unexpected-proxy-model"
-        result = self._run(FakeTransport([call, final]))
-        self.assertTrue(result["ok"])
-        self.assertEqual(META_MODEL_API_MODEL, result["response_model"])
-        self.assertEqual(
-            ["unexpected-proxy-model", META_MODEL_API_MODEL],
-            result["response_models"],
+        transport = FakeTransport([call, _text_payload(self._final())])
+        with self.assertRaisesRegex(MetaAgentError, "weicht vom freigegebenen Modell ab"):
+            self._run(transport)
+        self.assertEqual(1, len(transport.payloads))
+
+    def test_oversized_response_model_is_rejected_before_tools_run(self) -> None:
+        call = _call_payload(
+            ("c1", "get_case_context", {"link_id": self.link_id}),
+            ("c2", "get_visit_findings", {"link_id": self.link_id}),
         )
-        self.assertEqual(
-            "unexpected-proxy-model, " + META_MODEL_API_MODEL,
-            result["response_models_display"],
-        )
+        call["model"] = "m" * 257
+        transport = FakeTransport([call, _text_payload(self._final())])
+        with self.assertRaisesRegex(MetaAgentError, "Antwortmodell ist ungültig"):
+            self._run(transport)
+        self.assertEqual(1, len(transport.payloads))
 
     def test_response_model_missing_stays_none(self) -> None:
         transport = FakeTransport(

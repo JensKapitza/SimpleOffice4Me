@@ -211,6 +211,11 @@ def check_t20(parsed: dict, expected_model: str = EXPECTED_MODEL) -> list[str]:
     response_models = parsed.get("response_models")
     if not isinstance(response_models, list) or not response_models:
         failures.append("per-step response model IDs missing")
+    elif len(response_models) != int(parsed.get("steps", 0)):
+        failures.append(
+            f"response model count is {len(response_models)}, "
+            f"but the run has {parsed.get('steps', 0)} steps"
+        )
     elif any(model != expected_model for model in response_models):
         failures.append(
             f"per-step response models are {response_models!r}, expected only {expected_model!r}"
