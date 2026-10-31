@@ -12,14 +12,13 @@ import json
 import math
 import os
 import re
-import ssl
 import time
 import uuid
 from calendar import monthrange
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote_plus, urlsplit
+from urllib.parse import quote_plus
 
 from flask import (
     Blueprint,
@@ -42,11 +41,20 @@ from .book_metadata_cache import (
 )
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
+from .inventory_metadata import (
+    _http_json,
+    _metadata_candidate,
+    isbn_from_barcode as isbn_from_barcode,
+    merge_book_metadata,
+    normalize_isbn,
+    parse_google_books,
+    parse_openlibrary,
+    parse_openlibrary_search,
+)
 from .inventory_values import date_only as _date_only
 from .inventory_values import fields_text as _fields_text
 from .inventory_values import money as _money
 from .inventory_values import single_line as _single_line
-from .inventory_isbn import isbn_from_barcode, normalize_isbn
 from .object_store import ObjectStore
 from .todo_store import TodoStore
 
@@ -55,15 +63,8 @@ bp = Blueprint("inventory", __name__, url_prefix="/inventory")
 
 LOOKUP_INTERVAL_SECONDS = 5
 MAX_PHOTO_BYTES = 12 * 1024 * 1024
-HTTP_TIMEOUT_SECONDS = 5
-MAX_METADATA_BYTES = 2 * 1024 * 1024
-ALLOWED_METADATA_HOSTS = {"www.googleapis.com", "openlibrary.org"}
 INSPECTION_UNITS = {"days", "weeks", "months", "years"}
 BOOK_TYPE_NAMES = {"book", "buch"}
-FIREFOX_USER_AGENT = (
-    "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) "
-    "Gecko/20100101 Firefox/140.0"
-)
 
 
 def _objects() -> ObjectStore:
@@ -76,209 +77,6 @@ def _inventory() -> "InventoryEnrichmentStore":
 
 def _todos() -> TodoStore:
     return TodoStore(current_app.config["DOCUMENT_ROOT"])
-
-
-def _http_json(url: str) -> dict[str, Any]:
-    parsed = urlsplit(url)
-    if (
-        parsed.scheme != "https"
-        or parsed.hostname not in ALLOWED_METADATA_HOSTS
-        or parsed.port not in {None, 443}
-        or parsed.username
-        or parsed.password
-        or parsed.fragment
-    ):
-        raise ValueError("Nicht erlaubte Metadatenquelle")
-    path = parsed.path + (("?" + parsed.query) if parsed.query else "")
-    connection = http.client.HTTPSConnection(
-        parsed.hostname, 443, timeout=HTTP_TIMEOUT_SECONDS, context=ssl.create_default_context()
-    )
-    try:
-        connection.request(
-            "GET",
-            path,
-            headers={
-                "Accept": "application/json,text/plain,*/*",
-                "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.7,en;q=0.5",
-                "Cache-Control": "no-cache",
-                "User-Agent": FIREFOX_USER_AGENT,
-            },
-        )
-        response = connection.getresponse()
-        declared = response.getheader("Content-Length")
-        if declared:
-            try:
-                if int(declared) > MAX_METADATA_BYTES:
-                    raise ValueError("Metadatenantwort ist zu groß")
-            except ValueError as exc:
-                if str(exc) == "Metadatenantwort ist zu groß":
-                    raise
-        data = response.read(MAX_METADATA_BYTES + 1)
-        if response.status != 200:
-            raise ValueError("Metadatenquelle antwortet nicht erfolgreich")
-    except (TimeoutError, OSError, http.client.HTTPException) as exc:
-        raise ValueError("Metadatenquelle ist nicht erreichbar") from exc
-    finally:
-        connection.close()
-    if len(data) > MAX_METADATA_BYTES:
-        raise ValueError("Metadatenantwort ist zu groß")
-    value = json.loads(data.decode("utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("Ungültige Metadatenantwort")
-    return value
-
-
-def _google_item_isbns(item: dict[str, Any]) -> set[str]:
-    info = item.get("volumeInfo") if isinstance(item.get("volumeInfo"), dict) else {}
-    identifiers = info.get("industryIdentifiers") if isinstance(info.get("industryIdentifiers"), list) else []
-    normalized: set[str] = set()
-    for row in identifiers:
-        if not isinstance(row, dict):
-            continue
-        try:
-            normalized.add(normalize_isbn(row.get("identifier", "")))
-        except ValueError:
-            continue
-    return normalized
-
-
-def parse_google_books(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
-    items = payload.get("items") if isinstance(payload, dict) else None
-    if not isinstance(items, list) or not items:
-        return {}
-    candidates = [candidate for candidate in items if isinstance(candidate, dict)]
-    isbn_sets = [(candidate, _google_item_isbns(candidate)) for candidate in candidates]
-    item = next((candidate for candidate, values in isbn_sets if isbn in values), None)
-    if item is None:
-        item = next((candidate for candidate, values in isbn_sets if not values), None)
-    if item is None:
-        return {}
-    info = item.get("volumeInfo") if isinstance(item.get("volumeInfo"), dict) else {}
-    sale = item.get("saleInfo") if isinstance(item.get("saleInfo"), dict) else {}
-    price = sale.get("retailPrice") if isinstance(sale.get("retailPrice"), dict) else sale.get("listPrice")
-    if not isinstance(price, dict):
-        price = {}
-    authors = info.get("authors") if isinstance(info.get("authors"), list) else []
-    categories = info.get("categories") if isinstance(info.get("categories"), list) else []
-    amount = price.get("amount")
-    return {
-        "isbn": isbn,
-        "title": _single_line(info.get("title"), 300),
-        "subtitle": _single_line(info.get("subtitle"), 300),
-        "authors": "; ".join(_single_line(author, 160) for author in authors if _single_line(author, 160)),
-        "publisher": _single_line(info.get("publisher"), 240),
-        "published_date": _single_line(info.get("publishedDate"), 40),
-        "description": str(info.get("description") or "").strip()[:8000],
-        "page_count": str(info.get("pageCount") or ""),
-        "language": _single_line(info.get("language"), 20),
-        "categories": "; ".join(_single_line(category, 160) for category in categories if _single_line(category, 160)),
-        "market_price": "" if amount is None else str(amount),
-        "currency": _single_line(price.get("currencyCode"), 3).upper(),
-        "price_source": "Google Books" if amount is not None else "",
-        "metadata_source": "Google Books",
-    }
-
-
-def parse_openlibrary(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
-    value = payload.get(f"ISBN:{isbn}") if isinstance(payload, dict) else None
-    if not isinstance(value, dict):
-        return {}
-    authors = value.get("authors") if isinstance(value.get("authors"), list) else []
-    publishers = value.get("publishers") if isinstance(value.get("publishers"), list) else []
-    subjects = value.get("subjects") if isinstance(value.get("subjects"), list) else []
-    author_names = [_single_line(item.get("name"), 160) for item in authors if isinstance(item, dict)]
-    publisher_names = [_single_line(item.get("name"), 180) for item in publishers if isinstance(item, dict)]
-    subject_names = [_single_line(item.get("name"), 160) for item in subjects[:12] if isinstance(item, dict)]
-    return {
-        "isbn": isbn,
-        "title": _single_line(value.get("title"), 300),
-        "subtitle": _single_line(value.get("subtitle"), 300),
-        "authors": "; ".join(item for item in author_names if item),
-        "publisher": "; ".join(item for item in publisher_names if item),
-        "published_date": _single_line(value.get("publish_date"), 80),
-        "description": "",
-        "page_count": str(value.get("number_of_pages") or ""),
-        "language": "",
-        "categories": "; ".join(item for item in subject_names if item),
-        "market_price": "",
-        "currency": "",
-        "price_source": "",
-        "metadata_source": "Open Library",
-    }
-
-
-def _normalized_isbn_values(values: Any) -> set[str]:
-    rows = values if isinstance(values, list) else [values]
-    normalized: set[str] = set()
-    for value in rows:
-        try:
-            normalized.add(normalize_isbn(value))
-        except ValueError:
-            continue
-    return normalized
-
-
-def parse_openlibrary_search(payload: dict[str, Any], isbn: str) -> dict[str, Any]:
-    """Parse the current Open Library Search API and require an exact ISBN match."""
-    docs = payload.get("docs") if isinstance(payload, dict) else None
-    if not isinstance(docs, list):
-        return {}
-    item = next(
-        (
-            candidate
-            for candidate in docs
-            if isinstance(candidate, dict) and isbn in _normalized_isbn_values(candidate.get("isbn", []))
-        ),
-        None,
-    )
-    if item is None:
-        return {}
-    authors = item.get("author_name") if isinstance(item.get("author_name"), list) else []
-    publishers = item.get("publisher") if isinstance(item.get("publisher"), list) else []
-    subjects = item.get("subject") if isinstance(item.get("subject"), list) else []
-    languages = item.get("language") if isinstance(item.get("language"), list) else []
-    subtitle = item.get("subtitle")
-    if isinstance(subtitle, list):
-        subtitle = next((value for value in subtitle if value), "")
-    return {
-        "isbn": isbn,
-        "title": _single_line(item.get("title"), 300),
-        "subtitle": _single_line(subtitle, 300),
-        "authors": "; ".join(_single_line(author, 160) for author in authors if _single_line(author, 160)),
-        "publisher": "; ".join(_single_line(publisher, 180) for publisher in publishers[:8] if _single_line(publisher, 180)),
-        "published_date": _single_line(item.get("first_publish_year"), 80),
-        "description": "",
-        "page_count": str(item.get("number_of_pages_median") or ""),
-        "language": "; ".join(_single_line(language, 20) for language in languages[:4] if _single_line(language, 20)),
-        "categories": "; ".join(_single_line(subject, 160) for subject in subjects[:12] if _single_line(subject, 160)),
-        "market_price": "",
-        "currency": "",
-        "price_source": "",
-        "metadata_source": "Open Library Search",
-    }
-
-
-def merge_book_metadata(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
-    result = dict(primary or {})
-    for key, value in (fallback or {}).items():
-        if not result.get(key) and value not in (None, "", []):
-            result[key] = value
-    sources = []
-    for candidate in (
-        primary.get("metadata_source") if primary else "",
-        fallback.get("metadata_source") if fallback else "",
-    ):
-        if candidate and candidate not in sources:
-            sources.append(candidate)
-    if sources:
-        result["metadata_source"] = " + ".join(sources)
-    return result
-
-
-def _metadata_candidate(metadata: dict[str, Any]) -> dict[str, str]:
-    """Keep only reviewable provider fields; never expose raw provider payloads."""
-    fields = ("metadata_source", "title", "authors", "publisher", "published_date")
-    return {key: value[:300] for key in fields if (value := str(metadata.get(key) or "").strip())}
 
 
 def lookup_book_metadata(isbn: str) -> dict[str, Any]:

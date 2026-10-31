@@ -6,9 +6,10 @@ applySuggestionToForm, which fills name/type plus the suggestion note
 deduplicated. Prices stay with the real marketplace lookup; the form is
 never submitted automatically.
 
-Static source assertions on static/js/inventory.js and
-templates/inventory/index.html (same convention as
-test_inventory_series_isolation.py; no JS harness exists for that file).
+Static source assertions on static/js/inventory.js,
+static/js/inventory_suggest.js and templates/inventory/index.html (same
+convention as test_inventory_series_isolation.py; no JS harness exists
+for those files).
 """
 
 from __future__ import annotations
@@ -33,7 +34,7 @@ class SuggestionAdoptTest(unittest.TestCase):
         body = _region(
             _read("static/js/inventory.js"),
             "const applySuggestionToForm = (suggestion) => {",
-            "const adoptSuggestion = () => {",
+            "const checkIsbnInTitle = () => {",
         )
         self.assertIn("title.value = cleanText(suggestion.object_name)", body)
         self.assertIn("suggestionDescription(description.value, descriptionParts.filter(Boolean).join(' · '))", body)
@@ -49,9 +50,9 @@ class SuggestionAdoptTest(unittest.TestCase):
 
     def test_single_photo_adopt_uses_shared_applier_without_saving(self) -> None:
         body = _region(
-            _read("static/js/inventory.js"),
+            _read("static/js/inventory_suggest.js"),
             "const adoptSuggestion = () => {",
-            "const checkIsbnInTitle = () => {",
+            "photo?.addEventListener('change', hideObjectSuggestion);",
         )
         self.assertIn("applySuggestionToForm(pendingSuggestion)", body)
         self.assertNotIn("fetch(", body)
@@ -71,7 +72,7 @@ class SuggestionAdoptTest(unittest.TestCase):
     def test_suggestion_boxes_show_tags_for_review(self) -> None:
         source = _read("static/js/inventory.js")
         box = _region(
-            source,
+            _read("static/js/inventory_suggest.js"),
             "const showObjectSuggestion = (payload) => {",
             "const analyzePhoto = async () => {",
         )
@@ -89,7 +90,9 @@ class SuggestionAdoptTest(unittest.TestCase):
         template = _read("templates/inventory/index.html")
         helpers = template.index("js/suggestion_fields.js")
         main = template.index("js/inventory.js")
+        suggest = template.index("js/inventory_suggest.js")
         self.assertLess(helpers, main)
+        self.assertLess(main, suggest)
         self.assertIn('id="suggested-tags"', template)
         self.assertIn('id="adopt-suggestion"', template)
 
