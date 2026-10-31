@@ -1,0 +1,160 @@
+name: Android APK release (signed)
+
+# Signed release APK with the stable update key. Triggered manually or by
+# project-release.yml (tag releases). Secrets (working copies; the only
+# backup lives outside the repository, see android/apk/README.md):
+#   ANDROID_RELEASE_KEYSTORE_BASE64, ANDROID_RELEASE_KEYSTORE_PASSWORD,
+#   ANDROID_RELEASE_KEY_PASSWORD. Alias is the workflow constant below.
+# The job asserts the signer fingerprint, so a wrong/rotated key fails
+# loudly instead of silently breaking the update chain.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  SIMPLEOFFICE_ERROR_REPORT_URL: ${{ vars.SIMPLEOFFICE_ERROR_REPORT_URL }}
+  SIMPLEOFFICE_RELEASE_KEY_ALIAS: simpleoffice-release
+  SIMPLEOFFICE_RELEASE_FINGERPRINT_SHA256: 4A:53:91:1F:19:6F:8C:A6:C9:1A:6E:C9:26:DB:2C:55:5B:65:EB:8F:5F:58:F0:17:18:A3:0E:53:7F:8A:F4:4C
+
+jobs:
+  native-wheels:
+    uses: ./.github/workflows/android-native-wheels.yml
+
+  release:
+    name: APK release ARM64 (signed)
+    needs: native-wheels
+    runs-on: ubuntu-24.04
+    env:
+      SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
+      SIMPLEOFFICE_ANDROID_PYTHON: '3.15'
+      SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-cp315-arm64-Pillow-wheel
+          path: android/apk/app/wheelhouse
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-cp315-arm64-cryptography-wheel
+          path: android/apk/app/wheelhouse
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-cp315-arm64-cffi-wheel
+          path: android/apk/app/wheelhouse
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: android-cp315-arm64-argon2-cffi-bindings-wheel
+          path: android/apk/app/wheelhouse
+
+      - name: Verify local Android wheel hashes
+        shell: bash
+        run: |
+          cd android/apk/app/wheelhouse
+          sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS
+
+      - name: Set up Chaquopy build Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.15'
+
+      - name: Select Chaquopy build interpreter
+        shell: bash
+        run: echo "CHAQUOPY_BUILD_PYTHON=$(command -v python)" >> "$GITHUB_ENV"
+
+      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
+        with:
+          gradle-version: '8.13'
+
+      - name: Preflight native Chaquopy wheel availability
+        run: |
+          python -m pip install --require-hashes -r requirements-ci-tools.txt
+          python tools/check_chaquopy_wheels.py \
+            --python '3.15' \
+            --abi 'arm64-v8a' \
+            --wheel-dir android/apk/app/wheelhouse
+
+      - name: Set deterministic APK version identity
+        shell: bash
+        run: |
+          echo "SIMPLEOFFICE_BUILD_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
+          echo "SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}" >> "$GITHUB_ENV"
+
+      - name: Restore release keystore from secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/android-release"
+          keystore="$RUNNER_TEMP/android-release/release.jks"
+          echo "${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > "$keystore"
+          chmod 600 "$keystore"
+          test -s "$keystore"
+          {
+            echo "SIMPLEOFFICE_RELEASE_KEYSTORE=$keystore"
+            echo "SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD=${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}"
+            echo "SIMPLEOFFICE_RELEASE_KEY_PASSWORD=${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}"
+          } >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        working-directory: android/apk
+        run: gradle --no-daemon testDebugUnitTest assembleRelease
+
+      - name: Verify release signature, fingerprint and ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='android/apk/app/build/outputs/apk/release/app-release.apk'
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" && test -x "$APKSIGNER"
+          test -n "$ZIPALIGN" && test -x "$ZIPALIGN"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/apksigner.txt
+          grep -F 'Verified using v1 scheme (JAR signing): true' /tmp/apksigner.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/apksigner.txt
+          actual="$(grep -oE 'SHA-256 digest: [0-9a-f]+' /tmp/apksigner.txt | head -n 1 | awk '{print $3}' | tr 'a-z' 'A-Z')"
+          expected="$(echo "$SIMPLEOFFICE_RELEASE_FINGERPRINT_SHA256" | tr -d ':' | tr 'a-z' 'A-Z')"
+          test -n "$actual" && test "$actual" = "$expected"
+          echo "Release signer fingerprint matches the update key."
+          "$ZIPALIGN" -c -P '16' -v 4 "$APK"
+          unzip -l "$APK" > /tmp/apk-files.txt
+          grep -F 'assets/simpleoffice/app/__init__.py' /tmp/apk-files.txt
+          grep -F 'lib/arm64-v8a/' /tmp/apk-files.txt
+          if grep -E 'lib/(arm64-v8a|armeabi-v7a)/' /tmp/apk-files.txt | grep -Fv 'lib/arm64-v8a/'; then
+            echo "APK contains native libraries for an unexpected ABI" >&2
+            exit 1
+          fi
+          mkdir -p artifacts/android
+          VERSIONED_OUTPUT="SimpleOffice4Me-Android-arm64-RELEASE-${SIMPLEOFFICE_BUILD_DATE}-${SIMPLEOFFICE_BUILD_SEQUENCE}.apk"
+          cp "$APK" "artifacts/android/${VERSIONED_OUTPUT}"
+          sha256sum "artifacts/android/${VERSIONED_OUTPUT}" > "artifacts/android/${VERSIONED_OUTPUT}.sha256"
+
+      - name: Scrub release keystore from the runner
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/android-release"
+
+      - name: Upload signed release APK
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: simpleoffice4me-android-release-signed
+          path: artifacts/android/*
+          if-no-files-found: error
+          retention-days: 90

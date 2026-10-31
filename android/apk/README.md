@@ -104,7 +104,17 @@ CI debug APKs are development-only artifacts: every ephemeral runner signs with 
 
    Compare the SHA-256 digest against the fingerprint recorded at key creation before distributing the APK.
 
-Signature migration: if a device has a previously installed APK signed with a different certificate (for example a CI debug APK), Android requires uninstalling it once before the first release install — certificates cannot be migrated. Thereafter, the same release certificate plus a higher `versionCode` enables in-place updates. No CI update-signature stability is promised: CI currently uploads debug artifacts only and holds no release signing secret.
+Signature migration: if a device has a previously installed APK signed with a different certificate (for example a CI debug APK), Android requires uninstalling it once before the first release install — certificates cannot be migrated. Thereafter, the same release certificate plus a higher `versionCode` enables in-place updates.
+
+## CI release builds (signed, update-stable)
+
+The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key and asserts the signer fingerprint, so a wrong key fails the build instead of silently breaking updates. It runs on manual dispatch and as part of every tag release (`project-release.yml`); the signed APK is published as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. Debug CI APKs remain reinstall-only test artifacts.
+
+Working copies of the signing material live in GitHub Secrets (`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_PASSWORD`; alias `simpleoffice-release`); the only backup is outside the repository — losing it ends the update chain (see above). Expected release certificate (public, verify before trusting an APK):
+
+```text
+SHA256: 4A:53:91:1F:19:6F:8C:A6:C9:1A:6E:C9:26:DB:2C:55:5B:65:EB:8F:5F:58:F0:17:18:A3:0E:53:7F:8A:F4:4C
+```
 
 GitHub Actions builds and verifies the supported architecture. The APK filename includes the UTC
 build date and GitHub Actions workflow run number:
