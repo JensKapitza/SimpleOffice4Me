@@ -85,11 +85,28 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         for key in PROPERTY_KEYS + ENV_KEYS:
             self.assertNotIn(key, REPO_PROPERTIES)
 
-    def test_debug_and_ci_behavior_unchanged(self) -> None:
+    def test_debug_and_release_smoke_do_not_use_production_signing_secrets(self) -> None:
         self.assertIn("assembleDebug", WORKFLOW)
-        self.assertNotIn("assembleRelease", WORKFLOW)
-        self.assertNotIn("keystore", WORKFLOW.lower())
+        self.assertIn("assembleRelease", WORKFLOW)
+        for secret_name in (
+            "ANDROID_RELEASE_KEYSTORE_BASE64",
+            "ANDROID_RELEASE_KEYSTORE_PASSWORD",
+            "ANDROID_RELEASE_KEY_PASSWORD",
+        ):
+            self.assertNotIn(secret_name, WORKFLOW)
         self.assertEqual(1, GRADLE.count("signingConfig signingConfigs.release"))
+
+    def test_pr_ci_smokes_release_signing_without_production_secrets(self) -> None:
+        self.assertIn("Create ephemeral key for release-signing smoke", WORKFLOW)
+        self.assertIn("assembleDebug assembleRelease", WORKFLOW)
+        self.assertIn("Verify ephemeral signed release smoke APK", WORKFLOW)
+        self.assertIn("Remove ephemeral release signing key", WORKFLOW)
+        for secret_name in (
+            "ANDROID_RELEASE_KEYSTORE_BASE64",
+            "ANDROID_RELEASE_KEYSTORE_PASSWORD",
+            "ANDROID_RELEASE_KEY_PASSWORD",
+        ):
+            self.assertNotIn(f"secrets.{secret_name}", WORKFLOW)
 
     def test_local_sequence_defaults_to_utc_time_slot(self) -> None:
         self.assertIn("rawBuildSequenceEnv", GRADLE)

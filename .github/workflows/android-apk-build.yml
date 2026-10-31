@@ -136,9 +136,37 @@ jobs:
           echo "SIMPLEOFFICE_BUILD_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
           echo "SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}" >> "$GITHUB_ENV"
 
-      - name: Build installable Android APK
+      - name: Create ephemeral key for release-signing smoke
+        id: release-smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          key_dir="$RUNNER_TEMP/android-release-smoke"
+          key_store="$key_dir/release-smoke.jks"
+          mkdir -p "$key_dir"
+          store_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          key_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          keytool -genkeypair -noprompt -storetype JKS \
+            -keystore "$key_store" -storepass "$store_password" \
+            -keypass "$key_password" -alias release-smoke \
+            -keyalg RSA -keysize 2048 -validity 2 \
+            -dname 'CN=SimpleOffice4Me CI Release Smoke'
+          {
+            echo "keystore=$key_store"
+            echo "store_password=$store_password"
+            echo "key_alias=release-smoke"
+            echo "key_password=$key_password"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build debug APK and ephemeral signed release smoke APK
         working-directory: android/apk
-        run: gradle --no-daemon testDebugUnitTest assembleDebug
+        env:
+          SIMPLEOFFICE_RELEASE_KEYSTORE: ${{ steps.release-smoke.outputs.keystore }}
+          SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ steps.release-smoke.outputs.store_password }}
+          SIMPLEOFFICE_RELEASE_KEY_ALIAS: ${{ steps.release-smoke.outputs.key_alias }}
+          SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ steps.release-smoke.outputs.key_password }}
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleRelease
 
       - name: Verify bundled Python runtime assets and ABI
         shell: bash
@@ -212,6 +240,24 @@ jobs:
           VERSIONED_OUTPUT="${VERSIONED_OUTPUT%.apk}-${SIMPLEOFFICE_BUILD_DATE}-${SIMPLEOFFICE_BUILD_SEQUENCE}.apk"
           cp "$APK" "artifacts/android/${VERSIONED_OUTPUT}"
           sha256sum "artifacts/android/${VERSIONED_OUTPUT}" > "artifacts/android/${VERSIONED_OUTPUT}.sha256"
+
+      - name: Verify ephemeral signed release smoke APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='android/apk/app/build/outputs/apk/release/app-release.apk'
+          test -s "$APK"
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" && test -x "$APKSIGNER"
+          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/release-apksigner.txt
+          grep -F 'Verified using v1 scheme (JAR signing): true' /tmp/release-apksigner.txt
+          grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/release-apksigner.txt
+          grep -F 'lib/arm64-v8a/' <(unzip -l "$APK")
+
+      - name: Remove ephemeral release signing key
+        if: always()
+        shell: bash
+        run: rm -rf "$RUNNER_TEMP/android-release-smoke"
 
       - name: Generate CycloneDX SBOM from resolved Android JVM dependencies
         working-directory: android/apk
