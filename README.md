@@ -54,6 +54,31 @@ direkt oberhalb des Repo-Ordners, außerhalb von Git – nie Schlüssel in
 README oder Code); ohne Schlüssel läuft nur die lokale/Mock-Demo, ein
 Cloud-Live-Erfolg wird nicht behauptet.
 
+### Hackathon judges: run and verify the live Meta demo
+
+Use a fresh checkout and install the project dependencies once:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python.exe -m pip install --upgrade pip
+.venv\Scripts\python.exe -m pip install -e .
+$env:CONTEXTFLOW_VISION_PROVIDER = "meta"
+start.bat demo --port 5088 --fresh
+```
+
+On Linux/macOS, create `.venv` with `python3 -m venv .venv`, install with
+`.venv/bin/python -m pip install -e .`, then launch with
+`CONTEXTFLOW_VISION_PROVIDER=meta .venv/bin/python tools/contextflow_demo.py --port 5088 --fresh`.
+Put your own `MODEL_API_KEY` in the parent-folder `.env` (one directory above
+the checkout), or set it in the process environment. The demo loader reads
+only this key from that file; never commit it or show it in a recording.
+Open `http://127.0.0.1:5088/contextflow/` and sign in as `demo` /
+`demo-contextflow-1`. The isolated demo uses synthetic data and binds only to
+localhost. A configured model badge alone is not proof of inference: show a
+fresh successful response's model ID, result, tool calls/evidence, and usage
+in the UI. The detailed [three-minute run of show and architecture map](docs/hackathon/contextflow/README.md#judge-quickstart-and-three-minute-demo)
+covers both the live image flow and agent tool loop.
+
 ## Funktionen
 
 - Dokumentenverwaltung mit Eingangskorb, Volltextindex, Vorschauen, Versionen,
