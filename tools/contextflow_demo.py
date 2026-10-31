@@ -200,7 +200,7 @@ def main() -> None:
     print("ContextFlow Demo bereit (alle Daten synthetisch).")
     print("  URL im Browser oeffnen:")
     print(f"    http://127.0.0.1:{args.port}/contextflow/")
-    print(f"  Meta-Demo-Analyse (nur mit Einwilligung, synthetisch):")
+    print("  Meta-Demo-Analyse (nur mit Einwilligung, synthetisch):")
     print(f"    http://127.0.0.1:{args.port}/contextflow/agent")
     print("  Benutzername (genau so, nicht admin):")
     print(f"    {DEMO_USERNAME}")

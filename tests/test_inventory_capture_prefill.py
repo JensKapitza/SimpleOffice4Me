@@ -91,7 +91,7 @@ class AnalyzePrefillTests(unittest.TestCase):
         self.assertEqual([], payload["missing_fields"])
 
     def test_book_flow_gains_prefill_without_losing_fields(self) -> None:
-        ml = {"available": True, "label": "Buch", "item_type": "book",
+        ml = {"available": True, "label": "Der Musterroman", "item_type": "book",
               "isbn": ISBN_DEMO, "note": "Blaues Taschenbuch.",
               "tags": ["blau", "Taschenbuch"],
               "provider": "local", "provider_label": "Ollama (lokal)",
@@ -99,10 +99,13 @@ class AnalyzePrefillTests(unittest.TestCase):
         payload = _analyze(b"raw", ml)
         self.assertEqual("book", payload["kind"])
         self.assertEqual(ISBN_DEMO, payload["isbn"])
+        # A validated visual title is now the fallback when OCR and metadata
+        # do not provide one; keep the title instead of discarding the ML label.
+        self.assertEqual("Der Musterroman", payload["prefill"]["title"])
         self.assertEqual("Blaues Taschenbuch.",
                          payload["prefill"]["description"])
         self.assertEqual(["blau", "Taschenbuch"], payload["prefill"]["tags"])
-        self.assertIn("title", payload["missing_fields"])
+        self.assertNotIn("title", payload["missing_fields"])
 
     def test_legacy_ml_result_without_note_or_tags_stays_empty(self) -> None:
         ml = {"available": True, "label": "Hammer", "item_type": "tool",

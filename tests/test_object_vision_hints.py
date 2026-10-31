@@ -10,7 +10,9 @@ from app.object_vision import analyze_ocr, ocr_availability
 
 class OcrHintTests(unittest.TestCase):
     def test_missing_rapidocr_names_pip_extra(self):
-        with patch("app.object_vision.find_spec", return_value=None):
+        with patch("app.object_vision._RAPID_OCR_ENGINE", None), patch(
+            "app.object_vision.find_spec", return_value=None,
+        ):
             result = analyze_ocr(Path("unused.jpg"), fallback_tesseract=False)
         self.assertEqual("rapidocr", result["engine"])
         self.assertEqual("unavailable", result["status"])
