@@ -15,6 +15,10 @@ MAX_ANNOTATION_TEXT = 10_000
 MAX_LOCATOR_TEXT = 2_000
 
 
+class ReaderVersionChanged(ValueError):
+    """The document content changed after the reader loaded it."""
+
+
 def _actor_key(actor: str) -> str:
     return hashlib.sha256(actor.encode("utf-8")).hexdigest()
 
@@ -117,7 +121,7 @@ class ReadingStateStore:
         kind = _format(document)
         current = _version(document)
         if str(expected_version or "") != current:
-            raise ValueError("document version changed")
+            raise ReaderVersionChanged("document version changed")
         clean_locator = _locator(locator, kind)
         try:
             clean_percent = int(percent)
@@ -175,7 +179,7 @@ class ReadingStateStore:
         kind = _format(document)
         current = _version(document)
         if str(expected_version or "") != current:
-            raise ValueError("document version changed")
+            raise ReaderVersionChanged("document version changed")
         clean = str(text or "").strip()
         if not clean or len(clean) > MAX_ANNOTATION_TEXT:
             raise ValueError("annotation text is empty or too long")
