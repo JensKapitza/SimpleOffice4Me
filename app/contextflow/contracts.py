@@ -21,6 +21,7 @@ MAIL_CASE_URL = "/documents/mail/reader?case={case_id}&mode=case#mail-case"
 VISIT_URL = "/site-visits/{visit_id}"
 INVOICE_URL = "/documents/business/invoices/{invoice_id}"
 INVOICE_EDITOR_URL = "/documents/business/contacts/{contact_id}/invoice"
+CUSTOMER_BILLING_URL = "/documents/business/contacts/{contact_id}/billing"
 TASKS_URL = "/tasks/"
 
 LINK_TYPE = "case_link"
@@ -112,6 +113,34 @@ class EvidenceRef(TypedDict, total=False):
     id: str
     revision: str
     url: str
+
+
+class CreditHintState(TypedDict, total=False):
+    """Customer-credit hint for one contact (deterministic, no model calls).
+
+    ``state`` is ``ready`` (positive balance, manage rights), ``none``
+    (no positive balance) or ``hidden`` (fail closed: no rights, unknown
+    contact, unreadable data). Money fields are ``Decimal``-safe strings;
+    ``*_display`` variants are pre-formatted German UI text.
+    """
+
+    state: str
+    reason: str
+    contact_id: str
+    currency: str
+    balance: str
+    balance_display: str
+    hours: str
+    hours_display: str
+    rate_gross: str
+    rate_display: str
+    rate_basis: str
+    rate_source: str
+    draft_gross: str
+    remaining: str
+    remaining_display: str
+    billing_url: str
+    evidence: EvidenceRef
 
 
 class MailCaseSummary(TypedDict):
