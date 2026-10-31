@@ -415,6 +415,26 @@ class BusinessDocumentTests(unittest.TestCase):
                 _invoice_store_path(root, "invoice-1"),
             )
 
+    def test_invoice_store_rejects_symlinked_control_directories(self):
+        for symlink_relative in (
+            Path(CONTROL_DIR),
+            Path(CONTROL_DIR) / "invoices",
+        ):
+            with self.subTest(symlink=symlink_relative), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / "root"
+                outside = Path(temp) / "outside"
+                root.mkdir()
+                outside.mkdir()
+                symlink = root / symlink_relative
+                symlink.parent.mkdir(parents=True, exist_ok=True)
+                symlink.symlink_to(outside, target_is_directory=True)
+
+                with self.assertRaisesRegex(ValueError, "inside the configured root"):
+                    _invoice_store_path(root, "invoice-1")
+
+                self.assertFalse((outside / "invoices").exists())
+                self.assertFalse((outside / "invoice-1.json").exists())
+
     def test_pre_finalization_reference_is_in_pdf_and_structured_invoice_note(self):
         row = {
             "invoice_number": "2026-0002",

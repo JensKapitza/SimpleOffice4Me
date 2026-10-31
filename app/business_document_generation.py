@@ -444,12 +444,11 @@ def _invoice_store_path(root: Path, invoice_id: str) -> Path:
     invoice_id = str(invoice_id or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", invoice_id):
         raise ValueError("invalid invoice identifier")
-    control = root / CONTROL_DIR
-    directory = control / INVOICE_DIR
-    directory.mkdir(parents=True, exist_ok=True)
-    return resolve_for_write_under(
-        control, Path(INVOICE_DIR) / f"{invoice_id}.json",
+    path = resolve_for_write_under(
+        root, Path(CONTROL_DIR) / INVOICE_DIR / f"{invoice_id}.json",
     )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def invoice(root: Path, invoice_id: str) -> dict[str, Any]:
