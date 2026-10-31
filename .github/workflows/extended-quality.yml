@@ -86,6 +86,37 @@ jobs:
           fi
       - name: Audit Mini Services diagnostics
         run: python tools/mini_services_log_audit.py
+  js-syntax:
+    name: First-party JavaScript syntax check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Syntax-check first-party browser scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Plain classic scripts only (no ESM import/export in static/js);
+          # vendor bundles and the Electron build's own sources are excluded:
+          # vendor code is third-party, desktop JS is parsed by its build.
+          mapfile -d '' files < <(find static/js -type f -name '*.js' -print0)
+          if (( ${#files[@]} == 0 )); then
+            echo "No first-party scripts found" >&2
+            exit 1
+          fi
+          echo "Checking ${#files[@]} first-party scripts"
+          failed=0
+          for file in "${files[@]}"; do
+            node --check "$file" || { echo "SYNTAX ERROR in $file" >&2; failed=1; }
+          done
+          exit "$failed"
       - name: Mini Services software acceptance smoke
         shell: bash
         run: |
