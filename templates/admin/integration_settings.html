@@ -140,21 +140,32 @@
     </div>
   </section>
   <section class="card mb-3">
-    <div class="card-header"><strong>Öffentliches Federation-Instanzprofil</strong></div>
+    <div class="card-header"><strong>Öffentliches Federation-Profil</strong></div>
     <div class="card-body">
-      <p>Das Land wird im lokalen Discovery-Profil und in veröffentlichten Peer-Einträgen angezeigt. Es enthält keine Zugriffsrechte und ändert keine Freigaben. Leer lässt das Land weg; eine Änderung gilt sofort für neu erzeugte Profile.</p>
+      <p>Das Land ist reine Profil-Metadaten und ändert keine Freigaben oder Berechtigungen. Die Basis-URL wird in öffentlichen Peer-Profilen und QR-Codes bekanntgegeben; verwende nur eine für die vorgesehenen Peers erreichbare Adresse und im Internet HTTPS.</p>
       <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_profile_country_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
           <label class="form-label" for="federation-profile-country">Land (ISO-3166 Alpha-2, leer = nicht angegeben)</label>
-          <input class="form-control" id="federation-profile-country" type="text"
-                 name="federation_profile_country" value="{{ integrations.federation_profile_country }}"
-                 maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off">
-          <div class="form-text"><code>SIMPLEOFFICE_FEDERATION_COUNTRY</code> dient nur bis zur ersten Speicherung als Legacy-Startwert. Das Land ist ein öffentlicher Profilwert.</div>
+          <input class="form-control" id="federation-profile-country" type="text" name="federation_profile_country" value="{{ integrations.federation_profile_country }}" maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off">
+          <div class="form-text"><code>SIMPLEOFFICE_FEDERATION_COUNTRY</code> dient nur bis zur ersten Speicherung als Legacy-Startwert.</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">Land speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Land zurücksetzen</button>
+        </div>
+      </form>
+      <hr>
+      <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_public_url_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-9">
+          <label class="form-label" for="federation-public-url">Basis-URL, optionaler Reverse-Proxy-Pfad möglich</label>
+          <input class="form-control" id="federation-public-url" type="text" name="federation_public_url" value="{{ integrations.federation_public_url }}" maxlength="512" autocomplete="url" placeholder="https://office.example/simpleoffice">
+          <div class="form-text">Zugangsdaten, Query und Fragment sind nicht erlaubt. Beim Speichern wird keine Verbindung ausgelöst; <code>SIMPLEOFFICE_FEDERATION_PUBLIC_URL</code> bleibt bis zur ersten Speicherung der Legacy-Startwert.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Profil-URL speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Profil-URL zurücksetzen</button>
         </div>
       </form>
     </div>

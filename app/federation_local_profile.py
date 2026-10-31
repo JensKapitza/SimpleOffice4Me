@@ -24,7 +24,7 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
     address without changing global configuration.
     """
     peer_id = local_peer_id()
-    configured_url = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
+    configured_url = _profile_public_url(root)
     fallback_url = str(fallback_base_url or "").strip()
     base_url = fallback_url if prefer_fallback and fallback_url else configured_url or fallback_url
     if not base_url:
@@ -66,3 +66,10 @@ def _profile_country(root):
     from .settings_store import SettingsStore
 
     return SettingsStore(root).settings()["integrations"]["federation_profile_country"]
+
+def _profile_public_url(root):
+    if root is None:
+        return os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
+    from .settings_store import SettingsStore
+
+    return SettingsStore(root).settings()["integrations"]["federation_public_url"]

@@ -39,6 +39,7 @@ DEFAULT_FEDERATION_AUTOSCAN_SECONDS = 21600
 MIN_FEDERATION_AUTOSCAN_SECONDS = 3600
 MAX_FEDERATION_AUTOSCAN_SECONDS = 7 * 86400
 DEFAULT_FEDERATION_PROFILE_COUNTRY = ""
+DEFAULT_FEDERATION_PUBLIC_URL = ""
 DEFAULT_ERROR_REPORTING_ENABLED = True
 DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED = False
 DEFAULT_ERROR_RELAY_MODE = "auto"
@@ -203,6 +204,28 @@ def legacy_federation_profile_country() -> str:
         return DEFAULT_FEDERATION_PROFILE_COUNTRY
     return country
 
+def normalize_federation_public_url(value: Any) -> str:
+    """Canonicalize a configured public profile URL without making a request."""
+    if not isinstance(value, str):
+        raise ValueError("Federation public URL must be a string")
+    raw = value.strip()
+    if not raw:
+        return DEFAULT_FEDERATION_PUBLIC_URL
+    if len(raw) > 512:
+        raise ValueError("Federation public URL is too long")
+    from .federation_discovery_endpoint import normalize_endpoint
+
+    return normalize_endpoint(raw)
+
+
+def legacy_federation_public_url() -> str:
+    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "")
+    try:
+        return normalize_federation_public_url(raw)
+    except ValueError:
+        _LOGGER.warning("Invalid legacy federation public URL; using the empty default")
+        return DEFAULT_FEDERATION_PUBLIC_URL
+
 
 def legacy_error_relay_mode() -> str:
     """Preserve the master-role default and explicit legacy relay override."""
@@ -323,6 +346,14 @@ def normalize_integration_settings(
             _LOGGER.warning("Invalid stored federation profile country; using the default")
             profile_country = DEFAULT_FEDERATION_PROFILE_COUNTRY
     result["federation_profile_country"] = profile_country
+
+    public_url = integrations.get("federation_public_url", DEFAULT_FEDERATION_PUBLIC_URL)
+    try:
+        public_url = normalize_federation_public_url(public_url)
+    except ValueError:
+        _LOGGER.warning("Invalid stored federation public URL; using the empty default")
+        public_url = DEFAULT_FEDERATION_PUBLIC_URL
+    result["federation_public_url"] = public_url
     error_relay_mode = integrations.get("error_relay_mode", DEFAULT_ERROR_RELAY_MODE)
     if (
         not isinstance(error_relay_mode, str)
@@ -407,6 +438,15 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str | bo
     ):
         raise ValueError("federation profile country must be empty or ISO-3166 alpha-2")
     values["federation_profile_country"] = profile_country
+
+    try:
+        values["federation_public_url"] = normalize_federation_public_url(
+            integrations.get("federation_public_url", DEFAULT_FEDERATION_PUBLIC_URL),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "Federation public URL must be a safe base URL without credentials, query, or fragment"
+        ) from exc
     error_relay_mode = integrations.get("error_relay_mode", DEFAULT_ERROR_RELAY_MODE)
     if (
         not isinstance(error_relay_mode, str)
