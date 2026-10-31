@@ -446,6 +446,11 @@ class PositionHintRoutesTest(unittest.TestCase):
         self.assertIn("unterschiedlich abgerechnet", body)
         self.assertIn("Brief/Notiz beim Kunden prüfen", body)
         self.assertIn("teurer als sonst", body)
+        # No nested forms: the outer invoice form must not swallow the button.
+        self.assertIn('form="pos-article-1"', body)
+        self.assertIn('id="pos-article-1"', body)
+        panel = body.split('id="position-hints"')[1].split('btn-lg mb-2')[0]
+        self.assertNotIn("<form", panel)
 
     def test_article_post_creates_and_redirects(self) -> None:
         contact_id, draft_id = self._seed()
