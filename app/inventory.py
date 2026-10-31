@@ -10,6 +10,7 @@ import hashlib
 import http.client
 import json
 import math
+import os
 import re
 import ssl
 import time
@@ -789,6 +790,16 @@ def index():
 
     capture = capture_context_from_query(request.args)
     locations = capture_locations()
+    from .contextflow.demo import is_verified_demo_root
+    from .contextflow.vision import vision_settings_from_mapping
+
+    vision_settings = vision_settings_from_mapping(current_app.config, os.environ)
+    meta_photo_consent_available = bool(
+        str(vision_settings.get("provider", "")).strip().lower() == "meta"
+        and vision_settings.get("meta_consent") is True
+        and vision_settings.get("meta_api_key")
+        and is_verified_demo_root(Path(current_app.config["DOCUMENT_ROOT"]))
+    )
     return render_template(
         "inventory/index.html",
         inventory_rows=rows,
@@ -796,6 +807,7 @@ def index():
         capture_context=capture,
         library_locations=locations if capture.get("enabled") else [],
         series_locations=locations,
+        meta_photo_consent_available=meta_photo_consent_available,
     )
 
 

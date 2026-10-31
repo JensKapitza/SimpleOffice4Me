@@ -198,6 +198,30 @@ class CaptureRouteTests(unittest.TestCase):
         self.assertEqual([], payload["missing_fields"])
         self.assertEqual("llama3.2-vision", payload["ml"]["model"])
 
+    def test_book_cover_ml_title_and_author_prefill_when_ocr_has_no_text(self) -> None:
+        ocr = {"text": "", "engine": "rapidocr", "status": "no-text",
+               "characters": 0, "confidence": None, "error": ""}
+        ml = {"available": True,
+              "label": "Unnützes Wissen für kleine Klugscheißer",
+              "item_type": "book", "isbn": "",
+              "subtitle": "für kleine Klugscheißer",
+              "authors": ["Lena Hoffmann"],
+              "note": "Großer Haupttitel; kleinere Unterzeile; Mythologie Edition.",
+              "tags": ["Mythologie", "Buch"],
+              "provider": "meta", "provider_label": "Meta Muse Spark",
+              "model": "muse-spark-1.3-contributor", "error": ""}
+        with (
+            mock.patch("app.inventory_capture.capture_ocr", return_value=ocr),
+            mock.patch("app.inventory_capture.capture_ml_label", return_value=ml),
+            mock.patch("app.inventory_capture.capture_metadata", return_value={}),
+        ):
+            response = self.post_photo()
+        payload = response.get_json()
+        self.assertEqual("book", payload["kind"])
+        self.assertEqual(ml["label"], payload["prefill"]["title"])
+        self.assertEqual(["Lena Hoffmann"], payload["prefill"]["authors"])
+        self.assertIn("Untertitel: für kleine Klugscheißer", payload["prefill"]["description"])
+
     def test_degraded_analysis_without_backends(self) -> None:
         ocr = {"text": "", "engine": "", "status": "unavailable",
                "characters": 0, "confidence": None,
