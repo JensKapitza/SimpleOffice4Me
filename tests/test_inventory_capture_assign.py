@@ -253,7 +253,7 @@ class BatchAssignRouteTests(unittest.TestCase):
     def test_batch_assign_partial_failure_reports_and_stays_retryable(self) -> None:
         book = self._book_target()
         broken = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]
-        healthy = self.upload(PNG_RED_1PX, BATCH_A).get_json()["entry"]
+        self.upload(PNG_RED_1PX, BATCH_A)
         store = CaptureInboxStore(self.documents)
         store.media_path(broken["entry_id"], "anna").unlink()
         payload = self.assign_group(BATCH_A, book["object_id"]).get_json()
