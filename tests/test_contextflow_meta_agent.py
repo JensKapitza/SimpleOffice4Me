@@ -226,6 +226,66 @@ class MetaAgentLoopTest(unittest.TestCase):
         self.assertNotIn("Papierstau", first_text)
         self.assertNotIn(fx.CONTACT_EMAIL, first_text)
 
+    def test_response_model_echo_is_captured(self) -> None:
+        final = _text_payload(self._final())
+        final["model"] = META_MODEL_API_MODEL
+        final["usage"] = {"input_tokens": 30, "output_tokens": 40}
+        call = _call_payload(
+            ("c1", "get_case_context", {"link_id": self.link_id}),
+            ("c2", "get_visit_findings", {"link_id": self.link_id}),
+        )
+        call["model"] = META_MODEL_API_MODEL
+        call["usage"] = {"input_tokens": 10, "output_tokens": 20}
+        transport = FakeTransport([call, final])
+        result = self._run(transport)
+        self.assertTrue(result["ok"])
+        self.assertEqual(META_MODEL_API_MODEL, result["model"])
+        self.assertEqual(META_MODEL_API_MODEL, result["response_model"])
+        self.assertEqual([META_MODEL_API_MODEL] * 2, result["response_models"])
+        self.assertEqual(
+            f"{META_MODEL_API_MODEL}, {META_MODEL_API_MODEL}",
+            result["response_models_display"],
+        )
+        self.assertEqual({"input_tokens": 40, "output_tokens": 60}, result["usage"])
+
+    def test_unapproved_response_model_is_rejected_before_tools_run(self) -> None:
+        call = _call_payload(
+            ("c1", "get_case_context", {"link_id": self.link_id}),
+            ("c2", "get_visit_findings", {"link_id": self.link_id}),
+        )
+        call["model"] = "unexpected-proxy-model"
+        transport = FakeTransport([call, _text_payload(self._final())])
+        with self.assertRaisesRegex(MetaAgentError, "weicht vom freigegebenen Modell ab"):
+            self._run(transport)
+        self.assertEqual(1, len(transport.payloads))
+
+    def test_oversized_response_model_is_rejected_before_tools_run(self) -> None:
+        call = _call_payload(
+            ("c1", "get_case_context", {"link_id": self.link_id}),
+            ("c2", "get_visit_findings", {"link_id": self.link_id}),
+        )
+        call["model"] = "m" * 257
+        transport = FakeTransport([call, _text_payload(self._final())])
+        with self.assertRaisesRegex(MetaAgentError, "Antwortmodell ist ungültig"):
+            self._run(transport)
+        self.assertEqual(1, len(transport.payloads))
+
+    def test_response_model_missing_stays_none(self) -> None:
+        transport = FakeTransport(
+            [
+                _call_payload(
+                    ("c1", "get_case_context", {"link_id": self.link_id}),
+                    ("c2", "get_visit_findings", {"link_id": self.link_id}),
+                ),
+                _text_payload(self._final()),
+            ]
+        )
+        result = self._run(transport)
+        self.assertTrue(result["ok"])
+        self.assertIsNone(result["response_model"])
+        self.assertEqual([None, None], result["response_models"])
+        self.assertEqual("unbekannt, unbekannt", result["response_models_display"])
+
     def test_invoice_and_calendar_tools(self) -> None:
         transport = FakeTransport(
             [
