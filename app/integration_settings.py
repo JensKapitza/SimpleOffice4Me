@@ -41,6 +41,7 @@ MAX_FEDERATION_AUTOSCAN_SECONDS = 7 * 86400
 DEFAULT_ERROR_REPORTING_ENABLED = True
 DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED = False
 DEFAULT_FEDERATION_PUBLIC_URL = ""
+DEFAULT_ERROR_RELAY_MODE = "auto"
 
 
 def _legacy_integer(
@@ -216,6 +217,14 @@ def legacy_federation_public_url() -> str:
         return DEFAULT_FEDERATION_PUBLIC_URL
 
 
+def legacy_error_relay_mode() -> str:
+    """Preserve the master-role default and explicit legacy relay override."""
+    value = os.environ.get("SIMPLEOFFICE_ERROR_RELAY_ENABLED")
+    if value is None:
+        return DEFAULT_ERROR_RELAY_MODE
+    return "enabled" if value.strip().casefold() in {"1", "true", "yes", "on"} else "disabled"
+
+
 def normalize_integration_settings(
     integrations: dict[str, Any],
 ) -> dict[str, int | str | bool]:
@@ -318,6 +327,14 @@ def normalize_integration_settings(
         _LOGGER.warning("Invalid stored federation public URL; using the empty default")
         public_url = DEFAULT_FEDERATION_PUBLIC_URL
     result["federation_public_url"] = public_url
+    error_relay_mode = integrations.get("error_relay_mode", DEFAULT_ERROR_RELAY_MODE)
+    if (
+        not isinstance(error_relay_mode, str)
+        or error_relay_mode not in {"auto", "enabled", "disabled"}
+    ):
+        _LOGGER.warning("Invalid stored error-relay mode; using automatic master mode")
+        error_relay_mode = DEFAULT_ERROR_RELAY_MODE
+    result["error_relay_mode"] = error_relay_mode
     return result
 
 
@@ -389,4 +406,11 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str | bo
         raise ValueError(
             "Federation public URL must be a safe base URL without credentials, query, or fragment"
         ) from exc
+    error_relay_mode = integrations.get("error_relay_mode", DEFAULT_ERROR_RELAY_MODE)
+    if (
+        not isinstance(error_relay_mode, str)
+        or error_relay_mode not in {"auto", "enabled", "disabled"}
+    ):
+        raise ValueError("error relay mode must be auto, enabled, or disabled")
+    values["error_relay_mode"] = error_relay_mode
     return values

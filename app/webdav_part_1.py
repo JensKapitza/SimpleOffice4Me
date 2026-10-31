@@ -179,6 +179,7 @@ PROTECTED_DAV_PROPERTIES = {
     )
 }
 MUTABLE_DAV_PROPERTIES = {f"{{{DAV}}}displayname", f"{{{DAV}}}getcontentlanguage"}
+DAV_CONTENT_LANGUAGE_RE = re.compile(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*")
 MICROSOFT_CLIENT_PROPERTIES = {
     f"{{{MICROSOFT_DAV}}}{name}" for name in (
         "Win32FileAttributes", "Win32CreationTime",

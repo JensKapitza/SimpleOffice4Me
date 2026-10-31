@@ -15,7 +15,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 
-from flask import Blueprint, abort, jsonify, request
+from flask import Blueprint, abort, current_app, has_app_context, jsonify, request
 
 from .github_error_reporter import (
     REPORT_SCHEMA,
@@ -45,7 +45,6 @@ _FINGERPRINT = re.compile(r"[A-Za-z0-9_.:-]{8,128}\Z")
 _FRAME_NAME = re.compile(r"[A-Za-z0-9_.:+<> -]{1,160}\Z")
 _TEMPLATE_NAME = re.compile(r"[A-Za-z0-9_./:+-]{1,240}\Z")
 _METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
-_TRUE_VALUES = {"1", "true", "yes", "on"}
 _rate_lock = threading.Lock()
 _rate_salt = secrets.token_bytes(32)
 _rate_by_source: dict[str, deque[float]] = {}
@@ -58,10 +57,21 @@ _upstream_attempts: deque[float] = deque()
 
 
 def relay_enabled() -> bool:
-    """Enable explicitly configured relays or the baked global master by default."""
-    configured = os.environ.get("SIMPLEOFFICE_ERROR_RELAY_ENABLED")
-    if configured is not None:
-        return configured.strip().casefold() in _TRUE_VALUES
+    """Resolve the persisted collector mode, retaining the legacy no-context fallback."""
+    if has_app_context():
+        from .settings_store import SettingsStore
+
+        mode = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()[
+            "integrations"
+        ]["error_relay_mode"]
+    else:
+        from .integration_settings import legacy_error_relay_mode
+
+        mode = legacy_error_relay_mode()
+    if mode == "enabled":
+        return True
+    if mode == "disabled":
+        return False
     return master_mode()
 
 

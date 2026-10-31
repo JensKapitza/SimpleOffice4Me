@@ -10,6 +10,7 @@ Enthalten sind derzeit:
 - Termin-Sichtbarkeit, externer Hinweistext und Standarddauer.
 - Ablaufzeit neuer passwortgeschützter HTTPS-Freigaben.
 - Admin-only: ausgehende automatische Fehlerberichte im Reiter **Integrationen & Dienste** aktivieren oder deaktivieren. Es werden nur freigegebene technische Diagnosedaten übertragen; lokale Fehlerprotokolle und manuelle Fehlerberichte bleiben unabhängig davon verfügbar.
+- Admin-only: eingehenden Error-Relay auf **Automatisch**, **Aktiviert** oder **Deaktiviert** stellen. Das Aktivieren eines öffentlichen unauthentifizierten Report-Endpunkts benötigt eine ausdrückliche Bestätigung.
 - Admin-only: öffentliche Abfrage explizit veröffentlichter Federation-Peer-Profile im Reiter **Integrationen & Dienste** aktivieren oder deaktivieren. Registrierung, Trust, Auflösung und Rendezvous bleiben authentifiziert.
 - Admin-only: optionale öffentliche Federation-Profil-Basis-URL im Reiter **Integrationen & Dienste** konfigurieren. Sie wird an andere Peers veröffentlicht; Zugangsdaten, Query und Fragment werden abgewiesen.
 - Admin-only: maximale Uploadgröße im Reiter **Dokumente & Medien** (Standard 512 MiB, zulässig 1–4096 MiB). Sie begrenzt die gesamte HTTP-Anfrage und damit auch Uploadpfade, die dieses zentrale Limit verwenden; S3-Uploads können zusätzlich enger begrenzt sein.
