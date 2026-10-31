@@ -30,6 +30,7 @@ from .contracts import (
     INVOICE_URL,
     CreditHintState,
 )
+from .position_hints import editor_position_hints
 
 MONEY = Decimal("0.01")
 HOUR_UNIT = "HUR"
@@ -233,3 +234,17 @@ def editor_credit_hint(
     except (PermissionError, ValueError, OSError, KeyError, AttributeError, TypeError):
         return None
     return dict(state) if state.get("state") == "ready" else None
+
+
+def editor_engel_hints(
+    root: str | Path,
+    actor: str,
+    contact_id: str,
+    draft: dict[str, Any] | None,
+    rows: list[dict[str, Any]] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Both editor hints in one call (credit, positions); each fail-closed."""
+    return (
+        editor_credit_hint(root, actor, contact_id, draft, rows),
+        editor_position_hints(root, actor, contact_id, draft, rows),
+    )
