@@ -649,10 +649,10 @@ def contact_invoice(contact_id:str):
     all_invoice_rows = invoices(root)
     reference_invoices = invoice_reference_candidates(all_invoice_rows, contact_id, draft_id)
     try:
-        from .contextflow.credit_hints import editor_credit_hint
-        credit_hint = editor_credit_hint(root, actor, contact_id, draft, all_invoice_rows)
+        from .contextflow.credit_hints import editor_engel_hints
+        credit_hint, position_hints = editor_engel_hints(root, actor, contact_id, draft, all_invoice_rows)
     except (PermissionError, ValueError, OSError, KeyError, AttributeError, TypeError):
-        credit_hint = None
+        credit_hint = position_hints = None
     payment_days = str(
         (date.fromisoformat(draft["due_date"])-date.fromisoformat(draft["issue_date"])).days
         if draft else crm.get("payment_days") or settings.get("default_payment_days") or "14"
@@ -668,6 +668,7 @@ def contact_invoice(contact_id:str):
         selected_reference_invoice_id=selected_reference_invoice_id,
         linked_task=linked_task,
         credit_hint=credit_hint,
+        position_hints=position_hints,
     )
 
 @bp.get("/invoices/<invoice_id>/draft.pdf")
