@@ -67,18 +67,19 @@ Erwartete Ausgabe (Beispielwerte):
 [3/5] agent form (pills + case) ...
 [4/5] ONE consented agent run (link ab12cd34..., up to 7 min) ...
 [5/5] evidence written to C:\...\t20-evidence-20261031-....json
-T20 PASS: steps=2 ok_tools=4 evidence=2 model=muse-spark-1.3-contributor response=muse-spark-1.3-contributor tokens=1200/502 seconds=10.2
+T20 PASS: steps=2 ok_tools=4 evidence=2 model=muse-spark-1.3-contributor response=muse-spark-1.3-contributor responses=muse-spark-1.3-contributor,muse-spark-1.3-contributor tokens=<total-in>/<total-out> seconds=<elapsed>
 ```
 
 ## Schritt 3 — Beleg sichern
 
 - Evidenz-Datei aus `[5/5]` aufheben (enthält keine Secrets:
   kein Key, kein Passwort, keine Cookies — Link-ID ist synthetisch).
-- Browser-Gegenprobe (gleiche Sitzung): Ergebnis-Seite zeigt
-  `Modell ... (Antwort: muse-spark-1.3-contributor)`, Werkzeugliste
-  mit ✔, Feststellungen, Beleg-IDs und „Nur ein Vorschlag“.
+- Browser-Gegenprobe (gleiche Sitzung): Ergebnis-Seite zeigt Modell,
+  Antwortmodell und alle Antwortmodelle pro Schritt, Werkzeugliste mit ✔,
+  Feststellungen, Beleg-IDs und „Nur ein Vorschlag“.
 - Werte an Muse zurückmelden: `steps`, `ok_tools`, `evidence`,
-  `model`, `response`, `tokens`, `seconds` → STATUS-Nachtrag
+  `model`, `response`, `responses` je API-Schritt, aggregierte `tokens`,
+  `seconds` → STATUS-Nachtrag
   (Textvorschlag unten), T20 gilt erst dann als geschlossen.
 
 ## Abbruch- und Fehlercodes
@@ -106,7 +107,8 @@ nicht weiterverfolgt.
 T20 Meta-Live-Anteil erledigt (t20_live_probe, <Datum>):
 1 bewilligter Lauf, <steps> Schritte, <ok_tools> ok-Tools
 (<Namen>), <evidence> Beleg-IDs, Modell + Antwort-Modell
-muse-spark-1.3-contributor, Tokens <in>/<out>, <s> s.
+muse-spark-1.3-contributor, Antwortmodell pro Schritt <Liste>,
+aggregierte Tokens <in>/<out>, <s> s.
 Evidenz: t20-evidence-<Stempel>.json (eigentümerseitig).
 G Jury-Stufe-1-Gate damit per Beleg erfüllt.
 ```

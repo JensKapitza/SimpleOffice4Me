@@ -229,16 +229,44 @@ class MetaAgentLoopTest(unittest.TestCase):
     def test_response_model_echo_is_captured(self) -> None:
         final = _text_payload(self._final())
         final["model"] = META_MODEL_API_MODEL
+        final["usage"] = {"input_tokens": 30, "output_tokens": 40}
         call = _call_payload(
             ("c1", "get_case_context", {"link_id": self.link_id}),
             ("c2", "get_visit_findings", {"link_id": self.link_id}),
         )
-        call["model"] = "proxy-should-be-overwritten-by-final-step"
+        call["model"] = META_MODEL_API_MODEL
+        call["usage"] = {"input_tokens": 10, "output_tokens": 20}
         transport = FakeTransport([call, final])
         result = self._run(transport)
         self.assertTrue(result["ok"])
         self.assertEqual(META_MODEL_API_MODEL, result["model"])
         self.assertEqual(META_MODEL_API_MODEL, result["response_model"])
+        self.assertEqual([META_MODEL_API_MODEL] * 2, result["response_models"])
+        self.assertEqual(
+            f"{META_MODEL_API_MODEL}, {META_MODEL_API_MODEL}",
+            result["response_models_display"],
+        )
+        self.assertEqual({"input_tokens": 40, "output_tokens": 60}, result["usage"])
+
+    def test_divergent_response_models_remain_visible_in_step_history(self) -> None:
+        final = _text_payload(self._final())
+        final["model"] = META_MODEL_API_MODEL
+        call = _call_payload(
+            ("c1", "get_case_context", {"link_id": self.link_id}),
+            ("c2", "get_visit_findings", {"link_id": self.link_id}),
+        )
+        call["model"] = "unexpected-proxy-model"
+        result = self._run(FakeTransport([call, final]))
+        self.assertTrue(result["ok"])
+        self.assertEqual(META_MODEL_API_MODEL, result["response_model"])
+        self.assertEqual(
+            ["unexpected-proxy-model", META_MODEL_API_MODEL],
+            result["response_models"],
+        )
+        self.assertEqual(
+            "unexpected-proxy-model, " + META_MODEL_API_MODEL,
+            result["response_models_display"],
+        )
 
     def test_response_model_missing_stays_none(self) -> None:
         transport = FakeTransport(
@@ -253,6 +281,8 @@ class MetaAgentLoopTest(unittest.TestCase):
         result = self._run(transport)
         self.assertTrue(result["ok"])
         self.assertIsNone(result["response_model"])
+        self.assertEqual([None, None], result["response_models"])
+        self.assertEqual("unbekannt, unbekannt", result["response_models_display"])
 
     def test_invoice_and_calendar_tools(self) -> None:
         transport = FakeTransport(
