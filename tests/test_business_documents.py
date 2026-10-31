@@ -404,6 +404,12 @@ class BusinessDocumentTests(unittest.TestCase):
                 _invoice_store_path(root, "../../outside")
             with self.assertRaisesRegex(ValueError, "invalid invoice identifier"):
                 invoice(root, "../../outside")
+            with mock.patch("app.business_document_generation.exclusive_file_lock") as lock:
+                with self.assertRaisesRegex(ValueError, "invalid invoice identifier"):
+                    write_off_invoice(root, "../../outside", {}, "tester")
+                with self.assertRaisesRegex(ValueError, "invalid invoice identifier"):
+                    record_invoice_payment(root, "../../outside", {}, "tester")
+                lock.assert_not_called()
             self.assertEqual(
                 root / CONTROL_DIR / "invoices" / "invoice-1.json",
                 _invoice_store_path(root, "invoice-1"),
