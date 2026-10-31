@@ -4,7 +4,7 @@ from __future__ import annotations
 import sqlite3
 from urllib.parse import urlsplit
 
-from flask import Blueprint, abort, jsonify, render_template, request
+from flask import Blueprint, abort, current_app, jsonify, render_template, request
 
 from .access_control import audit
 from .mini_services import default_config_path
@@ -21,6 +21,14 @@ from simpleoffice_firewall import (
 
 bp = Blueprint("firewall_admin", __name__, url_prefix="/admin/mini-services/firewall")
 api_bp = Blueprint("firewall_api", __name__, url_prefix="/api/mini-services/firewall")
+
+
+def _invalid_request(operation: str, message: str, error: ValueError):
+    """Return a fixed client error and log only non-sensitive error metadata."""
+    current_app.logger.info(
+        "Firewall %s request rejected: %s", operation, type(error).__name__,
+    )
+    return jsonify(error=message), 400
 
 
 def _store() -> FirewallControlStore:
@@ -129,7 +137,9 @@ def test_change():
         rules, label = _test_rules(data)
         operation = _store().enqueue("test", {"rules": rules})
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _invalid_request(
+            "test", "Firewall-Regel oder Auswahl ist ungültig.", exc,
+        )
     except (OSError, sqlite3.Error):
         return jsonify(error="Firewall-Test konnte nicht vorgemerkt werden."), 503
     audit("mini_firewall_test_requested", "service", "firewall", detail={"effect": rules[0]["effect"], "rules": len(rules), "label": label})
@@ -143,7 +153,9 @@ def confirm(ident):
         test_id = validate_test_id(ident)
         operation = _store().enqueue("confirm", {"test_id": test_id})
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _invalid_request(
+            "confirm", "Firewall-Test-ID oder Bestätigung ist ungültig.", exc,
+        )
     except (OSError, sqlite3.Error):
         return jsonify(error="Firewall-Bestätigung konnte nicht vorgemerkt werden."), 503
     audit("mini_firewall_confirm_requested", "service", "firewall", detail={"test_id": test_id})
@@ -157,7 +169,9 @@ def rollback(ident):
         test_id = validate_test_id(ident)
         operation = _store().enqueue("rollback", {"test_id": test_id})
     except ValueError as exc:
-        return jsonify(error=str(exc)), 400
+        return _invalid_request(
+            "rollback", "Firewall-Test-ID oder Rollback ist ungültig.", exc,
+        )
     except (OSError, sqlite3.Error):
         return jsonify(error="Firewall-Rollback konnte nicht vorgemerkt werden."), 503
     audit("mini_firewall_rollback_requested", "service", "firewall", detail={"test_id": test_id})
