@@ -95,6 +95,11 @@ T20 PASS: steps=2 ok_tools=4 evidence=2 model=muse-spark-1.3-contributor respons
 Grundsatz: höchstens **zwei** Läufe pro Freigabe. Jeder weitere
 Lauf braucht eine neue ausdrückliche Freigabe (Budget).
 
+Die Probe akzeptiert nur credential-freie HTTP(S)-Loopback-Origin-URLs
+ohne Pfad, Query oder Fragment, folgt keinen HTTP-Redirects und begrenzt
+jede Antwort auf 2 MiB. Die Login-302-Antwort wird verarbeitet, aber
+nicht weiterverfolgt.
+
 ## Nach PASS: STATUS-Nachtrag (vorbereitet, erst nach Beleg einpflegen)
 
 ```text

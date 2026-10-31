@@ -7,10 +7,17 @@ owner-side step (needs the demo server, loopback, and MODEL_API_KEY).
 
 from __future__ import annotations
 
+import io
 import unittest
+import urllib.error
+import urllib.request
+from unittest.mock import patch
 
 from tools.t20_live_probe import (
     EXPECTED_MODEL,
+    MAX_RESPONSE_BYTES,
+    _NoRedirectHandler,
+    _read_bounded,
     ProbeError,
     Session,
     check_ml_status,
@@ -219,6 +226,59 @@ class SessionGuardTest(unittest.TestCase):
     def test_non_loopback_refused(self) -> None:
         with self.assertRaises(ProbeError):
             Session("https://example.com")
+
+    def test_only_credential_free_http_loopback_urls_are_accepted(self) -> None:
+        invalid = (
+            "file://localhost/tmp/demo",
+            "ftp://localhost/demo",
+            "http://demo:secret@localhost:5101",
+            "http://localhost:5101/?token=secret",
+            "http://localhost:5101/#fragment",
+            "http://localhost:5101/prefix",
+            "http://localhost:5101/../outside",
+        )
+        for base in invalid:
+            with self.subTest(base=base), self.assertRaises(ProbeError) as raised:
+                Session(base)
+            self.assertNotIn("secret", str(raised.exception))
+
+    def test_probe_never_follows_redirects(self) -> None:
+        request = urllib.request.Request("http://127.0.0.1:5101/login")
+        handler = _NoRedirectHandler()
+        self.assertIsNone(
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.com/collect",
+            ),
+        )
+        session = Session("http://127.0.0.1:5101")
+        redirect_handlers = [
+            handler for handler in session.opener.handlers
+            if isinstance(handler, urllib.request.HTTPRedirectHandler)
+        ]
+        self.assertEqual([_NoRedirectHandler], [type(item) for item in redirect_handlers])
+
+    def test_response_body_limit_is_enforced(self) -> None:
+        self.assertEqual(
+            MAX_RESPONSE_BYTES,
+            len(_read_bounded(io.BytesIO(b"x" * MAX_RESPONSE_BYTES))),
+        )
+        with self.assertRaisesRegex(ProbeError, "2 MiB"):
+            _read_bounded(io.BytesIO(b"x" * (MAX_RESPONSE_BYTES + 1)))
+
+    def test_response_limit_survives_short_reads(self) -> None:
+        class ShortReadStream(io.BytesIO):
+            def read(self, size: int = -1) -> bytes:
+                return super().read(min(size, 3))
+
+        with patch("tools.t20_live_probe.MAX_RESPONSE_BYTES", 4):
+            with self.assertRaisesRegex(ProbeError, "2 MiB"):
+                _read_bounded(ShortReadStream(b"123456"))
+
+    def test_wrapped_timeout_has_a_safe_diagnostic(self) -> None:
+        session = Session("http://127.0.0.1:5101")
+        with patch.object(session.opener, "open", side_effect=urllib.error.URLError(TimeoutError())):
+            with self.assertRaisesRegex(ProbeError, "timed out"):
+                session.get("/login")
 
 
 if __name__ == "__main__":
