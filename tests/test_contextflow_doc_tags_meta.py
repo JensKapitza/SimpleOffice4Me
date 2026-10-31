@@ -1,9 +1,4 @@
-"""Document tag suggestions never reach the Meta cloud.
-
-Split from ``tests.test_contextflow_doc_tags`` (file-size gate);
-this refusal class is self-contained.
-"""
-
+"""Privacy regression tests for document-tag suggestion providers."""
 from __future__ import annotations
 
 import unittest
@@ -19,11 +14,10 @@ from app.contextflow.vision import META_MODEL_API_ENDPOINT, META_MODEL_API_MODEL
 class DocTagMetaCloudRefusal(unittest.TestCase):
     """Document suggestions never reach the Meta cloud client.
 
-    Both suggestion entries take no consent argument and select
-    their backend via ``_require_local_provider`` (per-request
-    consent hardcoded ``False``), so even a fully configured Meta
-    setup — provider, server consent, key, endpoint, model — must
-    fail closed before any transport is touched.
+    Both suggestion entries take no consent argument and select their
+    backend via ``_require_local_provider`` (per-request consent hardcoded
+    ``False``), so even a fully configured Meta setup must fail closed
+    before any transport is touched.
     """
 
     def _full_consent_meta_settings(self) -> dict:

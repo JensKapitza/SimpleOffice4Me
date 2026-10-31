@@ -994,7 +994,3 @@ class DocTagSuggestContracts(unittest.TestCase):
         self.assertEqual("image/jpeg", image_mime_type("FOTO.JPEG"))
         self.assertEqual("image/webp", image_mime_type("foto.webp"))
         self.assertEqual("", image_mime_type("foto.gif"))
-
-
-if __name__ == "__main__":
-    unittest.main()

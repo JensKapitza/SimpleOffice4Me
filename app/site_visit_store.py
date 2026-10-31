@@ -519,10 +519,8 @@ class SiteVisitStore:
         attachment_id = _identifier(attachment_id)
         item = self._find(record, "attachments", "attachment_id", attachment_id)
         try:
-            path = resolve_file_under(
-                self.directory, str(item["relative_path"])
-            )
-        except OSError:
+            path = resolve_file_under(self.directory, item["relative_path"])
+        except (OSError, ValueError):
             raise ValueError("Anhang nicht gefunden") from None
         expected = (self.directory / visit_id / "attachments").resolve()
         if expected not in path.parents:
