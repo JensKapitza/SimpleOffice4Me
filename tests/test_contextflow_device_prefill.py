@@ -16,6 +16,7 @@ import tempfile
 import unittest
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from app import app
@@ -488,7 +489,8 @@ class DevicePrefillWebTest(unittest.TestCase):
         return client
 
     def test_dashboard_lists_both_devices_as_radios(self) -> None:
-        response = self.admin.get("/contextflow/")
+        with patch("app.contextflow.web._now", return_value=self.now):
+            response = self.admin.get("/contextflow/")
         self.assertEqual(response.status_code, 200)
         body = response.data
         self.assertIn("Buchscanner (synthetisch)".encode(), body)

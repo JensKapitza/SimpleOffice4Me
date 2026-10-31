@@ -814,10 +814,10 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   bleibt offen.
 - Fresh Hosted CI auf PR #945 fand einen zeitabhängigen Fehler im
   bestehenden Gerät-Prefill-Test: `datetime.now()` ließ ihn während der
-  Default-Ruhezeit laufen, sodass die erwarteten Geräte-Radios absichtlich
-  nicht gerendert wurden. Das Test-Fixture fixiert jetzt Mittag in der
-  Europe/Berlin-Zeitzone; Produktionsverhalten bleibt unverändert. Hosted
-  Regression erneut ausstehend.
+  Default-Ruhezeit laufen; `/contextflow/` blendet dann erwartungsgemäß die
+  Geräte-Radios aus. Das Test-Fixture nutzt nun Mittag in Europe/Berlin und
+  patcht die Dashboard-Uhr auf denselben Zeitpunkt; Produktionsverhalten
+  bleibt unverändert. Hosted Regression erneut ausstehend.
 - Matrix per Code-Read geprüft (28.10., Muse); Ausführung: Codex-Lauf nach Transfer-Korrektur (Isolation 3, Entry 8, Vision 26, Inventar 58 OK; node/policy/size/diff-Gates OK, kein Browser-Test) — Details im Arbeitslog. Erweiterung: update2.md §13.
 
 ## Match/Attach-Slice (implementiert, verifiziert)
