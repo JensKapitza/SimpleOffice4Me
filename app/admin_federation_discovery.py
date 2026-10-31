@@ -10,6 +10,7 @@ from .settings_store import (
     DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
     DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
     DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    DEFAULT_FEDERATION_PROFILE_COUNTRY,
     DEFAULT_FEDERATION_PUBLIC_URL,
     MAX_FEDERATION_AUTOSCAN_SECONDS,
     MIN_FEDERATION_AUTOSCAN_SECONDS,
@@ -133,6 +134,54 @@ def save_federation_public_directory_settings():
             "Federation public-directory preference save failed: %s", type(exc).__name__,
         )
         flash("Federation-Verzeichniseinstellung konnte nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/federation-profile-country")
+@admin_required
+def save_federation_profile_country_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]["federation_profile_country"]
+        raw = request.form.get("federation_profile_country")
+        if reset_defaults:
+            country = DEFAULT_FEDERATION_PROFILE_COUNTRY
+        elif raw is None:
+            country = current
+        else:
+            country = raw.strip().upper()
+            if country and (
+                len(country) != 2
+                or not country.isascii()
+                or not country.isalpha()
+            ):
+                raise ValueError(
+                    "Das Federation-Profilland muss leer oder ein ISO-3166-Alpha-2-Code sein."
+                )
+
+        store.save(
+            {"integrations": {"federation_profile_country": country}},
+            str(g.user["username"]),
+        )
+        audit(
+            "federation_profile_country_updated",
+            "settings",
+            "integrations.federation_profile_country",
+            detail={"country": country, "reset_to_defaults": reset_defaults},
+        )
+        flash(
+            "Federation-Profilland auf Standard zurückgesetzt."
+            if reset_defaults else "Federation-Profilland gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Federation profile country rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning(
+            "Federation profile country save failed: %s", type(exc).__name__,
+        )
+        flash("Federation-Profilland konnte nicht gespeichert werden.")
     return redirect(url_for("admin.integration_settings"))
 
 

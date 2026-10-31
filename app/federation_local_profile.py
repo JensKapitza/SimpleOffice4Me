@@ -38,7 +38,7 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
         "peer_id": peer_id,
         "label": os.environ.get("SIMPLEOFFICE_FEDERATION_LABEL", peer_id).strip()[:160],
         "base_url": normalize_endpoint(base_url),
-        "country": os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "").strip().upper()[:2],
+        "country": _profile_country(root),
         "fingerprint": identity["fingerprint"],
         "public_key": identity["public_key"],
         "master": {
@@ -59,6 +59,13 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
         },
     }
 
+
+def _profile_country(root):
+    if root is None:
+        return os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "").strip().upper()[:2]
+    from .settings_store import SettingsStore
+
+    return SettingsStore(root).settings()["integrations"]["federation_profile_country"]
 
 def _profile_public_url(root):
     if root is None:
