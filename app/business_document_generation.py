@@ -57,6 +57,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .object_store import ObjectStore
 from .project_store import ProjectStore
+from .safe_paths import resolve_for_write_under
 from .settings_store import translate
 
 TEMPLATE_DIR = "business-templates"
@@ -443,7 +444,11 @@ def _invoice_store_path(root: Path, invoice_id: str) -> Path:
     invoice_id = str(invoice_id or "").strip()
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", invoice_id):
         raise ValueError("invalid invoice identifier")
-    path = root / CONTROL_DIR / INVOICE_DIR; path.mkdir(parents=True, exist_ok=True); return path / f"{invoice_id}.json"
+    path = resolve_for_write_under(
+        root, Path(CONTROL_DIR) / INVOICE_DIR / f"{invoice_id}.json",
+    )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def invoice(root: Path, invoice_id: str) -> dict[str, Any]:

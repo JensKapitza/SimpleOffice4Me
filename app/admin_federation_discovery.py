@@ -5,10 +5,12 @@ from flask import Blueprint, current_app, flash, g, redirect, request, url_for
 
 from .access_control import audit
 from .admin import admin_required
+from .integration_settings import normalize_federation_public_url
 from .settings_store import (
     DEFAULT_FEDERATION_AUTOSCAN_COUNTRY,
     DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
     DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED,
+    DEFAULT_FEDERATION_PUBLIC_URL,
     MAX_FEDERATION_AUTOSCAN_SECONDS,
     MIN_FEDERATION_AUTOSCAN_SECONDS,
     SettingsStore,
@@ -131,4 +133,50 @@ def save_federation_public_directory_settings():
             "Federation public-directory preference save failed: %s", type(exc).__name__,
         )
         flash("Federation-Verzeichniseinstellung konnte nicht gespeichert werden.")
+    return redirect(url_for("admin.integration_settings"))
+
+
+@bp.post("/settings/integrations/federation-public-url")
+@admin_required
+def save_federation_public_url_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        store = SettingsStore(current_app.config["DOCUMENT_ROOT"])
+        current = store.settings()["integrations"]["federation_public_url"]
+        raw = request.form.get("federation_public_url")
+        if reset_defaults:
+            public_url = DEFAULT_FEDERATION_PUBLIC_URL
+        elif raw is None:
+            public_url = current
+        else:
+            try:
+                public_url = normalize_federation_public_url(raw)
+            except ValueError as exc:
+                raise ValueError(
+                    "Bitte eine gültige Federation-Basis-URL ohne Zugangsdaten, Query oder Fragment eingeben."
+                ) from exc
+
+        store.save(
+            {"integrations": {"federation_public_url": public_url}},
+            str(g.user["username"]),
+        )
+        audit(
+            "federation_public_url_updated",
+            "settings",
+            "integrations.federation_public_url",
+            detail={
+                "configured": bool(public_url),
+                "reset_to_defaults": reset_defaults,
+            },
+        )
+        flash(
+            "Federation-Profil-URL auf Standard zurückgesetzt."
+            if reset_defaults else "Federation-Profil-URL gespeichert."
+        )
+    except ValueError as exc:
+        current_app.logger.info("Federation public URL rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Federation public URL save failed: %s", type(exc).__name__)
+        flash("Federation-Profil-URL konnte nicht gespeichert werden.")
     return redirect(url_for("admin.integration_settings"))

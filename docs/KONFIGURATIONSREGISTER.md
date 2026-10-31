@@ -36,6 +36,12 @@ es schaltet weder lokale Protokolle noch den Inbound-Collector auf einem Master 
 `SIMPLEOFFICE_ERROR_REPORTING` wird nur bis zum ersten Speichern als Legacy-Opt-out
 übernommen.
 
+Der eingehende Collector wird separat über `integrations.error_relay_mode` mit
+`auto`, `enabled` oder `disabled` gesteuert. `auto` folgt dem Master-Build-Modus;
+damit bleibt die bisherige Standardaktivierung für Master-Builds erhalten.
+Jede Admin-Änderung, die den öffentlichen Collector aktiviert, braucht eine
+UI-Bestätigung.
+
 ### Öffentliches Federation-Verzeichnis
 
 `integrations.federation_public_directory_enabled` steuert die nicht
@@ -43,6 +49,13 @@ authentifizierte Leseabfrage bereits explizit publizierter Peer-Profile. Der
 sichere Standard ist deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1`
 ist nur ein Legacy-Opt-in bis die persistente Admin-Einstellung gespeichert ist;
 Registrierung, Auflösung und Rendezvous bleiben separat authentifiziert.
+
+### Öffentliche Federation-Profil-URL
+
+`integrations.federation_public_url` ist die optionale, persistente Basis-URL für
+Profile und QR-Codes. Die vorhandene Federation-Endpoint-Validierung entfernt
+unsichere Bestandteile; der Server ruft die URL beim Speichern nicht ab.
+`SIMPLEOFFICE_FEDERATION_PUBLIC_URL` wird nur bis zur ersten Speicherung migriert.
 
 ### Tiefe Archivindexierung
 
@@ -240,7 +253,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_EBAY_CLIENT_ID` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_EBAY_CLIENT_SECRET` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
 | `SIMPLEOFFICE_EBAY_MARKETPLACE_ID` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
-| `SIMPLEOFFICE_ERROR_RELAY_ENABLED` | [ci.yml](../.github/workflows/ci.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
+| `SIMPLEOFFICE_ERROR_RELAY_ENABLED` (Legacy-Migration) | [error_relay.py](../app/error_relay.py) | Persistenter Modus `integrations.error_relay_mode`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORTING` (Legacy-Migration) | [github_error_reporter.py](../app/github_error_reporter.py) | Persistente Präferenz `integrations.error_reporting_enabled`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORT_URL` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` | [v3_extensions.py](../app/v3_extensions.py) | [V3_EXTENSIONS](V3_EXTENSIONS.md) |
@@ -258,7 +271,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_PEER_ID` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHAT](CHAT.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` (Legacy-Migration) | [federation_discovery_http.py](../app/federation_discovery_http.py) | Persistente Präferenz `integrations.federation_public_directory_enabled`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` | [federation_local_profile.py](../app/federation_local_profile.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` (Legacy-Migration) | [federation_local_profile.py](../app/federation_local_profile.py) | Persistente Präferenz `integrations.federation_public_url`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT` | [license_routes.py](../app/license_routes.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FEDERATION_TOKEN` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_FIREWALL_AGENT_STATE` | [simpleoffice_firewall_agent.py](../simpleoffice_firewall_agent.py) | Quelle und Ergänzungen oben |

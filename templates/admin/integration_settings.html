@@ -39,6 +39,35 @@
     </div>
   </section>
   <section class="card mb-3">
+    <div class="card-header"><strong>Eingehender Error-Relay</strong></div>
+    <div class="card-body">
+      <p>Steuert die öffentlichen Endpunkte für technische Fehlerberichte. „Automatisch“ folgt dem im Build festgelegten Master-Modus. „Aktiviert“ nimmt anonyme, streng erlaubnislisten-geprüfte Berichte mit Größen- und Ratenbegrenzung an; für GitHub-Issue-Erstellung braucht der Relay weiterhin seinen serverseitigen Token. „Deaktiviert“ liefert für Relay-Endpunkte 404. Die Docker-Rolle <code>error-relay</code> bleibt zusätzlich auf Health und Report-POST begrenzt.</p>
+      <form method="post" action="{{ url_for('admin_error_relay_settings.save_error_relay_mode') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-8">
+          <label class="form-label" for="error-relay-mode">Empfang eingehender Fehlerberichte</label>
+          <select class="form-select" id="error-relay-mode" name="error_relay_mode">
+            <option value="auto" {% if integrations.error_relay_mode == "auto" %}selected{% endif %}>Automatisch gemäß Build-Rolle (Standard)</option>
+            <option value="enabled" {% if integrations.error_relay_mode == "enabled" %}selected{% endif %}>Aktiviert</option>
+            <option value="disabled" {% if integrations.error_relay_mode == "disabled" %}selected{% endif %}>Deaktiviert</option>
+          </select>
+          <div class="form-text"><code>SIMPLEOFFICE_ERROR_RELAY_ENABLED</code> ist bis zur ersten Speicherung ein Legacy-Override. Die persistente Einstellung gilt sofort.</div>
+        </div>
+        <div class="col-12">
+          <div class="form-check">
+            <input class="form-check-input" id="confirm-public-error-relay" type="checkbox"
+                   name="confirm_public_relay" value="1">
+            <label class="form-check-label" for="confirm-public-error-relay">Ich bestätige, dass die gewählte Einstellung einen öffentlichen, nicht authentifizierten Report-Endpunkt freigibt.</label>
+          </div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Build-Standard zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <section class="card mb-3">
     <div class="card-header"><strong>Personaldaten-Synchronisation</strong></div>
     <div class="card-body">
       <p>Steuert den Hintergrund-Worker für bereits ausdrücklich aktivierte Personalsynchronisationen. Die Freigabe je Peer und Person bleibt separat. Änderungen gelten spätestens beim nächsten Worker-Zyklus; <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC</code> und <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS</code> dienen nur als begrenzte Legacy-Startwerte, bis diese Einstellungen gespeichert wurden.</p>
@@ -102,6 +131,26 @@
             <option value="0" {% if not integrations.federation_public_directory_enabled %}selected{% endif %}>Deaktiviert (Standard)</option>
           </select>
           <div class="form-text">Gilt sofort. <code>SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1</code> dient nur bis zur ersten Speicherung als Legacy-Opt-in; danach ist die persistente Einstellung maßgeblich.</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <section class="card mb-3">
+    <div class="card-header"><strong>Öffentliche Federation-Profil-URL</strong></div>
+    <div class="card-body">
+      <p>Diese Basis-URL wird in öffentlichen Peer-Profilen und QR-Codes bekanntgegeben. Verwende nur eine Adresse, die für die vorgesehenen Peers erreichbar ist; im Internet HTTPS bevorzugen. Die Einstellung löst selbst keine Verbindung aus. Leer nutzt das Well-Known-Profil die direkt angefragte Adresse; Veröffentlichungen ohne Request-Kontext benötigen eine konfigurierte URL.</p>
+      <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_public_url_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-9">
+          <label class="form-label" for="federation-public-url">Basis-URL, optionaler Reverse-Proxy-Pfad möglich</label>
+          <input class="form-control" id="federation-public-url" type="text"
+                 name="federation_public_url" value="{{ integrations.federation_public_url }}"
+                 maxlength="512" autocomplete="url" placeholder="https://office.example/simpleoffice">
+          <div class="form-text">Zugangsdaten, Query und Fragment sind nicht erlaubt. Die vorhandene Endpoint-Validierung wird auch für gespeicherte Werte verwendet; <code>SIMPLEOFFICE_FEDERATION_PUBLIC_URL</code> bleibt bis zur ersten Speicherung der Legacy-Startwert.</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">Einstellung speichern</button>

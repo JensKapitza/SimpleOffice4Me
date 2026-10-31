@@ -607,7 +607,7 @@ def _live_property_value_valid(tag: str, serialized: str) -> bool:
     if tag == f"{{{DAV}}}displayname":
         return len(text.encode("utf-8")) <= 1024 and "\x00" not in text
     if tag == f"{{{DAV}}}getcontentlanguage":
-        return bool(re.fullmatch(r"[A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*", text.strip()))
+        return bool(DAV_CONTENT_LANGUAGE_RE.fullmatch(text.strip()))
     if len(text.encode("utf-8")) > 256 or "\x00" in text:
         return False
     if tag == MICROSOFT_SPECIAL_FOLDER:

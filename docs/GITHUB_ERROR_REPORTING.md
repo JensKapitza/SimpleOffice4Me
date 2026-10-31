@@ -27,7 +27,9 @@ Die Fehler-API ist technisch getrennt von der authentifizierten Federation. Eine
 
 ## Priorität der Konfiguration
 
-Die Admin-Einstellung **Integrationen & Dienste → Automatische Fehlerberichte** ist das ausgehende Gesamt-Gate. Ist sie deaktiviert, wird unabhängig von einem Relay oder direkten GitHub-Modus nichts automatisch gesendet. `SIMPLEOFFICE_ERROR_REPORTING=0` bleibt ein Legacy-Opt-out, bis die persistente Einstellung erstmals gespeichert wird; danach hat die Einstellung Vorrang. Manuell erstellbare Issue-Links und die lokale Fehlerprotokollierung bleiben davon unberührt. Das Inbound-Collector-Gate `SIMPLEOFFICE_ERROR_RELAY_ENABLED` ist getrennt.
+Die Admin-Einstellung **Integrationen & Dienste → Automatische Fehlerberichte** ist das ausgehende Gesamt-Gate. Ist sie deaktiviert, wird unabhängig von einem Relay oder direkten GitHub-Modus nichts automatisch gesendet. `SIMPLEOFFICE_ERROR_REPORTING=0` bleibt ein Legacy-Opt-out, bis die persistente Einstellung erstmals gespeichert wird; danach hat die Einstellung Vorrang. Manuell erstellbare Issue-Links und die lokale Fehlerprotokollierung bleiben davon unberührt.
+
+Der separate Admin-Modus **Eingehender Error-Relay** ist standardmäßig `auto` und folgt damit `LICENSE_MASTER_MODE`. `enabled` gibt die öffentlichen Report-Endpunkte explizit frei; jede Admin-Änderung, die den Collector aktiviert, einschließlich `auto` auf einem Master-Build, erfordert im UI eine Bestätigung. `disabled` liefert für den Collector 404. Der Legacy-Override `SIMPLEOFFICE_ERROR_RELAY_ENABLED` wird nur bis zum ersten Speichern des Modus ausgewertet. Er ändert weder das ausgehende Gesamt-Gate noch die festgelegten Payload-Allowlist-, Größen- und Ratenlimits.
 
 Die Auswahl des Meldewegs erfolgt anschließend in dieser Reihenfolge:
 
@@ -43,13 +45,13 @@ SIMPLEOFFICE_ERROR_REPORTING=0
 
 kann die ausgehende automatische Fehlermeldung vollständig deaktiviert werden.
 
-Auf dem Master kann der automatisch aktivierte Collector bei Bedarf explizit abgeschaltet werden:
+Vor dem Speichern der persistenten Admin-Einstellung kann der automatisch aktivierte Collector auf dem Master mit dem Legacy-Wert abgeschaltet werden:
 
 ```bash
 SIMPLEOFFICE_ERROR_RELAY_ENABLED=0
 ```
 
-Der separate Docker-Role `error-relay` bleibt als optionale Alternative erhalten. Er kann auf einem beliebigen Build mit `SIMPLEOFFICE_ERROR_RELAY_ENABLED=1` betrieben werden.
+Die separate Docker-Rolle `error-relay` bleibt als optionale Alternative erhalten. Im Admin-Modus `enabled` kann sie auf einem beliebigen Build betrieben werden; die Rolle begrenzt weiterhin die Oberfläche auf Health und Report-POST.
 
 ## Datenschutzprinzip
 
