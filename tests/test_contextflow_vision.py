@@ -410,7 +410,8 @@ class ObjectSuggestionTest(unittest.TestCase):
         self.assertEqual(
             good,
             {"object_name": "Hammer", "item_type": "tool",
-             "confidence": 80, "note": "n", "isbn": "", "tags": []},
+             "confidence": 80, "note": "n", "subtitle": "",
+             "authors": [], "isbn": "", "tags": []},
         )
         self.assertEqual(
             validate_object_suggestion({"object_name": "X"})["item_type"],
@@ -930,6 +931,33 @@ class VisionWebTest(unittest.TestCase):
         payload = response.get_json()
         self.assertIn("Meta-Modell", payload["error"])
         self.assertNotIn(b"Hammer", response.data)
+
+    def test_inventory_suggest_passes_explicit_meta_consent_and_demo_root(self) -> None:
+        suggestion = {
+            "object_name": "Unnützes Wissen für kleine Klugscheißer",
+            "item_type": "book", "confidence": 94,
+            "note": "Großer fetter Haupttitel; Mythologie Edition.",
+            "subtitle": "für kleine Klugscheißer",
+            "authors": ["Lena Hoffmann"], "isbn": "", "tags": [],
+        }
+        with mock.patch(
+            "app.contextflow.web.suggest_inventory_object",
+            return_value={"suggestion": suggestion, "provider": "meta",
+                          "provider_label": "Meta Muse Spark", "model": "muse-spark"},
+        ) as suggest:
+            response = self.admin.post(
+                "/contextflow/inventory-suggest",
+                data={
+                    "_csrf_token": self.csrf(self.admin),
+                    "consent_meta": "yes",
+                    "photo": (BytesIO(_png_bytes()), "cover.png", "image/png"),
+                },
+                content_type="multipart/form-data",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["suggestion"]["authors"], ["Lena Hoffmann"])
+        self.assertTrue(suggest.call_args.kwargs["consent_meta"])
+        self.assertEqual(Path(suggest.call_args.kwargs["root"]), self.root)
 
     def test_inventory_suggest_rejects_bad_image(self) -> None:
         response = self.admin.post(

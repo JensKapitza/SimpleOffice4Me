@@ -26,6 +26,16 @@ class ObjectSuggestionTagsTest(unittest.TestCase):
             out["tags"], ["rot", "Holzgriff", "Metall", "a", "b", "c"]
         )
 
+    def test_book_fields_are_normalized_without_guessing(self) -> None:
+        out = validate_object_suggestion({
+            "object_name": "Unnützes Wissen für kleine Klugscheißer",
+            "item_type": "book",
+            "subtitle": " Mythologie   Edition ",
+            "authors": [" Lena Hoffmann ", "lena hoffmann", ""],
+        })
+        self.assertEqual(out["subtitle"], "Mythologie Edition")
+        self.assertEqual(out["authors"], ["Lena Hoffmann"])
+
     def test_tags_missing_or_not_a_list_is_empty(self) -> None:
         self.assertEqual(
             validate_object_suggestion({"object_name": "X"})["tags"], []
@@ -47,6 +57,15 @@ class ObjectSuggestionTagsTest(unittest.TestCase):
         self.assertIn("leere Liste ist korrekt", instruction)
         self.assertIn("niemals Marken, Modelle, Preise", instruction)
         self.assertIn("niemals raten, ableiten oder ergänzen", instruction)
+
+    def test_instruction_reads_book_title_and_visual_hierarchy(self) -> None:
+        instruction = object_instruction({})
+        self.assertIn("Haupttitel exakt ab", instruction)
+        self.assertIn("große/fette Schrift", instruction)
+        self.assertIn("kleinere Schrift", instruction)
+        self.assertIn("Untertitel, Autor, Edition", instruction)
+        self.assertIn("ISBN-Zeichen exakt", instruction)
+        self.assertIn("unleserlichen Wörter", instruction)
 
     def test_vision_reexport_stays_compatible(self) -> None:
         from app.contextflow import vision
