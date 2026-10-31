@@ -283,11 +283,15 @@ set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
 
 Stand 30.10. (Kernstand `0c85fea0`, nur Doku danach): 145 Dateien im
 Branch-Diff, nachprüfbar mit `git diff --stat af5a600b..HEAD` und
-`git diff --name-status af5a600b..HEAD`. Architektur:
+`git diff --name-status af5a600b..HEAD`. Danach Merge `2052c528`
+(`origin/main` bis `070473b4`, 61 Commits): `af5a600b..HEAD` enthält
+seither zusätzlich Main-Arbeit; reiner Branch-Anteil per
+`git diff 070473b4..HEAD` bzw. First-Parent-Log. Architektur:
 [architecture.svg](architecture.svg).
 
 **Neu** (Auswahl, vollständig per `git diff --diff-filter=A`):
-`app/contextflow/*` (19 Module), `app/capture_analysis.py`,
+`app/contextflow/*` (18 Module; `local_rewrite.py` in `a56cb2b8`
+entfernt — Dashboard ohne Inferenz), `app/capture_analysis.py`,
 `app/capture_inbox_store.py`, `app/inventory_capture*.py`,
 `app/mail_case_drafts.py`, `app/invoice_access.py`,
 `app/invoice_display.py`, `tools/contextflow_demo.py`,
