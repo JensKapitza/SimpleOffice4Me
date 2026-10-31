@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from tools.t20_live_probe import (
     EXPECTED_MODEL,
+    LOGIN_PATH,
     MAX_RESPONSE_BYTES,
     _NoRedirectHandler,
     _read_bounded,
@@ -227,6 +228,7 @@ class SessionGuardTest(unittest.TestCase):
         with self.assertRaises(ProbeError):
             Session("https://example.com")
 
+
     def test_only_credential_free_http_loopback_urls_are_accepted(self) -> None:
         invalid = (
             "file://localhost/tmp/demo",
@@ -279,6 +281,13 @@ class SessionGuardTest(unittest.TestCase):
         with patch.object(session.opener, "open", side_effect=urllib.error.URLError(TimeoutError())):
             with self.assertRaisesRegex(ProbeError, "timed out"):
                 session.get("/login")
+
+
+class ProbePathsTest(unittest.TestCase):
+    def test_login_path_matches_auth_blueprint(self) -> None:
+        from app.auth import bp
+
+        self.assertEqual(f"{bp.url_prefix}/login", LOGIN_PATH)
 
 
 if __name__ == "__main__":

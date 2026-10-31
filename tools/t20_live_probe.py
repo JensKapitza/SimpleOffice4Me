@@ -35,6 +35,7 @@ import urllib.parse
 import urllib.request
 
 EXPECTED_MODEL = "muse-spark-1.3-contributor"
+LOGIN_PATH = "/auth/login"
 MIN_OK_TOOLS = 2
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 RUN_TIMEOUT_SECONDS = 420
@@ -285,11 +286,11 @@ def run_probe(base: str, username: str, password: str, link_id: str, out: str) -
     """Execute the full probe; returns the evidence dict (raises ProbeError)."""
     session = Session(base)
     print(f"[1/5] login as {username} ...")
-    code, login_page = session.get("/login")
+    code, login_page = session.get(LOGIN_PATH)
     if code != 200:
-        raise ProbeError(f"GET /login returned {code}")
+        raise ProbeError(f"GET {LOGIN_PATH} returned {code}")
     code, _ = session.post(
-        "/login",
+        LOGIN_PATH,
         {"username": username, "password": password, "_csrf_token": parse_csrf(login_page)},
     )
     if code not in (200, 302):
