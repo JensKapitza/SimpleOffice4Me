@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "electron": "44.10.0",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.18.0"
   },
   "build": {
     "appId": "de.simpleoffice4me.desktop",
@@ -63,5 +63,15 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     }
+  },
+  "overrides": {
+    "minimatch": "11.0.3",
+    "glob": "14.0.3",
+    "@electron/asar": "4.3.0",
+    "dir-compare": "5.0.0",
+    "filelist": "2.0.2",
+    "jake": "13.0.3",
+    "rimraf": "6.1.3",
+    "temp": "0.9.4"
   }
 }
