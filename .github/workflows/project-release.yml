@@ -32,7 +32,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
-          for workflow in desktop-build.yml android-apk-build.yml server-deb-build.yml docker-build.yml; do
+          for workflow in desktop-build.yml android-apk-build.yml android-apk-release.yml server-deb-build.yml docker-build.yml; do
             gh workflow run "$workflow" --ref "$BUILD_REF"
           done
 
@@ -71,7 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           declare -A run_ids
-          workflows=(desktop-build.yml android-apk-build.yml server-deb-build.yml docker-build.yml)
+          workflows=(desktop-build.yml android-apk-build.yml android-apk-release.yml server-deb-build.yml docker-build.yml)
           deadline=$((SECONDS + 21600))
           while (( SECONDS < deadline )); do
             all_done=true
@@ -113,6 +113,7 @@ jobs:
           for run_id in \
             '${{ steps.runs.outputs.desktop_build }}' \
             '${{ steps.runs.outputs.android_apk_build }}' \
+            '${{ steps.runs.outputs.android_apk_release }}' \
             '${{ steps.runs.outputs.server_deb_build }}' \
             '${{ steps.runs.outputs.docker_build }}'; do
             mapfile -t artifacts < <(

@@ -9,6 +9,7 @@
 !.github/workflows/extended-quality.yml
 !.github/workflows/manual-browser-screenshots.yml
 !.github/workflows/android-apk-build.yml
+!.github/workflows/android-apk-release.yml
 !.github/workflows/android-native-wheels.yml
 !.github/workflows/desktop-build.yml
 !.github/workflows/tauri-desktop-crossplatform.yml
