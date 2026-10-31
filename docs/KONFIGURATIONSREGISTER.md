@@ -50,6 +50,13 @@ sichere Standard ist deaktiviert. `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1`
 ist nur ein Legacy-Opt-in bis die persistente Admin-Einstellung gespeichert ist;
 Registrierung, Auflösung und Rendezvous bleiben separat authentifiziert.
 
+### Öffentliche Federation-Profil-URL
+
+`integrations.federation_public_url` ist die optionale, persistente Basis-URL für
+Profile und QR-Codes. Die vorhandene Federation-Endpoint-Validierung entfernt
+unsichere Bestandteile; der Server ruft die URL beim Speichern nicht ab.
+`SIMPLEOFFICE_FEDERATION_PUBLIC_URL` wird nur bis zur ersten Speicherung migriert.
+
 ### Tiefe Archivindexierung
 
 Die Ressourcen-Grenzen werden in [archive_indexer.py](../app/archive_indexer.py)
@@ -264,7 +271,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_PEER_ID` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHAT](CHAT.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` (Legacy-Migration) | [federation_discovery_http.py](../app/federation_discovery_http.py) | Persistente Präferenz `integrations.federation_public_directory_enabled`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` | [federation_local_profile.py](../app/federation_local_profile.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` | [federation_local_profile.py](../app/federation_local_profile.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` (Legacy-Migration) | [federation_local_profile.py](../app/federation_local_profile.py) | Persistente Präferenz `integrations.federation_public_url`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT` | [license_routes.py](../app/license_routes.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FEDERATION_TOKEN` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_FIREWALL_AGENT_STATE` | [simpleoffice_firewall_agent.py](../simpleoffice_firewall_agent.py) | Quelle und Ergänzungen oben |
