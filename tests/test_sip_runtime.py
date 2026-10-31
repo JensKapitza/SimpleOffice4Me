@@ -5,6 +5,7 @@ import re
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -107,7 +108,7 @@ class SipRuntimeTests(unittest.TestCase):
         self.service = SipRegistrarService(self.config, master_key=TEST_KEY)
 
     def test_verifiers_are_encrypted_and_sha256_is_challenged_first(self) -> None:
-        with sqlite3.connect(self.telephony.path) as db:
+        with closing(sqlite3.connect(self.telephony.path)) as db:
             stored = db.execute("SELECT digest_ha1 FROM telephony_profile WHERE extension='101'").fetchone()[0]
         self.assertTrue(stored.startswith("enc:sip-ha1:v1:"))
         self.assertEqual(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 
 from app.telephony_profiles import TelephonyProfileStore
 from app.telephony_profiles import sip_digest_ha1, sip_digest_verifiers
@@ -102,11 +103,12 @@ class TelephonyProfileStoreTests(unittest.TestCase):
                 digest_ha1=sip_digest_ha1("121", "simpleoffice.local", password),
             )
             legacy_md5 = sip_digest_ha1("121", "simpleoffice.local", password)
-            with sqlite3.connect(store.path) as db:
+            with closing(sqlite3.connect(store.path)) as db:
                 db.execute("UPDATE telephony_profile SET digest_ha1=? WHERE extension='121'", (legacy_md5,))
+                db.commit()
 
             migrated = TelephonyProfileStore(directory, TEST_KEY)
-            with sqlite3.connect(migrated.path) as db:
+            with closing(sqlite3.connect(migrated.path)) as db:
                 stored = db.execute("SELECT digest_ha1 FROM telephony_profile WHERE extension='121'").fetchone()[0]
             self.assertTrue(stored.startswith("enc:sip-ha1:v1:"))
             self.assertEqual(
@@ -127,12 +129,13 @@ class TelephonyProfileStoreTests(unittest.TestCase):
                 digest_ha1=sip_digest_ha1("122", "simpleoffice.local", password),
             )
             legacy_md5 = sip_digest_ha1("122", "simpleoffice.local", password)
-            with sqlite3.connect(store.path) as db:
+            with closing(sqlite3.connect(store.path)) as db:
                 db.execute("UPDATE telephony_profile SET digest_ha1=? WHERE extension='122'", (legacy_md5,))
+                db.commit()
 
             with self.assertRaises(ValueError):
                 TelephonyProfileStore(directory, "different-installation-key-long-enough")
-            with sqlite3.connect(store.path) as db:
+            with closing(sqlite3.connect(store.path)) as db:
                 stored = db.execute("SELECT digest_ha1 FROM telephony_profile WHERE extension='122'").fetchone()[0]
             self.assertEqual(legacy_md5, stored)
 
