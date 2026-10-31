@@ -54,7 +54,7 @@ class FirewallAdminErrorResponseTests(unittest.TestCase):
                 self.set_admin()
                 with patch("app.firewall_admin._store") as store:
                     store.return_value.enqueue.side_effect = ValueError(secret)
-                    response, status = operation("a" * 32)
+                    response, status = operation(ident="a" * 32)
                 self.assert_safe_response(response, status, secret, message)
 
 
