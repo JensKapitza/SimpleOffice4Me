@@ -15,6 +15,7 @@ from typing import Any
 
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
+from .safe_paths import resolve_file_under
 from .security_controls import protect_value, unprotect_value
 
 VISIT_STATES = {"draft", "in_progress", "completed", "archived"}
@@ -517,9 +518,12 @@ class SiteVisitStore:
         visit_id = _identifier(visit_id)
         attachment_id = _identifier(attachment_id)
         item = self._find(record, "attachments", "attachment_id", attachment_id)
-        path = (self.directory / item["relative_path"]).resolve()
+        try:
+            path = resolve_file_under(self.directory, item["relative_path"])
+        except (OSError, ValueError):
+            raise ValueError("Anhang nicht gefunden") from None
         expected = (self.directory / visit_id / "attachments").resolve()
-        if expected not in path.parents or not path.is_file():
+        if expected not in path.parents:
             raise ValueError("Anhang nicht gefunden")
         return path, item
 

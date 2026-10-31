@@ -44,7 +44,7 @@
 <section class="mt-4 border rounded p-3" aria-labelledby="engel-contact-heading" data-engel-contact data-suggest-url="{{ url_for('contextflow.contact_suggest') }}">
   <h2 class="h6" id="engel-contact-heading">Büroengel: Feldvorschläge aus Text und Fotos</h2>
   <p class="small text-secondary mb-2">Die Meta-KI ordnet eingefügten Text und bis zu 3 Visitenkarten-Fotos Kontaktfeldern zu — Standard ist das lokale Modell via Ollama. Fotos werden immer nur lokal gelesen, nichts wird gespeichert, jeder Vorschlag wird einzeln per Klick übernommen.</p>
-  <form id="engel-contact-form" class="row g-2" enctype="multipart/form-data">
+  <form id="engel-contact-form" method="post" action="{{ url_for('contextflow.contact_suggest') }}" class="row g-2" enctype="multipart/form-data">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="col-12"><label class="form-label" for="engel-contact-text">Kontakttext (optional)</label><textarea class="form-control" id="engel-contact-text" name="contact_text" rows="3" maxlength="4000" placeholder="Name, Firma, Adresse, Telefon, E-Mail …"></textarea></div>
     <div class="col-12"><label class="form-label" for="engel-contact-photos">Fotos (optional, max. 3)</label><input class="form-control" id="engel-contact-photos" type="file" name="photos" accept="image/jpeg,image/png,image/webp" capture="environment" multiple></div>

@@ -32,6 +32,8 @@ PERSISTENCE_COVERAGE = {
     "rental_calc": "pending-provider:tenant cost allocation is financial data",
     "shopping_store": "pending-provider:shopping records have no S3 authorization model",
     "site_visit_store": "pending-provider:site visit records require task-scoped authorization before S3 export",
+    "capture_inbox_store": "excluded: owner-scoped unassigned capture records and media stay in the local inbox until an explicit sharing policy exists",
+    "contextflow.case_links": "excluded: cross-domain links require joined owner and resource authorization before any S3 projection",
     "inventory": "pending-provider:inventory enrichment has no principal-aware read API",
     "contact_extensions": "pending-provider:CRM extensions use contact-scoped permissions",
     # Federation payload/state is withheld until each resource has an explicit
