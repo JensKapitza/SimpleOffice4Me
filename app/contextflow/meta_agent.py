@@ -36,6 +36,7 @@ from .vision import (
 
 BERLIN = ZoneInfo("Europe/Berlin")
 MAX_AGENT_STEPS = 5
+MAX_RESPONSE_MODEL_LENGTH = 256
 MIN_TOOL_CALLS = 2
 META_CALL_TIMEOUT = 60.0
 # Measured 30.10. live: the model emits reasoning items first (246 of
@@ -635,11 +636,17 @@ def run_agent(
         if not isinstance(payload, dict):
             raise MetaAgentError("Meta-Antwort ist kein gültiges JSON")
         reported = payload.get("model")
+        if isinstance(reported, str) and len(reported) > MAX_RESPONSE_MODEL_LENGTH:
+            raise MetaAgentError("Meta-Antwortmodell ist ungültig")
         response_model = (
             reported.strip()
             if isinstance(reported, str) and reported.strip()
             else None
         )
+        if response_model is not None and response_model != model:
+            raise MetaAgentError(
+                "Meta-Antwortmodell weicht vom freigegebenen Modell ab"
+            )
         response_models.append(response_model)
         for key_name in ("input_tokens", "output_tokens"):
             value = payload.get("usage", {}).get(key_name) if isinstance(

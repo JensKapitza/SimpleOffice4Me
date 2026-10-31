@@ -807,9 +807,11 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Meta-Nutzung, Pass/Fail).
 - PR #945 ergänzt die T20-Probe um Loopback-Origin-Allowlist,
   Redirect-Sperre, 2-MiB-Antwortlimit, pro-Schritt-Antwortmodellprüfung
-  und aggregierte Token-Zählung. Lokale Probe-Tests 30/30 und Gates
-  bestanden; Hosted-CI läuft. Kein Meta-Live-Aufruf oder T20-PASS
-  behauptet; Eigentümer-Live-Abnahme bleibt offen.
+  und aggregierte Token-Zählung. 31 Probe-Unit-Tests bestehen lokal;
+  der Auth-Route-Vertragstest ist in Termux wegen fehlender `cryptography`
+  blockiert. Compile-/Policy-/Size-/CRA-Gates bestehen; Hosted-CI läuft.
+  Kein Meta-Live-Aufruf oder T20-PASS behauptet; Eigentümer-Live-Abnahme
+  bleibt offen.
 - Matrix per Code-Read geprüft (28.10., Muse); Ausführung: Codex-Lauf nach Transfer-Korrektur (Isolation 3, Entry 8, Vision 26, Inventar 58 OK; node/policy/size/diff-Gates OK, kein Browser-Test) — Details im Arbeitslog. Erweiterung: update2.md §13.
 
 ## Match/Attach-Slice (implementiert, verifiziert)
