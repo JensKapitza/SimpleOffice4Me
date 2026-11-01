@@ -72,6 +72,12 @@
         <span class="cf-unknown">(unklar – nicht „fehlt“)</span>
         {% endif %}
       </p>
+      {% if card.credit %}
+      <p class="cf-credit">
+        <span aria-hidden="true">✦</span> Guthaben: {{ card.credit.balance_display }}{% if card.credit.hours_display %} ≈ {{ card.credit.hours_display }} (à {{ card.credit.rate_display }} {{ card.credit.rate_basis }}, {{ card.credit.rate_source }}){% endif %} –
+        <a href="{{ card.credit.billing_url }}">im Billing verrechnen</a>
+      </p>
+      {% endif %}
       <nav class="cf-links" aria-label="Weiter im bestehenden Ablauf">
         <a href="{{ card.mail_url }}">Mail-Vorgang öffnen</a>
         <a href="{{ card.visit_url }}">Ortstermin öffnen</a>
