@@ -234,15 +234,16 @@ def _spool_windows_raw(printer_name: str, payload: bytes) -> str:
 def _suffix_for(content_type: str) -> str:
     """Choose a fixed local spool suffix; never derive a path from a client filename."""
     media_type = str(content_type or "").split(";", 1)[0].strip().casefold()
-    if media_type == "application/pdf":
-        return ".pdf"
-    if media_type == "image/png":
-        return ".png"
-    if media_type == "image/jpeg":
-        return ".jpg"
-    if media_type == "text/plain":
-        return ".txt"
-    return ".bin"
+    suffixes = {
+        "application/pdf": ".pdf",
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "text/plain": ".txt",
+    }
+    try:
+        return suffixes[media_type]
+    except KeyError as exc:
+        raise ValueError("Windows PrintTo unterstützt diesen Content-Type nicht") from exc
 
 
 def _spool_windows(printer: dict[str, Any], payload: bytes, content_type: str) -> str:

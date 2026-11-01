@@ -67,7 +67,19 @@ class PrinterShareStoreTest(unittest.TestCase):
         self.assertTrue(spool_path.is_absolute())
         self.assertEqual(".pdf", spool_path.suffix)
         self.assertFalse(spool_path.exists())
-        self.assertEqual(".bin", _suffix_for("application/octet-stream"))
+        self.assertEqual(".txt", _suffix_for("text/plain; charset=utf-8"))
+
+        with patch("app.printershare_store.platform.system", return_value="Windows"), patch(
+            "app.printershare_store.shutil.which", return_value="powershell.exe",
+        ), patch("app.printershare_store.subprocess.run") as unsupported_run:
+            with self.assertRaisesRegex(ValueError, "Content-Type nicht unterstützt"):
+                spool_payload(
+                    TEST_PRINTER,
+                    b"synthetic executable payload",
+                    "application/x-msdownload",
+                    filename="payload.exe",
+                )
+        unsupported_run.assert_not_called()
 
     def test_no_store_keeps_only_job_metadata(self):
         result = self.store.submit(
