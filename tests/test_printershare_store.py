@@ -72,7 +72,7 @@ class PrinterShareStoreTest(unittest.TestCase):
         with patch("app.printershare_store.platform.system", return_value="Windows"), patch(
             "app.printershare_store.shutil.which", return_value="powershell.exe",
         ), patch("app.printershare_store.subprocess.run") as unsupported_run:
-            with self.assertRaisesRegex(ValueError, "Content-Type nicht unterstützt"):
+            with self.assertRaisesRegex(ValueError, "diesen Content-Type nicht"):
                 spool_payload(
                     TEST_PRINTER,
                     b"synthetic executable payload",
