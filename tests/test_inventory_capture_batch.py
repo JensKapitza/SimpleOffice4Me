@@ -388,7 +388,7 @@ class BatchRouteTests(unittest.TestCase):
             consent_meta=True, root=self.documents)
         self.assertFalse(result["available"])
         self.assertEqual("", result["model"])
-        self.assertIn("demo root", result["error"].lower())
+        self.assertIn("synthetischen Demo", result["error"])
 
     def test_upload_with_batch_and_review_groups(self) -> None:
         first = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]

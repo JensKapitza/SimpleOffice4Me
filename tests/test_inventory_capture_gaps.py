@@ -210,7 +210,15 @@ class CaptureErrorRedactionTests(CaptureGapBase):
         self.assertNotIn(private_path, upload.get_data(as_text=True))
 
         with patch("app.inventory_capture.analyze_photo", side_effect=ValueError(private_path)):
-            analysis = self.post_photo()
+            analysis = self.client.post(
+                "/inventory/capture/analyze",
+                data={
+                    "photo": (io.BytesIO(PNG_1PX), "foto.png"),
+                    "photo_id": "photo-path-redaction",
+                    "_csrf_token": self.csrf(),
+                },
+                content_type="multipart/form-data",
+            )
         self.assertEqual(400, analysis.status_code)
         self.assertNotIn(private_path, analysis.get_data(as_text=True))
 

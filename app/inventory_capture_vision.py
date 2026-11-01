@@ -86,7 +86,15 @@ def capture_ml_label(
                 "inventory_capture_ml_failed exception_type=%s",
                 type(exc).__name__,
             )
-        base["error"] = "ML-Analyse ist vorübergehend nicht verfügbar."
+        if (
+            isinstance(exc, PermissionError)
+            and exc.args == ("Meta inference is limited to a synthetic demo root",)
+        ):
+            base["error"] = (
+                "Meta-Cloud-Analyse ist nur auf einer verifizierten synthetischen Demo-Umgebung verfügbar."
+            )
+        else:
+            base["error"] = "ML-Analyse ist vorübergehend nicht verfügbar."
         return base
     suggestion = answer.get("suggestion", {})
     raw_tags = suggestion.get("tags", [])

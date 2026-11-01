@@ -47,6 +47,8 @@ def _public_error(exc: Exception, message: str, status: int):
         message = "Zuordnung erwartet ein Buch als Ziel."
     elif detail == "Zielobjekt passt nicht zur Zuordnung (Gegenstand erwartet)":
         message = "Zuordnung erwartet einen Gegenstand als Ziel."
+    elif detail == "Unbekannter Bibliotheksstandort":
+        message = "Unbekannter Bibliotheksstandort. Bitte Regal erneut auswählen."
     elif detail.startswith("Eintrag ") and " ist bereits anders zugeordnet;" in detail:
         message = "Mindestens ein Eintrag ist bereits anders zugeordnet. Bitte Gruppe prüfen."
     elif detail.startswith("Gruppe wurde zwischenzeitlich geändert"):
