@@ -147,6 +147,23 @@ jobs:
           SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
         run: gradle --no-daemon testDebugUnitTest assembleRelease
 
+      - name: Finalize release APK v1/v2 signature
+        shell: bash
+        env:
+          SIMPLEOFFICE_RELEASE_KEYSTORE: ${{ runner.temp }}/android-release/release.jks
+          SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
+          SIMPLEOFFICE_RELEASE_KEY_ALIAS: simpleoffice-release
+          SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" && test -x "$APKSIGNER"
+          python tools/sign_android_apk.py \
+            --apk android/apk/app/build/outputs/apk/release/app-release.apk \
+            --apksigner "$APKSIGNER" \
+            --keystore "$SIMPLEOFFICE_RELEASE_KEYSTORE" \
+            --key-alias "$SIMPLEOFFICE_RELEASE_KEY_ALIAS"
+
       - name: Verify release signature, fingerprint and ABI
         shell: bash
         run: |

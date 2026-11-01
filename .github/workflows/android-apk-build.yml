@@ -191,6 +191,23 @@ jobs:
               raise SystemExit("AGP did not resolve both required release signature schemes")
           PY
 
+      - name: Finalize ephemeral release APK v1/v2 signature
+        shell: bash
+        env:
+          SIMPLEOFFICE_RELEASE_KEYSTORE: ${{ steps.release-smoke.outputs.keystore }}
+          SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ steps.release-smoke.outputs.store_password }}
+          SIMPLEOFFICE_RELEASE_KEY_ALIAS: ${{ steps.release-smoke.outputs.key_alias }}
+          SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ steps.release-smoke.outputs.key_password }}
+        run: |
+          set -euo pipefail
+          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+          test -n "$APKSIGNER" && test -x "$APKSIGNER"
+          python tools/sign_android_apk.py \
+            --apk android/apk/app/build/outputs/apk/release/app-release.apk \
+            --apksigner "$APKSIGNER" \
+            --keystore "$SIMPLEOFFICE_RELEASE_KEYSTORE" \
+            --key-alias "$SIMPLEOFFICE_RELEASE_KEY_ALIAS"
+
       - name: Verify bundled Python runtime assets and ABI
         shell: bash
         run: |

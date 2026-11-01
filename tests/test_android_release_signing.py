@@ -130,6 +130,8 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertIn('resolved.get("enableV1Signing")', WORKFLOW)
         self.assertIn('resolved.get("enableV2Signing")', WORKFLOW)
         self.assertIn("v1 is not True or v2 is not True", WORKFLOW)
+        self.assertIn("Finalize ephemeral release APK v1/v2 signature", WORKFLOW)
+        self.assertIn("tools/sign_android_apk.py", WORKFLOW)
 
     def test_local_sequence_defaults_to_utc_time_slot(self) -> None:
         self.assertIn("rawBuildSequenceEnv", GRADLE)
@@ -203,6 +205,8 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertNotIn("SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD=${{ secrets.", RELEASE_WORKFLOW)
         self.assertNotIn("SIMPLEOFFICE_RELEASE_KEY_PASSWORD=${{ secrets.", RELEASE_WORKFLOW)
         self.assertNotIn("ANDROID_RELEASE_KEYSTORE_BASE64 }}\" | base64", RELEASE_WORKFLOW)
+        self.assertIn("Finalize release APK v1/v2 signature", RELEASE_WORKFLOW)
+        self.assertIn("tools/sign_android_apk.py", RELEASE_WORKFLOW)
 
     def test_project_release_collects_signed_android_artifact(self) -> None:
         self.assertIn("android-apk-release.yml", PROJECT_RELEASE_WORKFLOW)

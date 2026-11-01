@@ -96,19 +96,36 @@ CI debug APKs are development-only artifacts: every ephemeral runner signs with 
    ```
 
    The build refuses to run when any of the four settings is missing or the keystore file is unreadable.
-4. Verify the certificate SHA-256 fingerprint of the produced APK:
+4. Finalize the Gradle APK with the repository helper. It reads the keystore,
+   alias and passwords from the `SIMPLEOFFICE_RELEASE_*` environment variables
+   (not from Gradle properties); supply them through a secure environment, never
+   as command-line arguments:
+
+   ```bash
+   APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
+   python tools/sign_android_apk.py \
+     --apk android/apk/app/build/outputs/apk/release/app-release.apk \
+     --apksigner "$APKSIGNER" \
+     --keystore "$SIMPLEOFFICE_RELEASE_KEYSTORE" \
+     --key-alias "$SIMPLEOFFICE_RELEASE_KEY_ALIAS"
+   ```
+
+   The helper signs with both v1 and v2, verifies the temporary output, and
+   atomically replaces the Gradle APK only after verification succeeds.
+5. Verify the certificate SHA-256 fingerprint of the finalized APK:
 
    ```bash
    apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
    ```
 
-   Compare the SHA-256 digest against the fingerprint recorded at key creation before distributing the APK.
+   Compare the SHA-256 digest against the fingerprint recorded at key creation
+   before distributing the APK.
 
 Signature migration: if a device has a previously installed APK signed with a different certificate (for example a CI debug APK), Android requires uninstalling it once before the first release install — certificates cannot be migrated. Thereafter, the same release certificate plus a higher `versionCode` enables in-place updates.
 
 ## CI release builds (signed, update-stable)
 
-The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key and asserts the signer fingerprint, so a wrong key fails the build instead of silently breaking updates. Release APKs explicitly use both v1 and v2 APK signature schemes. Signing is restricted to `main` and version tags whose commit is already reachable from `main`; feature-branch dispatches are refused before secrets are loaded. It runs on manual dispatch from `main` and as part of every valid tag release (`project-release.yml`); the signed APK is collected into the release package as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. PR CI separately builds `assembleRelease` with an ephemeral throwaway key and verifies the package signature; that smoke artifact is not uploaded and does not use production secrets. Debug CI APKs remain reinstall-only test artifacts.
+The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key, finalizes with `tools/sign_android_apk.py` using that same key, then asserts both v1/v2 signatures and the signer fingerprint, so a wrong key or signature scheme fails before upload. Signing is restricted to `main` and version tags whose commit is already reachable from `main`; feature-branch dispatches are refused before secrets are loaded. It runs on manual dispatch from `main` and as part of every valid tag release (`project-release.yml`); the signed APK is collected into the release package as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. PR CI separately builds `assembleRelease` with an ephemeral throwaway key, finalizes and verifies both signature schemes; that smoke artifact is not uploaded and does not use production secrets. Debug CI APKs remain reinstall-only test artifacts.
 
 Working copies of the signing material live in GitHub Secrets (`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_PASSWORD`; alias `simpleoffice-release`); the only backup is outside the repository — losing it ends the update chain (see above). Expected release certificate (public, verify before trusting an APK):
 
