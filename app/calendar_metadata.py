@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation
 from typing import Any, Iterable
 from urllib.parse import urlsplit
 
@@ -56,6 +57,27 @@ def normalize_conferences(values: Iterable[dict[str, Any]] | None) -> list[dict[
     return result
 
 
+MAX_TRAVEL_KM = Decimal("5000")
+
+
+def normalize_travel_km(value: Any) -> str:
+    """Round-trip kilometers for off-site events ("" when unset).
+
+    Stored as a plain decimal string; raises on garbage so writers fail
+    fast while readers stay defensive.
+    """
+    text = str(value or "").strip().replace(",", ".")
+    if not text:
+        return ""
+    try:
+        parsed = Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise ValueError("calendar travel_km must be a number") from exc
+    if not parsed.is_finite() or parsed <= 0 or parsed > MAX_TRAVEL_KM:
+        raise ValueError("calendar travel_km must be between 0 and 5000 km")
+    return f"{parsed.normalize():f}"
+
+
 def normalize_metadata(values: dict[str, Any] | None, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     values = values or {}
     existing = existing or {}
@@ -90,6 +112,7 @@ def normalize_metadata(values: dict[str, Any] | None, existing: dict[str, Any] |
         "event_url": safe_uri(values.get("event_url", existing.get("event_url", ""))),
         "resources": resources,
         "conferences": normalize_conferences(values.get("conferences", existing.get("conferences", []))),
+        "travel_km": normalize_travel_km(values.get("travel_km", existing.get("travel_km", ""))),
     }
 
 

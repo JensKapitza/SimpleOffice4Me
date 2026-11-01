@@ -143,6 +143,43 @@ class CreditHintState(TypedDict, total=False):
     evidence: EvidenceRef
 
 
+class OtTravelHintState(TypedDict, total=False):
+    """OT travel hint for one contact (deterministic, no model calls).
+
+    ``state`` is ``ready`` (upcoming off-site event with distance, manage
+    rights), ``none`` (no such event) or ``hidden`` (fail closed: no
+    rights, unknown contact, unreadable data). Money fields are
+    ``Decimal``-safe strings; ``*_display`` variants are pre-formatted
+    German UI text.
+    """
+
+    state: str
+    reason: str
+    contact_id: str
+    currency: str
+    event_id: str
+    event_title: str
+    event_start: str
+    km: str
+    drive_hours: str
+    drive_display: str
+    vehicle: str
+    vehicle_display: str
+    has_time_value: bool
+    km_display: str
+    time_value: str
+    time_display: str
+    total: str
+    total_display: str
+    flat: str
+    flat_display: str
+    rate_gross: str
+    rate_display: str
+    rate_basis: str
+    rate_source: str
+    evidence: EvidenceRef
+
+
 class MailCaseSummary(TypedDict):
     case_id: str
     title: str
