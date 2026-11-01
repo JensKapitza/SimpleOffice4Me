@@ -96,19 +96,24 @@ CI debug APKs are development-only artifacts: every ephemeral runner signs with 
    ```
 
    The build refuses to run when any of the four settings is missing or the keystore file is unreadable.
-4. Verify the certificate SHA-256 fingerprint of the produced APK:
+4. Verify both signature schemes and the certificate SHA-256 fingerprint:
 
    ```bash
-   apksigner verify --print-certs app/build/outputs/apk/release/app-release.apk
+   apksigner verify --verbose --print-certs --min-sdk-version 23 app/build/outputs/apk/release/app-release.apk
    ```
 
-   Compare the SHA-256 digest against the fingerprint recorded at key creation before distributing the APK.
+   Compare the SHA-256 digest against the fingerprint recorded at key creation
+   before distributing the APK.
+
+   The APK's minimum SDK is 24. Passing `--min-sdk-version 23` makes apksigner
+   verify the backward-compatible v1 scheme as well as v2; its default
+   verification skips v1 when v2 is present and minSdk is 24 or newer.
 
 Signature migration: if a device has a previously installed APK signed with a different certificate (for example a CI debug APK), Android requires uninstalling it once before the first release install — certificates cannot be migrated. Thereafter, the same release certificate plus a higher `versionCode` enables in-place updates.
 
 ## CI release builds (signed, update-stable)
 
-The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key and asserts the signer fingerprint, so a wrong key fails the build instead of silently breaking updates. It runs on manual dispatch and as part of every tag release (`project-release.yml`); the signed APK is published as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. Debug CI APKs remain reinstall-only test artifacts.
+The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key and asserts both v1/v2 signatures plus the signer fingerprint before upload. Because the APK's minSdk is 24, CI invokes `apksigner verify --min-sdk-version 23` so the verification actually exercises v1; the ordinary verifier otherwise skips v1 when v2 is present. Signing is restricted to `main` and version tags whose commit is already reachable from `main`; feature-branch dispatches are refused before secrets are loaded. It runs on manual dispatch from `main` and as part of every valid tag release (`project-release.yml`); the signed APK is collected into the release package as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. PR CI separately builds `assembleRelease` with an ephemeral throwaway key and verifies both signature schemes using the same minimum-SDK override; that smoke artifact is not uploaded and does not use production secrets. Debug CI APKs remain reinstall-only test artifacts.
 
 Working copies of the signing material live in GitHub Secrets (`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_PASSWORD`; alias `simpleoffice-release`); the only backup is outside the repository — losing it ends the update chain (see above). Expected release certificate (public, verify before trusting an APK):
 

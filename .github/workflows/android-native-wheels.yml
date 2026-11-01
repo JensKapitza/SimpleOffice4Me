@@ -208,8 +208,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends patchelf
+          timeout --signal=TERM --kill-after=10s 5m sudo apt-get update -qq
+          timeout --signal=TERM --kill-after=10s 5m \
+            sudo apt-get install -y --no-install-recommends patchelf
           mkdir -p unpacked-wheel
           wheel_file="$(find wheelhouse -maxdepth 1 -name 'cryptography-*.whl' -print -quit)"
           test -n "$wheel_file"

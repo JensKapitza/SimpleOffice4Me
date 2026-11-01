@@ -16,18 +16,20 @@ GRADLE = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
 README = Path("android/apk/README.md").read_text(encoding="utf-8")
 REPO_PROPERTIES = Path("android/apk/gradle.properties").read_text(encoding="utf-8")
 WORKFLOW = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
+RELEASE_WORKFLOW = Path(".github/workflows/android-apk-release.yml").read_text(encoding="utf-8")
+PROJECT_RELEASE_WORKFLOW = Path(".github/workflows/project-release.yml").read_text(encoding="utf-8")
 
-PROPERTY_KEYS = (
-    "simpleofficeReleaseKeystore",
-    "simpleofficeReleaseKeystorePassword",
-    "simpleofficeReleaseKeyAlias",
-    "simpleofficeReleaseKeyPassword",
-)
 ENV_KEYS = (
     "SIMPLEOFFICE_RELEASE_KEYSTORE",
     "SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD",
     "SIMPLEOFFICE_RELEASE_KEY_ALIAS",
     "SIMPLEOFFICE_RELEASE_KEY_PASSWORD",
+)
+PROPERTY_KEYS = (
+    "simpleofficeReleaseKeystore",
+    "simpleofficeReleaseKeystorePassword",
+    "simpleofficeReleaseKeyAlias",
+    "simpleofficeReleaseKeyPassword",
 )
 VALUE_VARIABLES = (
     "releaseKeystorePath",
@@ -52,17 +54,21 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         )
         self.assertIn("signingConfigs {", GRADLE)
         self.assertIn("signingConfig signingConfigs.release", GRADLE)
-        self.assertEqual(2, GRADLE.count("if (releaseSigningConfigured) {"))
+        self.assertEqual(3, GRADLE.count("if (releaseSigningConfigured) {"))
         self.assertIn("storeFile file(releaseKeystorePath)", GRADLE)
         self.assertIn("storePassword releaseKeystorePassword", GRADLE)
         self.assertIn("keyAlias releaseKeyAlias", GRADLE)
         self.assertIn("keyPassword releaseKeyPassword", GRADLE)
+        self.assertIn("enableV1Signing = true", GRADLE)
+        self.assertIn("enableV2Signing = true", GRADLE)
+        self.assertIn("onVariants(selector().withBuildType('release'))", GRADLE)
+        self.assertIn("variant.signingConfig.enableV1Signing.set(true)", GRADLE)
+        self.assertIn("variant.signingConfig.enableV2Signing.set(true)", GRADLE)
         for key in PROPERTY_KEYS:
             self.assertIn(key, GRADLE.split("def missingReleaseSigning")[1])
 
     def test_assemble_release_fails_closed_when_unsigned(self) -> None:
         self.assertIn("gradle.taskGraph.whenReady", GRADLE)
-        self.assertIn('hasTask("${project.path}:assembleRelease")', GRADLE)
         self.assertIn("Release signing is not configured.", GRADLE)
         self.assertIn("Release signing is only partially configured", GRADLE)
         self.assertIn("Release keystore is not a readable file", GRADLE)
@@ -83,11 +89,50 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         for key in PROPERTY_KEYS + ENV_KEYS:
             self.assertNotIn(key, REPO_PROPERTIES)
 
-    def test_debug_and_ci_behavior_unchanged(self) -> None:
+    def test_debug_and_release_smoke_do_not_use_production_signing_secrets(self) -> None:
         self.assertIn("assembleDebug", WORKFLOW)
-        self.assertNotIn("assembleRelease", WORKFLOW)
-        self.assertNotIn("keystore", WORKFLOW.lower())
+        self.assertIn("assembleRelease", WORKFLOW)
+        for secret_name in (
+            "ANDROID_RELEASE_KEYSTORE_BASE64",
+            "ANDROID_RELEASE_KEYSTORE_PASSWORD",
+            "ANDROID_RELEASE_KEY_PASSWORD",
+        ):
+            self.assertNotIn(secret_name, WORKFLOW)
         self.assertEqual(1, GRADLE.count("signingConfig signingConfigs.release"))
+
+    def test_pr_ci_smokes_release_signing_without_production_secrets(self) -> None:
+        self.assertIn("Create ephemeral key for release-signing smoke", WORKFLOW)
+        self.assertIn("assembleDebug assembleRelease", WORKFLOW)
+        self.assertIn("Verify ephemeral signed release smoke APK", WORKFLOW)
+        self.assertIn("Remove ephemeral release signing key", WORKFLOW)
+        for secret_name in (
+            "ANDROID_RELEASE_KEYSTORE_BASE64",
+            "ANDROID_RELEASE_KEYSTORE_PASSWORD",
+            "ANDROID_RELEASE_KEY_PASSWORD",
+        ):
+            self.assertNotIn(f"secrets.{secret_name}", WORKFLOW)
+
+    def test_pr_ci_masks_ephemeral_signing_passwords_before_output(self) -> None:
+        create_step = WORKFLOW.split(
+            "- name: Create ephemeral key for release-signing smoke", 1,
+        )[1].split("- name:", 1)[0]
+        store_mask = 'echo "::add-mask::$store_password"'
+        key_mask = 'echo "::add-mask::$key_password"'
+        self.assertIn(store_mask, create_step)
+        self.assertIn(key_mask, create_step)
+        self.assertLess(create_step.index(store_mask), create_step.index("GITHUB_OUTPUT"))
+        self.assertLess(create_step.index(key_mask), create_step.index("GITHUB_OUTPUT"))
+
+    def test_pr_ci_verifies_both_release_schemes_below_minimum_sdk(self) -> None:
+        verify_step = WORKFLOW.split(
+            "- name: Verify ephemeral signed release smoke APK", 1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn(
+            "verify --verbose --print-certs --min-sdk-version 23",
+            verify_step,
+        )
+        self.assertIn("Verified using v1 scheme (JAR signing): true", verify_step)
+        self.assertIn("Verified using v2 scheme (APK Signature Scheme v2): true", verify_step)
 
     def test_local_sequence_defaults_to_utc_time_slot(self) -> None:
         self.assertIn("rawBuildSequenceEnv", GRADLE)
@@ -125,14 +170,65 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         for key in PROPERTY_KEYS + ENV_KEYS:
             self.assertIn(key, README)
         self.assertIn("gradle assembleRelease", README)
-        self.assertIn("apksigner verify --print-certs", README)
+        self.assertIn("apksigner verify --verbose --print-certs --min-sdk-version 23", README)
         self.assertIn("SHA-256", README)
         self.assertIn("uninstalling it once", README)
         self.assertIn("same release certificate plus a higher `versionCode`", README)
         self.assertIn("development-only", README)
-        self.assertIn("holds no release signing secret", README)
+        self.assertIn("Working copies of the signing material live in GitHub Secrets", README)
+        self.assertIn("feature-branch dispatches are refused", README)
         self.assertIn("explicit sequence always wins", README)
-        self.assertIn("fails with a clear error instead of producing an unsigned APK", README)
+        self.assertIn("without a complete release signing configuration", README)
+        self.assertIn("skips v1 when v2 is present", README)
+
+    def test_signed_release_is_restricted_to_main_or_main_ancestor_version_tags(self) -> None:
+        self.assertIn(
+            "if: github.ref == 'refs/heads/main' || (github.ref_type == 'tag'",
+            RELEASE_WORKFLOW,
+        )
+        self.assertIn("git merge-base --is-ancestor", RELEASE_WORKFLOW)
+        self.assertIn("refs/remotes/origin/main", RELEASE_WORKFLOW)
+        self.assertIn('"$GITHUB_REF_NAME" != "v$version"', RELEASE_WORKFLOW)
+        self.assertIn("fetch-depth: 0", RELEASE_WORKFLOW)
+
+    def test_release_secrets_are_scoped_and_not_written_to_github_env(self) -> None:
+        self.assertIn(
+            "ANDROID_RELEASE_KEYSTORE_BASE64: ${{ secrets.ANDROID_RELEASE_KEYSTORE_BASE64 }}",
+            RELEASE_WORKFLOW,
+        )
+        self.assertIn(
+            "SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}",
+            RELEASE_WORKFLOW,
+        )
+        self.assertIn(
+            "SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}",
+            RELEASE_WORKFLOW,
+        )
+        build_step = RELEASE_WORKFLOW.split("- name: Build signed release APK", 1)[1].split(
+            "- name:", 1,
+        )[0]
+        self.assertIn(
+            "SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}",
+            build_step,
+        )
+        self.assertIn(
+            "SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}",
+            build_step,
+        )
+        self.assertNotIn("SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD=${{ secrets.", RELEASE_WORKFLOW)
+        self.assertNotIn("SIMPLEOFFICE_RELEASE_KEY_PASSWORD=${{ secrets.", RELEASE_WORKFLOW)
+        self.assertNotIn("ANDROID_RELEASE_KEYSTORE_BASE64 }}\" | base64", RELEASE_WORKFLOW)
+        verify_step = RELEASE_WORKFLOW.split(
+            "- name: Verify release signature, fingerprint and ABI", 1,
+        )[1].split("- name:", 1)[0]
+        self.assertIn(
+            "verify --verbose --print-certs --min-sdk-version 23",
+            verify_step,
+        )
+
+    def test_project_release_collects_signed_android_artifact(self) -> None:
+        self.assertIn("android-apk-release.yml", PROJECT_RELEASE_WORKFLOW)
+        self.assertIn("steps.runs.outputs.android_apk_release", PROJECT_RELEASE_WORKFLOW)
 
 
 if __name__ == "__main__":

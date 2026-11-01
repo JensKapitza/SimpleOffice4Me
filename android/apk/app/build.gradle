@@ -176,6 +176,8 @@ android {
                 storePassword releaseKeystorePassword
                 keyAlias releaseKeyAlias
                 keyPassword releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
             }
         }
     }
@@ -199,6 +201,17 @@ android {
         main {
             assets.srcDir "$buildDir/generated/simpleofficeAssets"
             res.srcDir "$buildDir/generated/simpleofficeLogoRes"
+        }
+    }
+}
+
+androidComponents {
+    onVariants(selector().withBuildType('release')) { variant ->
+        if (releaseSigningConfigured) {
+            // Keep the finalized variant configuration aligned with the DSL;
+            // its properties take precedence in AGP's packaging tasks.
+            variant.signingConfig.enableV1Signing.set(true)
+            variant.signingConfig.enableV2Signing.set(true)
         }
     }
 }

@@ -138,16 +138,35 @@
         </div>
         {% endif %}
         <div id="object-suggestion" class="alert alert-info py-2 mt-2" role="status" aria-live="polite" hidden>
+          {% if angel_avatar|default(true) %}
+          <img class="engel-avatar" src="{{ url_for('static', filename='icons/bueroengel.svg') }}" alt="Büroengel" width="40" height="40" loading="lazy" decoding="async">
+          {% endif %}
           <strong id="suggested-name"></strong> <span id="suggested-type" class="small text-secondary"></span>
           <div class="small" id="suggested-note"></div>
           <div class="small" id="suggested-book-details"></div>
           <div class="small text-secondary" id="suggested-tags"></div>
           <div class="small text-secondary" id="suggested-provider"></div>
-          <div class="d-flex gap-2 mt-2">
+          <div class="d-flex gap-2 mt-2 flex-wrap">
             <button type="button" class="btn btn-sm btn-primary" id="adopt-suggestion">Vorschlag übernehmen</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="engel-details">Details &amp; Teil-Übernahme</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" id="dismiss-suggestion">Verwerfen</button>
           </div>
         </div>
+        <dialog id="engel-suggest-dialog" aria-labelledby="engel-suggest-title">
+          <h3 id="engel-suggest-title" class="h5">Büroengel-Vorschlag – Teile wählen</h3>
+          <p class="small text-secondary">Nur angehakte Teile landen im Formular. Gespeichert wird wie gewohnt über „Objekt speichern“.</p>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="engel-part-name" checked><label class="form-check-label" for="engel-part-name">Name <span class="text-secondary" id="engel-preview-name"></span></label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="engel-part-type" checked><label class="form-check-label" for="engel-part-type">Typ <span class="text-secondary" id="engel-preview-type"></span></label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="engel-part-note" checked><label class="form-check-label" for="engel-part-note">Beschreibung <span class="text-secondary" id="engel-preview-note"></span></label></div>
+          <div class="form-check"><input class="form-check-input" type="checkbox" id="engel-part-tags" checked><label class="form-check-label" for="engel-part-tags">Tags <span class="text-secondary" id="engel-preview-tags"></span></label></div>
+          <div class="d-flex gap-2 mt-3 flex-wrap">
+            <button type="button" class="btn btn-sm btn-primary" id="engel-adopt-parts">Ausgewählte übernehmen</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" id="engel-adopt-all">Alles übernehmen</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="engel-reanalyze">Neu analysieren</button>
+            <button type="button" class="btn btn-sm btn-outline-danger" id="engel-reject">Ablehnen</button>
+          </div>
+          <form method="dialog" class="mt-2"><button class="btn btn-sm btn-link" type="submit">Schließen</button></form>
+        </dialog>
       </div>
       {% endif %}
 
@@ -198,4 +217,5 @@
 <script src="{{ url_for('static', filename='js/inventory_navigation.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/inventory.js') }}" data-module="static/js/inventory.js" defer></script>
 <script src="{{ url_for('static', filename='js/inventory_suggest.js') }}" data-module="static/js/inventory_suggest.js" defer></script>
+<script src="{{ url_for('static', filename='js/angel.js') }}" data-module="static/js/angel.js" defer></script>
 {% endblock %}

@@ -113,6 +113,7 @@ jobs:
           for run_id in \
             '${{ steps.runs.outputs.desktop_build }}' \
             '${{ steps.runs.outputs.android_apk_build }}' \
+            '${{ steps.runs.outputs.android_apk_release }}' \
             '${{ steps.runs.outputs.server_deb_build }}' \
             '${{ steps.runs.outputs.docker_build }}'; do
             mapfile -t artifacts < <(

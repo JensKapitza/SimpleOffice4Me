@@ -65,14 +65,24 @@ class HintPrefsTests(unittest.TestCase):
 
     def test_defaults_for_unknown_actor(self) -> None:
         self.assertEqual(
-            {"quiet_start": "22:00", "quiet_end": "07:00", "daily_limit": 3},
+            {
+                "quiet_start": "22:00",
+                "quiet_end": "07:00",
+                "daily_limit": 3,
+                "angel_avatar": True,
+            },
             self.prefs.get("anna"),
         )
 
     def test_roundtrip_normalizes(self) -> None:
         saved = self.prefs.set("anna", "7:05", "8:00", "5")
         self.assertEqual(
-            {"quiet_start": "07:05", "quiet_end": "08:00", "daily_limit": 5},
+            {
+                "quiet_start": "07:05",
+                "quiet_end": "08:00",
+                "daily_limit": 5,
+                "angel_avatar": True,
+            },
             saved,
         )
         self.assertEqual(saved, self.prefs.get("anna"))

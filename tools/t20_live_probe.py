@@ -7,11 +7,12 @@ Target: update2.md T20 (Muse Spark Sandbox/Tool-Loop) — real model ID,
 with explicit consent. It parses the rendered result page, checks the T20
 criteria, and writes an evidence JSON file.
 
-Safety: loopback bases only (127.0.0.1/localhost/::1); the API key,
-password, and cookies are never printed, logged, or written to the
-evidence file. The Meta budget of one probe run is one free metadata
-call (``GET /v1/models`` via the ml-status probe) plus at most five
-bounded inference calls (server step budget, typically 2-3).
+Safety: credential-free HTTP(S) loopback bases only
+(127.0.0.1/localhost/::1); redirects are not followed and each response
+is capped at 2 MiB. The API key, password, and cookies are never printed,
+logged, or written to the evidence file. The Meta budget of one probe run
+is one free metadata call (``GET /v1/models`` via the ml-status probe)
+plus at most five bounded inference calls (server step budget, typically 2-3).
 
 This module has no import side effects; the pure parse/check helpers are
 covered by tests/test_t20_live_probe.py with canned HTML fixtures.
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import getpass
+import http.client
 import http.cookiejar
 import json
 import os
@@ -33,10 +35,12 @@ import urllib.parse
 import urllib.request
 
 EXPECTED_MODEL = "muse-spark-1.3-contributor"
+LOGIN_PATH = "/auth/login"
 MIN_OK_TOOLS = 2
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 RUN_TIMEOUT_SECONDS = 420
 PAGE_TIMEOUT_SECONDS = 30
+MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 _CSRF_RE = re.compile(r'name="_csrf_token"\s+value="([^"]+)"')
 _OPTION_RE = re.compile(r'<option\s+value="([^"]+)"')
@@ -46,6 +50,7 @@ _STATUS_RE = re.compile(
     r"(?P<tools>\d+)\s+Werkzeugaufrufe\s*·\s*"
     r"Modell\s+(?P<model>[^·<(]+?)"
     r"(?:\s*\(Antwort:\s*(?P<response>[^)]+?)\))?"
+    r"(?:\s*·\s*Antwortmodelle:\s*(?P<responses>[^·]+?))?"
     r"(?:\s*·\s*Laufzeit:\s*(?P<seconds>[\d.]+)\s*s)?"
     r"(?:\s*·\s*Tokens\s+Ein/Aus:\s*(?P<tin>[\d–-]+)\s*/\s*(?P<tout>[\d–-]+))?"
     r"\s*</p>",
@@ -60,6 +65,54 @@ _TOOL_ITEM_RE = re.compile(
 
 class ProbeError(RuntimeError):
     """A preflight, transport, or T20-criteria failure (message is safe to show)."""
+
+
+def _validated_loopback_base(base: str) -> str:
+    """Accept only credential-free HTTP(S) URLs on an explicit loopback host."""
+    if not isinstance(base, str) or not base or len(base) > 2048:
+        raise ProbeError("base must be a valid loopback URL")
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in base):
+        raise ProbeError("base must be a valid loopback URL")
+    try:
+        parsed = urllib.parse.urlsplit(base)
+        hostname = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError:
+        raise ProbeError("base must be a valid loopback URL") from None
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or hostname not in LOOPBACK_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or port == 0
+    ):
+        raise ProbeError("base must be a credential-free HTTP(S) loopback origin")
+    return base.rstrip("/")
+
+
+def _read_bounded(stream) -> bytes:
+    """Read a complete response within budget, tolerating short socket reads."""
+    chunks: list[bytes] = []
+    total = 0
+    while total <= MAX_RESPONSE_BYTES:
+        chunk = stream.read(min(64 * 1024, MAX_RESPONSE_BYTES + 1 - total))
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > MAX_RESPONSE_BYTES:
+            raise ProbeError("loopback response exceeds the 2 MiB read budget")
+    raise ProbeError("loopback response exceeds the 2 MiB read budget")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Never let a local demo response redirect the probe to another origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
 
 
 def parse_csrf(html: str) -> str:
@@ -118,6 +171,11 @@ def parse_result(html: str) -> dict:
     evidence = _section_items(html, "Beleg-IDs")
     tokens_in = match.group("tin")
     tokens_out = match.group("tout")
+    response_models = [
+        model.strip()
+        for model in (match.group("responses") or "").split(",")
+        if model.strip()
+    ]
 
     def _tokens(value: str | None) -> int | None:
         return int(value) if value and value.isdigit() else None
@@ -128,6 +186,7 @@ def parse_result(html: str) -> dict:
         "tool_calls": int(match.group("tools")),
         "model": match.group("model").strip(),
         "response_model": (match.group("response") or "").strip() or None,
+        "response_models": response_models,
         "run_seconds": float(seconds) if seconds else None,
         "tokens_in": _tokens(tokens_in),
         "tokens_out": _tokens(tokens_out),
@@ -149,6 +208,18 @@ def check_t20(parsed: dict, expected_model: str = EXPECTED_MODEL) -> list[str]:
         failures.append("response model ID missing (server predates the capture?)")
     elif response != expected_model:
         failures.append(f"response model is {response!r}, expected {expected_model!r}")
+    response_models = parsed.get("response_models")
+    if not isinstance(response_models, list) or not response_models:
+        failures.append("per-step response model IDs missing")
+    elif len(response_models) != int(parsed.get("steps", 0)):
+        failures.append(
+            f"response model count is {len(response_models)}, "
+            f"but the run has {parsed.get('steps', 0)} steps"
+        )
+    elif any(model != expected_model for model in response_models):
+        failures.append(
+            f"per-step response models are {response_models!r}, expected only {expected_model!r}"
+        )
     if int(parsed.get("ok_tools", 0)) < MIN_OK_TOOLS:
         failures.append(
             f"only {parsed.get('ok_tools', 0)} successful tool calls, need {MIN_OK_TOOLS}+"
@@ -168,12 +239,10 @@ class Session:
     """Cookie-carrying loopback HTTP client (stdlib only)."""
 
     def __init__(self, base: str) -> None:
-        host = (urllib.parse.urlsplit(base).hostname or "").lower()
-        if host not in LOOPBACK_HOSTS:
-            raise ProbeError(f"refusing non-loopback base: {base}")
-        self.base = base.rstrip("/")
+        self.base = _validated_loopback_base(base)
         self.opener = urllib.request.build_opener(
-            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar())
+            urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()),
+            _NoRedirectHandler(),
         )
 
     def _request(self, path: str, data: dict | None, timeout: int) -> tuple[int, str]:
@@ -186,10 +255,19 @@ class Session:
         try:
             with self.opener.open(request, timeout=timeout) as response:
                 charset = response.headers.get_content_charset() or "utf-8"
-                return response.status, response.read().decode(charset, "replace")
+                return response.status, _read_bounded(response).decode(charset, "replace")
         except urllib.error.HTTPError as exc:
-            payload = exc.read().decode("utf-8", "replace")
+            try:
+                payload = _read_bounded(exc).decode("utf-8", "replace")
+            finally:
+                exc.close()
             return exc.code, payload
+        except urllib.error.URLError as exc:
+            if isinstance(exc.reason, TimeoutError):
+                raise ProbeError("loopback request timed out") from None
+            raise ProbeError("loopback request failed") from None
+        except (TimeoutError, OSError, http.client.HTTPException) as exc:
+            raise ProbeError("loopback request failed") from exc
 
     def get(self, path: str) -> tuple[int, str]:
         """GET a page (short timeout)."""
@@ -227,11 +305,11 @@ def run_probe(base: str, username: str, password: str, link_id: str, out: str) -
     """Execute the full probe; returns the evidence dict (raises ProbeError)."""
     session = Session(base)
     print(f"[1/5] login as {username} ...")
-    code, login_page = session.get("/login")
+    code, login_page = session.get(LOGIN_PATH)
     if code != 200:
-        raise ProbeError(f"GET /login returned {code}")
+        raise ProbeError(f"GET {LOGIN_PATH} returned {code}")
     code, _ = session.post(
-        "/login",
+        LOGIN_PATH,
         {"username": username, "password": password, "_csrf_token": parse_csrf(login_page)},
     )
     if code not in (200, 302):
@@ -315,6 +393,7 @@ def main(argv: list[str] | None = None) -> int:
         + f": steps={parsed['steps']} ok_tools={parsed['ok_tools']} "
         f"evidence={parsed['evidence']} model={parsed['model']} "
         f"response={parsed['response_model']} "
+        f"responses={','.join(parsed['response_models'])} "
         f"tokens={parsed['tokens_in']}/{parsed['tokens_out']} "
         f"seconds={parsed['run_seconds']}"
     )

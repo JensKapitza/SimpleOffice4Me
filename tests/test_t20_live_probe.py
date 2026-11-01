@@ -7,10 +7,18 @@ owner-side step (needs the demo server, loopback, and MODEL_API_KEY).
 
 from __future__ import annotations
 
+import io
 import unittest
+import urllib.error
+import urllib.request
+from unittest.mock import patch
 
 from tools.t20_live_probe import (
     EXPECTED_MODEL,
+    LOGIN_PATH,
+    MAX_RESPONSE_BYTES,
+    _NoRedirectHandler,
+    _read_bounded,
     ProbeError,
     Session,
     check_ml_status,
@@ -42,7 +50,7 @@ AGENT_FORM_HTML = """<p class="cf-pills">
 <input type="checkbox" name="consent_meta" value="yes">
 </form>"""
 
-RESULT_HTML = """<p class="cf-status">2 Modellschritte · 3 Werkzeugaufrufe · Modell muse-spark-1.3-contributor (Antwort: muse-spark-1.3-contributor) · Laufzeit: 10.2 s · Tokens Ein/Aus: 1200 / 502</p>
+RESULT_HTML = """<p class="cf-status">2 Modellschritte · 3 Werkzeugaufrufe · Modell muse-spark-1.3-contributor (Antwort: muse-spark-1.3-contributor) · Antwortmodelle: muse-spark-1.3-contributor, muse-spark-1.3-contributor · Laufzeit: 10.2 s · Tokens Ein/Aus: 1200 / 502</p>
 <h3>Werkzeugaufrufe (alle lesend, alle serverseitig ausgeführt)</h3>
 <ul class="cf-evidence">
 <li><span class="cf-type">get_case_context</span>
@@ -128,6 +136,7 @@ class ParseResultTest(unittest.TestCase):
         self.assertEqual(3, parsed["tool_calls"])
         self.assertEqual(EXPECTED_MODEL, parsed["model"])
         self.assertEqual(EXPECTED_MODEL, parsed["response_model"])
+        self.assertEqual([EXPECTED_MODEL, EXPECTED_MODEL], parsed["response_models"])
         self.assertAlmostEqual(10.2, parsed["run_seconds"])
         self.assertEqual(1200, parsed["tokens_in"])
         self.assertEqual(502, parsed["tokens_out"])
@@ -151,9 +160,14 @@ class ParseResultTest(unittest.TestCase):
 
     def test_legacy_status_without_response_model(self) -> None:
         legacy = RESULT_HTML.replace(" (Antwort: muse-spark-1.3-contributor)", "")
+        legacy = legacy.replace(
+            " · Antwortmodelle: muse-spark-1.3-contributor, muse-spark-1.3-contributor",
+            "",
+        )
         parsed = parse_result(legacy)
         self.assertEqual(EXPECTED_MODEL, parsed["model"])
         self.assertIsNone(parsed["response_model"])
+        self.assertEqual([], parsed["response_models"])
 
 
 class CheckT20Test(unittest.TestCase):
@@ -171,10 +185,25 @@ class CheckT20Test(unittest.TestCase):
         parsed["response_model"] = None
         self.assertTrue(any("response model" in failure for failure in check_t20(parsed)))
 
+    def test_missing_per_step_response_models_fails(self) -> None:
+        parsed = parse_result(RESULT_HTML)
+        parsed["response_models"] = []
+        self.assertTrue(any("per-step response model" in failure for failure in check_t20(parsed)))
+
+    def test_response_model_count_must_match_steps(self) -> None:
+        parsed = parse_result(RESULT_HTML)
+        parsed["response_models"] = [EXPECTED_MODEL]
+        self.assertTrue(any("response model count" in failure for failure in check_t20(parsed)))
+
     def test_diverged_response_model_fails(self) -> None:
         parsed = parse_result(RESULT_HTML)
         parsed["response_model"] = "other-model"
         self.assertTrue(any("response model" in failure for failure in check_t20(parsed)))
+
+    def test_divergent_per_step_response_models_fail(self) -> None:
+        parsed = parse_result(RESULT_HTML)
+        parsed["response_models"] = [EXPECTED_MODEL, "other-model"]
+        self.assertTrue(any("per-step response models" in failure for failure in check_t20(parsed)))
 
     def test_single_tool_fails(self) -> None:
         parsed = parse_result(RESULT_HTML)
@@ -219,6 +248,67 @@ class SessionGuardTest(unittest.TestCase):
     def test_non_loopback_refused(self) -> None:
         with self.assertRaises(ProbeError):
             Session("https://example.com")
+
+
+    def test_only_credential_free_http_loopback_urls_are_accepted(self) -> None:
+        invalid = (
+            "file://localhost/tmp/demo",
+            "ftp://localhost/demo",
+            "http://demo:secret@localhost:5101",
+            "http://localhost:5101/?token=secret",
+            "http://localhost:5101/#fragment",
+            "http://localhost:5101/prefix",
+            "http://localhost:5101/../outside",
+        )
+        for base in invalid:
+            with self.subTest(base=base), self.assertRaises(ProbeError) as raised:
+                Session(base)
+            self.assertNotIn("secret", str(raised.exception))
+
+    def test_probe_never_follows_redirects(self) -> None:
+        request = urllib.request.Request("http://127.0.0.1:5101/login")
+        handler = _NoRedirectHandler()
+        self.assertIsNone(
+            handler.redirect_request(
+                request, None, 302, "Found", {}, "https://example.com/collect",
+            ),
+        )
+        session = Session("http://127.0.0.1:5101")
+        redirect_handlers = [
+            handler for handler in session.opener.handlers
+            if isinstance(handler, urllib.request.HTTPRedirectHandler)
+        ]
+        self.assertEqual([_NoRedirectHandler], [type(item) for item in redirect_handlers])
+
+    def test_response_body_limit_is_enforced(self) -> None:
+        self.assertEqual(
+            MAX_RESPONSE_BYTES,
+            len(_read_bounded(io.BytesIO(b"x" * MAX_RESPONSE_BYTES))),
+        )
+        with self.assertRaisesRegex(ProbeError, "2 MiB"):
+            _read_bounded(io.BytesIO(b"x" * (MAX_RESPONSE_BYTES + 1)))
+
+    def test_response_limit_survives_short_reads(self) -> None:
+        class ShortReadStream(io.BytesIO):
+            def read(self, size: int = -1) -> bytes:
+                return super().read(min(size, 3))
+
+        with patch("tools.t20_live_probe.MAX_RESPONSE_BYTES", 4):
+            with self.assertRaisesRegex(ProbeError, "2 MiB"):
+                _read_bounded(ShortReadStream(b"123456"))
+
+    def test_wrapped_timeout_has_a_safe_diagnostic(self) -> None:
+        session = Session("http://127.0.0.1:5101")
+        with patch.object(session.opener, "open", side_effect=urllib.error.URLError(TimeoutError())):
+            with self.assertRaisesRegex(ProbeError, "timed out"):
+                session.get("/login")
+
+
+class ProbePathsTest(unittest.TestCase):
+    def test_login_path_matches_auth_blueprint(self) -> None:
+        from app.auth import bp
+
+        self.assertEqual(f"{bp.url_prefix}/login", LOGIN_PATH)
 
 
 if __name__ == "__main__":

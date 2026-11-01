@@ -566,6 +566,23 @@ def index():
         and vision_settings.get("meta_api_key")
         and is_verified_demo_root(Path(current_app.config["DOCUMENT_ROOT"]))
     )
+    angel_avatar = True
+    try:
+        from .contextflow.hints import HintPrefs
+
+        user = g.get("user")
+        actor = ""
+        if user is not None:
+            try:
+                actor = str(user["username"] or "")
+            except (KeyError, IndexError, TypeError):
+                actor = ""
+        if actor:
+            angel_avatar = HintPrefs(
+                Path(current_app.config["DOCUMENT_ROOT"])
+            ).get(actor).get("angel_avatar", True)
+    except (ValueError, OSError, KeyError, TypeError, AttributeError):
+        angel_avatar = True
     return render_template(
         "inventory/index.html",
         inventory_rows=rows,
@@ -574,6 +591,7 @@ def index():
         library_locations=locations if capture.get("enabled") else [],
         series_locations=locations,
         meta_photo_consent_available=meta_photo_consent_available,
+        angel_avatar=angel_avatar,
     )
 
 

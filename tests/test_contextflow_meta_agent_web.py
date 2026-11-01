@@ -144,6 +144,9 @@ class MetaAgentWebTest(unittest.TestCase):
             "ok": True,
             "provider": "meta",
             "model": META_MODEL_API_MODEL,
+            "response_model": META_MODEL_API_MODEL,
+            "response_models": [META_MODEL_API_MODEL, META_MODEL_API_MODEL],
+            "response_models_display": f"{META_MODEL_API_MODEL}, {META_MODEL_API_MODEL}",
             "link_id": self.link_id,
             "steps": 2,
             "tool_calls": [
@@ -271,6 +274,10 @@ class MetaAgentWebTest(unittest.TestCase):
         self.assertIn(title, body)
         self.assertIn(f"Fall-ID: {self.case_id}", body)
         self.assertIn("Laufzeit:", body)
+        self.assertIn(
+            f"Antwortmodelle: {META_MODEL_API_MODEL}, {META_MODEL_API_MODEL}",
+            body,
+        )
         self.assertIn("Tokens Ein/Aus: 2152 / 784", body)
         self.assertIn('aria-hidden="true"', body)
         self.assertIn("visually-hidden", body)

@@ -1,7 +1,7 @@
 name: Release security, protocols and performance
 on:
   push:
-    branches: [main]
+    branches: [main, hackathon/contextflow-mvp]
   pull_request:
     paths:
       - 'pyproject.toml'
