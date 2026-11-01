@@ -46,6 +46,14 @@ class DockerBuildContextSecurityTests(unittest.TestCase):
             with self.subTest(gitignore_pattern=pattern):
                 self.assertIn(pattern, gitignore)
 
+    def test_oss_scanner_context_includes_android_release_workflow_fixture(self):
+        ignore = (
+            ROOT / ".oss-scanner" / "Dockerfile.dockerignore"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("!.github/workflows/android-apk-release.yml", ignore)
+        self.assertIn("!.github/workflows/android-native-wheels.yml", ignore)
+
 
 if __name__ == "__main__":
     unittest.main()
