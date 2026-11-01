@@ -59,8 +59,10 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertIn("storePassword releaseKeystorePassword", GRADLE)
         self.assertIn("keyAlias releaseKeyAlias", GRADLE)
         self.assertIn("keyPassword releaseKeyPassword", GRADLE)
-        self.assertIn("v1SigningEnabled true", GRADLE)
-        self.assertIn("v2SigningEnabled true", GRADLE)
+        self.assertIn("enableV1Signing true", GRADLE)
+        self.assertIn("enableV2Signing true", GRADLE)
+        self.assertNotIn("v1SigningEnabled true", GRADLE)
+        self.assertNotIn("v2SigningEnabled true", GRADLE)
         for key in PROPERTY_KEYS:
             self.assertIn(key, GRADLE.split("def missingReleaseSigning")[1])
 
