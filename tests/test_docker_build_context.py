@@ -52,6 +52,7 @@ class DockerBuildContextSecurityTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("!.github/workflows/android-apk-release.yml", ignore)
+        self.assertIn("!.github/workflows/android-native-wheels.yml", ignore)
 
 
 if __name__ == "__main__":
