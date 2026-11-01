@@ -19,7 +19,7 @@ class FinalizeAndroidApkTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
         self.apk = self.root / "app-release.apk"
-        self.apk.write_bytes(b"AGP v2-only APK")
+        self.apk.write_bytes(b"unsigned Gradle intermediate")
         self.apksigner = self.root / "apksigner"
         self.apksigner.write_text("tool", encoding="utf-8")
         self.apksigner.chmod(0o755)
@@ -35,7 +35,7 @@ class FinalizeAndroidApkTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def test_resigns_atomically_with_v1_v2_and_verifies_before_replace(self) -> None:
+    def test_signs_atomically_with_v1_v2_and_verifies_before_replace(self) -> None:
         calls: list[tuple[list[str], dict]] = []
 
         def run(command, **kwargs):
@@ -85,7 +85,7 @@ class FinalizeAndroidApkTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "both v1 and v2") as error:
                 finalize_apk(self.apk, self.apksigner, self.keystore, "release")
 
-        self.assertEqual(b"AGP v2-only APK", self.apk.read_bytes())
+        self.assertEqual(b"unsigned Gradle intermediate", self.apk.read_bytes())
         self.assertEqual({self.apk, self.apksigner, self.keystore}, set(self.root.iterdir()))
         self.assertIn("v1=False, v2=True", str(error.exception))
 
@@ -103,7 +103,7 @@ class FinalizeAndroidApkTests(unittest.TestCase):
 
         self.assertNotIn(self.store_password, str(error.exception))
         self.assertNotIn(self.key_password, str(error.exception))
-        self.assertEqual(b"AGP v2-only APK", self.apk.read_bytes())
+        self.assertEqual(b"unsigned Gradle intermediate", self.apk.read_bytes())
 
     def test_missing_password_fails_before_spawning_apksigner(self) -> None:
         with patch.dict(os.environ, {}, clear=True), patch(
@@ -113,7 +113,7 @@ class FinalizeAndroidApkTests(unittest.TestCase):
                 finalize_apk(self.apk, self.apksigner, self.keystore, "release")
 
         run.assert_not_called()
-        self.assertEqual(b"AGP v2-only APK", self.apk.read_bytes())
+        self.assertEqual(b"unsigned Gradle intermediate", self.apk.read_bytes())
 
 
 if __name__ == "__main__":

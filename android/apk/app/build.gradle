@@ -105,29 +105,10 @@ if (calculatedVersionCode <= 0 || calculatedVersionCode > 2_100_000_000L) {
 def appVersionCode = calculatedVersionCode.toInteger()
 def appVersionName = "${versionMajor}.${buildDate}.${buildSequence}"
 
-// Release signing material comes from user-level Gradle properties
-// (~/.gradle/gradle.properties) or environment variables only. Values
-// must never be committed to the repository, and credential values are
-// never printed: failure messages name only the missing setting.
-def releaseKeystorePath = (findProperty('simpleofficeReleaseKeystore') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEYSTORE') ?: '').toString().trim()
-def releaseKeystorePassword = (findProperty('simpleofficeReleaseKeystorePassword') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD') ?: '').toString()
-def releaseKeyAlias = (findProperty('simpleofficeReleaseKeyAlias') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEY_ALIAS') ?: '').toString().trim()
-def releaseKeyPassword = (findProperty('simpleofficeReleaseKeyPassword') ?: System.getenv('SIMPLEOFFICE_RELEASE_KEY_PASSWORD') ?: '').toString()
-def missingReleaseSigning = []
-if (!releaseKeystorePath) {
-    missingReleaseSigning << 'keystore path (simpleofficeReleaseKeystore / SIMPLEOFFICE_RELEASE_KEYSTORE)'
-}
-if (!releaseKeystorePassword) {
-    missingReleaseSigning << 'keystore password (simpleofficeReleaseKeystorePassword / SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD)'
-}
-if (!releaseKeyAlias) {
-    missingReleaseSigning << 'key alias (simpleofficeReleaseKeyAlias / SIMPLEOFFICE_RELEASE_KEY_ALIAS)'
-}
-if (!releaseKeyPassword) {
-    missingReleaseSigning << 'key password (simpleofficeReleaseKeyPassword / SIMPLEOFFICE_RELEASE_KEY_PASSWORD)'
-}
-def releaseSigningConfigured = missingReleaseSigning.isEmpty()
-def releaseSigningPartial = !releaseSigningConfigured && missingReleaseSigning.size() < 4
+// Gradle's assembleRelease output is an unsigned intermediate. CI and local
+// release instructions immediately finalize it with tools/sign_android_apk.py.
+// Requiring an explicit switch prevents accidental distribution of that APK.
+def deferReleaseSigning = (System.getenv('SIMPLEOFFICE_DEFER_RELEASE_SIGNING') ?: '').trim() == '1'
 
 tasks.named('cyclonedxDirectBom') {
     projectType = org.cyclonedx.model.Component.Type.APPLICATION
@@ -169,26 +150,10 @@ android {
         buildConfig true
     }
 
-    signingConfigs {
-        if (releaseSigningConfigured) {
-            release {
-                storeFile file(releaseKeystorePath)
-                storePassword releaseKeystorePassword
-                keyAlias releaseKeyAlias
-                keyPassword releaseKeyPassword
-                enableV1Signing = true
-                enableV2Signing = true
-            }
-        }
-    }
-
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (releaseSigningConfigured) {
-                signingConfig signingConfigs.release
-            }
         }
     }
 
@@ -201,19 +166,6 @@ android {
         main {
             assets.srcDir "$buildDir/generated/simpleofficeAssets"
             res.srcDir "$buildDir/generated/simpleofficeLogoRes"
-        }
-    }
-}
-
-def releaseVariantSigningConfig = null
-androidComponents {
-    onVariants(selector().withBuildType('release')) { variant ->
-        if (releaseSigningConfigured) {
-            // Set the final variant properties as well as the DSL config:
-            // AGP's variant signing properties override DSL defaults.
-            variant.signingConfig.enableV1Signing.set(true)
-            variant.signingConfig.enableV2Signing.set(true)
-            releaseVariantSigningConfig = variant.signingConfig
         }
     }
 }
@@ -295,39 +247,16 @@ tasks.register('syncSimpleOfficeAssets', Sync) {
     }
 }
 
-// Fail closed: without a complete release signing configuration Gradle
-// would otherwise produce an unsigned, non-distributeable release APK.
-// Debug builds and task-graph inspection stay unaffected.
+// Fail closed: Gradle's APK is not distributable until the finalizer has
+// signed and verified both schemes. Only an explicit finalization flow may
+// build this intermediate; debug builds remain unaffected.
 gradle.taskGraph.whenReady { graph ->
-    if (graph.hasTask("${project.path}:assembleRelease")) {
-        if (!releaseSigningConfigured) {
-            if (releaseSigningPartial) {
-                throw new GradleException(
-                    'Release signing is only partially configured; refusing to build an unsigned release APK. Missing: '
-                    + missingReleaseSigning.join(', ')
-                )
-            }
-            throw new GradleException(
-                'Release signing is not configured. Refusing to build an unsigned release APK. '
-                + 'Set all four settings as user-level Gradle properties or environment variables '
-                + '(see android/apk/README.md); signing material never belongs into the repository.'
-            )
-        }
-        def v1Signing = releaseVariantSigningConfig?.enableV1Signing?.getOrNull()
-        def v2Signing = releaseVariantSigningConfig?.enableV2Signing?.getOrNull()
-        def injectedV1Signing = project.findProperty('android.injected.signing.v1-enabled') ?: 'unset'
-        def injectedV2Signing = project.findProperty('android.injected.signing.v2-enabled') ?: 'unset'
-        logger.lifecycle(
-            "Release signing scheme configuration: v1=${v1Signing}, v2=${v2Signing}, "
-            + "injected overrides v1=${injectedV1Signing}, v2=${injectedV2Signing}"
+    if (graph.hasTask("${project.path}:assembleRelease") && !deferReleaseSigning) {
+        throw new GradleException(
+            'Gradle assembleRelease output is an unsigned intermediate. '
+            + 'Set SIMPLEOFFICE_DEFER_RELEASE_SIGNING=1 and immediately finalize it '
+            + 'with tools/sign_android_apk.py before distribution.'
         )
-        if (v1Signing != true || v2Signing != true) {
-            throw new GradleException('Release signing configuration must enable v1 and v2 schemes')
-        }
-        def releaseKeystoreFile = file(releaseKeystorePath)
-        if (!releaseKeystoreFile.isFile()) {
-            throw new GradleException("Release keystore is not a readable file: ${releaseKeystoreFile}")
-        }
     }
 }
 

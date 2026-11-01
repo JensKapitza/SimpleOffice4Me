@@ -72,34 +72,32 @@ The debug APK is signed automatically with the Android debug key and is directly
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-A normal `assembleRelease` without a complete release signing configuration fails with a clear error instead of producing an unsigned APK. Debug builds are unaffected.
+A normal `assembleRelease` fails unless the caller explicitly enables deferred signing; distribution must use the apksigner finalizer below. Debug builds are unaffected.
 
 ## Release signing (persistent update-stable key)
 
 CI debug APKs are development-only artifacts: every ephemeral runner signs with its own debug key, so they are not update-stable across runs or machines. For installable releases that support in-place updates, create one persistent release key once and keep it outside the repository:
 
 1. Generate the keystore once, outside the repository (for example `~/.android/simpleoffice-release.jks` on Linux/macOS or `%USERPROFILE%\.android\simpleoffice-release.jks` on Windows). **Back it up securely and separately: losing the keystore or its passwords permanently ends the update chain for this certificate — a replacement key requires all users to uninstall and reinstall.**
-2. Configure the four settings as per-user Gradle properties in `~/.gradle/gradle.properties` (or the equivalent Windows path), or as environment variables. Never commit them:
+2. Make these environment variables available to the finalizer through a secure local environment. Never commit them or pass their values as command-line arguments:
 
-   ```properties
-   simpleofficeReleaseKeystore=/home/user/.android/simpleoffice-release.jks
-   simpleofficeReleaseKeystorePassword=<keystore password>
-   simpleofficeReleaseKeyAlias=<key alias>
-   simpleofficeReleaseKeyPassword=<key password>
-   ```
+   - `SIMPLEOFFICE_RELEASE_KEYSTORE`
+   - `SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD`
+   - `SIMPLEOFFICE_RELEASE_KEY_ALIAS`
+   - `SIMPLEOFFICE_RELEASE_KEY_PASSWORD`
 
-   Environment equivalents: `SIMPLEOFFICE_RELEASE_KEYSTORE`, `SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD`, `SIMPLEOFFICE_RELEASE_KEY_ALIAS`, `SIMPLEOFFICE_RELEASE_KEY_PASSWORD`. The build reads only these user-level properties or environment variables — never repository files — and never prints credential values.
-3. Build the signed release from `android/apk`:
+   CI uses the corresponding GitHub Secrets; the Gradle build itself does not receive signing credentials.
+3. Build an unsigned release intermediate explicitly for immediate finalization:
 
    ```bash
+   cd android/apk
+   export SIMPLEOFFICE_DEFER_RELEASE_SIGNING=1
    gradle assembleRelease
+   cd ../..
    ```
 
-   The build refuses to run when any of the four settings is missing or the keystore file is unreadable.
-4. Finalize the Gradle APK with the repository helper. It reads the keystore,
-   alias and passwords from the `SIMPLEOFFICE_RELEASE_*` environment variables
-   (not from Gradle properties); supply them through a secure environment, never
-   as command-line arguments:
+   Without `SIMPLEOFFICE_DEFER_RELEASE_SIGNING=1`, Gradle refuses to build a release intermediate.
+4. From the repository root, finalize the APK with the repository helper:
 
    ```bash
    APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
@@ -125,7 +123,7 @@ Signature migration: if a device has a previously installed APK signed with a di
 
 ## CI release builds (signed, update-stable)
 
-The `Android APK release (signed)` workflow builds `assembleRelease` with the persistent update key, finalizes with `tools/sign_android_apk.py` using that same key, then asserts both v1/v2 signatures and the signer fingerprint, so a wrong key or signature scheme fails before upload. Signing is restricted to `main` and version tags whose commit is already reachable from `main`; feature-branch dispatches are refused before secrets are loaded. It runs on manual dispatch from `main` and as part of every valid tag release (`project-release.yml`); the signed APK is collected into the release package as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. PR CI separately builds `assembleRelease` with an ephemeral throwaway key, finalizes and verifies both signature schemes; that smoke artifact is not uploaded and does not use production secrets. Debug CI APKs remain reinstall-only test artifacts.
+The `Android APK release (signed)` workflow builds an explicitly deferred unsigned `assembleRelease` intermediate, finalizes it with `tools/sign_android_apk.py` and the persistent update key, then asserts both v1/v2 signatures and the signer fingerprint before upload. Signing is restricted to `main` and version tags whose commit is already reachable from `main`; feature-branch dispatches are refused before secrets are loaded. It runs on manual dispatch from `main` and as part of every valid tag release (`project-release.yml`); the signed APK is collected into the release package as `SimpleOffice4Me-Android-arm64-RELEASE-<date>-<sequence>.apk`. PR CI separately builds an unsigned release intermediate, finalizes it with an ephemeral throwaway key and verifies both signature schemes; that smoke artifact is not uploaded and does not use production secrets. Debug CI APKs remain reinstall-only test artifacts.
 
 Working copies of the signing material live in GitHub Secrets (`ANDROID_RELEASE_KEYSTORE_BASE64`, `ANDROID_RELEASE_KEYSTORE_PASSWORD`, `ANDROID_RELEASE_KEY_PASSWORD`; alias `simpleoffice-release`); the only backup is outside the repository — losing it ends the update chain (see above). Expected release certificate (public, verify before trusting an APK):
 
