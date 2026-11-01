@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 from contextlib import closing
+from unittest.mock import patch
 
 from app.telephony_profiles import TelephonyProfileStore
 from app.telephony_profiles import sip_digest_ha1, sip_digest_verifiers
@@ -138,6 +139,54 @@ class TelephonyProfileStoreTests(unittest.TestCase):
             with closing(sqlite3.connect(store.path)) as db:
                 stored = db.execute("SELECT digest_ha1 FROM telephony_profile WHERE extension='122'").fetchone()[0]
             self.assertEqual(legacy_md5, stored)
+
+    def test_partial_legacy_migration_failure_rolls_back_all_profiles(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = TelephonyProfileStore(directory, TEST_KEY)
+            store.save_settings(
+                registrar_host="", registrar_port=5060, transport="udp",
+                realm="simpleoffice.local",
+            )
+            legacy: dict[str, str] = {}
+            for extension in ("123", "124"):
+                password = f"legacy-profile-password-{extension}"
+                store.create_profile(
+                    extension,
+                    "Legacy",
+                    encrypt_sip_profile_secret(password, extension, TEST_KEY),
+                    digest_ha1=sip_digest_ha1(extension, "simpleoffice.local", password),
+                )
+                legacy[extension] = sip_digest_ha1(extension, "simpleoffice.local", password)
+            with closing(sqlite3.connect(store.path)) as db:
+                db.executemany(
+                    "UPDATE telephony_profile SET digest_ha1=? WHERE extension=?",
+                    ((digest, extension) for extension, digest in legacy.items()),
+                )
+                db.commit()
+
+            from simpleoffice_sip_crypto import encrypt_sip_digest_verifiers
+
+            original_encrypt = encrypt_sip_digest_verifiers
+            encryption_calls = 0
+
+            def fail_after_first_profile(extension, verifiers, master_key):
+                nonlocal encryption_calls
+                encryption_calls += 1
+                if encryption_calls == 2:
+                    raise ValueError("simulated verifier failure")
+                return original_encrypt(extension, verifiers, master_key)
+
+            with patch(
+                "simpleoffice_sip_crypto.encrypt_sip_digest_verifiers",
+                side_effect=fail_after_first_profile,
+            ):
+                with self.assertRaisesRegex(ValueError, "simulated verifier failure"):
+                    TelephonyProfileStore(directory, TEST_KEY)
+
+            self.assertEqual(encryption_calls, 2)
+            with closing(sqlite3.connect(store.path)) as db:
+                stored = dict(db.execute("SELECT extension,digest_ha1 FROM telephony_profile"))
+            self.assertEqual(stored, legacy)
 
 
 if __name__ == "__main__":
