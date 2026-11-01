@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from .document_store_core import *  # noqa: F401,F403
 from .file_lock import exclusive_file_lock
-from .safe_paths import resolve_file_under
+from .safe_paths import SAFE_DOCUMENT_ID, resolve_file_under
 from .v3_activity import emit_activity_best_effort
 
 
@@ -609,29 +609,135 @@ class _DocumentStorePart1:
         self._record_revision("external_archives_discovered", actor, "archives", "registry", {"archives": updated})
         return updated
 
-    def get_document(self, reference: str | Path) -> dict[str, Any]:
-        self.initialize()
-        reference_text = str(reference)
-        candidate = Path(reference).expanduser()
-        if not candidate.is_absolute():
-            candidate = self.root / candidate
-        if candidate.exists() and candidate.is_file() and not candidate.is_symlink():
-            self._scan_file(candidate.resolve())
-            with self._db() as db:
-                row = db.execute(
-                    "SELECT document_id FROM scan_file WHERE relative_path = ?",
-                    (self.relative(candidate),),
-                ).fetchone()
-            if row:
-                reference_text = str(row[0])
-        metadata = self._read_json(self.documents / f"{reference_text}.json", {})
+    def _metadata_by_id(self, document_id: str) -> dict[str, Any]:
+        """Read stored metadata for one catalog id (no scan, no path input)."""
+        metadata = self._read_json(self.documents / f"{document_id}.json", {})
         if not metadata.get("document_id"):
-            raise ValueError(f"unknown document: {reference}")
+            raise ValueError(f"unknown document: {document_id}")
         access_metadata = self._read_json(self.document_access / f"{metadata['document_id']}.json", {})
         for key in ("access_log", "seen_by", "found_by"):
             if key in access_metadata:
                 metadata[key] = access_metadata[key]
         return metadata
+
+    def _db_id_for_key(self, key: str) -> str | None:
+        """Catalog id for one stored relative path (lookup key only)."""
+        with self._db() as db:
+            row = db.execute(
+                "SELECT document_id FROM scan_file WHERE relative_path = ?",
+                (key,),
+            ).fetchone()
+        if not row:
+            return None
+        found = str(row[0])
+        if not SAFE_DOCUMENT_ID.fullmatch(found):
+            raise ValueError("document catalog contains an unsafe id")
+        return found
+
+    def _lookup_keys(self, raw: str) -> list[str]:
+        """DB lookup keys for a reference string (catalog queries only).
+
+        Absolute input must name the resolved store root; the remainder
+        is looked up like a relative key. ``realpath`` only resolves
+        symlinked parents for the prefix comparison (no file content is
+        read); the result solely queries the scan catalog. Separator
+        variants cover ``as_posix`` callers on native catalogs.
+        """
+        keys = [raw]
+        root_text = os.path.normcase(str(self.root))
+        candidates = [raw]
+        if os.path.isabs(raw):
+            try:
+                resolved = os.path.realpath(raw)
+            except (OSError, ValueError):
+                resolved = ""
+            if resolved and resolved != raw:
+                candidates.append(resolved)
+        for candidate in candidates:
+            normalized = os.path.normcase(candidate)
+            if normalized.startswith(root_text + os.sep) and len(normalized) == len(candidate):
+                keys.append(candidate[len(root_text) + 1 :].replace("/", os.sep))
+        keys.append(raw.replace("/", os.sep))
+        keys.append(raw.replace(os.sep, "/"))
+        return list(dict.fromkeys(keys))
+
+    def get_document(self, reference: str | Path) -> dict[str, Any]:
+        """Return metadata for an id or a registered path (lookup only).
+
+        The reference is an opaque lookup key: registered paths resolve
+        through the scan catalog first (bare filenames are paths, not
+        ids), then bare ids read metadata directly. Nothing unregistered
+        is touched; internal importers that need auto-scan use
+        :meth:`scan_and_get_document` instead.
+        """
+        self.initialize()
+        raw = str(reference or "")
+        for key in self._lookup_keys(raw):
+            found = self._db_id_for_key(key)
+            if found is not None:
+                return self._metadata_by_id(found)
+        if SAFE_DOCUMENT_ID.fullmatch(raw) and raw not in {".", ".."}:
+            return self._metadata_by_id(raw)
+        if os.path.isabs(raw) or "/" in raw or "\\" in raw or raw in {".", ".."} or raw.startswith("."):
+            raise ValueError(f"unknown document: {reference}")
+        raise ValueError("invalid document reference")
+
+    def scan_and_get_document(self, path: str | Path) -> dict[str, Any]:
+        """Scan an app-produced file into the store and return metadata.
+
+        Internal use only: ``path`` must come from the app itself (scan
+        results, freshly written files), never from request/user input.
+        Falls back to :meth:`get_document` for ids and missing files.
+        """
+        self.initialize()
+        candidate = Path(path).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.root / candidate
+        if candidate.exists() and candidate.is_file() and not candidate.is_symlink():
+            self._scan_file(candidate.resolve())
+            found = self._db_id_for_key(self.relative(candidate))
+            if found is not None:
+                return self._metadata_by_id(found)
+        return self.get_document(str(path))
+
+    def get_or_scan_document(self, reference: str | Path, *, force_hash: bool = False) -> dict[str, Any]:
+        """Lookup with one contained self-heal scan for store paths.
+
+        For request- or app-reachable paths: plain catalog lookup first,
+        then a single scan of the containment-proven file and one retry.
+        Outside-root, missing and symlink targets raise ``ValueError``;
+        nothing uncontained is ever scanned.
+        """
+        try:
+            return self.get_document(reference)
+        except (OSError, ValueError):
+            raw = str(reference or "")
+        target = self._contained_target(raw)
+        if target is None or not target.is_file() or target.is_symlink():
+            raise ValueError(f"unknown document: {reference}") from None
+        self._scan_file(target, force_hash=force_hash)
+        return self.get_document(reference)
+
+    def _contained_target(self, raw: str) -> Path | None:
+        """Contained absolute target for a relative or absolute store path."""
+        if os.path.isabs(raw):
+            try:
+                real = os.path.realpath(raw)
+            except (OSError, ValueError):
+                return None
+            root_text = os.path.normcase(str(self.root))
+            normalized = os.path.normcase(real)
+            if not normalized.startswith(root_text + os.sep) or len(normalized) != len(real):
+                return None
+            rel = real[len(root_text) + 1 :]
+        else:
+            rel = raw
+        try:
+            target = self.root.joinpath(*rel.replace("\\", "/").split("/")).resolve()
+            target.relative_to(self.root)
+        except (OSError, ValueError, RuntimeError):
+            return None
+        return target
 
     def add_note(self, reference: str | Path, text: str, author: str = "") -> dict[str, Any]:
         self._require_actor(author)

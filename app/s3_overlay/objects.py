@@ -252,7 +252,7 @@ class DocumentObjects:
             path = ("inbox/" + relative_key if len(parts) >= 3 and parts[1] == self.username
                     else f"inbox/{self.username}/{relative_key}")
             try:
-                document = self.store.get_document(path)
+                document = self.store.get_or_scan_document(path, force_hash=True)
             except (OSError, ValueError):
                 return None
             if not self._authorized(document) or document.get("last_path") != path:
@@ -746,7 +746,7 @@ class DocumentObjects:
         lock_path = lock_dir / (hashlib.sha256(destination.encode("utf-8")).hexdigest() + ".lock")
         with exclusive_file_lock(lock_path):
             try:
-                existing = self.store.get_document(destination)
+                existing = self.store.get_or_scan_document(destination, force_hash=True)
             except (OSError, ValueError):
                 existing = None
             if existing is not None:

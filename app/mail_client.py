@@ -533,7 +533,7 @@ class MailStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         documents.ensure_folder_policy(target.parent, actor)
         if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
-            document = documents.get_document(path)
+            document = documents.get_or_scan_document(path, force_hash=True)
         else:
             document = create_document(documents.root, actor, path, raw, max_bytes=MAX_OUTBOUND_BYTES)
             documents.set_tags(document["document_id"], ["email", "source:smtp", "direction:outbound", f"imap-account:{account_id}"], actor)
