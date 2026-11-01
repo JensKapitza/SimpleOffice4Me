@@ -254,7 +254,9 @@ class CaptureRouteTests(unittest.TestCase):
         self.assertEqual("object", payload["kind"])
         self.assertTrue(payload["needs_name"])
         self.assertEqual(["name"], payload["missing_fields"])
-        self.assertIn("RapidOCR", payload["ocr"]["error"])
+        self.assertEqual(
+            "Lokale OCR-Auswertung fehlgeschlagen.", payload["ocr"]["error"]
+        )
 
     def test_invalid_photo_rejected(self) -> None:
         response = self.post_photo(data=b"kein-bild")
@@ -276,7 +278,9 @@ class CaptureRouteTests(unittest.TestCase):
 
             result = capture_ml_label(b"fake-png-bytes", "")
         self.assertFalse(result["available"])
-        self.assertIn("kein Meta-Modell", result["error"])
+        self.assertEqual(
+            "ML-Analyse ist vorübergehend nicht verfügbar.", result["error"]
+        )
 
 
 class CaptureAdoptTests(CaptureRouteTests):

@@ -576,10 +576,10 @@ class CaptureCorruptIndexRouteTests(CapturePersistRouteTests):
 
         mismatch_book = assign("book", thing["object_id"])
         self.assertEqual(mismatch_book.status_code, 400)
-        self.assertIn("Buch erwartet", mismatch_book.get_json()["error"])
+        self.assertIn("Zuordnung erwartet ein Buch", mismatch_book.get_json()["error"])
         mismatch_object = assign("object", book["object_id"])
         self.assertEqual(mismatch_object.status_code, 400)
-        self.assertIn("Gegenstand erwartet", mismatch_object.get_json()["error"])
+        self.assertIn("Zuordnung erwartet einen Gegenstand", mismatch_object.get_json()["error"])
         match = assign("book", book["object_id"])
         self.assertEqual(match.status_code, 200)
         self.assertEqual("assigned", match.get_json()["entry"]["status"])

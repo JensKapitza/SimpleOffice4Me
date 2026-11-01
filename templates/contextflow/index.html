@@ -157,7 +157,7 @@
         <p class="cf-hint-text">Zum Übernehmen auf der Karte das Häkchen setzen und bestätigen.</p>
         {% endif %}
         <div class="cf-engel-actions">
-          <form method="dialog"><button class="cf-btn" type="submit">Schließen</button></form>
+          <form id="cf-engel-close-{{ card.link_id }}" method="dialog"><button class="cf-btn" type="submit">Schließen</button></form>
           <form method="post" action="{{ url_for('contextflow.dismiss') }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="link_id" value="{{ card.link_id }}">

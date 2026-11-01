@@ -9,12 +9,10 @@ honestly, never faked.
 from __future__ import annotations
 
 import hashlib
-import os
-import tempfile
 from pathlib import Path
 from typing import Any
 
-from flask import current_app, has_app_context, url_for
+from flask import current_app, url_for
 
 from .book_metadata_cache import BookMetadataCache
 from .inventory_capture_shelf import (
@@ -30,94 +28,7 @@ from .capture_analysis import (
     route_kind,
     title_lines,
 )
-
-
-def capture_ocr(png: bytes) -> dict[str, Any]:
-    """Run local OCR on optimized bytes; never raises, reports honestly."""
-    from .object_vision import analyze_ocr
-
-    try:
-        with tempfile.TemporaryDirectory(prefix="capture-ocr-") as directory:
-            path = Path(directory) / "capture.png"
-            path.write_bytes(png)
-            result = analyze_ocr(path)
-    except (OSError, ValueError) as exc:
-        return {"text": "", "engine": "", "status": "error",
-                "characters": 0, "confidence": None, "error": str(exc)[:300]}
-    return {
-        "text": str(result.get("text", "") or "")[:20000],
-        "engine": str(result.get("engine", "") or ""),
-        "status": str(result.get("status", "") or ""),
-        "characters": int(result.get("characters", 0) or 0),
-        "confidence": result.get("confidence"),
-        "error": str(result.get("error", "") or "")[:300],
-    }
-
-
-def capture_ml_label(
-    png: bytes,
-    isbn: str,
-    settings: dict[str, Any] | None = None,
-    *,
-    consent_meta: bool = False,
-    root: object = None,
-) -> dict[str, Any]:
-    """Ask a real Meta backend for an object label (mock never answers).
-
-    Single-photo callers keep ``consent_meta=False`` (no consent
-    element), so only real local backends answer. Batch callers may
-    pass an explicit per-request consent plus the document root; Meta
-    cloud then still requires the server flag, a key, and a verified
-    synthetic demo root. Mock and missing backends raise, which is
-    reported as unavailable — never faked. Works without a Flask
-    context: explicit settings win, otherwise the app config is used
-    when available, else backend defaults (honestly unavailable).
-    """
-    from .contextflow.vision import (
-        MAX_IMAGE_BYTES,
-        VisionError,
-        suggest_inventory_object,
-        vision_settings_from_mapping,
-    )
-
-    base: dict[str, Any] = {"available": False, "label": "", "item_type": "",
-                            "isbn": "", "note": "", "subtitle": "",
-                            "authors": [], "tags": [],
-                            "provider": "", "provider_label": "",
-                            "model": "", "error": ""}
-    if len(png) > MAX_IMAGE_BYTES:
-        base["error"] = "Bild für ML-Analyse zu groß."
-        return base
-    try:
-        if settings is None:
-            config = current_app.config if has_app_context() else {}
-            settings = vision_settings_from_mapping(config, os.environ)
-        answer = suggest_inventory_object(
-            png, "image/png", {"isbn": isbn}, settings,
-            consent_meta is True, root,
-        )
-    except (VisionError, PermissionError) as exc:
-        base["error"] = str(exc)[:300]
-        return base
-    suggestion = answer.get("suggestion", {})
-    raw_tags = suggestion.get("tags", [])
-    tags = [tag for tag in raw_tags if isinstance(tag, str)] \
-        if isinstance(raw_tags, list) else []
-    base.update({
-        "available": True,
-        "label": str(suggestion.get("object_name", "") or ""),
-        "item_type": str(suggestion.get("item_type", "") or ""),
-        "isbn": str(suggestion.get("isbn", "") or ""),
-        "note": str(suggestion.get("note", "") or ""),
-        "subtitle": str(suggestion.get("subtitle", "") or ""),
-        "authors": suggestion.get("authors", []) if isinstance(
-            suggestion.get("authors", []), list) else [],
-        "tags": tags,
-        "provider": str(answer.get("provider", "") or ""),
-        "provider_label": str(answer.get("provider_label", "") or ""),
-        "model": str(answer.get("model", "") or ""),
-    })
-    return base
+from .inventory_capture_vision import capture_ml_label, capture_ocr
 
 
 def capture_duplicates(isbn: str) -> list[dict[str, str]]:
@@ -250,11 +161,27 @@ def analyze_photo(
         "needs_name": route["needs_name"],
         "isbn": isbn,
         "prefill": prefill,
-        "ocr": {key: ocr.get(key) for key in
-                ("engine", "status", "characters", "confidence", "error")},
-        "ml": {key: ml_result.get(key) for key in
-               ("available", "label", "item_type", "provider",
-                "provider_label", "model", "error")},
+        "ocr": {
+            key: ocr.get(key)
+            for key in ("engine", "status", "characters", "confidence")
+        } | {
+            "error": (
+                "Lokale OCR-Auswertung fehlgeschlagen."
+                if ocr.get("error") else ""
+            ),
+        },
+        "ml": {
+            key: ml_result.get(key)
+            for key in (
+                "available", "label", "item_type", "provider",
+                "provider_label", "model",
+            )
+        } | {
+            "error": (
+                "ML-Analyse ist vorübergehend nicht verfügbar."
+                if ml_result.get("error") else ""
+            ),
+        },
         "duplicates": duplicates,
         "missing_fields": missing,
     }
@@ -427,8 +354,8 @@ def _attach_entry_original(
         sidecar.save_photo(
             object_id, _BatchPhotoUpload(entry_id, raw), actor,
             photo_role=role)
-    except (OSError, ValueError) as exc:
-        return False, f"Foto nicht übernommen: {exc}"
+    except (OSError, ValueError):
+        return False, "Foto nicht übernommen; bitte später erneut versuchen."
     return True, ""
 
 
@@ -613,8 +540,8 @@ def analyze_batch(
         try:
             payload = analyze_photo(
                 raw, entry_id, consent_meta=consent_meta is True, root=root)
-        except ValueError as exc:
-            errors[entry_id] = str(exc)[:300]
+        except ValueError:
+            errors[entry_id] = "Fotoanalyse fehlgeschlagen."
             continue
         updated = store.save_analysis(entry_id, actor, payload)
         if updated is None:
@@ -671,8 +598,10 @@ def _batch_photo_notices(
             sidecar.save_photo(
                 item_id, _BatchPhotoUpload(entry_id, raw), actor,
                 photo_role=role)
-        except (OSError, ValueError) as exc:
-            notices.append(f"Foto {entry_id[:8]} nicht gespeichert: {exc}")
+        except (OSError, ValueError):
+            notices.append(
+                f"Foto {entry_id[:8]} nicht gespeichert; bitte später erneut versuchen."
+            )
             continue
         attached += 1
         attached_digests.add(hashlib.sha256(raw).hexdigest())
@@ -824,9 +753,10 @@ def _assign_batch_entries(
                 display_id=str(item.get("display_id", "")),
                 name=str(item.get("name", "")),
             )
-        except (OSError, ValueError) as exc:
+        except (OSError, ValueError):
             notices.append(
-                f"Eintrag {entry_id[:8]} nicht zugeordnet: {exc}")
+                f"Eintrag {entry_id[:8]} konnte nicht zugeordnet werden; bitte später erneut versuchen."
+            )
             continue
         if updated is None:
             notices.append(
@@ -862,7 +792,7 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
         try:
             isbn = inventory_module.normalize_isbn(isbn_raw)
         except ValueError as exc:
-            raise ValueError(str(exc)) from exc
+            raise ValueError("ISBN ist ungültig.") from exc
     title = inventory_module._single_line(fields.get("title", ""), 300)
     if kind == "book" and not title:
         raise ValueError(
