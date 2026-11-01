@@ -62,7 +62,7 @@ class RemoteAppCatalogSecurityTests(unittest.TestCase):
 
         self.assertEqual(str(self.executable.resolve()), catalog.launch_spec(published["app_id"])["executable"])
         self.executable.write_bytes(b"changed executable fixture")
-        with self.assertRaisesRegex(ValueError, "must be republished"):
+        with self.assertRaisesRegex(ValueError, "muss erneut veröffentlicht werden"):
             catalog.launch_spec(published["app_id"])
 
     def test_catalog_rejects_shell_and_relative_executable_paths(self) -> None:
