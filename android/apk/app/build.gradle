@@ -205,6 +205,7 @@ android {
     }
 }
 
+def releaseVariantSigningConfig = null
 androidComponents {
     onVariants(selector().withBuildType('release')) { variant ->
         if (releaseSigningConfigured) {
@@ -212,6 +213,7 @@ androidComponents {
             // AGP's variant signing properties override DSL defaults.
             variant.signingConfig.enableV1Signing.set(true)
             variant.signingConfig.enableV2Signing.set(true)
+            releaseVariantSigningConfig = variant.signingConfig
         }
     }
 }
@@ -310,6 +312,12 @@ gradle.taskGraph.whenReady { graph ->
                 + 'Set all four settings as user-level Gradle properties or environment variables '
                 + '(see android/apk/README.md); signing material never belongs into the repository.'
             )
+        }
+        def v1Signing = releaseVariantSigningConfig?.enableV1Signing?.getOrNull()
+        def v2Signing = releaseVariantSigningConfig?.enableV2Signing?.getOrNull()
+        logger.lifecycle("Release signing scheme configuration: v1=${v1Signing}, v2=${v2Signing}")
+        if (v1Signing != true || v2Signing != true) {
+            throw new GradleException('Release signing configuration must enable v1 and v2 schemes')
         }
         def releaseKeystoreFile = file(releaseKeystorePath)
         if (!releaseKeystoreFile.isFile()) {

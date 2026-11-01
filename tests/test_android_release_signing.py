@@ -68,6 +68,11 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertIn("onVariants(selector().withBuildType('release'))", GRADLE)
         self.assertIn("variant.signingConfig.enableV1Signing.set(true)", GRADLE)
         self.assertIn("variant.signingConfig.enableV2Signing.set(true)", GRADLE)
+        self.assertIn("Release signing scheme configuration:", GRADLE)
+        self.assertIn(
+            "if (v1Signing != true || v2Signing != true)",
+            GRADLE,
+        )
         for key in PROPERTY_KEYS:
             self.assertIn(key, GRADLE.split("def missingReleaseSigning")[1])
 
