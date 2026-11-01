@@ -21,6 +21,17 @@
       : 'Aktuell: Einzelfotos (keine Buchgruppe).';
   };
   const cleanText = (value) => String(value || '').trim();
+  // Allowlist for server-provided preview URLs: relative paths plus
+  // http(s)/blob/data-image only. Anything else (javascript:, data
+  // HTML, protocol-relative) fails closed to an empty image source.
+  const safePreviewUrl = (value) => {
+    const url = String(value || '').trim();
+    if (/^\/(?!\/)/.test(url)) return url;
+    if (/^https?:\/\//i.test(url)) return url;
+    if (/^blob:/i.test(url)) return url;
+    if (/^data:image\//i.test(url)) return url;
+    return '';
+  };
   const nextToken = () => {
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
@@ -165,7 +176,7 @@
     img.className = 'card-img-top';
     img.alt = 'Gespeicherte Aufnahme';
     img.loading = 'lazy';
-    img.src = entry.preview_url || '';
+    img.src = safePreviewUrl(entry.preview_url);
     card.appendChild(img);
     const body = document.createElement('div');
     body.className = 'card-body';

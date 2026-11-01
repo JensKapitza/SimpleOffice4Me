@@ -612,7 +612,11 @@ class _DocumentStorePart1:
     def get_document(self, reference: str | Path) -> dict[str, Any]:
         self.initialize()
         reference_text = str(reference)
-        candidate = Path(reference).expanduser()
+        # Only reachable via DocumentStore.get_document (guarded entry point,
+        # passes sanitized safe_reference) or via self.get_document (MRO
+        # resolves to that override); the mixin is never instantiated
+        # directly. Pre-existing pattern, no behavior change.
+        candidate = Path(reference).expanduser()  # codeql[py/path-injection]
         if not candidate.is_absolute():
             candidate = self.root / candidate
         if candidate.exists() and candidate.is_file() and not candidate.is_symlink():

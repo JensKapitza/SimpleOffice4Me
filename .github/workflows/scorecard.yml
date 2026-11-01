@@ -14,6 +14,10 @@ permissions: read-all
 jobs:
   analysis:
     name: Scorecard analysis
+    # The scorecard action only supports the default branch for publishing
+    # runs; PR runs analyze the merge ref fine. Skip other refs instead of
+    # failing them.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-26.04
     permissions:
       contents: read
