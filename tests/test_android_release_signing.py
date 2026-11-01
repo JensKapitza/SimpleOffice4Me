@@ -69,6 +69,8 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertIn("variant.signingConfig.enableV1Signing.set(true)", GRADLE)
         self.assertIn("variant.signingConfig.enableV2Signing.set(true)", GRADLE)
         self.assertIn("Release signing scheme configuration:", GRADLE)
+        self.assertIn("android.injected.signing.v1-enabled", GRADLE)
+        self.assertIn("android.injected.signing.v2-enabled", GRADLE)
         self.assertIn(
             "if (v1Signing != true || v2Signing != true)",
             GRADLE,

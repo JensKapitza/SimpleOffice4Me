@@ -315,7 +315,12 @@ gradle.taskGraph.whenReady { graph ->
         }
         def v1Signing = releaseVariantSigningConfig?.enableV1Signing?.getOrNull()
         def v2Signing = releaseVariantSigningConfig?.enableV2Signing?.getOrNull()
-        logger.lifecycle("Release signing scheme configuration: v1=${v1Signing}, v2=${v2Signing}")
+        def injectedV1Signing = project.findProperty('android.injected.signing.v1-enabled') ?: 'unset'
+        def injectedV2Signing = project.findProperty('android.injected.signing.v2-enabled') ?: 'unset'
+        logger.lifecycle(
+            "Release signing scheme configuration: v1=${v1Signing}, v2=${v2Signing}, "
+            + "injected overrides v1=${injectedV1Signing}, v2=${injectedV2Signing}"
+        )
         if (v1Signing != true || v2Signing != true) {
             throw new GradleException('Release signing configuration must enable v1 and v2 schemes')
         }
