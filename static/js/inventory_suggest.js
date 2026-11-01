@@ -94,4 +94,14 @@
   analyzeButton?.addEventListener('click', analyzePhoto);
   $('adopt-suggestion')?.addEventListener('click', adoptSuggestion);
   $('dismiss-suggestion')?.addEventListener('click', hideObjectSuggestion);
+  // Shared namespace for static/js/angel.js (loaded after this module):
+  // the suggestion dialog (partial adopt, adopt-all, re-analyze, reject).
+  if (typeof window !== 'undefined') {
+    window.SimpleOfficeInventorySuggest = {
+      pending: () => pendingSuggestion,
+      adoptAll: adoptSuggestion,
+      dismiss: hideObjectSuggestion,
+      reanalyze: analyzePhoto,
+    };
+  }
 })();
