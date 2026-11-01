@@ -150,11 +150,14 @@ def _object_update_values(item: dict[str, Any], *, location: str, location_id: s
     }
 
 
-def assign_object_to_location(object_id: str, location_id: str, actor: str, *, scanned: str = "") -> dict[str, Any]:
+def assign_object_to_location(
+    object_id: str, location_id: str, actor: str, *,
+    scanned: str = "", root: str | Path | None = None,
+) -> dict[str, Any]:
     """Assign an ObjectStore item and mirror the structured shelf into searchable fields."""
-    objects = _objects()
+    objects = ObjectStore(root) if root is not None else _objects()
     item = objects.object(object_id)
-    library = _store()
+    library = LibraryStore(root) if root is not None else _store()
     location = library.location(location_id)
     path = library.location_path(location_id) or str(location.get("name", ""))
     previous = _object_update_values(

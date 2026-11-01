@@ -1,0 +1,62 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-3 py-md-4">
+  <div id="capture-app" class="d-none" aria-hidden="true"
+       data-analyze-url="{{ analyze_url }}"
+       data-upload-url="{{ upload_url }}"
+       data-books-url="{{ books_url }}"
+       data-items-url="{{ items_url }}"
+       data-lookup-url="{{ lookup_url }}"
+       data-ml-status-url="{{ ml_status_url }}"
+       data-batch-pattern="{{ batch_url_pattern }}"
+       data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}"
+       data-csrf="{{ csrf_token() }}"></div>
+  <script type="application/json" id="capture-entries">{{ entries|tojson }}</script>
+  {% if inbox_error %}<div class="alert alert-danger" role="alert">{{ inbox_error }}</div>{% endif %}
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <h1 class="h2 mb-1">Fotoeingang · Bücher und Gegenstände erfassen</h1>
+      <p class="text-secondary mb-0">Fotos aufnehmen oder auswählen. Für ein Buch zuerst „Neues Buch beginnen", dann Titelseite, Impressum und Rücken fotografieren — die Fotos bleiben als Buchgruppe zusammen, werden gemeinsam geprüft und erst nach Korrektur als ein Buch übernommen.</p>
+      <p class="small text-secondary mb-0" id="capture-ml-status" role="status">ML-Status wird geprüft …</p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('inventory.index') }}">Zurück zum Inventar</a>
+    </div>
+  </div>
+  <div class="card shadow-sm mb-3">
+    <div class="card-body">
+      <div class="row g-2 align-items-end">
+        <div class="col-12 col-md-4 d-grid">
+          <button type="button" class="btn btn-outline-success" id="capture-new-book">Neues Buch beginnen</button>
+        </div>
+        <div class="col-12 col-md-4 d-grid">
+          <button type="button" class="btn btn-outline-secondary" id="capture-single">Ohne Buchgruppe</button>
+        </div>
+        <div class="col-12 col-md-4">
+          <p class="small text-secondary mb-0" id="capture-batch-status" role="status">Aktuell: Einzelfotos (keine Buchgruppe).</p>
+        </div>
+      </div>
+      <div class="row g-2 mt-2">
+        <div class="col-12 col-md-6 d-grid">
+          <button type="button" class="btn btn-primary btn-lg" id="capture-take">Foto aufnehmen</button>
+          <input type="file" id="capture-take-input" accept="image/*" capture="environment" class="d-none" aria-hidden="true" tabindex="-1">
+        </div>
+        <div class="col-12 col-md-6 d-grid">
+          <button type="button" class="btn btn-outline-primary btn-lg" id="capture-choose">Fotos auswählen</button>
+          <input type="file" id="capture-choose-input" accept="image/*" multiple class="d-none" aria-hidden="true" tabindex="-1">
+        </div>
+      </div>
+      <div class="form-text mt-2">Auf dem Telefon öffnet „Foto aufnehmen" die Kamera. Fotos einer Buchgruppe gehören immer zum selben Buch — für das nächste Buch erneut „Neues Buch beginnen", damit sich rasch aufeinanderfolgende Bücher nie vermischen.</div>
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" value="1" id="capture-consent-meta">
+        <label class="form-check-label small" for="capture-consent-meta">Meta-Cloudanalyse erlauben (Modell: muse-spark-1.3-contributor, nur synthetischer Demo-Root; echte Bürodaten bleiben lokal). Standard: nur lokale Analyse.</label>
+      </div>
+      <div id="capture-global-status" class="mt-2" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+  <div id="capture-batches" class="row g-3 mb-3"></div>
+  <div id="capture-cards" class="row g-3"></div>
+</main>
+{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/capture_ml_status.js') }}"></script><script defer src="{{ url_for('static', filename='js/capture_inbox.js') }}"></script>{% endblock %}

@@ -86,6 +86,16 @@ class FederationTrustStore:
             row = db.execute("SELECT * FROM federation_trust_edge WHERE source_peer=? AND target_peer=?", (source_peer, target_peer)).fetchone()
         return dict(row) if row else None
 
+    def list_trust(self, source_peer=LOCAL_PEER):
+        if source_peer != LOCAL_PEER:
+            source_peer = sanitize_peer_id(source_peer)
+        with self.store._db() as db:
+            rows = db.execute(
+                "SELECT * FROM federation_trust_edge WHERE source_peer=? ORDER BY updated_at DESC",
+                (source_peer,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def shareable_claims(self):
         with self.store._db() as db:
             rows = db.execute("SELECT * FROM federation_trust_edge WHERE source_peer=? AND propagation<>'DIRECT_ONLY' ORDER BY updated_at DESC", (LOCAL_PEER,)).fetchall()

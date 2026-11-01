@@ -266,3 +266,15 @@ widerrufen** deaktiviert WebDAV sofort vollständig. Vorhandene Dateien,
 Versionen und Auditdaten bleiben erhalten. Das Entfernen des WebDAV-Blueprints
 stellt das frühere Verhalten ohne Migration zurück. Wiederherstellungs- und
 Versionsdateien dürfen nur nach Sicherungsprüfung manuell entfernt werden.
+
+## Dokumentauflösung (Lookup-only seit 11/2026)
+
+`DocumentStore.get_document` löst Referenzen nur noch über den Scan-Katalog
+auf: registrierte Pfade und Dokument-IDs lesen Metadaten, alles andere meldet
+`ValueError` (`unknown document` für Pfade, `invalid document reference` für
+unbrauchbare Eingaben). Unregistrierte Dateien werden dabei nicht mehr
+automatisch eingescannt. Aufrufer-Regel: anfrage- oder app-erreichbare Pfade
+nutzen `get_or_scan_document` (ein Containment-geprüfter Self-Heal-Scan),
+reine App-Interna (Importer, frisch geschriebene Dateien) nutzen
+`scan_and_get_document`. Externe Archive (`[external]`-Schlüssel) bleiben
+unverändert registrierbar.

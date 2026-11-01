@@ -168,12 +168,14 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
                 "TESTING",
                 "PROPAGATE_EXCEPTIONS",
                 "TEST_CSRF_PROTECTION",
+                "CONTEXTFLOW_ENABLED",
             )
         }
         app.config.update(
             TESTING=True,
             PROPAGATE_EXCEPTIONS=False,
             TEST_CSRF_PROTECTION=False,
+            CONTEXTFLOW_ENABLED=True,
             DATABASE=str(Path(self.temp.name) / "frontend-smoke.sqlite"),
             DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
         )

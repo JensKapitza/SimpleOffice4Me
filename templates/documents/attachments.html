@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block script %}<script defer src="{{ url_for('static', filename='js/attachment-selection.js') }}"></script>{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/attachment-selection.js') }}"></script><script defer src="{{ url_for('static', filename='js/attachment_image_engel.js') }}"></script>{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}<main id="main-content" class="container-xl py-4">
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
@@ -11,7 +11,7 @@
 </div>
 <div class="alert alert-warning" role="status">
 <strong>Noch wurde nichts extrahiert.</strong> Prüfe Dateiname, Typ und Größe. Erst „Ausgewählte Anhänge prüfen und übernehmen“ schreibt Dateien in die Quarantäne, scannt sie mit ClamAV und gibt ausschließlich saubere Dateien als Dokumente frei.</div>
-{% if safe_attachments %}<section class="card mb-4"><div class="card-header">{{ 'Released attachments' if g.language == 'en' else 'Bereits freigegebene Anhänge' }}</div><div class="list-group list-group-flush">{% for item in safe_attachments %}<a class="list-group-item list-group-item-action d-flex justify-content-between gap-3" href="{{ url_for('documents.detail', document_id=item.document_id) }}"><span><strong>{{ item.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-success">{{ 'ClamAV clean; decoded preview is enabled.' if g.language == 'en' else 'ClamAV sauber; dekodierte Vorschau ist freigegeben.' }}</small></span><span aria-hidden="true">→</span></a>{% endfor %}</div></section>{% endif %}
+{% if safe_attachments %}<section class="card mb-4"><div class="card-header">{{ 'Released attachments' if g.language == 'en' else 'Bereits freigegebene Anhänge' }}</div><div class="list-group list-group-flush">{% for item in safe_attachments %}<div class="list-group-item d-flex justify-content-between gap-3 align-items-start"><a class="text-decoration-none" href="{{ url_for('documents.detail', document_id=item.document_id) }}"><span><strong>{{ item.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-success">{{ 'ClamAV clean; decoded preview is enabled.' if g.language == 'en' else 'ClamAV sauber; dekodierte Vorschau ist freigegeben.' }}</small></span><span aria-hidden="true">→</span></a>{% if contextflow_enabled|default(false) and item.last_path.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')) %}<span class="text-end"><button type="button" class="btn btn-sm btn-outline-primary attachment-image-analyze" data-document-id="{{ item.document_id }}" data-suggest-url="{{ url_for('contextflow.doc_image_suggest') }}" data-csrf="{{ csrf_token() }}">Bild analysieren</button><span class="attachment-image-result small d-block mt-1" hidden></span></span>{% endif %}</div>{% endfor %}</div></section>{% endif %}
 <dl class="row">
 <dt class="col-sm-3">Original</dt><dd class="col-sm-9 text-break">{{ document.last_path }}</dd>
 <dt class="col-sm-3">Betreff</dt><dd class="col-sm-9">{{ manifest.message.subject or '—' }}</dd>
@@ -26,7 +26,7 @@
 </div>{% endif %}
 <div class="list-group mb-3">{% for item in manifest.attachments %}<label class="list-group-item d-flex gap-3 align-items-start attachment-option">
 <input class="form-check-input mt-1 attachment-select" type="checkbox" name="parts" value="{{ item.part }}">
-<span class="min-w-0"><strong class="text-break">{{ item.filename }}</strong><br><small class="text-secondary text-break">{{ item.content_type }} · {{ item.size }} Bytes · SHA-256 <code>{{ item.sha256[:16] }}…</code> · MIME-Teil {{ item.part }}</small></span>
+<span class="min-w-0"><strong class="text-break">{{ item.filename }}</strong><br><small class="text-secondary text-break">{{ item.content_type }} · {{ item.size }} Bytes · SHA-256 <code>{{ item.sha256[:16] }}…</code> · MIME-Teil {{ item.part }}</small>{% if (item.content_type or '').startswith('image/') %}<br><small class="text-secondary">Bildanalyse nach Freigabe als Dokument möglich.</small>{% endif %}</span>
 </label>{% else %}<div class="list-group-item text-secondary">Keine MIME-Anhänge gefunden.</div>{% endfor %}</div>
 {% if manifest.attachments %}<button type="submit" class="btn btn-danger" id="attachment-review-submit" disabled>Ausgewählte Anhänge prüfen und übernehmen</button><div class="form-text mt-2">Ausgewählte Dateien werden nicht direkt geöffnet, sondern zuerst in Quarantäne geschrieben und geprüft.</div>{% endif %}
 </form>

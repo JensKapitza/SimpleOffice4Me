@@ -377,6 +377,44 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
         self.assertEqual(302, accepted.status_code)
         self.assertEqual(1, len(InvoiceRelationStore(self.root).relationships_for("invoice-a")))
 
+    def test_detail_renders_legacy_invoice_without_zugferd(self):
+        # Merged template vocabulary (main 070473b4): missing status
+        # renders as the translated "not recorded" badge.
+        path = self.root / CONTROL_DIR / "invoices" / "invoice-b.json"
+        legacy = dict(self.invoice_b)
+        legacy.pop("zugferd", None)
+        path.write_text(json.dumps(legacy), encoding="utf-8")
+        before = path.read_bytes()
+        response = self.client.get("/documents/business/invoices/invoice-b")
+        self.assertEqual(200, response.status_code)
+        self.assertIn(
+            "Für diese Rechnung nicht erfasst",
+            response.get_data(as_text=True),
+        )
+        self.assertEqual(before, path.read_bytes())
+
+    def test_detail_renders_malformed_zugferd_without_rewriting(self):
+        path = self.root / CONTROL_DIR / "invoices" / "invoice-b.json"
+        broken_values = (
+            "legacy-string",
+            None,
+            {"status": "validated", "validation": "oops"},
+        )
+        for broken in broken_values:
+            row = dict(self.invoice_b)
+            row["zugferd"] = broken
+            path.write_text(json.dumps(row), encoding="utf-8")
+            before = path.read_bytes()
+            response = self.client.get("/documents/business/invoices/invoice-b")
+            self.assertEqual(200, response.status_code, broken)
+            body = response.get_data(as_text=True)
+            if isinstance(broken, dict):
+                self.assertIn("validated", body)
+            else:
+                # Merged template vocabulary (main 070473b4).
+                self.assertIn("Für diese Rechnung nicht erfasst", body)
+            self.assertEqual(before, path.read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()

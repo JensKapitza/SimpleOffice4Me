@@ -1,4 +1,4 @@
-"""Confirmed MIME attachment extraction and ClamAV quarantine workflow."""
+"""Confirmed MIME attachment extraction and malware-scanner quarantine workflow."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from datetime import datetime, timedelta, timezone
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any, BinaryIO, Protocol
 
 from werkzeug.security import safe_join
 
@@ -41,12 +41,26 @@ class ScanResult:
     engine: str
 
 
+class Scanner(Protocol):
+    """Interface every malware scanner engine must implement."""
+
+    display_name: str
+    timeout: int
+
+    def executable(self) -> str: ...
+    def status(self) -> dict[str, str]: ...
+    def scan(self, path: Path) -> ScanResult: ...
+    def update(self) -> str: ...
+
+
 class QuarantineCapacityError(RuntimeError):
     """The private upload quarantine cannot safely accept another payload."""
 
 
 class ClamAV:
     """Execute fixed ClamAV programs without a shell or network listener."""
+
+    display_name = "ClamAV"
 
     def __init__(self, timeout: int | None = None):
         configured = timeout if timeout is not None else int(os.environ.get("SIMPLEOFFICE_CLAMAV_TIMEOUT", "120"))
@@ -116,8 +130,227 @@ class ClamAV:
         return output
 
 
+def _powershell_executable() -> str:
+    """Resolve the fixed Windows PowerShell binary; never user-configurable."""
+    system_root = os.environ.get("SystemRoot", "")
+    if system_root:
+        candidate = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("powershell.exe") or shutil.which("powershell")
+    if not found:
+        raise RuntimeError("Windows PowerShell is not installed or not in PATH")
+    return found
+
+
+_DEFENDER_SCAN_SCRIPT = """$ErrorActionPreference = 'Stop'
+try {
+  $scanPath = ($input | Out-String).Trim()
+  if ([string]::IsNullOrWhiteSpace($scanPath)) { throw 'empty scan path' }
+  'PATH:' + $scanPath
+  Start-MpScan -ScanPath $scanPath -ScanType CustomScan
+  'STATUS:STARTED'
+  $leaf = [System.IO.Path]::GetFileName($scanPath)
+  $hits = @(Get-MpThreatDetection | Where-Object {
+    $matched = $false
+    foreach ($resource in @($_.Resources)) {
+      if ($resource -eq $scanPath -or [System.IO.Path]::GetFileName($resource) -eq $leaf) { $matched = $true; break }
+    }
+    $matched
+  })
+  if ($hits.Count -gt 0) {
+    'RESULT:INFECTED'
+    $hits | Select-Object -First 3 | ForEach-Object { 'THREAT:' + $_.ThreatName }
+  } else {
+    'RESULT:CLEAN'
+  }
+} catch {
+  'STATUS:ERROR'
+  'CATEGORY:' + $_.CategoryInfo.Category
+  'FQID:' + $_.FullyQualifiedErrorId
+  'MSG:' + $_.Exception.Message
+}"""
+
+_DEFENDER_STATUS_SCRIPT = """$ErrorActionPreference = 'Stop'
+try {
+  $status = Get-MpComputerStatus
+  'STATUS:OK'
+  'AV:' + $status.AntivirusEnabled
+  'SIG:' + $status.AntivirusSignatureVersion
+} catch {
+  'STATUS:ERROR'
+  'CATEGORY:' + $_.CategoryInfo.Category
+  'FQID:' + $_.FullyQualifiedErrorId
+  'MSG:' + $_.Exception.Message
+}"""
+
+_DEFENDER_UPDATE_SCRIPT = """$ErrorActionPreference = 'Stop'
+try {
+  Update-MpSignature
+  'STATUS:OK'
+} catch {
+  'STATUS:ERROR'
+  'CATEGORY:' + $_.CategoryInfo.Category
+  'FQID:' + $_.FullyQualifiedErrorId
+  'MSG:' + $_.Exception.Message
+}"""
+
+
+class WindowsDefender:
+    """Drive documented Defender cmdlets via fixed stdin-fed PowerShell, without a shell.
+
+    Scan paths travel as stdin data into a fixed script; nothing is ever
+    interpolated into shell text. A started scan is never reported clean:
+    the verdict always comes from a Get-MpThreatDetection query afterwards.
+    """
+
+    display_name = "Windows Defender"
+    engine_name = "Start-MpScan"
+
+    def __init__(self, timeout: int | None = None):
+        configured = timeout if timeout is not None else 120
+        self.timeout = max(5, min(configured, 900))
+
+    def executable(self) -> str:
+        return _powershell_executable()
+
+    def _run_script(self, script: str, stdin: str | None, timeout: int, what: str):
+        try:
+            return subprocess.run(
+                [self.executable(), "-NoProfile", "-NonInteractive", "-Command", script],
+                input=stdin, capture_output=True, text=True, timeout=timeout, check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"Windows Defender {what} timed out") from exc
+
+    @staticmethod
+    def _script_values(output: str) -> dict[str, str]:
+        values: dict[str, str] = {}
+        for line in output.splitlines():
+            if ":" in line:
+                key, _, value = line.partition(":")
+                values.setdefault(key.strip(), value.strip())
+        return values
+
+    @staticmethod
+    def _script_list(output: str, prefix: str) -> list[str]:
+        return [line.partition(":")[2].strip() for line in output.splitlines() if line.startswith(prefix + ":")]
+
+    @staticmethod
+    def _classified_error(values: dict[str, str], what: str) -> str:
+        category = values.get("CATEGORY", "")
+        fqid = values.get("FQID", "")
+        message = values.get("MSG", "")
+        if category == "PermissionDenied":
+            return (f"Windows Defender {what} failed: permission denied "
+                    f"({what} requires administrator privileges; no elevation attempted)")
+        if category == "ObjectNotFound" and "CommandNotFound" in fqid:
+            return f"Windows Defender {what} failed: Defender cmdlets are unavailable"
+        detail = f"{category}: {message}".strip(": ") or "unknown error"
+        return f"Windows Defender {what} failed: {detail[:300]}"
+
+    def status(self) -> dict[str, str]:
+        try:
+            result = self._run_script(_DEFENDER_STATUS_SCRIPT, None, 30, "status query")
+        except (OSError, RuntimeError) as exc:
+            return {"state": "unavailable", "engine": "", "version": str(exc)[:300]}
+        if result.returncode != 0:
+            detail = (result.stdout or result.stderr or "unknown error").strip()[:300]
+            return {"state": "error", "engine": self.engine_name, "version": detail}
+        values = self._script_values(result.stdout or "")
+        if values.get("STATUS") != "OK":
+            state = "unavailable" if values.get("CATEGORY") == "ObjectNotFound" and "CommandNotFound" in values.get("FQID", "") else "error"
+            return {"state": state, "engine": "", "version": self._classified_error(values, "status query")[:300]}
+        if values.get("AV", "").casefold() != "true":
+            return {"state": "error", "engine": self.engine_name, "version": "Windows Defender antivirus is disabled"}
+        signature = values.get("SIG", "")
+        version = f"Signaturen {signature}" if signature else "Windows Defender"
+        return {"state": "available", "engine": self.engine_name, "version": version[:300]}
+
+    def scan(self, path: Path) -> ScanResult:
+        if not path.is_absolute():
+            raise RuntimeError("Windows Defender scan needs an absolute path")
+        try:
+            result = self._run_script(_DEFENDER_SCAN_SCRIPT, str(path), self.timeout, "scan")
+        except OSError as exc:
+            raise RuntimeError(f"Windows Defender scan failed: {exc}") from exc
+        if result.returncode != 0:
+            detail = (result.stdout or result.stderr or "unknown error").replace(str(path), path.name).strip()[:1000]
+            raise RuntimeError(f"Windows Defender scan failed (exit {result.returncode}): {detail}")
+        output = result.stdout or ""
+        values = self._script_values(output)
+        if values.get("RESULT") == "INFECTED":
+            if values.get("PATH") != str(path):
+                raise RuntimeError("Windows Defender scan failed: scan path transport mismatch")
+            threats = ", ".join(self._script_list(output, "THREAT"))[:500]
+            detail = f"Defender threat: {threats}" if threats else "Defender threat detected"
+            return ScanResult("infected", detail, self.engine_name)
+        if values.get("RESULT") == "CLEAN":
+            if values.get("PATH") != str(path):
+                raise RuntimeError("Windows Defender scan failed: scan path transport mismatch")
+            if not path.exists():
+                raise RuntimeError("Windows Defender scan failed: file changed during scan")
+            return ScanResult("clean", "Defender scan completed without detections", self.engine_name)
+        if values.get("STATUS") == "STARTED":
+            raise RuntimeError("Windows Defender scan started but the result is unknown")
+        raise RuntimeError(self._classified_error(values, "scan"))
+
+    def update(self) -> str:
+        result = self._run_script(_DEFENDER_UPDATE_SCRIPT, None, 300, "signature update")
+        if result.returncode != 0:
+            detail = (result.stdout or result.stderr or "unknown error").strip()[:1000]
+            raise RuntimeError(f"Windows Defender signature update failed (exit {result.returncode}): {detail}")
+        values = self._script_values(result.stdout or "")
+        if values.get("STATUS") == "OK":
+            return "Windows Defender-Signaturen sind aktuell."
+        raise RuntimeError(self._classified_error(values, "signature update"))
+
+
+SCANNER_CHOICES = ("auto", "clamav", "defender")
+
+
+class _MisconfiguredScanner:
+    """Fail-closed placeholder that surfaces an invalid SIMPLEOFFICE_SCANNER choice."""
+
+    display_name = "Virenscanner"
+
+    def __init__(self, message: str):
+        self._message = message
+        self.timeout = 120
+
+    def executable(self) -> str:
+        raise RuntimeError(self._message)
+
+    def status(self) -> dict[str, str]:
+        return {"state": "unavailable", "engine": "", "version": self._message}
+
+    def scan(self, path: Path) -> ScanResult:
+        raise RuntimeError(self._message)
+
+    def update(self) -> str:
+        raise RuntimeError(self._message)
+
+
+def default_scanner(timeout: int | None = None) -> Scanner:
+    """Select the malware scanner: an explicit choice wins, auto keeps ClamAV first."""
+    choice = (os.environ.get("SIMPLEOFFICE_SCANNER", "auto") or "auto").strip().casefold()
+    if choice not in SCANNER_CHOICES:
+        return _MisconfiguredScanner("SIMPLEOFFICE_SCANNER must be one of: auto, clamav, defender")
+    if choice == "clamav":
+        return ClamAV(timeout=timeout)
+    if choice == "defender":
+        return WindowsDefender(timeout=timeout)
+    if os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip():
+        return ClamAV(timeout=timeout)
+    if shutil.which("clamdscan") or shutil.which("clamscan"):
+        return ClamAV(timeout=timeout)
+    if os.name == "nt":
+        return WindowsDefender(timeout=timeout)
+    return ClamAV(timeout=timeout)
+
+
 class AttachmentSecurity:
-    def __init__(self, root: str | Path, scanner: ClamAV | None = None):
+    def __init__(self, root: str | Path, scanner: Scanner | None = None):
         self.root = Path(root).resolve()
         self.control = self.root / CONTROL_DIR
         self.manifests = self.control / "attachment-manifests"
@@ -130,7 +363,7 @@ class AttachmentSecurity:
             timeout = SettingsStore(self.root).settings()["integrations"][
                 "clamav_timeout_seconds"
             ]
-            scanner = ClamAV(timeout=timeout)
+            scanner = default_scanner(timeout=timeout)
         self.scanner = scanner
 
     def scan_webdav_upload(self, payload: bytes | BinaryIO, actor: str, target_path: str,
@@ -176,9 +409,11 @@ class AttachmentSecurity:
         digest = digest_state.hexdigest()
         base = {"scan_id": scan_id, "scanned_at": utc_now(), "actor": actor, "source_type": source_type, "target_path": target_path, "filename": Path(target_path).name, "size": size, "sha256": digest}
         try:
+            self._require_in_root(pending)
             verdict = self.scanner.scan(pending)
             if verdict.verdict not in {"clean", "infected"}:
-                raise RuntimeError("ClamAV returned an unsupported verdict")
+                engine = getattr(self.scanner, "display_name", "scanner")
+                raise RuntimeError(f"{engine} returned an unsupported verdict")
             record = {**base, **asdict(verdict)}
             if verdict.verdict == "infected":
                 retained = self.webdav_quarantine / f"{scan_id}.infected"
@@ -310,6 +545,7 @@ class AttachmentSecurity:
                     os.chmod(quarantine_path, 0o600)
                     handle.write(payload)
                 try:
+                    self._require_in_root(quarantine_path)
                     verdict = self.scanner.scan(quarantine_path)
                     record = {"scan_id": uuid.uuid4().hex, "scanned_at": utc_now(), "actor": actor, "source_type": "eml-attachment", "source_document_id": manifest["document_id"], "filename": row["filename"], "size": len(payload), "sha256": row["sha256"], **asdict(verdict)}
                     retry_id = ""
@@ -373,6 +609,13 @@ class AttachmentSecurity:
             data["scans"] = data["scans"][-5000:]
             atomic_json_write(self.registry, data)
 
+    def _require_in_root(self, path: Path) -> None:
+        """Fail closed unless a scan path resolves inside the document root."""
+        try:
+            path.resolve().relative_to(self.root.resolve())
+        except (OSError, ValueError) as exc:
+            raise RuntimeError("scan path escapes the document root") from exc
+
     @staticmethod
     def safe_error_code(exc: Exception) -> str:
         message = str(exc).casefold()
@@ -380,6 +623,10 @@ class AttachmentSecurity:
             return "scanner_unavailable"
         if "timed out" in message:
             return "scanner_timeout"
+        if "permission denied" in message:
+            return "scanner_permission"
+        if "result is unknown" in message:
+            return "scanner_unknown"
         return "scanner_error"
 
     def record_event(self, action: str, actor: str, outcome: str, *, detail: str = "", counts: dict[str, int] | None = None, duration_ms: int | None = None) -> None:
@@ -405,6 +652,7 @@ class AttachmentSecurity:
                 continue
             base = {"scan_id": uuid.uuid4().hex, "event_type": "file_scan", "scanned_at": utc_now(), "actor": actor, "source_type": "managed-document", "document_id": document.get("document_id", ""), "target_path": document.get("last_path", ""), "filename": path.name, "size": path.stat().st_size}
             try:
+                self._require_in_root(path)
                 verdict = self.scanner.scan(path)
                 result[verdict.verdict] += 1
                 record = {**base, "sha256": sha256_file(path), "action": "reported" if verdict.verdict == "infected" else "none", **asdict(verdict)}
@@ -436,9 +684,11 @@ class AttachmentSecurity:
             "size": path.stat().st_size,
         }
         try:
+            self._require_in_root(path)
             verdict = self.scanner.scan(path)
             if verdict.verdict not in {"clean", "infected"}:
-                raise RuntimeError("ClamAV returned an unsupported verdict")
+                engine = getattr(self.scanner, "display_name", "scanner")
+                raise RuntimeError(f"{engine} returned an unsupported verdict")
             record = {
                 **base, "sha256": sha256_file(path),
                 "action": "reported" if verdict.verdict == "infected" else "none",

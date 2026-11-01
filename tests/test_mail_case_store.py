@@ -1,4 +1,6 @@
+import sqlite3
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -487,6 +489,170 @@ class MailCaseStoreTests(unittest.TestCase):
                 "alice", self.case_id, "kunde@example.test",
                 "Re: Angebot", "Antwort", sender_identity="identity\r\nX-Evil: yes",
             )
+
+
+class MailCaseDraftIdempotencyTests(unittest.TestCase):
+    token = "ab" * 32
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+        self.store = MailCaseStore(self.root)
+        self.case_id = self.store.create_case(
+            "alice", "Angebot Müller", "acc-1", "sha512:one",
+            message_id="<one@example.test>",
+        )
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def _create(self, token=None, **overrides):
+        params = {
+            "actor": "alice",
+            "case_id": self.case_id,
+            "recipients_to": "kunde@example.test",
+            "subject": "Re: Angebot",
+            "body": "Antwort",
+            "client_token": self.token if token is None else token,
+        }
+        params.update(overrides)
+        return self.store.create_draft_idempotent(**params)
+
+    def _token_rows(self):
+        db = sqlite3.connect(self.store.path)
+        try:
+            return db.execute(
+                "SELECT id, client_token FROM mail_case_draft WHERE case_id=?",
+                (self.case_id,),
+            ).fetchall()
+        finally:
+            db.close()
+
+    def test_migration_adds_token_column_and_unique_index(self):
+        db = sqlite3.connect(self.store.path)
+        try:
+            columns = {
+                row[1] for row in db.execute("PRAGMA table_info(mail_case_draft)")
+            }
+            indexes = {
+                row[0]
+                for row in db.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index'"
+                )
+            }
+        finally:
+            db.close()
+        self.assertIn("client_token", columns)
+        self.assertIn("mail_case_draft_client_token", indexes)
+
+    def test_replay_returns_existing_without_overwrite(self):
+        first_id, created = self._create()
+        self.assertTrue(created)
+        self.store.update_draft(
+            "alice", self.case_id, first_id,
+            "kunde@example.test", "Re: Angebot (geprüft)", "Antwort+",
+        )
+        second_id, created = self._create(
+            subject="Anderer Betreff", body="Anderer Text"
+        )
+        self.assertFalse(created)
+        self.assertEqual(first_id, second_id)
+        drafts = self.store.get_case("alice", self.case_id)["drafts"]
+        self.assertEqual(1, len(drafts))
+        self.assertEqual("Re: Angebot (geprüft)", drafts[0]["subject"])
+        self.assertEqual("Antwort+", drafts[0]["body"])
+
+    def test_different_tokens_create_different_drafts(self):
+        first_id, _ = self._create()
+        second_id, created = self._create(token="cd" * 32)
+        self.assertTrue(created)
+        self.assertNotEqual(first_id, second_id)
+
+    def test_concurrent_retries_create_single_draft(self):
+        barrier = threading.Barrier(4)
+        results: list = []
+
+        def attempt():
+            barrier.wait(timeout=30)
+            results.append(self._create())
+
+        threads = [threading.Thread(target=attempt) for _ in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=60)
+            self.assertFalse(thread.is_alive())
+        self.assertEqual(4, len(results))
+        self.assertEqual(1, len({draft_id for draft_id, _ in results}))
+        self.assertEqual(1, sum(1 for _, created in results if created))
+        self.assertEqual(1, len(self._token_rows()))
+
+    def test_token_validation(self):
+        for bad in ("", "xyz", "ab" * 31, "AB" * 32, "ab" * 32 + "\n"):
+            with self.assertRaises(ValueError, msg=repr(bad)):
+                self._create(token=bad)
+        self.assertEqual(0, len(self._token_rows()))
+
+    def test_token_collision_across_actors_denied(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob",
+            permissions={"read", "compose"},
+        )
+        first_id, _ = self._create()
+        with self.assertRaises(PermissionError):
+            self._create(actor="bob")
+        drafts = self.store.get_case("alice", self.case_id)["drafts"]
+        self.assertEqual([first_id], [row["id"] for row in drafts])
+
+    def test_find_by_token_is_author_scoped(self):
+        self.store.add_participant(
+            "alice", self.case_id, local_user_id="bob",
+            permissions={"read", "compose"},
+        )
+        draft_id, _ = self._create()
+        found = self.store.find_draft_by_token(
+            "alice", self.case_id, self.token
+        )
+        assert found is not None
+        self.assertEqual(draft_id, found["id"])
+        self.assertIsNone(
+            self.store.find_draft_by_token("bob", self.case_id, self.token)
+        )
+        self.assertIsNone(
+            self.store.find_draft_by_token("alice", self.case_id, "cd" * 32)
+        )
+        with self.assertRaises(PermissionError):
+            self.store.find_draft_by_token(
+                "mallory", self.case_id, self.token
+            )
+
+    def test_get_case_hides_client_token(self):
+        self._create()
+        drafts = self.store.get_case("alice", self.case_id)["drafts"]
+        self.assertEqual(1, len(drafts))
+        self.assertNotIn("client_token", drafts[0])
+
+    def test_begin_draft_send_hides_client_token(self):
+        draft_id, _ = self._create()
+        self.store.request_draft_send("alice", self.case_id, draft_id)
+        self.store.review_draft_send(
+            "alice", self.case_id, draft_id, approve=True
+        )
+        payload = self.store.begin_draft_send("alice", self.case_id, draft_id)
+        self.assertEqual("sending", payload["status"])
+        self.assertNotIn("client_token", payload)
+
+    def test_plain_create_leaves_token_empty(self):
+        first = self.store.create_draft(
+            "alice", self.case_id, "a@example.test", "Eins", "Body",
+        )
+        second = self.store.create_draft(
+            "alice", self.case_id, "b@example.test", "Zwei", "Body",
+        )
+        self.assertNotEqual(first, second)
+        rows = self._token_rows()
+        self.assertEqual(2, len(rows))
+        self.assertTrue(all(token == "" for _, token in rows))
 
 
 if __name__ == "__main__":

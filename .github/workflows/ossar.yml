@@ -4,9 +4,9 @@ name: OSSAR
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "hackathon/contextflow-mvp" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "hackathon/contextflow-mvp" ]
   schedule:
     - cron: '27 21 * * 3'
   workflow_dispatch:

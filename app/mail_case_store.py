@@ -9,12 +9,12 @@ import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Iterator
 
 from .document_store import CONTROL_DIR
 from .mail_case_draft_metadata import attachment_metadata as _attachment_metadata
+from .mail_case_drafts import MAX_DRAFT_ATTACHMENTS, MailCaseDraftsMixin, _now
 from .mail_send_delegation import MailSendDelegationStore
 
 STATUSES = {"offen", "in_bearbeitung", "wartet", "erledigt"}
@@ -23,11 +23,6 @@ PERMISSIONS = {
     "manage_participants", "manage_status", "manage_mail",
 }
 DRAFT_STATUSES = {"draft", "ready", "approved", "sending", "sent", "rejected", "failed"}
-MAX_DRAFT_ATTACHMENTS = 20
-
-
-def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 def _permissions(value: Iterable[str]) -> list[str]:
@@ -38,7 +33,7 @@ def _permissions(value: Iterable[str]) -> list[str]:
     return result
 
 
-class MailCaseStore:
+class MailCaseStore(MailCaseDraftsMixin):
     """SQLite-backed collaboration metadata with transactional permission checks."""
 
     def __init__(self, root: str | Path, history=None):
@@ -169,6 +164,15 @@ class MailCaseStore:
                 db.execute(
                     "ALTER TABLE mail_case_draft ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            if "client_token" not in draft_columns:
+                db.execute(
+                    "ALTER TABLE mail_case_draft ADD COLUMN client_token TEXT NOT NULL DEFAULT ''"
+                )
+            db.execute(
+                """CREATE UNIQUE INDEX IF NOT EXISTS mail_case_draft_client_token
+                   ON mail_case_draft(case_id, client_token)
+                   WHERE client_token != ''"""
+            )
 
     def _audit(self, event: str, actor: str, case_id: str, detail: dict) -> None:
         if self.history is not None:
@@ -277,6 +281,7 @@ class MailCaseStore:
             )]
             for item in result["drafts"]:
                 raw_attachments = item.pop("attachments_json", "[]")
+                item.pop("client_token", None)
                 try:
                     parsed = json.loads(raw_attachments)
                 except (TypeError, json.JSONDecodeError):
@@ -573,378 +578,6 @@ class MailCaseStore:
             db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
         self._audit("mail_case_comment_created", actor, case_id, {"comment_id": comment_id})
         return comment_id
-
-    def create_draft(
-        self, actor: str, case_id: str, recipients_to: str, subject: str, body: str,
-        *, sender_identity: str = "", cc: str = "", bcc: str = "",
-    ) -> str:
-        recipients_to = recipients_to.strip()
-        subject = subject.strip()
-        sender_identity = sender_identity.strip()
-        cc = cc.strip()
-        bcc = bcc.strip()
-        if not recipients_to or not subject:
-            raise ValueError("recipient and subject are required")
-        if any("\r" in value or "\n" in value for value in (recipients_to, cc, bcc, sender_identity, subject)):
-            raise ValueError("draft header fields must not contain line breaks")
-        if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
-            raise ValueError("recipient list is too long")
-        if len(subject.encode("utf-8")) > 998:
-            raise ValueError("draft subject is too long")
-        if len(sender_identity) > 500:
-            raise ValueError("sender identity reference is too long")
-        if len(body.encode("utf-8")) > 1024 * 1024:
-            raise ValueError("draft body is too large")
-        draft_id, now = uuid.uuid4().hex, _now()
-        with self._db(write=True) as db:
-            self._require(db, case_id, actor, "compose")
-            db.execute(
-                """INSERT INTO mail_case_draft
-                   (id,case_id,author,sender_identity,recipients_to,recipients_cc,recipients_bcc,
-                    subject,body,attachments_json,status,created_at,updated_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,'[]','draft',?,?)""",
-                (draft_id, case_id, actor, sender_identity, recipients_to, cc, bcc,
-                 subject[:998], body, now, now),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit("mail_case_draft_created", actor, case_id, {"draft_id": draft_id})
-        return draft_id
-
-    def update_draft(
-        self, actor: str, case_id: str, draft_id: str, recipients_to: str,
-        subject: str, body: str, *, sender_identity: str = "", cc: str = "", bcc: str = "",
-    ) -> None:
-        recipients_to = recipients_to.strip()
-        subject = subject.strip()
-        sender_identity = sender_identity.strip()
-        cc = cc.strip()
-        bcc = bcc.strip()
-        if not recipients_to or not subject:
-            raise ValueError("recipient and subject are required")
-        if any("\r" in value or "\n" in value for value in (recipients_to, cc, bcc, sender_identity, subject)):
-            raise ValueError("draft header fields must not contain line breaks")
-        if any(len(value) > 4000 for value in (recipients_to, cc, bcc)):
-            raise ValueError("recipient list is too long")
-        if len(subject.encode("utf-8")) > 998:
-            raise ValueError("draft subject is too long")
-        if len(sender_identity) > 500:
-            raise ValueError("sender identity reference is too long")
-        if len(body.encode("utf-8")) > 1024 * 1024:
-            raise ValueError("draft body is too large")
-        now = _now()
-        with self._db(write=True) as db:
-            self._require(db, case_id, actor, "compose")
-            row = db.execute(
-                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] in {"ready", "approved", "sending", "sent"}:
-                raise ValueError("submitted, approved or sent draft cannot be edited")
-            next_status = "draft" if row["status"] in {"rejected", "failed"} else row["status"]
-            db.execute(
-                """UPDATE mail_case_draft
-                   SET sender_identity=?,recipients_to=?,recipients_cc=?,recipients_bcc=?,
-                       subject=?,body=?,status=?,updated_at=?
-                   WHERE case_id=? AND id=?""",
-                (sender_identity, recipients_to, cc, bcc, subject[:998], body,
-                 next_status, now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit("mail_case_draft_changed", actor, case_id, {"draft_id": draft_id})
-
-    def add_draft_attachment(
-        self, actor: str, case_id: str, draft_id: str, attachment: dict,
-    ) -> None:
-        metadata = _attachment_metadata(attachment)
-        now = _now()
-        with self._db(write=True) as db:
-            self._require(db, case_id, actor, "compose")
-            row = db.execute(
-                "SELECT status,attachments_json FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] in {"ready", "approved", "sending", "sent"}:
-                raise ValueError("submitted, approved or sent draft cannot be edited")
-            try:
-                attachments = json.loads(row["attachments_json"] or "[]")
-            except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("draft attachment metadata is invalid") from exc
-            if not isinstance(attachments, list):
-                raise ValueError("draft attachment metadata is invalid")
-            attachments = [_attachment_metadata(value) for value in attachments]
-            if len(attachments) >= MAX_DRAFT_ATTACHMENTS:
-                raise ValueError("draft attachment limit reached")
-            if any(
-                item["document_id"] == metadata["document_id"]
-                or item["sha256"] == metadata["sha256"]
-                for item in attachments
-            ):
-                raise ValueError("draft attachment is already present")
-            attachments.append(metadata)
-            next_status = "draft" if row["status"] in {"rejected", "failed"} else row["status"]
-            db.execute(
-                """UPDATE mail_case_draft
-                   SET attachments_json=?,status=?,updated_at=?
-                   WHERE case_id=? AND id=?""",
-                (json.dumps(attachments, separators=(",", ":")), next_status, now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit(
-            "mail_case_draft_attachment_added", actor, case_id,
-            {
-                "draft_id": draft_id,
-                "document_id": metadata["document_id"],
-                "filename": metadata["filename"],
-                "size": metadata["size"],
-                "sha256": metadata["sha256"],
-                "scan_id": metadata["scan_id"],
-            },
-        )
-
-    def remove_draft_attachment(
-        self, actor: str, case_id: str, draft_id: str, document_id: str,
-    ) -> None:
-        document_id = document_id.strip()
-        now = _now()
-        with self._db(write=True) as db:
-            self._require(db, case_id, actor, "compose")
-            row = db.execute(
-                "SELECT status,attachments_json FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] in {"ready", "approved", "sending", "sent"}:
-                raise ValueError("submitted, approved or sent draft cannot be edited")
-            try:
-                attachments = [
-                    _attachment_metadata(value)
-                    for value in json.loads(row["attachments_json"] or "[]")
-                ]
-            except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("draft attachment metadata is invalid") from exc
-            remaining = [item for item in attachments if item["document_id"] != document_id]
-            if len(remaining) == len(attachments):
-                raise KeyError(document_id)
-            next_status = "draft" if row["status"] in {"rejected", "failed"} else row["status"]
-            db.execute(
-                """UPDATE mail_case_draft
-                   SET attachments_json=?,status=?,updated_at=?
-                   WHERE case_id=? AND id=?""",
-                (json.dumps(remaining, separators=(",", ":")), next_status, now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit(
-            "mail_case_draft_attachment_removed", actor, case_id,
-            {"draft_id": draft_id, "document_id": document_id},
-        )
-
-    def draft_attachment(
-        self, actor: str, case_id: str, draft_id: str, document_id: str,
-    ) -> dict:
-        with self._db() as db:
-            self._require(db, case_id, actor, "read")
-            row = db.execute(
-                "SELECT attachments_json FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            try:
-                attachments = [
-                    _attachment_metadata(value)
-                    for value in json.loads(row["attachments_json"] or "[]")
-                ]
-            except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("draft attachment metadata is invalid") from exc
-            for attachment in attachments:
-                if attachment["document_id"] == document_id:
-                    return attachment
-        raise KeyError(document_id)
-
-    def request_draft_send(self, actor: str, case_id: str, draft_id: str) -> None:
-        now = _now()
-        with self._db(write=True) as db:
-            self._require(db, case_id, actor, "send_request")
-            row = db.execute(
-                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] not in {"draft", "rejected", "failed"}:
-                raise ValueError("draft is not requestable")
-            case = db.execute(
-                "SELECT account_owner,account_id FROM mail_case WHERE id=?", (case_id,)
-            ).fetchone()
-            delegated = bool(
-                case is not None and actor != case["account_owner"]
-                and self.delegations.has_active(case["account_owner"], case["account_id"], actor)
-            )
-            next_status = "approved" if delegated else "ready"
-            db.execute(
-                "UPDATE mail_case_draft SET status=?,updated_at=? WHERE case_id=? AND id=?",
-                (next_status, now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit("mail_case_send_requested", actor, case_id, {"draft_id": draft_id})
-        if delegated:
-            self._audit(
-                "mail_case_send_auto_approved", actor, case_id,
-                {"draft_id": draft_id, "account_owner": case["account_owner"]},
-            )
-
-    def review_draft_send(
-        self, actor: str, case_id: str, draft_id: str, *, approve: bool,
-    ) -> None:
-        now = _now()
-        with self._db(write=True) as db:
-            self._require(db, case_id, actor, "manage_mail")
-            case = db.execute(
-                "SELECT account_owner FROM mail_case WHERE id=?", (case_id,)
-            ).fetchone()
-            if case is None or case["account_owner"] != actor:
-                raise PermissionError("only the mail account owner can review send requests")
-            row = db.execute(
-                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] != "ready":
-                raise ValueError("draft is not awaiting review")
-            status = "approved" if approve else "rejected"
-            db.execute(
-                "UPDATE mail_case_draft SET status=?,updated_at=? WHERE case_id=? AND id=?",
-                (status, now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit(
-            "mail_case_send_approved" if approve else "mail_case_send_rejected",
-            actor, case_id, {"draft_id": draft_id},
-        )
-
-    def begin_draft_send(self, actor: str, case_id: str, draft_id: str) -> dict:
-        now = _now()
-        with self._db(write=True) as db:
-            case = db.execute(
-                "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
-            ).fetchone()
-            if case is None:
-                raise KeyError(case_id)
-            delegated = actor != case["account_owner"] and self.delegations.has_active(
-                case["account_owner"], case["account_id"], actor
-            )
-            if actor == case["account_owner"]:
-                self._require(db, case_id, actor, "manage_mail")
-            else:
-                self._require(db, case_id, actor, "send_request")
-                if not delegated:
-                    raise PermissionError("active mail send delegation required")
-            row = db.execute(
-                "SELECT * FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] != "approved":
-                raise ValueError("draft is not approved")
-            db.execute(
-                "UPDATE mail_case_draft SET status='sending',updated_at=? WHERE case_id=? AND id=?",
-                (now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-            result = dict(row)
-            try:
-                result["attachments"] = [
-                    _attachment_metadata(value)
-                    for value in json.loads(result.pop("attachments_json", "[]"))
-                ]
-            except (TypeError, json.JSONDecodeError) as exc:
-                raise ValueError("draft attachment metadata is invalid") from exc
-            result["account_id"] = case["account_id"]
-            result["account_owner"] = case["account_owner"]
-            result["status"] = "sending"
-        self._audit("mail_case_send_started", actor, case_id, {"draft_id": draft_id})
-        return result
-
-    def fail_draft_send(self, actor: str, case_id: str, draft_id: str, error_type: str) -> None:
-        now = _now()
-        with self._db(write=True) as db:
-            case = db.execute(
-                "SELECT account_owner,account_id FROM mail_case WHERE id=?", (case_id,)
-            ).fetchone()
-            delegated = bool(
-                case is not None and actor != case["account_owner"]
-                and self.delegations.has_active(case["account_owner"], case["account_id"], actor)
-            )
-            if case is None or (case["account_owner"] != actor and not delegated):
-                raise PermissionError("active mail send delegation required")
-            row = db.execute(
-                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] != "sending":
-                raise ValueError("draft is not sending")
-            db.execute(
-                "UPDATE mail_case_draft SET status='failed',updated_at=? WHERE case_id=? AND id=?",
-                (now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit(
-            "mail_case_send_failed", actor, case_id,
-            {"draft_id": draft_id, "error_type": str(error_type)[:120]},
-        )
-
-    def complete_draft_send(
-        self, actor: str, case_id: str, draft_id: str, mail_reference: str,
-        message_id: str,
-    ) -> None:
-        now = _now()
-        with self._db(write=True) as db:
-            case = db.execute(
-                "SELECT account_id,account_owner FROM mail_case WHERE id=?", (case_id,)
-            ).fetchone()
-            if case is None:
-                raise KeyError(case_id)
-            delegated = actor != case["account_owner"] and self.delegations.has_active(
-                case["account_owner"], case["account_id"], actor
-            )
-            if actor == case["account_owner"]:
-                self._require(db, case_id, actor, "manage_mail")
-            else:
-                self._require(db, case_id, actor, "send_request")
-                if not delegated:
-                    raise PermissionError("active mail send delegation required")
-            row = db.execute(
-                "SELECT status FROM mail_case_draft WHERE case_id=? AND id=?",
-                (case_id, draft_id),
-            ).fetchone()
-            if row is None:
-                raise KeyError(draft_id)
-            if row["status"] != "sending":
-                raise ValueError("draft is not sending")
-            db.execute(
-                """INSERT INTO mail_case_message
-                   (case_id,mail_reference,direction,message_id,in_reply_to,references_json,created_at)
-                   VALUES(?,?,'outbound',?,'','[]',?)""",
-                (case_id, mail_reference, message_id[:998], now),
-            )
-            db.execute(
-                "UPDATE mail_case_draft SET status='sent',updated_at=? WHERE case_id=? AND id=?",
-                (now, case_id, draft_id),
-            )
-            db.execute("UPDATE mail_case SET updated_at=? WHERE id=?", (now, case_id))
-        self._audit(
-            "mail_case_send_sent", actor, case_id,
-            {"draft_id": draft_id, "mail_reference": mail_reference, "message_id": message_id[:998]},
-        )
 
     def set_status(self, actor: str, case_id: str, status: str) -> None:
         if status not in STATUSES:

@@ -137,7 +137,7 @@ def _store_generated_pdf(root: Path, contact_id: str, subject: str, pdf: bytes, 
     path = directory / f"{now.strftime('%Y%m%d-%H%M%S')}-{_safe_filename(subject)}-{uuid.uuid4().hex[:8]}.pdf"
     path.write_bytes(pdf)
     store = DocumentStore(root)
-    document = store.get_document(path)
+    document = store.scan_and_get_document(path)
     document_id = document["document_id"]
     store.update_metadata(
         document_id,

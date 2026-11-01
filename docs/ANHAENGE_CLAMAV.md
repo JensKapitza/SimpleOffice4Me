@@ -84,6 +84,27 @@ Bei verändertem Original, abgelaufener Vorschau, mehr als 100 Teilen, mehr als 
 
 Es gibt keine Migration. Neue Daten liegen unter `.simpleoffice-meta/attachment-manifests`, `.simpleoffice-meta/quarantine` und `.simpleoffice-meta/malware-scan.json`. Ein Code-Rollback verändert keine Originaldatei. Quarantänedaten nur nach Prüfung und gemäß Aufbewahrungsregeln löschen.
 
+## Windows Defender und macOS XProtect
+
+Auf Windows kann statt ClamAV der `WindowsDefender`-Provider prüfen: dokumentiertes
+`Start-MpScan -ScanType CustomScan -ScanPath`, wobei der validierte Pfad (nur
+innerhalb des Dokument-Roots) als stdin-Daten an ein festes non-interaktives
+PowerShell (`-NoProfile -NonInteractive`) übergeben wird – niemals in
+Shell-Text interpoliert, kein `shell=True`, keine Elevation, keine Änderung von
+Sicherheitseinstellungen. Die Zustände nicht verfügbar / Timeout / Berechtigung /
+unbekannt bleiben getrennt und fail closed; ein Scan-Start allein gilt nie als
+sauber, das Verdikt kommt nur aus `Get-MpThreatDetection`. Die Prüfung läuft auf
+dem Anwendungsserver (Hinweis unter `/documents/security`); der Scan-Button
+erscheint nur, wenn der Provider lauffähig ist (`can_scan`). Die Auswahl erfolgt
+über `SIMPLEOFFICE_SCANNER` (`auto`, `clamav`, `defender`; ungültig fail closed),
+Standard bleibt ClamAV zuerst, ClamAV-Verhalten ist unverändert.
+
+macOS XProtect arbeitet automatisch; es gibt keinen generischen
+app-gesteuerten Pfad-Scan. Die Oberfläche zeigt dort nur dann eine Scan-Aktion,
+wenn ein konfigurierter ClamAV- oder Defender-Provider tatsächlich lauffähig ist.
+
+Tests nutzen einen Fake-Runner; es werden nie echte Scans angestoßen.
+
 ## Tests
 
 Geprüft werden Vorschau ohne Extraktion, unveränderte Originalbytes, MIME/Base64, sichere Namen, Herkunftstags und -attribute, Benutzer-/Hashbindung, saubere Freigabe, Fund-Quarantäne, Scannerfehler, feste ClamAV-Aufrufe, Adminrechte und WebDAV-Kompatibilität.

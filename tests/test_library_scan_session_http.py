@@ -13,6 +13,7 @@ from app.library.routes import bp as library_blueprint
 from app.library.store import LibraryStore
 from app.object_store import ObjectStore
 from app.security_controls import protect_browser_mutation
+from app.sqlite_utils import connect as sqlite_connect
 
 
 class LibraryScanSessionHttpTest(unittest.TestCase):
@@ -28,7 +29,9 @@ class LibraryScanSessionHttpTest(unittest.TestCase):
             DOCUMENT_ROOT=str(self.root),
             SECRET_KEY="library-scan-session-test",
         )
-        with sqlite3.connect(self.app.config["DATABASE"]) as database:
+        # ClosingConnection: plain sqlite3 context managers never close the
+        # handle, which blocks TemporaryDirectory.cleanup() on Windows.
+        with sqlite_connect(self.app.config["DATABASE"]) as database:
             database.execute(
                 """CREATE TABLE security_event (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,

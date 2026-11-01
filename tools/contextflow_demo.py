@@ -1,0 +1,238 @@
+"""Smallest reproducible ContextFlow demo starter (Batch 3).
+
+Creates an isolated synthetic root (never production data), seeds the P0
+story, creates a local demo user in a separate demo auth database, and
+serves the existing Flask app on 127.0.0.1 only. Optional Meta Cloud
+inference requires explicit configuration and remains synthetic-only. No
+workers or external messages. Run from the repository root with the project venv:
+
+    .venv/Scripts/python.exe tools/contextflow_demo.py [--port 5088] [--root DIR] [--fresh]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import socket
+import sys
+from collections.abc import Mapping
+from pathlib import Path
+from typing import NoReturn
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+
+DEFAULT_DIR = REPO_ROOT / ".runtime-tools" / "contextflow-demo"
+DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
+# Demo CPUs need headroom: the first cold call (model load + inference).
+DEFAULT_OLLAMA_TIMEOUT = 180
+# Fixed demo credential: restart-proof, no transcription errors. Localhost-only,
+# synthetic demo database — never use for real data.
+DEMO_USERNAME = "demo"
+DEMO_PASSWORD = "demo-contextflow-1"
+
+
+def _fail(message: str) -> "NoReturn":
+    raise SystemExit(f"contextflow_demo: {message}")
+
+
+def vision_config_from_env(
+    env: Mapping[str, str] | None = None,
+) -> dict[str, str | int | bool]:
+    """Vision backend config from optional environment variables.
+
+    Local inference accepts only the project's explicit Meta Ollama
+    allowlist. The optional Meta Model API path requires an explicit
+    provider choice and MODEL_API_KEY; its model and endpoint are pinned.
+    With neither configured, a labeled mock keeps the UI live-testable.
+    """
+    source = os.environ if env is None else env
+    from app.contextflow.vision import (
+        META_MODEL_API_ENDPOINT,
+        META_MODEL_API_MODEL,
+        VisionError,
+        require_meta_ollama_model,
+    )
+
+    url = str(source.get("CONTEXTFLOW_OLLAMA_URL", "") or "").strip()
+    model = str(source.get("CONTEXTFLOW_OLLAMA_MODEL", "") or "").strip()
+    requested_provider = str(
+        source.get("CONTEXTFLOW_VISION_PROVIDER", "") or ""
+    ).strip().lower()
+    provider = requested_provider or ("local" if model else "mock")
+    if model:
+        try:
+            model = require_meta_ollama_model(model)
+        except VisionError as exc:
+            _fail(str(exc))
+    if provider not in {"local", "meta", "mock"}:
+        _fail("CONTEXTFLOW_VISION_PROVIDER must be local, meta or mock")
+    if provider == "local" and not model:
+        _fail("Local inference needs CONTEXTFLOW_OLLAMA_MODEL set to a Meta model")
+    if provider == "meta" and not str(source.get("MODEL_API_KEY", "") or "").strip():
+        _fail(
+            "Meta Muse Spark 1.3 Contributor was selected but MODEL_API_KEY is missing. "
+            "Set it in the process environment; it is never written to the demo config."
+        )
+    raw_timeout = str(source.get("CONTEXTFLOW_OLLAMA_TIMEOUT", "") or "").strip()
+    try:
+        timeout = int(raw_timeout) if raw_timeout else DEFAULT_OLLAMA_TIMEOUT
+    except ValueError:
+        timeout = DEFAULT_OLLAMA_TIMEOUT
+    if timeout <= 0:
+        timeout = DEFAULT_OLLAMA_TIMEOUT
+    return {
+        "CONTEXTFLOW_VISION_PROVIDER": provider,
+        "CONTEXTFLOW_OLLAMA_URL": url or DEFAULT_OLLAMA_URL,
+        "CONTEXTFLOW_OLLAMA_MODEL": model,
+        "CONTEXTFLOW_OLLAMA_TIMEOUT": timeout,
+        "CONTEXTFLOW_META_CONSENT": provider == "meta",
+        "CONTEXTFLOW_META_ENDPOINT": META_MODEL_API_ENDPOINT,
+        "CONTEXTFLOW_META_MODEL": META_MODEL_API_MODEL,
+    }
+
+
+def prepare_root(path: Path, fresh: bool) -> Path:
+    """Return an isolated synthetic root; refuse anything that looks real.
+
+    The safety checks live in app.contextflow.demo (importable by the test
+    suite); the import stays here so --help never starts the app package.
+    """
+    from app.contextflow.demo import (
+        DEMO_MARKER,
+        DemoRootError,
+        is_verified_demo_root,
+        reset_demo_root,
+    )
+
+    if path.exists() and any(path.iterdir()):
+        if not is_verified_demo_root(path):
+            _fail(
+                f"refusing non-empty root without verified demo marker: {path} "
+                "(pass an empty dir or a previous demo root)"
+            )
+        if fresh:
+            try:
+                reset_demo_root(path)
+            except DemoRootError as exc:
+                _fail(str(exc))
+            path.mkdir(parents=True, exist_ok=True)
+            return path
+    path.mkdir(parents=True, exist_ok=True)
+    (path / DEMO_MARKER).write_text(
+        json.dumps({"synthetic": True, "tool": "contextflow_demo"}, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _preflight_port(port: int) -> None:
+    """Fail early with guidance if the loopback port cannot be served.
+
+    Werkzeug converts bind failures into a bare message plus
+    ``SystemExit(1)``, so ``flask_app.run`` cannot be wrapped
+    usefully. A short bind+listen probe detects busy and forbidden
+    ports first. A tiny rebind race remains; worst case is
+    werkzeug's own message, never a traceback.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.bind(("127.0.0.1", port))
+        probe.listen(1)
+    except OSError as exc:
+        _fail(
+            f"cannot listen on 127.0.0.1:{port} ({exc}); "
+            "is the port already in use or forbidden? "
+            "Retry with another --port."
+        )
+    finally:
+        probe.close()
+
+
+def serve(flask_app, port: int) -> None:
+    """Serve on loopback after the port preflight (see above).
+
+    KeyboardInterrupt still stops the server normally.
+    """
+    _preflight_port(port)
+    flask_app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+
+
+def main() -> None:
+    from tools.local_env import load_parent_env_file
+    load_parent_env_file()
+    parser = argparse.ArgumentParser(description="Run the local ContextFlow demo.")
+    parser.add_argument("--port", type=int, default=5088)
+    parser.add_argument("--root", default=str(DEFAULT_DIR))
+    parser.add_argument("--fresh", action="store_true")
+    args = parser.parse_args()
+    _preflight_port(args.port)
+
+    root = prepare_root(Path(args.root).expanduser(), args.fresh)
+
+    from app import app as flask_app
+    from app.contextflow.demo import seed_demo
+    from app.db import ensure_auth_database, get_db
+    from app.password_security import hash_password
+
+    vision = vision_config_from_env()
+    flask_app.config.update(
+        DATABASE=str(root / "demo-users.sqlite"),
+        DOCUMENT_ROOT=str(root),
+        CONTEXTFLOW_ENABLED=True,
+        TESTING=False,
+    )
+    flask_app.config.update(vision)
+    with flask_app.app_context():
+        ensure_auth_database()
+        db = get_db()
+        password = DEMO_PASSWORD
+        db.execute("DELETE FROM user WHERE username = ?", (DEMO_USERNAME,))
+        db.execute(
+            "INSERT INTO user(username,password,display_name,is_admin,is_disabled,auth_version,"
+            "created_at,updated_at) VALUES (?,?,?,0,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+            (DEMO_USERNAME, hash_password(password), "Demo (synthetisch)"),
+        )
+        db.commit()
+        summary = seed_demo(root, actor="demo")
+
+    print("ContextFlow Demo bereit (alle Daten synthetisch).")
+    print("  URL im Browser oeffnen:")
+    print(f"    http://127.0.0.1:{args.port}/contextflow/")
+    print("  Meta-Demo-Analyse (nur mit Einwilligung, synthetisch):")
+    print(f"    http://127.0.0.1:{args.port}/contextflow/agent")
+    print("  Benutzername (genau so, nicht admin):")
+    print(f"    {DEMO_USERNAME}")
+    print("  Passwort (genau so, nur Demo-Zugang, nur lokal):")
+    print(f"    {password}")
+    print(f"  Root:     {root}")
+    print(f"  Fall:     {summary['link_id']} (abgeschlossen {summary['completed_on']})")
+    for entry in summary["demo_documents"]["documents"]:
+        print(
+            f"  Demo-Datei: {entry['name']} "
+            f"-> http://127.0.0.1:{args.port}/documents/{entry['document_id']} "
+            f"(Vorschau: {entry['preview']}/{entry['converter']})"
+        )
+    if vision["CONTEXTFLOW_VISION_PROVIDER"] == "local":
+        print(
+            "  Vision:   Meta-Modell lokal via Ollama, Modell "
+            f"{vision['CONTEXTFLOW_OLLAMA_MODEL']}"
+        )
+        print(f"  Ollama:   {vision['CONTEXTFLOW_OLLAMA_URL']}")
+        print(f"  Timeout:  {vision['CONTEXTFLOW_OLLAMA_TIMEOUT']}s (Kaltstart)")
+    elif vision["CONTEXTFLOW_VISION_PROVIDER"] == "meta":
+        print("  Vision:   Meta Muse Spark 1.3 Contributor (Meta Model API)")
+        print("  Daten:    ausschließlich synthetischer Demo-Root + Einwilligung")
+    else:
+        print("  Vision:   Mock (Befunddemo; Inventar braucht lokales Modell)")
+    if vision["CONTEXTFLOW_VISION_PROVIDER"] != "meta":
+        print("Kein Cloud-Versand, keine Worker, keine externen Nachrichten.")
+    else:
+        print("Keine Worker oder externen Nachrichten.")
+    print("Bei 'Zu viele Versuche': kurz warten oder mit --fresh neu starten.")
+    serve(flask_app, args.port)
+
+
+if __name__ == "__main__":
+    main()
