@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import tempfile
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -401,8 +401,8 @@ class DevicePrefillWebTest(unittest.TestCase):
             db.commit()
         self.root = Path(self.temp.name) / "documents"
         self.admin = self.login("admin")
-        self.today = date.today()
-        self.now = datetime.now(BERLIN)
+        self.today = datetime.now(BERLIN).date()
+        self.now = datetime.combine(self.today, time(12, 0), tzinfo=BERLIN)
         contact_id = str(fx.make_contact(self.root, "admin")["contact_id"])
         case_id = fx.make_mail_case(self.root, "admin")
         store = SiteVisitStore(self.root)
