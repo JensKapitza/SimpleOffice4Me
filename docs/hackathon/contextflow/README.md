@@ -174,47 +174,57 @@ start.bat demo --port 5088
   `docs/hackathon/contextflow/OLLAMA.md` (`CONTEXTFLOW_OLLAMA_MODEL`;
   ohne Modell nur Mock-Befunddemo, Inventar antwortet 503).
 
-### 3-Minuten-Jury-Demo: tatsächliche Meta-Inferenz zeigen
+### Judge quickstart and three-minute demo
 
-Die Meta-AI-Tooling-Wertung beträgt 25 %. Für den sichtbaren Cloud-Aufruf
-ein neues PowerShell-Terminal verwenden und den API-Schlüssel als
-Prozess-Umgebungsvariable setzen oder in die `.env`-Datei direkt oberhalb
-des Repo-Ordners eintragen (außerhalb von Git, nur `MODEL_API_KEY`; nie in
-Git-Dateien, README oder Code speichern):
+The public repository's root README has the fresh-checkout install commands
+for Windows and Linux/macOS. For a live cloud run, set
+`CONTEXTFLOW_VISION_PROVIDER=meta` and provide your own `MODEL_API_KEY` as a
+process environment variable or in `.env` one directory above the checkout.
+That parent `.env` is outside Git. Never put a key in the repo, screenshots,
+video, or shell recording. On startup the demo must print
+`Meta Muse Spark 1.3 Contributor (Meta Model API)`. If it says Mock or Local,
+do not present that run as a live cloud call.
 
-```powershell
-$env:CONTEXTFLOW_VISION_PROVIDER = "meta"
-$env:MODEL_API_KEY = "<Meta-Model-API-Schlüssel>"
-.venv\Scripts\python.exe tools\contextflow_demo.py --port 5088 --fresh
-```
+Use a fresh isolated demo root (`--fresh`), synthetic data only, and sign in
+at `http://127.0.0.1:5088/contextflow/` as `demo` /
+`demo-contextflow-1`. Keep the terminal visible at startup long enough to show
+the selected provider, then switch to the browser. Prepare the browser with
+the demo already started, but do not pre-record, substitute, or reuse a model
+response: both model results shown below must come from fresh successful calls.
 
-Der Start muss `Meta Muse Spark 1.3 Contributor (Meta Model API)` ausgeben. Dann im
-Browser unter `http://127.0.0.1:5088/contextflow/` anmelden (`demo` /
-`demo-contextflow-1`) und in drei Minuten zeigen:
+#### Suggested 3:00 run of show
 
-1. **0:00–0:30:** Startausgabe und UI-Modellkennung `Meta Muse Spark 1.3 Contributor`
-   zeigen (exakte ID `muse-spark-1.3-contributor` im Badge-Titel und Ergebnis).
-   Demo-Root und Beispieldaten sind synthetisch.
-2. **0:30–1:30:** Im Foto-Formular einen synthetischen Ortstermin wählen,
-   ein unkritisches Demo-Bild auswählen, Meta-Cloud-Einwilligung markieren
-   und den Vorschlag starten. Das Ergebnis nennt als Provider
-   `Meta Muse Spark 1.3 Contributor (Meta Model API)`.
-3. **1:30–2:00:** Titel, Befundart und Sicherheit prüfen; ohne Bestätigung
-   wird nichts gespeichert. Den Entwurf danach ausdrücklich übernehmen.
-4. **2:00–2:40:** Die bestätigte Arbeit mit Quellen im Büroengel zeigen,
-   eine freigegebene Aufgabe anlegen und die einmalige Ausführung erklären.
-   Geld- oder externe Aktionen werden nicht automatisch ausgelöst.
-5. **2:40–3:00 (Negativfall, entschieden: 403 ohne Einwilligung):** Auf
-   `/contextflow/agent` denselben Fall wählen, die Meta-Einwilligung
-   **nicht** markieren und starten — die Seite antwortet 403 mit
-   Begründung statt einer Analyse. Alternativen (nicht im Video):
-   Doppelstart → 409, beschädigter Eingangskorb-Index → 503.
-   Abschluss: `git diff af5a600b..HEAD --stat` + Alt/Neu-Tabelle unten.
+| Time | Show | What proves it |
+|---|---|---|
+| 0:00–0:15 | Start output, then ContextFlow dashboard and synthetic demo label. | Server selected `Meta Muse Spark 1.3 Contributor`; demo data is isolated. This is configuration evidence only, not yet proof of inference. |
+| 0:15–0:55 | Open `/contextflow/agent`, select the seeded confirmed case, check the explicit Meta consent, and start one live run. | Fresh result shows requested and response model IDs, step count, tool calls with success marks, evidence IDs, elapsed time, and token counts. The tools are read-only and the result is a proposal; no record or message is automatically created. |
+| 0:55–1:50 | On the dashboard expand “Befund-Vorschlag aus Foto”, select a seeded visit, upload a clearly synthetic JPEG/PNG/WebP, check the Meta Cloud consent, and create the suggestion. | The fresh response identifies the provider/model and presents title, description, evidence class, and confidence. The uploaded photo is analyzed in memory and is not persisted. |
+| 1:50–2:20 | Review the proposed finding and explicitly confirm it. | The user sees the proposed fields before saving; only the reviewed, explicitly approved finding is created. |
+| 2:20–2:45 | Point out the approval boundary on the agent result and the confirmed photo finding. | The agent's actual tool loop and evidence are visible; the agent remains a proposal, while the separately reviewed photo finding was explicitly confirmed. No task, message, or payment is triggered automatically. |
+| 2:45–3:00 | Briefly show the code map below, then close on the working result. | The judges can find the API client, image-analysis path, tool loop, and demo seed/setup in the public repo. |
 
-Ohne Meta-API-Schlüssel darf die Jury-Demo nicht als echte Meta-Inferenz
-bezeichnet werden. Als lokale Alternative für die Bildaufgabe kann `muse-glimmer`
-oder `llama3.2-vision` über Ollama laufen; der Mock ist nur für UI- und
-Workflow-Durchläufe.
+Image inference can be slow. Have a clearly synthetic JPEG/PNG/WebP ready
+before recording. If the call exceeds the planned slot, let it finish and
+either shorten the surrounding narration or make a separate, clearly labeled
+recording; never cut in a previous response and imply it came from the current
+call.
+Do not show real office documents or contact data in a contributor-mode run.
+
+#### Where Meta is used
+
+- `app/contextflow/vision.py`: pinned Meta Model API image-analysis call and
+  Meta-only Ollama allowlist for local image analysis.
+- `app/contextflow/meta_agent.py`: Meta Responses API tool loop, limited to
+  validated read-only ContextFlow tools and evidence-backed proposals.
+- `app/contextflow/web.py`: consent gates, routes, and the human review/save
+  boundary used by the browser flow.
+- `tools/contextflow_demo.py`: isolated synthetic data, localhost-only server,
+  visible provider startup, and repeatable judge login.
+
+The visible model ID, response, tool/evidence list, and usage belong in the
+recording. A configured badge or Mock result alone does not establish a live
+Meta call. If no Meta key is available, use Ollama only for a clearly labeled
+local run; the mock is suitable for UI and workflow checks, not AI evidence.
 
 ### Meta-Agent mit Tool-Loop (P0-G, live-verifiziert 30.10.)
 

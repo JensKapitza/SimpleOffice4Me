@@ -71,7 +71,7 @@
   {% if result %}
   <section aria-label="Analyseergebnis" class="cf-card">
     <h2 tabindex="-1" autofocus>Vorschlag des Meta-Agenten{% if result_case and result_case.title %} für „{{ result_case.title }}“{% endif %}</h2>
-    <p class="cf-status">{{ result.steps }} Modellschritte · {{ result.tool_calls|length }} Werkzeugaufrufe · Modell {{ result.model }}{% if run_seconds is not none %} · Laufzeit: {{ "%.1f"|format(run_seconds) }} s{% endif %}{% if result.usage %} · Tokens Ein/Aus: {{ result.usage.input_tokens|default("–") }} / {{ result.usage.output_tokens|default("–") }}{% endif %}</p>
+    <p class="cf-status">{{ result.steps }} Modellschritte · {{ result.tool_calls|length }} Werkzeugaufrufe · Modell {{ result.model }}{% if result.response_model %} (Antwort: {{ result.response_model }}){% endif %}{% if result.response_models_display %} · Antwortmodelle: {{ result.response_models_display }}{% endif %}{% if run_seconds is not none %} · Laufzeit: {{ "%.1f"|format(run_seconds) }} s{% endif %}{% if result.usage %} · Tokens Ein/Aus: {{ result.usage.input_tokens|default("–") }} / {{ result.usage.output_tokens|default("–") }}{% endif %}</p>
     {% if result_case %}<p class="cf-muted">Fall-ID: {{ result_case.id }}</p>{% endif %}
     <p class="cf-reason">{{ result.summary }}</p>
     <h3>Werkzeugaufrufe (alle lesend, alle serverseitig ausgeführt)</h3>
