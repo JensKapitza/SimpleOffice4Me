@@ -400,6 +400,22 @@ class WebDavDocumentTestPart3(WebDavTestBase):
         self.assertEqual(423, copied.status_code)
         self.assertTrue((self.store.root / "angebot.odt").is_file())
 
+    def test_encoded_tree_path_traversal_cannot_read_or_write_outside_root(self):
+        outside = Path(self.temp.name) / "outside.txt"
+        outside.write_bytes(b"private outside content")
+        traversal_url = f"{self.files}/%252e%252e/outside.txt"
+
+        leaked = self.client.get(traversal_url, headers=self.auth)
+        written = self.client.put(traversal_url, data=b"attacker content", headers=self.auth)
+        contained = self.client.get(f"{self.files}/angebot.odt", headers=self.auth)
+
+        self.assertEqual(404, leaked.status_code)
+        self.assertNotIn(b"private outside content", leaked.data)
+        self.assertEqual(404, written.status_code)
+        self.assertEqual(b"private outside content", outside.read_bytes())
+        self.assertEqual(200, contained.status_code)
+        self.assertEqual(b"first office version", contained.data)
+
     def test_destination_and_user_boundaries_are_enforced(self):
         other_host = self.client.open(
             f"{self.files}/angebot.odt",
@@ -786,4 +802,3 @@ class WebDavDocumentTestPart3(WebDavTestBase):
         self.assertEqual(412, destination_race.status_code)
         self.assertEqual(b"newer target", (self.store.root / "angebot.odt").read_bytes())
         self.assertEqual(b"newer source", (self.store.root / "racing-copy.txt").read_bytes())
-
