@@ -2,9 +2,9 @@ name: Scorecard supply-chain security
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "hackathon/contextflow-mvp" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "hackathon/contextflow-mvp" ]
   schedule:
     - cron: '44 4 * * 2'
   workflow_dispatch:

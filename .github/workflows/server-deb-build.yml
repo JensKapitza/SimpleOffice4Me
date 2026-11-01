@@ -3,7 +3,7 @@ name: Server DEB build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, hackathon/contextflow-mvp]
 
 permissions:
   contents: read
