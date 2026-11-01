@@ -14,9 +14,9 @@ from __future__ import annotations
 import re
 import tempfile
 import unittest
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
-from unittest import mock
+from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from app import app
@@ -401,17 +401,8 @@ class DevicePrefillWebTest(unittest.TestCase):
             db.commit()
         self.root = Path(self.temp.name) / "documents"
         self.admin = self.login("admin")
-        self.today = date.today()
-        self.now = datetime.now(BERLIN)
-        # Freeze the dashboard clock to noon of the real today: seeds stay
-        # date-relative, but quiet hours can never swallow the card
-        # (same pattern as CreditHintRoutesTest).
-        noon = self.now.replace(hour=12, minute=0, second=0, microsecond=0)
-        self._now_patch = mock.patch(
-            "app.contextflow.web._now", return_value=noon
-        )
-        self._now_patch.start()
-        self.addCleanup(self._now_patch.stop)
+        self.today = datetime.now(BERLIN).date()
+        self.now = datetime.combine(self.today, time(12, 0), tzinfo=BERLIN)
         contact_id = str(fx.make_contact(self.root, "admin")["contact_id"])
         case_id = fx.make_mail_case(self.root, "admin")
         store = SiteVisitStore(self.root)
@@ -497,7 +488,8 @@ class DevicePrefillWebTest(unittest.TestCase):
         return client
 
     def test_dashboard_lists_both_devices_as_radios(self) -> None:
-        response = self.admin.get("/contextflow/")
+        with patch("app.contextflow.web._now", return_value=self.now):
+            response = self.admin.get("/contextflow/")
         self.assertEqual(response.status_code, 200)
         body = response.data
         self.assertIn("Buchscanner (synthetisch)".encode(), body)
