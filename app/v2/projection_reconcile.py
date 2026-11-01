@@ -140,7 +140,7 @@ def reconcile_changed_paths(
         if path.is_file() and not path.is_symlink():
             object_id = ""
             try:
-                metadata = documents.get_document(path)
+                metadata = documents.scan_and_get_document(path)
                 object_id = str(metadata.get("document_id") or "")
                 digest = str(metadata.get("sha256") or "").casefold()
                 if not object_id or len(digest) != 64:

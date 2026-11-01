@@ -501,7 +501,7 @@ def _portable_name_error(
 def _tree_document(path: Path) -> dict:
     if not path.is_file() or path.is_symlink():
         raise ValueError("document unavailable")
-    return _store().get_document(path)
+    return _store().get_or_scan_document(path)
 
 
 def _lock_key(path: Path, document: dict | None = None) -> str:
