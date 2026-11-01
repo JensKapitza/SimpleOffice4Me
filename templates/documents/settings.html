@@ -41,6 +41,18 @@
       <div class="card h-100">
         <div class="card-header">{{ 'Interface' if g.language == 'en' else 'Oberfläche' }}</div>
         <div class="card-body">
+          <form method="post" action="{{ url_for('documents.set_language') }}" class="mb-3">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <label class="form-label" for="session-language">{{ 'Session language' if g.language == 'en' else 'Sitzungssprache' }}</label>
+            <div class="d-flex gap-2">
+              <select class="form-select" id="session-language" name="language">
+                <option value="de" {% if g.language == 'de' %}selected{% endif %}>Deutsch</option>
+                <option value="en" {% if g.language == 'en' %}selected{% endif %}>English</option>
+              </select>
+              <button class="btn btn-outline-secondary" type="submit">{{ 'Apply' if g.language == 'en' else 'Übernehmen' }}</button>
+            </div>
+            <div class="form-text">{{ 'Applies to this session on all pages.' if g.language == 'en' else 'Gilt für diese Sitzung auf allen Seiten.' }}</div>
+          </form>
           <label class="form-label" for="color-theme">{{ 'Color scheme' if g.language == 'en' else 'Farbschema' }}</label>
           <select class="form-select mb-3" id="color-theme" name="theme">
             <option value="system" {% if g.theme_preference == 'system' %}selected{% endif %}>{{ 'Use system setting' if g.language == 'en' else 'Systemeinstellung verwenden' }}</option>

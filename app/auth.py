@@ -15,6 +15,7 @@ from .db import get_db
 from .google_sync import sync_google_account
 from .access_control import audit, has_feature
 from .password_security import hash_password, password_needs_rehash, verify_password
+from .settings_store import translate
 from .security_controls import (
     clear_login_failures,
     login_retry_after,
@@ -181,6 +182,21 @@ def register():
     return render_template('auth/register.html', google_enabled=_google_config() is not None)
 
 
+def _session_language() -> str:
+    """Interface language for anonymous and logged-in sessions (validated)."""
+    language = str(session.get("simpleoffice_language", "en") or "en").strip().lower()
+    return language if language in ("de", "en") else "en"
+
+
+@bp.post('/language')
+def set_session_language():
+    """Public session-language switch for the login page (no login needed)."""
+    language = str(request.form.get("language", "en") or "en").strip().lower()
+    if language in ("de", "en"):
+        session["simpleoffice_language"] = language
+    return redirect(url_for('auth.login'))
+
+
 @bp.route('/login', methods=('GET', 'POST'))
 def login():
     if request.method == 'POST':
@@ -192,7 +208,7 @@ def login():
         retry_after = login_retry_after(db, username, client_ip)
         if retry_after:
             audit("login", "session", outcome="throttled")
-            flash("Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.")
+            flash(translate(_session_language(), "auth.error.throttled"))
             return render_template(
                 'auth/login.html', google_enabled=_google_config() is not None,
                 registration_enabled=_registration_enabled(),
@@ -206,9 +222,9 @@ def login():
         password_valid = verify_password(stored_hash, password)
 
         if user is None or not password_valid:
-            error = 'Benutzername oder Passwort ist falsch.'
+            error = translate(_session_language(), "auth.error.invalid")
         elif user['is_disabled']:
-            error = 'Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.'
+            error = translate(_session_language(), "auth.error.disabled")
 
         if error is None:
             if password_needs_rehash(user['password']):
@@ -239,7 +255,7 @@ def login():
 def google_login():
     config = _google_config()
     if config is None:
-        flash('Google-Anmeldung ist noch nicht konfiguriert.')
+        flash(translate(_session_language(), "auth.error.google_missing"))
         return redirect(url_for('auth.login'))
     state = secrets.token_urlsafe(32)
     session['google_oauth_state'] = state

@@ -160,7 +160,7 @@ def _bounded_setting(value: Any, default: int, minimum: int, maximum: int) -> in
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
-    "interface": {"default_language": "de", "timezone": "Europe/Berlin"},
+    "interface": {"default_language": "en", "timezone": "Europe/Berlin"},
     "documents": {"default_state": "new", "default_tags": [], "upload_to_archive": False},
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
@@ -454,10 +454,52 @@ TRANSLATIONS["en"].update({
     "duplicates.search_label": "Search contacts", "duplicates.search_hint": "Name, email, phone, company, address, or ID", "duplicates.match_filter": "Shared field", "duplicates.match_any": "All results", "duplicates.match_name": "Same name", "duplicates.match_email": "Same email", "duplicates.match_phone": "Same phone", "duplicates.match_company": "Same company", "duplicates.match_address": "Same address", "duplicates.refine": "Refine results",
     "duplicates.combine_help": "Different email addresses and phone numbers are retained as additional vCard values. Other missing fields are filled; identical values are stored only once.", "duplicates.multi_confirm": "Combine all selected contacts into one contact now? The original versions will be saved.", "duplicates.combine_selected": "Combine selection", "duplicates.select_contact": "Select contact", "duplicates.name": "Name", "duplicates.contact_data": "Contact data", "duplicates.match_indicators": "Shared fields", "duplicates.no_search_results": "No contacts match these filters.", "duplicates.multi_success": "{count} contacts combined into one with an audit trail.", "duplicates.error.at_least_two": "Select at least two contacts.", "duplicates.error.too_many": "At most 100 contacts can be combined per operation.",
 })
+TRANSLATIONS["de"].update({
+    "lang.label": "Sprache", "lang.german": "Deutsch", "lang.english": "Englisch",
+    "lang.session": "Sitzungssprache", "lang.session_hint": "Gilt für diese Sitzung auf allen Seiten.",
+    "auth.login.title": "Anmelden · SimpleOffice", "auth.login.heading": "Anmelden",
+    "auth.login.lead": "Melde dich an, um Dokumente, Kontakte und Formulare zu verwalten.",
+    "auth.login.google": "Mit Google anmelden", "auth.login.google_missing": "Google-OAuth ist auf diesem Server noch nicht konfiguriert.",
+    "auth.login.divider": "oder mit Benutzerkonto", "auth.login.username": "Benutzername", "auth.login.password": "Passwort",
+    "auth.login.submit": "Anmelden", "auth.login.register_first": "Erstes Administratorkonto erstellen",
+    "auth.login.request_account": "Konto beantragen", "auth.login.no_account": "Noch kein Konto?",
+    "auth.login.invited_only": "Neue Konten werden durch die Administration eingeladen.",
+    "auth.login.qr_title": "Auf einem anderen Gerät öffnen",
+    "auth.login.qr_lead": "QR-Code scannen. Mit den Pfeilen oder per Wischen zwischen möglichen Serveradressen wechseln. Server-Bindung und Firewall müssen den Zugriff erlauben.",
+    "auth.login.qr_addresses": "Anmeldeadressen", "auth.login.qr_prev": "Vorherige Adresse", "auth.login.qr_next": "Nächste Adresse",
+    "auth.error.throttled": "Zu viele fehlgeschlagene Anmeldeversuche. Bitte später erneut versuchen.",
+    "auth.error.invalid": "Benutzername oder Passwort ist falsch.",
+    "auth.error.disabled": "Dieses Konto ist gesperrt. Bitte einen Administrator kontaktieren.",
+    "auth.error.google_missing": "Google-Anmeldung ist noch nicht konfiguriert.",
+    "auth.profile.title": "Benutzerprofil", "auth.profile.username": "Benutzername", "auth.profile.display_name": "Anzeigename",
+    "auth.profile.display_hint": "Bei Google-Anmeldung wird der Name aus dem Google-Profil übernommen. Du kannst ihn hier überschreiben.",
+    "auth.profile.email": "E-Mail", "auth.profile.save": "Profil speichern",
+})
+TRANSLATIONS["en"].update({
+    "lang.label": "Language", "lang.german": "German", "lang.english": "English",
+    "lang.session": "Session language", "lang.session_hint": "Applies to this session on all pages.",
+    "auth.login.title": "Sign in · SimpleOffice", "auth.login.heading": "Sign in",
+    "auth.login.lead": "Sign in to manage documents, contacts, and forms.",
+    "auth.login.google": "Sign in with Google", "auth.login.google_missing": "Google OAuth is not configured on this server yet.",
+    "auth.login.divider": "or with user account", "auth.login.username": "Username", "auth.login.password": "Password",
+    "auth.login.submit": "Sign in", "auth.login.register_first": "Create first administrator account",
+    "auth.login.request_account": "Request account", "auth.login.no_account": "No account yet?",
+    "auth.login.invited_only": "New accounts are invited by the administration.",
+    "auth.login.qr_title": "Open on another device",
+    "auth.login.qr_lead": "Scan the QR code. Use the arrows or swipe to switch between possible server addresses. Server binding and firewall must allow access.",
+    "auth.login.qr_addresses": "Sign-in addresses", "auth.login.qr_prev": "Previous address", "auth.login.qr_next": "Next address",
+    "auth.error.throttled": "Too many failed sign-in attempts. Please try again later.",
+    "auth.error.invalid": "Username or password is incorrect.",
+    "auth.error.disabled": "This account is locked. Please contact an administrator.",
+    "auth.error.google_missing": "Google sign-in is not configured yet.",
+    "auth.profile.title": "User profile", "auth.profile.username": "Username", "auth.profile.display_name": "Display name",
+    "auth.profile.display_hint": "With Google sign-in the name comes from the Google profile. You can override it here.",
+    "auth.profile.email": "Email", "auth.profile.save": "Save profile",
+})
 
 
 def translate(language: str, key: str) -> str:
-    return TRANSLATIONS.get(language, TRANSLATIONS["de"]).get(key, key)
+    return TRANSLATIONS.get(language, TRANSLATIONS["en"]).get(key, key)
 
 
 def ui_literal_translations(language: str) -> dict[str, str]:
@@ -870,7 +912,7 @@ class SettingsStore:
         media = validate_media_settings(media)
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
-        language = str(interface.get("default_language", "de"))
+        language = str(interface.get("default_language", "en"))
         if language not in TRANSLATIONS:
             raise ValueError("unsupported default language")
         timezone = str(interface.get("timezone", "Europe/Berlin")).strip()

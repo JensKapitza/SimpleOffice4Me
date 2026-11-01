@@ -133,7 +133,7 @@ def save_settings():
 @bp.post("/settings/language")
 @login_required
 def set_language():
-    language = request.form.get("language", "de")
+    language = request.form.get("language", "en")
     if language in {"de", "en"}:
         session["simpleoffice_language"] = language
     return redirect(url_for("documents.settings"))

@@ -38,6 +38,8 @@ class LoginQrDisclosureTest(unittest.TestCase):
         with app.app_context():
             ensure_auth_database()
         self.client = app.test_client()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self) -> None:
         app.config.update(self.saved)
@@ -56,7 +58,9 @@ class LoginQrDisclosureTest(unittest.TestCase):
         self.assertIn(b"<summary", body)
         heading = "Auf einem anderen Gerät öffnen".encode("utf-8")
         self.assertIn(heading, body)
-        self.assertLess(body.index(b"<summary"), body.index(heading))
+        summary_at = body.index(b"<summary")
+        self.assertIn(heading, body[summary_at:])
+        self.assertLess(summary_at, body.index(heading, summary_at))
 
     def test_login_stays_primary(self) -> None:
         body = self._get(TARGETS).data
