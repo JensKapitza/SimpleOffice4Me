@@ -164,30 +164,34 @@ jobs:
       - name: Build debug APK and ephemeral signed release smoke APK
         working-directory: android/apk
         env:
-          SIMPLEOFFICE_DEFER_RELEASE_SIGNING: '1'
-        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleRelease
-
-      - name: Finalize ephemeral release APK v1/v2 signature
-        shell: bash
-        env:
           SIMPLEOFFICE_RELEASE_KEYSTORE: ${{ steps.release-smoke.outputs.keystore }}
           SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ steps.release-smoke.outputs.store_password }}
           SIMPLEOFFICE_RELEASE_KEY_ALIAS: ${{ steps.release-smoke.outputs.key_alias }}
           SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ steps.release-smoke.outputs.key_password }}
+        run: gradle --no-daemon testDebugUnitTest assembleDebug assembleRelease
+
+      - name: Verify resolved release signature scheme flags
         run: |
-          set -euo pipefail
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$APKSIGNER" && test -x "$APKSIGNER"
-          mapfile -t apks < <(find android/apk/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)
-          if [[ "${#apks[@]}" -ne 1 ]]; then
-            echo "Expected one Gradle release APK before apksigner finalization; found ${#apks[@]}" >&2
-            exit 1
-          fi
-          python tools/sign_android_apk.py \
-            --apk "${apks[0]}" \
-            --apksigner "$APKSIGNER" \
-            --keystore "$SIMPLEOFFICE_RELEASE_KEYSTORE" \
-            --key-alias "$SIMPLEOFFICE_RELEASE_KEY_ALIAS"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          build = Path("android/apk/app/build")
+          files = sorted(
+              path for path in build.rglob("signing-config-versions.json")
+              if "release" in str(path).lower()
+          )
+          if len(files) != 1:
+              raise SystemExit(
+                  f"Expected one AGP release signing-version record; found {len(files)}"
+              )
+          resolved = json.loads(files[0].read_text(encoding="utf-8"))
+          v1 = resolved.get("enableV1Signing")
+          v2 = resolved.get("enableV2Signing")
+          print(f"AGP resolved release signature schemes: v1={v1}, v2={v2}")
+          if v1 is not True or v2 is not True:
+              raise SystemExit("AGP did not resolve both required release signature schemes")
+          PY
 
       - name: Verify bundled Python runtime assets and ABI
         shell: bash
@@ -266,16 +270,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t apks < <(find android/apk/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)
-          if [[ "${#apks[@]}" -ne 1 ]]; then
-            echo "Expected one finalized release smoke APK; found ${#apks[@]}" >&2
-            exit 1
-          fi
-          APK="${apks[0]}"
+          APK='android/apk/app/build/outputs/apk/release/app-release.apk'
           test -s "$APK"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           test -n "$APKSIGNER" && test -x "$APKSIGNER"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" | tee /tmp/release-apksigner.txt
+          "$APKSIGNER" verify --verbose --print-certs --min-sdk-version 23 "$APK" | tee /tmp/release-apksigner.txt
           grep -F 'Verified using v1 scheme (JAR signing): true' /tmp/release-apksigner.txt
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/release-apksigner.txt
           grep -F 'lib/arm64-v8a/' <(unzip -l "$APK")

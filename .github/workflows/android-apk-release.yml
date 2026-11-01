@@ -121,12 +121,6 @@ jobs:
           echo "SIMPLEOFFICE_BUILD_DATE=$(date -u +%Y%m%d)" >> "$GITHUB_ENV"
           echo "SIMPLEOFFICE_BUILD_SEQUENCE=${{ github.run_number }}" >> "$GITHUB_ENV"
 
-      - name: Build release APK for apksigner finalization
-        working-directory: android/apk
-        env:
-          SIMPLEOFFICE_DEFER_RELEASE_SIGNING: '1'
-        run: gradle --no-daemon testDebugUnitTest assembleRelease
-
       - name: Restore release keystore from secrets
         shell: bash
         env:
@@ -144,44 +138,26 @@ jobs:
           chmod 600 "$keystore"
           test -s "$keystore"
 
-      - name: Finalize release APK v1/v2 signature
-        shell: bash
+      - name: Build signed release APK
+        working-directory: android/apk
         env:
           SIMPLEOFFICE_RELEASE_KEYSTORE: ${{ runner.temp }}/android-release/release.jks
           SIMPLEOFFICE_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEYSTORE_PASSWORD }}
           SIMPLEOFFICE_RELEASE_KEY_ALIAS: simpleoffice-release
           SIMPLEOFFICE_RELEASE_KEY_PASSWORD: ${{ secrets.ANDROID_RELEASE_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
-          test -n "$APKSIGNER" && test -x "$APKSIGNER"
-          mapfile -t apks < <(find android/apk/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)
-          if [[ "${#apks[@]}" -ne 1 ]]; then
-            echo "Expected one Gradle release APK before apksigner finalization; found ${#apks[@]}" >&2
-            exit 1
-          fi
-          python tools/sign_android_apk.py \
-            --apk "${apks[0]}" \
-            --apksigner "$APKSIGNER" \
-            --keystore "$SIMPLEOFFICE_RELEASE_KEYSTORE" \
-            --key-alias "$SIMPLEOFFICE_RELEASE_KEY_ALIAS"
+        run: gradle --no-daemon testDebugUnitTest assembleRelease
 
       - name: Verify release signature, fingerprint and ABI
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t apks < <(find android/apk/app/build/outputs/apk/release -maxdepth 1 -type f -name '*.apk' -print)
-          if [[ "${#apks[@]}" -ne 1 ]]; then
-            echo "Expected one finalized release APK; found ${#apks[@]}" >&2
-            exit 1
-          fi
-          APK="${apks[0]}"
+          APK='android/apk/app/build/outputs/apk/release/app-release.apk'
           test -s "$APK"
           APKSIGNER="$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n 1)"
           ZIPALIGN="$(find "$ANDROID_HOME/build-tools" -type f -name zipalign | sort -V | tail -n 1)"
           test -n "$APKSIGNER" && test -x "$APKSIGNER"
           test -n "$ZIPALIGN" && test -x "$ZIPALIGN"
-          "$APKSIGNER" verify --verbose --print-certs "$APK" > /tmp/apksigner.txt
+          "$APKSIGNER" verify --verbose --print-certs --min-sdk-version 23 "$APK" > /tmp/apksigner.txt
           grep -F 'Verified using v1 scheme (JAR signing): true' /tmp/apksigner.txt
           grep -F 'Verified using v2 scheme (APK Signature Scheme v2): true' /tmp/apksigner.txt
           actual="$(grep -oE 'SHA-256 digest: [0-9a-f]+' /tmp/apksigner.txt | head -n 1 | awk '{print $3}' | tr 'a-z' 'A-Z')"
