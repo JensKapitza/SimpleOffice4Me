@@ -12,6 +12,7 @@ import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database, get_db
@@ -198,6 +199,75 @@ class CaptureRoute503Tests(CaptureGapBase):
             response.get_json()["error"],
         )
         self.assertEqual(broken, self.index_path().read_bytes())
+
+
+class CaptureErrorRedactionTests(CaptureGapBase):
+    def test_upload_and_analysis_responses_hide_internal_paths(self) -> None:
+        private_path = str(Path(self.temp.name) / "private" / "capture.png")
+        with patch("app.inventory_capture.store_upload", side_effect=ValueError(private_path)):
+            upload = self.upload()
+        self.assertEqual(400, upload.status_code)
+        self.assertNotIn(private_path, upload.get_data(as_text=True))
+
+        with patch("app.inventory_capture.analyze_photo", side_effect=ValueError(private_path)):
+            analysis = self.post_photo()
+        self.assertEqual(400, analysis.status_code)
+        self.assertNotIn(private_path, analysis.get_data(as_text=True))
+
+    def test_ocr_result_does_not_expose_temporary_file_path(self) -> None:
+        from app.inventory_capture import capture_ocr
+
+        private_path = str(Path(self.temp.name) / "capture-ocr-secret" / "capture.png")
+        with patch("app.object_vision.analyze_ocr", side_effect=OSError(private_path)):
+            result = capture_ocr(PNG_1PX)
+
+        self.assertEqual("error", result["status"])
+        self.assertNotIn(private_path, result["error"])
+
+        with patch(
+            "app.object_vision.analyze_ocr",
+            return_value={
+                "text": "", "engine": "OCR", "status": "error",
+                "characters": 0, "confidence": None, "error": private_path,
+            },
+        ):
+            result = capture_ocr(PNG_1PX)
+        self.assertNotIn(private_path, result["error"])
+
+    def test_batch_analysis_error_does_not_expose_internal_path(self) -> None:
+        entry = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]
+        private_path = str(Path(self.temp.name) / "private" / "capture.png")
+        with patch("app.inventory_capture.analyze_photo", side_effect=ValueError(private_path)):
+            response = self.client.post(
+                f"/inventory/capture/batch/{BATCH_A}/analyze",
+                data={"_csrf_token": self.csrf()},
+            )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertNotIn(private_path, response.get_data(as_text=True))
+        self.assertEqual(
+            "Fotoanalyse fehlgeschlagen.",
+            payload["analysis_errors"][entry["entry_id"]],
+        )
+
+    def test_batch_assignment_and_permission_errors_hide_internal_paths(self) -> None:
+        private_path = str(Path(self.temp.name) / "private" / "capture-inbox.json")
+        with patch("app.inventory_capture.assign_batch", side_effect=ValueError(private_path)):
+            assignment = self.client.post(
+                f"/inventory/capture/batch/{BATCH_A}/assign",
+                data={"object_id": "synthetic-object", "_csrf_token": self.csrf()},
+            )
+        self.assertEqual(400, assignment.status_code)
+        self.assertNotIn(private_path, assignment.get_data(as_text=True))
+
+        with patch("app.inventory_capture.adopt_batch", side_effect=PermissionError(private_path)):
+            adoption = self.client.post(
+                f"/inventory/capture/batch/{BATCH_A}/adopt",
+                data={"title": "Synthetic book", "_csrf_token": self.csrf()},
+            )
+        self.assertEqual(403, adoption.status_code)
+        self.assertNotIn(private_path, adoption.get_data(as_text=True))
 
 
 class CaptureOrphanTests(CaptureGapBase):

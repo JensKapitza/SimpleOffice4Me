@@ -61,7 +61,11 @@ def capture_context_from_query(args) -> dict[str, Any]:
     try:
         capture = _capture_context(args.get("barcode", ""), args.get("library_location", ""))
     except ValueError as exc:
-        flash(str(exc))
+        current_app.logger.info(
+            "inventory_capture_context_rejected exception_type=%s",
+            type(exc).__name__,
+        )
+        flash("Barcode oder Bibliotheksstandort ist ungültig. Bitte erneut auswählen.")
         return {"enabled": False}
     token = args.get("capture_request_id", "")
     capture["request_id"] = token if re.fullmatch(r"[0-9a-f]{32}", token) else secrets.token_hex(16)
@@ -157,12 +161,20 @@ def _item_result(item: dict[str, Any], location_id: str = "") -> dict[str, Any]:
     return payload
 
 
-def _create_error_fields(message: str) -> dict[str, str]:
-    if message.startswith("Preis"):
-        return {"market_price": "invalid"}
-    if message.startswith("Kaufdatum"):
-        return {"purchase_date": "invalid"}
-    return {}
+def _create_error_fields(form, inventory) -> dict[str, str]:
+    """Identify editable fields without returning exception text to the client."""
+    fields: dict[str, str] = {}
+    if form.get("market_price"):
+        try:
+            inventory._money(form.get("market_price"))
+        except ValueError:
+            fields["market_price"] = "invalid"
+    if form.get("purchase_date"):
+        try:
+            inventory._date_only(form.get("purchase_date"), "Kaufdatum")
+        except ValueError:
+            fields["purchase_date"] = "invalid"
+    return fields
 
 
 def _complete_capture_assignment(item: dict[str, Any], location_id: str, barcode: str) -> dict[str, Any]:
@@ -222,7 +234,11 @@ def create_item_response():
             allow_missing_barcode=_wants_json_response(),
         )
     except ValueError as exc:
-        message = str(exc)
+        current_app.logger.info(
+            "inventory_capture_context_rejected exception_type=%s",
+            type(exc).__name__,
+        )
+        message = "Barcode oder Bibliotheksstandort ist ungültig. Bitte erneut auswählen."
         if _wants_json_response():
             if str(request.form.get("barcode", "")).strip():
                 fields = {"library_location_id": "invalid"}
@@ -314,7 +330,11 @@ def _create_inventory_item(
         try:
             isbn = inventory.normalize_isbn(isbn_value)
         except ValueError as exc:
-            message = str(exc)
+            current_app.logger.info(
+                "inventory_capture_isbn_rejected exception_type=%s",
+                type(exc).__name__,
+            )
+            message = "ISBN ungültig. Bitte ISBN prüfen."
             if _wants_json_response():
                 return _json_response({"ok": False, "error": message, "fields": {"isbn": "invalid"}}, 400)
             flash(message)
@@ -387,9 +407,19 @@ def _create_inventory_item(
             actor,
         )
     except ValueError as exc:
-        message = str(exc)
+        current_app.logger.info(
+            "inventory_capture_item_rejected exception_type=%s",
+            type(exc).__name__,
+        )
+        error_fields = _create_error_fields(request.form, inventory)
+        if "market_price" in error_fields:
+            message = "Preisangabe ungültig. Bitte Preis prüfen."
+        elif "purchase_date" in error_fields:
+            message = "Kaufdatum ungültig. Bitte Datum prüfen."
+        else:
+            message = "Angaben ungültig oder Objekt konnte nicht angelegt werden."
         if _wants_json_response():
-            return _json_response({"ok": False, "error": message, "fields": _create_error_fields(message)}, 400)
+            return _json_response({"ok": False, "error": message, "fields": error_fields}, 400)
         flash(message)
         return redirect(_capture_index_url(capture, capture_token) if capture else url_for("inventory.index"))
 
@@ -402,7 +432,11 @@ def _create_inventory_item(
     try:
         sidecar.save_photo(item["object_id"], request.files.get("photo"), actor)
     except (OSError, ValueError) as exc:
-        notices.append(f"Foto nicht gespeichert: {exc}")
+        current_app.logger.info(
+            "inventory_capture_photo_save_failed exception_type=%s",
+            type(exc).__name__,
+        )
+        notices.append("Foto konnte nicht gespeichert werden; bitte später erneut versuchen.")
     try:
         inspection = inventory._inspection_input(request.form)
         if inspection:
@@ -413,7 +447,11 @@ def _create_inventory_item(
                 inventory._todos().soft_delete(task["id"], actor)
                 raise
     except (OSError, ValueError) as exc:
-        notices.append(f"Prüftermin nicht angelegt: {exc}")
+        current_app.logger.info(
+            "inventory_capture_inspection_save_failed exception_type=%s",
+            type(exc).__name__,
+        )
+        notices.append("Prüftermin konnte nicht angelegt werden; bitte Angaben prüfen.")
     if capture:
         try:
             from .library.routes import assign_object_to_location

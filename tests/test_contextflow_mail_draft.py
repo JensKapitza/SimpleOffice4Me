@@ -472,6 +472,18 @@ class MailDraftWebTest(unittest.TestCase):
         self.assertEqual(1, len(drafts))
         self.assertEqual("draft", drafts[0]["status"])
 
+    def test_route_redirect_uses_local_mail_editor_url_not_service_url(self) -> None:
+        with mock.patch(
+            "app.contextflow.mail_draft.prepare_hint_draft",
+            return_value={"case_id": self.case_id, "mail_url": "https://attacker.invalid/"},
+        ):
+            response = self._post(self.admin)
+
+        self.assertEqual(302, response.status_code)
+        self.assertIn("/documents/mail/reader", response.location)
+        self.assertIn(self.case_id, response.location)
+        self.assertNotIn("attacker.invalid", response.location)
+
     def test_route_replay_no_duplicate(self) -> None:
         first = self._post(self.admin)
         second = self._post(self.admin)

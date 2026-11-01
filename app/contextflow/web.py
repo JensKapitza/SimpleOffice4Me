@@ -39,9 +39,7 @@ from .agent_web import render_agent
 from .case_links import BERLIN, CaseLinkStore
 from .contracts import (
     INVOICE_EDITOR_URL,
-    MAIL_CASE_URL,
     TASKS_URL,
-    VISIT_URL,
 )
 from .credit_hints import card_credit_hint
 from .demo import is_verified_demo_root
@@ -127,11 +125,11 @@ def _now() -> datetime:
 
 
 def _mail_url(case_id: str) -> str:
-    return MAIL_CASE_URL.format(case_id=quote(case_id, safe=""))
+    return url_for("mail_reader.index", case=case_id, mode="case") + "#mail-case"
 
 
 def _visit_url(visit_id: str) -> str:
-    return VISIT_URL.format(visit_id=quote(visit_id, safe=""))
+    return url_for("site_visits.detail", visit_id=visit_id)
 
 
 def _evidence_display(evidence: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -454,7 +452,7 @@ def mail_draft():
         abort(403)
     except ValueError as exc:
         abort(400, description=str(exc))
-    return redirect(str(result["mail_url"]))
+    return redirect(url_for("mail_reader.index", case=str(result["case_id"]), mode="case") + "#mail-case")
 
 
 @bp.get("/agent")
@@ -936,7 +934,7 @@ def confirm_suggestion():
         abort(403)
     except ValueError as exc:
         abort(400, description=str(exc))
-    return redirect(_visit_url(str(created["visit_id"])) + "#findings")
+    return redirect(url_for("site_visits.detail", visit_id=str(created["visit_id"])) + "#findings")
 
 
 @bp.post("/snooze")

@@ -32,6 +32,32 @@ INDEX_ERROR = (
 )
 
 
+def _public_error(exc: Exception, message: str, status: int):
+    """Return an actionable public error without exposing exception details."""
+    current_app.logger.info(
+        "inventory_capture_request_rejected exception_type=%s",
+        type(exc).__name__,
+    )
+    detail = exc.args[0] if len(exc.args) == 1 and isinstance(exc.args[0], str) else ""
+    if detail in {"Buchgruppe ist ungültig", "Buchgruppe ungültig"}:
+        message = "Buchgruppenzuordnung ungültig. Bitte Gruppe erneut wählen."
+    elif detail == "Zielobjekt ist nicht verfügbar":
+        message = "Zielobjekt ist nicht verfügbar. Bitte ein anderes Ziel wählen."
+    elif detail == "Zielobjekt passt nicht zur Zuordnung (Buch erwartet)":
+        message = "Zuordnung erwartet ein Buch als Ziel."
+    elif detail == "Zielobjekt passt nicht zur Zuordnung (Gegenstand erwartet)":
+        message = "Zuordnung erwartet einen Gegenstand als Ziel."
+    elif detail.startswith("Eintrag ") and " ist bereits anders zugeordnet;" in detail:
+        message = "Mindestens ein Eintrag ist bereits anders zugeordnet. Bitte Gruppe prüfen."
+    elif detail.startswith("Gruppe wurde zwischenzeitlich geändert"):
+        message = "Gruppe wurde zwischenzeitlich geändert. Bitte Seite neu laden."
+    elif detail.startswith("Bitte vor der Übernahme einen Buchtitel eingeben"):
+        message = "Buchtitel erforderlich. Metadatenabruf und OCR sind optional."
+    elif detail.startswith("Erfassungskennung gehört zu einer anderen Buchgruppe"):
+        message = "Erfassungskennung gehört zu einer anderen Buchgruppe. Bitte neue Kennung senden."
+    return jsonify({"ok": False, "error": message}), status
+
+
 @bp.get("/capture")
 @login_required
 def capture_inbox():
@@ -106,15 +132,29 @@ def capture_upload():
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except CaptureInboxConflict as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 409
+        return _public_error(
+            exc,
+            "Diese Erfassungskennung wurde bereits für ein anderes Foto verwendet. "
+            "Bitte neues Foto mit neuer Kennung senden.",
+            409,
+        )
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc,
+            "Foto fehlt, ist ungültig oder überschreitet 12 MiB. "
+            "Buchgruppe und Erfassungskennung prüfen; unterstützt werden JPEG, PNG und WebP.",
+            400,
+        )
     analysis_error = ""
     try:
         payload = analyze_photo(raw, entry["entry_id"])
     except ValueError as exc:
         payload = {}
-        analysis_error = str(exc)
+        current_app.logger.info(
+            "inventory_capture_analysis_failed exception_type=%s",
+            type(exc).__name__,
+        )
+        analysis_error = "Foto konnte nicht analysiert werden. Das Original bleibt erhalten."
     if payload:
         store = CaptureInboxStore(root)
         try:
@@ -194,7 +234,9 @@ def capture_assign(entry_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc, "Zuordnung konnte nicht abgeschlossen werden. Bitte Ziel prüfen.", 400
+        )
     return jsonify({
         "ok": True,
         "attached": attached,
@@ -226,7 +268,9 @@ def capture_reanalyze(entry_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc, "Foto konnte nicht erneut analysiert werden. Bitte erneut versuchen.", 400
+        )
     return jsonify({
         "ok": True,
         "entry": public_entry(
@@ -259,7 +303,9 @@ def capture_analyze():
     try:
         payload = analyze_photo(raw, photo_id)
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc, "Foto konnte nicht analysiert werden. Bitte JPEG, PNG oder WebP verwenden.", 400
+        )
     return jsonify(payload), 200
 
 
@@ -302,7 +348,9 @@ def capture_batch(batch_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc, "Buchgruppe ungültig oder nicht verfügbar. Bitte neu laden.", 400
+        )
     if not stored_entries:
         abort(404)
     clean_batch = str(batch_id or "").strip().lower()
@@ -360,10 +408,11 @@ def capture_batch_analyze(batch_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        message = str(exc)
-        if message == "Buchgruppe ist leer oder unbekannt.":
+        if exc.args == ("Buchgruppe ist leer oder unbekannt.",):
             abort(404)
-        return jsonify({"ok": False, "error": message}), 400
+        return _public_error(
+            exc, "Buchgruppe konnte nicht analysiert werden. Bitte neu laden.", 400
+        )
     return jsonify({
         "ok": True,
         "batch_id": str(batch_id or "").strip().lower(),
@@ -417,12 +466,13 @@ def capture_batch_adopt(batch_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except PermissionError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 403
+        return _public_error(exc, "Keine Berechtigung für diese Buchgruppe.", 403)
     except ValueError as exc:
-        message = str(exc)
-        if message == "Buchgruppe ist leer oder unbekannt.":
+        if exc.args == ("Buchgruppe ist leer oder unbekannt.",):
             abort(404)
-        return jsonify({"ok": False, "error": message}), 400
+        return _public_error(
+            exc, "Buchdaten oder Zuordnung sind ungültig. Bitte Pflichtfelder prüfen.", 400
+        )
     return jsonify(payload), 200
 
 
@@ -447,10 +497,13 @@ def capture_batch_assign(batch_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        message = str(exc)
-        if message == "Buchgruppe ist leer oder unbekannt.":
+        if exc.args == ("Buchgruppe ist leer oder unbekannt.",):
             abort(404)
-        return jsonify({"ok": False, "error": message}), 400
+        return _public_error(
+            exc,
+            "Zuordnung konnte nicht abgeschlossen werden. Bitte Buch und Einträge prüfen.",
+            400,
+        )
     return jsonify(payload), 200
 
 
@@ -480,7 +533,9 @@ def capture_move(entry_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc, "Buchgruppenzuordnung konnte nicht geändert werden.", 400
+        )
     if updated is None:
         abort(404)
     item = public_entry(
@@ -517,7 +572,9 @@ def capture_role(entry_id: str):
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 400
+        return _public_error(
+            exc, "Fotorolle ungültig. Bitte eine zulässige Rolle auswählen.", 400
+        )
     if updated is None:
         abort(404)
     item = public_entry(

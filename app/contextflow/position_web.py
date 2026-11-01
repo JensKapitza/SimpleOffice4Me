@@ -6,14 +6,11 @@ imported for its side effect by ``app/__init__.py`` after ``.web``.
 
 from __future__ import annotations
 
-from urllib.parse import quote
-
-from flask import abort, redirect, request
+from flask import abort, redirect, request, url_for
 
 from ..auth import login_required
 from ..contact_store import ContactStore
 from ..object_store import ObjectStore
-from .contracts import INVOICE_EDITOR_URL
 from .position_hints import find_catalog_duplicate, parse_article_request
 from .web import _actor, _gate, _root, bp
 
@@ -58,7 +55,9 @@ def position_article():
         },
         actor,
     )
-    back = INVOICE_EDITOR_URL.format(contact_id=quote(contact_id, safe=""))
+    query = {"contact_id": contact_id}
     if draft_id:
-        back += f"?invoice_id={quote(draft_id, safe='')}"
-    return redirect(back)
+        query["invoice_id"] = draft_id
+    return redirect(
+        url_for("contact_audit.business_documents.contact_invoice", **query)
+    )

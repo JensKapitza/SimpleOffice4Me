@@ -15,6 +15,7 @@ import unittest
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from app import app
 from app.business_document_generation import INVOICE_DIR
@@ -474,6 +475,31 @@ class PositionHintRoutesTest(unittest.TestCase):
         created = next(item for item in ObjectStore(self.root).objects() if item["name"] == "Anfahrt")
         self.assertTrue(ObjectStore(self.root).invoice_effective(created)["use_in_invoice"])
         self.assertEqual("HUR", created["fields"].get("invoice_unit"))
+
+    def test_article_redirect_keeps_untrusted_draft_id_on_local_route(self) -> None:
+        contact_id, _draft_id = self._seed()
+        editor = f"/documents/business/contacts/{contact_id}/invoice"
+        response = self.admin.post(
+            "/contextflow/position-article",
+            data={
+                "_csrf_token": self.csrf(self.admin, editor),
+                "contact_id": contact_id,
+                "invoice_id": "//attacker.invalid",
+                "description": "Anfahrt",
+                "unit": "HUR",
+                "net_price": "100.00",
+                "vat_rate": "19",
+            },
+        )
+
+        self.assertEqual(302, response.status_code)
+        target = urlsplit(response.location)
+        self.assertEqual("", target.scheme)
+        self.assertEqual("", target.netloc)
+        self.assertEqual(
+            f"/documents/business/contacts/{contact_id}/invoice", target.path
+        )
+        self.assertEqual("//attacker.invalid", parse_qs(target.query)["invoice_id"][0])
 
     def test_article_post_duplicate_is_409(self) -> None:
         contact_id, draft_id = self._seed()

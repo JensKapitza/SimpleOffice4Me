@@ -188,7 +188,7 @@ class BatchAssignRouteTests(unittest.TestCase):
         entry = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]
         response = self.assign_group(BATCH_A, hammer["object_id"])
         self.assertEqual(400, response.status_code)
-        self.assertIn("Buch erwartet", response.get_json()["error"])
+        self.assertIn("Zuordnung erwartet ein Buch", response.get_json()["error"])
         stored = CaptureInboxStore(self.documents).get(entry["entry_id"], "anna")
         assert stored is not None
         self.assertEqual("unassigned", stored["status"])
@@ -199,7 +199,7 @@ class BatchAssignRouteTests(unittest.TestCase):
         self.upload(PNG_1PX, BATCH_A)
         missing = self.assign_group(BATCH_A, "0" * 32)
         self.assertEqual(400, missing.status_code)
-        self.assertIn("nicht verfügbar", missing.get_json()["error"])
+        self.assertIn("Zielobjekt ist nicht verfügbar", missing.get_json()["error"])
         empty = self.assign_group("cc" * 16, book["object_id"])
         self.assertEqual(404, empty.status_code)
         malformed = self.assign_group("not-a-batch", book["object_id"])
@@ -243,7 +243,7 @@ class BatchAssignRouteTests(unittest.TestCase):
         self.assertEqual(200, moved.status_code)
         response = self.assign_group(BATCH_A, book["object_id"])
         self.assertEqual(400, response.status_code)
-        self.assertIn(first["entry_id"][:8], response.get_json()["error"])
+        self.assertIn("bereits anders zugeordnet", response.get_json()["error"])
         store = CaptureInboxStore(self.documents)
         kept = store.get(second["entry_id"], "anna")
         assert kept is not None
