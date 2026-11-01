@@ -231,25 +231,27 @@ def _spool_windows_raw(printer_name: str, payload: bytes) -> str:
         winspool.ClosePrinter(handle)
 
 
-def _suffix_for(content_type: str, filename: str) -> str:
-    suffix = Path(filename).suffix.lower()
-    if re.fullmatch(r"\.[a-z0-9]{1,8}", suffix):
-        return suffix
-    return {
-        "application/pdf": ".pdf",
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "text/plain": ".txt",
-    }.get(content_type, ".bin")
+def _suffix_for(content_type: str) -> str:
+    """Choose a fixed local spool suffix; never derive a path from a client filename."""
+    media_type = str(content_type or "").split(";", 1)[0].strip().casefold()
+    if media_type == "application/pdf":
+        return ".pdf"
+    if media_type == "image/png":
+        return ".png"
+    if media_type == "image/jpeg":
+        return ".jpg"
+    if media_type == "text/plain":
+        return ".txt"
+    return ".bin"
 
 
-def _spool_windows(printer: dict[str, Any], payload: bytes, content_type: str, filename: str) -> str:
+def _spool_windows(printer: dict[str, Any], payload: bytes, content_type: str) -> str:
     if printer.get("kind") == "raw" or content_type in RAW_CONTENT_TYPES:
         return _spool_windows_raw(printer["name"], payload)
     executable = shutil.which("powershell.exe") or shutil.which("pwsh")
     if not executable:
         raise RuntimeError("PowerShell ist für den Windows-Druck nicht verfügbar")
-    temporary = tempfile.NamedTemporaryFile(prefix="simpleoffice-print-", suffix=_suffix_for(content_type, filename), delete=False)
+    temporary = tempfile.NamedTemporaryFile(prefix="simpleoffice-print-", suffix=_suffix_for(content_type), delete=False)
     path = Path(temporary.name)
     try:
         temporary.write(payload)
@@ -284,7 +286,7 @@ def _spool_windows(printer: dict[str, Any], payload: bytes, content_type: str, f
 def spool_payload(printer: dict[str, Any], payload: bytes, content_type: str, filename: str = "") -> str:
     system = platform.system()
     if system == "Windows":
-        return _spool_windows(printer, payload, content_type, filename)
+        return _spool_windows(printer, payload, content_type)
     if system in {"Linux", "Darwin"}:
         return _spool_cups(printer, payload, content_type)
     raise RuntimeError(f"Drucken wird auf {system or 'dieser Plattform'} noch nicht unterstützt")
