@@ -211,6 +211,40 @@ jobs:
           path: artifacts/linux/*
           if-no-files-found: error
           retention-days: 14
+      - name: Stage installable Linux Debian package
+        if: matrix.artifact == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t DEBS < <(find desktop/electron/dist -maxdepth 1 -type f -name '*.deb' -print)
+          if [ "${#DEBS[@]}" -ne 1 ]; then
+            printf 'Expected exactly one Debian package, found %s\n' "${#DEBS[@]}" >&2
+            printf '%s\n' "${DEBS[@]:-}" >&2
+            exit 1
+          fi
+          mkdir -p artifacts/linux-deb
+          cp "${DEBS[0]}" artifacts/linux-deb/
+          (cd artifacts/linux-deb && sha256sum *.deb > SHA256SUMS)
+      - name: Stage final Windows installer packages
+        if: matrix.artifact == 'windows'
+        shell: pwsh
+        run: |
+          $dist = 'desktop/electron/dist'
+          $executables = @(Get-ChildItem -LiteralPath $dist -File -Filter '*.exe' | Where-Object { $_.Name -notmatch '\.__uninstaller\.exe$' })
+          $installer = @($executables | Where-Object { $_.Name -match 'Setup.*\.exe$' })
+          $portable = @($executables | Where-Object { $_.Name -notmatch 'Setup.*\.exe$' })
+          if ($installer.Count -ne 1 -or $portable.Count -ne 1) {
+            throw "Expected one NSIS installer and one portable executable; found $($installer.Count) and $($portable.Count)."
+          }
+          foreach ($item in @(
+            @{ Package = $installer[0]; Destination = 'artifacts/windows-installer' },
+            @{ Package = $portable[0]; Destination = 'artifacts/windows-portable' }
+          )) {
+            New-Item -ItemType Directory -Path $item.Destination -Force | Out-Null
+            Copy-Item -LiteralPath $item.Package.FullName -Destination $item.Destination
+            $digest = Get-FileHash -LiteralPath (Join-Path $item.Destination $item.Package.Name) -Algorithm SHA256
+            "$($digest.Hash)  $($item.Package.Name)" | Set-Content -LiteralPath (Join-Path $item.Destination 'SHA256SUMS') -Encoding ascii
+          }
       - name: Prepare macOS installer
         if: startsWith(matrix.artifact, 'macos-')
         shell: bash
@@ -231,11 +265,28 @@ jobs:
           cp "$1" "artifacts/macos/SimpleOffice4Me-macos-$expected.dmg"
           printf 'Verified macOS %s DMG size: %s bytes\n' "$expected" "$(stat -f%z "$1")"
           (cd artifacts/macos && shasum -a 256 *.dmg > SHA256SUMS)
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: "!startsWith(matrix.artifact, 'macos-')"
+      - name: Upload Linux Debian package
+        if: matrix.artifact == 'linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: simpleoffice4me-desktop-${{ matrix.artifact }}
-          path: desktop/electron/dist/**
+          name: simpleoffice4me-linux-deb-installable
+          path: artifacts/linux-deb/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Windows installer
+        if: matrix.artifact == 'windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: simpleoffice4me-windows-installer
+          path: artifacts/windows-installer/*
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload Windows portable package
+        if: matrix.artifact == 'windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: simpleoffice4me-windows-portable
+          path: artifacts/windows-portable/*
           if-no-files-found: error
           retention-days: 14
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

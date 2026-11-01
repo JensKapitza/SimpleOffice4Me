@@ -61,6 +61,18 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         self.assertNotIn("mapfile -t dmgs", workflow)
         self.assertIn("Verified macOS %s DMG size", workflow)
 
+    def test_electron_workflow_uploads_only_final_linux_and_windows_packages(self):
+        workflow = (Path(__file__).resolve().parents[1] / ".github/workflows/desktop-build.yml").read_text(encoding="utf-8")
+        self.assertNotIn("path: desktop/electron/dist/**", workflow)
+        for value in (
+            "path: artifacts/linux-deb/*",
+            "path: artifacts/windows-installer/*",
+            "path: artifacts/windows-portable/*",
+            "name: simpleoffice4me-linux-appimage-installable",
+        ):
+            with self.subTest(value=value):
+                self.assertIn(value, workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
