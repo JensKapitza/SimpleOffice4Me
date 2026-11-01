@@ -6,21 +6,23 @@ import sqlite3
 from functools import wraps
 from urllib.parse import urlsplit
 
-from flask import Blueprint, abort, flash, g, make_response, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, make_response, redirect, render_template, request, url_for
 
 from .access_control import audit, is_admin
 from .auth import login_required
 from .mini_services import default_config_path, read_status
 from .security_controls import protect_value, unprotect_value
 from .telephony_numbering import clean_number
-from .telephony_profiles import TelephonyProfileStore, sip_digest_ha1
+from .telephony_profiles import TelephonyProfileStore, sip_digest_verifiers
 from simpleoffice_sip_runtime import effective_sip_settings
 
 bp = Blueprint("telephony_admin", __name__, url_prefix="/admin/mini-services/telephony")
 
 
 def _store() -> TelephonyProfileStore:
-    return TelephonyProfileStore(default_config_path().parent / "telephony")
+    return TelephonyProfileStore(
+        default_config_path().parent / "telephony", current_app.config["SECRET_KEY"],
+    )
 
 
 def admin_required(view):
@@ -46,7 +48,7 @@ def _backfill_digest_verifiers(store: TelephonyProfileStore) -> None:
         extension = str(profile["extension"])
         try:
             password = unprotect_value(store.encrypted_secret(extension), f"sip-profile:{extension}")
-            digest = sip_digest_ha1(extension, realm, password)
+            digest = sip_digest_verifiers(extension, realm, password)
             store.rotate_secret(extension, store.encrypted_secret(extension), digest_ha1=digest)
         except (KeyError, RuntimeError, TypeError, ValueError):
             continue
@@ -82,7 +84,7 @@ def _new_secret(extension: str) -> tuple[str, str, str]:
     secret = secrets.token_urlsafe(24)
     encrypted = protect_value(secret, f"sip-profile:{number}")
     realm = str(_store().settings().get("realm") or "simpleoffice.local")
-    digest = sip_digest_ha1(number, realm, secret)
+    digest = sip_digest_verifiers(number, realm, secret)
     return secret, encrypted, digest
 
 
