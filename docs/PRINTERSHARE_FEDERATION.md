@@ -2,6 +2,13 @@
 
 SimpleOffice4Me kann lokal eingerichtete Drucker als PrinterShare verwenden. Linux/macOS nutzt vorhandene CUPS-Drucker (`lpstat`, `lp`/`lpr`), Windows die installierten Windows-Drucker. Normale Drucker und Labeldrucker werden unterschieden; fuer ZPL/EPL bzw. explizit als `raw` konfigurierte Drucker werden RAW-Druckdaten direkt an den Spooler uebergeben.
 
+Unter Windows wird die Endung der temporaeren `PrintTo`-Datei ausschliesslich
+aus einer festen Content-Type-Zuordnung abgeleitet (`application/pdf`,
+`image/png`, `image/jpeg`, `text/plain`). Ein vom Browser oder Federation-Sender
+gelieferter Dateiname wird nicht als Teil eines lokalen Dateipfads verwendet.
+Unbekannte Formate werden kontrolliert abgelehnt, statt eine ausfuehrbare
+Dateiendung aus der Eingabe zu uebernehmen.
+
 ## Benutzer-Drucker und Administratorrichtlinien
 
 Der normale Hauptmenuepunkt **Drucker** enthaelt **Meine Drucker** und
