@@ -54,7 +54,7 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         )
         self.assertIn("signingConfigs {", GRADLE)
         self.assertIn("signingConfig signingConfigs.release", GRADLE)
-        self.assertEqual(2, GRADLE.count("if (releaseSigningConfigured) {"))
+        self.assertEqual(3, GRADLE.count("if (releaseSigningConfigured) {"))
         self.assertIn("storeFile file(releaseKeystorePath)", GRADLE)
         self.assertIn("storePassword releaseKeystorePassword", GRADLE)
         self.assertIn("keyAlias releaseKeyAlias", GRADLE)
@@ -65,6 +65,9 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         self.assertNotIn("enableV2Signing true", GRADLE)
         self.assertNotIn("v1SigningEnabled true", GRADLE)
         self.assertNotIn("v2SigningEnabled true", GRADLE)
+        self.assertIn("onVariants(selector().withBuildType('release'))", GRADLE)
+        self.assertIn("variant.signingConfig.enableV1Signing.set(true)", GRADLE)
+        self.assertIn("variant.signingConfig.enableV2Signing.set(true)", GRADLE)
         for key in PROPERTY_KEYS:
             self.assertIn(key, GRADLE.split("def missingReleaseSigning")[1])
 
