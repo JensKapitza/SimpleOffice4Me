@@ -199,6 +199,8 @@ class AngelAvatarRouteTests(unittest.TestCase):
         self.assertIn("engel-adopt-all", body)
         self.assertIn("engel-reanalyze", body)
         self.assertIn("engel-reject", body)
+        self.assertIn("data-engel-close", body)
+        self.assertNotIn('<form method="dialog"', body)
         self.assertIn("bueroengel.svg", body)
         self.assertIn("js/angel.js", body)
 

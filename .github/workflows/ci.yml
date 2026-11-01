@@ -97,7 +97,7 @@ jobs:
       - name: Test desktop/mobile search, capture, invoice icons and media previews
         env:
           SIMPLEOFFICE_HTML5_SNAPSHOT: ${{ runner.temp }}/documents-folder-picker.html
-        run: python -m unittest tests.test_contact_company_search_browser tests.test_capture_first_browser tests.test_invoice_icons_browser tests.test_folder_import_browser tests.test_document_media_preview_browser -v
+        run: python -m unittest tests.test_contact_company_search_browser tests.test_capture_first_browser tests.test_invoice_icons_browser tests.test_folder_import_browser tests.test_document_media_preview_browser tests.test_contextflow_angel_browser -v
       - name: Validate rendered folder-picker HTML5
         shell: bash
         run: |

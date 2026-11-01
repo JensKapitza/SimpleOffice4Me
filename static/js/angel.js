@@ -13,6 +13,12 @@
       if (dialog && typeof dialog.showModal === 'function') dialog.showModal();
     });
   });
+  document.querySelectorAll('[data-engel-close]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const dialog = button.closest('dialog');
+      if (dialog && typeof dialog.close === 'function' && dialog.open) dialog.close();
+    });
+  });
 
   // Inventory: suggestion dialog with per-part checkboxes.
   const suggest = (typeof window !== 'undefined' && window.SimpleOfficeInventorySuggest) || null;
