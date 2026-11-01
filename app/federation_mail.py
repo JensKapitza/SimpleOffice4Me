@@ -567,7 +567,7 @@ def recover_source(root: str | Path, mail_store: MailStore, actor: str, account_
         documents = DocumentStore(root); target = root / relative
         target.parent.mkdir(parents=True, exist_ok=True); documents.ensure_folder_policy(target.parent, actor)
         if target.is_file() and not target.is_symlink() and hashlib.sha512(target.read_bytes()).hexdigest() == digest:
-            document = documents.get_document(relative); duplicate = True
+            document = documents.scan_and_get_document(relative); duplicate = True
         else:
             document = create_document(documents.root, actor, relative, raw, max_bytes=MAX_MESSAGE_BYTES); duplicate = False
             documents.set_tags(document["document_id"], ["email", "source:federation", f"federation-peer:{peer['peer_id']}", "federation-recovered"], actor)

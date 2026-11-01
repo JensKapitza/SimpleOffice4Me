@@ -414,7 +414,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     max_member_mb = media_settings["archive_max_member_mb"]
     max_content_files = media_settings["archive_max_content_files"]
     max_compression_ratio = media_settings["archive_max_compression_ratio"]
-    metadata = store.get_document(source_path)
+    metadata = store.scan_and_get_document(source_path)
     digest = str(metadata.get("sha256", ""))
     previous = metadata.get("attributes", {}).get("archive_index", {})
     if not isinstance(previous, dict):

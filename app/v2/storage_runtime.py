@@ -103,7 +103,7 @@ def create_or_verify_document(root, actor, relative_path, content, *, max_bytes)
             document = documents.get_document(entry.value.object_id.value)
     else:
         target = resolve_under(documents.root, location.relative_path, strict=False)
-        document = documents.get_document(location.relative_path) if target.exists() else None
+        document = documents.scan_and_get_document(location.relative_path) if target.exists() else None
     if document is None:
         documents.ensure_folder_policy(documents.root / Path(relative_path).parent, actor)
         return create_document(root, actor, relative_path, payload, max_bytes=max_bytes), True

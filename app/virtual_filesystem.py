@@ -310,7 +310,7 @@ class VirtualFileSystem:
         if not resource.is_file() or resource.is_symlink():
             raise FileNotFoundError(self.relative(resource))
         resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-        document = self.store.get_document(resource)
+        document = self.store.get_or_scan_document(resource)
         return self._storage_value(
             self._storage(actor).read_bytes(
                 LogicalObjectId(str(document["document_id"]))
@@ -332,7 +332,7 @@ class VirtualFileSystem:
             if not resource.is_file() or resource.is_symlink():
                 raise FileNotFoundError(relative)
             resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-            document = self.store.get_document(resource)
+            document = self.store.get_or_scan_document(resource)
             object_id = LogicalObjectId(str(document["document_id"]))
         return self._storage_value(
             self._storage(actor).copy_verified_range_to(
@@ -370,7 +370,7 @@ class VirtualFileSystem:
                 current_version = authoritative_entry.content_sha256
             else:
                 resource = resolve_under(self.root, resource.relative_to(self.root), strict=True)
-                document = self.store.get_document(resource)
+                document = self.store.get_or_scan_document(resource)
                 object_id = LogicalObjectId(str(document["document_id"]))
                 current_version = str(document.get("sha256", ""))
             stored = self._storage_value(
@@ -415,7 +415,7 @@ class VirtualFileSystem:
             source_path = resolve_under(self.root, source_path.relative_to(self.root), strict=True)
             if not source_path.is_file() or source_path.is_symlink():
                 raise ValueError("COPY source must be a regular file")
-            source_document = self.store.get_document(source_path)
+            source_document = self.store.get_or_scan_document(source_path)
             source_id = LogicalObjectId(str(source_document["document_id"]))
             source_version = str(source_document.get("sha256", ""))
         else:
@@ -435,7 +435,7 @@ class VirtualFileSystem:
             )
             if not destination_path.is_file() or destination_path.is_symlink():
                 raise ValueError("COPY replacement requires a regular destination file")
-            destination_document = self.store.get_document(destination_path)
+            destination_document = self.store.get_or_scan_document(destination_path)
             stored = self._storage_value(
                 storage.copy_replace(
                     source_id,
@@ -487,7 +487,7 @@ class VirtualFileSystem:
             document = (
                 self.store.get_document(authoritative_entry.object_id.value)
                 if authoritative_entry is not None
-                else self.store.get_document(resource)
+                else self.store.get_or_scan_document(resource)
             )
             self._storage_value(
                 self._storage(actor).delete(
@@ -531,8 +531,8 @@ class VirtualFileSystem:
             )
             if not source_path.is_file() or not destination_path.is_file():
                 raise ValueError("POSIX replacement is limited to regular files")
-            source_document = self.store.get_document(source_path)
-            destination_document = self.store.get_document(destination_path)
+            source_document = self.store.get_or_scan_document(source_path)
+            destination_document = self.store.get_or_scan_document(destination_path)
             stored = self._storage_value(
                 self._storage(actor).move_replace(
                     LogicalObjectId(str(source_document["document_id"])),
@@ -551,7 +551,7 @@ class VirtualFileSystem:
         document = (
             self.store.get_document(authoritative_source.object_id.value)
             if authoritative_source is not None
-            else self.store.get_document(source_path)
+            else self.store.get_or_scan_document(source_path)
         )
         stored = self._storage_value(
             self._storage(actor).move(
