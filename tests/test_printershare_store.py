@@ -3,12 +3,13 @@ import time
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from flask import Flask
 
 from app.file_lock import exclusive_file_lock
-from app.printershare_store import PrinterShareStore, effective_retention
+from app.printershare_store import PrinterShareStore, _suffix_for, effective_retention, spool_payload
 
 
 TEST_PRINTER = {
@@ -43,6 +44,42 @@ class PrinterShareStoreTest(unittest.TestCase):
         self.assertEqual(effective_retention("permanent", "no_store"), "no_store")
         self.assertEqual(effective_retention("permanent", "ttl"), "ttl")
         self.assertEqual(effective_retention("no_store", "permanent"), "no_store")
+
+    def test_windows_spool_path_uses_fixed_content_type_suffix_not_upload_filename(self):
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append((command, kwargs))
+            return CompletedProcess(command, 0, stdout="Printed", stderr="")
+
+        with patch("app.printershare_store.platform.system", return_value="Windows"), patch(
+            "app.printershare_store.shutil.which", return_value="powershell.exe",
+        ), patch("app.printershare_store.subprocess.run", side_effect=fake_run):
+            result = spool_payload(
+                TEST_PRINTER,
+                b"synthetic PDF payload",
+                "application/pdf",
+                filename="../../outside.exe",
+            )
+
+        spool_path = Path(calls[0][1]["env"]["SOPRINT_FILE"])
+        self.assertEqual("Printed", result)
+        self.assertTrue(spool_path.is_absolute())
+        self.assertEqual(".pdf", spool_path.suffix)
+        self.assertFalse(spool_path.exists())
+        self.assertEqual(".txt", _suffix_for("text/plain; charset=utf-8"))
+
+        with patch("app.printershare_store.platform.system", return_value="Windows"), patch(
+            "app.printershare_store.shutil.which", return_value="powershell.exe",
+        ), patch("app.printershare_store.subprocess.run") as unsupported_run:
+            with self.assertRaisesRegex(ValueError, "diesen Content-Type nicht"):
+                spool_payload(
+                    TEST_PRINTER,
+                    b"synthetic executable payload",
+                    "application/x-msdownload",
+                    filename="payload.exe",
+                )
+        unsupported_run.assert_not_called()
 
     def test_no_store_keeps_only_job_metadata(self):
         result = self.store.submit(

@@ -52,6 +52,7 @@ from app.business_documents import (
 from app.business_document_generation import (
     _cii_xml,
     _invoice_content_pdf,
+    _office_to_pdf,
     _invoice_store_path,
     validated_invoice_reference,
 )
@@ -75,6 +76,24 @@ def _three_page_template(root: Path) -> dict:
 
 
 class BusinessDocumentTests(unittest.TestCase):
+    def test_office_template_conversion_uses_a_safe_temporary_basename(self):
+        def convert(command, **_kwargs):
+            work = Path(command[command.index("--outdir") + 1])
+            source = Path(command[-1])
+            self.assertEqual(work.resolve(), source.parent.resolve())
+            self.assertEqual("outside.docx", source.name)
+            (work / f"{source.stem}.pdf").write_bytes(b"%PDF-1.4 synthetic conversion")
+            return mock.Mock(returncode=0, stdout=b"", stderr=b"")
+
+        for filename in ("../../outside.docx", r"..\..\outside.docx"):
+            with self.subTest(filename=filename), mock.patch(
+                "app.business_document_generation.shutil.which", return_value="libreoffice",
+            ), mock.patch("app.business_document_generation.subprocess.run", side_effect=convert):
+                self.assertEqual(
+                    b"%PDF-1.4 synthetic conversion",
+                    _office_to_pdf(b"synthetic office source", filename),
+                )
+
     def test_invoice_rejects_unknown_address_mode_before_contact_access(self):
         with tempfile.TemporaryDirectory() as temp:
             form = MultiDict([("address_mode", "unexpected")])
