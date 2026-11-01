@@ -136,8 +136,7 @@ class ContextFlowAngelBrowserTests(unittest.TestCase):
                 self.assertEqual("Vorgeschlagener Scanner", title.input_value())
                 self.assertEqual("object", item_type.input_value())
                 self.assertEqual("vorhanden", tags.input_value())
-                self.assertIn("Bestehende Beschreibung", description.input_value())
-                self.assertIn("Neue Beschreibung", description.input_value())
+                self.assertEqual("Bestehende Beschreibung", description.input_value())
                 self.assertEqual("inventory-form", page.locator("#inventory-save").evaluate("element => element.form?.id"))
                 self.assertEqual([], page_errors)
             finally:
