@@ -82,11 +82,12 @@ class FinalizeAndroidApkTests(unittest.TestCase):
         with patch.dict(os.environ, self.passwords), patch(
             "tools.sign_android_apk.subprocess.run", side_effect=run,
         ):
-            with self.assertRaisesRegex(RuntimeError, "both v1 and v2"):
+            with self.assertRaisesRegex(RuntimeError, "both v1 and v2") as error:
                 finalize_apk(self.apk, self.apksigner, self.keystore, "release")
 
         self.assertEqual(b"AGP v2-only APK", self.apk.read_bytes())
         self.assertEqual({self.apk, self.apksigner, self.keystore}, set(self.root.iterdir()))
+        self.assertIn("v1=False, v2=True", str(error.exception))
 
     def test_apksigner_error_redacts_passwords_and_preserves_original(self) -> None:
         def run(command, **_kwargs):

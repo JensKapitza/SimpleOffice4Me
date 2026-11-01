@@ -124,6 +124,17 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         ):
             self.assertNotIn(f"secrets.{secret_name}", WORKFLOW)
 
+    def test_pr_ci_masks_ephemeral_signing_passwords_before_output(self) -> None:
+        create_step = WORKFLOW.split(
+            "- name: Create ephemeral key for release-signing smoke", 1,
+        )[1].split("- name:", 1)[0]
+        store_mask = 'echo "::add-mask::$store_password"'
+        key_mask = 'echo "::add-mask::$key_password"'
+        self.assertIn(store_mask, create_step)
+        self.assertIn(key_mask, create_step)
+        self.assertLess(create_step.index(store_mask), create_step.index("GITHUB_OUTPUT"))
+        self.assertLess(create_step.index(key_mask), create_step.index("GITHUB_OUTPUT"))
+
     def test_pr_ci_checks_resolved_release_signature_schemes(self) -> None:
         self.assertIn("Verify resolved release signature scheme flags", WORKFLOW)
         self.assertIn('rglob("signing-config-versions.json")', WORKFLOW)

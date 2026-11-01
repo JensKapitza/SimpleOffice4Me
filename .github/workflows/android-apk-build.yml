@@ -147,6 +147,8 @@ jobs:
           mkdir -p "$key_dir"
           store_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
           key_password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          echo "::add-mask::$store_password"
+          echo "::add-mask::$key_password"
           keytool -genkeypair -noprompt -storetype JKS \
             -keystore "$key_store" -storepass "$store_password" \
             -keypass "$key_password" -alias release-smoke \

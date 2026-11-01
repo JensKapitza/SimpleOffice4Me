@@ -119,8 +119,13 @@ def finalize_apk(
             "Verified using v1 scheme (JAR signing): true",
             "Verified using v2 scheme (APK Signature Scheme v2): true",
         )
-        if any(line not in output for line in required):
-            raise RuntimeError("final APK does not verify with both v1 and v2 schemes")
+        v1_verified = required[0] in output
+        v2_verified = required[1] in output
+        if not v1_verified or not v2_verified:
+            raise RuntimeError(
+                "final APK does not verify with both v1 and v2 schemes "
+                f"(v1={v1_verified}, v2={v2_verified})"
+            )
         os.chmod(temporary, original_mode)
         os.replace(temporary, apk)
     finally:
