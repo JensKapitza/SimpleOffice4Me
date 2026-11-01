@@ -177,9 +177,9 @@
     img.className = 'card-img-top';
     img.alt = 'Gespeicherte Aufnahme';
     img.loading = 'lazy';
-    // Reviewed: preview URL passes the scheme allowlist above (relative,
-    // http(s), blob, data:image only); server-generated values flow through.
-    img.src = safePreviewUrl(entry.preview_url); // codeql[js/dom-text-reinterpreted-as-html]
+    // Scheme-allowlisted above; encodeURI keeps the URL intact while
+    // neutralizing any residual metacharacters.
+    img.src = encodeURI(safePreviewUrl(entry.preview_url));
     card.appendChild(img);
     const body = document.createElement('div');
     body.className = 'card-body';
