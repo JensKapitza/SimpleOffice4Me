@@ -57,7 +57,7 @@ from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_n
 from .file_lock import exclusive_file_lock
 from .object_store import ObjectStore
 from .project_store import ProjectStore
-from .safe_paths import resolve_for_write_under
+from .safe_paths import resolve_for_write_under, safe_filename
 from .settings_store import translate
 
 TEMPLATE_DIR = "business-templates"
@@ -191,7 +191,10 @@ def _office_to_pdf(raw: bytes, filename: str) -> bytes:
     libreoffice = shutil.which("libreoffice") or shutil.which("soffice")
     if not libreoffice: raise ValueError("Office template conversion requires LibreOffice/soffice")
     with tempfile.TemporaryDirectory(prefix="simpleoffice-template-") as temp:
-        work = Path(temp); source = work / (Path(filename).name or f"template{suffix}"); source.write_bytes(raw)
+        work = Path(temp)
+        source_name = safe_filename(filename, fallback=f"template{suffix}")
+        source = work / source_name
+        source.write_bytes(raw)
         result = subprocess.run([libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(work), str(source)], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, check=False)
         target = work / f"{source.stem}.pdf"
         if result.returncode != 0 or not target.is_file(): raise ValueError("LibreOffice could not convert the corporate template to PDF")
