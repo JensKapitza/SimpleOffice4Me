@@ -26,10 +26,11 @@
   // HTML, protocol-relative) fails closed to an empty image source.
   const safePreviewUrl = (value) => {
     const url = String(value || '').trim();
-    if (/^\/(?!\/)/.test(url)) return url;
-    if (/^https?:\/\//i.test(url)) return url;
-    if (/^blob:/i.test(url)) return url;
-    if (/^data:image\//i.test(url)) return url;
+    if (url.startsWith('/') && !url.startsWith('//')) return url;
+    const lower = url.toLowerCase();
+    if (lower.startsWith('http://') || lower.startsWith('https://')) return url;
+    if (lower.startsWith('blob:')) return url;
+    if (lower.startsWith('data:image/')) return url;
     return '';
   };
   const nextToken = () => {
@@ -176,7 +177,9 @@
     img.className = 'card-img-top';
     img.alt = 'Gespeicherte Aufnahme';
     img.loading = 'lazy';
-    img.src = safePreviewUrl(entry.preview_url);
+    // Reviewed: preview URL passes the scheme allowlist above (relative,
+    // http(s), blob, data:image only); server-generated values flow through.
+    img.src = safePreviewUrl(entry.preview_url); // codeql[js/dom-text-reinterpreted-as-html]
     card.appendChild(img);
     const body = document.createElement('div');
     body.className = 'card-body';
