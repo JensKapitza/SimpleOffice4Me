@@ -124,6 +124,13 @@ class AndroidReleaseSigningTest(unittest.TestCase):
         ):
             self.assertNotIn(f"secrets.{secret_name}", WORKFLOW)
 
+    def test_pr_ci_checks_resolved_release_signature_schemes(self) -> None:
+        self.assertIn("Verify resolved release signature scheme flags", WORKFLOW)
+        self.assertIn('rglob("signing-config-versions.json")', WORKFLOW)
+        self.assertIn('resolved.get("enableV1Signing")', WORKFLOW)
+        self.assertIn('resolved.get("enableV2Signing")', WORKFLOW)
+        self.assertIn("v1 is not True or v2 is not True", WORKFLOW)
+
     def test_local_sequence_defaults_to_utc_time_slot(self) -> None:
         self.assertIn("rawBuildSequenceEnv", GRADLE)
         self.assertIn("java.time.Instant.now().epochSecond % 86400", GRADLE)
