@@ -1,17 +1,10 @@
 """DocumentStore implementation part 1 of 5."""
 from __future__ import annotations
 
-import re
-
 from .document_store_core import *  # noqa: F401,F403
 from .file_lock import exclusive_file_lock
 from .safe_paths import resolve_file_under
 from .v3_activity import emit_activity_best_effort
-
-# Bare document ids only (same rule as DocumentStore._SAFE_DOCUMENT_ID, kept
-# local to avoid a circular import): the metadata lookup below must never
-# receive separators, drive prefixes or dot segments.
-_SAFE_METADATA_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
 
 
 class _DocumentStorePart1:
@@ -619,10 +612,6 @@ class _DocumentStorePart1:
     def get_document(self, reference: str | Path) -> dict[str, Any]:
         self.initialize()
         reference_text = str(reference)
-        # Only reachable via DocumentStore.get_document (guarded entry point,
-        # passes sanitized safe_reference) or via self.get_document (MRO
-        # resolves to that override); the mixin is never instantiated
-        # directly. Pre-existing pattern, no behavior change.
         candidate = Path(reference).expanduser()
         if not candidate.is_absolute():
             candidate = self.root / candidate
@@ -635,14 +624,7 @@ class _DocumentStorePart1:
                 ).fetchone()
             if row:
                 reference_text = str(row[0])
-        # Defense in depth: live callers already pass allowlisted ids, but a
-        # traversal must never reach the path join (fail closed with the same
-        # error the missing-file path below raises). basename() provably
-        # equals reference_text for every input passing the guard.
-        if not _SAFE_METADATA_ID.fullmatch(reference_text):
-            raise ValueError(f"unknown document: {reference}")
-        meta_name = Path(reference_text).name
-        metadata = self._read_json(self.documents / f"{meta_name}.json", {})
+        metadata = self._read_json(self.documents / f"{reference_text}.json", {})
         if not metadata.get("document_id"):
             raise ValueError(f"unknown document: {reference}")
         access_metadata = self._read_json(self.document_access / f"{metadata['document_id']}.json", {})

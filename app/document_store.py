@@ -103,9 +103,6 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         root = normalize_path(self.root, strict=True)
         safe_reference: str | Path | None = None
         try:
-            # Sanitized below via relative_to(root) (raises on escape) and
-            # resolve_under; the analyzer cannot follow the guard.
-            # Pre-existing pattern, no behavior change.
             requested = Path(reference).expanduser()
             if requested.is_absolute():
                 candidate = normalize_path(requested, strict=False)
