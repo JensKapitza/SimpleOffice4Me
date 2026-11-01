@@ -29,6 +29,7 @@ on:
   push:
     branches:
       - main
+      - hackathon/contextflow-mvp
 
 # Superseded PR revisions should not occupy Android build runners.
 concurrency:

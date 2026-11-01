@@ -2,7 +2,7 @@ name: Tests and dependency audit
 
 on:
   push:
-    branches: [main]
+    branches: [main, hackathon/contextflow-mvp]
   pull_request:
   workflow_dispatch:
 

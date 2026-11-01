@@ -3,7 +3,7 @@ name: Security quick wins
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, hackathon/contextflow-mvp]
   workflow_dispatch:
 
 permissions:
