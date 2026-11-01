@@ -69,7 +69,9 @@ STATIC_RE = re.compile(r"<[^>]+>")
 RULE_ARGUMENT_RE = re.compile(r"<(?:(?P<converter>[^:<>]+):)?[^<>]+>")
 
 
-def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
+def browser_candidate(
+    rule: str, endpoint: str, *, contextflow_enabled: bool = False
+) -> tuple[bool, str]:
     if (
         rule == "/favicon.ico"
         or rule.startswith("/static/")
@@ -78,6 +80,8 @@ def browser_candidate(rule: str, endpoint: str) -> tuple[bool, str]:
         return False, "static-asset"
     if endpoint in NON_PAGE_ENDPOINTS:
         return False, "non-page-get"
+    if endpoint.startswith("contextflow.") and not contextflow_enabled:
+        return False, "feature-disabled"
     if rule in AUTH_EXACT or any(rule.startswith(prefix) for prefix in AUTH_PREFIXES):
         return False, "authentication-flow"
     if "/api/" in rule.casefold() or any(rule.startswith(prefix) for prefix in PROTOCOL_PREFIXES):
@@ -107,14 +111,22 @@ def rule_pattern(rule: str) -> str:
 
 
 def main() -> None:
+    import os
+
     from app import app
 
+    contextflow_enabled = bool(
+        app.config.get("CONTEXTFLOW_ENABLED", False)
+        or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
+    )
     routes: list[dict[str, object]] = []
     for rule in sorted(app.url_map.iter_rules(), key=lambda item: (item.rule, item.endpoint)):
         methods = sorted(method for method in rule.methods if method not in {"HEAD", "OPTIONS"})
         if "GET" not in methods:
             continue
-        candidate, reason = browser_candidate(rule.rule, rule.endpoint)
+        candidate, reason = browser_candidate(
+            rule.rule, rule.endpoint, contextflow_enabled=contextflow_enabled
+        )
         routes.append(
             {
                 "rule": rule.rule,

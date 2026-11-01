@@ -5,8 +5,6 @@ the maintenance limit while preserving the public app.document_store API.
 """
 from __future__ import annotations
 
-import re
-
 from . import document_store_core as _core
 from .document_store_core import *  # noqa: F401,F403
 from . import document_store_part_1 as _part_module_1
@@ -19,9 +17,7 @@ from . import document_store_part_4 as _part_module_4
 from .document_store_part_4 import _DocumentStorePart4
 from . import document_store_part_5 as _part_module_5
 from .document_store_part_5 import _DocumentStorePart5
-from .safe_paths import normalize_path, relative_under, resolve_file_under, resolve_under
-
-_SAFE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+from .safe_paths import relative_under
 
 
 class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart3, _DocumentStorePart4, _DocumentStorePart5):
@@ -96,38 +92,8 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         result["results"] = visible
         return result
 
-    def get_document(self, reference: str | Path) -> dict[str, Any]:
-        """Resolve document IDs and path references and enforce browser visibility."""
-        self.initialize()
-        raw = str(reference or "")
-        root = normalize_path(self.root, strict=True)
-        safe_reference: str | Path | None = None
-        try:
-            requested = Path(reference).expanduser()
-            if requested.is_absolute():
-                candidate = normalize_path(requested, strict=False)
-                candidate.relative_to(root)
-            else:
-                candidate = resolve_under(root, raw, strict=False)
-            relative = candidate.relative_to(root).as_posix()
-            if candidate.exists():
-                if not candidate.is_file():
-                    raise ValueError("document path does not name a regular file")
-                safe_reference = resolve_file_under(root, relative)
-            else:
-                with self._db() as db:
-                    row = db.execute("SELECT document_id FROM scan_file WHERE relative_path = ?", (relative,)).fetchone()
-                if row and _SAFE_DOCUMENT_ID.fullmatch(str(row[0])):
-                    safe_reference = str(row[0])
-        except (OSError, ValueError):
-            path_like = Path(raw).is_absolute() or "/" in raw or "\\" in raw or raw in {".", ".."} or raw.startswith(".")
-            if path_like:
-                raise ValueError("document path is outside the managed store") from None
-        if safe_reference is None:
-            if not _SAFE_DOCUMENT_ID.fullmatch(raw) or raw in {".", ".."}:
-                raise ValueError("invalid document reference")
-            safe_reference = raw
-        metadata = super().get_document(safe_reference)
+    def _visible_metadata(self, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Relativize ``last_path`` and enforce browser visibility."""
         last_path = str(metadata.get("last_path", "") or "")
         if last_path and not last_path.startswith("[external]"):
             try:
@@ -137,6 +103,20 @@ class DocumentStore(_DocumentStorePart1, _DocumentStorePart2, _DocumentStorePart
         if not self._visible_for_request(metadata):
             raise ValueError("unknown document")
         return metadata
+
+    def get_document(self, reference: str | Path) -> dict[str, Any]:
+        """Resolve document IDs and registered paths, enforce visibility.
+
+        Lookup only: the reference is an opaque catalog key and never
+        touches the filesystem (unregistered files raise ``ValueError``).
+        """
+        self.initialize()
+        return self._visible_metadata(super().get_document(reference))
+
+    def scan_and_get_document(self, path: str | Path) -> dict[str, Any]:
+        """Scan an app-produced file, with the same visibility check."""
+        self.initialize()
+        return self._visible_metadata(super().scan_and_get_document(path))
 
     def create_share(self, reference: str | Path, password: str, expires_days: int, actor: str, note_id: str = "") -> dict[str, Any]:
         document = self.get_document(reference)

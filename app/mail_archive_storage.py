@@ -51,7 +51,7 @@ def archive_document(store: MailStore, actor: str, account_id: str, path: str) -
     else:
         if not (store.root / relative).is_file():
             raise FileNotFoundError("archive message does not exist")
-        document = documents.get_document(relative.as_posix())
+        document = documents.get_or_scan_document(relative.as_posix(), force_hash=True)
     if document.get("deleted_at") or document.get("system_state") == "webdav_deleted":
         raise FileNotFoundError("archive message is deleted")
     return document

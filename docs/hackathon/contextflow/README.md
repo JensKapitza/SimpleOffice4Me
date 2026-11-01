@@ -1,0 +1,383 @@
+# ContextFlow – README (Hackathon-Arbeit, Branch `hackathon/contextflow-mvp`)
+
+**Stand:** 28.10.2026 — Architektur-Gate auf Meta-only-Laufzeit umgestellt;
+Meta Model API und Meta-Ollama-Allowlist in Code und Demo-Starter verankert.
+Qwen-Live-Läufe in älteren Notizen sind historische, nicht mehr zulässige
+Ergebnisse und kein unterstützter Runtime-Pfad. Testergebnisse zum neuen Gate
+stehen weiter unten.
+
+## Hackathon-Laufzeitregel (verbindlich)
+
+- Coding-Werkzeuge und Entwicklungsmodelle sind frei wählbar.
+- Der ContextFlow-Wettbewerbspfad ruft ausschließlich Meta-Modelle auf. Die Laufzeit
+  verweigert beliebige Ollama-Modellnamen sowie fremde Cloud-Endpunkte.
+- Für lokale Textaufgaben ist `llama3.2:1b` (oder `llama3.2:3b`) via Ollama
+  zugelassen. Diese Llama-3.2-Modelle sind text-only. Bildanalyse braucht
+  `llama3.2-vision` oder `muse-glimmer`.
+- Die sichtbare Meta-Cloud-Demo ruft `muse-spark-1.3-contributor` über den offiziellen
+  Meta-Model-API-Responses-Endpunkt auf. Sie braucht `MODEL_API_KEY`, die ausdrückliche
+  Einwilligung im Formular und den isolierten synthetischen Demo-Root.
+  Echtdaten werden für diesen Pfad abgelehnt.
+- Contributor-Modus (`muse-spark-1.3-contributor`): Inhalte können laut
+  Meta-Doku zum Training künftiger Meta-Modelle verwendet werden. Die UI
+  kennzeichnet das direkt an der Einwilligung; Cloud-Läufe sind auf
+  synthetische Demo-Daten beschränkt, echte Kontaktdaten erreichen
+  diesen Pfad nie.
+- Das verwendete Modell steht im Startprotokoll, im Ergebnis der Bildanalyse und in der
+  ML-Statusanzeige (`/contextflow/ml-status`, Badge-Titel, Fotoeingang-Zeile: exakte
+  Modell-ID). Die Meta-AI-Tooling-Wertung (25 %) wird nur mit einem tatsächlichen
+  Meta-Aufruf belegt; der Mock ist ein Bedien-Dummy und zählt nicht als KI-Nachweis.
+- Modellnachweise: [Meta Model API](https://dev.meta.ai/docs/overview),
+  [Llama 3.2 Textmodelle](https://ollama.com/library/llama3.2),
+  [Llama 3.2 Vision](https://registry.ollama.com/blog/llama3.2-vision),
+  [Muse Glimmer](https://registry.ollama.com/library/muse-glimmer).
+
+## OCR/ML-Betrieb, Status und Demo-Dateien (29.10.)
+
+- OCR bleibt lokal: RapidOCR läuft über das venv-Extra (`.\.venv\Scripts\python.exe
+  -m pip install .[ocr]`, falls `pip` fehlt vorher `python -m ensurepip`),
+  Tesseract über das UB-Mannheim-Setup plus `PATH`. Fehlt eine Engine, nennt die
+  Fehlermeldung den exakten Installationsschritt; `ocr_availability()` meldet
+  beide Backends als Bools.
+- Status: `GET /contextflow/ml-status` liefert Provider, Ollama-Erreichbarkeit
+  plus installiertes Modell, Meta-Key nur als Vorhanden-Bool und OCR-Bools —
+  nie Schlüssel oder Tracebacks. Ein dezentes Badge oben beim vCard-Export
+  zeigt den Stand an.
+- Bildanalyse: Detailseite (Bilder) und freigegebene EML-Anhangsbilder nutzen
+  `/doc-image-suggest` (echt, lokal, Mock→503); die Antwort zeigt Provider,
+  Modell, Beschreibung und Objekte. Unreleased Anhänge bleiben bis zur Freigabe
+  gesperrt (Quarantäne-Grenze, kein Scan-Bypass).
+- Demo-Dateien: `seed_demo_documents` importiert PNG/TXT/MD/PDF mit bekanntem
+  synthetischem Inhalt idempotent nur in Demo-Roots und erzeugt Vorschauen
+  vorab, weil der Demo-Modus keinen Index-Worker startet. Der Starter druckt
+  die Detail-URLs mit Vorschau-Status.
+- Ehrlichkeit: Ohne Modell/Schlüssel antworten ML-Routen 503 mit Grund; Mock
+  gilt nie als echte Analyse. Echte-Inferenz- und Browser-Abnahme sind offen
+  und laufen auf dem Host des Eigentümers.
+
+## Produktziel und Abnahmekriterien (geteiltes Ziel, aus update2.md)
+
+- Zielsatz: SimpleOffice4Me erkennt offene Arbeitsschritte über
+  E-Mail, Kunden, Ortstermin, Befunde, Aufgaben, Rechnung und
+  Kundenkommunikation hinweg selbst, belegt sie, spricht sie über
+  den Büroengel freundlich an und lässt sie nach menschlicher
+  Freigabe bearbeiten — ohne Cloud-Zwang im Normalbetrieb.
+- Architektur: SimpleOffice4Me (Fach-Wahrheit) + ContextFlow
+  (Verbindungsschicht) + Büroengel (sichtbare Figur) + Meta-Modelle lokal via
+  Ollama oder Muse Spark über Meta Model API (nur synthetisch-isoliert).
+- P0-Umfang: verknüpfter Servicefall (A), 5-Tage-Follow-up (B),
+  Engel-Hinweis mit Quellen (C), Aufgabe-genau-einmal +
+  Rechnungseditor-Link (D), Mail-Entwurf ohne Autoversand (E),
+  kostenlose lokale Betriebsart (F), echter mehrstufiger Meta-Agent
+  mit Tool-Loop im isolierten Demo-Fall (G; live-verifiziert, Details
+  unten), Security/QA/Alt-Neu (H); danach 3-Minuten-Jury-Demo.
+- Abnahme: P0-A–H je umgesetzt, getestet und in der Demo
+  nachgewiesen (nur synthetische Daten, nur neue Arbeit); keine
+  erfundenen Fakten, keine Autonomie bei Geld/Externem.
+  Umsetzungsstand: Matrix in STATUS.md.
+- Erweiterung (Inventar-Agent, 28.10., update2.md §13, Stand: TEILWEISE):
+  umgesetzt und per Tests verifiziert (161/79 + Gates OK, kein
+  Auto-Speichern): Serien-Queue/UI, lokale Pro-Foto-Vorschläge,
+  Pro-Kandidat-Kennung, Exakt-Match, GTIN-Härtung,
+  KI-ISBN-Schema/Prompt/Validierung, Foto-Anhang und Serien-Abschluss
+  (JSON-Einzelspeichern, Idempotenz, Regal-Retain, Checkliste,
+  Buch/Gegenstand-Weiche, Reset; 18 + 2 Tests). Nicht live-verifiziert:
+  reale ISBN-Erkennungsqualität und Kamera-Check. Zusätzlich:
+  Freund-Bestandscheck 15/15 verifiziert (Muse-Lauf, inkl.
+  Sync-State + ISBN-Prefilter). Ollama-Streaming + Model-Guard
+  umgesetzt + verifiziert (Instruct-Sibling/Refusal, nie Download;
+  Vision 42/42, Guard 8/8, Discover 205 OK + 1 Skip;
+  Details OLLAMA.md). Matrix in STATUS.md.
+- Erweiterung (Import-Tag-Engel, 28.10., update2.md §14, Stand: TEILWEISE):
+  umgesetzt und per Tests verifiziert: lokale Tag-Vorschläge mit
+  Begründung aus Metadaten + Extraktion, Bildbeschreibung/
+  Objekthinweise, Bestätigungs-UI in der Smart-Folder-Ansicht,
+  keine Auto-Übernahme. Doc-Tags 46 Tests OK + 1 Skip
+  (nur fokussiertes Modul, Muse-Lauf); Vision 42/42,
+  Guard 8/8, Discover 222 OK + 2 Skips (Vorrunden).
+  Live VOR den neuesten Filtern: Text A 400/26,56 s
+  (keine gültigen Tags), Text B 200/18,82 s („aus" und
+  „notizen" durchgerutscht), Bild 200/63,1 s (uneindeutig,
+  Objekte leer, Metadaten ok) → Qualitätsfilter (200-leer,
+  Stoppwörter, Dateinamen-Stämme, Teile/Material/Attribut
+  weg; ein Modellaufruf, lokal) per Tests verifiziert.
+  Finale Live-Abnahme: Text 200/29,67 s nur [Rechnung,
+  2024, Euro]; Bild 200/62,76 s leer/Metadaten ok,
+  warmer Retry 200/5,31 s [Bank] behalten; diff-check
+  Exit 0 — enge Route live-verifiziert (unsichere Bilder
+  können leer bleiben). Bild-Mismatch live
+  (Holzbrett-Satz/[Bank]) → Label-Abgleich per Tests
+  (47 OK/1 Skip, diff-check offen); Konsistenz-Abnahme:
+  Text 200/34,39 s [Rechnung, 2024], Bank 200/55,38 s
+  [Stuhl] + 200/60,06 s [Bank] — enge Route verifiziert
+  (Mehrdeutigkeit: anderes/kein Label). Browser-Abnahme
+  offen (Automation gestoppt, Neustart abgelehnt).
+  UI meldet ehrlich. Details OLLAMA.md.
+  Nicht live-verifiziert: Browser-Check. Matrix in STATUS.md.
+
+## Was ist neu (nur diese Dateien)
+
+- `app/contextflow/`: `contracts.py` (Evidence-Vertrag), `adapters.py`
+  (actor-scoped Reads), `case_links.py` (bestätigte Zuordnungen),
+  `evaluator.py` (5-Tage-Follow-up, deterministisch), `actions.py`
+  (freigegebene Einmal-Aufgabe), `hints.py` (Snooze/Dismiss),
+  `web.py` (Blueprint `/contextflow`), `demo.py` (synthetisches Seeding)
+- `templates/contextflow/index.html`, `static/contextflow.css`
+- `tools/contextflow_demo.py` (lokaler Demo-Starter)
+- `tests/test_contextflow_*.py`, `tests/contextflow_fixtures.py`
+- `docs/hackathon/contextflow/STATUS.md` (Alt-/Neu-Nachweis)
+- `app/__init__.py` + `pyproject.toml`: nur Registrierung/Paket (kein Altcode geändert)
+- `app/contextflow/vision.py` + `templates/contextflow/suggest.html`
+  (Foto→Entwurf/Vorschlag, lokal/Mock/Meta-Gates)
+- `app/contextflow/meta_agent.py` (P0-G Tool-Loop: 4 Read-only-Tools,
+  max. 5 Schritte, Evidence-Validierung, nur Vorschlag, Actor-Throttle
+  5/300 s + Single-Flight), `app/contextflow/agent_web.py` (View-Helfer:
+  Falltitel, Beleg-Deep-Links, Provider-Status),
+  `templates/contextflow/agent.html` (Analyse-Seite inkl.
+  Manage-gegatetem Rechnungseditor-Link; Doppelklick-Guard aus
+  global_ui.js, kein Seiten-JS),
+  `tests/test_contextflow_meta_agent.py` +
+  `tests/test_contextflow_meta_agent_web.py` (50 Tests, Loop/Web getrennt)
+- `docs/hackathon/contextflow/OLLAMA.md` (lokale Modell-Einrichtung)
+- `tests/test_contextflow_demo_vision.py` (Demo-Startkonfiguration)
+- Inventar-UI geändert: `templates/inventory/index.html`,
+  `static/js/inventory.js` (Foto-Buttons, Vorschlag-Box, Non-ISBN-Ablauf)
+- Inventar-Mitarbeit: `/inventory` bietet (nur Flag + `documents`-Recht)
+  Foto-Buttons (Aufnehmen/Auswählen) + Fotoanalyse mit Vorschlag-Box
+  (explizit Übernehmen/Verwerfen, kein Auto-Speichern);
+  `POST /contextflow/inventory-suggest` liefert JSON nur aus echten
+  lokalen Modellen (Mock→503, Cloud verweigert); Speichern unverändert
+  über das Formular; Dashboard kennt weiter `?origin=inventory`
+
+## Startanleitung (lokal, synthetisch)
+
+Voraussetzung: Projekt-`.venv` mit installierten Dependencies (siehe `pyproject.toml`).
+
+```bat
+start.bat demo --port 5088
+```
+
+(Alternativ direkt: `.venv\Scripts\python.exe tools\contextflow_demo.py --port 5088`)
+
+- Legt `.runtime-tools/contextflow-demo/` an (mit Demo-Marker, sonst verweigert
+  das Skript fremde/nicht-leere Roots und löscht nichts).
+- Seeder erstellt Kontakt, Mail-Vorgang, abgeschlossenen Ortstermin mit drei
+  offenen Befunden (davon ein widersprüchlicher Ersatzteil-Befund),
+  Rechnungsentwurf und bestätigten Link (5 Tage zurück).
+- Eigene Demo-User-DB im Demo-Root, Benutzer `demo` (nicht `admin`),
+  festes Demo-Passwort `demo-contextflow-1` (nur Demo-Zugang, nur `127.0.0.1`).
+  Bei Anmelde-Sperre kurz warten oder mit `--fresh` neu starten.
+- Danach: `http://127.0.0.1:5088/contextflow/` — Standard **aus** ohne Flag;
+  das Skript setzt `CONTEXTFLOW_ENABLED=1`. Produktiv bleibt das Flag aus,
+  alle Routen antworten dann 404.
+- Für echte lokale Fotoanalyse: Ollama + Modell einrichten, siehe
+  `docs/hackathon/contextflow/OLLAMA.md` (`CONTEXTFLOW_OLLAMA_MODEL`;
+  ohne Modell nur Mock-Befunddemo, Inventar antwortet 503).
+
+### Judge quickstart and three-minute demo
+
+The public repository's root README has the fresh-checkout install commands
+for Windows and Linux/macOS. For a live cloud run, set
+`CONTEXTFLOW_VISION_PROVIDER=meta` and provide your own `MODEL_API_KEY` as a
+process environment variable or in `.env` one directory above the checkout.
+That parent `.env` is outside Git. Never put a key in the repo, screenshots,
+video, or shell recording. On startup the demo must print
+`Meta Muse Spark 1.3 Contributor (Meta Model API)`. If it says Mock or Local,
+do not present that run as a live cloud call.
+
+Use a fresh isolated demo root (`--fresh`), synthetic data only, and sign in
+at `http://127.0.0.1:5088/contextflow/` as `demo` /
+`demo-contextflow-1`. Keep the terminal visible at startup long enough to show
+the selected provider, then switch to the browser. Prepare the browser with
+the demo already started, but do not pre-record, substitute, or reuse a model
+response: both model results shown below must come from fresh successful calls.
+
+#### Suggested 3:00 run of show
+
+| Time | Show | What proves it |
+|---|---|---|
+| 0:00–0:15 | Start output, then ContextFlow dashboard and synthetic demo label. | Server selected `Meta Muse Spark 1.3 Contributor`; demo data is isolated. This is configuration evidence only, not yet proof of inference. |
+| 0:15–0:55 | Open `/contextflow/agent`, select the seeded confirmed case, check the explicit Meta consent, and start one live run. | Fresh result shows requested and response model IDs, step count, tool calls with success marks, evidence IDs, elapsed time, and token counts. The tools are read-only and the result is a proposal; no record or message is automatically created. |
+| 0:55–1:50 | On the dashboard expand “Befund-Vorschlag aus Foto”, select a seeded visit, upload a clearly synthetic JPEG/PNG/WebP, check the Meta Cloud consent, and create the suggestion. | The fresh response identifies the provider/model and presents title, description, evidence class, and confidence. The uploaded photo is analyzed in memory and is not persisted. |
+| 1:50–2:20 | Review the proposed finding and explicitly confirm it. | The user sees the proposed fields before saving; only the reviewed, explicitly approved finding is created. |
+| 2:20–2:45 | Point out the approval boundary on the agent result and the confirmed photo finding. | The agent's actual tool loop and evidence are visible; the agent remains a proposal, while the separately reviewed photo finding was explicitly confirmed. No task, message, or payment is triggered automatically. |
+| 2:45–3:00 | Briefly show the code map below, then close on the working result. | The judges can find the API client, image-analysis path, tool loop, and demo seed/setup in the public repo. |
+
+Image inference can be slow. Have a clearly synthetic JPEG/PNG/WebP ready
+before recording. If the call exceeds the planned slot, let it finish and
+either shorten the surrounding narration or make a separate, clearly labeled
+recording; never cut in a previous response and imply it came from the current
+call.
+Do not show real office documents or contact data in a contributor-mode run.
+
+#### Where Meta is used
+
+- `app/contextflow/vision.py`: pinned Meta Model API image-analysis call and
+  Meta-only Ollama allowlist for local image analysis.
+- `app/contextflow/meta_agent.py`: Meta Responses API tool loop, limited to
+  validated read-only ContextFlow tools and evidence-backed proposals.
+- `app/contextflow/web.py`: consent gates, routes, and the human review/save
+  boundary used by the browser flow.
+- `tools/contextflow_demo.py`: isolated synthetic data, localhost-only server,
+  visible provider startup, and repeatable judge login.
+
+The visible model ID, response, tool/evidence list, and usage belong in the
+recording. A configured badge or Mock result alone does not establish a live
+Meta call. If no Meta key is available, use Ollama only for a clearly labeled
+local run; the mock is suitable for UI and workflow checks, not AI evidence.
+
+### Meta-Agent mit Tool-Loop (P0-G, live-verifiziert 30.10.)
+
+Start wie oben mit `CONTEXTFLOW_VISION_PROVIDER=meta` und Schlüssel, dann
+`http://127.0.0.1:5088/contextflow/agent` öffnen (auch vom Dashboard
+verlinkt). Nach Fallwahl und ausdrücklicher Einwilligung ruft der echte
+`muse-spark-1.3-contributor` mindestens zwei Read-only-Werkzeuge auf
+(Fallkontext, Befunde, Rechnungsstand, Kalender), erkennt Lücken oder
+Widersprüche und liefert einen Vorschlag mit belegten IDs — nichts wird
+erstellt oder versendet (`requires_approval=true`). Die Seite zeigt Modell,
+Tool-Aufrufe, Belege, Unbekanntes und ehrliche Fehler. Live-Beleg: 2
+Schritte, 4/4 Tools OK, 3 Befunde, 8 Beleg-IDs, 10,2 s, nur synthetische
+Demo-Daten.
+
+### Fehlercodes (Abgrenzung, alle mit Tests belegt)
+
+| Code | Bedeutung | Beispiel |
+|---|---|---|
+| 400 | Eingabe/Format ungültig | Foto > 12 MiB, kein Bild, unbekannte Rolle, leere Buchgruppe |
+| 403 | Einwilligung/Recht fehlt (bewusst verweigert) | Agent-Start ohne Meta-Checkbox, fremder Akteur, fehlendes Manage-Recht |
+| 404 | Beleg/Route unbekannt | fremde Entry-ID, leere Buchgruppe, ContextFlow-Flag aus |
+| 409 | Gleichzeitigkeit/Token-Konflikt | Agent-Doppelstart, gleicher Token + anderer Digest |
+| 429 | Throttle | > 5 Agent-Läufe/300 s je Akteur |
+| 502 | Meta-Modellfehler (transportiert, nie erfunden) | Timeouts/Fehler der Model-API im Agent-Lauf |
+| 503 | Backend/Index vorübergehend kaputt (fail-closed) | beschädigter Korb-Index, Mock statt Modell, Ollama down |
+
+## Tests
+
+```bat
+set TEMP=C:\Users\Jens Kapitza\AppData\Local\Temp
+set TMP=C:\Users\Jens Kapitza\AppData\Local\Temp
+.venv\Scripts\python.exe -m unittest tests.test_contextflow_adapters tests.test_contextflow_links tests.test_contextflow_evaluator tests.test_contextflow_actions tests.test_contextflow_web tests.test_contextflow_device_prefill tests.test_contextflow_vision tests.test_contextflow_model_guard tests.test_contextflow_doc_tags tests.test_contextflow_demo_reset tests.test_contextflow_demo_vision tests.test_contextflow_inventory_entry tests.test_contextflow_meta_agent tests.test_contextflow_meta_agent_web -v
+.venv\Scripts\python.exe -m unittest tests.test_auth_login_qr tests.test_invoice_relations -v
+.venv\Scripts\python.exe -m compileall -q app tools
+.venv\Scripts\python.exe tools/check_project_policy.py .
+.venv\Scripts\python.exe tools/check_file_size.py . --limit 1000
+.venv\Scripts\python.exe tools/check_function_size.py app tools --limit 300
+```
+
+## Kontaktvorschlag (Text + bis zu 3 Fotos, Stand 28.10.2026)
+
+- `/documents/contacts` zeigt einen Vorschlagsbereich: getippter Text plus
+  bis zu 3 Fotos erzeugen einzelne, namentlich bestätigte Feldvorschläge.
+  Fotos werden nur lokal per OCR gelesen; an Meta geht ausschließlich
+  Text/OCR-Text, niemals Bildbytes.
+- Meta-Pfad nur mit globaler Serverfreigabe UND nicht vorangekreuzter
+  Einwilligungs-Checkbox pro Anfrage; Backend entweder lokale
+  Meta-Ollama-Alternative oder externe gepinnte Meta-API
+  (`muse-spark-1.3-contributor` über Meta Model API). Speichern bleibt Sache des
+  normalen Kontaktformulars.
+- Tests (verifiziert im aufrufenden Supervisionslauf nach der letzten
+  Provider-Änderung, nicht in dieser Doku-Session):
+  `python -m unittest tests.test_contextflow_contact_suggest tests.test_contextflow_contact_suggest_meta -v`
+  — 39 Tests, OK. Meta-Pfad mit gemocktem Transport.
+- Gates (derselbe Supervisionslauf): `compileall`,
+  `tools/check_project_policy.py .`, `tools/check_file_size.py . --limit 1000`,
+  `tools/check_function_size.py app tools --limit 300` und `git diff --check`
+  — alle Exit 0.
+- Live (derselbe Supervisionslauf: `start.bat` auf synthetischem Root,
+  Port 5099): Login POST 302, danach `/documents/contacts` 200; HTML enthält
+  Vorschlagsbereich, Fotoauswahl und externe Meta-Checkbox.
+- Kein Meta-API-Schlüssel vorhanden: kein echter Modellaufruf.
+  Der Mock zählt nicht als Meta-Modellnachweis (vgl. Laufzeitregel oben).
+
+## Alt/Neu-Abgrenzung (gegen Baseline `af5a600b`)
+
+Stand 30.10. (Kernstand `0c85fea0`, nur Doku danach): 145 Dateien im
+Branch-Diff, nachprüfbar mit `git diff --stat af5a600b..HEAD` und
+`git diff --name-status af5a600b..HEAD`. Danach Merge `2052c528`
+(`origin/main` bis `070473b4`, 61 Commits): `af5a600b..HEAD` enthält
+seither zusätzlich Main-Arbeit; reiner Branch-Anteil per
+`git diff 070473b4..HEAD` bzw. First-Parent-Log. Architektur:
+[architecture.svg](architecture.svg).
+
+**Neu** (Auswahl, vollständig per `git diff --diff-filter=A`):
+`app/contextflow/*` (18 Module; `local_rewrite.py` in `a56cb2b8`
+entfernt — Dashboard ohne Inferenz), `app/capture_analysis.py`,
+`app/capture_inbox_store.py`, `app/inventory_capture*.py`,
+`app/mail_case_drafts.py`, `app/invoice_access.py`,
+`app/invoice_display.py`, `tools/contextflow_demo.py`,
+`tools/local_env.py`, `templates/contextflow/*`,
+`static/contextflow.css` + Engel-JS, `tests/test_contextflow_*` +
+Capture-Suiten, `docs/hackathon/contextflow/*`.
+
+**Geänderte Bestandsdateien** (48, je mit Einzeiler):
+
+Registrierung/Build/Doku-Root (funktionsneutral):
+
+- `app/__init__.py` (+4/−1): ContextFlow-Blueprint registriert; Kamera-Policy für `shopping.index` (#736)
+- `pyproject.toml` (1/1): `app.contextflow` ins Packaging
+- `start.bat` (+34/−1): `demo`-Befehl für den synthetischen Demo-Start
+- `tools/launcher.py` (+2): `.env`-Loader aus dem Elternordner
+- `AGENTS.md` (+13): Meta-only-Laufzeitregel dokumentiert
+- `README.md` (+30): Büroengel-Runtime-Abschnitt
+- `android/apk/app/build.gradle` (+76/−2), `android/apk/README.md` (+39/−5): Release-Signing-Pfad + Doku
+
+Refactor (funktionsneutral, per Tests belegt):
+
+- `app/mail_case_store.py` (+12/−379): Draft-Methoden in Mixin `app/mail_case_drafts.py` ausgelagert
+- `app/business_documents.py` (+5/−13): Rechnungs-Fassaden nach `invoice_access`/`invoice_display` ausgelagert
+- `app/inventory.py` (+55/−2): Capture-Anhang-Helfer (Fotos ans Ziel, Digest-Skip) + Medien-Route
+
+Capture-Anbindung (#767/#658):
+
+- `app/inventory_library_capture.py` (+123/−18): JSON-Antworten + Token-Idempotenz für Adopt
+- `app/library/routes.py` (+6/−3): `root`-Parameter für testbare Regalzuweisung
+- `app/auth.py` (+6/−1): Template-Helper `photo_role_label`
+- `static/js/inventory.js` (+491/−2): Fotoeingang-/Adopt-Verdrahtung
+- `static/js/shopping.js` (+28/−11): Kamera-Helfer (FacingMode, Neustart-Wache, #736)
+- `templates/library/index.html` (+1): Fotoeingang-Button
+- `templates/library/object_care.html` (+3/−2): Fotorollen-Badge
+- `templates/inventory/index.html` (+37/−2), `templates/inventory/detail.html` (+14/−1): Korb-Links, Gruppen, Rollen
+- `templates/shopping/index.html` (1/1): EAN-Scan-Verdrahtung (#736)
+
+Kontakt/OCR/Vision-Anbindung:
+
+- `static/js/contact-import.js` (+248): Kontakt-Import-UI (Engel-Vorschläge, Adress-Übernahme)
+- `app/object_vision.py` (+26/−3): OCR-Verfügbarkeits-Helper + Installhinweise
+- `app/documents_routes_workflows.py` (+53/−9): Scanner-Name-Parametrisierung + manuelle Adress-Übernahme
+- `templates/documents/contacts.html` (+26/−1): Vorschlagsbereich
+- `templates/documents/detail.html` (+15/−4): Bildanalyse-Anzeige
+- `templates/documents/attachments.html` (+3/−3): Vorschau-Links
+- `templates/documents/security.html` (+5/−4): Scanner-Name
+- `templates/documents/smart_folders.html` (+13): Tag-Bestätigungs-UI
+- `templates/documents/nav.html` (+1): Büroengel-Menüpunkt (nur bei Flag)
+- `templates/site_visits/detail.html` (1/1): Medienvorschau (#813)
+
+Sicherheit/Plattform (Zweig-Arbeit, keine Jury-Demo):
+
+- `app/attachment_security.py` (+256/−6): Defender-Start-MpScan-Provider (`c5df24f9`)
+- `app/federation_trust_store.py` (+10): `list_trust`-Lesemethode
+- `static/css/app.css` (+12): Login-QR-Styles
+- `templates/auth/login.html` (+5/−5): QR-Anmeldung als aufklappbares Details
+
+Doku/Testpflege:
+
+- `docs/ANHAENGE_CLAMAV.md`, `docs/KONFIGURATIONSREGISTER.md`, `docs/OBJECT_MODEL.md`, `docs/SHOPPING.md`: nachgeführt
+- 9 Testdateien erweitert/gepflegt (`test_mail_case_store` +166 für P0-E, `test_qa_736_camera_policy`, `test_shopping_web`, `test_site_visits`, `test_video_preview_http`, `test_library_scan_session_http`, `test_admin_security`, `test_attachment_security`, `test_invoice_relations`)
+
+## Grenzen (ehrlich)
+
+- Der Meta-Agent (P0-G) ist durch feste Endpoint-/Modell-Gates,
+  transportgemockte Tests (50) und genau einen synthetischen Live-Lauf
+  belegt (2 Schritte, 4/4 Tools, 10,2 s); kein wiederholter
+  Live-Dauerbetrieb, keine Browser-E2E.
+- Der Agent läuft synchron (bis 5×60 s Budget) mit Actor-Throttle
+  (5 Läufe/300 s, In-Memory je Prozess) und Single-Flight; die Seite
+  sperrt den Startknopf per Skript und nennt Tokens und Dauer. Echte
+  Async-Fortschritte fehlen noch (keine update2-Anforderung; bewusst
+  zurückgestellt). Die Ergebnisseite verlinkt verifizierte Belege
+  (Mail/Ortstermin/Befunde; Editor nur mit Kontakt-Manage-Recht).
+- Llama 3.2 1B/3B sind nur Textmodelle; lokale Bildanalyse braucht ein
+  Vision-Modell. Meta-Cloud-Bildanalyse ist nur im isolierten synthetischen
+  Demo-Root nach Einwilligung freigegeben.
+- Der Büroengel nutzt einen SVG-Platzhalter; echte Assets folgen nach dem MVP.
+- Demo zeigt ausschließlich neue Hackathon-Arbeit (Baseline `af5a600b`).

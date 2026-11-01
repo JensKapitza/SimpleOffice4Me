@@ -257,8 +257,12 @@ class VideoPreviewHttpTests(unittest.TestCase):
                 self.assertNotIn("<img", preview_html)
 
     def test_detail_path_is_rendered_as_wrapping_breadcrumb(self):
-        long_folder = "repeated-folder-name-" * 8
-        path = self.root / "imports" / long_folder / "nested" / "clip.mp4"
+        folders = ["jahresarchiv-dokumentation-2026",
+                   "mediathek-rohmaterial-sammlung",
+                   "drehblock-aussenszenen-nord"]
+        path = self.root.joinpath("imports", *folders, "clip.mp4")
+        relative = path.relative_to(self.root).as_posix()
+        self.assertGreaterEqual(len(relative), 100)
         path.parent.mkdir(parents=True)
         path.write_bytes(b"nested-video")
         self.store._scan_file(path, force_hash=True)
@@ -270,7 +274,9 @@ class VideoPreviewHttpTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertIn('aria-label="Dokumentpfad"', html)
-        self.assertIn(long_folder, html)
+        for folder in folders:
+            self.assertIn(folder, html)
+        self.assertIn("breadcrumb-item text-break", html)
         self.assertIn('title="imports/', html)
 
     def test_detail_renders_cached_image_preview_without_using_original_for_pending_preview(self):
@@ -303,9 +309,12 @@ class VideoPreviewHttpTests(unittest.TestCase):
         self.assertIn("/thumbnail", ready_html)
 
     def test_long_nested_document_paths_are_rendered_as_wrapping_breadcrumbs(self):
-        folder = "imported-folder-with-a-long-name-" * 6
-        nested_folder = "nested-folder-with-a-long-name-" * 4
-        path = self.root / "imports" / folder / nested_folder / "preview.mp4"
+        folders = ["projektarchiv-migrationsphase-dokumente-2026",
+                   "quartalsberichte-entwuerfe-intern",
+                   "freigaben-vorstand-q4"]
+        path = self.root.joinpath("imports", *folders, "preview.mp4")
+        relative = path.relative_to(self.root).as_posix()
+        self.assertGreaterEqual(len(relative), 100)
         path.parent.mkdir(parents=True)
         path.write_bytes(self.payload)
         self.store._scan_file(path, force_hash=True)
@@ -315,8 +324,9 @@ class VideoPreviewHttpTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         html = response.get_data(as_text=True)
         self.assertIn('aria-label="Dokumentpfad"', html)
-        self.assertIn(folder, html)
-        self.assertIn(nested_folder, html)
+        for folder in folders:
+            self.assertIn(folder, html)
+        self.assertIn("breadcrumb-item text-break", html)
         self.assertIn('title="imports/', html)
 
     def test_thumbnail_route_does_not_return_non_image_originals(self):

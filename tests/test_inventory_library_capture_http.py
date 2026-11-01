@@ -1,6 +1,7 @@
 """HTTP contracts for capturing a scanned book into its selected library shelf."""
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
@@ -152,6 +153,46 @@ class InventoryLibraryCaptureHttpContracts(unittest.TestCase):
         self.assertEqual(302, response.status_code)
         self.assertTrue(response.location.startswith("/inventory"))
         self.assertEqual([], self.book_items())
+
+    def test_item_validation_response_does_not_expose_internal_paths(self):
+        private_path = str(Path(self.temp.name) / "private" / "inventory.json")
+        with patch("app.inventory._object_fields", side_effect=ValueError(private_path)):
+            response = self.client.post(
+                "/inventory/items",
+                data=self.capture_form(response_format="json"),
+            )
+
+        self.assertEqual(400, response.status_code)
+        self.assertNotIn(private_path, response.get_data(as_text=True))
+        self.assertEqual([], self.book_items())
+
+    def test_partial_photo_and_inspection_failures_do_not_expose_paths(self):
+        private_path = str(Path(self.temp.name) / "private" / "inventory.json")
+        form = self.capture_form(
+            response_format="json",
+            photo=(io.BytesIO(b"synthetic photo"), "photo.jpg"),
+            inspection_name="Annual check",
+            inspection_due="2026-12-01",
+        )
+        with (
+            patch(
+                "app.inventory.InventoryEnrichmentStore.save_photo",
+                side_effect=OSError(private_path),
+            ),
+            patch(
+                "app.inventory._inspection_input",
+                return_value={"name": "Annual check", "due": "2026-12-01"},
+            ),
+            patch("app.inventory._create_inspection_task", side_effect=OSError(private_path)),
+        ):
+            response = self.client.post("/inventory/items", data=form)
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertTrue(payload["saved"])
+        self.assertEqual(2, len(payload["notices"]))
+        self.assertNotIn(private_path, response.get_data(as_text=True))
+        self.assertEqual(1, len(self.book_items()))
 
 
 if __name__ == "__main__":

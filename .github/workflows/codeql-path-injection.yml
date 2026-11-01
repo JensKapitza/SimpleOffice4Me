@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - main
+      - hackathon/contextflow-mvp
       - security/code-scanning-remediation
   pull_request:
     branches:
       - main
+      - hackathon/contextflow-mvp
 
 permissions:
   contents: read

@@ -234,6 +234,19 @@ Dokumentation ist Bestandteil der Implementierung.
 - Installation, Konfiguration, Betrieb, Fehlerverhalten und bekannte Einschränkungen beschreiben.
 - Sicherheitsgrenzen und relevante Architekturentscheidungen erklären.
 - Nicht nur das Was, sondern insbesondere das Warum dokumentieren.
+- Hackathon-Arbeitslog (verbindliche Nutzer-Vorgabe 28.10.2026, geht bei Widerspruch vor): Nach jeder sinnvollen abgeschlossenen Aufgabe oder einem Arbeitspaket einen sachlichen Eintrag im bestehenden Hackathon-Arbeitslog (`SimpleOffice4Me_Muse_Hackathon_Arbeitslog_2026-10-26.md`, Tabellenformat Datum/Commit/Was/Warum) ergänzen. Änderungen/Ergebnis und tatsächliche Verifikation benennen; zusammenhängende Arbeit nach Aufgabe bündeln, maximal 3 Stunden je Log-Eintrag (z. B. Zeitblöcke 1–3 h, 4–6 h), keine minutengenaue Dauerberichterstattung; Zeitangaben nie erfinden, unbelegte Tests nicht behaupten, fachfremde Repo-Wartung nicht ins Hackathon-Log schreiben.
+
+## 23. Büroengel/ContextFlow-Hackathon: verpflichtende Meta-Modell-Architektur
+
+Diese Regeln gelten für alle Laufzeit-Inferenzen der Wettbewerbsversion von Büroengel/ContextFlow:
+
+- Coding-Werkzeuge und Entwicklungsmodelle sind frei wählbar; Muse Code ist nicht vorgeschrieben.
+- Jede vom Wettbewerbssystem aufgerufene Laufzeit-KI muss ein Meta-Modell sein. OpenAI-, Claude- und sonstige Nicht-Meta-Modelle dürfen nicht als Inferenz-Backends eingebunden oder aufgerufen werden.
+- Backends bleiben modular, aber die Wettbewerbs-Konfiguration muss Nicht-Meta-Modelle technisch ablehnen. Ein OpenAI-kompatibles Protokoll ist zulässig, wenn Ziel-Endpoint und tatsächlich verwendetes Modell von Meta sind.
+- Lokale Meta-Modelle via Ollama sind der bevorzugte Betriebsweg. Die Llama-3.2-Textmodelle (1B/3B) sind nur für Text geeignet; Bildaufgaben benötigen ein freigegebenes Meta-Vision-Modell wie Llama 3.2 Vision oder Muse Glimmer. Die Runtime-Allowlist im Code ist maßgeblich.
+- Meta-Cloud-Inferenz darf nur mit ausdrücklicher Einwilligung und dem isolierten synthetischen Demo-Root laufen. Echte Büro-, Kunden-, Dokument- und Inventardaten dürfen diesen Pfad nie erreichen.
+- Vor jeder neuen KI-Integration Modellherkunft, Modellkennung, Endpoint, Datenfluss, lokale Alternative und Tests gegen diese Vorgaben prüfen. Fehlende Laufzeit-Gates und Dokumentation gehören zum Implementierungsumfang.
+- README und 3-Minuten-Demo müssen die tatsächlich aufgerufene Meta-Modellkennung sichtbar nennen. Ein Mock ist kein Meta-Modellnachweis und darf nicht als echte KI-Demo ausgegeben werden.
 
 ## 15. UI/UX
 

@@ -24,6 +24,29 @@ MAX_OCR_BLOCKS = 250
 _RAPID_OCR_ENGINE: Any | None = None
 _RAPID_OCR_LOCK = threading.RLock()
 
+RAPIDOCR_INSTALL_HINT = (
+    "RapidOCR ist nicht installiert. Installation im Projektordner "
+    "(Windows PowerShell): .\\.venv\\Scripts\\python.exe -m pip install .[ocr] "
+    "(falls pip fehlt, vorher python -m ensurepip)."
+)
+TESSERACT_INSTALL_HINT = (
+    "Tesseract OCR ist nicht installiert. Windows: Tesseract-Setup "
+    "installieren (z. B. UB Mannheim) und das bin-Verzeichnis in PATH "
+    "aufnehmen, danach den Server neu starten."
+)
+
+
+def ocr_availability() -> dict[str, bool]:
+    """Report local OCR backend availability without running inference."""
+    try:
+        spec = find_spec("rapidocr")
+    except (ImportError, ValueError):
+        spec = None
+    return {
+        "rapidocr": spec is not None and bool(spec.submodule_search_locations),
+        "tesseract": shutil.which("tesseract") is not None,
+    }
+
 
 def _line(value: Any, limit: int = 500) -> str:
     return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())[:limit]
@@ -35,7 +58,7 @@ def _rapidocr_engine() -> Any:
         if _RAPID_OCR_ENGINE is None:
             spec = find_spec("rapidocr")
             if spec is None or not spec.submodule_search_locations:
-                raise ModuleNotFoundError("RapidOCR ist nicht installiert")
+                raise ModuleNotFoundError(RAPIDOCR_INSTALL_HINT)
 
             # RapidOCR's defaults can download missing model files during the
             # first inference. Point it at the model files shipped in the
@@ -138,7 +161,7 @@ def _rapidocr_failure(exc: Exception, *, unavailable: bool = False) -> dict[str,
         "characters": 0,
         "confidence": None,
         "blocks": [],
-        "error": _line(exc) or ("RapidOCR ist nicht installiert" if unavailable else "RapidOCR konnte nicht initialisiert werden"),
+        "error": _line(exc) or (RAPIDOCR_INSTALL_HINT if unavailable else "RapidOCR konnte nicht initialisiert werden"),
     }
 
 
@@ -177,7 +200,7 @@ def _run_tesseract(path: Path, *, timeout: float = 90) -> dict[str, Any]:
             "characters": 0,
             "confidence": None,
             "blocks": [],
-            "error": "Tesseract OCR ist nicht installiert",
+            "error": TESSERACT_INSTALL_HINT,
         }
     environment = ocr_subprocess_environment()
     command = [executable, str(path), "stdout", "-l", "deu+eng"]

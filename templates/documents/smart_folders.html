@@ -118,6 +118,16 @@
           <span class="small">Bild {{ selected.preview_index + 1 }} / {{ selected.preview_members|length }}</span>
           {% if selected.preview_index + 1 < selected.preview_members|length %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index + 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">Nächstes Bild</a>{% else %}<span></span>{% endif %}
         </nav>
+        {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+        <div id="doc-engel" class="border rounded p-3 mt-2" data-suggest-url="{{ url_for('contextflow.doc_tag_suggest') }}" data-confirm-url="{{ url_for('contextflow.doc_tag_confirm') }}" data-image-url="{{ url_for('contextflow.doc_image_suggest') }}" data-document-id="{{ current_preview.document_id }}" data-folder="{{ selected.path }}" data-csrf="{{ csrf_token() }}">
+          <h4 class="h6 mb-1"><span class="badge text-bg-warning me-1" aria-hidden="true">✦</span>Büroengel · Tag-Vorschläge</h4>
+          <p class="small mb-2" id="doc-engel-tags">Aktuelle Tags: {% for tag in current_preview.tags|default([]) %}<span class="badge text-bg-secondary me-1">{{ tag }}</span>{% else %}<span class="text-secondary">keine</span>{% endfor %}</p>
+          <button type="button" class="btn btn-outline-primary" id="doc-engel-suggest">Welche Tags würdest du hinzufügen?</button>
+          <p class="small text-secondary mt-1 mb-0">Lokale KI auf diesem Rechner — nichts wird ohne deine Bestätigung übernommen.</p>
+          <div id="doc-engel-status" class="mt-2" role="status" aria-live="polite"></div>
+          <div id="doc-engel-result" class="mt-2" hidden></div>
+        </div>
+        {% endif %}
         <details class="mt-2"><summary>Alle ausgewählten Vorschaubilder anzeigen</summary>
           <div class="row g-2 mt-1">
             {% for doc in selected.preview_members %}<div class="col-6 col-md-4">
@@ -258,4 +268,7 @@
     </section>
   </div>
 </main>
+{% if contextflow_enabled|default(false) and feature_enabled('documents') %}
+<script src="{{ url_for('static', filename='js/smart_folder_engel.js') }}" defer></script>
+{% endif %}
 {% endblock %}

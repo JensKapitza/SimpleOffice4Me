@@ -464,31 +464,43 @@ class SiteVisitHttpRouteTests(unittest.TestCase):
             f"/site-visits/{self.visit['visit_id']}/report.pdf",
             data={"_csrf_token": csrf, "finding_id": self.finding_id},
         )
-        self.assertEqual(200, original.status_code)
-        reopened = SiteVisitStore(self.root)
-        entry = reopened.get(self.visit["visit_id"], "report-owner")["reports"][-1]
-        self.assertIn("relative_path", entry)
-        url = f"/site-visits/{self.visit['visit_id']}/reports/{entry['report_id']}.pdf"
-        downloaded = self.client.get(url)
-        self.assertEqual(200, downloaded.status_code)
-        self.assertEqual(original.data, downloaded.data)
-        self.assertEqual(hashlib.sha256(downloaded.data).hexdigest(), entry["sha256"])
-        self.assertIn("attachment;", downloaded.headers["Content-Disposition"])
-        self.assertIn("private", downloaded.headers["Cache-Control"])
+        downloaded = None
+        try:
+            self.assertEqual(200, original.status_code)
+            reopened = SiteVisitStore(self.root)
+            entry = reopened.get(self.visit["visit_id"], "report-owner")["reports"][-1]
+            self.assertIn("relative_path", entry)
+            url = f"/site-visits/{self.visit['visit_id']}/reports/{entry['report_id']}.pdf"
+            downloaded = self.client.get(url)
+            self.assertEqual(200, downloaded.status_code)
+            self.assertEqual(original.data, downloaded.data)
+            self.assertEqual(hashlib.sha256(downloaded.data).hexdigest(), entry["sha256"])
+            self.assertIn("attachment;", downloaded.headers["Content-Disposition"])
+            self.assertIn("private", downloaded.headers["Cache-Control"])
+        finally:
+            # send_file keeps the PDF open until close; release both
+            # responses (also on assertion failure) so unlink/teardown
+            # can remove the file. .data stays available from cache.
+            original.close()
+            if downloaded is not None:
+                downloaded.close()
         self.assertEqual(404, self.client.get(
             f"/site-visits/{self.visit['visit_id']}/reports/00000000-0000-0000-0000-000000000000.pdf"
         ).status_code)
         path = reopened.report_pdf_path(self.visit["visit_id"], "report-owner", entry["report_id"])
         path.write_bytes(b"%PDF- corrupted")
         self.assertEqual(404, self.client.get(url).status_code)
+        with self.assertRaises(ValueError):
+            reopened.report_pdf_path(self.visit["visit_id"], "other-owner", entry["report_id"])
         path.unlink()
         target = self.root / "unrelated-private-file.pdf"
         target.write_bytes(original.data)
-        path.symlink_to(target)
+        try:
+            path.symlink_to(target)
+        except OSError as exc:
+            self.skipTest(f"symlink privilege missing ({exc})")
         self.assertEqual(404, self.client.get(url).status_code)
         path.unlink()
-        with self.assertRaises(ValueError):
-            reopened.report_pdf_path(self.visit["visit_id"], "other-owner", entry["report_id"])
 
     def test_report_storage_failure_returns_controlled_error_without_metadata(self):
         preview = BeautifulSoup(

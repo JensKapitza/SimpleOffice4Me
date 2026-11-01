@@ -270,6 +270,8 @@ def first_start_configure(interactive: bool = True) -> dict[str, object]:
 
 
 def start(configure_only: bool = False) -> None:
+    from tools.local_env import load_parent_env_file
+    load_parent_env_file()
     from simpleoffice_runtime_support import require_supported_runtime
     try:
         require_supported_runtime()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path, PureWindowsPath
 
 from werkzeug.security import safe_join
@@ -123,3 +124,7 @@ def relative_under(root: str | Path, value: str | Path, *, require_name: bool = 
     if require_name and (not relative.parts or relative == Path(".")):
         raise ValueError("path must name a resource inside the configured root")
     return relative
+
+
+SAFE_DOCUMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$")
+"""Allowlist for bare document ids (no separators, never ``.``/``..``)."""

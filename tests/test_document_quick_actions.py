@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
@@ -74,9 +75,17 @@ class DocumentQuickActionsTest(unittest.TestCase):
     def test_document_pages_expose_original_and_clamav_actions(self):
         document = DocumentStore(self.root).import_upload(io.BytesIO(b"safe"), "quick-action.txt", "jens")
 
-        detail = BeautifulSoup(self.client.get(f"/documents/{document['document_id']}").get_data(as_text=True), "html.parser")
-        listing = BeautifulSoup(self.client.get("/documents/").get_data(as_text=True), "html.parser")
-        search = BeautifulSoup(self.client.get("/documents/search?q=quick-action").get_data(as_text=True), "html.parser")
+        security = SimpleNamespace(
+            scanner=SimpleNamespace(
+                executable=lambda: "/usr/bin/clamscan",
+                display_name="ClamAV",
+            ),
+            latest_document_scan=lambda _document: None,
+        )
+        with patch("app.documents_core.AttachmentSecurity", return_value=security):
+            detail = BeautifulSoup(self.client.get(f"/documents/{document['document_id']}").get_data(as_text=True), "html.parser")
+            listing = BeautifulSoup(self.client.get("/documents/").get_data(as_text=True), "html.parser")
+            search = BeautifulSoup(self.client.get("/documents/search?q=quick-action").get_data(as_text=True), "html.parser")
 
         for page in (detail, listing, search):
             self.assertIsNotNone(page.select_one(f"form[action$='/{document['document_id']}/security/scan']"))

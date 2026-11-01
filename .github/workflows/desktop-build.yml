@@ -3,7 +3,7 @@ name: Desktop build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, hackathon/contextflow-mvp]
   pull_request:
     paths:
       - 'desktop/**'
