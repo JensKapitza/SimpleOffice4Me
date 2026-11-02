@@ -203,6 +203,62 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Geschützte Freigabe", de_body)
         self.assertIn("Öffnen", de_body)
 
+    def test_security_english(self) -> None:
+        body = self._get("/documents/security", "en")
+        self.assertIn("File security", body)
+        self.assertIn("Server actions are only visible", body)
+
+    def test_security_german(self) -> None:
+        body = self._get("/documents/security", "de")
+        self.assertIn("Dateisicherheit", body)
+        self.assertIn("ausschließlich für konfigurierte Sicherheitsadministratoren", body)
+
+    def test_logbook_english(self) -> None:
+        body = self._get("/documents/logbook", "en")
+        self.assertIn("Activity log", body)
+        self.assertIn("How to read the logbook:", body)
+        self.assertIn("No events yet.", body)
+
+    def test_logbook_german(self) -> None:
+        body = self._get("/documents/logbook", "de")
+        self.assertIn("Logbuch", body)
+        self.assertIn("So liest du das Logbuch:", body)
+        self.assertIn("Noch keine Ereignisse.", body)
+
+    def test_local_storage_english(self) -> None:
+        body = self._get("/documents/local-storage", "en")
+        self.assertIn("Local folders", body)
+        self.assertIn("Add local folder", body)
+
+    def test_local_storage_german(self) -> None:
+        body = self._get("/documents/local-storage", "de")
+        self.assertIn("Lokale Ordner", body)
+        self.assertIn("Lokalen Ordner hinzufügen", body)
+
+    def test_ssh_sources_english(self) -> None:
+        body = self._get("/documents/sources/ssh", "en")
+        self.assertIn("SSH systems", body)
+        self.assertIn("Add SSH source", body)
+        self.assertIn("No SSH source registered yet.", body)
+
+    def test_ssh_sources_german(self) -> None:
+        body = self._get("/documents/sources/ssh", "de")
+        self.assertIn("SSH-Systeme", body)
+        self.assertIn("SSH-Quelle hinzufügen", body)
+        self.assertIn("Noch keine SSH-Quelle registriert.", body)
+
+    def test_archives_english(self) -> None:
+        body = self._get("/documents/archives", "en")
+        self.assertIn("Additional external archives", body)
+        self.assertIn("Register external archive", body)
+        self.assertIn("No additional external archives registered.", body)
+
+    def test_archives_german(self) -> None:
+        body = self._get("/documents/archives", "de")
+        self.assertIn("Zusätzliche externe Archive", body)
+        self.assertIn("Externes Archiv registrieren", body)
+        self.assertIn("Keine zusätzlichen externen Archive registriert.", body)
+
     def test_shared_note_renders_both_languages(self) -> None:
         from flask import g, render_template
         note = {"text": "note text", "author": "admin", "created_at": "now"}
