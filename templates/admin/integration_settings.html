@@ -16,6 +16,13 @@
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card mb-3" id="marketplace-oauth">
+    <div class="card-header"><strong>{{ 'Marketplace & OAuth credentials' if g.language == 'en' else 'Marketplace- & OAuth-Zugänge' }}</strong></div>
+    <div class="card-body">
+      <p class="mb-2">{{ 'Amazon/eBay/Google keys live encrypted in the app store, never in environment variables. Secrets are only shown as presence markers.' if g.language == 'en' else 'Amazon-/eBay-/Google-Schlüssel liegen verschlüsselt im App-Store, nie in Umgebungsvariablen. Secrets werden nur als Vorhanden-Marker gezeigt.' }}</p>
+      <a class="btn btn-outline-primary" href="{{ url_for('marketplace_admin.index') }}">{{ 'Configure marketplace & OAuth' if g.language == 'en' else 'Marketplace & OAuth konfigurieren' }}</a>
+    </div>
+  </section>
   <section class="card mb-3">
     <div class="card-header"><strong>{{ 'Automatic error reports' if g.language == 'en' else 'Automatische Fehlerberichte' }}</strong></div>
     <div class="card-body">

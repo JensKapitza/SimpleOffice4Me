@@ -11,6 +11,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from flask import Blueprint, abort, flash, g, redirect, render_template, request, session, url_for, current_app
 
 from .login_qr import login_qr_targets
+from . import marketplace_credentials as _marketplace
 from .db import get_db
 from .google_sync import sync_google_account
 from .access_control import audit, has_feature
@@ -83,8 +84,7 @@ def _registration_enabled() -> bool:
 
 
 def _google_config() -> dict[str, str] | None:
-    client_id = current_app.config.get("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-    client_secret = current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET", "").strip()
+    client_id, client_secret = _marketplace.google_oauth_credentials()
     if not client_id or not client_secret:
         return None
     generated_redirect_uri = url_for("auth.google_callback", _external=True)

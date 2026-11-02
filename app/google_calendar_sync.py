@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import quote, urlencode, urlsplit
 
+from . import marketplace_credentials as _marketplace
 from .calendar_metadata import normalize_metadata
 from .calendar_store import CalendarStore
 from .calendar_collections import CalendarCollections
@@ -51,7 +52,7 @@ class GoogleCalendarSync:
 
     @staticmethod
     def _accounts() -> dict[str, dict[str, str]]:
-        raw = os.environ.get("SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON", "")
+        raw = _marketplace.google_calendar_accounts_raw()
         if not raw:
             return {}
         try:

@@ -151,46 +151,24 @@ def configured_webdav_quarantine_bytes() -> int:
 
 
 def google_oauth_web_config() -> dict[str, object]:
-    """Return the ``web`` block from an optional Google OAuth JSON file."""
-    credentials_file = os.environ.get("SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE", "").strip()
-    if not credentials_file:
-        return {}
-    try:
-        credentials = json.loads(Path(credentials_file).read_text(encoding="utf-8"))
-        web = credentials["web"]
-        if not isinstance(web, dict):
-            raise TypeError("web must be an object")
-        return web
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Invalid SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE; expected Google Web OAuth JSON") from exc
+    """Return the ``web`` block from the stored Google OAuth JSON file (no environment)."""
+    from . import marketplace_credentials as _marketplace
+
+    return _marketplace.google_oauth_web_config()
 
 
 def google_oauth_credentials() -> tuple[str, str]:
-    """Read Google OAuth client credentials from environment or a protected file.
+    """Read Google OAuth client credentials from the disk store or the stored OAuth file."""
+    from . import marketplace_credentials as _marketplace
 
-    The file format is the JSON download created by Google Cloud for a
-    "Web application" OAuth client.  It intentionally only supplies the
-    client credentials; the redirect URI remains explicit server configuration.
-    """
-    client_id = os.environ.get("SIMPLEOFFICE_GOOGLE_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("SIMPLEOFFICE_GOOGLE_CLIENT_SECRET", "").strip()
-    web = google_oauth_web_config()
-    if not web:
-        return client_id, client_secret
-    try:
-        file_client_id = str(web["client_id"]).strip()
-        file_client_secret = str(web["client_secret"]).strip()
-    except (KeyError, TypeError) as exc:
-        raise RuntimeError("Google OAuth JSON requires web.client_id and web.client_secret") from exc
-    return client_id or file_client_id, client_secret or file_client_secret
+    return _marketplace.google_oauth_credentials()
 
 
 def google_oauth_redirect_uris() -> tuple[str, ...]:
     """Return callback URIs declared in the Google OAuth JSON file."""
-    values = google_oauth_web_config().get("redirect_uris", [])
-    if not isinstance(values, list):
-        return ()
-    return tuple(str(value).strip() for value in values if isinstance(value, str) and value.strip())
+    from . import marketplace_credentials as _marketplace
+
+    return _marketplace.google_oauth_redirect_uris()
 
 
 class SchemeAwareSessionInterface(SecureCookieSessionInterface):
@@ -245,9 +223,9 @@ app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = load_or_create_secret_key(Path(app.instance_path) / "session-secret")
-google_client_id, google_client_secret = google_oauth_credentials()
-app.config['GOOGLE_OAUTH_CLIENT_ID'] = google_client_id
-app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = google_client_secret
+# NOTE: Google OAuth client ID/secret are intentionally NOT cached in
+# app.config: they come from the disk store at request time
+# (marketplace_credentials), so admin saves apply without restart.
 app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_REDIRECT_URI', '')
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
 app.config['SESSION_COOKIE_SECURE'] = configured_session_cookie_secure()
@@ -358,6 +336,9 @@ app.register_blueprint(mail_reader_routes.bp)
 
 from . import mail_smtp_admin
 app.register_blueprint(mail_smtp_admin.bp)
+
+from . import marketplace_admin
+app.register_blueprint(marketplace_admin.bp)
 
 from . import admin
 app.register_blueprint(admin.bp)

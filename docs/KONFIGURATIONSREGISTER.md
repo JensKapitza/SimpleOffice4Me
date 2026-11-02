@@ -221,9 +221,9 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_LOGIN_QR_LAN` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
 | `SIMPLEOFFICE_LOGIN_QR_PORTS` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
 | `SIMPLEOFFICE_LOGIN_QR_URLS` | [login_qr.py](../app/login_qr.py) | [Login-QR-Codes](LOGIN_QR_CODES.md) |
-| `SIMPLEOFFICE_AMAZON_ACCESS_KEY` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
-| `SIMPLEOFFICE_AMAZON_PARTNER_TAG` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
-| `SIMPLEOFFICE_AMAZON_SECRET_KEY` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
+| `SIMPLEOFFICE_AMAZON_ACCESS_KEY` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_AMAZON_PARTNER_TAG` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_AMAZON_SECRET_KEY` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
 | `SIMPLEOFFICE_ANDROID` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [ANDROID_INTEGRATION](ANDROID_INTEGRATION.md) |
 | `SIMPLEOFFICE_ANDROID_ABI` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_ACCOUNT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
@@ -256,9 +256,9 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_DESKTOP` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DOCUMENT_ADMINS` | [virtual_filesystem.py](../app/virtual_filesystem.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
 | `SIMPLEOFFICE_DOCUMENT_ROOT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [ERSTER_START](ERSTER_START.md) |
-| `SIMPLEOFFICE_EBAY_CLIENT_ID` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
-| `SIMPLEOFFICE_EBAY_CLIENT_SECRET` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
-| `SIMPLEOFFICE_EBAY_MARKETPLACE_ID` | [inventory_marketplace.py](../app/inventory_marketplace.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md) |
+| `SIMPLEOFFICE_EBAY_CLIENT_ID` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_EBAY_CLIENT_SECRET` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_EBAY_MARKETPLACE_ID` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
 | `SIMPLEOFFICE_ERROR_RELAY_ENABLED` (Legacy-Migration) | [error_relay.py](../app/error_relay.py) | Persistenter Modus `integrations.error_relay_mode`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORTING` (Legacy-Migration) | [github_error_reporter.py](../app/github_error_reporter.py) | Persistente Präferenz `integrations.error_reporting_enabled`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORT_URL` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
@@ -292,11 +292,11 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_GITHUB_ERROR_TOKEN_FILE` | [github_error_reporter.py](../app/github_error_reporter.py) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_GITHUB_ERROR_TOKEN_SOURCE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_GOOGLE_AUTO_PROVISION` | [__init__.py](../app/__init__.py) | [SECURITY](SECURITY.md) |
-| `SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON` | [google_calendar_sync.py](../app/google_calendar_sync.py) | [GOOGLE_KALENDER_SYNC](GOOGLE_KALENDER_SYNC.md) |
-| `SIMPLEOFFICE_GOOGLE_CLIENT_ID` | [__init__.py](../app/__init__.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md) |
-| `SIMPLEOFFICE_GOOGLE_CLIENT_SECRET` | [__init__.py](../app/__init__.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md) |
-| `SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE` | [__init__.py](../app/__init__.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md) |
-| `SIMPLEOFFICE_GOOGLE_DRIVE_MAX_MIB` | [google_drive_sync.py](../app/google_drive_sync.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md) |
+| `SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_KALENDER_SYNC](GOOGLE_KALENDER_SYNC.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_GOOGLE_CLIENT_ID` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_GOOGLE_CLIENT_SECRET` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE` (Starter-Transport via `start.sh --google-json`, sonst Store) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_OAUTH](GOOGLE_OAUTH.md); Admin → Integrationen → Marketplace & OAuth |
+| `SIMPLEOFFICE_GOOGLE_DRIVE_MAX_MIB` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md); Admin → Integrationen → Marketplace & OAuth |
 | `SIMPLEOFFICE_GOOGLE_REDIRECT_URI` | [__init__.py](../app/__init__.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md) |
 | `SIMPLEOFFICE_HOST` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_INDEX_DELAY_SECONDS` | [index_worker.py](../tools/index_worker.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |

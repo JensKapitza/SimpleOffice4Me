@@ -15,6 +15,7 @@ from app import (
     configured_webdav_upload_scan,
     google_oauth_credentials,
 )
+from app import app_config_store
 from app import auth
 from app import db as database
 from app.secret_key import load_or_create_secret_key
@@ -125,15 +126,27 @@ class AuthTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             credentials_file = Path(temp) / "google-client.json"
             credentials_file.write_text(json.dumps({"web": {"client_id": "json-client", "client_secret": "json-secret", "redirect_uris": ["https://office.example.test/auth/google/callback"]}}), encoding="utf-8")
-            with patch.dict("os.environ", {"SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE": str(credentials_file)}, clear=True):
+            with patch.object(
+                app_config_store, "settings_path",
+                return_value=Path(temp) / "app-config.json",
+            ):
+                app_config_store.put("marketplace", {"google_credentials_file": str(credentials_file)})
                 self.assertEqual(("json-client", "json-secret"), google_oauth_credentials())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URIS", "MAX_CONTENT_LENGTH", "TESTING")}
-        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"), DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"), GOOGLE_OAUTH_CLIENT_ID="test.apps.googleusercontent.com", GOOGLE_OAUTH_CLIENT_SECRET="secret", GOOGLE_OAUTH_REDIRECT_URI="https://example.test/auth/google/callback", GOOGLE_OAUTH_REDIRECT_URIS=())
+        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URIS", "MAX_CONTENT_LENGTH", "TESTING")}
+        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"), DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"), GOOGLE_OAUTH_REDIRECT_URI="https://example.test/auth/google/callback", GOOGLE_OAUTH_REDIRECT_URIS=())
+        patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with app.app_context():
             database.ensure_auth_database()
+            app_config_store.put("marketplace", {"google_client_id": "test.apps.googleusercontent.com"})
+            app_config_store.put_secret("marketplace", "google_client_secret", "secret")
         self.client = app.test_client()
 
     def tearDown(self):

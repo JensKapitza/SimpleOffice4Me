@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from app import app
+from app import app_config_store
 from app import db as database
 from app.calendar_store import CalendarStore
 from app.calendar_collections import CalendarCollections
@@ -28,6 +29,12 @@ class CalendarWebTest(unittest.TestCase):
             DATABASE=str(Path(self.temp.name) / "calendar.sqlite"),
             DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
         )
+        patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with app.app_context():
             database.ensure_auth_database()
         self.client = app.test_client()
@@ -173,8 +180,9 @@ class CalendarWebTest(unittest.TestCase):
 
     def test_calendar_page_exposes_optional_google_sync_without_secrets(self):
         config = json.dumps({"jens": {"client_id": "client", "client_secret": "very-secret", "refresh_token": "refresh-secret", "calendar_id": "primary", "target_calendar_id": "default"}})
-        with patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON": config}, clear=False):
-            response = self.client.get("/documents/calendar")
+        with app.app_context():
+            app_config_store.put_secret("marketplace", "google_calendar_accounts_json", config)
+        response = self.client.get("/documents/calendar")
         body = response.get_data(as_text=True)
         self.assertEqual(200, response.status_code)
         self.assertIn("Google Kalender sicher abgleichen", body)
@@ -184,8 +192,9 @@ class CalendarWebTest(unittest.TestCase):
         self.assertNotIn("refresh-secret", body)
 
     def test_invalid_google_sync_configuration_does_not_break_calendar_page(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON": "{"}, clear=False):
-            response = self.client.get("/documents/calendar")
+        with app.app_context():
+            app_config_store.put_secret("marketplace", "google_calendar_accounts_json", "{")
+        response = self.client.get("/documents/calendar")
         self.assertEqual(200, response.status_code)
         self.assertIn("Konfigurationsfehler", response.get_data(as_text=True))
 
