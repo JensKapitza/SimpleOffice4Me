@@ -2,10 +2,9 @@
 {% block title %}{{ project.title }} · SimpleOffice{% endblock %}
 {% block script %}<link rel="stylesheet" href="{{ url_for('static', filename='css/project_ui.css') }}"><link rel="stylesheet" href="{{ url_for('static', filename='css/project_tracker.css') }}">{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
-{% macro project_status(value, field_id) %}<select id="{{ field_id }}" name="status" class="form-select">{% for id, label in [('open','Offen'),('active','Aktiv'),('waiting','Wartend'),('completed','Erledigt'),('cancelled','Abgebrochen')] %}<option value="{{ id }}" {% if value == id %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% endmacro %}
+{% macro project_status(value, field_id) %}<select id="{{ field_id }}" name="status" class="form-select">{% for id, label in [('open','Open' if g.language == 'en' else 'Offen'),('active','Active' if g.language == 'en' else 'Aktiv'),('waiting','Waiting' if g.language == 'en' else 'Wartend'),('completed','Completed' if g.language == 'en' else 'Erledigt'),('cancelled','Cancelled' if g.language == 'en' else 'Abgebrochen')] %}<option value="{{ id }}" {% if value == id %}selected{% endif %}>{{ label }}</option>{% endfor %}</select>{% endmacro %}
 {% block body %}
-{% set project_status_labels = {'open':'Offen','active':'Aktiv','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}
-{% set task_status_labels = {'open':'Offen','in_progress':'In Arbeit','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}
+{% if g.language == 'en' %}{% set project_status_labels = {'open':'Open','active':'Active','waiting':'Waiting','completed':'Completed','cancelled':'Cancelled'} %}{% set task_status_labels = {'open':'Open','in_progress':'In progress','waiting':'Waiting','completed':'Completed','cancelled':'Cancelled'} %}{% else %}{% set project_status_labels = {'open':'Offen','active':'Aktiv','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}{% set task_status_labels = {'open':'Offen','in_progress':'In Arbeit','waiting':'Wartend','completed':'Erledigt','cancelled':'Abgebrochen'} %}{% endif %}
 {% set metrics = namespace(completed=0, active=0, waiting=0, minutes=0, relevant=0) %}
 {% for task in project.tasks|default([]) %}
   {% if task.status != 'cancelled' %}{% set metrics.relevant = metrics.relevant + 1 %}{% endif %}
@@ -16,13 +15,13 @@
 {% endfor %}
 {% set progress = ((metrics.completed * 100 / metrics.relevant)|round|int) if metrics.relevant else 0 %}
 <main id="main-content" class="container-xl py-4 project-ui" data-project-ui="v2">
-  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>Projekte</a>
+  <a class="text-decoration-none d-inline-flex align-items-center gap-2 mb-3" href="{{ url_for('documents.projects') }}"><i class="fas fa-arrow-left" aria-hidden="true"></i>{{ 'Projects' if g.language == 'en' else 'Projekte' }}</a>
 
   <div class="project-hero">
     <span class="project-icon" aria-hidden="true"><i class="far fa-folder"></i></span>
     <div>
       <h1 data-project-title>{{ project.title }}</h1>
-      <p class="project-page-subtitle mb-1">Projektakte · {{ project.location or 'ohne Ort' }}</p>
+      <p class="project-page-subtitle mb-1">{{ 'Project file' if g.language == 'en' else 'Projektakte' }} · {{ project.location or ('no location' if g.language == 'en' else 'ohne Ort') }}</p>
       {% if project.planned_start or project.planned_end %}<div class="project-meta-line"><i class="far fa-calendar" aria-hidden="true"></i><span>{{ project.planned_start or '—' }} – {{ project.planned_end or '—' }}</span></div>{% endif %}
     </div>
     <span class="status-chip status-{{ project.status }}" data-project-status>{{ project_status_labels.get(project.status, project.status) }}</span>
@@ -33,47 +32,47 @@
 
   <section class="project-panel project-section" aria-labelledby="project-progress-title">
     <div class="project-section-header">
-      <h2 class="project-section-title" id="project-progress-title"><i class="fas fa-chart-line" aria-hidden="true"></i>Projektfortschritt</h2>
-      <strong data-project-progress>{{ progress }} % erledigt</strong>
+      <h2 class="project-section-title" id="project-progress-title"><i class="fas fa-chart-line" aria-hidden="true"></i>{{ 'Project progress' if g.language == 'en' else 'Projektfortschritt' }}</h2>
+      <strong data-project-progress>{{ progress }} % {{ 'done' if g.language == 'en' else 'erledigt' }}</strong>
     </div>
     <div class="project-section-body">
-      <div class="project-progress-track" role="progressbar" aria-label="Projektfortschritt" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"><div class="project-progress-bar" style="width:{{ progress }}%"></div></div>
+      <div class="project-progress-track" role="progressbar" aria-label="{{ 'Project progress' if g.language == 'en' else 'Projektfortschritt' }}" aria-valuenow="{{ progress }}" aria-valuemin="0" aria-valuemax="100"><div class="project-progress-bar" style="width:{{ progress }}%"></div></div>
       <div class="project-metrics">
-        <div class="project-metric" data-project-metric><i class="far fa-square-check" aria-hidden="true"></i><div><strong>{{ metrics.relevant }}</strong><span>Aufgaben</span></div></div>
-        <div class="project-metric" data-project-metric><i class="fas fa-play" aria-hidden="true"></i><div><strong>{{ metrics.active }}</strong><span>In Arbeit</span></div></div>
-        <div class="project-metric" data-project-metric><i class="far fa-circle-pause" aria-hidden="true"></i><div><strong>{{ metrics.waiting }}</strong><span>Wartend</span></div></div>
-        <div class="project-metric" data-project-metric><i class="far fa-clock" aria-hidden="true"></i><div><strong>{{ metrics.minutes // 60 }}:{{ '%02d'|format(metrics.minutes % 60) }}</strong><span>Gebuchte Stunden</span></div></div>
+        <div class="project-metric" data-project-metric><i class="far fa-square-check" aria-hidden="true"></i><div><strong>{{ metrics.relevant }}</strong><span>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</span></div></div>
+        <div class="project-metric" data-project-metric><i class="fas fa-play" aria-hidden="true"></i><div><strong>{{ metrics.active }}</strong><span>{{ 'In progress' if g.language == 'en' else 'In Arbeit' }}</span></div></div>
+        <div class="project-metric" data-project-metric><i class="far fa-circle-pause" aria-hidden="true"></i><div><strong>{{ metrics.waiting }}</strong><span>{{ 'Waiting' if g.language == 'en' else 'Wartend' }}</span></div></div>
+        <div class="project-metric" data-project-metric><i class="far fa-clock" aria-hidden="true"></i><div><strong>{{ metrics.minutes // 60 }}:{{ '%02d'|format(metrics.minutes % 60) }}</strong><span>{{ 'Booked hours' if g.language == 'en' else 'Gebuchte Stunden' }}</span></div></div>
       </div>
     </div>
   </section>
 
   <section class="project-panel project-section" aria-labelledby="project-info-title">
     <div class="project-section-header">
-      <h2 class="project-section-title" id="project-info-title"><i class="far fa-file-lines" aria-hidden="true"></i>Projektinfos</h2>
-      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#project-edit" aria-expanded="false" aria-controls="project-edit"><i class="fas fa-pen" aria-hidden="true"></i>Bearbeiten</button>
+      <h2 class="project-section-title" id="project-info-title"><i class="far fa-file-lines" aria-hidden="true"></i>{{ 'Project info' if g.language == 'en' else 'Projektinfos' }}</h2>
+      <button class="btn btn-sm btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#project-edit" aria-expanded="false" aria-controls="project-edit"><i class="fas fa-pen" aria-hidden="true"></i>{{ 'Edit' if g.language == 'en' else 'Bearbeiten' }}</button>
     </div>
     <div class="project-section-body">
       <div class="project-info-grid">
-        <div class="project-info-item"><i class="fas fa-list" aria-hidden="true"></i><span class="project-info-label">Titel</span><span class="project-info-value">{{ project.title }}</span></div>
-        <div class="project-info-item"><i class="fas fa-location-dot" aria-hidden="true"></i><span class="project-info-label">Ort</span><span class="project-info-value">{{ project.location or 'ohne Ort' }}</span></div>
-        <div class="project-info-item"><i class="far fa-calendar" aria-hidden="true"></i><span class="project-info-label">Zeitraum</span><span class="project-info-value">{{ project.planned_start or '—' }} – {{ project.planned_end or '—' }}</span></div>
+        <div class="project-info-item"><i class="fas fa-list" aria-hidden="true"></i><span class="project-info-label">{{ 'Title' if g.language == 'en' else 'Titel' }}</span><span class="project-info-value">{{ project.title }}</span></div>
+        <div class="project-info-item"><i class="fas fa-location-dot" aria-hidden="true"></i><span class="project-info-label">{{ 'Location' if g.language == 'en' else 'Ort' }}</span><span class="project-info-value">{{ project.location or ('no location' if g.language == 'en' else 'ohne Ort') }}</span></div>
+        <div class="project-info-item"><i class="far fa-calendar" aria-hidden="true"></i><span class="project-info-label">{{ 'Period' if g.language == 'en' else 'Zeitraum' }}</span><span class="project-info-value">{{ project.planned_start or '—' }} – {{ project.planned_end or '—' }}</span></div>
         <div class="project-info-item"><i class="fas fa-circle-info" aria-hidden="true"></i><span class="project-info-label">Status</span><span class="project-info-value">{{ project_status_labels.get(project.status, project.status) }}</span></div>
-        <div class="project-info-item"><i class="fas fa-users" aria-hidden="true"></i><span class="project-info-label">Ressourcen</span><span class="project-info-value">{{ project.resources|join(', ') or '—' }}</span></div>
-        <div class="project-info-item"><i class="fas fa-code-branch" aria-hidden="true"></i><span class="project-info-label">Git-Repository</span><span class="project-info-value">{% if code_available %}erkannt{% elif project.repository_path %}nicht verfügbar{% else %}nicht konfiguriert{% endif %}</span></div>
-        {% if project.description %}<div class="project-info-item"><i class="far fa-note-sticky" aria-hidden="true"></i><span class="project-info-label">Beschreibung</span><span class="project-info-value">{{ project.description }}</span></div>{% endif %}
+        <div class="project-info-item"><i class="fas fa-users" aria-hidden="true"></i><span class="project-info-label">{{ 'Resources' if g.language == 'en' else 'Ressourcen' }}</span><span class="project-info-value">{{ project.resources|join(', ') or '—' }}</span></div>
+        <div class="project-info-item"><i class="fas fa-code-branch" aria-hidden="true"></i><span class="project-info-label">{{ 'Git repository' if g.language == 'en' else 'Git-Repository' }}</span><span class="project-info-value">{% if code_available %}{{ 'detected' if g.language == 'en' else 'erkannt' }}{% elif project.repository_path %}{{ 'unavailable' if g.language == 'en' else 'nicht verfügbar' }}{% else %}{{ 'not configured' if g.language == 'en' else 'nicht konfiguriert' }}{% endif %}</span></div>
+        {% if project.description %}<div class="project-info-item"><i class="far fa-note-sticky" aria-hidden="true"></i><span class="project-info-label">{{ 'Description' if g.language == 'en' else 'Beschreibung' }}</span><span class="project-info-value">{{ project.description }}</span></div>{% endif %}
       </div>
 
       <div class="collapse mt-4" id="project-edit">
         <form method="post" class="row g-3 border-top pt-3">
-          <div class="col-md-6"><label class="form-label" for="edit-project-title">Titel</label><input id="edit-project-title" name="title" class="form-control" required value="{{ project.title }}"></div>
+          <div class="col-md-6"><label class="form-label" for="edit-project-title">{{ 'Title' if g.language == 'en' else 'Titel' }}</label><input id="edit-project-title" name="title" class="form-control" required value="{{ project.title }}"></div>
           <div class="col-md-3"><label class="form-label" for="edit-project-status">Status</label>{{ project_status(project.status, 'edit-project-status') }}</div>
-          <div class="col-md-3"><label class="form-label" for="edit-project-location">Ort</label><input id="edit-project-location" name="location" class="form-control" value="{{ project.location }}"></div>
-          <div class="col-md-3"><label class="form-label" for="edit-project-start">Beginn</label><input id="edit-project-start" type="date" name="planned_start" class="form-control" value="{{ project.planned_start }}"></div>
-          <div class="col-md-3"><label class="form-label" for="edit-project-end">Ende</label><input id="edit-project-end" type="date" name="planned_end" class="form-control" value="{{ project.planned_end }}"></div>
-          <div class="col-md-6"><label class="form-label" for="edit-project-resources">Ressourcen</label><input id="edit-project-resources" name="resources" class="form-control" value="{{ project.resources|join(', ') }}"></div>
-          {% if g.user['is_admin'] %}<div class="col-12"><label class="form-label" for="edit-project-repository">Git-Repository</label><input id="edit-project-repository" name="repository_path" class="form-control font-monospace" value="{{ project.repository_path|default('') }}" placeholder="relativer Pfad im Dokumentroot"><div class="form-text">Nur Administratoren können den Repository-Pfad ändern. Der Code-Bereich erscheint nur bei einem echten Git-Working-Tree. Externe Pfade müssen über SIMPLEOFFICE_PROJECT_REPO_ROOTS freigegeben sein.</div></div>{% endif %}
-          <div class="col-12"><label class="form-label" for="edit-project-description">Beschreibung</label><textarea id="edit-project-description" name="description" class="form-control" rows="3">{{ project.description }}</textarea></div>
-          <div class="col-12 d-flex justify-content-end"><button type="submit" class="btn btn-primary">Projekt speichern</button></div>
+          <div class="col-md-3"><label class="form-label" for="edit-project-location">{{ 'Location' if g.language == 'en' else 'Ort' }}</label><input id="edit-project-location" name="location" class="form-control" value="{{ project.location }}"></div>
+          <div class="col-md-3"><label class="form-label" for="edit-project-start">{{ 'Start' if g.language == 'en' else 'Beginn' }}</label><input id="edit-project-start" type="date" name="planned_start" class="form-control" value="{{ project.planned_start }}"></div>
+          <div class="col-md-3"><label class="form-label" for="edit-project-end">{{ 'End' if g.language == 'en' else 'Ende' }}</label><input id="edit-project-end" type="date" name="planned_end" class="form-control" value="{{ project.planned_end }}"></div>
+          <div class="col-md-6"><label class="form-label" for="edit-project-resources">{{ 'Resources' if g.language == 'en' else 'Ressourcen' }}</label><input id="edit-project-resources" name="resources" class="form-control" value="{{ project.resources|join(', ') }}"></div>
+          {% if g.user['is_admin'] %}<div class="col-12"><label class="form-label" for="edit-project-repository">{{ 'Git repository' if g.language == 'en' else 'Git-Repository' }}</label><input id="edit-project-repository" name="repository_path" class="form-control font-monospace" value="{{ project.repository_path|default('') }}" placeholder="{{ 'relative path inside the document root' if g.language == 'en' else 'relativer Pfad im Dokumentroot' }}"><div class="form-text">{{ 'Only administrators can change the repository path. The code section only appears for a real git working tree. External paths must be approved via SIMPLEOFFICE_PROJECT_REPO_ROOTS.' if g.language == 'en' else 'Nur Administratoren können den Repository-Pfad ändern. Der Code-Bereich erscheint nur bei einem echten Git-Working-Tree. Externe Pfade müssen über SIMPLEOFFICE_PROJECT_REPO_ROOTS freigegeben sein.' }}</div></div>{% endif %}
+          <div class="col-12"><label class="form-label" for="edit-project-description">{{ 'Description' if g.language == 'en' else 'Beschreibung' }}</label><textarea id="edit-project-description" name="description" class="form-control" rows="3">{{ project.description }}</textarea></div>
+          <div class="col-12 d-flex justify-content-end"><button type="submit" class="btn btn-primary">{{ 'Save project' if g.language == 'en' else 'Projekt speichern' }}</button></div>
         </form>
       </div>
     </div>
@@ -81,8 +80,8 @@
 
   <section id="aufgaben" class="project-panel project-section" aria-labelledby="project-tasks-title">
     <div class="project-section-header">
-      <h2 class="project-section-title" id="project-tasks-title"><i class="far fa-square-check" aria-hidden="true"></i>Aufgaben</h2>
-      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}">Alle anzeigen <i class="fas fa-chevron-right" aria-hidden="true"></i></a>
+      <h2 class="project-section-title" id="project-tasks-title"><i class="far fa-square-check" aria-hidden="true"></i>{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</h2>
+      <a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}">{{ 'Show all' if g.language == 'en' else 'Alle anzeigen' }} <i class="fas fa-chevron-right" aria-hidden="true"></i></a>
     </div>
     <div class="project-section-body">
       <div class="project-task-list">
@@ -94,68 +93,68 @@
               <div class="project-task-meta">{% if task.planned_end %}<i class="far fa-calendar me-1" aria-hidden="true"></i>{{ task.planned_end }}{% endif %}{% if task.resources %}{% if task.planned_end %} · {% endif %}<i class="far fa-user me-1" aria-hidden="true"></i>{{ task.resources|join(', ') }}{% endif %}</div>
             </div>
             <span class="status-chip status-{{ task.status }}">{{ task_status_labels.get(task.status, task.status) }}</span>
-            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}#task-{{ task.task_id }}" aria-label="Aufgabe öffnen"><i class="fas fa-ellipsis-vertical" aria-hidden="true"></i></a>
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}#task-{{ task.task_id }}" aria-label="{{ 'Open task' if g.language == 'en' else 'Aufgabe öffnen' }}"><i class="fas fa-ellipsis-vertical" aria-hidden="true"></i></a>
           </div>
         {% else %}
-          <div class="text-secondary py-3">Noch keine Aufgaben.</div>
+          <div class="text-secondary py-3">{{ 'No tasks yet.' if g.language == 'en' else 'Noch keine Aufgaben.' }}</div>
         {% endfor %}
       </div>
-      <a class="btn btn-primary w-100 mt-2" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}#new-task"><i class="fas fa-plus" aria-hidden="true"></i>Aufgabe anlegen</a>
+      <a class="btn btn-primary w-100 mt-2" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}#new-task"><i class="fas fa-plus" aria-hidden="true"></i>{{ 'Create task' if g.language == 'en' else 'Aufgabe anlegen' }}</a>
     </div>
   </section>
 
   <section class="project-panel project-section" aria-labelledby="quick-actions-title">
-    <div class="project-section-header"><h2 class="project-section-title" id="quick-actions-title"><i class="fas fa-bolt" aria-hidden="true"></i>Schnellaktionen</h2></div>
+    <div class="project-section-header"><h2 class="project-section-title" id="quick-actions-title"><i class="fas fa-bolt" aria-hidden="true"></i>{{ 'Quick actions' if g.language == 'en' else 'Schnellaktionen' }}</h2></div>
     <div class="project-section-body">
       <div class="project-quick-actions">
-        <a class="project-quick-action" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}#new-task"><i class="fas fa-circle-plus" aria-hidden="true"></i><span>Aufgabe anlegen</span></a>
-        <button class="project-quick-action" type="button" data-project-summary-copy><i class="far fa-copy" aria-hidden="true"></i><span>Zusammenfassung kopieren</span></button>
-        <a class="project-quick-action" href="#akte"><i class="far fa-file" aria-hidden="true"></i><span>Dateien</span></a>
-        <a class="project-quick-action" href="#abrechnung"><i class="fas fa-receipt" aria-hidden="true"></i><span>Abrechnung</span></a>
+        <a class="project-quick-action" href="{{ url_for('documents.project_tasks', project_id=project.project_id) }}#new-task"><i class="fas fa-circle-plus" aria-hidden="true"></i><span>{{ 'Create task' if g.language == 'en' else 'Aufgabe anlegen' }}</span></a>
+        <button class="project-quick-action" type="button" data-project-summary-copy><i class="far fa-copy" aria-hidden="true"></i><span>{{ 'Copy summary' if g.language == 'en' else 'Zusammenfassung kopieren' }}</span></button>
+        <a class="project-quick-action" href="#akte"><i class="far fa-file" aria-hidden="true"></i><span>{{ 'Files' if g.language == 'en' else 'Dateien' }}</span></a>
+        <a class="project-quick-action" href="#abrechnung"><i class="fas fa-receipt" aria-hidden="true"></i><span>{{ 'Billing' if g.language == 'en' else 'Abrechnung' }}</span></a>
       </div>
     </div>
   </section>
 
   <details id="akte" class="project-panel advanced-project-section mb-3">
-    <summary><span><i class="far fa-folder-open me-2" aria-hidden="true"></i>Projektakte · Dateien</span><span class="small text-secondary">{{ linked_documents|length }} verknüpft</span></summary>
+    <summary><span><i class="far fa-folder-open me-2" aria-hidden="true"></i>{{ 'Project file · files' if g.language == 'en' else 'Projektakte · Dateien' }}</span><span class="small text-secondary">{{ linked_documents|length }} {{ 'linked' if g.language == 'en' else 'verknüpft' }}</span></summary>
     <div class="project-section-body">
       <form method="post" action="{{ url_for('documents.attach_project_document', project_id=project.project_id) }}" class="row g-2">
         <div class="col-md-8">
-          <label class="form-label" for="project-document-query">Datei suchen</label>
-          <input id="project-document-query" class="form-control" autocomplete="off" placeholder="Mindestens zwei Zeichen: Dateiname, Tag, OCR-Text …" data-project-document-query data-search-url="{{ url_for('documents.search_project_documents') }}">
+          <label class="form-label" for="project-document-query">{{ 'Search file' if g.language == 'en' else 'Datei suchen' }}</label>
+          <input id="project-document-query" class="form-control" autocomplete="off" placeholder="{{ 'At least two characters: file name, tag, OCR text …' if g.language == 'en' else 'Mindestens zwei Zeichen: Dateiname, Tag, OCR-Text …' }}" data-project-document-query data-search-url="{{ url_for('documents.search_project_documents') }}">
           <input required type="hidden" name="document_id" id="project-document-id" data-project-document-id>
           <div id="project-document-results" class="list-group mt-1" data-project-document-results></div>
         </div>
-        <div class="col-md-4 d-flex align-items-end"><button type="submit" id="project-document-attach" class="btn btn-primary w-100" data-project-document-attach disabled>Datei verknüpfen</button></div>
+        <div class="col-md-4 d-flex align-items-end"><button type="submit" id="project-document-attach" class="btn btn-primary w-100" data-project-document-attach disabled>{{ 'Link file' if g.language == 'en' else 'Datei verknüpfen' }}</button></div>
       </form>
-      <p class="form-text">Es werden höchstens 20 Treffer geladen – keine vollständige Dokumentliste.</p>
-      <div class="list-group mt-3">{% for document in linked_documents %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=document.document_id) }}"><strong>{{ document.last_path }}</strong><br><small class="text-secondary">{{ document.document_id }} · {{ document.state }}</small></a>{% else %}<div class="list-group-item text-secondary">Noch keine Dateien verknüpft.</div>{% endfor %}</div>
+      <p class="form-text">{{ 'At most 20 hits are loaded – no complete document list.' if g.language == 'en' else 'Es werden höchstens 20 Treffer geladen – keine vollständige Dokumentliste.' }}</p>
+      <div class="list-group mt-3">{% for document in linked_documents %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=document.document_id) }}"><strong>{{ document.last_path }}</strong><br><small class="text-secondary">{{ document.document_id }} · {{ document.state }}</small></a>{% else %}<div class="list-group-item text-secondary">{{ 'No files linked yet.' if g.language == 'en' else 'Noch keine Dateien verknüpft.' }}</div>{% endfor %}</div>
     </div>
   </details>
 
   <details id="abrechnung" class="project-panel advanced-project-section mb-3">
-    <summary><span><i class="fas fa-receipt me-2" aria-hidden="true"></i>Zeitgruppen und Abrechnung</span><span class="small text-secondary">{{ billing.lines|length }} Positionen</span></summary>
+    <summary><span><i class="fas fa-receipt me-2" aria-hidden="true"></i>{{ 'Time groups and billing' if g.language == 'en' else 'Zeitgruppen und Abrechnung' }}</span><span class="small text-secondary">{{ billing.lines|length }} {{ 'items' if g.language == 'en' else 'Positionen' }}</span></summary>
     <div class="project-section-body">
-      <p class="text-secondary">Mehrere interne Buchungen abgeschlossener Aufgaben lassen sich zu einer Rechnungsposition bündeln. Einzelzeiten bleiben intern erhalten.</p>
+      <p class="text-secondary">{{ 'Several internal bookings of completed tasks can be bundled into one invoice item. Individual times stay internal.' if g.language == 'en' else 'Mehrere interne Buchungen abgeschlossener Aufgaben lassen sich zu einer Rechnungsposition bündeln. Einzelzeiten bleiben intern erhalten.' }}</p>
       <form method="post" action="{{ url_for('documents.create_project_time_group', project_id=project.project_id) }}" class="row g-3">
-        <div class="col-md-4"><label class="form-label" for="billing-group-title">Interner Gruppenname</label><input id="billing-group-title" required name="title" class="form-control" placeholder="Installation"></div>
-        <div class="col-md-5"><label class="form-label" for="billing-invoice-text">Text auf der Rechnung</label><input id="billing-invoice-text" required name="invoice_text" class="form-control" placeholder="Installation und Einrichtung"></div>
-        <div class="col-md-1"><label class="form-label" for="billing-hours">Std.</label><input id="billing-hours" required type="number" min="0" max="24" name="hours" value="1" class="form-control"></div>
-        <div class="col-md-2"><label class="form-label" for="billing-minutes">Min.</label><input id="billing-minutes" required type="number" min="0" max="59" name="minutes" value="30" class="form-control"></div>
+        <div class="col-md-4"><label class="form-label" for="billing-group-title">{{ 'Internal group name' if g.language == 'en' else 'Interner Gruppenname' }}</label><input id="billing-group-title" required name="title" class="form-control" placeholder="Installation"></div>
+        <div class="col-md-5"><label class="form-label" for="billing-invoice-text">{{ 'Text on the invoice' if g.language == 'en' else 'Text auf der Rechnung' }}</label><input id="billing-invoice-text" required name="invoice_text" class="form-control" placeholder="{{ 'Installation and setup' if g.language == 'en' else 'Installation und Einrichtung' }}"></div>
+        <div class="col-md-1"><label class="form-label" for="billing-hours">{{ 'hrs' if g.language == 'en' else 'Std.' }}</label><input id="billing-hours" required type="number" min="0" max="24" name="hours" value="1" class="form-control"></div>
+        <div class="col-md-2"><label class="form-label" for="billing-minutes">{{ 'min' if g.language == 'en' else 'Min.' }}</label><input id="billing-minutes" required type="number" min="0" max="59" name="minutes" value="30" class="form-control"></div>
         <div class="col-12">
-          <fieldset><legend class="fs-6">Interne Bestandteile</legend>
+          <fieldset><legend class="fs-6">{{ 'Internal components' if g.language == 'en' else 'Interne Bestandteile' }}</legend>
             {% for task in project.tasks %}{% for entry in task.time_entries|default([]) %}{% if entry.entry_id in available_time_group_entries|map(attribute="entry_id")|list %}
               <div class="form-check"><input class="form-check-input" type="checkbox" name="entry_ids" value="{{ entry.entry_id }}" id="entry-{{ entry.entry_id }}"><label class="form-check-label" for="entry-{{ entry.entry_id }}"><strong>{{ task.title }}</strong> · {{ entry.date }} · {{ entry.minutes // 60 }}:{{ '%02d'|format(entry.minutes % 60) }} h{% if entry.note %} · {{ entry.note }}{% endif %}</label></div>
-            {% endif %}{% endfor %}{% else %}<p class="text-secondary">Keine ungruppierten Zeitbuchungen aus abgeschlossenen Aufgaben vorhanden.</p>{% endfor %}
+            {% endif %}{% endfor %}{% else %}<p class="text-secondary">{{ 'No ungrouped time bookings from completed tasks.' if g.language == 'en' else 'Keine ungruppierten Zeitbuchungen aus abgeschlossenen Aufgaben vorhanden.' }}</p>{% endfor %}
           </fieldset>
         </div>
-        <div class="col-12"><button type="submit" class="btn btn-primary" {% if not available_time_group_entries %}disabled{% endif %}>Als Abrechnungsgruppe speichern</button></div>
+        <div class="col-12"><button type="submit" class="btn btn-primary" {% if not available_time_group_entries %}disabled{% endif %}>{{ 'Save as billing group' if g.language == 'en' else 'Als Abrechnungsgruppe speichern' }}</button></div>
       </form>
       <hr>
-      <h3 class="h6">Spätere Rechnungspositionen</h3>
-      <div class="list-group mb-3">{% for line in billing.lines %}<div class="list-group-item d-flex justify-content-between gap-3"><span>{{ line.description }}</span><strong>{{ line.minutes // 60 }}:{{ '%02d'|format(line.minutes % 60) }} h</strong></div>{% else %}<div class="list-group-item text-secondary">Keine abrechenbaren Zeiten.</div>{% endfor %}</div>
-      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_billing_projection', project_id=project.project_id) }}">Rechnungssichere Daten anzeigen</a>
-      {% if billing.private_groups %}<h3 class="h6 mt-4">Nur für mich: Zusammensetzung meiner Gruppen</h3>{% for group in billing.private_groups %}<details class="border rounded p-2 mb-2"><summary><strong>{{ group.title }}</strong> · {{ group.billable_minutes // 60 }}:{{ '%02d'|format(group.billable_minutes % 60) }} h</summary><ul class="small mt-2 mb-0">{% for entry in group.entries %}<li>{{ entry.task_title }} · {{ entry.date }} · {{ entry.minutes // 60 }}:{{ '%02d'|format(entry.minutes % 60) }} h{% if entry.note %} · {{ entry.note }}{% endif %}</li>{% endfor %}</ul></details>{% endfor %}{% endif %}
+      <h3 class="h6">{{ 'Later invoice items' if g.language == 'en' else 'Spätere Rechnungspositionen' }}</h3>
+      <div class="list-group mb-3">{% for line in billing.lines %}<div class="list-group-item d-flex justify-content-between gap-3"><span>{{ line.description }}</span><strong>{{ line.minutes // 60 }}:{{ '%02d'|format(line.minutes % 60) }} h</strong></div>{% else %}<div class="list-group-item text-secondary">{{ 'No billable time.' if g.language == 'en' else 'Keine abrechenbaren Zeiten.' }}</div>{% endfor %}</div>
+      <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.project_billing_projection', project_id=project.project_id) }}">{{ 'Show invoice-ready data' if g.language == 'en' else 'Rechnungssichere Daten anzeigen' }}</a>
+      {% if billing.private_groups %}<h3 class="h6 mt-4">{{ 'Only for me: composition of my groups' if g.language == 'en' else 'Nur für mich: Zusammensetzung meiner Gruppen' }}</h3>{% for group in billing.private_groups %}<details class="border rounded p-2 mb-2"><summary><strong>{{ group.title }}</strong> · {{ group.billable_minutes // 60 }}:{{ '%02d'|format(group.billable_minutes % 60) }} h</summary><ul class="small mt-2 mb-0">{% for entry in group.entries %}<li>{{ entry.task_title }} · {{ entry.date }} · {{ entry.minutes // 60 }}:{{ '%02d'|format(entry.minutes % 60) }} h{% if entry.note %} · {{ entry.note }}{% endif %}</li>{% endfor %}</ul></details>{% endfor %}{% endif %}
     </div>
   </details>
 </main>

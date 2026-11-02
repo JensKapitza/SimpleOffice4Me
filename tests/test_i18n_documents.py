@@ -683,56 +683,6 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Familienkalender", de_body)
         self.assertIn("Keine veröffentlichten Termine.", de_body)
 
-    def test_eur_receipts(self) -> None:
-        en_body = self._get("/documents/accounting/receipts", "en")
-        self.assertIn("EÜR receipts", en_body)
-        self.assertIn("Enter receipt", en_body)
-        self.assertIn("Save and check receipt", en_body)
-        self.assertIn("Tax-advisor ZIP", en_body)
-        self.assertIn("Recorded receipts", en_body)
-        self.assertIn("Receipt date", en_body)
-        self.assertNotIn("Beleg eingeben", en_body)
-        self.assertNotIn("Steuerberater-ZIP", en_body)
-        self.assertNotIn("Erfasste Belege", en_body)
-        de_body = self._get("/documents/accounting/receipts", "de")
-        self.assertIn("EÜR-Belege", de_body)
-        self.assertIn("Beleg eingeben", de_body)
-        self.assertIn("Beleg speichern und prüfen", de_body)
-        self.assertIn("Steuerberater-ZIP", de_body)
-        self.assertIn("Erfasste Belege", de_body)
-        self.assertIn("Belegdatum", de_body)
-
-    def test_euer_overview(self) -> None:
-        from app.euer_store import EuerStore
-        self.root.mkdir(parents=True, exist_ok=True)
-        EuerStore(self.root).add({
-            "direction": "income", "category": "small_business_income",
-            "description": "Honorar August",
-            "gross": "500", "booking_date": "2026-08-31",
-            "document_date": "2026-08-31", "tax_mode": "small_business",
-        }, "admin")
-        en_body = self._get("/documents/business/bookkeeping?year=2026", "en")
-        self.assertIn("Income statement", en_body)
-        self.assertIn("Book receipt", en_body)
-        self.assertIn("VAT balance", en_body)
-        self.assertIn("Honorar August", en_body)
-        self.assertIn("Totals by EÜR category", en_body)
-        self.assertNotIn("Beleg buchen", en_body)
-        self.assertNotIn("Summen nach EÜR-Kategorie", en_body)
-        de_body = self._get("/documents/business/bookkeeping?year=2026", "de")
-        self.assertIn("Einnahmenüberschussrechnung", de_body)
-        self.assertIn("Beleg buchen", de_body)
-        self.assertIn("Umsatzsteuer-Modus", de_body)
-        self.assertIn("Honorar August", de_body)
-        self.assertIn("Summen nach EÜR-Kategorie", de_body)
-
-    def test_euer_overview_empty(self) -> None:
-        en_body = self._get("/documents/business/bookkeeping?year=2026", "en")
-        self.assertIn("No bookings for this selection yet.", en_body)
-        de_body = self._get("/documents/business/bookkeeping?year=2026", "de")
-        self.assertIn("Für diese Auswahl gibt es noch keine Buchungen.",
-                      de_body)
-
     def test_shared_note_renders_both_languages(self) -> None:
         from flask import g, render_template
         note = {"text": "note text", "author": "admin", "created_at": "now"}

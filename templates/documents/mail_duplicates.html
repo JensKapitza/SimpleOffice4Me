@@ -1,5 +1,5 @@
 {% extends "layout.html" %}
-{% block title %}Mail-Dubletten{% endblock %}
+{% block title %}{{ 'Mail duplicates' if g.language == 'en' else 'Mail-Dubletten' }}{% endblock %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-fluid py-3">
@@ -7,84 +7,84 @@
 
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div>
-      <h1 class="h3 mb-1"><i class="fas fa-clone me-2" aria-hidden="true"></i>Spam & Dubletten</h1>
-      <p class="text-secondary mb-0">Inhaltsbasierte Dublettenerkennung trotz abweichender Header, Relay-Server und Trackingwerte.</p>
+      <h1 class="h3 mb-1"><i class="fas fa-clone me-2" aria-hidden="true"></i>{{ 'Spam & duplicates' if g.language == 'en' else 'Spam & Dubletten' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Content-based duplicate detection despite differing headers, relay servers and tracking values.' if g.language == 'en' else 'Inhaltsbasierte Dublettenerkennung trotz abweichender Header, Relay-Server und Trackingwerte.' }}</p>
     </div>
-    <div class="btn-group" role="group" aria-label="Mailansicht">
-      <a class="btn btn-outline-primary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '') }}"><i class="fas fa-inbox me-1" aria-hidden="true"></i>Postfach</a>
-      <a class="btn btn-outline-primary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode='archive') }}"><i class="fas fa-box-archive me-1" aria-hidden="true"></i>Archiv</a>
-      <a class="btn btn-primary" aria-current="page" href="{{ url_for('mail_index.index', account=selected.id if selected else '') }}"><i class="fas fa-clone me-1" aria-hidden="true"></i>Spam/Dubletten</a>
+    <div class="btn-group" role="group" aria-label="{{ 'Mail view' if g.language == 'en' else 'Mailansicht' }}">
+      <a class="btn btn-outline-primary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '') }}"><i class="fas fa-inbox me-1" aria-hidden="true"></i>{{ 'Mailbox' if g.language == 'en' else 'Postfach' }}</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('mail_reader.index', account=selected.id if selected else '', mode='archive') }}"><i class="fas fa-box-archive me-1" aria-hidden="true"></i>{{ 'Archive' if g.language == 'en' else 'Archiv' }}</a>
+      <a class="btn btn-primary" aria-current="page" href="{{ url_for('mail_index.index', account=selected.id if selected else '') }}"><i class="fas fa-clone me-1" aria-hidden="true"></i>{{ 'Spam/duplicates' if g.language == 'en' else 'Spam/Dubletten' }}</a>
     </div>
   </div>
 
   {% if not accounts %}
-    <div class="alert alert-secondary">Noch kein Mailkonto vorhanden. <a href="{{ url_for('mail_client.index') }}">Mailkonto konfigurieren</a>.</div>
+    <div class="alert alert-secondary">{{ 'No mail account yet.' if g.language == 'en' else 'Noch kein Mailkonto vorhanden.' }} <a href="{{ url_for('mail_client.index') }}">{{ 'Configure mail account' if g.language == 'en' else 'Mailkonto konfigurieren' }}</a>.</div>
   {% else %}
   <section class="card mb-3"><div class="card-body">
     <div class="row g-3 align-items-end">
       <div class="col-lg-3">
         <form method="get" action="{{ url_for('mail_index.index') }}">
-          <label class="form-label" for="duplicate-account">Konto</label>
+          <label class="form-label" for="duplicate-account">{{ 'Account' if g.language == 'en' else 'Konto' }}</label>
           <select id="duplicate-account" class="form-select" name="account" onchange="this.form.submit()">
             {% for account in accounts %}<option value="{{ account.id }}" {% if selected and account.id == selected.id %}selected{% endif %}>{{ account.label }} · {{ account.username }}</option>{% endfor %}
           </select>
         </form>
       </div>
       <div class="col-lg-5">
-        <form method="get" action="{{ url_for('mail_index.index') }}" role="search" aria-label="Persistenten Mailindex durchsuchen">
+        <form method="get" action="{{ url_for('mail_index.index') }}" role="search" aria-label="{{ 'Search persistent mail index' if g.language == 'en' else 'Persistenten Mailindex durchsuchen' }}">
           <input type="hidden" name="account" value="{{ selected.id if selected else '' }}">
-          <label class="form-label" for="mail-index-search">Mailindex durchsuchen</label>
-          <div class="input-group"><input id="mail-index-search" class="form-control" type="search" name="q" value="{{ query }}" placeholder="Betreff, Absender, Empfänger oder Inhalt"><button type="submit" class="btn btn-outline-primary">Suchen</button></div>
+          <label class="form-label" for="mail-index-search">{{ 'Search mail index' if g.language == 'en' else 'Mailindex durchsuchen' }}</label>
+          <div class="input-group"><input id="mail-index-search" class="form-control" type="search" name="q" value="{{ query }}" placeholder="{{ 'Subject, sender, recipient or content' if g.language == 'en' else 'Betreff, Absender, Empfänger oder Inhalt' }}"><button type="submit" class="btn btn-outline-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button></div>
         </form>
       </div>
       <div class="col-lg-4">
         {% if selected %}<form method="post" action="{{ url_for('mail_index.refresh') }}">
           <input type="hidden" name="account" value="{{ selected.id }}">
-          <label class="form-label" for="index-per-folder">Index aktualisieren</label>
-          <div class="input-group"><input id="index-per-folder" class="form-control" type="number" min="1" max="500" name="per_folder" value="100" aria-label="Neue Mails je Ordner"><button type="submit" class="btn btn-primary"><i class="fas fa-rotate me-1" aria-hidden="true"></i>Abgleichen</button></div>
+          <label class="form-label" for="index-per-folder">{{ 'Refresh index' if g.language == 'en' else 'Index aktualisieren' }}</label>
+          <div class="input-group"><input id="index-per-folder" class="form-control" type="number" min="1" max="500" name="per_folder" value="100" aria-label="{{ 'New mails per folder' if g.language == 'en' else 'Neue Mails je Ordner' }}"><button type="submit" class="btn btn-primary"><i class="fas fa-rotate me-1" aria-hidden="true"></i>{{ 'Sync' if g.language == 'en' else 'Abgleichen' }}</button></div>
         </form>{% endif %}
       </div>
     </div>
   </div></section>
 
   {% if connection_error %}<div class="alert alert-warning" role="status"><i class="fas fa-triangle-exclamation me-2" aria-hidden="true"></i>{{ connection_error }}</div>{% endif %}
-  {% if read_only %}<div class="alert alert-warning" role="status"><strong>Read-only aktiv.</strong> Indexieren, Suchen, Dubletten prüfen und Federation-Wiederherstellung ins lokale Archiv sind möglich. Verschieben und Löschen auf dem IMAP-Server bleibt blockiert, bis der Schreibzugriff ausdrücklich freigegeben wird.</div>{% endif %}
+  {% if read_only %}<div class="alert alert-warning" role="status"><strong>{{ 'Read-only active.' if g.language == 'en' else 'Read-only aktiv.' }}</strong> {{ 'Indexing, searching, duplicate checks and federation recovery into the local archive are possible. Moving and deleting on the IMAP server stays blocked until write access is explicitly granted.' if g.language == 'en' else 'Indexieren, Suchen, Dubletten prüfen und Federation-Wiederherstellung ins lokale Archiv sind möglich. Verschieben und Löschen auf dem IMAP-Server bleibt blockiert, bis der Schreibzugriff ausdrücklich freigegeben wird.' }}</div>{% endif %}
 
   {% if selected %}
-  <section class="row g-3 mb-3" aria-label="Indexstatus">
-    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Indexeinträge</div><div class="fs-3 fw-semibold">{{ stats.total }}</div></div></div></div>
-    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ziel vorhanden</div><div class="fs-3 fw-semibold">{{ stats.present }}</div></div></div></div>
-    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Ziel nicht gefunden</div><div class="fs-3 fw-semibold">{{ stats.missing }}</div></div></div></div>
-    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Suchindex</div><div class="fw-semibold mt-2">{{ 'FTS5' if stats.fts5 else 'Fallback' }}</div><div class="small text-secondary">{{ stats.last_seen or 'noch leer' }}</div></div></div></div>
+  <section class="row g-3 mb-3" aria-label="{{ 'Index status' if g.language == 'en' else 'Indexstatus' }}">
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Index entries' if g.language == 'en' else 'Indexeinträge' }}</div><div class="fs-3 fw-semibold">{{ stats.total }}</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Target present' if g.language == 'en' else 'Ziel vorhanden' }}</div><div class="fs-3 fw-semibold">{{ stats.present }}</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Target not found' if g.language == 'en' else 'Ziel nicht gefunden' }}</div><div class="fs-3 fw-semibold">{{ stats.missing }}</div></div></div></div>
+    <div class="col-6 col-md-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Search index' if g.language == 'en' else 'Suchindex' }}</div><div class="fw-semibold mt-2">{{ 'FTS5' if stats.fts5 else 'Fallback' }}</div><div class="small text-secondary">{{ stats.last_seen or ('still empty' if g.language == 'en' else 'noch leer') }}</div></div></div></div>
   </section>
 
   <div class="alert alert-secondary small">
-    <strong>Indexeinträge bleiben erhalten.</strong> Wird eine Mail auf ihrem bisherigen Server nicht mehr gefunden, erhält sie den Status <em>Ziel nicht gefunden</em>. Der Datensatz bleibt als Such- und Federation-Hinweis bestehen. Nur ein Administrator kann solche Tombstones endgültig aufräumen.
+    <strong>{{ 'Index entries are kept.' if g.language == 'en' else 'Indexeinträge bleiben erhalten.' }}</strong> {{ 'When a mail is no longer found on its previous server, it gets the status <em>target not found</em>. The record stays as a search and federation hint. Only an administrator can finally clean up such tombstones.' if g.language == 'en' else 'Wird eine Mail auf ihrem bisherigen Server nicht mehr gefunden, erhält sie den Status <em>Ziel nicht gefunden</em>. Der Datensatz bleibt als Such- und Federation-Hinweis bestehen. Nur ein Administrator kann solche Tombstones endgültig aufräumen.' }}
   </div>
 
   <section class="card border-primary mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-      <div><strong><i class="fas fa-network-wired me-2" aria-hidden="true"></i>Mail-Federation</strong><div class="small text-secondary">Fehlende Mailziele auf bekannten SimpleOffice-Instanzen anhand von Fingerprints wiederfinden.</div></div>
-      <span class="badge {{ 'text-bg-success' if federation_export_enabled else 'text-bg-secondary' }}">{{ 'dieses Konto stellt Treffer bereit' if federation_export_enabled else 'eigene Trefferfreigabe aus' }}</span>
+      <div><strong><i class="fas fa-network-wired me-2" aria-hidden="true"></i>{{ 'Mail federation' if g.language == 'en' else 'Mail-Federation' }}</strong><div class="small text-secondary">{{ 'Find missing mail targets on known SimpleOffice instances using fingerprints.' if g.language == 'en' else 'Fehlende Mailziele auf bekannten SimpleOffice-Instanzen anhand von Fingerprints wiederfinden.' }}</div></div>
+      <span class="badge {{ 'text-bg-success' if federation_export_enabled else 'text-bg-secondary' }}">{{ ('this account provides hits' if federation_export_enabled else 'own hit sharing off') if g.language == 'en' else ('dieses Konto stellt Treffer bereit' if federation_export_enabled else 'eigene Trefferfreigabe aus') }}</span>
     </div>
     <div class="card-body">
       <div class="row g-3 align-items-start mb-3">
         <div class="col-lg-7">
-          <p class="mb-2">Bei der Suche werden nur Raw-SHA-512, normalisierte Content-SHA-512 und Similarity-Fingerprint an authentifizierte bekannte Federation-Peers gesendet. Betreff, Absender, Empfänger und Mailtext werden nicht als Suchmetadaten übertragen.</p>
+          <p class="mb-2">{{ 'Searches only send raw SHA-512, normalized content SHA-512 and similarity fingerprints to authenticated known federation peers. Subject, sender, recipients and mail text are not transferred as search metadata.' if g.language == 'en' else 'Bei der Suche werden nur Raw-SHA-512, normalisierte Content-SHA-512 und Similarity-Fingerprint an authentifizierte bekannte Federation-Peers gesendet. Betreff, Absender, Empfänger und Mailtext werden nicht als Suchmetadaten übertragen.' }}</p>
           <form method="post" action="{{ url_for('mail_index.federation_discover') }}" class="d-flex flex-wrap gap-2 align-items-center">
             <input type="hidden" name="account" value="{{ selected.id }}">
-            <button type="submit" class="btn btn-primary" {% if not stats.missing %}disabled{% endif %}><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>{{ stats.missing }} fehlende Ziele auf Peers suchen</button>
-            <span class="small text-secondary">Gefundene Quellen bleiben lokal gespeichert, auch wenn ein Peer später offline ist.</span>
+            <button type="submit" class="btn btn-primary" {% if not stats.missing %}disabled{% endif %}><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>{{ stats.missing }} {{ 'missing targets: search peers' if g.language == 'en' else 'fehlende Ziele auf Peers suchen' }}</button>
+            <span class="small text-secondary">{{ 'Found sources stay stored locally, even if a peer is offline later.' if g.language == 'en' else 'Gefundene Quellen bleiben lokal gespeichert, auch wenn ein Peer später offline ist.' }}</span>
           </form>
         </div>
         <div class="col-lg-5">
           <div class="border rounded p-3 bg-body-tertiary">
-            <strong>Eigene Maildaten für Federation anbieten</strong>
-            <p class="small text-secondary mt-1 mb-2">Standardmäßig aus. Bei Freigabe beantwortet diese Instanz Fingerprint-Suchen und liefert eine EML nur über einen nicht erratbaren Locator an authentifizierte Federation-Peers.</p>
+            <strong>{{ 'Offer own mail data for federation' if g.language == 'en' else 'Eigene Maildaten für Federation anbieten' }}</strong>
+            <p class="small text-secondary mt-1 mb-2">{{ 'Off by default. When shared, this instance answers fingerprint searches and delivers an EML only via an unguessable locator to authenticated federation peers.' if g.language == 'en' else 'Standardmäßig aus. Bei Freigabe beantwortet diese Instanz Fingerprint-Suchen und liefert eine EML nur über einen nicht erratbaren Locator an authentifizierte Federation-Peers.' }}</p>
             <form method="post" action="{{ url_for('mail_index.federation_export') }}">
               <input type="hidden" name="account" value="{{ selected.id }}">
               <input type="hidden" name="enabled" value="{{ '0' if federation_export_enabled else '1' }}">
-              <button type="submit" class="btn {{ 'btn-outline-danger' if federation_export_enabled else 'btn-outline-success' }}">{{ 'Freigabe deaktivieren' if federation_export_enabled else 'Für Federation freigeben' }}</button>
+              <button type="submit" class="btn {{ 'btn-outline-danger' if federation_export_enabled else 'btn-outline-success' }}">{{ ('Disable sharing' if federation_export_enabled else 'Share for federation') if g.language == 'en' else ('Freigabe deaktivieren' if federation_export_enabled else 'Für Federation freigeben') }}</button>
             </form>
           </div>
         </div>
@@ -92,65 +92,65 @@
 
       {% if federation_rows %}
       <div class="table-responsive"><table class="table table-sm align-middle mb-0">
-        <thead><tr><th scope="col">Lokaler Index</th><th scope="col">Peer-Quelle</th><th scope="col">Treffer</th><th scope="col">Verfügbarkeit</th><th scope="col">Aktion</th></tr></thead>
+        <thead><tr><th scope="col">{{ 'Local index' if g.language == 'en' else 'Lokaler Index' }}</th><th scope="col">{{ 'Peer source' if g.language == 'en' else 'Peer-Quelle' }}</th><th scope="col">{{ 'Hit' if g.language == 'en' else 'Treffer' }}</th><th scope="col">{{ 'Availability' if g.language == 'en' else 'Verfügbarkeit' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
         <tbody>
         {% for item in federation_rows %}{% for source in item.sources %}
           <tr>
             <td>{% if loop.first %}<strong>{{ item.row.subject }}</strong><div class="small text-secondary">{{ item.row.folder }} · {{ item.row.message_date }}</div>{% endif %}</td>
-            <td><strong>{{ source.peer_id }}</strong>{% if source.last_error %}<div class="small text-danger">letzter Abruf: {{ source.last_error }}</div>{% endif %}</td>
-            <td><span class="badge {{ 'text-bg-success' if source.match_kind in ['raw','content'] else 'text-bg-warning' }}">{{ 'Raw-SHA-512' if source.match_kind == 'raw' else 'Content-SHA-512' if source.match_kind == 'content' else 'ähnlicher Inhalt' }}</span><div class="small text-secondary">{{ source.confidence }} %{% if source.distance %} · Distanz {{ source.distance }}{% endif %}</div></td>
-            <td>{% if source.availability == 'archive' %}<span class="badge text-bg-success">Archiv</span>{% elif source.availability == 'imap' %}<span class="badge text-bg-primary">IMAP erreichbar</span>{% else %}<span class="badge text-bg-secondary">nur Index</span>{% endif %}</td>
-            <td>{% if source.recovered_document_id %}<span class="badge text-bg-success">lokal wiederhergestellt</span>{% elif source.availability != 'index_only' %}<form method="post" action="{{ url_for('mail_index.federation_recover', source_id=source.source_id) }}"><input type="hidden" name="account" value="{{ selected.id }}"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-cloud-arrow-down me-1" aria-hidden="true"></i>EML prüfen & archivieren</button></form>{% else %}<span class="small text-secondary">Peer kennt nur den Index</span>{% endif %}</td>
+            <td><strong>{{ source.peer_id }}</strong>{% if source.last_error %}<div class="small text-danger">{{ 'last fetch:' if g.language == 'en' else 'letzter Abruf:' }} {{ source.last_error }}</div>{% endif %}</td>
+            <td><span class="badge {{ 'text-bg-success' if source.match_kind in ['raw','content'] else 'text-bg-warning' }}">{{ 'Raw-SHA-512' if source.match_kind == 'raw' else 'Content-SHA-512' if source.match_kind == 'content' else ('similar content' if g.language == 'en' else 'ähnlicher Inhalt') }}</span><div class="small text-secondary">{{ source.confidence }} %{% if source.distance %} · {{ 'distance' if g.language == 'en' else 'Distanz' }} {{ source.distance }}{% endif %}</div></td>
+            <td>{% if source.availability == 'archive' %}<span class="badge text-bg-success">{{ 'Archive' if g.language == 'en' else 'Archiv' }}</span>{% elif source.availability == 'imap' %}<span class="badge text-bg-primary">{{ 'IMAP reachable' if g.language == 'en' else 'IMAP erreichbar' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'index only' if g.language == 'en' else 'nur Index' }}</span>{% endif %}</td>
+            <td>{% if source.recovered_document_id %}<span class="badge text-bg-success">{{ 'recovered locally' if g.language == 'en' else 'lokal wiederhergestellt' }}</span>{% elif source.availability != 'index_only' %}<form method="post" action="{{ url_for('mail_index.federation_recover', source_id=source.source_id) }}"><input type="hidden" name="account" value="{{ selected.id }}"><button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-cloud-arrow-down me-1" aria-hidden="true"></i>{{ 'Check & archive EML' if g.language == 'en' else 'EML prüfen & archivieren' }}</button></form>{% else %}<span class="small text-secondary">{{ 'Peer knows only the index' if g.language == 'en' else 'Peer kennt nur den Index' }}</span>{% endif %}</td>
           </tr>
         {% endfor %}{% endfor %}
         </tbody>
       </table></div>
-      {% else %}<div class="text-secondary">Noch keine Federation-Quellen gespeichert.</div>{% endif %}
+      {% else %}<div class="text-secondary">{{ 'No federation sources stored yet.' if g.language == 'en' else 'Noch keine Federation-Quellen gespeichert.' }}</div>{% endif %}
     </div>
   </section>
 
   {% if query %}
   <section class="card mb-4">
-    <div class="card-header d-flex justify-content-between align-items-center"><strong>Suchergebnisse für „{{ query }}“</strong><span class="badge text-bg-secondary">{{ search_rows|length }}</span></div>
+    <div class="card-header d-flex justify-content-between align-items-center"><strong>{{ 'Search results for' if g.language == 'en' else 'Suchergebnisse für' }} „{{ query }}“</strong><span class="badge text-bg-secondary">{{ search_rows|length }}</span></div>
     <div class="list-group list-group-flush">
       {% for row in search_rows %}<div class="list-group-item">
-        <div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ row.subject }}</strong><div class="small">{{ row.sender }}</div><div class="small text-secondary">{{ row.folder }} · UID {{ row.uid }} · {{ row.message_date }}</div></div><div>{% if row.present %}<span class="badge text-bg-success">Ziel vorhanden</span>{% else %}<span class="badge text-bg-warning">Ziel nicht gefunden</span>{% endif %}</div></div>
+        <div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ row.subject }}</strong><div class="small">{{ row.sender }}</div><div class="small text-secondary">{{ row.folder }} · UID {{ row.uid }} · {{ row.message_date }}</div></div><div>{% if row.present %}<span class="badge text-bg-success">{{ 'Target present' if g.language == 'en' else 'Ziel vorhanden' }}</span>{% else %}<span class="badge text-bg-warning">{{ 'Target not found' if g.language == 'en' else 'Ziel nicht gefunden' }}</span>{% endif %}</div></div>
         {% if not row.present %}<div class="small text-secondary mt-1">{{ row.missing_reason }}</div>{% endif %}
-      </div>{% else %}<div class="list-group-item text-secondary text-center py-4">Keine Treffer im persistenten Index.</div>{% endfor %}
+      </div>{% else %}<div class="list-group-item text-secondary text-center py-4">{{ 'No hits in the persistent index.' if g.language == 'en' else 'Keine Treffer im persistenten Index.' }}</div>{% endfor %}
     </div>
   </section>
   {% endif %}
 
   <section class="card mb-4">
-    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><div><strong>Erkannte Inhaltsgruppen</strong><div class="small text-secondary">Exakte normalisierte SHA-512-Dubletten und sehr ähnliche Inhalte.</div></div><span class="badge text-bg-secondary">{{ groups|length }} Gruppen</span></div>
+    <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2"><div><strong>{{ 'Detected content groups' if g.language == 'en' else 'Erkannte Inhaltsgruppen' }}</strong><div class="small text-secondary">{{ 'Exact normalized SHA-512 duplicates and very similar content.' if g.language == 'en' else 'Exakte normalisierte SHA-512-Dubletten und sehr ähnliche Inhalte.' }}</div></div><span class="badge text-bg-secondary">{{ groups|length }} {{ 'groups' if g.language == 'en' else 'Gruppen' }}</span></div>
     <div class="card-body">
       {% for group in groups %}
       <article class="border rounded p-3 mb-3">
         <div class="d-flex flex-wrap justify-content-between gap-3 mb-2">
           <div><h2 class="h6 mb-1">{{ group.subject }}</h2><div class="small text-secondary">{{ group.sample_sender }}</div></div>
-          <div class="text-end"><span class="badge {{ 'text-bg-danger' if group.exact else 'text-bg-warning' }}">{{ 'gleicher normalisierter Inhalt' if group.exact else 'sehr ähnlicher Inhalt' }}</span><span class="badge text-bg-secondary">{{ group.confidence }} %</span><div class="small text-secondary mt-1">{{ group.present_count }} vorhanden · {{ group.missing_count }} Ziel nicht gefunden</div></div>
+          <div class="text-end"><span class="badge {{ 'text-bg-danger' if group.exact else 'text-bg-warning' }}">{{ ('same normalized content' if group.exact else 'very similar content') if g.language == 'en' else ('gleicher normalisierter Inhalt' if group.exact else 'sehr ähnlicher Inhalt') }}</span><span class="badge text-bg-secondary">{{ group.confidence }} %</span><div class="small text-secondary mt-1">{{ group.present_count }} {{ 'present' if g.language == 'en' else 'vorhanden' }} · {{ group.missing_count }} {{ 'target not found' if g.language == 'en' else 'Ziel nicht gefunden' }}</div></div>
         </div>
         <div class="list-group mb-3">
-          {% for row in group.rows %}<div class="list-group-item py-2"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ row.sender or '(Absender unbekannt)' }}</strong><div class="small text-secondary">{{ row.folder }} · UID {{ row.uid }} · {{ row.message_date }}</div></div><div>{% if row.present %}<span class="badge text-bg-success">vorhanden</span>{% else %}<span class="badge text-bg-warning">Ziel nicht gefunden</span>{% endif %}</div></div>{% if not row.present %}<div class="small text-secondary">{{ row.missing_reason }}</div>{% endif %}</div>{% endfor %}
+          {% for row in group.rows %}<div class="list-group-item py-2"><div class="d-flex flex-wrap justify-content-between gap-2"><div><strong>{{ row.sender or ('(sender unknown)' if g.language == 'en' else '(Absender unbekannt)') }}</strong><div class="small text-secondary">{{ row.folder }} · UID {{ row.uid }} · {{ row.message_date }}</div></div><div>{% if row.present %}<span class="badge text-bg-success">{{ 'present' if g.language == 'en' else 'vorhanden' }}</span>{% else %}<span class="badge text-bg-warning">{{ 'Target not found' if g.language == 'en' else 'Ziel nicht gefunden' }}</span>{% endif %}</div></div>{% if not row.present %}<div class="small text-secondary">{{ row.missing_reason }}</div>{% endif %}</div>{% endfor %}
         </div>
         {% if group.present_count and not read_only %}
         <div class="row g-2">
           <div class="col-lg-8"><form method="post" action="{{ url_for('mail_index.move_group') }}" class="d-flex flex-wrap gap-2">
             <input type="hidden" name="account" value="{{ selected.id }}">{% for row_id in group.row_ids %}<input type="hidden" name="row_id" value="{{ row_id }}">{% endfor %}
-            <label class="visually-hidden" for="target-{{ group.group_id }}">Zielordner</label><select id="target-{{ group.group_id }}" class="form-select flex-grow-1" required name="target"><option value="">Gruppe verschieben nach…</option>{% for item in folders %}{% if item.selectable %}<option value="{{ item.name }}">{{ item.name }}</option>{% endif %}{% endfor %}</select><button type="submit" class="btn btn-outline-primary"><i class="fas fa-folder-tree me-1" aria-hidden="true"></i>Alle verschieben</button>
+            <label class="visually-hidden" for="target-{{ group.group_id }}">{{ 'Target folder' if g.language == 'en' else 'Zielordner' }}</label><select id="target-{{ group.group_id }}" class="form-select flex-grow-1" required name="target"><option value="">{{ 'Move group to…' if g.language == 'en' else 'Gruppe verschieben nach…' }}</option>{% for item in folders %}{% if item.selectable %}<option value="{{ item.name }}">{{ item.name }}</option>{% endif %}{% endfor %}</select><button type="submit" class="btn btn-outline-primary"><i class="fas fa-folder-tree me-1" aria-hidden="true"></i>{{ 'Move all' if g.language == 'en' else 'Alle verschieben' }}</button>
           </form></div>
-          <div class="col-lg-4"><form method="post" action="{{ url_for('mail_index.delete_group') }}" onsubmit="return confirm('Alle derzeit noch vorhandenen Mails dieser Gruppe auf dem Mailserver löschen?');">
-            <input type="hidden" name="account" value="{{ selected.id }}">{% for row_id in group.row_ids %}<input type="hidden" name="row_id" value="{{ row_id }}">{% endfor %}<button type="submit" class="btn btn-outline-danger w-100"><i class="fas fa-trash me-1" aria-hidden="true"></i>Vorhandene alle löschen</button>
+          <div class="col-lg-4"><form method="post" action="{{ url_for('mail_index.delete_group') }}" onsubmit="return confirm('{{ "Delete all mails of this group still present on the mail server?" if g.language == 'en' else "Alle derzeit noch vorhandenen Mails dieser Gruppe auf dem Mailserver löschen?" }}');">
+            <input type="hidden" name="account" value="{{ selected.id }}">{% for row_id in group.row_ids %}<input type="hidden" name="row_id" value="{{ row_id }}">{% endfor %}<button type="submit" class="btn btn-outline-danger w-100"><i class="fas fa-trash me-1" aria-hidden="true"></i>{{ 'Delete all present' if g.language == 'en' else 'Vorhandene alle löschen' }}</button>
           </form></div>
         </div>
         {% endif %}
       </article>
-      {% else %}<p class="text-secondary text-center py-4 mb-0">Noch keine Dublettengruppen erkannt. Zuerst den Index abgleichen.</p>{% endfor %}
+      {% else %}<p class="text-secondary text-center py-4 mb-0">{{ 'No duplicate groups detected yet. Sync the index first.' if g.language == 'en' else 'Noch keine Dublettengruppen erkannt. Zuerst den Index abgleichen.' }}</p>{% endfor %}
     </div>
   </section>
 
   {% if g.user['is_admin'] %}
-  <section class="card border-danger mb-3"><div class="card-header"><strong>Administrator: Index aufräumen</strong></div><div class="card-body"><p class="mb-3">Dies entfernt ausschließlich bereits als <strong>Ziel nicht gefunden</strong> markierte Indexeinträge endgültig. Normalerweise sollten diese Daten für Suche und spätere Federation erhalten bleiben.</p><form method="post" action="{{ url_for('mail_index.cleanup_missing') }}" onsubmit="return confirm('Nicht mehr gefundene Mail-Indexeinträge endgültig löschen?');"><input type="hidden" name="account" value="{{ selected.id }}"><button type="submit" class="btn btn-danger" {% if not stats.missing %}disabled{% endif %}><i class="fas fa-broom me-1" aria-hidden="true"></i>{{ stats.missing }} Tombstone(s) endgültig entfernen</button></form></div></section>
+  <section class="card border-danger mb-3"><div class="card-header"><strong>{{ 'Administrator: clean up index' if g.language == 'en' else 'Administrator: Index aufräumen' }}</strong></div><div class="card-body"><p class="mb-3">{{ 'This finally removes only index entries already marked <strong>target not found</strong>. Normally this data should stay for search and later federation.' if g.language == 'en' else 'Dies entfernt ausschließlich bereits als <strong>Ziel nicht gefunden</strong> markierte Indexeinträge endgültig. Normalerweise sollten diese Daten für Suche und spätere Federation erhalten bleiben.' }}</p><form method="post" action="{{ url_for('mail_index.cleanup_missing') }}" onsubmit="return confirm('{{ "Finally delete mail index entries no longer found?" if g.language == 'en' else "Nicht mehr gefundene Mail-Indexeinträge endgültig löschen?" }}');"><input type="hidden" name="account" value="{{ selected.id }}"><button type="submit" class="btn btn-danger" {% if not stats.missing %}disabled{% endif %}><i class="fas fa-broom me-1" aria-hidden="true"></i>{{ stats.missing }} Tombstone(s) {{ 'remove finally' if g.language == 'en' else 'endgültig entfernen' }}</button></form></div></section>
   {% endif %}
   {% endif %}
   {% endif %}
