@@ -341,7 +341,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` | [resource_commander_access.py](../app/resource_commander_access.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_` | [resource_peer_credentials.py](../app/resource_peer_credentials.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_RESTORE_ROOT` | [replication_store.py](../app/replication_store.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_RSYNC_ENABLED` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
+| `SIMPLEOFFICE_RSYNC_ENABLED` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_RSYNC_MAX_BYTES` | Legacy-Startwert bis `network.rsync_max_bytes` unter `/admin/settings/network` gespeichert wird | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_MAX_FILES` | Legacy-Startwert bis `network.rsync_max_files` unter `/admin/settings/network` gespeichert wird | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_TIMEOUT` | `3600`, effektiv 30–86400 | Legacy-Startwert bis `network.rsync_timeout_seconds` unter `/admin/settings/network` gespeichert wird; [Rsync-Sitzungen](VIRTUELLES_DATEISYSTEM_SFTP.md) |
@@ -358,12 +358,12 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SERVER_PEER_ID` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_SERVER_PUBLIC_URL` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | [SITE_VISITS](SITE_VISITS.md) |
-| `SIMPLEOFFICE_SFTP_BIND` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_SFTP_BIND` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_SFTP_HOST_KEY` | [documents_core.py](../app/documents_core.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
-| `SIMPLEOFFICE_SFTP_MAX_BYTES` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
-| `SIMPLEOFFICE_SFTP_MAX_CLIENTS` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
-| `SIMPLEOFFICE_SFTP_PASSWORD_AUTH` (Legacy-Import / direkter SFTP-Starter) | [sftp_service.py](../app/sftp_service.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); bevorzugt über Mini Services → SFTP konfigurieren |
-| `SIMPLEOFFICE_SFTP_PORT` | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
+| `SIMPLEOFFICE_SFTP_MAX_BYTES` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
+| `SIMPLEOFFICE_SFTP_MAX_CLIENTS` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
+| `SIMPLEOFFICE_SFTP_PASSWORD_AUTH` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
+| `SIMPLEOFFICE_SFTP_PORT` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_SIP_BIND` | [simpleoffice_sip_runtime.py](../simpleoffice_sip_runtime.py) | [MINI_SERVICES_REVIEW](MINI_SERVICES_REVIEW.md) |
 | `SIMPLEOFFICE_SKIP_INVOICE_VALIDATOR_BOOTSTRAP` | [install_invoice_validator.py](../tools/install_invoice_validator.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_SKIP_XRECHNUNG_VALIDATOR_BOOTSTRAP` | [install_xrechnung_validator.py](../tools/install_xrechnung_validator.py) | Quelle und Ergänzungen oben |
