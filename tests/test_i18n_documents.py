@@ -467,6 +467,105 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("12 bytes", en_body)
         self.assertIn("12 Byte", de_body)
 
+    def _render(self, template: str, language: str, **context) -> str:
+        from flask import g, render_template
+        with app.test_request_context("/"):
+            g.language = language
+            g.user = {"username": "admin", "display_name": "Admin",
+                      "is_admin": True, "is_disabled": 0, "theme": "system"}
+            return render_template(template, **context)
+
+    def test_v3_inbox_disabled_state(self) -> None:
+        en_body = self._get("/documents/inbox-v3", "en")
+        self.assertIn("is disabled.", en_body)
+        de_body = self._get("/documents/inbox-v3", "de")
+        self.assertIn("ist deaktiviert.", de_body)
+
+    def test_v3_inbox_detail_renders_both_languages(self) -> None:
+        item = {"item_id": "i1", "original_name": "scan.pdf",
+                "source": "web", "source_key": "k", "status": "new",
+                "sha256": None, "document_id": None, "assignments": []}
+        en_body = self._render("documents/v3_inbox_detail.html", "en",
+                               item=item, steps=[])
+        self.assertIn("Assign", en_body)
+        self.assertIn("Contact", en_body)
+        de_body = self._render("documents/v3_inbox_detail.html", "de",
+                               item=item, steps=[])
+        self.assertIn("Zuordnen", de_body)
+        self.assertIn("Kontakt", de_body)
+
+    def test_mail_archive_preview_renders_both_languages(self) -> None:
+        preview = {"subject": "Hello", "size": 2048, "from": "a@x.de",
+                   "to": "b@x.de", "cc": "", "date": "today",
+                   "message_id": "", "path": "/archive/1.eml",
+                   "text": "body", "attachments": []}
+        context = {"preview": preview, "account_id": "a", "query": ""}
+        en_body = self._render(
+            "documents/mail_archive_preview.html", "en", **context)
+        self.assertIn("Archived email", en_body)
+        self.assertIn("Back to archive", en_body)
+        de_body = self._render(
+            "documents/mail_archive_preview.html", "de", **context)
+        self.assertIn("Archivierte E-Mail", de_body)
+        self.assertIn("Zurück zum Archiv", de_body)
+
+    def test_eml_document_preview_renders_both_languages(self) -> None:
+        preview = {"subject": "Hello", "date": "", "from": "a@x.de",
+                   "to": "b@x.de", "reply_to": "", "cc": "",
+                   "message_id": "", "text": "body", "html": "",
+                   "attachment_count": 0, "attachment_bytes": 0,
+                   "attachments": [], "has_inline_images": False}
+        context = {"preview": preview, "document_id": "d1", "view": "text",
+                   "html_srcdoc": ""}
+        en_body = self._render(
+            "documents/eml_document_preview.html", "en", **context)
+        self.assertIn("Readable text", en_body)
+        self.assertIn("No attachments.", en_body)
+        de_body = self._render(
+            "documents/eml_document_preview.html", "de", **context)
+        self.assertIn("Lesbarer Text", de_body)
+        self.assertIn("Keine Anhänge.", de_body)
+
+    def test_zugferd_details_renders_both_languages(self) -> None:
+        document = {"document_id": "d1"}
+        en_body = self._render("documents/zugferd_details.html", "en",
+                               document=document,
+                               details={"detected": False})
+        self.assertIn("No embedded ZUGFeRD", en_body)
+        de_body = self._render("documents/zugferd_details.html", "de",
+                               document=document,
+                               details={"detected": True,
+                                        "xml_filename": "x.xml",
+                                        "invoice_id": "1",
+                                        "issue_date": "today",
+                                        "profile": "", "validation": "ok",
+                                        "raw_xml": "<xml/>"})
+        self.assertIn("Eingebettete Rechnungsdaten erkannt", de_body)
+        self.assertIn("XML anzeigen", de_body)
+
+    def test_smart_folder_job_renders_both_languages(self) -> None:
+        job = {"state": "failed", "attempt": 2,
+               "progress": {"total": 4, "completed": 1},
+               "last_error": "", "payload": {"folder": "inbox"}}
+        en_body = self._render("documents/smart_folder_job.html", "en",
+                               job=job)
+        self.assertIn("Smart folder batch job", en_body)
+        self.assertIn("The batch job failed.", en_body)
+        de_body = self._render("documents/smart_folder_job.html", "de",
+                               job=job)
+        self.assertIn("Sammelordner-Stapelaktion", de_body)
+        self.assertIn("Die Stapelaktion ist fehlgeschlagen.", de_body)
+
+    def test_book_calendar_public(self) -> None:
+        for language, marker in (("en", "Request appointment"),
+                                 ("de", "Termin anfragen")):
+            client = app.test_client()
+            with client.session_transaction() as session:
+                session["simpleoffice_language"] = language
+            response = client.get("/documents/calendar/book")
+            self.assertIn(response.status_code, (200, 400))
+            self.assertIn(marker, response.data.decode("utf-8"))
+
     def test_published_calendar(self) -> None:
         en_body = self._get("/documents/calendar/published/family", "en",
                             anonymous=True)
