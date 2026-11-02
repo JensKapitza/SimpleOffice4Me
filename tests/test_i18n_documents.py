@@ -78,6 +78,30 @@ class ContactsLanguageWebTest(unittest.TestCase):
         self.assertIn("Kontakt importieren", body)
         self.assertIn("Kontakt speichern", body)
 
+    def test_dashboard_english(self) -> None:
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        response = self.client.get("/documents/dashboard")
+        self.assertEqual(200, response.status_code)
+        body = response.data.decode("utf-8")
+        self.assertIn("Overview", body)
+        self.assertIn("Time clock", body)
+        self.assertIn("Site visits", body)
+        self.assertIn("Communication", body)
+        self.assertIn("Open navigation", body)
+
+    def test_dashboard_german(self) -> None:
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+        response = self.client.get("/documents/dashboard")
+        self.assertEqual(200, response.status_code)
+        body = response.data.decode("utf-8")
+        self.assertIn("Übersicht", body)
+        self.assertIn("Stempeluhr", body)
+        self.assertIn("Ortstermine", body)
+        self.assertIn("Kommunikation", body)
+        self.assertIn("Navigation öffnen", body)
+
 
 if __name__ == "__main__":
     unittest.main()

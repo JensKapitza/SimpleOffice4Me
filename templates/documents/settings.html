@@ -82,7 +82,7 @@
           <label class="form-label">Zustand für Web-Uploads</label>
           <input required maxlength="80" pattern="[A-Za-z0-9ÄÖÜäöüß._ -]+" class="form-control mb-3" name="default_state" value="{{ settings.documents.default_state }}">
           <label class="form-label">Zusätzliche Standard-Tags</label>
-          <input maxlength="2000" class="form-control mb-1" name="default_tags" value="{{ settings.documents.default_tags|join(', ') }}" placeholder="rechnung, eingang, prüfen">
+          <input maxlength="2000" class="form-control mb-1" name="default_tags" value="{{ settings.documents.default_tags|join(', ') }}" placeholder="{{ 'invoice, inbox, review' if g.language == 'en' else 'rechnung, eingang, prüfen' }}">
           <div class="form-text mb-3">Kommagetrennt. Kurze, eindeutige Tags verwenden; doppelte Werte werden zusammengeführt.</div>
           <div class="form-check">
             <input class="form-check-input" type="checkbox" name="upload_to_archive" value="1" id="upload-to-archive" {% if settings.documents.upload_to_archive %}checked{% endif %}>
