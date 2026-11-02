@@ -556,6 +556,55 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Sammelordner-Stapelaktion", de_body)
         self.assertIn("Die Stapelaktion ist fehlgeschlagen.", de_body)
 
+    def test_project_issues(self) -> None:
+        project_id = self._make_project()
+        en_body = self._get(
+            f"/documents/projects/{project_id}/issues", "en")
+        self.assertIn("New issue", en_body)
+        self.assertIn("No matching issues", en_body)
+        de_body = self._get(
+            f"/documents/projects/{project_id}/issues", "de")
+        self.assertIn("Neues Issue", de_body)
+        self.assertIn("Keine passenden Issues", de_body)
+
+    def test_project_wiki(self) -> None:
+        project_id = self._make_project()
+        en_body = self._get(
+            f"/documents/projects/{project_id}/wiki", "en")
+        self.assertIn("No wiki pages yet.", en_body)
+        self.assertIn("Create first wiki page", en_body)
+        de_body = self._get(
+            f"/documents/projects/{project_id}/wiki", "de")
+        self.assertIn("Noch keine Wiki-Seiten.", de_body)
+        self.assertIn("Erste Wiki-Seite anlegen", de_body)
+
+    def test_euer_booking_form(self) -> None:
+        en_body = self._get("/documents/business/bookkeeping/new", "en")
+        self.assertIn("Book receipt", en_body)
+        self.assertIn("Book bindingly", en_body)
+        de_body = self._get("/documents/business/bookkeeping/new", "de")
+        self.assertIn("Beleg buchen", de_body)
+        self.assertIn("Verbindlich buchen", de_body)
+
+    def test_video_player_renders_both_languages(self) -> None:
+        context = {
+            "document": {"document_id": "d1",
+                         "last_path": "videos/demo.mp4"},
+            "raw_url": "/raw/demo.mp4", "download_url": "/dl/demo.mp4",
+            "thumbnail_url": "", "mime": "video/mp4", "video": None,
+            "frames": [], "can_manage_video": False,
+            "video_preview_frame_count": 5, "variants": [],
+            "ffmpeg_available": False,
+        }
+        en_body = self._render("documents/video_player.html", "en",
+                               **context)
+        self.assertIn("Video preview and technical variants", en_body)
+        self.assertIn("Playback variants", en_body)
+        de_body = self._render("documents/video_player.html", "de",
+                               **context)
+        self.assertIn("Video-Vorschau und technische Varianten", de_body)
+        self.assertIn("Wiedergabevarianten", de_body)
+
     def test_book_calendar_public(self) -> None:
         for language, marker in (("en", "Request appointment"),
                                  ("de", "Termin anfragen")):
