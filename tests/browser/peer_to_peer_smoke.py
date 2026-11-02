@@ -79,6 +79,10 @@ def attach_peer_diagnostics(
 
 
 def register_and_login(page, base_url: str, username: str) -> None:
+    # This smoke uses German accessible labels throughout its workflow.
+    page.goto(f"{base_url}/auth/login", wait_until="domcontentloaded")
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        page.get_by_role("button", name="German", exact=True).click()
     response = page.goto(
         f"{base_url}/auth/register", wait_until="domcontentloaded"
     )

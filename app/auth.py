@@ -103,7 +103,10 @@ def _google_config() -> dict[str, str] | None:
 
 
 def _login_user(user) -> None:
+    language = session.get("simpleoffice_language")
     session.clear()
+    if language in ("de", "en"):
+        session["simpleoffice_language"] = language
     session['user_id'] = user['id']
     session['auth_version'] = user['auth_version']
     session.permanent = True

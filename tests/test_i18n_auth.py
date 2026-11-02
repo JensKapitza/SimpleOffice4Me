@@ -123,6 +123,22 @@ class AuthLanguageWebTest(unittest.TestCase):
         self.assertIn("Benutzername oder Passwort ist falsch",
                       response.data.decode("utf-8"))
 
+    def test_selected_language_survives_successful_login(self) -> None:
+        token = self.csrf(self.client)
+        self.client.post(
+            "/auth/language",
+            data={"_csrf_token": token, "language": "de"},
+        )
+        token = self.csrf(self.client)
+        response = self.client.post(
+            "/auth/login",
+            data={"username": "admin", "password": self.password,
+                  "_csrf_token": token},
+            follow_redirects=True,
+        )
+        self.assertEqual(200, response.status_code)
+        self.assertIn('aria-label="Hauptnavigation"', response.data.decode("utf-8"))
+
     def _bootstrap_client(self):
         with app.app_context():
             db = get_db()

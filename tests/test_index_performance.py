@@ -209,6 +209,8 @@ class LoginDashboardPerformanceTest(unittest.TestCase):
             )
             db.commit()
         self.client = app.test_client()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)

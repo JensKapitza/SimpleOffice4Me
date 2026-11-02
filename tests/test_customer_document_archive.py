@@ -28,6 +28,8 @@ class CustomerDocumentArchiveTest(unittest.TestCase):
         self.client = app.test_client()
         self.client.post("/auth/register", data={"username": "jens", "password": "sicheres-passwort"})
         self.client.post("/auth/login", data={"username": "jens", "password": "sicheres-passwort"})
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         self.contact = ContactStore(self.root).upsert(
             {"display_name": "Kunde Export", "email": "kunde@example.test"}, "jens",
         )
