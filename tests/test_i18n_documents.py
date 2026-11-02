@@ -17,7 +17,7 @@ from app.password_security import hash_password
 
 
 class ContactsLanguageWebTest(unittest.TestCase):
-    password = "i18n-contacts-test-password"
+    password = "test-only-i18n-password"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

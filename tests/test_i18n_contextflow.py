@@ -18,7 +18,7 @@ from app.password_security import hash_password
 
 
 class ContextflowLanguageWebTest(unittest.TestCase):
-    password = "i18n-contextflow-test-password"
+    password = "test-only-i18n-password"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()

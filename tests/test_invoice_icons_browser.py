@@ -39,6 +39,11 @@ class InvoiceIconsBrowserTests(unittest.TestCase):
         credentials = {"username": "invoice-icon-browser", "password": "browser-test-password"}
         self.client.post("/auth/register", data=credentials)
         self.client.post("/auth/login", data=credentials)
+        # Suite asserts German UI strings ("Verknüpfen", "Herunterladen", ...):
+        # pin the session to German before the cookie is captured for the
+        # browser (app default is English).
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         contact = ContactStore(self.root).upsert(
             {"display_name": "Icon Browser Customer"}, "invoice-icon-browser",
         )
