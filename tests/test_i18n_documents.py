@@ -103,5 +103,123 @@ class ContactsLanguageWebTest(unittest.TestCase):
         self.assertIn("Navigation öffnen", body)
 
 
+class ManagementPagesLanguageTest(unittest.TestCase):
+    password = "test-only-i18n-password"
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.saved = {
+            key: app.config.get(key)
+            for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING", "TEST_CSRF_PROTECTION")
+        }
+        app.config.update(
+            DATABASE=str(Path(self.temp.name) / "auth.sqlite"),
+            DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
+            TESTING=True,
+            TEST_CSRF_PROTECTION=True,
+        )
+        with app.app_context():
+            ensure_auth_database()
+            db = get_db()
+            db.execute(
+                "INSERT INTO user(username,password,display_name,is_admin,"
+                "is_disabled,auth_version,created_at,updated_at)"
+                " VALUES (?,?,?, ?,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
+                ("admin", hash_password(self.password), "Admin", 1),
+            )
+            db.commit()
+        self.root = Path(self.temp.name) / "documents"
+        self.client = app.test_client()
+        import re
+        match = re.search(rb'name="_csrf_token" value="([^"]+)"',
+                          self.client.get("/auth/login").data)
+        assert match is not None
+        self.client.post(
+            "/auth/login",
+            data={"username": "admin", "password": self.password,
+                  "_csrf_token": match.group(1).decode()},
+        )
+
+    def tearDown(self) -> None:
+        app.config.update(self.saved)
+        self.temp.cleanup()
+
+    def _get(self, url: str, language: str, anonymous: bool = False) -> str:
+        client = app.test_client() if anonymous else self.client
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = language
+        response = client.get(url)
+        self.assertEqual(200, response.status_code)
+        return response.data.decode("utf-8")
+
+    def test_notes_english(self) -> None:
+        body = self._get("/documents/wiki/notes", "en")
+        self.assertIn("Note wiki", body)
+        self.assertIn("No notes yet.", body)
+
+    def test_notes_german(self) -> None:
+        body = self._get("/documents/wiki/notes", "de")
+        self.assertIn("Notiz-Wiki", body)
+        self.assertIn("Noch keine Notizen vorhanden.", body)
+
+    def test_retention_english(self) -> None:
+        body = self._get("/documents/retention", "en")
+        self.assertIn("Deadlines and manual disposal", body)
+        self.assertIn("Add rule", body)
+        self.assertIn("No inherited rule configured yet.", body)
+
+    def test_retention_german(self) -> None:
+        body = self._get("/documents/retention", "de")
+        self.assertIn("Fristen und manuelle Aussonderung", body)
+        self.assertIn("Regel hinzufügen", body)
+        self.assertIn("Noch keine vererbte Regel konfiguriert.", body)
+
+    def test_recovery_english(self) -> None:
+        body = self._get("/documents/recovery", "en")
+        self.assertIn("Recover files", body)
+        self.assertIn("Safe recovery:", body)
+        self.assertIn("No own WebDAV deletions available for recovery.", body)
+
+    def test_recovery_german(self) -> None:
+        body = self._get("/documents/recovery", "de")
+        self.assertIn("Dateien wiederherstellen", body)
+        self.assertIn("Sichere Wiederherstellung:", body)
+        self.assertIn("Keine eigenen WebDAV-Löschungen", body)
+
+    def test_share_password_page(self) -> None:
+        from app.document_store import DocumentStore
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / "shared.txt").write_text("shared", encoding="utf-8")
+        store = DocumentStore(self.root)
+        store.scan()
+        document = store.get_document("shared.txt")
+        share = store.create_share(
+            document["document_id"], "test-only-share-password", 1, "admin")
+        url = f"/documents/share/{share['share_id']}"
+        en_body = self._get(url, "en", anonymous=True)
+        self.assertIn("Protected share", en_body)
+        self.assertIn("Open", en_body)
+        de_body = self._get(url, "de", anonymous=True)
+        self.assertIn("Geschützte Freigabe", de_body)
+        self.assertIn("Öffnen", de_body)
+
+    def test_shared_note_renders_both_languages(self) -> None:
+        from flask import g, render_template
+        note = {"text": "note text", "author": "admin", "created_at": "now"}
+        document = {"last_path": "note.txt"}
+        share = {"expires_at": "tomorrow"}
+        with app.test_request_context("/"):
+            g.language = "en"
+            en_body = render_template(
+                "documents/shared_note.html", note=note,
+                document=document, share=share)
+            g.language = "de"
+            de_body = render_template(
+                "documents/shared_note.html", note=note,
+                document=document, share=share)
+        self.assertIn("Shared until", en_body)
+        self.assertIn("Freigabe bis", de_body)
+
+
 if __name__ == "__main__":
     unittest.main()
