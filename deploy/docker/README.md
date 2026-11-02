@@ -30,9 +30,15 @@ docker run --rm -p 8080:8080 \
 
 ## GitHub Container Registry
 
-Pushes to `main` and version tags publish a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub Container Registry.
+Pushes to `main` and version tags publish a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub Container Registry. Manual workflow runs publish only when started on `main`, the hackathon branch, or a `v*` version tag.
 
-The default branch also receives the `latest` tag. Version tags such as `v1.2.3` retain their tag name.
+The default branch also receives the `latest` tag. Version tags such as `v1.2.3` retain their tag name. Pushes to `hackathon/contextflow-mvp` publish the separate `hackathon-contextflow-mvp` tag and a commit-specific `sha-*` tag; they do not update `latest` or the stable release-version tag. Pull requests continue to produce downloadable build artifacts without publishing an image.
+
+Pull the current hackathon build with:
+
+```sh
+docker pull ghcr.io/jenskapitza/simpleoffice4me:hackathon-contextflow-mvp
+```
 
 ## Isolated federation test network
 
