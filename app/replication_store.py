@@ -337,6 +337,7 @@ def init_app(app) -> None:
         federation_http,
         federation_mail_http,
         mail_case_federation_runtime,
+        resource_commander_admin,
         federation_network_admin,
         federation_peer_admin,
         federation_phase2,
@@ -358,6 +359,7 @@ def init_app(app) -> None:
     app.register_blueprint(admin_federation_discovery.bp)
     app.register_blueprint(federation_moderation_admin.bp)
     app.register_blueprint(federation_moderation_http.bp)
+    app.register_blueprint(resource_commander_admin.bp)
     app.register_blueprint(federation_network_admin.bp)
     app.register_blueprint(federation_peer_admin.bp)
     app.register_blueprint(federation_status.bp)

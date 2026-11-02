@@ -1,9 +1,7 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest import mock
 
 from flask import Flask
 
@@ -50,41 +48,42 @@ class SoftwareArtifactConfigurationTests(unittest.TestCase):
                 state = json.loads(raw)
                 self.assertTrue(str(state["token"]).startswith("enc:v1:"))
 
-    @mock.patch.dict(
-        os.environ,
-        {
-            "SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN": "legacy-token",
-            "SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY": "Legacy/Repo",
-        },
-        clear=False,
-    )
+    def test_unmanaged_configuration_uses_default_repository_and_empty_token(self):
+        with tempfile.TemporaryDirectory() as temp:
+            config = SoftwareArtifactConfiguration(Path(temp))
+            app = self._app()
+            with app.app_context():
+                self.assertEqual("JensKapitza/SimpleOffice4Me", config.repository())
+                self.assertEqual("", config.token())
+                self.assertFalse(config.info()["managed"])
+                self.assertFalse(config.info()["configured"])
+
     def test_admin_configuration_becomes_authoritative_after_save(self):
         with tempfile.TemporaryDirectory() as temp:
             config = SoftwareArtifactConfiguration(Path(temp))
             app = self._app()
             with app.app_context():
-                self.assertEqual("legacy-token", config.token())
-                self.assertEqual("Legacy/Repo", config.repository())
-                result = config.save("New/Repo", clear_token=True, actor="admin")
+                result = config.save("New/Repo", token="[REDACTED]", actor="admin")
                 self.assertTrue(result["managed"])
-                self.assertFalse(result["configured"])
+                self.assertTrue(result["configured"])
+                self.assertEqual("[REDACTED]", config.token())
+                self.assertEqual("New/Repo", config.repository())
+                cleared = config.save("New/Repo", clear_token=True, actor="admin")
+                self.assertTrue(cleared["managed"])
+                self.assertFalse(cleared["configured"])
                 self.assertEqual("", config.token())
                 self.assertEqual("New/Repo", config.repository())
 
-    @mock.patch.dict(
-        os.environ,
-        {"SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN": "legacy-token"},
-        clear=False,
-    )
-    def test_first_admin_save_migrates_existing_environment_token(self):
+    def test_save_without_token_leaves_configuration_unconfigured(self):
         with tempfile.TemporaryDirectory() as temp:
             config = SoftwareArtifactConfiguration(Path(temp))
             app = self._app()
             with app.app_context():
                 result = config.save("JensKapitza/SimpleOffice4Me", actor="admin")
-                self.assertTrue(result["configured"])
-                self.assertEqual("legacy-token", config.token())
-                self.assertNotIn("legacy-token", config.path.read_text(encoding="utf-8"))
+                self.assertTrue(result["managed"])
+                self.assertFalse(result["configured"])
+                self.assertEqual("", config.token())
+                self.assertNotIn("token", result)
 
 
 if __name__ == "__main__":

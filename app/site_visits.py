@@ -1,7 +1,6 @@
 """Ortstermin capture, network maps, finding chains and customer reports."""
 from __future__ import annotations
 
-import os
 from datetime import date
 from io import BytesIO
 from urllib.parse import urlsplit
@@ -10,6 +9,7 @@ from flask import Blueprint, abort, current_app, flash, g, make_response, redire
 from reportlab.graphics import renderSVG
 from reportlab.graphics.barcode import createBarcodeDrawing
 
+from . import federation_network as _network
 from .auth import login_required
 from .site_visit_report import build_visit_report
 from .site_visit_scan import scan_authorized_private_network
@@ -408,9 +408,9 @@ def label_svg(visit_id: str, asset_id: str):
     asset = next((row for row in record.get("assets", []) if row.get("asset_id") == asset_id), None)
     if not asset:
         abort(404)
-    public_base = os.environ.get("SIMPLEOFFICE_SERVER_PUBLIC_URL", "").strip() or os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
+    public_base = _network.server_public_url()
     if not public_base:
-        return "SIMPLEOFFICE_SERVER_PUBLIC_URL muss für QR-Labels gesetzt sein.", 503, {"Cache-Control": "no-store"}
+        return "Server-URL muss für QR-Labels gesetzt sein (Peer-Discovery, Netzwerkeinstellungen).", 503, {"Cache-Control": "no-store"}
     parsed = urlsplit(public_base)
     try:
         parsed.port

@@ -125,7 +125,6 @@ class V3ReleaseGateMatrixTests(unittest.TestCase):
                 env = dict(
                     flags,
                     SIMPLEOFFICE_FEDERATION_TOKEN="matrix-federation-token",
-                    SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER="0",
                 )
                 for key in active:
                     env["SIMPLEOFFICE_V3_" + key.upper() + "_ENABLED"] = "1"

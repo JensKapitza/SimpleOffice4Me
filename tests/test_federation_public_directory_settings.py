@@ -41,7 +41,6 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
         )
         self.environment = patch.dict(os.environ, {
             "SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY": "0",
-            "SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "",
             "SIMPLEOFFICE_FEDERATION_COUNTRY": "",
         })
         self.environment.start()
@@ -207,24 +206,19 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
             page.get_data(as_text=True).count('id="federation-public-url"'),
         )
         store = SettingsStore(self.root)
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "office.example/simpleoffice"},
-        ):
-            self.assertEqual(
-                "https://office.example/simpleoffice",
-                store.settings()["integrations"]["federation_public_url"],
-            )
-            store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
-
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "https://changed.example"},
-        ):
-            self.assertEqual(
-                "https://office.example/simpleoffice",
-                store.settings()["integrations"]["federation_public_url"],
-            )
+        store.save(
+            {"integrations": {"federation_public_url": "office.example/simpleoffice"}},
+            "federation-admin",
+        )
+        self.assertEqual(
+            "https://office.example/simpleoffice",
+            store.settings()["integrations"]["federation_public_url"],
+        )
+        store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
+        self.assertEqual(
+            "https://office.example/simpleoffice",
+            store.settings()["integrations"]["federation_public_url"],
+        )
         with patch(
             "app.federation_local_profile.FederationIdentity.public_identity",
             return_value={"public_key": "public-key", "fingerprint": "sha256:test"},

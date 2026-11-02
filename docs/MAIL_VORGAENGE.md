@@ -131,8 +131,10 @@ Freigabe-/Ablehnungsereignisse entgegen. Der Versand nutzt den gespeicherten
 Peer-Token über HTTPS; direkter Trust, `mail_cases`-Capability und die lokale
 Send-Policy müssen aktiv sein. Temporäre Netzwerkfehler landen in einer
 persistenten Outbox mit maximal 1.000 Einträgen und exponentiellem Backoff.
-Der Retry-Worker lässt sich über `SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER=0`
-abschalten. Ereignisse sind idempotent. Auf der Empfangsinstanz
+Der Retry-Worker lässt sich in der Admin-Oberfläche unter Federation →
+Netzwerkeinstellungen abschalten (Standard: an);
+`SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER` ist entfernt. Ereignisse sind
+idempotent. Auf der Empfangsinstanz
 werden Ereignisse bei aktivierter `auto_accept`-Receive-Policy angewendet;
 andernfalls bleiben sie `pending` und können durch einen Administrator geprüft
 werden. Das SMTP-Senden bleibt auf der Instanz des Mailkontos.

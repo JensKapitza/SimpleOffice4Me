@@ -98,23 +98,47 @@ def _flag(raw: Any) -> str | None:
     return None
 
 
+def server_public_url() -> str:
+    """Public server base URL for QR labels and web export ("" when unset)."""
+    return _raw("server_public_url")
+
+
+def mail_case_worker_enabled() -> bool:
+    """Mail-case federation background worker (default on; explicit opt-out)."""
+    raw = _raw("mail_case_worker_enabled")
+    if not raw:
+        return True
+    return raw.casefold() in TRUE_VALUES
+
+
+_FIELD_CLEANERS = {
+    "lan_addresses": _limited_text,
+    "lan_ports": _limited_text,
+    "bootstrap_urls": _limited_text,
+    "server_public_url": _limited_text,
+    "allow_private_targets": _flag,
+    "allow_loopback": _flag,
+    "refuse_bad_client": _flag,
+    "mail_case_worker_enabled": _flag,
+}
+
+
 def validate(values: Mapping[str, Any], language: str = "de") -> dict[str, str]:
     if not isinstance(values, dict):
         raise _fail(language)
-    cleaned = {
-        "lan_addresses": _limited_text(values.get("lan_addresses", "")),
-        "lan_ports": _limited_text(values.get("lan_ports", "")),
-        "bootstrap_urls": _limited_text(values.get("bootstrap_urls", "")),
-        "allow_private_targets": _flag(values.get("allow_private_targets", "")),
-        "allow_loopback": _flag(values.get("allow_loopback", "")),
-        "refuse_bad_client": _flag(values.get("refuse_bad_client", "")),
-    }
-    if any(value is None for value in cleaned.values()):
-        raise _fail(language)
+    cleaned: dict[str, str] = {}
+    for key, cleaner in _FIELD_CLEANERS.items():
+        if key not in values:
+            continue
+        result = cleaner(values[key])
+        if result is None:
+            raise _fail(language)
+        cleaned[key] = result
     return cleaned
 
 
 def save(values: Mapping[str, Any], language: str = "de") -> dict[str, Any]:
+    """Persist the given fields; absent fields keep their stored values."""
     cleaned = validate(values, language)
     _store.put(SECTION, cleaned)
     return status()
@@ -133,7 +157,9 @@ def status() -> dict[str, Any]:
         "lan_addresses": _raw("lan_addresses"),
         "lan_ports": _raw("lan_ports"),
         "bootstrap_urls": _raw("bootstrap_urls"),
+        "server_public_url": server_public_url(),
         "allow_private_targets": allow_private_targets(),
         "allow_loopback": allow_loopback(),
         "refuse_bad_client": refuse_bad_client(),
+        "mail_case_worker_enabled": mail_case_worker_enabled(),
     }

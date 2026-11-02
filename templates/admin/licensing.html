@@ -22,6 +22,16 @@
   <div class="alert alert-warning">{{ licensing.state.message or licensing.state.reason }}</div>
   {% endif %}
 
+  <section class="card mb-4" id="master-token">
+    <div class="card-header"><strong>{{ 'License master token' if g.language == 'en' else 'Lizenz-Master-Token' }}</strong></div>
+    <div class="card-body">
+      <p class="small text-secondary">{{ 'Authenticates reports and master APIs. Encrypted in the app store, never shown – only whether one is stored. An empty field keeps the stored token.' if g.language == 'en' else 'Authentifiziert Berichte und Master-APIs. Verschlüsselt im App-Store, nie angezeigt – nur ob eines hinterlegt ist. Leeres Feld behält das gespeicherte Token.' }} {% if master_token_configured %}<span class="badge text-bg-success">{{ 'Stored' if g.language == 'en' else 'Hinterlegt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %}</p>
+      <form method="post" action="{{ url_for('licensing_admin.master_token') }}">
+        <div class="row g-2 align-items-end"><div class="col-md-7"><label class="form-label" for="master-token-input">{{ 'Master token' if g.language == 'en' else 'Master-Token' }}</label><input id="master-token-input" class="form-control font-monospace" name="master_token" type="password" value="" maxlength="4096" autocomplete="new-password"></div><div class="col-md-auto"><button class="btn btn-primary" type="submit">{{ 'Save token' if g.language == 'en' else 'Token speichern' }}</button></div></div>
+      </form>
+    </div>
+  </section>
+
   <div class="row g-3 mb-4">
     <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Current month' if g.language == 'en' else 'Aktueller Monat' }}</div><div class="fs-4 fw-semibold">{{ licensing.current_month }}</div></div></div></div>
     <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Active users' if g.language == 'en' else 'Aktive Benutzer' }}</div><div class="fs-3 fw-semibold">{{ licensing.active_users }}</div></div></div></div>

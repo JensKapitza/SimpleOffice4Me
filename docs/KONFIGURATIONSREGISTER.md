@@ -61,7 +61,8 @@ ISO-3166-Alpha-2-Land im lokalen Discovery-Profil. Der Standard ist leer;
 `integrations.federation_public_url` ist die optionale, persistente Basis-URL für
 Profile und QR-Codes. Die vorhandene Federation-Endpoint-Validierung entfernt
 unsichere Bestandteile; der Server ruft die URL beim Speichern nicht ab.
-`SIMPLEOFFICE_FEDERATION_PUBLIC_URL` wird nur bis zur ersten Speicherung migriert.
+`SIMPLEOFFICE_FEDERATION_PUBLIC_URL` ist entfernt; es findet keine Migration
+statt, die URL wird ausschließlich in der Admin-Oberfläche gepflegt.
 
 ### Tiefe Archivindexierung
 
@@ -178,21 +179,25 @@ Webprozesses übernommen; bis zur Speicherung dient
 - `SIMPLEOFFICE_ANDROID_ACCOUNT` bezeichnet die lokale Android-Identität.
   `SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN` ist ein Secret für den vorhandenen
   Loopback-Bootstrap, kein öffentliches Login-Token; [Prüfung](../app/android_auth.py).
-- `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY` wählt das Artefakt-Repository.
-  `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` wird vor dem direkten
-  `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN` berücksichtigt. Beides sicher bereitstellen;
-  keine Tokenwerte in den Dokumenten verwenden; [Artefaktkonfiguration](../app/software_artifact_config.py).
-- `SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS` ist ein geheimes JSON-Mapping.
-  Der dynamische Name `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_<PEER>` hat Vorrang:
-  Peer-ID in Großbuchstaben, nicht alphanumerische Zeichen als Unterstrich,
-  Rand-Unterstriche entfernt. Eigene Commander-Tokens, kein Rückfall auf
-  Federation-Tokens; [Peer-Credentials](../app/resource_peer_credentials.py).
-  Der Registereintrag mit abschließendem `_` bezeichnet diesen Präfix.
-- `SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN` und `SIMPLEOFFICE_LICENSE_MASTER_TOKEN`
-  sind dienstspezifische Secrets; `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` ist
-  dagegen öffentlicher Profilinhalt. Nicht gegenseitig ersetzen.
-  `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT` steuert die entsprechende
-  Client-Ablehnung; [Lizenz-/Clientprüfung](../app/license_routes.py).
+- Repository und Token für GitHub-Artefakte werden ausschließlich in der
+  Admin-Oberfläche gepflegt (Software-Verwaltung → GitHub-Artefaktquelle);
+  `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY`, `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN`
+  und `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` sind entfernt. Keine Tokenwerte
+  in den Dokumenten verwenden; [Artefaktkonfiguration](../app/software_artifact_config.py).
+- Inbound-Token und Peer-Mapping des Resource Commander werden ausschließlich
+  in der Admin-Oberfläche gepflegt (Federation → Resource Commander) und
+  verschlüsselt gespeichert; `SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS`,
+  `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` und der dynamische Präfix
+  `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_<PEER>` sind entfernt. Eigene
+  Commander-Tokens, kein Rückfall auf Federation-Tokens;
+  [Commander-Zugangsdaten](../app/resource_commander_credentials.py).
+- `SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN` ist ein dienstspezifisches Secret;
+  `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` ist dagegen öffentlicher Profilinhalt.
+  Nicht gegenseitig ersetzen. Das Lizenz-Master-Token wird ausschließlich in
+  der Admin-Oberfläche gepflegt (Lizenzierung → Master-Token);
+  `SIMPLEOFFICE_LICENSE_MASTER_TOKEN` ist entfernt. Die Client-Ablehnung ist
+  eine persistente Netzwerkeinstellung; `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT`
+  ist entfernt; [Lizenz-/Clientprüfung](../app/license_routes.py).
 - `SIMPLEOFFICE_RESTORE_ROOT` begrenzt den Wiederherstellungsort;
   [Recovery-Pfadprüfung](../app/replication_store.py) beachten.
 - `SIMPLEOFFICE_CONTAINER_ROLE` trennt unter anderem Web- und Error-Relay-Rolle.
@@ -277,14 +282,14 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_PEER_ID` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHAT](CHAT.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY` (Legacy-Migration) | [federation_discovery_http.py](../app/federation_discovery_http.py) | Persistente Präferenz `integrations.federation_public_directory_enabled`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_PUBLIC_KEY` | [federation_local_profile.py](../app/federation_local_profile.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` (Legacy-Migration) | [federation_local_profile.py](../app/federation_local_profile.py) | Persistente Präferenz `integrations.federation_public_url`; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` (entfernt) | [federation_local_profile.py](../app/federation_local_profile.py) | Persistente Präferenz `integrations.federation_public_url`, ausschließlich Admin-Oberfläche; [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT` | [license_routes.py](../app/license_routes.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FEDERATION_TOKEN` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_FIREWALL_AGENT_STATE` | [simpleoffice_firewall_agent.py](../simpleoffice_firewall_agent.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FIREWALL_SOCKET` | [simpleoffice_firewall.py](../simpleoffice_firewall.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY` | [software_artifact_config.py](../app/software_artifact_config.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN` | [software_artifact_config.py](../app/software_artifact_config.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` | [software_artifact_config.py](../app/software_artifact_config.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle |
+| `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
+| `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
 | `SIMPLEOFFICE_GITHUB_ERROR_LABEL` | [github_error_reporter.py](../app/github_error_reporter.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_GITHUB_ERROR_REPORTING` | [ci.yml](../.github/workflows/ci.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_GITHUB_ERROR_REPOSITORY` | [github_error_reporter.py](../app/github_error_reporter.py) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
@@ -305,9 +310,9 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_INDEX_YIELD_MS` | [index_worker.py](../tools/index_worker.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_INSTALLATION_ID` | [system_identity.py](../app/system_identity.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_INSTANCE_DIR` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_LICENSE_MASTER_TOKEN` | [license_routes.py](../app/license_routes.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_LICENSE_MASTER_TOKEN` (entfernt) | [license_secrets.py](../app/license_secrets.py) | Admin → Lizenzierung → Master-Token (verschlüsselt) |
 | `SIMPLEOFFICE_LOG_STDERR_ONLY` | [applogging.py](../app/applogging.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER` | [mail_case_federation_runtime.py](../app/mail_case_federation_runtime.py) | [MAIL_VORGAENGE](MAIL_VORGAENGE.md) |
+| `SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER` (entfernt) | [federation_network.py](../app/federation_network.py) | Admin → Federation → Netzwerkeinstellungen (Standard an); [MAIL_VORGAENGE](MAIL_VORGAENGE.md) |
 | `SIMPLEOFFICE_MAIL_ENV_CREDENTIAL_BINDINGS` | [mail_env_credentials.py](../app/mail_env_credentials.py) | [IMAP_SIEVE_EMAIL_ARCHIV](IMAP_SIEVE_EMAIL_ARCHIV.md) |
 | `SIMPLEOFFICE_MAX_UPLOAD_MIB` | [__init__.py](../app/__init__.py) | [DATEI_WIEDERHERSTELLUNG](DATEI_WIEDERHERSTELLUNG.md) |
 | `SIMPLEOFFICE_MCP` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHATGPT_MCP](CHATGPT_MCP.md) |
@@ -337,9 +342,9 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | [printershare.py](../app/printershare.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PROJECT_REPO_ROOTS` | [project_git.py](../app/project_git.py) | [PROJECT_TRACKER](PROJECT_TRACKER.md) |
-| `SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS` | [resource_peer_credentials.py](../app/resource_peer_credentials.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` | [resource_commander_access.py](../app/resource_commander_access.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
-| `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_` | [resource_peer_credentials.py](../app/resource_peer_credentials.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS` (entfernt) | [resource_commander_credentials.py](../app/resource_commander_credentials.py) | Admin → Federation → Resource Commander (verschlüsselt) |
+| `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` (entfernt) | [resource_commander_credentials.py](../app/resource_commander_credentials.py) | Admin → Federation → Resource Commander (verschlüsselt); [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
+| `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_` (entfernt; dynamischer Präfix) | [resource_commander_credentials.py](../app/resource_commander_credentials.py) | Admin → Federation → Resource Commander (Peer-Mapping, verschlüsselt) |
 | `SIMPLEOFFICE_RESTORE_ROOT` | [replication_store.py](../app/replication_store.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_RSYNC_ENABLED` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_RSYNC_MAX_BYTES` | Legacy-Startwert bis `network.rsync_max_bytes` unter `/admin/settings/network` gespeichert wird | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
@@ -357,7 +362,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SENSOR_` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SERVER_PEER_ID` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_SERVER_PUBLIC_URL` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | [SITE_VISITS](SITE_VISITS.md) |
+| `SIMPLEOFFICE_SERVER_PUBLIC_URL` (nur Server-Container-Build; App liest Netzwerkeinstellungen) | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Admin → Federation → Netzwerkeinstellungen; [SITE_VISITS](SITE_VISITS.md) |
 | `SIMPLEOFFICE_SFTP_BIND` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
 | `SIMPLEOFFICE_SFTP_HOST_KEY` | [documents_core.py](../app/documents_core.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
 | `SIMPLEOFFICE_SFTP_MAX_BYTES` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |

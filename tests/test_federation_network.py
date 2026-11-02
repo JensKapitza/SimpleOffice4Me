@@ -72,6 +72,26 @@ class FederationNetworkStoreTests(unittest.TestCase):
         network.set_lan_addresses("")
         self.assertEqual([], network.lan_addresses())
 
+    def test_public_url_roundtrip_and_worker_default_on(self):
+        self.assertEqual("", network.server_public_url())
+        self.assertTrue(network.mail_case_worker_enabled())
+        network.save({"server_public_url": "https://office.example:8443/"})
+        self.assertEqual("https://office.example:8443/", network.server_public_url())
+        self.assertTrue(network.mail_case_worker_enabled())
+        network.save({"mail_case_worker_enabled": ""})
+        self.assertFalse(network.mail_case_worker_enabled())
+        self.assertEqual("https://office.example:8443/", network.server_public_url())
+        status = network.status()
+        self.assertEqual("https://office.example:8443/", status["server_public_url"])
+        self.assertFalse(status["mail_case_worker_enabled"])
+
+    def test_partial_save_keeps_other_fields(self):
+        network.save({"lan_addresses": "192.168.9.9", "server_public_url": "https://keep.example"})
+        network.save({"allow_loopback": "1"})
+        self.assertEqual(["192.168.9.9"], network.lan_addresses())
+        self.assertEqual("https://keep.example", network.server_public_url())
+        self.assertTrue(network.allow_loopback())
+
 
 class FederationNetworkAdminTests(unittest.TestCase):
     def setUp(self):
@@ -155,6 +175,23 @@ class FederationNetworkAdminTests(unittest.TestCase):
         )
         self.assertEqual(302, response.status_code)
         self.assertEqual([], network.lan_ports())
+
+    def test_save_public_url_and_worker_opt_out(self):
+        response = self.client.post(
+            "/admin/federation/network/settings",
+            data={
+                "server_public_url": "https://office.example",
+                "mail_case_worker_enabled": "",
+            },
+        )
+        self.assertEqual(302, response.status_code)
+        self.assertEqual("https://office.example", network.server_public_url())
+        self.assertFalse(network.mail_case_worker_enabled())
+        page = self.client.get("/admin/federation/peer-discovery")
+        self.assertEqual(200, page.status_code)
+        body = page.get_data(as_text=True)
+        self.assertIn('id="network-server-url"', body)
+        self.assertIn('id="network-mail-worker"', body)
 
     def test_network_settings_need_admin(self):
         user_client = app.test_client()

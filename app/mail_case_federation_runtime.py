@@ -1,7 +1,6 @@
 """Background retry worker for durable mail-case federation events."""
 from __future__ import annotations
 
-import os
 import threading
 import time
 
@@ -13,9 +12,9 @@ _STARTED = False
 
 
 def _enabled() -> bool:
-    return os.environ.get("SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER", "1").strip().casefold() not in {
-        "0", "false", "no", "off",
-    }
+    from . import federation_network as _network
+
+    return _network.mail_case_worker_enabled()
 
 
 def _worker(app, root: str) -> None:

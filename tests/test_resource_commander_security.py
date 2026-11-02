@@ -1,10 +1,13 @@
-import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.resource_commander_access import api_access_authorized, remote_access_authorized
+from app.resource_commander_credentials import save as save_commander_credentials
 from app.resource_federation import FederationResourceProvider
 from app.resource_provider import ProviderCapabilities
 
@@ -13,32 +16,34 @@ class ResourceCommanderAuthorizationTests(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=False, SECRET_KEY="test-secret")
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        store_patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        store_patcher.start()
+        self.addCleanup(store_patcher.stop)
+        self.context = self.app.app_context()
+        self.context.push()
+        self.addCleanup(self.context.pop)
 
-    def test_general_federation_token_does_not_authorize_commander(self):
-        env = {
-            "SIMPLEOFFICE_FEDERATION_TOKEN": "federation-secret",
-            "SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN": "",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            with self.app.test_request_context(
-                "/resource-commander/api/list",
-                headers={"Authorization": "Bearer federation-secret"},
-            ):
-                self.assertFalse(remote_access_authorized())
-                self.assertFalse(api_access_authorized())
+    def test_unconfigured_commander_token_rejects_any_bearer(self):
+        with self.app.test_request_context(
+            "/resource-commander/api/list",
+            headers={"Authorization": "Bearer [REDACTED]"},
+        ):
+            self.assertFalse(remote_access_authorized())
+            self.assertFalse(api_access_authorized())
 
     def test_dedicated_commander_token_authorizes_remote_access(self):
-        env = {
-            "SIMPLEOFFICE_FEDERATION_TOKEN": "federation-secret",
-            "SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN": "commander-secret",
-        }
-        with patch.dict(os.environ, env, clear=False):
-            with self.app.test_request_context(
-                "/resource-commander/api/list",
-                headers={"Authorization": "Bearer commander-secret"},
-            ):
-                self.assertTrue(remote_access_authorized())
-                self.assertTrue(api_access_authorized())
+        save_commander_credentials({"token": "commander-secret"})
+        with self.app.test_request_context(
+            "/resource-commander/api/list",
+            headers={"Authorization": "Bearer [REDACTED]"},
+        ):
+            self.assertTrue(remote_access_authorized())
+            self.assertTrue(api_access_authorized())
 
 
 class FederationCapabilityTests(unittest.TestCase):

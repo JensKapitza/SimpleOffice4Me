@@ -65,7 +65,6 @@
             </div>
           </div>
           {% if github_artifacts.configured %}<div class="form-check mt-3"><input class="form-check-input" type="checkbox" name="clear_github_token" value="1" id="clear-github-token"><label class="form-check-label" for="clear-github-token">{{ 'Remove stored GitHub token' if g.language == 'en' else 'Gespeicherten GitHub-Token entfernen' }}</label></div>{% endif %}
-          {% if github_artifacts.source == 'environment' %}<div class="alert alert-warning py-2 mt-3 mb-0 small">{{ 'Values currently still come from the previous environment configuration. Saving adopts them into the admin configuration; the token is stored encrypted in the process.' if g.language == 'en' else 'Aktuell stammen die Werte noch aus der bisherigen Environment-Konfiguration. Speichern übernimmt sie in die Admin-Konfiguration; der Token wird dabei verschlüsselt abgelegt.' }}</div>{% endif %}
           <div class="d-flex flex-wrap align-items-center gap-2 mt-3">
             <button class="btn btn-primary" type="submit">{{ 'Save GitHub configuration' if g.language == 'en' else 'GitHub-Konfiguration speichern' }}</button>
             <span class="small text-secondary">{{ 'Source:' if g.language == 'en' else 'Quelle:' }} {{ github_artifacts.source }} · Repository: <code>{{ github_artifacts.repository }}</code></span>

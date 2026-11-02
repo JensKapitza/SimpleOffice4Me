@@ -470,23 +470,14 @@ class SoftwareArtifactStore:
         }
 
     def _github_repository(self) -> str:
-        repository = os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY", "JensKapitza/SimpleOffice4Me").strip()
+        repository = "JensKapitza/SimpleOffice4Me"
         if not _GITHUB_REPOSITORY_RE.fullmatch(repository):
-            raise ValueError("SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY ist ungültig")
+            raise ValueError("GitHub-Artefakt-Repository ist ungültig")
         return repository
 
     def _github_token(self) -> str:
-        token_file = os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE", "").strip()
-        if token_file:
-            path = Path(token_file).expanduser()
-            try:
-                if path.is_file() and not path.is_symlink():
-                    token = path.read_text(encoding="utf-8").strip()
-                    if token:
-                        return token
-            except OSError:
-                pass
-        return os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN", "").strip()
+        """Unmanaged base store has no token; use the admin-managed store (no environment)."""
+        return ""
 
     @staticmethod
     def _github_request(url: str, token: str) -> urllib.request.Request:
@@ -588,7 +579,7 @@ class SoftwareArtifactStore:
         token = self._github_token()
         if not token:
             raise ValueError(
-                "GitHub-Artefakt-Sync benötigt SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE oder SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN"
+                "GitHub-Artefakt-Sync benötigt einen Token in Administration → Einstellungen"
             )
         repository = self._github_repository()
         payload = self._github_json(f"https://api.github.com/repos/{repository}/actions/artifacts?per_page=100", token)

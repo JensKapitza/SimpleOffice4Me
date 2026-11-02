@@ -19,11 +19,13 @@ from .db import get_db
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 from . import federation_network as _network
 from . import federation_worker
+from . import license_secrets as _secrets
 from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore, feature_for_endpoint
 from .master_cluster import MasterClusterSettings, default_txt_record_name
 from .federation_identity import FederationIdentity
 from .system_identity import installation_id
+from .translations import translate
 
 admin_bp = Blueprint("licensing_admin", __name__, url_prefix="/admin/licensing")
 federation_bp = Blueprint("licensing_federation", __name__, url_prefix="/federation/v1/licensing")
@@ -49,7 +51,7 @@ def _admin_required(view):
 
 
 def _master_secret() -> str:
-    return os.environ.get("SIMPLEOFFICE_LICENSE_MASTER_TOKEN", "").strip()
+    return _secrets.master_token()
 
 
 def _refuse_bad_client() -> bool:
@@ -132,7 +134,19 @@ def index():
         licensing=_store().overview(),
         features=FEATURES,
         master_reports=_master_store().reports() if LICENSE_MASTER_MODE else [],
+        master_token_configured=_secrets.master_token_configured(),
     )
+
+
+@admin_bp.post("/master/token")
+@_admin_required
+def master_token():
+    try:
+        _secrets.save({"master_token": request.form.get("master_token", "")}, g.language)
+        flash(translate(g.language, "licensing.master.token.saved"))
+    except ValueError as exc:
+        flash(translate(g.language, "licensing.master.token.failed").format(exc=exc))
+    return redirect(url_for("licensing_admin.index"))
 
 
 @admin_bp.get("/cluster-status.json")

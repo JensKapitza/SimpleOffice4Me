@@ -14,6 +14,7 @@ from .federation_discovery_service import discover_country, discover_direct, dis
 from .federation_lan_receive_state import LanReceiveState
 from . import federation_local_identity
 from . import federation_network
+from . import resource_commander_credentials
 from .federation_identity_admin import (
     rotate_identity_token as _rotate_identity_token_view,
     save_identity as _save_identity_view,
@@ -367,6 +368,7 @@ def dashboard():
         own_qr=own_qr,
         identity=federation_local_identity.status(),
         network=federation_network.status(),
+        commander=resource_commander_credentials.status(),
         lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
         compatibility_requirements=requirements(),

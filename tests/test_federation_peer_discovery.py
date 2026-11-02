@@ -29,6 +29,7 @@ from app.federation_peer_admin import _connect_addresses
 from app.federation_local_profile import local_profile
 from app.federation_rendezvous_store import FederationRendezvousStore
 from app.federation_store import FederationStore
+from app.settings_store import SettingsStore
 
 
 PROFILE = {
@@ -315,22 +316,21 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertEqual(decoded["fingerprint"], "sha256:test")
 
     def test_lan_connect_profile_works_without_public_url(self):
-        with patch.dict(os.environ, {}, clear=False), patch(
+        with patch(
             "app.federation_local_profile.FederationIdentity.public_identity",
             return_value={"public_key": "test-key", "fingerprint": "sha256:test"},
         ):
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", None)
             profile = local_profile(
                 self.root, "http://192.168.50.23:8080", prefer_fallback=True
             )
-        self.assertEqual(profile["base_url"], "http://192.168.50.23:8080")
+            self.assertEqual(profile["base_url"], "http://192.168.50.23:8080")
 
     def test_lan_connect_profile_overrides_public_url_only_when_explicit(self):
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "https://public.example"},
-            clear=False,
-        ), patch(
+        store = SettingsStore(self.root)
+        settings = store.settings()
+        settings["integrations"]["federation_public_url"] = "https://public.example"
+        store.save(settings, "peer-discovery-test")
+        with patch(
             "app.federation_local_profile.FederationIdentity.public_identity",
             return_value={"public_key": "test-key", "fingerprint": "sha256:test"},
         ):

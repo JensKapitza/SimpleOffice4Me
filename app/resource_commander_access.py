@@ -7,9 +7,10 @@ transport token because the Commander can expose filesystem-like operations.
 from __future__ import annotations
 
 import hmac
-import os
 
 from flask import current_app, g, request
+
+from . import resource_commander_credentials as _credentials
 
 
 def _bearer() -> str:
@@ -22,10 +23,10 @@ def remote_access_authorized() -> bool:
 
     SIMPLEOFFICE_FEDERATION_TOKEN is deliberately not accepted here. Operators
     who need server-to-server Commander access must configure a distinct
-    SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN on the receiving instance and use that
-    value as the peer token on the calling instance.
+    commander token on the receiving instance (peer-discovery admin section)
+    and use that value as the peer token on the calling instance.
     """
-    expected = os.environ.get("SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN", "").strip()
+    expected = _credentials.inbound_token()
     supplied = _bearer()
     if expected and supplied:
         return hmac.compare_digest(expected, supplied)

@@ -1,8 +1,11 @@
+import tempfile
 from contextlib import nullcontext
+from pathlib import Path
 from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+from app import app_config_store
 from app import mail_case_federation_runtime as runtime
 
 
@@ -54,6 +57,26 @@ class MailCaseFederationRuntimeTests(unittest.TestCase):
             app.config["DOCUMENT_ROOT"] = "other-root"
             self.assertEqual((app, "initial-root"), thread.call_args.kwargs["args"])
             thread.return_value.start.assert_called_once()
+
+    def test_enabled_defaults_on_and_supports_store_opt_out(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(
+                app_config_store, "settings_path",
+                return_value=Path(tmp) / "app-config.json",
+            ):
+                self.assertTrue(runtime._enabled())
+                app_config_store.put(
+                    "federation_network", {"mail_case_worker_enabled": ""},
+                )
+                self.assertFalse(runtime._enabled())
+                app_config_store.put(
+                    "federation_network", {"mail_case_worker_enabled": "0"},
+                )
+                self.assertFalse(runtime._enabled())
+                app_config_store.put(
+                    "federation_network", {"mail_case_worker_enabled": "1"},
+                )
+                self.assertTrue(runtime._enabled())
 
 
 if __name__ == "__main__":
