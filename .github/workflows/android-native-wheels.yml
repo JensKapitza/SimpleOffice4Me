@@ -140,7 +140,7 @@ jobs:
               # cibuildwheel exposes the Android CPython headers under
               # prefix/include/python3.14. Rust's cc crate reads the target-
               # specific CFLAGS variable, not the general CFLAGS setting.
-              export CIBW_ENVIRONMENT_ANDROID='CFLAGS_aarch64_linux_android="-I$PYO3_CROSS_LIB_DIR/../include/python3.14"'
+              export CIBW_ENVIRONMENT_ANDROID='CFLAGS_aarch64_linux_android="-I$(dirname $VIRTUAL_ENV)/python/prefix/include/python3.14"'
             fi
             if [[ "$PACKAGE_NAME" == Pillow ]]; then
               export CIBW_BEFORE_ALL_ANDROID="true"

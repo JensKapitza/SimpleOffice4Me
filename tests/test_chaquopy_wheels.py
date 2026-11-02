@@ -222,7 +222,7 @@ class ChaquopyWheelsTests(unittest.TestCase):
         workflow = Path(".github/workflows/android-native-wheels.yml").read_text(encoding="utf-8")
         self.assertIn('if [[ "$PACKAGE_NAME" == cryptography ]]', workflow)
         self.assertIn(
-            'CFLAGS_aarch64_linux_android="-I$PYO3_CROSS_LIB_DIR/../include/python3.14"',
+            'CFLAGS_aarch64_linux_android="-I$(dirname $VIRTUAL_ENV)/python/prefix/include/python3.14"',
             workflow,
         )
 
