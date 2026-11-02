@@ -259,6 +259,114 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Externes Archiv registrieren", body)
         self.assertIn("Keine zusätzlichen externen Archive registriert.", body)
 
+    def test_contact_management_english(self) -> None:
+        body = self._get("/documents/contacts/manage", "en")
+        self.assertIn("Contact management", body)
+        self.assertIn("Advanced search", body)
+        self.assertIn("CSV import center", body)
+
+    def test_contact_management_german(self) -> None:
+        body = self._get("/documents/contacts/manage", "de")
+        self.assertIn("Kontaktmanagement", body)
+        self.assertIn("Erweiterte Suche", body)
+        self.assertIn("CSV-Import-Center", body)
+
+    def _make_contact(self) -> str:
+        from app.contact_store import ContactStore
+        contact = ContactStore(self.root).upsert(
+            {"display_name": "Language Test"}, "admin")
+        return contact["contact_id"]
+
+    def test_contact_snapshots_empty(self) -> None:
+        contact_id = self._make_contact()
+        en_body = self._get(f"/documents/contacts/{contact_id}/snapshots", "en")
+        self.assertIn("Contact versions", en_body)
+        self.assertIn("No full snapshots yet.", en_body)
+        de_body = self._get(f"/documents/contacts/{contact_id}/snapshots", "de")
+        self.assertIn("Kontaktversionen", de_body)
+        self.assertIn("Noch keine vollständigen Snapshots vorhanden.", de_body)
+
+    def test_contact_snapshot_compare_renders_both_languages(self) -> None:
+        from flask import g, render_template
+        comparison = {
+            "current": {"contact_id": "c1",
+                        "fields": {"display_name": "Language Test"}},
+            "snapshot": {"created_at": "yesterday", "created_by": "admin",
+                         "snapshot_id": "s1"},
+            "changed_count": 1,
+            "fields": [{"field": "phone", "old": "1", "new": "2",
+                        "changed": True}],
+            "metadata": [],
+        }
+        with app.test_request_context("/"):
+            g.language = "en"
+            g.user = {"username": "admin", "display_name": "Admin",
+                      "is_admin": True, "is_disabled": 0, "theme": "system"}
+            en_body = render_template(
+                "documents/contact_snapshot_compare.html",
+                comparison=comparison)
+            g.language = "de"
+            de_body = render_template(
+                "documents/contact_snapshot_compare.html",
+                comparison=comparison)
+        self.assertIn("Version comparison", en_body)
+        self.assertIn("Restore this version", en_body)
+        self.assertIn("Versionsvergleich", de_body)
+        self.assertIn("Diese Version wiederherstellen", de_body)
+
+    def _post_import_preview(self) -> str:
+        from io import BytesIO
+        app.config.update(TEST_CSRF_PROTECTION=False)
+        try:
+            response = self.client.post(
+                "/documents/contacts/import-preview",
+                data={"contacts_file": (
+                    BytesIO("display_name,email\nTest User,test@example.com\n".encode("utf-8")),
+                    "import.csv")},
+                content_type="multipart/form-data")
+        finally:
+            app.config.update(TEST_CSRF_PROTECTION=True)
+        self.assertEqual(200, response.status_code)
+        return response.data.decode("utf-8")
+
+    def test_contact_import_preview_english(self) -> None:
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        body = self._post_import_preview()
+        self.assertIn("Import preview", body)
+        self.assertIn("Preview only: no contacts were written.", body)
+
+    def test_contact_import_preview_german(self) -> None:
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+        body = self._post_import_preview()
+        self.assertIn("Importvorschau", body)
+        self.assertIn("Nur Vorschau: Es wurden keine Kontakte geschrieben.", body)
+
+    def test_contact_letter_english(self) -> None:
+        contact_id = self._make_contact()
+        body = self._get(
+            f"/documents/business/contacts/{contact_id}/letter", "en")
+        self.assertIn("Create letter", body)
+        self.assertIn("No address on file.", body)
+
+    def test_contact_letter_german(self) -> None:
+        contact_id = self._make_contact()
+        body = self._get(
+            f"/documents/business/contacts/{contact_id}/letter", "de")
+        self.assertIn("Brief erstellen", body)
+        self.assertIn("Keine Adresse vorhanden.", body)
+
+    def test_published_calendar(self) -> None:
+        en_body = self._get("/documents/calendar/published/family", "en",
+                            anonymous=True)
+        self.assertIn("Family calendar", en_body)
+        self.assertIn("No published appointments.", en_body)
+        de_body = self._get("/documents/calendar/published/family", "de",
+                            anonymous=True)
+        self.assertIn("Familienkalender", de_body)
+        self.assertIn("Keine veröffentlichten Termine.", de_body)
+
     def test_shared_note_renders_both_languages(self) -> None:
         from flask import g, render_template
         note = {"text": "note text", "author": "admin", "created_at": "now"}
