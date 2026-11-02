@@ -78,6 +78,8 @@ class InventoryBueroengelEntryTest(unittest.TestCase):
             "/auth/login",
             data={"username": username, "password": self.password},
         )
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         return client
 
     def test_no_passive_cta_on_inventory(self) -> None:
