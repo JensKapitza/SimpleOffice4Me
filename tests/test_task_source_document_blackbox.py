@@ -21,6 +21,8 @@ class SourceDocumentTaskBlackBoxTest(unittest.TestCase):
         with app.app_context():
             ensure_auth_database()
         self.client = app.test_client()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"})
         self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"})
 
