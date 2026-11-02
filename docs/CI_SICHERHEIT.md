@@ -45,8 +45,8 @@ Versionen fest; `typing-extensions` ist zusätzlich explizit gepinnt, da der
 Python-3.12-CI-Runner es als CycloneDX-Abhängigkeit benötigt. Bei Updates sind
 Lock, Workflow und Regressionstest gemeinsam zu prüfen. Der optionale
 AWS-S3-Kompatibilitätstest installiert AWS CLI aus
-`requirements-ci-awscli.txt`; dessen Version 1.45.28 enthält die bekannten
-Credential-Datei- und EMR-SSH-Hostkey-Korrekturen für AWS CLI v1. AWS CLI v1
+`requirements-ci-awscli.txt`; dessen Version 1.46.2 ist für diesen Smoke
+hash-gepinnt. AWS CLI v1
 befindet sich im Maintenance-Modus und bleibt hier nur für den optionalen Smoke
 gegen den isolierten lokalen S3-Endpoint. Versionsupdates müssen alle Workflows,
 die sie installieren, durch ihre Pull-Request-Pfadfilter neu anlaufen lassen.

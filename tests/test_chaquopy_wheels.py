@@ -19,7 +19,7 @@ class ChaquopyWheelsTests(unittest.TestCase):
         wheel_build_tools = Path("requirements-ci-android-wheels.txt").read_text(
             encoding="utf-8",
         )
-        self.assertIn("cibuildwheel==4.3.3", wheel_build_tools)
+        self.assertIn("cibuildwheel==4.3.5", wheel_build_tools)
         self.assertIn("--hash=sha256:", wheel_build_tools)
         self.assertIn("requirements-ci-android-wheels.txt", workflow)
         self.assertIn("_rust.abi3*.so", workflow)

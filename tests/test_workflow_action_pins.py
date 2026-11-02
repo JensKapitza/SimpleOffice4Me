@@ -218,10 +218,10 @@ class WorkflowActionPinTests(unittest.TestCase):
         source_text = (root / "requirements-ci-browser.in").read_text(encoding="utf-8")
         lock_text = (root / "requirements-ci-browser.txt").read_text(encoding="utf-8")
         packages = {
-            "greenlet==3.3.2",
+            "greenlet==3.5.6",
             "jinja2==3.1.6",
             "markupsafe==3.0.4",
-            "playwright==1.55.0",
+            "playwright==1.64.1",
             "pyee==13.0.1",
             "typing-extensions==4.16.0",
         }
@@ -233,20 +233,31 @@ class WorkflowActionPinTests(unittest.TestCase):
                 if line.strip() and not line.lstrip().startswith("#")
             },
         )
-        for package in packages:
-            with self.subTest(package=package):
-                self.assertIn(package, lock_text)
-        self.assertEqual(
-            {
-                "43e99d1749147ac21dde49b99c9abffcbc1e2d55c67501465ef0930d6e78e070",
-                "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
-                "8e124f974786f831d6043728e38296969d3579db8896fe004682f5758e613581",
-                "c6d4d8f6f8c66c483b0835569c7f0caa03230820af8e500c181c93509c92d831",
-                "af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228",
-                "481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8",
-            },
-            set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
-        )
+        source_versions = {
+            name.casefold().replace("_", "-"): version
+            for name, version in (line.split("==", 1) for line in packages)
+        }
+        lock_stanzas = {}
+        current_package = None
+        for line in lock_text.splitlines():
+            match = re.match(r"^([A-Za-z0-9_.-]+)==([0-9][A-Za-z0-9.+!_-]*)", line)
+            if match:
+                current_package = match.group(1).casefold().replace("_", "-")
+                lock_stanzas[current_package] = {
+                    "version": match.group(2),
+                    "hashes": [],
+                }
+            elif current_package:
+                lock_stanzas[current_package]["hashes"].extend(
+                    re.findall(r"--hash=sha256:([0-9a-f]{64})", line),
+                )
+                if line and not line.startswith((" ", "#")):
+                    current_package = None
+        self.assertEqual(set(source_versions), set(lock_stanzas))
+        for name, version in source_versions.items():
+            with self.subTest(package=name):
+                self.assertEqual(version, lock_stanzas[name]["version"])
+                self.assertTrue(lock_stanzas[name]["hashes"])
 
         workflow_root = root / ".github" / "workflows"
         consumers = ("manual-browser-screenshots.yml", "ubuntu-26-compat.yml")
@@ -257,7 +268,7 @@ class WorkflowActionPinTests(unittest.TestCase):
             workflow = (workflow_root / name).read_text(encoding="utf-8")
             with self.subTest(workflow=name):
                 self.assertIn("requirements-ci-browser.txt", workflow)
-                self.assertNotIn("playwright==1.55.0", workflow)
+                self.assertNotIn("playwright==1.64.1", workflow)
                 self.assertNotIn("Jinja2>=3.1.2,<4", workflow)
                 self.assertIn("--require-hashes --only-binary=:all:", workflow)
                 self.assertIn(f"!.github/workflows/{name}", scanner_ignore)
@@ -271,8 +282,8 @@ class WorkflowActionPinTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         source_text = (root / "requirements-ci-awscli.in").read_text(encoding="utf-8")
         lock_text = (root / "requirements-ci-awscli.txt").read_text(encoding="utf-8")
-        self.assertIn("awscli==1.45.28", source_text)
-        self.assertIn("awscli==1.45.28", lock_text)
+        self.assertIn("awscli==1.46.2", source_text)
+        self.assertIn("awscli==1.46.2", lock_text)
         self.assertNotIn("awscli==1.42.59", lock_text)
         package_stanza = []
         package_count = 0
@@ -323,7 +334,7 @@ class WorkflowActionPinTests(unittest.TestCase):
         )
         self.assertIn("pip==26.2.2", wheel_lock)
         self.assertNotIn("pip==26.1.2", wheel_lock)
-        for package in ("pip==26.2.2", "cibuildwheel==4.3.3", "wheel==0.46.3"):
+        for package in ("pip==26.2.2", "cibuildwheel==4.3.5", "wheel==0.48.0"):
             with self.subTest(package=package):
                 lines = wheel_lock.splitlines()
                 start = next(
@@ -350,10 +361,10 @@ class WorkflowActionPinTests(unittest.TestCase):
         self.assertIn("--require-hashes", native_workflow)
         self.assertIn("requirements-ci-android-wheels.txt", native_workflow)
         self.assertNotIn("pip install --upgrade pip", native_workflow)
-        self.assertNotIn("pip install 'cibuildwheel==4.3.3'", native_workflow)
+        self.assertNotIn("pip install 'cibuildwheel==4.3.5'", native_workflow)
         self.assertIn("requirements-ci-android-apk.txt", apk_workflow)
         self.assertNotIn("pip install 'Pillow==13.0.0'", apk_workflow)
-        self.assertNotIn("pip install 'wheel==0.46.3'", native_workflow)
+        self.assertNotIn("pip install 'wheel==0.48.0'", native_workflow)
 
         path_filtered_workflows = (
             "android-apk-build.yml", "desktop-build.yml", "docker-build.yml",

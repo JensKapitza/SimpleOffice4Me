@@ -17,9 +17,9 @@ class DesktopOcrDependenciesTests(unittest.TestCase):
         self.assertEqual(2, len(onnx))
         for platform, machine, expected in (
             ("darwin", "x86_64", "1.23.2"),
-            ("darwin", "arm64", "1.31.0"),
-            ("linux", "x86_64", "1.31.0"),
-            ("win32", "AMD64", "1.31.0"),
+            ("darwin", "arm64", "1.31.1"),
+            ("linux", "x86_64", "1.31.1"),
+            ("win32", "AMD64", "1.31.1"),
         ):
             with self.subTest(platform=platform, machine=machine):
                 selected = [str(req.specifier) for req in onnx if req.marker.evaluate(
