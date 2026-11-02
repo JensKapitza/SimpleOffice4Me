@@ -357,6 +357,50 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Brief erstellen", body)
         self.assertIn("Keine Adresse vorhanden.", body)
 
+    def _make_form(self) -> str:
+        from app.form_store import FormStore
+        FormStore(self.root).save_definition({
+            "form_id": "language-test", "name": "Language Test",
+            "description": "desc", "title_field": "name",
+            "fields": [{"key": "name", "label": "Name", "type": "text"}],
+        }, "admin")
+        return "language-test"
+
+    def test_forms_english(self) -> None:
+        body = self._get("/documents/forms", "en")
+        self.assertIn("Form assistant", body)
+        self.assertIn("New form", body)
+
+    def test_forms_german(self) -> None:
+        body = self._get("/documents/forms", "de")
+        self.assertIn("Formular-Assistent", body)
+        self.assertIn("Neues Formular", body)
+
+    def test_form_records_english(self) -> None:
+        form_id = self._make_form()
+        body = self._get(f"/documents/forms/{form_id}", "en")
+        self.assertIn("Stored records", body)
+        self.assertIn("Capture record", body)
+
+    def test_form_records_german(self) -> None:
+        form_id = self._make_form()
+        body = self._get(f"/documents/forms/{form_id}", "de")
+        self.assertIn("Gespeicherte Datensätze", body)
+        self.assertIn("Datensatz erfassen", body)
+
+    def test_form_record_detail(self) -> None:
+        from app.form_store import FormStore
+        form_id = self._make_form()
+        record = FormStore(self.root).save_record(
+            form_id, {"name": "Test Record"}, "admin")
+        record_id = record["record_id"]
+        en_body = self._get(
+            f"/documents/forms/{form_id}/{record_id}", "en")
+        self.assertIn("Save changes", en_body)
+        de_body = self._get(
+            f"/documents/forms/{form_id}/{record_id}", "de")
+        self.assertIn("Änderungen speichern", de_body)
+
     def test_published_calendar(self) -> None:
         en_body = self._get("/documents/calendar/published/family", "en",
                             anonymous=True)

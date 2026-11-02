@@ -1,6 +1,10 @@
 (() => {
   'use strict';
 
+  const english = document.documentElement.lang === 'en';
+  const text = (en, de) => (english ? en : de);
+  const locale = english ? 'en-US' : 'de-DE';
+
   const formNode = document.getElementById('form-records-form-data');
   const recordsNode = document.getElementById('form-records-data');
   if (!formNode || !recordsNode) return;
@@ -60,7 +64,7 @@
   }
 
   function formatNumber(value, currency = false) {
-    return new Intl.NumberFormat('de-DE', currency ? { style: 'currency', currency: 'EUR' } : { maximumFractionDigits: 2 }).format(value);
+    return new Intl.NumberFormat(locale, currency ? { style: 'currency', currency: 'EUR' } : { maximumFractionDigits: 2 }).format(value);
   }
 
   function card(title, value, detail = '') {
@@ -87,7 +91,7 @@
 
   function renderAnalysis() {
     analysis.innerHTML = '';
-    analysis.appendChild(card('Datensätze', String(records.length), `${fields.length} Felder im Formular`));
+    analysis.appendChild(card(text('Records', 'Datensätze'), String(records.length), `${fields.length} ${text('fields in form', 'Felder im Formular')}`));
 
     fields.forEach(field => {
       const values = valuesFor(field);
@@ -97,7 +101,7 @@
         const sum = numbers.reduce((a, b) => a + b, 0);
         const avg = sum / numbers.length;
         analysis.appendChild(card(
-          `${field.label} · Summe`,
+          `${field.label} · ${text('total', 'Summe')}`,
           formatNumber(sum, field.type === 'currency'),
           `Ø ${formatNumber(avg, field.type === 'currency')} · Min ${formatNumber(Math.min(...numbers), field.type === 'currency')} · Max ${formatNumber(Math.max(...numbers), field.type === 'currency')}`
         ));
@@ -110,20 +114,20 @@
         if (!counts.size) return;
         const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
         const top = sorted.slice(0, 4).map(([value, count]) => `${value}: ${count}`).join(' · ');
-        analysis.appendChild(card(`${field.label} · Verteilung`, `${counts.size} Werte`, top));
+        analysis.appendChild(card(`${field.label} · ${text('distribution', 'Verteilung')}`, `${counts.size} ${text('values', 'Werte')}`, top));
         return;
       }
 
       if (field.type === 'date') {
         const dates = values.map(value => new Date(`${value}T00:00:00`)).filter(value => !Number.isNaN(value.getTime())).sort((a, b) => a - b);
         if (!dates.length) return;
-        const formatter = new Intl.DateTimeFormat('de-DE');
-        analysis.appendChild(card(`${field.label} · Zeitraum`, `${dates.length} Werte`, `${formatter.format(dates[0])} – ${formatter.format(dates[dates.length - 1])}`));
+        const formatter = new Intl.DateTimeFormat(locale);
+        analysis.appendChild(card(`${field.label} · ${text('period', 'Zeitraum')}`, `${dates.length} ${text('values', 'Werte')}`, `${formatter.format(dates[0])} – ${formatter.format(dates[dates.length - 1])}`));
       }
     });
 
     if (analysis.children.length === 1 && records.length) {
-      analysis.appendChild(card('Auswertung', 'Keine Zahlenfelder', 'Für Summen und Statistiken Zahl-, Geld-, Auswahl- oder Datumsfelder verwenden.'));
+      analysis.appendChild(card(text('Evaluation', 'Auswertung'), text('No number fields', 'Keine Zahlenfelder'), text('Use number, money, choice or date fields for totals and statistics.', 'Für Summen und Statistiken Zahl-, Geld-, Auswahl- oder Datumsfelder verwenden.')));
     }
   }
 
