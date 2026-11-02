@@ -1,6 +1,5 @@
 """Admin routes for federation discovery and directed trust."""
 import ipaddress
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,6 +13,7 @@ from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_lan_receive_state import LanReceiveState
 from . import federation_local_identity
+from . import federation_network
 from .federation_identity_admin import (
     rotate_identity_token as _rotate_identity_token_view,
     save_identity as _save_identity_view,
@@ -274,8 +274,7 @@ def _discovery_address_suggestions(peers):
 def _connect_addresses():
     """Return device IPv4 addresses for QR connect, without RFC1918 filtering."""
     values = []
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", "")
-    for item in raw.split(","):
+    for item in federation_network.lan_addresses():
         text = item.strip().split("%", 1)[0]
         if not text:
             continue
@@ -367,6 +366,7 @@ def dashboard():
         own=own,
         own_qr=own_qr,
         identity=federation_local_identity.status(),
+        network=federation_network.status(),
         lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
         compatibility_requirements=requirements(),

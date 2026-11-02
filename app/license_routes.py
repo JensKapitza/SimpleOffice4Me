@@ -17,6 +17,7 @@ from .access_control import FEATURES, is_admin
 from .auth import login_required
 from .db import get_db
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
+from . import federation_network as _network
 from . import federation_worker
 from .license_master_store import MasterLicenseStore
 from .license_metering import LicenseStore, feature_for_endpoint
@@ -52,7 +53,7 @@ def _master_secret() -> str:
 
 
 def _refuse_bad_client() -> bool:
-    return os.environ.get("SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT", "0").strip().casefold() in {"1", "true", "yes", "on"}
+    return _network.refuse_bad_client()
 
 
 def _master_authorized() -> bool:

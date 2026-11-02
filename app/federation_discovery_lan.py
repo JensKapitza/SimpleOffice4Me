@@ -12,6 +12,7 @@ import os
 import socket
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from . import federation_network as _network
 from .federation_compatibility import compatibility
 from .federation_discovery_endpoint import fetch_discovery_profile
 from .federation_discovery_service import remember_discovered_peer
@@ -46,8 +47,7 @@ def _private_network(network) -> bool:
 
 
 def _configured_addresses() -> list[str]:
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", "")
-    return [value.strip() for value in raw.split(",") if value.strip()]
+    return _network.lan_addresses()
 
 
 def local_lan_addresses() -> list[str]:
@@ -96,7 +96,6 @@ def local_lan_addresses() -> list[str]:
 def scan_ports(extra_port=None) -> list[int]:
     values = [
         os.environ.get("SIMPLEOFFICE_PORT", ""),
-        os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_PORTS", ""),
     ]
     if extra_port not in (None, ""):
         values.append(str(extra_port))
@@ -111,6 +110,11 @@ def scan_ports(extra_port=None) -> list[int]:
                 ports.append(port)
             if len(ports) >= _MAX_PORTS:
                 break
+    for port in _network.lan_ports():
+        if port not in ports:
+            ports.append(port)
+        if len(ports) >= _MAX_PORTS:
+            break
     if _DEFAULT_PORT not in ports and len(ports) < _MAX_PORTS:
         ports.append(_DEFAULT_PORT)
     return ports or [_DEFAULT_PORT]

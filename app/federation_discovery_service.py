@@ -1,6 +1,5 @@
 """Peer discovery through directories, direct endpoints and rendezvous lookup."""
 import ipaddress
-import os
 import urllib.parse
 from urllib.parse import urlsplit
 
@@ -9,6 +8,7 @@ from .federation_discovery_country import normalize_country
 from .federation_discovery_email import email_hash
 from .federation_discovery_endpoint import fetch_discovery_profile_auto, normalize_endpoint
 from . import federation_local_identity as _identity
+from . import federation_network as _network
 from .federation_peer_profile import peer_profile
 from .federation_store import FederationStore
 from .federation_trust_store import FederationTrustStore
@@ -24,8 +24,7 @@ _LOCAL_DIRECT_RANGES = (
 
 
 def bootstrap_urls():
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_BOOTSTRAP_URLS", "")
-    return [normalize_endpoint(value) for value in raw.split(",") if value.strip()]
+    return [normalize_endpoint(value) for value in _network.bootstrap_raw()]
 
 
 def bootstrap_token():

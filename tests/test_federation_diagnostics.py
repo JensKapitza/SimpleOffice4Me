@@ -1,7 +1,6 @@
 import hmac
 import ipaddress
 import json
-import os
 import re
 import socket
 import ssl
@@ -16,6 +15,7 @@ from urllib.parse import urlsplit
 from flask import Flask
 
 from app import app_config_store
+from app import federation_network
 from app.federation_diagnostics import _json_bytes, probe_peer, response_signature
 from app.federation_discovery_endpoint import _getaddrinfo_bounded
 from app.federation_http import bp
@@ -84,10 +84,6 @@ class FederationDiagnosticsTests(unittest.TestCase):
             self.store.save_peer("remote-peer", "Remote", "http://127.0.0.1:9", "unique-peer-token")
             self.token = self.store.peer_token("remote-peer")
         self.client = self.app.test_client()
-        self.env = patch.dict(os.environ, {
-            "SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK": "1",
-        })
-        self.env.start()
         self._store_patcher = patch.object(
             app_config_store, "settings_path", return_value=self.root / "app-config.json",
         )
@@ -95,6 +91,7 @@ class FederationDiagnosticsTests(unittest.TestCase):
         self.addCleanup(self._store_patcher.stop)
         with self.app.app_context():
             app_config_store.put_secret("federation", "token", "shared-federation-token")
+        federation_network.save({"allow_loopback": "1"})
 
     def test_dns_lookup_deadline_returns_without_leaking_a_resolver_thread(self):
         started = threading.Event()
@@ -117,7 +114,6 @@ class FederationDiagnosticsTests(unittest.TestCase):
             self.assertTrue(finished.wait(1))
 
     def tearDown(self):
-        self.env.stop()
         if hasattr(self, "server"):
             self.server.shutdown()
             self.server.server_close()

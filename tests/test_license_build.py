@@ -89,7 +89,8 @@ class LicenseBuildTests(unittest.TestCase):
         routes = (ROOT / "app" / "license_routes.py").read_text(encoding="utf-8")
         self.assertIn("license-blocked-banner", layout)
         self.assertIn("licenseBlockedModal", layout)
-        self.assertIn("SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT", routes)
+        self.assertIn("refuse_bad_client", routes)
+        self.assertNotIn("SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT", routes)
         self.assertIn("X-SimpleOffice-Client-State", routes)
         self.assertIn("bad_client_refused", routes)
 

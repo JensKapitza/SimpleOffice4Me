@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import socket
 import urllib.error
 import urllib.parse
@@ -24,6 +23,7 @@ from .federation_core import (
 )
 from .federation_store import FederationStore
 from . import federation_local_identity as _identity
+from . import federation_network as _network
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
@@ -118,9 +118,7 @@ def validate_transient_target(base_url: str) -> str:
     if parsed.path not in {"", "/"}:
         raise ValueError("Delegiertes Ziel muss eine Server-Basis-URL sein")
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    allow_loopback = os.environ.get("SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK", "0").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+    allow_loopback = _network.allow_loopback()
     try:
         addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:

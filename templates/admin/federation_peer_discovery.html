@@ -49,6 +49,23 @@
   </div>
 </section>
 
+<div class="card card-body mb-3" id="network-settings">
+  <h2 class="h5">{{ 'Network settings (no environment variables)' if g.language == 'en' else 'Netzwerkeinstellungen (ohne Umgebungsvariablen)' }}</h2>
+  <p class="small text-secondary">{{ 'Stored in the user-home app store. Extra LAN addresses/ports extend automatic detection; the public server port stays bootstrap configuration.' if g.language == 'en' else 'Im App-Store im Benutzerverzeichnis gespeichert. Zusätzliche LAN-Adressen/Ports erweitern die automatische Erkennung; der öffentliche Server-Port bleibt Bootstrap-Konfiguration.' }}</p>
+  <form method="post" action="{{ url_for('federation_network_admin.save_settings') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label" for="network-lan-addresses">{{ 'Extra LAN addresses (comma-separated)' if g.language == 'en' else 'Zusätzliche LAN-Adressen (kommagetrennt)' }}</label><input id="network-lan-addresses" class="form-control font-monospace" name="lan_addresses" value="{{ network.lan_addresses }}" maxlength="2048" autocomplete="off" placeholder="192.168.178.44, 192.168.178.45"></div>
+      <div class="col-md-6"><label class="form-label" for="network-lan-ports">{{ 'Extra LAN ports (comma-separated)' if g.language == 'en' else 'Zusätzliche LAN-Ports (kommagetrennt)' }}</label><input id="network-lan-ports" class="form-control font-monospace" name="lan_ports" value="{{ network.lan_ports }}" maxlength="2048" autocomplete="off" placeholder="8080, 8765"></div>
+      <div class="col-12"><label class="form-label" for="network-bootstrap-urls">{{ 'Directory bootstrap URLs (comma-separated)' if g.language == 'en' else 'Directory-Bootstrap-URLs (kommagetrennt)' }}</label><input id="network-bootstrap-urls" class="form-control font-monospace" name="bootstrap_urls" value="{{ network.bootstrap_urls }}" maxlength="2048" autocomplete="url" placeholder="https://directory.example/simpleoffice"></div>
+      <div class="col-md-4"><div class="form-check"><input id="network-allow-private" class="form-check-input" type="checkbox" name="allow_private_targets" value="1" {% if network.allow_private_targets %}checked{% endif %}><label class="form-check-label" for="network-allow-private">{{ 'Allow private targets' if g.language == 'en' else 'Private Ziele erlauben' }}</label></div><div class="form-text">{{ 'Lets direct discovery accept RFC1918/CG-NAT addresses.' if g.language == 'en' else 'Erlaubt der direkten Discovery RFC1918-/CG-NAT-Adressen.' }}</div></div>
+      <div class="col-md-4"><div class="form-check"><input id="network-allow-loopback" class="form-check-input" type="checkbox" name="allow_loopback" value="1" {% if network.allow_loopback %}checked{% endif %}><label class="form-check-label" for="network-allow-loopback">{{ 'Allow loopback' if g.language == 'en' else 'Loopback erlauben' }}</label></div><div class="form-text">{{ 'For local integration tests only.' if g.language == 'en' else 'Nur für lokale Integrationstests.' }}</div></div>
+      <div class="col-md-4"><div class="form-check"><input id="network-refuse-bad-client" class="form-check-input" type="checkbox" name="refuse_bad_client" value="1" {% if network.refuse_bad_client %}checked{% endif %}><label class="form-check-label" for="network-refuse-bad-client">{{ 'Refuse bad licensing clients' if g.language == 'en' else 'Schlechte Lizenz-Clients abweisen' }}</label></div><div class="form-text">{{ 'Refuses clients with bad licensing state immediately (503) instead of only delaying them.' if g.language == 'en' else 'Verweigert Clients mit schlechtem Lizenzstatus sofort (503), statt sie nur zu verzögern.' }}</div></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Save network settings' if g.language == 'en' else 'Netzwerkeinstellungen speichern' }}</button></div>
+    </div>
+  </form>
+</div>
+
 <section class="card mb-3 {{ 'border-success' if lan_receive.active else 'border-secondary' }}">
   <div class="card-body">
     <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center">
