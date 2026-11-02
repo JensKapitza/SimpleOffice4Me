@@ -106,6 +106,9 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.user = app.test_client()
         self.admin.post("/auth/login", data={"username": "media-admin", "password": "media-admin"})
         self.user.post("/auth/login", data={"username": "media-user", "password": "media-user"})
+        for client in (self.admin, self.user):
+            with client.session_transaction() as session:
+                session["simpleoffice_language"] = "de"
         for client, token in ((self.admin, "a" * 40), (self.user, "u" * 40)):
             with client.session_transaction() as session:
                 session["_csrf_token"] = token
@@ -625,12 +628,12 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         path = "/documents/settings"
         denied = self.user.post(
             path,
-            data={"display_name": "Tampered", "theme": "dark", "default_language": "en"},
+            data={"display_name": "Tampered", "theme": "dark", "default_language": "de"},
             headers={"X-CSRF-Token": "u" * 40},
         )
         self.assertEqual(403, denied.status_code)
         self.assertEqual(
-            "de",
+            "en",
             SettingsStore(self.root).settings()["interface"]["default_language"],
         )
 
@@ -647,7 +650,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("Media User", row["display_name"])
         self.assertEqual("dark", row["theme"])
         self.assertEqual(
-            "de",
+            "en",
             SettingsStore(self.root).settings()["interface"]["default_language"],
         )
 

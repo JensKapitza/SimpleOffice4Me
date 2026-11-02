@@ -80,6 +80,8 @@ class IcsPreviewWebTest(unittest.TestCase):
             "/auth/login",
             data={"username": "jens", "password": "sicheres-passwort"},
         )
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)
