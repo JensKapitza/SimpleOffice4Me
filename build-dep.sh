@@ -45,14 +45,14 @@ if ! command -v apt-get >/dev/null 2>&1; then
 fi
 
 if command -v python3 >/dev/null 2>&1 && ! python3 "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
-  echo "Vorhandenes python3 ist nicht freigegeben. Installiere CPython 3.11–3.15 final, bevor Build-Abhaengigkeiten installiert werden." >&2
+  echo "Vorhandenes python3 ist nicht freigegeben. Installiere CPython 3.11–3.14, bevor Build-Abhaengigkeiten installiert werden." >&2
   exit 2
 fi
 if [ -r /etc/os-release ] \
   && [ "$(. /etc/os-release; printf '%s' "${ID:-}")" = "ubuntu" ] \
   && [ "$(. /etc/os-release; printf '%s' "${VERSION_ID:-}")" = "22.04" ] \
   && ! command -v python3 >/dev/null 2>&1; then
-  echo "Ubuntu 22.04 liefert kein unterstuetztes System-Python; installiere CPython 3.11–3.15 final vor diesem Build." >&2
+  echo "Ubuntu 22.04 liefert kein unterstuetztes System-Python; installiere CPython 3.11–3.14 vor diesem Build." >&2
   exit 2
 fi
 
@@ -97,7 +97,7 @@ run_root apt-get update
 run_root env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${PACKAGES[@]}"
 
 if ! python3 "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
-  echo "CPython 3.11–3.15 final wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
+  echo "CPython 3.11–3.14 wird benoetigt, installiert ist: $(python3 --version 2>&1 || true)" >&2
   exit 2
 fi
 

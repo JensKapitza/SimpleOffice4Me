@@ -43,7 +43,7 @@ class FpmPackagingTests(unittest.TestCase):
             self.assertIn(package, script)
         self.assertIn("gem install --no-document fpm", script)
         self.assertIn('python3 "$ROOT/simpleoffice_runtime_support.py"', script)
-        self.assertIn("CPython 3.11–3.15 final", script)
+        self.assertIn("CPython 3.11–3.14", script)
         self.assertLess(script.index('python3 "$ROOT/simpleoffice_runtime_support.py"'),
                         script.index("run_root apt-get update"))
 

@@ -61,7 +61,7 @@ innerhalb von SimpleOffice4Me.
 
 ## Voraussetzungen
 
-- CPython 3.11–3.15 final gemäß
+- CPython 3.11–3.14 produktiv unterstützt; 3.15 bleibt experimentell gemäß
   [Runtime-Policy](PYTHON_RUNTIME_SUPPORT.md); Python 3.10 wird nicht unterstützt,
 - ein freier TCP-Port,
 - Schreibzugriff auf Projekt-, Instanz- und Dokumentordner,

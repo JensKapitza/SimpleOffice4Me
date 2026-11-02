@@ -42,12 +42,16 @@ class RuntimeSupportTests(unittest.TestCase):
             return policy.runtime_problem()
 
     def test_supported_stable_series(self):
-        for minor in (11, 12, 13, 14, 15):
+        for minor in (11, 12, 13, 14):
             with self.subTest(minor=minor):
                 self.assertIsNone(self.problem(minor))
         for minor in (9, 10, 16):
             with self.subTest(minor=minor):
-                self.assertIn("Freigegeben sind CPython 3.11–3.15", self.problem(minor))
+                self.assertIn("Produktiv freigegeben sind CPython 3.11–3.14", self.problem(minor))
+
+    def test_python_315_remains_available_as_experimental_runtime(self):
+        self.assertIn((3, 15), policy.EXPERIMENTAL_SERIES)
+        self.assertIsNone(self.problem(15))
 
     def test_prereleases_remain_rejected_after_final_approval(self):
         for minor, level, serial in (
@@ -75,7 +79,7 @@ class RuntimeSupportTests(unittest.TestCase):
         setup = setuptools.setup = Mock()
         with patch.dict(sys.modules, {"setuptools": setuptools}), \
                 patch.object(policy.sys, "version_info", Version((3, 10, 0, "final", 0))):
-            with self.assertRaisesRegex(RuntimeError, "Freigegeben"):
+            with self.assertRaisesRegex(RuntimeError, "Produktiv freigegeben"):
                 runpy.run_path(str(ROOT / "setup.py"))
             setup.assert_not_called()
 
@@ -100,8 +104,8 @@ class RuntimeSupportTests(unittest.TestCase):
         self.assertIn("--standalone)", starter)
         self.assertIn('VENV="$ROOT/.venv-standalone"', starter)
         self.assertIn('UV_PYTHON_INSTALL_DIR="$tools_dir/python"', starter)
-        self.assertIn('"$uv_cmd" python install 3.12', starter)
-        self.assertIn('"$uv_cmd" python find --managed-python 3.12', starter)
+        self.assertIn('"$uv_cmd" python install 3.14', starter)
+        self.assertIn('"$uv_cmd" python find --managed-python 3.14', starter)
         self.assertIn("SIMPLEOFFICE_NATIVE_PACKAGES=0", starter)
         self.assertIn('PYTHON="$VENV/bin/python"', starter)
 
