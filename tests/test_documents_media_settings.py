@@ -109,6 +109,8 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         for client, token in ((self.admin, "a" * 40), (self.user, "u" * 40)):
             with client.session_transaction() as session:
                 session["_csrf_token"] = token
+                # i18n pin: test asserts German copy; EN default renders English.
+                session["simpleoffice_language"] = "de"
         app.config["TEST_CSRF_PROTECTION"] = True
 
     def tearDown(self):
@@ -154,10 +156,10 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(1, html.count('id="archive-deep-index-enabled"'))
         self.assertIn(
             '<select class="form-select" id="archive-deep-index-enabled" '
-            'name="archive_deep_index_enabled" required>\n'
-            '            <option value="" disabled>Bitte auswählen</option>',
+            'name="archive_deep_index_enabled" required',
             html,
         )
+        self.assertIn('<option value="" disabled>Bitte auswählen</option>', html)
         self.assertIn('name="archive_max_load_per_cpu"', html)
         self.assertIn('min="0.1" max="8.0" step="0.05"', html)
         self.assertEqual(1, html.count('id="archive-load-threshold"'))
@@ -579,32 +581,17 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("integrations.clamav_timeout_seconds", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
-    def test_legacy_clamav_timeout_migrates_once_and_clamps_or_defaults(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_TIMEOUT": "360"}):
-                self.assertEqual(
-                    360, store.settings()["integrations"]["clamav_timeout_seconds"],
-                )
-                store.save({"network": {"webdav_quota_mib": 0}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_TIMEOUT": "600"}):
-                self.assertEqual(
-                    360, store.settings()["integrations"]["clamav_timeout_seconds"],
-                )
-
-        expectations = {
-            "1": MIN_CLAMAV_TIMEOUT_SECONDS,
-            "1200": MAX_CLAMAV_TIMEOUT_SECONDS,
-            "invalid": DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-            "9" * 13: DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_TIMEOUT": raw}):
-                    timeout = SettingsStore(root).settings()["integrations"][
-                        "clamav_timeout_seconds"
-                    ]
-                self.assertEqual(expected, timeout)
+    def test_clamav_timeout_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(
+                DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+                store.settings()["integrations"]["clamav_timeout_seconds"],
+            )
+            store.save({"integrations": {"clamav_timeout_seconds": 360}}, "media-admin")
+            self.assertEqual(
+                360, store.settings()["integrations"]["clamav_timeout_seconds"],
+            )
 
     def test_local_folder_settings_page_is_available_to_signed_in_users(self):
         settings = self.user.get("/documents/settings")
@@ -630,7 +617,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         )
         self.assertEqual(403, denied.status_code)
         self.assertEqual(
-            "de",
+            "en",
             SettingsStore(self.root).settings()["interface"]["default_language"],
         )
 
@@ -647,7 +634,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("Media User", row["display_name"])
         self.assertEqual("dark", row["theme"])
         self.assertEqual(
-            "de",
+            "en",
             SettingsStore(self.root).settings()["interface"]["default_language"],
         )
 

@@ -34,8 +34,6 @@ class ErrorReportingSettingsTests(unittest.TestCase):
             TESTING=True,
             TEST_CSRF_PROTECTION=False,
         )
-        self.environment = patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_REPORTING": "1"})
-        self.environment.start()
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()
@@ -53,11 +51,12 @@ class ErrorReportingSettingsTests(unittest.TestCase):
         for client, token in ((self.admin, "a" * 40), (self.user, "u" * 40)):
             with client.session_transaction() as session:
                 session["_csrf_token"] = token
+                # i18n pin: test asserts German copy; EN default renders English.
+                session["simpleoffice_language"] = "de"
         app.config["TEST_CSRF_PROTECTION"] = True
 
     def tearDown(self):
         app.config.update(self.config)
-        self.environment.stop()
         self.temp.cleanup()
 
     def post_setting(self, client, data, *, token="a" * 40):
@@ -121,18 +120,13 @@ class ErrorReportingSettingsTests(unittest.TestCase):
                     "report-admin",
                 )
 
-    def test_legacy_environment_optout_migrates_once_and_saved_setting_wins(self):
+    def test_default_applies_and_saved_setting_wins(self):
         store = SettingsStore(self.root)
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_REPORTING": "off"}):
-            self.assertFalse(store.settings()["integrations"]["error_reporting_enabled"])
-            store.save({"integrations": {"osm_filter_timeout_seconds": 3600}}, "report-admin")
-
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_REPORTING": "1"}):
-            self.assertFalse(store.settings()["integrations"]["error_reporting_enabled"])
-            store.save({"integrations": {"error_reporting_enabled": True}}, "report-admin")
-
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_REPORTING": "0"}):
-            self.assertTrue(store.settings()["integrations"]["error_reporting_enabled"])
+        self.assertTrue(store.settings()["integrations"]["error_reporting_enabled"])
+        store.save({"integrations": {"osm_filter_timeout_seconds": 3600}}, "report-admin")
+        self.assertTrue(store.settings()["integrations"]["error_reporting_enabled"])
+        store.save({"integrations": {"error_reporting_enabled": False}}, "report-admin")
+        self.assertFalse(store.settings()["integrations"]["error_reporting_enabled"])
 
     def test_persisted_preference_gates_relay_without_disabling_manual_reporting_tools(self):
         environment = {

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 
@@ -45,164 +44,63 @@ DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED = False
 DEFAULT_ERROR_RELAY_MODE = "auto"
 
 
-def _legacy_integer(
-    name: str,
-    default: int,
-    minimum: int,
-    maximum: int,
-    *,
-    max_digits: int = 12,
-    clamp_oversized: bool = False,
-) -> int:
-    raw = os.environ.get(name, str(default)).strip()
-    is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-    if not raw.isascii() or not is_integer:
-        _LOGGER.warning("Invalid legacy integration setting %s; using the default", name)
-        return default
-    if len(raw) > max_digits:
-        if clamp_oversized:
-            _LOGGER.warning("Oversized legacy integration setting %s; clamping", name)
-            return minimum if raw.startswith("-") else maximum
-        _LOGGER.warning("Invalid legacy integration setting %s; using the default", name)
-        return default
-    value = int(raw)
-    if not minimum <= value <= maximum:
-        _LOGGER.warning("Legacy integration setting %s outside range; clamping", name)
-        return max(minimum, min(maximum, value))
-    return value
-
-
+# Historic environment fallbacks were removed: every integration default now
+# comes from the constants below until the admin persists a setting in the
+# app. The ``legacy_*`` names stay so stored-settings callers keep working.
 def legacy_osm_read_timeout() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS",
-        DEFAULT_OSM_READ_TIMEOUT_SECONDS,
-        MIN_OSM_READ_TIMEOUT_SECONDS,
-        MAX_OSM_READ_TIMEOUT_SECONDS,
-    )
+    return DEFAULT_OSM_READ_TIMEOUT_SECONDS
 
 
 def legacy_osm_filter_timeout() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_OSM_FILTER_TIMEOUT",
-        DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-        MIN_OSM_FILTER_TIMEOUT_SECONDS,
-        MAX_OSM_FILTER_TIMEOUT_SECONDS,
-        clamp_oversized=True,
-    )
+    return DEFAULT_OSM_FILTER_TIMEOUT_SECONDS
 
 
 def legacy_osm_export_idle_timeout() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT",
-        DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        clamp_oversized=True,
-    )
+    return DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS
 
 
 def legacy_osm_max_download_gib() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB",
-        DEFAULT_OSM_MAX_DOWNLOAD_GIB,
-        MIN_OSM_MAX_DOWNLOAD_GIB,
-        MAX_OSM_MAX_DOWNLOAD_GIB,
-        clamp_oversized=True,
-        max_digits=128,
-    )
+    return DEFAULT_OSM_MAX_DOWNLOAD_GIB
 
 
 def legacy_osm_download_retries() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES",
-        DEFAULT_OSM_DOWNLOAD_RETRIES,
-        MIN_OSM_DOWNLOAD_RETRIES,
-        MAX_OSM_DOWNLOAD_RETRIES,
-        clamp_oversized=True,
-        max_digits=128,
-    )
+    return DEFAULT_OSM_DOWNLOAD_RETRIES
 
 
 def legacy_clamav_timeout() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_CLAMAV_TIMEOUT",
-        DEFAULT_CLAMAV_TIMEOUT_SECONDS,
-        MIN_CLAMAV_TIMEOUT_SECONDS,
-        MAX_CLAMAV_TIMEOUT_SECONDS,
-    )
+    return DEFAULT_CLAMAV_TIMEOUT_SECONDS
 
 
 def legacy_personnel_time_autosync_enabled() -> int:
-    """Keep the previous opt-out environment behavior until settings are saved."""
-    value = os.environ.get("SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC", "1").strip().casefold()
-    return 0 if value in {"0", "false", "no", "off"} else 1
+    return 1
 
 
 def legacy_personnel_time_autosync_seconds() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS",
-        DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
-        MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
-        MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
-        clamp_oversized=True,
-        max_digits=128,
-    )
+    return DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS
 
 
 def legacy_printershare_purge_interval_seconds() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL",
-        DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
-        MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
-        MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
-        clamp_oversized=True,
-        max_digits=128,
-    )
+    return DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS
 
 
 def legacy_federation_autoscan_country() -> str:
-    """Migrate the old optional country code without enabling invalid scans."""
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY", "")
-    country = raw.strip().upper()
-    if not country:
-        return DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
-    if len(country) != 2 or not country.isascii() or not country.isalpha():
-        _LOGGER.warning("Invalid legacy federation autoscan country; automatic discovery disabled")
-        return DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
-    return country
+    return DEFAULT_FEDERATION_AUTOSCAN_COUNTRY
 
 
 def legacy_federation_autoscan_seconds() -> int:
-    return _legacy_integer(
-        "SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS",
-        DEFAULT_FEDERATION_AUTOSCAN_SECONDS,
-        MIN_FEDERATION_AUTOSCAN_SECONDS,
-        MAX_FEDERATION_AUTOSCAN_SECONDS,
-        clamp_oversized=True,
-        max_digits=128,
-    )
+    return DEFAULT_FEDERATION_AUTOSCAN_SECONDS
 
 
 def legacy_error_reporting_enabled() -> bool:
-    """Keep the historic environment opt-out until the setting is persisted."""
-    value = os.environ.get("SIMPLEOFFICE_ERROR_REPORTING", "1").strip().casefold()
-    return value not in {"0", "false", "no", "off"}
+    return DEFAULT_ERROR_REPORTING_ENABLED
 
 
 def legacy_federation_public_directory_enabled() -> bool:
-    """Migrate the prior public-directory opt-in without changing its default."""
-    value = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY", "0")
-    return value.strip().casefold() in {"1", "true", "yes", "on"}
+    return DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED
 
 
 def legacy_federation_profile_country() -> str:
-    """Migrate the public profile country while preserving the old 2-char cap."""
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "")
-    country = raw.strip().upper()[:2]
-    if country and (len(country) != 2 or not country.isascii() or not country.isalpha()):
-        _LOGGER.warning("Invalid legacy federation profile country; using an empty country")
-        return DEFAULT_FEDERATION_PROFILE_COUNTRY
-    return country
+    return DEFAULT_FEDERATION_PROFILE_COUNTRY
 
 def normalize_federation_public_url(value: Any) -> str:
     """Canonicalize a configured public profile URL without making a request."""
@@ -219,20 +117,11 @@ def normalize_federation_public_url(value: Any) -> str:
 
 
 def legacy_federation_public_url() -> str:
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "")
-    try:
-        return normalize_federation_public_url(raw)
-    except ValueError:
-        _LOGGER.warning("Invalid legacy federation public URL; using the empty default")
-        return DEFAULT_FEDERATION_PUBLIC_URL
+    return DEFAULT_FEDERATION_PUBLIC_URL
 
 
 def legacy_error_relay_mode() -> str:
-    """Preserve the master-role default and explicit legacy relay override."""
-    value = os.environ.get("SIMPLEOFFICE_ERROR_RELAY_ENABLED")
-    if value is None:
-        return DEFAULT_ERROR_RELAY_MODE
-    return "enabled" if value.strip().casefold() in {"1", "true", "yes", "on"} else "disabled"
+    return DEFAULT_ERROR_RELAY_MODE
 
 
 def normalize_integration_settings(

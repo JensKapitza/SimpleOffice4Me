@@ -219,23 +219,15 @@ class OsmSettingsTests(unittest.TestCase):
             ).fetchone()
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
-    def test_personnel_auto_sync_legacy_values_migrate_then_persist(self):
-        with patch.dict(os.environ, {
-            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "off",
-            "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": "180",
-        }):
-            store = SettingsStore(self.root)
-            settings = store.settings()["integrations"]
-            self.assertEqual(0, settings["personnel_time_autosync_enabled"])
-            self.assertEqual(180, settings["personnel_time_autosync_seconds"])
-            store.save({"integrations": {"personnel_time_autosync_enabled": 1}}, "osm-admin")
-            with patch.dict(os.environ, {
-                "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC": "off",
-                "SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS": "240",
-            }):
-                persisted = store.settings()["integrations"]
-            self.assertEqual(1, persisted["personnel_time_autosync_enabled"])
-            self.assertEqual(180, persisted["personnel_time_autosync_seconds"])
+    def test_personnel_auto_sync_defaults_then_persist(self):
+        store = SettingsStore(self.root)
+        settings = store.settings()["integrations"]
+        self.assertEqual(1, settings["personnel_time_autosync_enabled"])
+        self.assertEqual(DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS, settings["personnel_time_autosync_seconds"])
+        store.save({"integrations": {"personnel_time_autosync_enabled": 0, "personnel_time_autosync_seconds": 180}}, "osm-admin")
+        persisted = store.settings()["integrations"]
+        self.assertEqual(0, persisted["personnel_time_autosync_enabled"])
+        self.assertEqual(180, persisted["personnel_time_autosync_seconds"])
 
     def test_printershare_purge_interval_is_admin_only_bounded_resettable_and_audited(self):
         path = "/admin/settings/integrations/printershare"
@@ -287,22 +279,20 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertEqual("integrations.printershare_purge_interval_seconds", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
-    def test_printershare_purge_interval_migrates_legacy_environment_until_saved(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "90"}):
-            store = SettingsStore(self.root)
-            self.assertEqual(
-                90,
-                store.settings()["integrations"]["printershare_purge_interval_seconds"],
-            )
-            store.save(
-                {"integrations": {"printershare_purge_interval_seconds": 180}},
-                "osm-admin",
-            )
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "300"}):
-            self.assertEqual(
-                180,
-                SettingsStore(self.root).settings()["integrations"]["printershare_purge_interval_seconds"],
-            )
+    def test_printershare_purge_interval_uses_default_until_saved(self):
+        store = SettingsStore(self.root)
+        self.assertEqual(
+            DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
+            store.settings()["integrations"]["printershare_purge_interval_seconds"],
+        )
+        store.save(
+            {"integrations": {"printershare_purge_interval_seconds": 180}},
+            "osm-admin",
+        )
+        self.assertEqual(
+            180,
+            SettingsStore(self.root).settings()["integrations"]["printershare_purge_interval_seconds"],
+        )
 
     def test_download_timeout_retains_existing_admin_and_audit_contract(self):
         payload = {"osm_download_read_timeout_seconds": "420"}
@@ -523,26 +513,18 @@ class OsmSettingsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_OSM_MAX_DOWNLOAD_GIB, reset["osm_max_download_gib"])
         self.assertEqual(DEFAULT_OSM_DOWNLOAD_RETRIES, reset["osm_download_retries"])
 
-    def test_osm_download_limits_migrate_legacy_environment_until_saved(self):
-        env = {
-            "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "0",
-            "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "99",
-        }
-        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, env):
-            migrated = SettingsStore(root).settings()["integrations"]
-            self.assertEqual(0, migrated["osm_max_download_gib"])
-            self.assertEqual(MAX_OSM_DOWNLOAD_RETRIES, migrated["osm_download_retries"])
+    def test_osm_download_limits_use_defaults_until_saved(self):
+        with tempfile.TemporaryDirectory() as root:
+            fresh = SettingsStore(root).settings()["integrations"]
+            self.assertEqual(DEFAULT_OSM_MAX_DOWNLOAD_GIB, fresh["osm_max_download_gib"])
+            self.assertEqual(DEFAULT_OSM_DOWNLOAD_RETRIES, fresh["osm_download_retries"])
             SettingsStore(root).save(
-                {"integrations": {"osm_download_read_timeout_seconds": 420}},
+                {"integrations": {"osm_max_download_gib": 0, "osm_download_retries": 2}},
                 "osm-admin",
             )
-            with patch.dict(os.environ, {
-                "SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB": "32",
-                "SIMPLEOFFICE_OSM_DOWNLOAD_RETRIES": "3",
-            }):
-                persisted = SettingsStore(root).settings()["integrations"]
+            persisted = SettingsStore(root).settings()["integrations"]
             self.assertEqual(0, persisted["osm_max_download_gib"])
-            self.assertEqual(MAX_OSM_DOWNLOAD_RETRIES, persisted["osm_download_retries"])
+            self.assertEqual(2, persisted["osm_download_retries"])
 
 
 if __name__ == "__main__":

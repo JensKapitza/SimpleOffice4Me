@@ -160,13 +160,12 @@ class ErrorRelaySettingsTests(unittest.TestCase):
         self.assertEqual("integrations.error_relay_mode", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
-    def test_legacy_relay_override_migrates_once_and_persisted_mode_wins(self):
+    def test_default_mode_applies_and_persisted_mode_wins(self):
         store = SettingsStore(self.root)
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}):
-            self.assertEqual("enabled", store.settings()["integrations"]["error_relay_mode"])
-            store.save({"integrations": {"osm_filter_timeout_seconds": 3600}}, "relay-admin")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "0"}):
-            self.assertEqual("enabled", store.settings()["integrations"]["error_relay_mode"])
-            store.save({"integrations": {"error_relay_mode": "auto"}}, "relay-admin")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}):
-            self.assertEqual("auto", store.settings()["integrations"]["error_relay_mode"])
+        self.assertEqual(DEFAULT_ERROR_RELAY_MODE, store.settings()["integrations"]["error_relay_mode"])
+        store.save({"integrations": {"osm_filter_timeout_seconds": 3600}}, "relay-admin")
+        self.assertEqual(DEFAULT_ERROR_RELAY_MODE, store.settings()["integrations"]["error_relay_mode"])
+        store.save({"integrations": {"error_relay_mode": "enabled"}}, "relay-admin")
+        self.assertEqual("enabled", store.settings()["integrations"]["error_relay_mode"])
+        store.save({"integrations": {"error_relay_mode": "auto"}}, "relay-admin")
+        self.assertEqual("auto", store.settings()["integrations"]["error_relay_mode"])

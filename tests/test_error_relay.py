@@ -25,9 +25,16 @@ from app.error_relay import (
 )
 from app.github_error_reporter import GitHubReporterConfig
 from app.security_controls import protect_browser_mutation
+from app.settings_store import SettingsStore
 
 
 class ErrorRelayTests(unittest.TestCase):
+    def _enable_relay(self, mode="enabled"):
+        """Persist the collector mode in the app (no environment)."""
+        SettingsStore(self.temp.name).save(
+            {"integrations": {"error_relay_mode": mode}}, "relay-test",
+        )
+
     def setUp(self):
         previous_testing = app.config.get("TESTING")
         previous_csrf = app.config.get("TEST_CSRF_PROTECTION")
@@ -80,23 +87,24 @@ class ErrorRelayTests(unittest.TestCase):
 
     @patch("app.error_relay.master_mode", return_value=False)
     def test_relay_is_disabled_by_default_on_non_master_source_checkout(self, _master):
-        with patch.dict(os.environ, {}, clear=True):
-            response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
+        response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(404, response.status_code)
 
     @patch("app.error_relay.master_mode", return_value=True)
     def test_master_federation_is_collector_without_extra_configuration(self, _master):
-        with patch.dict(os.environ, {}, clear=True):
+        with app.app_context():
             self.assertTrue(relay_enabled())
 
     @patch("app.error_relay.master_mode", return_value=True)
     def test_master_collector_can_be_explicitly_disabled(self, _master):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "0"}, clear=True):
+        self._enable_relay("disabled")
+        with app.app_context():
             self.assertFalse(relay_enabled())
 
     @patch("app.error_relay.master_mode", return_value=False)
     def test_non_master_can_still_run_dedicated_relay_role(self, _master):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
+        self._enable_relay("enabled")
+        with app.app_context():
             self.assertTrue(relay_enabled())
 
     def test_future_relay_mutation_is_not_implicitly_csrf_exempt(self):
@@ -121,16 +129,16 @@ class ErrorRelayTests(unittest.TestCase):
     @patch("app.error_relay.load_relay_config")
     def test_health_is_unavailable_without_github_credential(self, load_config):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
-            response = self.client.get("/api/error-reports/v1/health")
+        self._enable_relay()
+        response = self.client.get("/api/error-reports/v1/health")
         self.assertEqual(503, response.status_code)
         self.assertFalse(response.get_json()["ready"])
 
     @patch("app.error_relay.load_relay_config")
     def test_health_is_ready_with_github_credential(self, load_config):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "relay-token")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
-            response = self.client.get("/api/error-reports/v1/health")
+        self._enable_relay()
+        response = self.client.get("/api/error-reports/v1/health")
         self.assertEqual(200, response.status_code)
         self.assertTrue(response.get_json()["ready"])
 
@@ -142,9 +150,8 @@ class ErrorRelayTests(unittest.TestCase):
             repository="JensKapitza/SimpleOffice4Me",
             token="relay-only-token",
         )
-        env = {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}
-        with patch.dict(os.environ, env, clear=True):
-            response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
+        self._enable_relay()
+        response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(202, response.status_code)
         self.assertEqual(321, response.get_json()["issue_number"])
         forwarded = report.call_args.args[1]
@@ -159,8 +166,8 @@ class ErrorRelayTests(unittest.TestCase):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
         payload = dict(self.payload)
         payload["request_body"] = "customer secret"
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
-            response = self.client.post("/api/error-reports/v1/reports", json=payload)
+        self._enable_relay()
+        response = self.client.post("/api/error-reports/v1/reports", json=payload)
         self.assertEqual(400, response.status_code)
         report.assert_not_called()
 
@@ -185,8 +192,8 @@ class ErrorRelayTests(unittest.TestCase):
     def test_duplicate_inflight_fingerprint_does_not_create_second_issue(self, load_config, report):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
         _upstream_fingerprints.add(self.payload["fingerprint"])
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
-            response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
+        self._enable_relay()
+        response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(202, response.status_code)
         self.assertTrue(response.get_json()["pending"])
         self.assertTrue(response.get_json()["deduplicated"])
@@ -197,8 +204,8 @@ class ErrorRelayTests(unittest.TestCase):
     def test_upstream_concurrency_is_bounded(self, load_config, report):
         load_config.return_value = GitHubReporterConfig(True, "JensKapitza/SimpleOffice4Me", "token")
         _upstream_fingerprints.update(f"busy-{index}" for index in range(MAX_UPSTREAM_INFLIGHT))
-        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}, clear=True):
-            response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
+        self._enable_relay()
+        response = self.client.post("/api/error-reports/v1/reports", json=self.payload)
         self.assertEqual(503, response.status_code)
         self.assertEqual("2", response.headers.get("Retry-After"))
         report.assert_not_called()
