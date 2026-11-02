@@ -1,5 +1,4 @@
 import hashlib
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +6,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.document_store import DocumentStore
 from app.federation_blocks_v2_http import bp
 from app.federation_peer_auth import headers as peer_headers
@@ -28,17 +28,16 @@ class FederationBlocksV2HttpTest(unittest.TestCase):
         self.source.write_bytes(self.payload)
         self.blob_hash = hashlib.sha256(self.payload).hexdigest()
         self.secret = RECEIVER_TOKEN
-        self.environment = patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": self.secret,
-                "SIMPLEOFFICE_FEDERATION_PEER_ID": "receiver",
-            },
-            clear=False,
-        )
-        self.environment.start()
         self.app = Flask(__name__)
-        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root))
+        self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="blocks-v2-test-secret")
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        with self.app.app_context():
+            app_config_store.put_secret("federation", "token", self.secret)
+            app_config_store.put("federation", {"peer_id": "receiver"})
         self.app.register_blueprint(bp)
         self.client = self.app.test_client()
         self.headers = {"Authorization": f"Bearer {self.secret}"}
@@ -57,7 +56,6 @@ class FederationBlocksV2HttpTest(unittest.TestCase):
         self.document = store.get_document(self.source)
 
     def tearDown(self):
-        self.environment.stop()
         self.temp.cleanup()
 
     def _headers(self, path: str):

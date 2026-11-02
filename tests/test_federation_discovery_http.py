@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_discovery_http import bp
 from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
@@ -32,15 +33,15 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.context = self.app.app_context()
         self.context.push()
         self.client = self.app.test_client()
-        self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "discovery-test-token"
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", "discovery-test-token")
         self.auth = {"Authorization": "Bearer discovery-test-token"}
 
     def tearDown(self):
-        if self.previous is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
         self.context.pop()
         self.temp.cleanup()
 

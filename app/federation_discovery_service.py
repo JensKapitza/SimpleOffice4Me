@@ -8,6 +8,7 @@ from .federation_compatibility import compatibility
 from .federation_discovery_country import normalize_country
 from .federation_discovery_email import email_hash
 from .federation_discovery_endpoint import fetch_discovery_profile_auto, normalize_endpoint
+from . import federation_local_identity as _identity
 from .federation_peer_profile import peer_profile
 from .federation_store import FederationStore
 from .federation_trust_store import FederationTrustStore
@@ -28,7 +29,7 @@ def bootstrap_urls():
 
 
 def bootstrap_token():
-    return os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
+    return _identity.directory_token()
 
 
 def remember_discovered_peer(root, profile, source):

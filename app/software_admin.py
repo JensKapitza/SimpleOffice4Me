@@ -13,6 +13,7 @@ from simpleoffice_version import build_info
 
 from .access_control import is_admin
 from .auth import login_required
+from . import federation_local_identity as _identity
 from .federation_store import FederationStore
 from .federation_worker import _json_request
 from .software_artifact_config import ConfiguredSoftwareArtifactStore, SoftwareArtifactConfiguration
@@ -66,7 +67,7 @@ def _redirect():
 
 
 def _local_peer_id() -> str:
-    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    configured = _identity.peer_id()
     return configured or socket.gethostname().strip().casefold().replace(" ", "-")[:128]
 
 

@@ -12,6 +12,7 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, db as database
+from app import app_config_store
 from app.federation_local_profile import local_profile
 from app.settings_store import (
     DEFAULT_FEDERATION_PROFILE_COUNTRY,
@@ -40,12 +41,15 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
         )
         self.environment = patch.dict(os.environ, {
             "SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY": "0",
-            "SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN": "",
-            "SIMPLEOFFICE_FEDERATION_TOKEN": "",
             "SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "",
             "SIMPLEOFFICE_FEDERATION_COUNTRY": "",
         })
         self.environment.start()
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()

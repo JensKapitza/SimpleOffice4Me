@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hmac
 import json
-import os
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -11,6 +10,7 @@ from typing import Any
 
 from .federation_blocks import FederationBlockStore, sha512_bytes
 from .federation_core import preallocate, verify_file
+from . import federation_local_identity as _identity
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
 from .federation_store import FederationStore
@@ -19,7 +19,7 @@ from .v2.scoped_dedup import scoped_block_token, scoped_manifest_valid
 
 
 def _shared_bearer() -> str:
-    token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    token = _identity.shared_token()
     if not token:
         raise ValueError("Lokaler Federation-Token fehlt für peer-signiertes V2-Dedup")
     return token

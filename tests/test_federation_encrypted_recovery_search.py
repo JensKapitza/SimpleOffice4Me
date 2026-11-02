@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import tempfile
 import time
 import unittest
@@ -13,6 +12,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_http import bp
 from app.federation_peer_auth import headers as peer_headers, sign as peer_sign
 from app.federation_store import FederationStore
@@ -50,15 +50,13 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
         self.app.register_blueprint(bp)
         self.context = self.app.app_context()
         self.context.push()
-        self.environment = patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": RECEIVER_TOKEN,
-                "SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-local",
-            },
-            clear=False,
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
         )
-        self.environment.start()
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", RECEIVER_TOKEN)
+        app_config_store.put("federation", {"peer_id": "peer-local"})
         self.client = self.app.test_client()
 
         federation = FederationStore(self.root)
@@ -100,7 +98,6 @@ class FederationEncryptedRecoverySearchTests(unittest.TestCase):
         )
 
     def tearDown(self):
-        self.environment.stop()
         self.context.pop()
         self.temp.cleanup()
 

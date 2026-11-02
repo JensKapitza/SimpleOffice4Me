@@ -13,6 +13,11 @@ from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_po
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_lan_receive_state import LanReceiveState
+from . import federation_local_identity
+from .federation_identity_admin import (
+    rotate_identity_token as _rotate_identity_token_view,
+    save_identity as _save_identity_view,
+)
 from .federation_local_profile import local_profile
 from .federation_pairing import FederationPairingTokens
 from .federation_pairing_client import PairingClientError, claim_pairing_code, remote_pairing_status
@@ -361,6 +366,7 @@ def dashboard():
         peers=peers,
         own=own,
         own_qr=own_qr,
+        identity=federation_local_identity.status(),
         lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
         compatibility_requirements=requirements(),
@@ -578,6 +584,18 @@ def publish_local():
     except Exception as exc:
         flash(translate(g.language, "fedpeer.profile.publish.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/identity")
+@admin_required
+def save_identity():
+    return _save_identity_view()
+
+
+@bp.post("/identity/rotate-token")
+@admin_required
+def rotate_identity_token():
+    return _rotate_identity_token_view()
 
 
 @bp.post("/qr/import")

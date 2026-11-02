@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import hmac
-import os
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .db import get_db
+from . import federation_local_identity as _identity
 from .federation_peer_auth import authenticate as authenticate_peer, authenticated_peer
 from .v3_capabilities import enabled
 from .v3_federation import FederationContract, capability_descriptor
@@ -22,7 +22,7 @@ def _bearer() -> str:
 
 def _legacy_bearer_authorized() -> bool:
     """Compatibility only: authenticates the server credential, never a peer identity."""
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     supplied = _bearer()
     if expected and supplied and hmac.compare_digest(expected, supplied):
         return True
@@ -48,7 +48,7 @@ def _authorized() -> bool:
 
 def _local_peer_id() -> str:
     return (
-        os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+        _identity.peer_id()
         or "simpleoffice-local"
     )
 

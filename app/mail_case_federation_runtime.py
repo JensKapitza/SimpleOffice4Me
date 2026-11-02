@@ -5,6 +5,7 @@ import os
 import threading
 import time
 
+from . import federation_local_identity as _identity
 from .mail_case_federation import retry_due_mail_case_events
 
 _LOCK = threading.Lock()
@@ -19,7 +20,7 @@ def _enabled() -> bool:
 
 def _worker(app, root: str) -> None:
     global _STARTED
-    local_peer_id = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "simpleoffice-local")
+    local_peer_id = _identity.peer_id()
     try:
         while not app.testing and _enabled() and str(app.config["DOCUMENT_ROOT"]) == root:
             with app.app_context():

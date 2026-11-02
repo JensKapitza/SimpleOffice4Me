@@ -112,3 +112,17 @@ def secret(section_name: str, key: str) -> str:
 
 def secret_configured(section_name: str, key: str) -> bool:
     return bool(section(section_name).get(key + "_enc"))
+
+
+def discard_secret(section_name: str, key: str) -> bool:
+    """Remove a stored secret; True when one existed. put() merges, so deletion needs a full rewrite."""
+    try:
+        data = _load()
+    except (OSError, ValueError):
+        return False
+    values = data.get(section_name)
+    if not isinstance(values, dict) or values.pop(key + "_enc", None) is None:
+        return False
+    data[section_name] = values
+    _dump(data)
+    return True

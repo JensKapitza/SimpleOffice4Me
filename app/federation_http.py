@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import binascii
 import hmac
-import os
 import re
 import secrets
 import time
@@ -30,6 +29,7 @@ from .federation_core import (
     write_chunk,
 )
 from .federation_store import FederationStore, PeerBanned
+from . import federation_local_identity as _identity
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_worker import BlobHashMismatch, _materialize_blob, push_blob_to_transient_target, validate_transient_target
@@ -85,7 +85,7 @@ def _authorized() -> bool:
     if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
     supplied = _bearer()
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if expected and supplied and hmac.compare_digest(expected, supplied):
         return True
     if _transfer_capability_authorized(supplied):

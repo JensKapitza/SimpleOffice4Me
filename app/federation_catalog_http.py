@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -12,6 +11,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore
 from .federation_core import normalize_sha256
+from . import federation_local_identity as _identity
 from .federation_peer_auth import (
     authenticate as authenticate_peer,
     authenticated_peer,
@@ -40,7 +40,7 @@ def _authorized() -> bool:
         return False
     # Compatibility only. This bearer authenticates access to the legacy
     # catalog, but it must never be treated as proof of a particular peer.
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if not expected:
         return bool(current_app.testing)
     header = request.headers.get("Authorization", "")

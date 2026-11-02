@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hmac
-import os
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
@@ -20,6 +19,7 @@ from .federation_blocks import (
     sha512_bytes,
 )
 from .federation_core import normalize_sha256
+from . import federation_local_identity as _identity
 from .safe_paths import resolve_under
 
 
@@ -31,7 +31,7 @@ def _authorized() -> bool:
     from .federation_moderation_auth import legacy_peer_allowed
     if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if not expected:
         return bool(current_app.testing)
     header = request.headers.get("Authorization", "")

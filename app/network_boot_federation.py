@@ -15,12 +15,12 @@ both, or neither.
 from __future__ import annotations
 
 import json
-import os
 import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
+from . import federation_local_identity as _identity
 from .federation_store import FederationStore
 from .federation_worker import _request
 from .network_boot import (
@@ -36,7 +36,7 @@ POLICY_STORES = "stores_network_boot"
 
 
 def _local_peer_id() -> str:
-    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    configured = _identity.peer_id()
     return configured or socket.gethostname().strip().casefold().replace(" ", "-")[:128]
 
 

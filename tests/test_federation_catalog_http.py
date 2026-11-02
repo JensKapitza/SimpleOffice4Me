@@ -1,10 +1,11 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.document_store import DocumentStore
 from app.federation_catalog_http import bp
 from app.federation_peer_auth import headers as peer_headers
@@ -20,8 +21,12 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.app.register_blueprint(bp)
         self.context = self.app.app_context()
         self.context.push()
-        self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "catalog-token"
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", "catalog-token")
         store = DocumentStore(self.root)
         first = self.root / "Alpha.txt"
         first.write_text("alpha", encoding="utf-8")
@@ -43,10 +48,6 @@ class FederationCatalogHttpTest(unittest.TestCase):
 
     def tearDown(self):
         self.context.pop()
-        if self.previous is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
         self.temp.cleanup()
 
     def test_catalog_requires_authentication(self):
