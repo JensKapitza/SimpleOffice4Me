@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 from contextlib import contextmanager
-from functools import lru_cache
 import json
 import logging
 import os
@@ -343,12 +342,8 @@ class SettingsStore:
 
     @staticmethod
     def _legacy_webdav_quota() -> int:
-        """Read the old environment setting only until a persisted value exists."""
-        requested = os.environ.get("SIMPLEOFFICE_WEBDAV_QUOTA_MIB", "0").strip()
-        return _bounded_setting(
-            requested, DEFAULT_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
-            MAX_WEBDAV_QUOTA_MIB,
-        )
+        """Default quota until a persisted value exists (no environment)."""
+        return DEFAULT_WEBDAV_QUOTA_MIB
 
     @staticmethod
     def _normalize_network_settings(network: dict[str, Any]) -> dict[str, Any]:
@@ -395,51 +390,18 @@ class SettingsStore:
 
     @staticmethod
     def _legacy_rsync_timeout() -> int:
-        """Read and bound the legacy rsync session timeout until it is saved."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_RSYNC_TIMEOUT", str(DEFAULT_RSYNC_TIMEOUT_SECONDS),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 12 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy rsync timeout; using the default")
-            return DEFAULT_RSYNC_TIMEOUT_SECONDS
-        value = int(raw)
-        if not MIN_RSYNC_TIMEOUT_SECONDS <= value <= MAX_RSYNC_TIMEOUT_SECONDS:
-            _LOGGER.warning("Legacy rsync timeout outside range; clamping to supported limits")
-            return max(MIN_RSYNC_TIMEOUT_SECONDS, min(MAX_RSYNC_TIMEOUT_SECONDS, value))
-        return value
+        """Default rsync timeout until it is saved (no environment)."""
+        return DEFAULT_RSYNC_TIMEOUT_SECONDS
 
     @staticmethod
     def _legacy_rsync_max_bytes() -> int:
-        """Read and bound the legacy rsync size limit until it is saved."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_RSYNC_MAX_BYTES", str(DEFAULT_RSYNC_MAX_BYTES),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 20 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy rsync size limit; using the default")
-            return DEFAULT_RSYNC_MAX_BYTES
-        value = int(raw)
-        if not MIN_RSYNC_MAX_BYTES <= value <= MAX_RSYNC_MAX_BYTES:
-            _LOGGER.warning("Legacy rsync size limit outside range; clamping to supported limits")
-            return max(MIN_RSYNC_MAX_BYTES, min(MAX_RSYNC_MAX_BYTES, value))
-        return value
+        """Default rsync size limit until it is saved (no environment)."""
+        return DEFAULT_RSYNC_MAX_BYTES
 
     @staticmethod
     def _legacy_rsync_max_files() -> int:
-        """Read and bound the old file-count limit until it is saved in settings."""
-        raw = os.environ.get(
-            "SIMPLEOFFICE_RSYNC_MAX_FILES", str(DEFAULT_RSYNC_MAX_FILES),
-        ).strip()
-        is_integer = raw.isdecimal() or (raw.startswith("-") and raw[1:].isdecimal())
-        if len(raw) > 12 or not raw.isascii() or not is_integer:
-            _LOGGER.warning("Invalid legacy rsync file-count limit; using the default")
-            return DEFAULT_RSYNC_MAX_FILES
-        value = int(raw)
-        if not MIN_RSYNC_MAX_FILES <= value <= MAX_RSYNC_MAX_FILES:
-            _LOGGER.warning("Legacy rsync file-count limit outside range; clamping to supported limits")
-            return max(MIN_RSYNC_MAX_FILES, min(MAX_RSYNC_MAX_FILES, value))
-        return value
+        """Default file-count limit until it is saved (no environment)."""
+        return DEFAULT_RSYNC_MAX_FILES
 
     @staticmethod
     def _normalize_integration_settings(integrations: dict[str, Any]) -> dict[str, Any]:
@@ -454,35 +416,19 @@ class SettingsStore:
         legacy_frames = (
             legacy.get("frame_count")
             if isinstance(legacy, dict) and "frame_count" in legacy
-            else os.environ.get("SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES", DEFAULT_VIDEO_PREVIEW_FRAMES)
+            else DEFAULT_VIDEO_PREVIEW_FRAMES
         )
         return {
-            "upload_limit_mib": _bounded_setting(
-                os.environ.get("SIMPLEOFFICE_MAX_UPLOAD_MIB"),
-                DEFAULT_UPLOAD_LIMIT_MIB, MIN_UPLOAD_LIMIT_MIB, MAX_UPLOAD_LIMIT_MIB,
-            ),
+            "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
             "video_preview_frames": _bounded_setting(
                 legacy_frames, DEFAULT_VIDEO_PREVIEW_FRAMES,
                 MIN_VIDEO_PREVIEW_FRAMES, MAX_VIDEO_PREVIEW_FRAMES,
             ),
-            "preview_enabled": os.environ.get("SIMPLEOFFICE_PREVIEWS", "1").strip().casefold()
-            not in {"0", "false", "off"},
-            "preview_timeout_seconds": _bounded_setting(
-                os.environ.get("SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS"),
-                DEFAULT_PREVIEW_TIMEOUT_SECONDS, MIN_PREVIEW_TIMEOUT_SECONDS,
-                MAX_PREVIEW_TIMEOUT_SECONDS,
-            ),
-            "preview_max_bytes": _bounded_setting(
-                os.environ.get("SIMPLEOFFICE_PREVIEW_MAX_BYTES"),
-                DEFAULT_PREVIEW_MAX_BYTES, MIN_PREVIEW_MAX_BYTES, MAX_PREVIEW_MAX_BYTES,
-            ),
-            "preview_max_pixels": _bounded_setting(
-                os.environ.get("SIMPLEOFFICE_PREVIEW_MAX_PIXELS"),
-                DEFAULT_PREVIEW_MAX_PIXELS, MIN_PREVIEW_MAX_PIXELS, MAX_PREVIEW_MAX_PIXELS,
-            ),
-            "archive_ocr_enabled": os.environ.get(
-                "SIMPLEOFFICE_ARCHIVE_OCR", "0",
-            ).strip().casefold() in {"1", "true", "yes", "on"},
+            "preview_enabled": DEFAULT_PREVIEW_ENABLED,
+            "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
+            "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
+            "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
+            "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
             # This legacy option can only enable automatic resource-aware indexing;
             # it no longer bypasses CPU or memory safeguards.
             "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
@@ -498,33 +444,10 @@ class SettingsStore:
             "archive_member_yield_ms": legacy_archive_member_yield_ms(),
         }
 
-    @classmethod
-    def _legacy_chat_attachment_max_bytes(cls) -> int:
-        """Read the old byte cap until a persistent setting exists; zero inherits."""
-        raw = os.environ.get("SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES", "").strip()
-        if len(raw) > 20:
-            raw = "<oversized>"
-        return cls._parse_legacy_chat_attachment_max_bytes(raw)
-
     @staticmethod
-    @lru_cache(maxsize=16)
-    def _parse_legacy_chat_attachment_max_bytes(raw: str) -> int:
-        if not raw:
-            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
-        if not raw.isascii():
-            _LOGGER.warning("Invalid legacy chat attachment limit; inheriting global upload limit")
-            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
-        try:
-            requested = int(raw)
-        except ValueError:
-            _LOGGER.warning("Invalid legacy chat attachment limit; inheriting global upload limit")
-            return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
-        if requested < 1:
-            return 1
-        if requested > MAX_CHAT_ATTACHMENT_BYTES:
-            _LOGGER.warning("Legacy chat attachment limit exceeds supported maximum; clamping")
-            return MAX_CHAT_ATTACHMENT_BYTES
-        return requested
+    def _legacy_chat_attachment_max_bytes() -> int:
+        """Default attachment cap until a persistent setting exists (no environment)."""
+        return DEFAULT_CHAT_ATTACHMENT_MAX_BYTES
 
     @staticmethod
     def _normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:

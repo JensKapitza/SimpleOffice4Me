@@ -374,64 +374,32 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("network.rsync_max_bytes", row["target_id"])
         self.assertFalse(json.loads(row["detail"])["restart_required"])
 
-    def test_legacy_webdav_quota_migrates_once_and_persisted_value_wins(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "512"}):
-            store = SettingsStore(self.root / "legacy")
-            self.assertEqual(512, store.settings()["network"]["webdav_quota_mib"])
-            store.save({"interface": {"timezone": "UTC"}}, "media-admin")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "1024"}):
-            self.assertEqual(512, SettingsStore(self.root / "legacy").settings()["network"]["webdav_quota_mib"])
-            self.assertEqual(512 * 1024 * 1024, configured_webdav_quota_bytes(self.root / "legacy"))
+    def test_webdav_quota_uses_default_and_persisted_value_wins(self):
+        store = SettingsStore(self.root / "legacy")
+        self.assertEqual(DEFAULT_WEBDAV_QUOTA_MIB, store.settings()["network"]["webdav_quota_mib"])
+        store.save({"network": {"webdav_quota_mib": 512}}, "media-admin")
+        self.assertEqual(512, SettingsStore(self.root / "legacy").settings()["network"]["webdav_quota_mib"])
+        self.assertEqual(512 * 1024 * 1024, configured_webdav_quota_bytes(self.root / "legacy"))
         with self.assertRaises(ValueError):
             SettingsStore(self.root / "legacy").save({"network": {"webdav_quota_mib": True}}, "media-admin")
 
-    def test_legacy_rsync_timeout_migrates_once_and_clamps_or_defaults(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": "7200"}):
-                self.assertEqual(7200, store.settings()["network"]["rsync_timeout_seconds"])
-                store.save({"network": {"webdav_quota_mib": 512}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": "360"}):
-                network = store.settings()["network"]
-                self.assertEqual(7200, network["rsync_timeout_seconds"])
-                self.assertEqual(512, network["webdav_quota_mib"])
+    def test_rsync_timeout_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(DEFAULT_RSYNC_TIMEOUT_SECONDS, store.settings()["network"]["rsync_timeout_seconds"])
+            store.save({"integrations": {"osm_download_read_timeout_seconds": 420}}, "media-admin")
+            store.save({"network": {"rsync_timeout_seconds": 7200}}, "media-admin")
+            self.assertEqual(7200, store.settings()["network"]["rsync_timeout_seconds"])
 
-        expectations = {
-            "1": MIN_RSYNC_TIMEOUT_SECONDS,
-            "90000": MAX_RSYNC_TIMEOUT_SECONDS,
-            "invalid": DEFAULT_RSYNC_TIMEOUT_SECONDS,
-            "9" * 13: DEFAULT_RSYNC_TIMEOUT_SECONDS,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_TIMEOUT": raw}):
-                    timeout = SettingsStore(root).settings()["network"]["rsync_timeout_seconds"]
-                self.assertEqual(expected, timeout)
-
-    def test_legacy_rsync_size_limit_migrates_once_and_clamps_or_defaults(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            legacy_value = 1024 * 1024 * 1024
-            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_BYTES": str(legacy_value)}):
-                self.assertEqual(legacy_value, store.settings()["network"]["rsync_max_bytes"])
-                store.save({"network": {"webdav_quota_mib": 512}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_BYTES": str(DEFAULT_RSYNC_MAX_BYTES)}):
-                self.assertEqual(
-                    legacy_value,
-                    SettingsStore(legacy_root).settings()["network"]["rsync_max_bytes"],
-                )
-
-        expectations = {
-            "1": MIN_RSYNC_MAX_BYTES,
-            str(MAX_RSYNC_MAX_BYTES + 1): MAX_RSYNC_MAX_BYTES,
-            "invalid": DEFAULT_RSYNC_MAX_BYTES,
-            "9" * 21: DEFAULT_RSYNC_MAX_BYTES,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_BYTES": raw}):
-                    actual = SettingsStore(root).settings()["network"]["rsync_max_bytes"]
-                self.assertEqual(expected, actual)
+    def test_rsync_size_limit_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(DEFAULT_RSYNC_MAX_BYTES, store.settings()["network"]["rsync_max_bytes"])
+            store.save({"network": {"rsync_max_bytes": 1024 * 1024 * 1024}}, "media-admin")
+            self.assertEqual(
+                1024 * 1024 * 1024,
+                SettingsStore(root).settings()["network"]["rsync_max_bytes"],
+            )
 
     def test_rsync_file_count_limit_is_admin_only_persistent_validated_and_audited(self):
         path = "/admin/settings/network"
@@ -498,31 +466,15 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 {"network": {"rsync_max_files": True}}, "media-admin",
             )
 
-    def test_legacy_rsync_file_count_limit_migrates_once_and_clamps_or_defaults(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_FILES": "2500"}):
-                self.assertEqual(2500, store.settings()["network"]["rsync_max_files"])
-                store.save({"network": {"webdav_quota_mib": 512}}, "media-admin")
-            with patch.dict(os.environ, {
-                "SIMPLEOFFICE_RSYNC_MAX_FILES": str(DEFAULT_RSYNC_MAX_FILES),
-            }):
-                self.assertEqual(
-                    2500,
-                    SettingsStore(legacy_root).settings()["network"]["rsync_max_files"],
-                )
-
-        expectations = {
-            "-1": MIN_RSYNC_MAX_FILES,
-            str(MAX_RSYNC_MAX_FILES + 1): MAX_RSYNC_MAX_FILES,
-            "invalid": DEFAULT_RSYNC_MAX_FILES,
-            "9" * 13: DEFAULT_RSYNC_MAX_FILES,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_RSYNC_MAX_FILES": raw}):
-                    actual = SettingsStore(root).settings()["network"]["rsync_max_files"]
-                self.assertEqual(expected, actual)
+    def test_rsync_file_count_limit_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(DEFAULT_RSYNC_MAX_FILES, store.settings()["network"]["rsync_max_files"])
+            store.save({"network": {"rsync_max_files": 2500}}, "media-admin")
+            self.assertEqual(
+                2500,
+                SettingsStore(root).settings()["network"]["rsync_max_files"],
+            )
 
     def test_clamav_timeout_requires_admin_and_csrf_persists_and_applies(self):
         path = "/admin/settings/integrations/clamav"
@@ -773,14 +725,12 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB, media["upload_limit_mib"])
         self.assertEqual(DEFAULT_CHAT_ATTACHMENT_MAX_BYTES, media["chat_attachment_max_bytes"])
 
-    def test_legacy_archive_ocr_environment_value_migrates_once(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_OCR": "yes"}):
-                self.assertTrue(store.settings()["media"]["archive_ocr_enabled"])
-                store.save({"media": {"preview_enabled": False}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_OCR": "0"}):
-                media = SettingsStore(legacy_root).settings()["media"]
+    def test_archive_ocr_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(DEFAULT_ARCHIVE_OCR_ENABLED, store.settings()["media"]["archive_ocr_enabled"])
+            store.save({"media": {"archive_ocr_enabled": True, "preview_enabled": False}}, "media-admin")
+            media = SettingsStore(root).settings()["media"]
             self.assertTrue(media["archive_ocr_enabled"])
             self.assertFalse(media["preview_enabled"])
 
@@ -836,46 +786,33 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                     ]
                 self.assertEqual(expected, actual)
 
-    def test_legacy_upload_limit_environment_value_migrates_once(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "256"}):
-                self.assertEqual(256, store.settings()["media"]["upload_limit_mib"])
-                store.save({"media": {"preview_enabled": False}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}):
-                media = SettingsStore(legacy_root).settings()["media"]
+    def test_upload_limit_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(DEFAULT_UPLOAD_LIMIT_MIB, store.settings()["media"]["upload_limit_mib"])
+            store.save({"media": {"upload_limit_mib": 256, "preview_enabled": False}}, "media-admin")
+            media = SettingsStore(root).settings()["media"]
             self.assertEqual(256, media["upload_limit_mib"])
 
-    def test_legacy_chat_attachment_limit_migrates_once(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            old_limit = 100 * 1024 * 1024
-            with patch.dict(os.environ, {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(old_limit)}):
-                self.assertEqual(
-                    old_limit,
-                    store.settings()["media"]["chat_attachment_max_bytes"],
-                )
-                store.save({"media": {"preview_enabled": False}}, "media-admin")
-            with patch.dict(
-                os.environ,
-                {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": str(200 * 1024 * 1024)},
-            ):
-                self.assertEqual(
-                    old_limit,
-                    SettingsStore(legacy_root).settings()["media"]["chat_attachment_max_bytes"],
-                )
+    def test_chat_attachment_limit_uses_default_and_persists(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(
+                DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
+                store.settings()["media"]["chat_attachment_max_bytes"],
+            )
+            store.save({"media": {"chat_attachment_max_bytes": 100 * 1024 * 1024}}, "media-admin")
+            self.assertEqual(
+                100 * 1024 * 1024,
+                SettingsStore(root).settings()["media"]["chat_attachment_max_bytes"],
+            )
 
-    def test_invalid_legacy_chat_attachment_limit_inherits_or_clamps_safely(self):
-        for value, expected in (
-            ("invalid", DEFAULT_CHAT_ATTACHMENT_MAX_BYTES),
-            ("0", 1),
-            ("-10", 1),
-            ("999999999999", MAX_CHAT_ATTACHMENT_BYTES),
-        ):
-            with self.subTest(value=value), tempfile.TemporaryDirectory() as legacy_root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES": value}):
-                    media = SettingsStore(legacy_root).settings()["media"]
-                self.assertEqual(expected, media["chat_attachment_max_bytes"])
+    def test_chat_attachment_limit_rejects_invalid_values_on_save(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            for value in ("invalid", -10, True, 9 * 1024 * 1024 * 1024):
+                with self.subTest(value=value), self.assertRaises(ValueError):
+                    store.save({"media": {"chat_attachment_max_bytes": value}}, "media-admin")
 
     def test_chat_attachment_limit_is_persisted_and_clamped_by_global_request_limit(self):
         store = SettingsStore(self.root)
