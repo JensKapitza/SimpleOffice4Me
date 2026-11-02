@@ -6,7 +6,8 @@ import sys
 
 _RUNTIME_PROBLEM_UNSET = object()
 _RUNTIME_PROBLEM_CACHE = _RUNTIME_PROBLEM_UNSET
-SUPPORTED_SERIES = {(3, 11), (3, 12), (3, 13), (3, 14), (3, 15)}
+SUPPORTED_SERIES = {(3, 11), (3, 12), (3, 13), (3, 14)}
+EXPERIMENTAL_SERIES = {(3, 15)}
 
 
 def runtime_problem() -> str | None:
@@ -16,9 +17,9 @@ def runtime_problem() -> str | None:
         return "Unterstützt wird CPython; siehe docs/PYTHON_RUNTIME_SUPPORT.md."
     if version.releaselevel != "final":
         return "Python-Vorabversionen sind nicht unterstützt; eine freigegebene finale CPython-Version verwenden."
-    if series in SUPPORTED_SERIES:
+    if series in SUPPORTED_SERIES or series in EXPERIMENTAL_SERIES:
         return None
-    return "Freigegeben sind CPython 3.11–3.15 final; siehe docs/PYTHON_RUNTIME_SUPPORT.md."
+    return "Produktiv freigegeben sind CPython 3.11–3.14; Python 3.15 ist experimentell. Siehe docs/PYTHON_RUNTIME_SUPPORT.md."
 
 
 def require_supported_runtime() -> None:

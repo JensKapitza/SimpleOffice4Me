@@ -37,14 +37,12 @@ jobs:
             artifact: windows
           - os: macos-15
             artifact: macos-arm64
-          - os: macos-15-intel
-            artifact: macos-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
@@ -252,7 +250,7 @@ jobs:
           set -euo pipefail
           case "${{ matrix.artifact }}" in
             macos-arm64) expected=arm64 ;;
-            macos-x64) expected=x64 ;;
+
             *) exit 1 ;;
           esac
           actual="$(node -p 'process.arch')"

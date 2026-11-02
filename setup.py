@@ -24,8 +24,7 @@ RUNTIME_DEPENDENCIES = [
     "reportlab>=4.0,<6",
     "pypdf>=5.0,<7",
     "waitress>=3.0,<4",
-    "cryptography==48.0.1; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-    "cryptography>=48.0.1,<51; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+    "cryptography>=50.0.2,<51",
     "watchdog>=6,<7",
     "tzdata>=2024.1",
 ]
@@ -37,7 +36,7 @@ setup(
     description="Self-hosted, file-based document management",
     # Syntax floor only; vendor security policy is checked above.
     python_requires=">=3.11",
-    classifiers=[f"Programming Language :: Python :: 3.{minor}" for minor in range(11, 16)],
+    classifiers=[f"Programming Language :: Python :: 3.{minor}" for minor in range(11, 15)],
     packages=["app", "app.library", "app.v2", "app.v2.adapters", "app.s3_overlay", "tools"],
     py_modules=[
         "simpleoffice_runtime_support",
@@ -70,8 +69,7 @@ setup(
         "quality": ["ruff==0.17.3"],
         "ocr": [
             "rapidocr==3.10.0",
-            "onnxruntime==1.23.2; sys_platform == 'darwin' and platform_machine == 'x86_64'",
-            "onnxruntime==1.31.1; sys_platform != 'darwin' or platform_machine != 'x86_64'",
+            "onnxruntime==1.31.1",
         ],
         "sftp": ["paramiko>=3.5,<6"],
         "banking": ["fints>=4.2,<6"],

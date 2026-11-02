@@ -1,11 +1,11 @@
 # Automatische Tests und Abhängigkeitsprüfung
 
 SimpleOffice4Me prüft jeden Push und Pull Request automatisch. Die Prüfung
-kompiliert alle Python-Module, führt die vollständige Unittest-Suite mit
-Python 3.11, 3.14 und 3.15 final aus und kontrolliert installierte
-Python-Pakete mit `pip-audit` auf bekannte Schwachstellen. Pull Requests führen
-zusätzlich eine vollständige Python-3.15-Final-Abnahme aus; Vorabversionen
-bleiben gesperrt. Python 3.10 wird nicht mehr unterstützt. Die
+kompiliert alle Python-Module und führt die vollständige Unittest-Suite auf
+den produktiven Runtimes Python 3.11 und 3.14 aus. Python 3.15 läuft zusätzlich
+als nicht blockierender Versuch. Installierte Python-Pakete werden mit
+`pip-audit` auf bekannte Schwachstellen geprüft. Vorabversionen bleiben
+gesperrt; Python 3.10 wird nicht mehr unterstützt. Die
 [Runtime-Policy](PYTHON_RUNTIME_SUPPORT.md) beschreibt die Mindestversion.
 
 ## Sicherheitsregeln

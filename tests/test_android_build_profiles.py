@@ -19,11 +19,11 @@ class AndroidBuildProfilesTests(unittest.TestCase):
 
     def test_gradle_rejects_wrong_python_abi_combinations(self):
         gradle = GRADLE.read_text(encoding="utf-8")
-        self.assertIn("'arm64-v8a': '3.15'", gradle)
+        self.assertIn("'arm64-v8a': '3.14'", gradle)
         self.assertIn("pythonRuntimeVersion != expectedPythonVersion", gradle)
         self.assertIn("cffi-2.0.0-*.whl", gradle)
         self.assertIn("pillow-13.0.0-*.whl", gradle)
-        self.assertIn("cryptography-48.0.1-*.whl", gradle)
+        self.assertIn("cryptography-50.0.2-*.whl", gradle)
         self.assertIn("argon2_cffi_bindings-21.2.0-*.whl", gradle)
         self.assertIn("localArgon2BindingsWheel.absolutePath", gradle)
         self.assertIn("Match counts: cffi=", gradle)
@@ -32,10 +32,10 @@ class AndroidBuildProfilesTests(unittest.TestCase):
 
     def test_apk_job_consumes_hash_verified_native_wheel_artifacts(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("android-cp315-arm64-Pillow-wheel", workflow)
-        self.assertIn("android-cp315-arm64-cryptography-wheel", workflow)
-        self.assertIn("android-cp315-arm64-argon2-cffi-bindings-wheel", workflow)
-        self.assertIn("android-cp315-arm64-cffi-wheel", workflow)
+        self.assertIn("android-cp314-arm64-Pillow-wheel", workflow)
+        self.assertIn("android-cp314-arm64-cryptography-wheel", workflow)
+        self.assertIn("android-cp314-arm64-argon2-cffi-bindings-wheel", workflow)
+        self.assertIn("android-cp314-arm64-cffi-wheel", workflow)
         self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
         self.assertIn("--gradle android/apk/app/build.gradle", workflow)
@@ -59,10 +59,10 @@ class AndroidBuildProfilesTests(unittest.TestCase):
         self.assertIn("android-native-wheels:", workflow)
         self.assertIn("needs: android-native-wheels", workflow)
         self.assertIn("SIMPLEOFFICE_ANDROID_WHEEL_DIR:", workflow)
-        self.assertIn("android-cp315-arm64-Pillow-wheel", workflow)
-        self.assertIn("android-cp315-arm64-cryptography-wheel", workflow)
-        self.assertIn("android-cp315-arm64-argon2-cffi-bindings-wheel", workflow)
-        self.assertIn("android-cp315-arm64-cffi-wheel", workflow)
+        self.assertIn("android-cp314-arm64-Pillow-wheel", workflow)
+        self.assertIn("android-cp314-arm64-cryptography-wheel", workflow)
+        self.assertIn("android-cp314-arm64-argon2-cffi-bindings-wheel", workflow)
+        self.assertIn("android-cp314-arm64-cffi-wheel", workflow)
         self.assertIn("sha256sum --check Pillow-SHA256SUMS cryptography-SHA256SUMS cffi-SHA256SUMS argon2-cffi-bindings-SHA256SUMS", workflow)
         self.assertIn("--wheel-dir android/apk/app/wheelhouse", workflow)
 

@@ -5,7 +5,7 @@ from pathlib import Path
 class AndroidApkBuildMatrixTest(unittest.TestCase):
     def test_gradle_exposes_only_the_verified_arm64_runtime_profile(self):
         text = Path("android/apk/app/build.gradle").read_text(encoding="utf-8")
-        self.assertIn("'arm64-v8a': '3.15'", text)
+        self.assertIn("'arm64-v8a': '3.14'", text)
         self.assertNotIn("'armeabi-v7a': '3.11'", text)
         self.assertIn("SIMPLEOFFICE_ANDROID_ABI", text)
         self.assertIn("SIMPLEOFFICE_ANDROID_PYTHON", text)
@@ -47,7 +47,7 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
     def test_ci_publishes_only_verified_arm64_apk(self):
         text = Path(".github/workflows/android-apk-build.yml").read_text(encoding="utf-8")
         self.assertIn("abi: arm64-v8a", text)
-        self.assertIn("python: '3.15'", text)
+        self.assertIn("python: '3.14'", text)
         self.assertNotIn("abi: armeabi-v7a", text)
         self.assertNotIn("ARM32", text)
         self.assertIn("simpleoffice4me-android-installable", text)
@@ -73,7 +73,7 @@ class AndroidApkBuildMatrixTest(unittest.TestCase):
         for workflow_name in ("android-apk-build.yml", "ubuntu-26-compat.yml"):
             text = (Path(".github/workflows") / workflow_name).read_text(encoding="utf-8")
             for package in ("Pillow", "cryptography", "cffi", "argon2-cffi-bindings"):
-                self.assertIn(f"android-cp315-arm64-{package}-wheel", text)
+                self.assertIn(f"android-cp314-arm64-{package}-wheel", text)
                 self.assertIn(f"{package}-SHA256SUMS", text)
 
 

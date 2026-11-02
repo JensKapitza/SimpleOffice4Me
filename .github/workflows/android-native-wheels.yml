@@ -1,4 +1,4 @@
-name: Android native wheel build (experimental)
+name: Android native wheel build
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   native-wheel:
-    name: Android ARM64 Python 3.15 - ${{ matrix.package }}
+    name: Android ARM64 Python 3.14 - ${{ matrix.package }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -24,8 +24,8 @@ jobs:
             version: '21.2.0'
             sdist_sha256: bb89ceffa6c791807d1305ceb77dbfacc5aa499891d2c55661c6459651fc39e3
           - package: cryptography
-            version: '48.0.1'
-            sdist_sha256: 266f4ee051abb2f725b74ef8072b521ce1feacf685a3364fa6a6b45548db791a
+            version: '50.0.2'
+            sdist_sha256: 7b46165bb56eb4704e2eaaf86f3c940d19154535d9b0ca7d6d590b04060e00d5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
@@ -43,7 +43,7 @@ jobs:
       - name: Attempt Android ARM64 wheel build
         env:
           CIBW_PLATFORM: android
-          CIBW_BUILD: cp315-android_arm64_v8a
+          CIBW_BUILD: cp314-android_arm64_v8a
           CIBW_ARCHS_ANDROID: arm64_v8a
           CIBW_BUILD_VERBOSITY: '1'
           CIBW_TEST_SKIP: '*'
@@ -222,8 +222,8 @@ jobs:
             exit 1
           fi
           extension="${extensions[0]}"
-          patchelf --add-needed libpython3.15.so "$extension"
-          readelf -d "$extension" | grep -F 'Shared library: [libpython3.15.so]'
+          patchelf --add-needed libpython3.14.so "$extension"
+          readelf -d "$extension" | grep -F 'Shared library: [libpython3.14.so]'
           rm "$wheel_file"
           wheel_root="$(find unpacked-wheel -mindepth 1 -maxdepth 1 -type d -print -quit)"
           python -m wheel pack "$wheel_root" --dest-dir wheelhouse
@@ -243,14 +243,14 @@ jobs:
           from tools.check_chaquopy_wheels import compatible_wheels
           package, version = os.environ["PACKAGE_SPEC"].split("==", 1)
           html = "".join(f'<a href="{wheel.name}">wheel</a>' for wheel in Path("wheelhouse").glob("*.whl"))
-          if not compatible_wheels(html, package, version, "3.15", "arm64-v8a"):
-              raise SystemExit(f"No compatible Android ARM64 Python 3.15 wheel built for {package}=={version}")
+          if not compatible_wheels(html, package, version, "3.14", "arm64-v8a"):
+              raise SystemExit(f"No compatible Android ARM64 Python 3.14 wheel built for {package}=={version}")
           PY
           (cd wheelhouse && sha256sum *.whl > "${PACKAGE_NAME}-SHA256SUMS")
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
-          name: android-cp315-arm64-${{ matrix.package }}-wheel
+          name: android-cp314-arm64-${{ matrix.package }}-wheel
           path: |
             wheelhouse/*.whl
             wheelhouse/${{ matrix.package }}-SHA256SUMS

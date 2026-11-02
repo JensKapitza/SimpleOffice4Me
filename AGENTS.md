@@ -41,9 +41,9 @@ Daraus folgt:
 
 ### Python / SimpleOffice4Me
 
-- Produktion: CPython 3.11–3.15 (siehe docs/PYTHON_RUNTIME_SUPPORT.md).
+- Produktion: CPython 3.11–3.14; 3.15 ist experimentell (siehe docs/PYTHON_RUNTIME_SUPPORT.md).
 - `requires-python >=3.11` ist die Syntax- und Mindestversionsgrenze.
-- CI: Python 3.11, 3.14 und 3.15 final; Ubuntu 22.04 wird nicht mehr als Python-3.10-Runtimeziel geprüft.
+- CI: Python 3.11 und 3.14 blockierend; Python 3.15 nicht blockierend experimentell. Ubuntu 22.04 ist kein Python-3.10-Runtimeziel.
 - Flask 3.x bleibt die Web-Basis.
 - Neue Abhängigkeiten vermeiden. Notwendige Laufzeitabhängigkeiten sauber in `pyproject.toml` pflegen.
 - Optionale Funktionen sollen nach Möglichkeit optionale Abhängigkeiten bleiben.
@@ -210,7 +210,7 @@ Regeln:
 - Regressionen bestehender Funktionen nicht akzeptieren.
 - Tests nicht entfernen oder abschwächen, um CI grün zu bekommen.
 - Wenn ein Test wegen bewusst geänderter Spezifikation angepasst wird, muss die neue Erwartung fachlich begründet sein.
-- CI muss Python 3.11, 3.14 und 3.15 final abdecken; Ubuntu 22.04 wird nicht als Python-3.10-Runtimeziel verwendet.
+- CI muss Python 3.11 und 3.14 blockierend prüfen; Python 3.15 läuft nur experimentell und nicht blockierend. Ubuntu 22.04 wird nicht als Python-3.10-Runtimeziel verwendet.
 - Dateigrößen- und Funktionsgrößen-Gates nicht umgehen.
 
 ### Verbindliche PR-, Test- und Merge-Regeln
@@ -350,7 +350,7 @@ Eine Aufgabe gilt für den betroffenen Umfang erst als abgeschlossen, wenn die a
 - Tests erfolgreich
 - Code kompiliert
 - Größenlimits eingehalten
-- CI für Python 3.11, 3.14 und 3.15 final berücksichtigt
+- CI für Python 3.11 und 3.14 blockierend, Python 3.15 experimentell berücksichtigt
 - `pip-audit` erfolgreich oder Abweichung begründet dokumentiert
 - `tools/cra_check.py` erfolgreich oder Abweichung begründet dokumentiert
 - Release-SBOM berücksichtigt

@@ -115,7 +115,7 @@ jobs:
           docker create --name "$container" "$image" > /dev/null
           trap 'docker rm -f "$container" > /dev/null 2>&1 || true' EXIT
           docker cp \
-            "$container:/opt/simpleoffice4me/.venv/lib/python3.12/site-packages" \
+            "$container:/opt/simpleoffice4me/.venv/lib/python3.14/site-packages" \
             "artifacts/container/${{ matrix.arch }}/"
           docker rm "$container" > /dev/null
           trap - EXIT

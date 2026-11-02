@@ -216,11 +216,11 @@ echo   start.bat demo --port 5088
 exit /b 0
 
 :python_error
-echo CPython 3.11 bis 3.15 wurde nicht gefunden oder konnte keine virtuelle Umgebung erstellen.
+echo CPython 3.11 bis 3.14 wurde nicht gefunden oder konnte keine virtuelle Umgebung erstellen.
 exit /b 1
 
 :demo_python_error
-echo Die Projektumgebung nutzt kein unterstuetztes CPython 3.11 bis 3.15.
+echo Die Projektumgebung nutzt kein produktiv freigegebenes CPython 3.11 bis 3.14.
 echo Bitte start.bat ohne demo ausfuehren und danach start.bat demo wiederholen.
 exit /b 1
 
