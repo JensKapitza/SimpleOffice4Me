@@ -4,11 +4,12 @@ from __future__ import annotations
 import json
 import subprocess
 
-from flask import Blueprint, Response, current_app, flash, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 from .access_control import audit
 from .mini_services_admin import admin_required
 from . import litellm_service as service
 from .litellm_config import DEFAULTS, MAX_CONFIG_BYTES
+from .translations import translate
 
 bp = Blueprint("litellm_admin", __name__, url_prefix="/admin/mini-services/litellm")
 ERRORS = (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired, RecursionError)
@@ -45,7 +46,7 @@ def index():
             value.pop("provider_key", None)
             return render_template("admin/litellm_service.html", service=service.status(), config=value,
                                    mcp_enabled=current_app.config.get("MCP_ENABLED", True)), code
-        flash("LiteLLM-Einstellungen gespeichert.")
+        flash(translate(g.language, "llm.saved"))
         return redirect(url_for("litellm_admin.index"))
     row = service.status()
     return render_template("admin/litellm_service.html", service=row, config=row.get("settings") or DEFAULTS,
@@ -56,7 +57,7 @@ def index():
 @admin_required
 def action(name):
     result, code = perform(name)
-    flash(result.get("error") or result.get("health", {}).get("message", "LiteLLM-Aktion abgeschlossen."))
+    flash(result.get("error") or result.get("health", {}).get("message", translate(g.language, "llm.action.done")))
     return redirect(url_for("litellm_admin.index")), 303
 
 
@@ -87,8 +88,8 @@ def restore():
         service.restore(json.loads(data))
     except ERRORS as exc:
         audit("mini_service_restore", "service", "litellm", outcome="failure", detail={"error_type": type(exc).__name__})
-        flash("Restore fehlgeschlagen. Dienst deaktivieren, Sicherung und ursprünglichen Anwendungsschlüssel prüfen.")
+        flash(translate(g.language, "llm.restore.failed"))
     else:
         audit("mini_service_restore", "service", "litellm")
-        flash("Sicherung wiederhergestellt; Dienst bleibt deaktiviert.")
+        flash(translate(g.language, "llm.restore.done"))
     return redirect(url_for("litellm_admin.index"))

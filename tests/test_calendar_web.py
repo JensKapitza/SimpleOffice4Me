@@ -39,6 +39,9 @@ class CalendarWebTest(unittest.TestCase):
             "/auth/login",
             data={"username": "jens", "password": "sicheres-passwort"},
         )
+        # EN is the app default; this suite asserts German UI strings.
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)

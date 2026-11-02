@@ -11,6 +11,7 @@ from .access_control import audit
 from .auth import login_required
 from .mini_services import default_config_path, read_status
 from .mini_services_admin import admin_required
+from .translations import translate
 from simpleoffice_connection_relay import (
     DEFAULT_RELAY_SETTINGS,
     ensure_turn_secret,
@@ -39,7 +40,7 @@ def _context(settings=None):
         current = settings or load_relay_settings(path)
     except (OSError, ValueError):
         current = dict(DEFAULT_RELAY_SETTINGS)
-        flash("Connectivity-Relay-Konfiguration ist nicht lesbar. Angezeigt werden sichere Standardwerte.", "error")
+        flash(translate(g.language, "conn.config.unreadable"), "error")
     status = read_status(path)
     relay_state = status.get("services", {}).get("relay", {})
     commands = []
@@ -107,7 +108,7 @@ def save():
         if clean["enabled"]:
             ensure_turn_secret(path)
     except (OSError, TypeError, ValueError):
-        flash("Relay-Einstellungen sind ungültig oder konnten nicht gespeichert werden. Host, IPs, Ports, TLS-Dateien und Tunnel-Ziele prüfen.", "error")
+        flash(translate(g.language, "conn.settings.invalid"), "error")
         return render_template("admin/connectivity_relay.html", **_context(candidate)), 400
     audit(
         "mini_connectivity_relay_updated",
@@ -120,7 +121,7 @@ def save():
             "tunnel_targets": len(clean["tunnel_targets"]),
         },
     )
-    flash("Connectivity Relay gespeichert. Der Mini-Services-Worker übernimmt die Änderung automatisch.")
+    flash(translate(g.language, "conn.saved"))
     return redirect(url_for("connectivity_relay_admin.index"))
 
 
@@ -131,10 +132,10 @@ def rotate_turn_secret():
     try:
         save_relay_secrets(path, turn_secret=secrets.token_urlsafe(32))
     except (OSError, ValueError):
-        flash("TURN-Shared-Secret konnte nicht erneuert werden.", "error")
+        flash(translate(g.language, "conn.secret.failed"), "error")
     else:
         audit("mini_turn_secret_rotated", "service", "relay")
-        flash("TURN-Shared-Secret erneuert. Bestehende kurzlebige TURN-Zugänge laufen dadurch aus.")
+        flash(translate(g.language, "conn.secret.renewed"))
     return redirect(url_for("connectivity_relay_admin.index"))
 
 

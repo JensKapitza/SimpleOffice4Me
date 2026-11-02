@@ -21,6 +21,7 @@ from .federation_store import FederationStore
 from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
 from .federation_diagnostics import probe_peer as run_network_diagnostic
 from .v2.materialize import materialize_verified_object
+from .translations import translate
 
 bp = Blueprint("federation_admin", __name__, url_prefix="/admin/federation")
 
@@ -142,7 +143,7 @@ def dashboard():
                 "federation_size": manifest["size"],
             }
         except (OSError, RuntimeError, ValueError):
-            flash("Dokumentinhalt ist nicht verfügbar oder konnte nicht verifiziert werden.")
+            flash(translate(g.language, "fed.doc.unavailable"))
     peers = store.list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
@@ -239,10 +240,8 @@ def backfill_origin_tags():
         "origin_tags_backfilled",
         detail={**result, "actor": str(g.user["username"])},
     )
-    flash(
-        f"Herkunfts-Tags: {result['scanned']} Dokumente geprüft, "
-        f"{result['changed']} aktualisiert, {result['errors']} Fehler."
-    )
+    flash(translate(g.language, "fed.tags.scanned").format(
+        scanned=result['scanned'], changed=result['changed'], errors=result['errors']))
     return _redirect_dashboard()
 
 
@@ -284,11 +283,11 @@ def send_document(document_id: str):
         )
         if request.form.get("start_now") == "1":
             result = push_blob_to_peer(current_app.config["DOCUMENT_ROOT"], job_id)
-            flash(f"Dokument übertragen: {result.get('status')}.")
+            flash(translate(g.language, "fed.doc.sent").format(status=result.get('status')))
         else:
-            flash(f"Federation-Transfer {job_id} angelegt.")
+            flash(translate(g.language, "fed.transfer.created").format(job=job_id))
     except Exception as exc:
-        flash(f"Dokument konnte nicht übertragen werden: {exc}")
+        flash(translate(g.language, "fed.doc.send.failed").format(exc=exc))
     return _redirect_dashboard(document_id=document_id)
 
 
@@ -307,9 +306,9 @@ def orchestrate_document(document_id: str):
             digest,
             operation=operation,
         )
-        flash(f"B→C-Transfer abgeschlossen: {result.get('transfer_id')}.")
+        flash(translate(g.language, "fed.b2c.done").format(transfer=result.get('transfer_id')))
     except Exception as exc:
-        flash(f"B→C-Orchestrierung fehlgeschlagen: {exc}")
+        flash(translate(g.language, "fed.b2c.failed").format(exc=exc))
     return _redirect_dashboard(document_id=document_id)
 
 
@@ -319,12 +318,11 @@ def document_availability(document_id: str, peer_id: str):
     try:
         _document, _manifest, digest = _document_blob(document_id)
         availability = remote_availability(current_app.config["DOCUMENT_ROOT"], peer_id, digest)
-        flash(
-            f"Peer {peer_id}: Blob vorhanden, {availability.get('chunk_count', 0)} Chunks, "
-            f"Bereiche {availability.get('available', [])}."
-        )
+        flash(translate(g.language, "fed.availability").format(
+            peer=peer_id, chunks=availability.get('chunk_count', 0),
+            ranges=availability.get('available', [])))
     except Exception as exc:
-        flash(f"Verfügbarkeit konnte nicht geprüft werden: {exc}")
+        flash(translate(g.language, "fed.availability.failed").format(exc=exc))
     return _redirect_dashboard(document_id=document_id)
 
 
@@ -376,9 +374,9 @@ def save_peer():
             )
             policy["network_diagnostics"] = diagnostics_policy
         _store().save_peer(peer_id, label, base_url, token, policy, request.form.get("enabled") == "1")
-        flash("Federation-Peer gespeichert.")
+        flash(translate(g.language, "fed.peer.saved"))
     except (ValueError, json.JSONDecodeError) as exc:
-        flash(f"Peer konnte nicht gespeichert werden: {exc}")
+        flash(translate(g.language, "fed.peer.save.failed").format(exc=exc))
     return _redirect_dashboard(view="peers")
 
 
@@ -400,9 +398,9 @@ def save_chat_policy(peer_id: str):
             bool(peer.get("configured_enabled", peer.get("enabled"))),
         )
         store.record_event("chat_policy_updated", peer_id=peer["peer_id"], detail={"actor": str(g.user["username"]), "chat": chat_policy_state(policy)})
-        flash(f"Chat-Regeln für {peer.get('label') or peer_id} gespeichert.")
+        flash(translate(g.language, "fed.chat.saved").format(peer=peer.get('label') or peer_id))
     except ValueError as exc:
-        flash(f"Chat-Regeln konnten nicht gespeichert werden: {exc}")
+        flash(translate(g.language, "fed.chat.save.failed").format(exc=exc))
     return _redirect_dashboard()
 
 
@@ -411,7 +409,7 @@ def save_chat_policy(peer_id: str):
 def delete_peer(peer_id: str):
     try:
         _store().delete_peer(peer_id)
-        flash("Federation-Peer gelöscht.")
+        flash(translate(g.language, "fed.peer.deleted"))
     except ValueError as exc:
         flash(str(exc))
     return _redirect_dashboard()
@@ -422,12 +420,11 @@ def delete_peer(peer_id: str):
 def probe_peer(peer_id: str):
     try:
         capabilities = peer_capabilities(current_app.config["DOCUMENT_ROOT"], peer_id)
-        flash(
-            f"Peer erreichbar: SOFP {capabilities.get('versions', [])}, "
-            f"Range={capabilities.get('range', False)}, Delegation={capabilities.get('delegated_push', False)}"
-        )
+        flash(translate(g.language, "fed.probe.reachable").format(
+            versions=capabilities.get('versions', []), range=capabilities.get('range', False),
+            delegation=capabilities.get('delegated_push', False)))
     except Exception as exc:
-        flash(f"Peer-Test fehlgeschlagen: {exc}")
+        flash(translate(g.language, "fed.probe.failed").format(exc=exc))
     return _redirect_dashboard()
 
 
@@ -436,7 +433,7 @@ def probe_peer(peer_id: str):
 def network_diagnostic_peer(peer_id: str):
     result = run_network_diagnostic(current_app.config["DOCUMENT_ROOT"], peer_id)
     if result.get("status") == "success":
-        flash(f"Serverprüfung erfolgreich: Peer authentifiziert, {result.get('latency_ms', 0)} ms.")
+        flash(translate(g.language, "fed.server.ok").format(latency=result.get('latency_ms', 0)))
     else:
         category = str(result.get("category") or "unknown")
         labels = {
@@ -456,7 +453,7 @@ def network_diagnostic_peer(peer_id: str):
             "response_too_large": "Peer-Antwort überschreitet die erlaubte Größe",
             "invalid_request": "Peer hat eine ungültige Diagnoseanfrage gesendet",
         }
-        flash(f"Serverprüfung fehlgeschlagen: {labels.get(category, 'Ursache nicht klassifiziert')}.")
+        flash(translate(g.language, "fed.server.failed").format(reason=labels.get(category, 'Ursache nicht klassifiziert')))
     return _redirect_dashboard(view="peers")
 
 
@@ -486,9 +483,9 @@ def manual_network_diagnostic_confirmation(peer_id: str):
 def sync_peer_index(peer_id: str):
     try:
         result = sync_peer_catalog(current_app.config["DOCUMENT_ROOT"], peer_id)
-        flash(f"Dateiindex von {peer_id} übernommen: {result['documents']} Einträge.")
+        flash(translate(g.language, "fed.index.synced").format(peer=peer_id, entries=result['documents']))
     except Exception as exc:
-        flash(f"Index-Synchronisation fehlgeschlagen; vorhandener Offline-Index bleibt erhalten: {exc}")
+        flash(translate(g.language, "fed.index.failed").format(exc=exc))
     return _redirect_dashboard(remote_peer=peer_id)
 
 
@@ -498,9 +495,9 @@ def set_server_priority(peer_id: str):
     try:
         priority = int(request.form.get("priority", "0"))
         _catalog().set_server_priority(peer_id, priority)
-        flash(f"Server-Priorität für {peer_id} geändert.")
+        flash(translate(g.language, "fed.server.priority").format(peer=peer_id))
     except (TypeError, ValueError) as exc:
-        flash(f"Server-Priorität konnte nicht geändert werden: {exc}")
+        flash(translate(g.language, "fed.server.priority.failed").format(exc=exc))
     return _redirect_dashboard(remote_peer=peer_id)
 
 
@@ -513,7 +510,7 @@ def remote_action():
     try:
         if action == "priority":
             _catalog().set_file_priority(peer_id, remote_document_id, int(request.form.get("priority", "0")))
-            flash("Datei-Priorität geändert.")
+            flash(translate(g.language, "fed.file.priority"))
         elif action == "download":
             row = _catalog().request_download(
                 peer_id,
@@ -521,11 +518,11 @@ def remote_action():
                 requested_by=str(g.user["username"]),
                 transfer_priority=int(request.form.get("priority", "0")),
             )
-            flash(f"Download vorgemerkt: {row['request_id']}.")
+            flash(translate(g.language, "fed.download.noted").format(request=row['request_id']))
         else:
             raise ValueError("Unbekannte Remote-Aktion")
     except (TypeError, ValueError) as exc:
-        flash(f"Remote-Aktion fehlgeschlagen: {exc}")
+        flash(translate(g.language, "fed.remote.failed").format(exc=exc))
     return _redirect_dashboard(remote_peer=peer_id, remote_q=request.form.get("remote_q", ""))
 
 
@@ -534,9 +531,9 @@ def remote_action():
 def set_queue_priority(request_id: str):
     try:
         row = _catalog().set_request_priority(request_id, int(request.form.get("priority", "0")))
-        flash(f"Transfer-Priorität geändert; effektiv jetzt {row.get('effective_priority', 0)}.")
+        flash(translate(g.language, "fed.transfer.priority").format(priority=row.get('effective_priority', 0)))
     except (TypeError, ValueError) as exc:
-        flash(f"Transfer-Priorität konnte nicht geändert werden: {exc}")
+        flash(translate(g.language, "fed.transfer.priority.failed").format(exc=exc))
     return _redirect_dashboard()
 
 
@@ -548,12 +545,10 @@ def run_download_queue():
             current_app.config["DOCUMENT_ROOT"],
             limit=max(1, min(int(request.form.get("limit", "5")), 25)),
         )
-        flash(
-            f"Download-Pipeline: {len(result['completed'])} fertig, "
-            f"{len(result['deferred'])} warten auf Peer, {len(result['failed'])} mit Fehler/Retry."
-        )
+        flash(translate(g.language, "fed.pipeline.done").format(
+            done=len(result['completed']), waiting=len(result['deferred']), failed=len(result['failed'])))
     except (TypeError, ValueError) as exc:
-        flash(f"Download-Pipeline konnte nicht gestartet werden: {exc}")
+        flash(translate(g.language, "fed.pipeline.failed").format(exc=exc))
     return _redirect_dashboard()
 
 
@@ -579,9 +574,9 @@ def create_transfer():
             total_chunks=manifest["chunk_count"],
             manifest=manifest,
         )
-        flash(f"Transfer {job_id} angelegt.")
+        flash(translate(g.language, "fed.transfer.created2").format(job=job_id))
     except Exception as exc:
-        flash(f"Transfer konnte nicht angelegt werden: {exc}")
+        flash(translate(g.language, "fed.transfer.create.failed").format(exc=exc))
     return _redirect_dashboard()
 
 
@@ -590,9 +585,9 @@ def create_transfer():
 def run_transfer(job_id: str):
     try:
         result = push_blob_to_peer(current_app.config["DOCUMENT_ROOT"], job_id)
-        flash(f"Transfer {job_id}: {result.get('status')}")
+        flash(translate(g.language, "fed.transfer.status").format(job=job_id, status=result.get('status')))
     except Exception as exc:
-        flash(f"Transfer fehlgeschlagen: {exc}")
+        flash(translate(g.language, "fed.transfer.failed").format(exc=exc))
     return _redirect_dashboard()
 
 

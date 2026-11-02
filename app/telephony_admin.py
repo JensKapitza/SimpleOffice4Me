@@ -13,6 +13,7 @@ from .auth import login_required
 from .mini_services import default_config_path, read_status
 from .security_controls import protect_value, unprotect_value
 from .telephony_numbering import clean_number
+from .translations import translate
 from .telephony_profiles import TelephonyProfileStore, sip_digest_ha1
 from simpleoffice_sip_runtime import effective_sip_settings
 
@@ -121,7 +122,7 @@ def save_settings():
             outcome="failure",
             detail={"error_type": type(exc).__name__},
         )
-        flash("Telefonie-Einstellungen sind ungueltig. Server, Port und Transport pruefen.", "error")
+        flash(translate(g.language, "tel.settings.invalid"), "error")
         return redirect(url_for("telephony_admin.index"))
     audit(
         "telephony_settings_updated",
@@ -129,7 +130,7 @@ def save_settings():
         "sip",
         detail={"host": settings["registrar_host"] or "auto", "port": settings["registrar_port"], "transport": settings["transport"]},
     )
-    flash("Telefonie-Einstellungen gespeichert. Leer gelassener Server bedeutet Automatik.", "success")
+    flash(translate(g.language, "tel.settings.saved"), "success")
     return redirect(url_for("telephony_admin.index"))
 
 
@@ -148,10 +149,10 @@ def create_profile():
         )
         credentials = _credentials(profile["extension"], password)
     except sqlite3.IntegrityError:
-        flash("Diese Nebenstelle existiert bereits.", "error")
+        flash(translate(g.language, "tel.extension.exists"), "error")
         return redirect(url_for("telephony_admin.index"))
     except (TypeError, ValueError):
-        flash("Nebenstelle konnte nicht angelegt werden. Nummer und Geraetetyp pruefen.", "error")
+        flash(translate(g.language, "tel.extension.failed"), "error")
         return redirect(url_for("telephony_admin.index"))
     audit("telephony_profile_created", "sip_extension", profile["extension"], detail={"device_kind": profile["device_kind"]})
     return _render(one_time=credentials)
@@ -178,5 +179,5 @@ def delete_profile(extension: str):
     except (KeyError, ValueError):
         abort(404)
     audit("telephony_profile_deleted", "sip_extension", extension)
-    flash("Nebenstelle geloescht.", "success")
+    flash(translate(g.language, "tel.extension.deleted"), "success")
     return redirect(url_for("telephony_admin.index"))

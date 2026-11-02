@@ -9,6 +9,7 @@ from .business_document_generation import invoice
 from .contact_store import ContactStore
 from .v3_capabilities import enabled
 from .v3_finance import FinanceLifecycleStore, GENERIC_KINDS, KINDS, SUCCESSORS, TRANSITIONS
+from .translations import translate
 
 
 bp = Blueprint(
@@ -108,7 +109,7 @@ def create():
             working=working,
         )
     except ValueError as exc:
-        flash(f"Geschäftsdokument nicht angelegt: {exc}")
+        flash(translate(g.language, "v3fin.doc.failed").format(exc=exc))
         return redirect(url_for("v3_finance.index"))
     return redirect(url_for("v3_finance.detail", lifecycle_id=row.lifecycle_id))
 
@@ -166,9 +167,9 @@ def update_draft(lifecycle_id: str):
             title=request.form.get("title", ""),
             working=working,
         )
-        flash("Entwurf gespeichert.")
+        flash(translate(g.language, "v3fin.draft.saved"))
     except ValueError as exc:
-        flash(f"Entwurf nicht gespeichert: {exc}")
+        flash(translate(g.language, "v3fin.draft.failed").format(exc=exc))
     return redirect(url_for("v3_finance.detail", lifecycle_id=lifecycle_id))
 
 
@@ -184,9 +185,9 @@ def transition(lifecycle_id: str):
             _actor(),
             detail={"source": "web"},
         )
-        flash("Status geändert.")
+        flash(translate(g.language, "v3fin.status.changed"))
     except ValueError as exc:
-        flash(f"Status nicht geändert: {exc}")
+        flash(translate(g.language, "v3fin.status.failed").format(exc=exc))
     return redirect(url_for("v3_finance.detail", lifecycle_id=lifecycle_id))
 
 
@@ -201,7 +202,7 @@ def convert(lifecycle_id: str):
         try:
             invoice_row = invoice(current_app.config["DOCUMENT_ROOT"], invoice_id)
         except ValueError:
-            flash("Der angegebene Rechnungsentwurf existiert nicht.")
+            flash(translate(g.language, "v3fin.draft.missing"))
             return redirect(url_for("v3_finance.detail", lifecycle_id=lifecycle_id))
         if not _can_manage_contact(str(invoice_row.get("contact_id", ""))):
             abort(403)
@@ -214,12 +215,12 @@ def convert(lifecycle_id: str):
             _actor(),
             external_id=invoice_id,
         )
-        flash("Nachfolger angelegt und mit dem Vorgänger verknüpft.")
+        flash(translate(g.language, "v3fin.successor.done"))
         return redirect(
             url_for("v3_finance.detail", lifecycle_id=created.lifecycle_id)
         )
     except ValueError as exc:
-        flash(f"Konvertierung nicht möglich: {exc}")
+        flash(translate(g.language, "v3fin.convert.failed").format(exc=exc))
         return redirect(url_for("v3_finance.detail", lifecycle_id=source.lifecycle_id))
 
 
@@ -237,7 +238,7 @@ def recover(lifecycle_id: str):
             _actor(),
             force=bool(g.user["is_admin"]) and request.form.get("force") == "1",
         )
-        flash(f"Finalisierungszustand auf {recovered.status} abgeglichen.")
+        flash(translate(g.language, "v3fin.recovered").format(status=recovered.status))
     except ValueError as exc:
-        flash(f"Recovery nicht durchgeführt: {exc}")
+        flash(translate(g.language, "v3fin.recovery.failed").format(exc=exc))
     return redirect(url_for("v3_finance.detail", lifecycle_id=lifecycle_id))

@@ -5,6 +5,8 @@ re-exports these names so existing importers keep working.
 """
 from __future__ import annotations
 
+from .flash_translations import FLASH_TRANSLATIONS
+
 
 TRANSLATIONS = {
     "de": {
@@ -532,6 +534,10 @@ TRANSLATIONS["de"].update({
     "cf.suggest.f_conf": "Sicherheit", "cf.suggest.adopt": "Genau diesen Vorschlag als Befund übernehmen",
     "cf.suggest.create": "Befund anlegen", "cf.suggest.drop": "Verwerfen",
 })
+
+
+TRANSLATIONS["de"].update(FLASH_TRANSLATIONS["de"])
+TRANSLATIONS["en"].update(FLASH_TRANSLATIONS["en"])
 
 
 def translate(language: str, key: str) -> str:

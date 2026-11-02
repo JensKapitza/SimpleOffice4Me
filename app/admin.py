@@ -47,6 +47,7 @@ from .settings_store import (
     SettingsStore,
 )
 from .system_identity import system_info
+from .translations import translate
 from tools.launcher import start_osm_download_worker, start_osm_index_worker
 
 bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -234,15 +235,15 @@ def save_printer_policy(username: str):
                 for role, value in saved.items()
             },
         )
-        flash(f"Druckerrichtlinien für {username} gespeichert.")
+        flash(translate(g.language, "admin.print.policy.saved").format(user=username))
     except ValueError as exc:
         current_app.logger.warning("Printer policy validation failed (%s)", type(exc).__name__)
-        flash("Druckerrichtlinie konnte nicht gespeichert werden. Bitte Auswahl prüfen.")
+        flash(translate(g.language, "admin.print.policy.failed.select"))
     except OSError as exc:
         current_app.logger.warning(
             "Printer policy update could not be persisted (%s)", type(exc).__name__,
         )
-        flash("Druckerrichtlinie konnte nicht gespeichert werden. Bitte erneut versuchen.")
+        flash(translate(g.language, "admin.print.policy.failed.retry"))
     return redirect(url_for("admin.printer_settings"))
 
 
@@ -268,10 +269,10 @@ def save_printer_device(printer_id: str):
                 "label": saved["label"],
             },
         )
-        flash("Druckerprofil gespeichert.")
+        flash(translate(g.language, "admin.print.profile.saved"))
     except (OSError, ValueError) as exc:
         current_app.logger.warning("Printer device update failed (%s)", type(exc).__name__)
-        flash("Druckerprofil konnte nicht gespeichert werden. Bitte Eingaben prüfen.")
+        flash(translate(g.language, "admin.print.profile.failed"))
     return redirect(url_for("admin.printer_settings"))
 
 
@@ -322,7 +323,7 @@ def save_brother_printer_settings():
                 "Brother printer compatibility profile could not be synchronized (%s)",
                 type(exc).__name__,
             )
-            flash("Zentrale Druckereinstellung gespeichert; Kompatibilitätskopie konnte nicht aktualisiert werden.")
+            flash(translate(g.language, "admin.print.central.saved"))
         audit(
             "printer_profile_updated", "printer", "library-brother-label",
             detail={
@@ -331,10 +332,10 @@ def save_brother_printer_settings():
                 "font_size": updated["font_size"], "color": updated["color"],
             },
         )
-        flash("Brother-Etikettendrucker wurde in der zentralen Druckerverwaltung gespeichert.")
+        flash(translate(g.language, "admin.brother.saved"))
     except (OSError, ValueError) as exc:
         current_app.logger.warning("Brother printer profile save failed (%s)", type(exc).__name__)
-        flash("Brother-Drucker konnte nicht gespeichert werden. Bitte Einstellungen prüfen.")
+        flash(translate(g.language, "admin.brother.failed"))
     return redirect(url_for("admin.printer_settings"))
 
 
@@ -343,7 +344,7 @@ def save_brother_printer_settings():
 def refresh_inventory():
     clear_runtime_inventory()
     audit("runtime_inventory_refreshed", "system", "runtime")
-    flash("Systeminventar wurde neu geprüft. / Runtime inventory refreshed.")
+    flash(translate(g.language, "admin.inventory.refreshed"))
     return redirect(url_for("admin.inventory"))
 
 
@@ -399,11 +400,11 @@ def osm_build():
                 raise ValueError("Unbekannte Geofabrik-Region")
             start_osm_download_worker(current_app.config["DOCUMENT_ROOT"], region)
         audit("osm_address_index_started", "service", "osm-addresses", detail={"action": action, "region": region, "city": city})
-        flash(f"Teilindex für {city} wurde im Hintergrund gestartet." if action == "reindex_city" else "OSM-Download und Indexierung wurden im Hintergrund gestartet." if action == "download" else "Neuaufbau des lokalen OSM-Adressindex wurde im Hintergrund gestartet.")
+        flash(translate(g.language, "admin.osm.reindex.city").format(city=city) if action == "reindex_city" else translate(g.language, "admin.osm.reindex.download") if action == "download" else translate(g.language, "admin.osm.reindex.rebuild"))
     except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as exc:
         current_app.logger.exception("OSM address index build failed")
         audit("osm_address_index_failed", "service", "osm-addresses", outcome="failure", detail={"action": action, "region": region, "error_type": type(exc).__name__})
-        flash(f"OSM-Adressindex konnte nicht aufgebaut werden: {exc}")
+        flash(translate(g.language, "admin.osm.reindex.failed").format(exc=exc))
     return redirect(url_for("admin.osm_address_index"))
 
 
@@ -415,7 +416,7 @@ def assign_contact_owner():
         "SELECT id, username, is_disabled FROM user WHERE username = ?", (username,)
     ).fetchone()
     if target is None or target["is_disabled"]:
-        flash("Der gewählte interne Benutzer ist nicht aktiv oder existiert nicht.")
+        flash(translate(g.language, "admin.user.inactive"))
         return redirect(url_for("admin.users"))
 
     if request.form.get("all_ownerless") == "1":
@@ -437,7 +438,7 @@ def assign_contact_owner():
         "contact_owner_bulk_assigned", "contacts", username,
         detail={"assigned": changed, "owner": username},
     )
-    flash(f"{changed} verwaiste Kontakt(e) wurden {username} zugeordnet.")
+    flash(translate(g.language, "admin.contacts.orphaned").format(changed=changed, user=username))
     return redirect(url_for("admin.users"))
 
 
@@ -453,20 +454,20 @@ def update_user(user_id: int):
     display_name = " ".join(request.form.get("display_name", "").split()).strip()
     email = request.form.get("email", "").strip()
     if len(display_name) > 200 or len(email) > 320 or any(character in email for character in "\r\n"):
-        flash("Anzeigename oder E-Mail-Adresse ist zu lang oder ungültig.")
+        flash(translate(g.language, "admin.account.name.invalid"))
         return redirect(url_for("admin.users"))
     if email and ("@" not in email or email.startswith("@") or email.endswith("@")):
-        flash("Die E-Mail-Adresse ist nicht plausibel.")
+        flash(translate(g.language, "admin.account.mail.implausible"))
         return redirect(url_for("admin.users"))
     if target["id"] == g.user["id"] and (disabled or not administrator):
-        flash("Das eigene aktive Administratorkonto kann nicht gesperrt oder herabgestuft werden.")
+        flash(translate(g.language, "admin.account.self.lock"))
         return redirect(url_for("admin.users"))
     if target["is_admin"] and (disabled or not administrator):
         remaining = db.execute(
             "SELECT COUNT(*) FROM user WHERE is_admin = 1 AND is_disabled = 0 AND id <> ?", (user_id,)
         ).fetchone()[0]
         if remaining == 0:
-            flash("Mindestens ein aktiver Administrator muss erhalten bleiben.")
+            flash(translate(g.language, "admin.account.last.admin"))
             return redirect(url_for("admin.users"))
     before = {
         "admin": bool(target["is_admin"]), "disabled": bool(target["is_disabled"]),
@@ -494,7 +495,7 @@ def update_user(user_id: int):
     db.commit()
     after = {"admin": administrator, "disabled": disabled, "display_name": display_name, "email": email, **{f"feature:{key}": value for key, value in requested_features.items()}}
     audit("user_access_updated", "user", str(user_id), detail={"username": target["username"], "changes": safe_delta(before, after)})
-    flash(f"Konto {target['username']} gespeichert; vorhandene Sitzungen wurden beendet." if access_changed else f"Profildaten für {target['username']} gespeichert; Sitzungen bleiben aktiv.")
+    flash(translate(g.language, "admin.account.saved.sessions").format(user=target['username']) if access_changed else translate(g.language, "admin.account.saved.profile").format(user=target['username']))
     return redirect(url_for("admin.users"))
 
 
@@ -776,7 +777,7 @@ def save_network_settings():
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("Network settings save failed: %s", type(exc).__name__)
-        flash("Netzwerk-Einstellungen konnten nicht gespeichert werden.")
+        flash(translate(g.language, "admin.network.failed"))
     return redirect(url_for("admin.network_settings"))
 
 
@@ -807,16 +808,14 @@ def save_clamav_settings():
             "integrations.clamav_timeout_seconds",
             detail={**integrations, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "ClamAV-Einstellungen auf Standard zurückgesetzt."
-            if reset_defaults else "ClamAV-Einstellungen gespeichert."
-        )
+        flash(translate(g.language, "admin.clamav.reset")
+            if reset_defaults else translate(g.language, "admin.clamav.saved"))
     except ValueError as exc:
         current_app.logger.info("ClamAV setting rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("ClamAV settings save failed: %s", type(exc).__name__)
-        flash("ClamAV-Einstellungen konnten nicht gespeichert werden.")
+        flash(translate(g.language, "admin.clamav.failed"))
     return redirect(url_for("admin.integration_settings"))
 
 
@@ -864,16 +863,14 @@ def save_personnel_time_autosync_settings():
             "integrations.personnel_time_autosync",
             detail={**integrations, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Personaldaten-Synchronisationseinstellungen auf Standard zurückgesetzt."
-            if reset_defaults else "Personaldaten-Synchronisationseinstellungen gespeichert."
-        )
+        flash(translate(g.language, "admin.personnel.reset")
+            if reset_defaults else translate(g.language, "admin.personnel.saved"))
     except ValueError as exc:
         current_app.logger.info("Personnel auto-sync setting rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("Personnel auto-sync settings save failed: %s", type(exc).__name__)
-        flash("Personaldaten-Synchronisationseinstellungen konnten nicht gespeichert werden.")
+        flash(translate(g.language, "admin.personnel.failed"))
     return redirect(url_for("admin.integration_settings"))
 
 
@@ -909,17 +906,15 @@ def save_printershare_purge_settings():
             "integrations.printershare_purge_interval_seconds",
             detail={**integrations, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "PrinterShare-Bereinigungsintervall auf Standard zurückgesetzt."
-            if reset_defaults else "PrinterShare-Bereinigungsintervall gespeichert."
-        )
-        flash("Die Änderung gilt nach einem Neustart des Webprozesses.")
+        flash(translate(g.language, "admin.printshare.reset")
+            if reset_defaults else translate(g.language, "admin.printshare.saved"))
+        flash(translate(g.language, "admin.printshare.restart"))
     except ValueError as exc:
         current_app.logger.info("PrinterShare purge setting rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("PrinterShare purge setting save failed: %s", type(exc).__name__)
-        flash("PrinterShare-Bereinigungsintervall konnte nicht gespeichert werden.")
+        flash(translate(g.language, "admin.printshare.failed"))
     return redirect(url_for("admin.integration_settings"))
 
 
@@ -939,15 +934,13 @@ def save_documents_media_settings():
             "media.preview_settings",
             detail={**media, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Dokument- und Medienwerte auf Standard zurückgesetzt."
-            if reset_defaults else "Dokument- und Medien-Einstellungen gespeichert."
-        )
-        flash("Änderungen am Upload-Limit gelten nach einem Neustart des Webprozesses.")
+        flash(translate(g.language, "admin.media.reset")
+            if reset_defaults else translate(g.language, "admin.media.saved"))
+        flash(translate(g.language, "admin.media.restart"))
     except ValueError as exc:
         current_app.logger.info("Document/media setting rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("Document and media settings save failed: %s", type(exc).__name__)
-        flash("Dokument- und Medien-Einstellungen konnten nicht gespeichert werden.")
+        flash(translate(g.language, "admin.media.failed"))
     return redirect(url_for("admin.documents_media_settings"))

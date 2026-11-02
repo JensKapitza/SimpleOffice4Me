@@ -15,6 +15,7 @@ from .site_visit_report import build_visit_report
 from .site_visit_scan import scan_authorized_private_network
 from .site_visit_store import EVIDENCE_CLASSES, FINDING_STATES, RELATIONS, SiteVisitStore
 from .todo_store import TodoStore
+from .translations import translate
 
 bp = Blueprint("site_visits", __name__, url_prefix="/site-visits")
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -79,7 +80,7 @@ def create():
     values = request.form.to_dict()
     title = str(values.get("title", "")).strip()
     if not title:
-        flash("Bitte einen Titel für den Ortstermin eingeben.", "warning")
+        flash(translate(g.language, "sitevis.title.required"), "warning")
         return redirect(url_for("site_visits.index"))
     actor = _actor()
     task = None
@@ -98,7 +99,7 @@ def create():
                 current_app.logger.warning("Unable to roll back linked field visit task")
         flash(str(exc), "danger")
         return redirect(url_for("site_visits.index"))
-    flash("Ortstermin und verknüpfte Aufgabe wurden angelegt.", "success")
+    flash(translate(g.language, "sitevis.created.task"), "success")
     return redirect(url_for("site_visits.detail", visit_id=visit["visit_id"]))
 
 
@@ -135,7 +136,7 @@ def update(visit_id: str):
     _visit(visit_id)
     try:
         _store().update(visit_id, _actor(), _form_values())
-        flash("Ortstermin gespeichert.", "success")
+        flash(translate(g.language, "sitevis.saved"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -147,7 +148,7 @@ def add_room(visit_id: str):
     _visit(visit_id)
     try:
         _store().add_room(visit_id, _actor(), _form_values())
-        flash("Raum ergänzt.", "success")
+        flash(translate(g.language, "sitevis.room.added"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -159,7 +160,7 @@ def add_asset(visit_id: str):
     _visit(visit_id)
     try:
         _store().add_asset(visit_id, _actor(), _form_values())
-        flash("Gerät ergänzt.", "success")
+        flash(translate(g.language, "sitevis.device.added"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -171,7 +172,7 @@ def update_asset(visit_id: str, asset_id: str):
     _visit(visit_id)
     try:
         _store().update_asset(visit_id, _actor(), asset_id, _form_values())
-        flash("Gerätedaten gespeichert.", "success")
+        flash(translate(g.language, "sitevis.device.saved"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -183,7 +184,7 @@ def save_credentials(visit_id: str, asset_id: str):
     _visit(visit_id)
     try:
         _store().set_credentials(visit_id, _actor(), asset_id, request.form.get("username", ""), request.form.get("password", ""), request.form.get("note", ""))
-        flash("Zugangsdaten wurden verschlüsselt gespeichert. Sie erscheinen nicht auf Labels oder im Bericht.", "success")
+        flash(translate(g.language, "sitevis.credentials.saved"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -212,7 +213,7 @@ def add_finding(visit_id: str):
     _visit(visit_id)
     try:
         _store().add_finding(visit_id, _actor(), _form_values())
-        flash("Befund aufgenommen. Er bleibt zunächst als ungeprüft markiert.", "success")
+        flash(translate(g.language, "sitevis.finding.recorded"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -253,7 +254,7 @@ def update_finding(visit_id: str, finding_id: str):
         values = {key: values[key] for key in ("room_id", "asset_id") if key in values}
     try:
         _store().update_finding(visit_id, _actor(), finding_id, values)
-        flash("Befundzuordnung gespeichert." if is_assignment else "Befundbewertung gespeichert.", "success")
+        flash(translate(g.language, "sitevis.finding.assigned") if is_assignment else translate(g.language, "sitevis.finding.rated"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     if request.form.get("return_to") == "assignment":
@@ -269,7 +270,7 @@ def add_finding_link(visit_id: str):
     _visit(visit_id)
     try:
         _store().add_edge(visit_id, _actor(), request.form.get("source_id", ""), request.form.get("target_id", ""), request.form.get("relation", ""), request.form.get("note", ""))
-        flash("Befundkette verknüpft.", "success")
+        flash(translate(g.language, "sitevis.finding.linked"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -281,7 +282,7 @@ def add_connection(visit_id: str):
     _visit(visit_id)
     try:
         _store().add_connection(visit_id, _actor(), _form_values())
-        flash("Verbindung eingetragen.", "success")
+        flash(translate(g.language, "sitevis.connection.added"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -294,7 +295,7 @@ def add_custom_field(visit_id: str):
     choices = [value.strip() for value in request.form.get("choices", "").split(",") if value.strip()]
     try:
         _store().add_custom_field(visit_id, _actor(), request.form.get("label", ""), request.form.get("field_type", "text"), choices)
-        flash("Freies Befundfeld ergänzt.", "success")
+        flash(translate(g.language, "sitevis.field.added"), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -305,11 +306,11 @@ def add_custom_field(visit_id: str):
 def add_attachment(visit_id: str):
     _visit(visit_id)
     if request.content_length and request.content_length > 17 * 1024 * 1024:
-        flash("Anhänge dürfen einschließlich Formular höchstens 16 MiB groß sein.", "danger")
+        flash(translate(g.language, "sitevis.attachments.too.large"), "danger")
         return _redirect(visit_id)
     upload = request.files.get("file")
     if not upload or not upload.filename:
-        flash("Bitte eine Datei auswählen.", "warning")
+        flash(translate(g.language, "sitevis.file.select"), "warning")
         return _redirect(visit_id)
     target_type = request.form.get("target_type", "visit")
     target_id = request.form.get("target_id", visit_id)
@@ -317,7 +318,7 @@ def add_attachment(visit_id: str):
     try:
         data = upload.stream.read(16 * 1024 * 1024 + 1)
         _store().add_attachment(visit_id, _actor(), upload.filename, upload.mimetype or "", data, target_type, target_id, purpose)
-        flash("Datei wurde sicher dem Ortstermin zugeordnet.", "success")
+        flash(translate(g.language, "sitevis.file.attached"), "success")
     except (OSError, ValueError) as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -357,7 +358,7 @@ def create_snapshot(visit_id: str):
     _visit(visit_id)
     try:
         snapshot = _store().add_snapshot(visit_id, _actor(), request.form.get("name", ""))
-        flash(f"Bestand '{snapshot['name']}' gespeichert.", "success")
+        flash(translate(g.language, "sitevis.snapshot.saved").format(name=snapshot['name']), "success")
     except ValueError as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -384,7 +385,7 @@ def network_scan(visit_id: str):
     try:
         scan = scan_authorized_private_network(request.form.get("cidr", ""), request.form.get("ports", ""), request.form.get("approved") == "1", profiles=request.form.getlist("profiles"), options=request.form.get("options", ""))
         _store().apply_scan(visit_id, _actor(), {**scan, "device_count": len(scan["devices"])})
-        flash(f"Scan abgeschlossen: {len(scan['devices'])} Geräte mit mindestens einem offenen TCP-Port erkannt.", "success")
+        flash(translate(g.language, "sitevis.scan.done").format(count=len(scan['devices'])), "success")
     except (OSError, ValueError) as exc:
         flash(str(exc), "danger")
     return _redirect(visit_id)
@@ -459,7 +460,7 @@ def report_pdf(visit_id: str):
         current_app.logger.warning(
             "Unable to persist site visit report for %s: %s", _actor(), type(exc).__name__
         )
-        flash("Der Bericht konnte nicht gespeichert werden. Bitte Speicherplatz und Dateiberechtigungen prüfen.", "danger")
+        flash(translate(g.language, "sitevis.report.save.failed"), "danger")
         return redirect(url_for("site_visits.report_preview", visit_id=visit_id))
     name = "Ortsterminbericht-" + record["visit_id"][:8] + ".pdf"
     response = send_file(BytesIO(payload), mimetype="application/pdf", as_attachment=True, download_name=name, max_age=0)

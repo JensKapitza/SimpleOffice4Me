@@ -14,6 +14,7 @@ from .federation_store import FederationStore
 from .mini_services import default_config_path
 from .network_boot import DEFAULT_BOOT_SETTINGS, list_assets, load_boot_settings, save_boot_settings
 from .network_boot_federation import fetch_from_offering_peer, replicate_to_storage_peer
+from .translations import translate
 
 bp = Blueprint("network_boot_admin", __name__, url_prefix="/admin/mini-services/network-boot")
 
@@ -44,12 +45,12 @@ def _page(submitted=None, profile_form=None):
         boot = load_boot_settings(default_config_path())
     except (OSError, ValueError):
         boot = DEFAULT_BOOT_SETTINGS
-        flash("Boot-Konfiguration ist nicht lesbar. Einstellungen prüfen und erneut speichern.")
+        flash(translate(g.language, "netboot.config.unreadable"))
     try:
         assets = list_assets(default_config_path(), include_hash=False, max_entries=512)
     except OSError:
         assets = []
-        flash("Boot-Dateien sind nicht lesbar. Dateirechte des Boot-Verzeichnisses prüfen.")
+        flash(translate(g.language, "netboot.files.unreadable"))
     if profile_form is None:
         selected = next((item for item in boot["profiles"] if item["id"] == request.args.get("profile")), None)
         profile_form = {"id": "", "original_id": "", "label": "", "mode": "kernel", "enabled": True,
@@ -106,11 +107,11 @@ def profile_save():
             raise ValueError("Unbekannte Profilaktion")
         save_boot_settings(config, default_config_path())
     except (ValueError, TypeError, OSError) as exc:
-        flash("Bootprofil nicht gespeichert. Eindeutige ID, Modus, Dateipfade, HTTP(S)-Adresse und Architekturcodes prüfen. Bei Schreibfehlern Dateirechte prüfen. Eingaben bleiben erhalten.")
+        flash(translate(g.language, "netboot.profile.failed"))
         audit("network_boot_profile_rejected", "service", "http-boot", detail={"error_type": type(exc).__name__})
         return _page(profile_form=form), 503 if isinstance(exc, OSError) else 400
     audit("network_boot_profile_saved", "service", "http-boot", detail={"action": action})
-    flash("Bootprofil gespeichert. Der Aktivierungszustand der Boot-Dienste bleibt unverändert; gelöschte Profile entfernen keine Dateien.")
+    flash(translate(g.language, "netboot.profile.saved"))
     return redirect(url_for("network_boot_admin.index"))
 
 
@@ -122,10 +123,10 @@ def settings():
         candidate = DEFAULT_BOOT_SETTINGS if request.form.get("action") == "reset" else json.loads(submitted)
         clean = save_boot_settings(candidate, default_config_path())
     except (ValueError, TypeError, OSError):
-        flash("Einstellungen nicht gespeichert. JSON, Adressen, Ports, Profile und Dateirechte prüfen. Aktiviert-Schalter benötigen true oder false.")
+        flash(translate(g.language, "netboot.settings.failed"))
         return _page(submitted), 400
     audit("network_boot_settings_saved", "service", "http-boot", detail={"enabled": clean["enabled"], "profiles": len(clean["profiles"])})
-    flash("Boot-Einstellungen gespeichert. Der Worker übernimmt TFTP-Änderungen automatisch.")
+    flash(translate(g.language, "netboot.settings.saved"))
     return redirect(url_for("network_boot_admin.index"))
 
 
@@ -155,7 +156,7 @@ def set_peer_roles(peer_id: str):
             "stores_network_boot": network_boot["stores_network_boot"],
         },
     )
-    flash("Networkboot-Rollen des Peers gespeichert.")
+    flash(translate(g.language, "netboot.roles.saved"))
     return redirect(url_for("network_boot_admin.index"))
 
 
@@ -167,17 +168,15 @@ def fetch_peer(peer_id: str):
             current_app.config["DOCUMENT_ROOT"], peer_id, default_config_path()
         )
         audit("network_boot_fetched", "federation_peer", peer_id, detail=result)
-        flash(
-            f"Networkboot-Daten von {peer_id} geholt: "
-            f"{result['downloaded']} neu, {result['unchanged']} unverändert, "
-            f"{result['profiles']} Profile."
-        )
+        flash(translate(g.language, "netboot.fetch.done").format(
+            peer_id=peer_id, downloaded=result['downloaded'],
+            unchanged=result['unchanged'], profiles=result['profiles']))
     except Exception as exc:
         audit(
             "network_boot_fetch_failed", "federation_peer", peer_id,
             outcome="failure", detail={"error_type": type(exc).__name__},
         )
-        flash("Networkboot-Daten konnten nicht geholt werden. Peer-Verbindung, Freigaberolle und Dateirechte prüfen; Details im Audit.")
+        flash(translate(g.language, "netboot.fetch.failed"))
     return redirect(url_for("network_boot_admin.index"))
 
 
@@ -189,14 +188,12 @@ def replicate_peer(peer_id: str):
             current_app.config["DOCUMENT_ROOT"], peer_id, default_config_path()
         )
         audit("network_boot_replicated", "federation_peer", peer_id, detail=result)
-        flash(
-            f"Networkboot-Daten zu {peer_id} gespiegelt: "
-            f"{result['uploaded']} Dateien, {result['profiles']} Profile."
-        )
+        flash(translate(g.language, "netboot.mirror.done").format(
+            peer_id=peer_id, uploaded=result['uploaded'], profiles=result['profiles']))
     except Exception as exc:
         audit(
             "network_boot_replication_failed", "federation_peer", peer_id,
             outcome="failure", detail={"error_type": type(exc).__name__},
         )
-        flash("Networkboot-Daten konnten nicht gespiegelt werden. Peer-Verbindung, Speicherrolle und Dateirechte prüfen; Details im Audit.")
+        flash(translate(g.language, "netboot.mirror.failed"))
     return redirect(url_for("network_boot_admin.index"))

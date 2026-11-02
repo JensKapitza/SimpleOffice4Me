@@ -24,6 +24,7 @@ from .settings_store import (
     MIN_OSM_READ_TIMEOUT_SECONDS,
     SettingsStore,
 )
+from .translations import translate
 
 
 bp = Blueprint("admin_osm_settings", __name__, url_prefix="/admin")
@@ -178,14 +179,12 @@ def save_osm_settings():
                     "reset_to_defaults": reset_defaults,
                 },
             )
-        flash(
-            "OSM-Einstellungen auf Standard zurückgesetzt."
-            if reset_defaults else "OSM-Einstellungen gespeichert."
-        )
+        flash(translate(g.language, "osm.settings.reset")
+            if reset_defaults else translate(g.language, "osm.settings.saved"))
     except ValueError as exc:
         current_app.logger.info("OSM setting rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("OSM settings save failed: %s", type(exc).__name__)
-        flash("OSM-Download-Einstellungen konnten nicht gespeichert werden.")
+        flash(translate(g.language, "osm.download.error"))
     return redirect(url_for("admin.integration_settings"))

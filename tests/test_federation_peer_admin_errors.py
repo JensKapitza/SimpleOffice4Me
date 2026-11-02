@@ -24,6 +24,8 @@ class FederationPeerAdminErrorTests(unittest.TestCase):
         self.app.add_url_rule("/login", endpoint="auth.login", view_func=lambda: "Login")
         self.user = {"id": 1, "username": "admin", "is_admin": True, "is_disabled": False}
         self.app.before_request(lambda: setattr(g, "user", self.user))
+        # Minimal app without the real g.language loader; this suite asserts German strings.
+        self.app.before_request(lambda: setattr(g, "language", "de"))
         self.app.before_request(protect_browser_mutation)
         self.client = self.app.test_client()
         with self.client.session_transaction() as session:
