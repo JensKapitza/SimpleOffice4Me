@@ -4,8 +4,8 @@
 <main id="main-content" class="container-xl py-4 mini-service-page">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-      <h1 class="h2 mb-1">Netzwerkboot</h1>
-      <p class="text-secondary mb-0">Boot-Angebot und Datenhaltung sind getrennte Rollen. Die Bezeichnungen gelten immer aus Sicht des jeweiligen Peers.</p>
+      <h1 class="h2 mb-1">{{ 'Network boot' if g.language == 'en' else 'Netzwerkboot' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Boot offering and data storage are separate roles. The labels always apply from the perspective of the respective peer.' if g.language == 'en' else 'Boot-Angebot und Datenhaltung sind getrennte Rollen. Die Bezeichnungen gelten immer aus Sicht des jeweiligen Peers.' }}</p>
     </div>
     <div class="btn-group">
       <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
@@ -17,55 +17,55 @@
 
   <section class="card mb-4" aria-labelledby="boot-profiles-title">
     <div class="card-body">
-      <h2 id="boot-profiles-title" class="h4">Bootprofile</h2>
+      <h2 id="boot-profiles-title" class="h4">{{ 'Boot profiles' if g.language == 'en' else 'Bootprofile' }}</h2>
       <div class="d-flex flex-wrap gap-2 mb-3">
-        <a class="btn btn-outline-primary" href="{{ url_for('network_boot_admin.index') }}">Neues Profil</a>
-        {% for profile in boot.profiles %}<a class="btn btn-outline-secondary text-break" href="{{ url_for('network_boot_admin.index', profile=profile.id) }}">{{ profile.label }} · {{ 'aktiv' if profile.enabled else 'deaktiviert' }}{% if boot.default_profile == profile.id %} · Standard{% endif %}</a>{% endfor %}
+        <a class="btn btn-outline-primary" href="{{ url_for('network_boot_admin.index') }}">{{ 'New profile' if g.language == 'en' else 'Neues Profil' }}</a>
+        {% for profile in boot.profiles %}<a class="btn btn-outline-secondary text-break" href="{{ url_for('network_boot_admin.index', profile=profile.id) }}">{{ profile.label }} · {{ ('active' if profile.enabled else 'disabled') if g.language == 'en' else ('aktiv' if profile.enabled else 'deaktiviert') }}{% if boot.default_profile == profile.id %} · {{ 'Default' if g.language == 'en' else 'Standard' }}{% endif %}</a>{% endfor %}
       </div>
       <form method="post" action="{{ url_for('network_boot_admin.profile_save') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="original_id" value="{{ profile_form.original_id }}">
         <div class="row g-3">
-          <div class="col-md-4"><label class="form-label" for="profile-id">Technische ID</label><input class="form-control" id="profile-id" name="id" value="{{ profile_form.id }}" required maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_.-]*" aria-describedby="profile-id-help"><div class="form-text" id="profile-id-help">Eindeutig, etwa linux-rettung. Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.</div></div>
-          <div class="col-md-8"><label class="form-label" for="profile-label">Anzeigename</label><input class="form-control" id="profile-label" name="label" value="{{ profile_form.label }}" maxlength="160"></div>
-          <div class="col-md-6"><label class="form-label" for="profile-mode">Bootverfahren</label><select class="form-select" id="profile-mode" name="mode">{% for value, label in [('kernel','Kernel und optional Initrd'),('iso','ISO-Datei'),('chain','Externes iPXE-Skript')] %}<option value="{{ value }}" {% if profile_form.mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-          <div class="col-md-6"><label class="form-label" for="profile-architectures">PXE-Architekturcodes</label><input class="form-control" id="profile-architectures" name="architectures" value="{{ profile_form.architectures }}" aria-describedby="profile-arch-help"><div class="form-text" id="profile-arch-help">Kommagetrennte Codes, z. B. 0,7,9,11. Diese Werte werden im bestehenden Profil gespeichert.</div></div>
-          {% for key, label in [('kernel','Kernel-Datei'),('initrd','Initrd-Datei (optional)'),('iso','ISO-Datei')] %}
+          <div class="col-md-4"><label class="form-label" for="profile-id">{{ 'Technical ID' if g.language == 'en' else 'Technische ID' }}</label><input class="form-control" id="profile-id" name="id" value="{{ profile_form.id }}" required maxlength="80" pattern="[A-Za-z0-9][A-Za-z0-9_.-]*" aria-describedby="profile-id-help"><div class="form-text" id="profile-id-help">{{ 'Unique, e.g. linux-rescue. Letters, digits, dot, underscore and hyphen.' if g.language == 'en' else 'Eindeutig, etwa linux-rettung. Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.' }}</div></div>
+          <div class="col-md-8"><label class="form-label" for="profile-label">{{ 'Display name' if g.language == 'en' else 'Anzeigename' }}</label><input class="form-control" id="profile-label" name="label" value="{{ profile_form.label }}" maxlength="160"></div>
+          <div class="col-md-6"><label class="form-label" for="profile-mode">{{ 'Boot method' if g.language == 'en' else 'Bootverfahren' }}</label><select class="form-select" id="profile-mode" name="mode" aria-label="{{ 'Boot method' if g.language == 'en' else 'Bootverfahren' }}">{% for value, label in [('kernel','Kernel and optional initrd' if g.language == 'en' else 'Kernel und optional Initrd'),('iso','ISO file' if g.language == 'en' else 'ISO-Datei'),('chain','External iPXE script' if g.language == 'en' else 'Externes iPXE-Skript')] %}<option value="{{ value }}" {% if profile_form.mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="col-md-6"><label class="form-label" for="profile-architectures">{{ 'PXE architecture codes' if g.language == 'en' else 'PXE-Architekturcodes' }}</label><input class="form-control" id="profile-architectures" name="architectures" value="{{ profile_form.architectures }}" aria-describedby="profile-arch-help"><div class="form-text" id="profile-arch-help">{{ 'Comma-separated codes, e.g. 0,7,9,11. These values are stored in the existing profile.' if g.language == 'en' else 'Kommagetrennte Codes, z. B. 0,7,9,11. Diese Werte werden im bestehenden Profil gespeichert.' }}</div></div>
+          {% for key, label in [('kernel','Kernel file' if g.language == 'en' else 'Kernel-Datei'),('initrd','Initrd file (optional)' if g.language == 'en' else 'Initrd-Datei (optional)'),('iso','ISO file' if g.language == 'en' else 'ISO-Datei')] %}
           <div class="col-md-4"><label class="form-label" for="profile-{{ key }}">{{ label }}</label><input class="form-control" id="profile-{{ key }}" name="{{ key }}" value="{{ profile_form[key] }}" list="boot-asset-paths" aria-describedby="profile-files-help"></div>
           {% endfor %}
           <datalist id="boot-asset-paths">{% for asset in assets %}<option value="{{ asset.path }}"></option>{% endfor %}</datalist>
-          <div class="col-12 form-text" id="profile-files-help">Vorhandene Bootdateien werden vorgeschlagen. Relative Pfade sind möglich. Nur die zum Bootverfahren gehörende Datei ist erforderlich; fehlende Dateien werden im Dienststatus gemeldet.</div>
-          <div class="col-12"><label class="form-label" for="profile-chain">Adresse des externen iPXE-Skripts</label><input class="form-control" id="profile-chain" name="chain_url" value="{{ profile_form.chain_url }}" aria-describedby="profile-chain-help"><div class="form-text" id="profile-chain-help">Nur für „Externes iPXE-Skript“ erforderlich: vollständige HTTP(S)-Adresse ohne Zugangsdaten.</div></div>
-          <div class="col-12"><label class="form-label" for="profile-args">Kernel-Parameter</label><textarea class="form-control" id="profile-args" name="kernel_args" rows="2">{{ profile_form.kernel_args }}</textarea></div>
+          <div class="col-12 form-text" id="profile-files-help">{{ 'Existing boot files are suggested. Relative paths are possible. Only the file belonging to the boot method is required; missing files are reported in the service status.' if g.language == 'en' else 'Vorhandene Bootdateien werden vorgeschlagen. Relative Pfade sind möglich. Nur die zum Bootverfahren gehörende Datei ist erforderlich; fehlende Dateien werden im Dienststatus gemeldet.' }}</div>
+          <div class="col-12"><label class="form-label" for="profile-chain">{{ 'Address of the external iPXE script' if g.language == 'en' else 'Adresse des externen iPXE-Skripts' }}</label><input class="form-control" id="profile-chain" name="chain_url" value="{{ profile_form.chain_url }}" aria-describedby="profile-chain-help"><div class="form-text" id="profile-chain-help">{{ 'Required only for “External iPXE script”: complete HTTP(S) address without credentials.' if g.language == 'en' else 'Nur für „Externes iPXE-Skript“ erforderlich: vollständige HTTP(S)-Adresse ohne Zugangsdaten.' }}</div></div>
+          <div class="col-12"><label class="form-label" for="profile-args">{{ 'Kernel parameters' if g.language == 'en' else 'Kernel-Parameter' }}</label><textarea class="form-control" id="profile-args" name="kernel_args" rows="2">{{ profile_form.kernel_args }}</textarea></div>
         </div>
-        {% for key, label in [('enabled','Profil aktiviert'),('default','Als Standardprofil verwenden')] %}<div class="form-check my-3"><input class="form-check-input" type="checkbox" id="profile-{{ key }}" name="{{ key }}" value="1" {% if profile_form[key] %}checked{% endif %}><label class="form-check-label" for="profile-{{ key }}">{{ label }}</label></div>{% endfor %}
-        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit" name="action" value="save">Profil speichern</button>{% if profile_form.original_id %}<button class="btn btn-outline-danger" type="submit" name="action" value="delete" formnovalidate>Profil entfernen (Dateien behalten)</button>{% endif %}</div>
+        {% for key, label in [('enabled','Profile enabled' if g.language == 'en' else 'Profil aktiviert'),('default','Use as default profile' if g.language == 'en' else 'Als Standardprofil verwenden')] %}<div class="form-check my-3"><input class="form-check-input" type="checkbox" id="profile-{{ key }}" name="{{ key }}" value="1" {% if profile_form[key] %}checked{% endif %}><label class="form-check-label" for="profile-{{ key }}">{{ label }}</label></div>{% endfor %}
+        <div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="submit" name="action" value="save">{{ 'Save profile' if g.language == 'en' else 'Profil speichern' }}</button>{% if profile_form.original_id %}<button class="btn btn-outline-danger" type="submit" name="action" value="delete" formnovalidate>{{ 'Remove profile (keep files)' if g.language == 'en' else 'Profil entfernen (Dateien behalten)' }}</button>{% endif %}</div>
       </form>
     </div>
   </section>
 
   <section class="card mb-4" aria-labelledby="boot-settings-title">
     <div class="card-body">
-      <h2 id="boot-settings-title" class="h4">Lokale Boot-Einstellungen</h2>
-      <p>HTTP-Boot ist <strong>{{ 'aktiviert' if boot.enabled else 'deaktiviert' }}</strong>.
-        Start, Stop, Neustart, Dateisuche und Autostart werden in der <a href="{{ url_for('mini_services_admin.index') }}">Dienstübersicht</a> verwaltet.
-        Stop sperrt öffentliche Bootdateien und beendet auch die zugehörige TFTP-Auslieferung über den Worker.</p>
-      <p class="form-text" id="boot-runtime-help">TFTP verwendet standardmäßig UDP 69 und benötigt auf vielen Systemen passende Dienstrechte. Bind-Adressen müssen lokal vorhanden sein. Fehlstarts werden begrenzt wiederholt und bleiben anschließend als Fehler sichtbar; es wird weder ein Netz geraten noch automatisch mit erhöhten Rechten gestartet.</p>
+      <h2 id="boot-settings-title" class="h4">{{ 'Local boot settings' if g.language == 'en' else 'Lokale Boot-Einstellungen' }}</h2>
+      <p>HTTP-Boot {{ 'is' if g.language == 'en' else 'ist' }} <strong>{{ ('enabled' if boot.enabled else 'disabled') if g.language == 'en' else ('aktiviert' if boot.enabled else 'deaktiviert') }}</strong>.
+        {{ 'Start, stop, restart, file search and autostart are managed in the' if g.language == 'en' else 'Start, Stop, Neustart, Dateisuche und Autostart werden in der' }} <a href="{{ url_for('mini_services_admin.index') }}">{{ 'service overview' if g.language == 'en' else 'Dienstübersicht' }}</a> {{ 'managed.' if g.language == 'en' else 'verwaltet.' }}
+        {{ 'Stop locks public boot files and also ends the associated TFTP delivery via the worker.' if g.language == 'en' else 'Stop sperrt öffentliche Bootdateien und beendet auch die zugehörige TFTP-Auslieferung über den Worker.' }}</p>
+      <p class="form-text" id="boot-runtime-help">{{ 'TFTP uses UDP 69 by default and needs suitable service rights on many systems. Bind addresses must exist locally. Failed starts are retried a limited number of times and then stay visible as errors; no network is guessed and no automatic start with elevated rights happens.' if g.language == 'en' else 'TFTP verwendet standardmäßig UDP 69 und benötigt auf vielen Systemen passende Dienstrechte. Bind-Adressen müssen lokal vorhanden sein. Fehlstarts werden begrenzt wiederholt und bleiben anschließend als Fehler sichtbar; es wird weder ein Netz geraten noch automatisch mit erhöhten Rechten gestartet.' }}</p>
       <details {% if request.method == 'POST' %}open{% endif %}>
-        <summary>Erweiterte Einstellungen, Profile und Diagnose</summary>
+        <summary>{{ 'Advanced settings, profiles and diagnostics' if g.language == 'en' else 'Erweiterte Einstellungen, Profile und Diagnose' }}</summary>
         <form method="post" action="{{ url_for('network_boot_admin.settings') }}" class="mt-3">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-          <label for="boot-json" class="form-label">Boot-Konfiguration (JSON)</label>
+          <label for="boot-json" class="form-label">{{ 'Boot configuration (JSON)' if g.language == 'en' else 'Boot-Konfiguration (JSON)' }}</label>
           <textarea id="boot-json" name="boot_json" class="form-control font-monospace" rows="16" aria-describedby="boot-json-help" spellcheck="false">{{ boot_json }}</textarea>
-          <p class="form-text" id="boot-json-help">Schalter verwenden <code>true</code> oder <code>false</code>.
-            <code>enabled</code> schaltet die öffentliche Auslieferung frei; <code>tftp_enabled</code> zusätzlich TFTP.
-            <code>tftp_bind</code> ist die lokale IPv4-Adresse; <code>127.0.0.1</code> ist nur lokal erreichbar.
-            <code>http_base_url</code> kann für HTTP-Aufrufe leer bleiben; DHCP/PXE benötigt eine für Clients erreichbare Basisadresse.
-            Profile verweisen mit relativen Dateinamen auf vorhandene Bootdateien. <code>default_profile</code> wählt deren ID.
-            Beim Zurücksetzen bleiben Dateien erhalten, die öffentliche Auslieferung wird deaktiviert.</p>
+          <p class="form-text" id="boot-json-help">{{ 'Switches use' if g.language == 'en' else 'Schalter verwenden' }} <code>true</code> {{ 'or' if g.language == 'en' else 'oder' }} <code>false</code>.
+            <code>enabled</code> {{ 'enables public delivery;' if g.language == 'en' else 'schaltet die öffentliche Auslieferung frei;' }} <code>tftp_enabled</code> {{ 'additionally TFTP.' if g.language == 'en' else 'zusätzlich TFTP.' }}
+            <code>tftp_bind</code> {{ 'is the local IPv4 address;' if g.language == 'en' else 'ist die lokale IPv4-Adresse;' }} <code>127.0.0.1</code> {{ 'is only reachable locally.' if g.language == 'en' else 'ist nur lokal erreichbar.' }}
+            <code>http_base_url</code> {{ 'may stay empty for HTTP calls; DHCP/PXE needs a base address reachable for clients.' if g.language == 'en' else 'kann für HTTP-Aufrufe leer bleiben; DHCP/PXE benötigt eine für Clients erreichbare Basisadresse.' }}
+            {{ 'Profiles reference existing boot files with relative file names.' if g.language == 'en' else 'Profile verweisen mit relativen Dateinamen auf vorhandene Bootdateien.' }} <code>default_profile</code> {{ 'selects their ID.' if g.language == 'en' else 'wählt deren ID.' }}
+            {{ 'On reset files are kept, public delivery is disabled.' if g.language == 'en' else 'Beim Zurücksetzen bleiben Dateien erhalten, die öffentliche Auslieferung wird deaktiviert.' }}</p>
           <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-primary" type="submit" name="action" value="save">Einstellungen speichern</button>
-            <button class="btn btn-outline-secondary" type="submit" name="action" value="reset">Standardwerte wiederherstellen</button>
+            <button class="btn btn-primary" type="submit" name="action" value="save">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
+            <button class="btn btn-outline-secondary" type="submit" name="action" value="reset">{{ 'Restore defaults' if g.language == 'en' else 'Standardwerte wiederherstellen' }}</button>
           </div>
         </form>
       </details>
@@ -73,20 +73,20 @@
   </section>
 
   <div class="alert alert-secondary" role="status" aria-live="polite">
-    <strong>Beispiel:</strong> Ein Server kann <em>Networkboot anbieten</em>, ohne fremde Boot-Dateien zu speichern. Ein Backup-Server kann dagegen nur <em>Networkboot-Daten vorhalten</em>, ohne selbst als Boot-Quelle genutzt zu werden. Beide Optionen können auch gleichzeitig aktiv sein.
+    <strong>{{ 'Example:' if g.language == 'en' else 'Beispiel:' }}</strong> {{ 'A server can' if g.language == 'en' else 'Ein Server kann' }} <em>{{ 'offer network boot' if g.language == 'en' else 'Networkboot anbieten' }}</em>{{ ', without storing foreign boot files. A backup server can on the other hand only' if g.language == 'en' else ', ohne fremde Boot-Dateien zu speichern. Ein Backup-Server kann dagegen nur' }} <em>{{ 'hold network boot data' if g.language == 'en' else 'Networkboot-Daten vorhalten' }}</em>{{ ', without being used as a boot source itself. Both options can also be active simultaneously.' if g.language == 'en' else ', ohne selbst als Boot-Quelle genutzt zu werden. Beide Optionen können auch gleichzeitig aktiv sein.' }}
   </div>
 
   <div class="row g-3 mb-4">
-    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Lokale Bootprofile</div><div class="fs-3">{{ boot.profiles|length }}</div></div></div></div>
-    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Lokale Boot-Dateien</div><div class="fs-3">{{ assets|length }}</div></div></div></div>
-    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">Standardprofil</div><div class="fs-5">{{ boot.default_profile or 'nicht gesetzt' }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Local boot profiles' if g.language == 'en' else 'Lokale Bootprofile' }}</div><div class="fs-3">{{ boot.profiles|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Local boot files' if g.language == 'en' else 'Lokale Boot-Dateien' }}</div><div class="fs-3">{{ assets|length }}</div></div></div></div>
+    <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Default profile' if g.language == 'en' else 'Standardprofil' }}</div><div class="fs-5">{{ boot.default_profile or ('not set' if g.language == 'en' else 'nicht gesetzt') }}</div></div></div></div>
   </div>
 
   <section class="card mb-4">
     <div class="card-header"><strong>Federation-Peers</strong></div>
     <div class="table-responsive">
       <table class="table align-middle mb-0">
-        <thead><tr><th scope="col">Peer</th><th scope="col">Rollen aus Sicht des Peers</th><th scope="col">Aktionen</th></tr></thead>
+        <thead><tr><th scope="col">Peer</th><th scope="col">{{ 'Roles from the peer perspective' if g.language == 'en' else 'Rollen aus Sicht des Peers' }}</th><th scope="col">{{ 'Actions' if g.language == 'en' else 'Aktionen' }}</th></tr></thead>
         <tbody>
         {% for peer in peers %}
           {% set nb = peer.policy.get('network_boot', {}) if peer.policy else {} %}
@@ -101,32 +101,32 @@
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-check form-switch">
                   <input class="form-check-input" type="checkbox" name="offers_network_boot" value="1" id="offers-{{ loop.index }}" {% if nb.get('offers_network_boot') %}checked{% endif %}>
-                  <label class="form-check-label" for="offers-{{ loop.index }}"><strong>Networkboot anbieten</strong><br><span class="small text-secondary">Dieser Peer stellt Bootprofile und Boot-Dateien bereit; wir dürfen sie von ihm holen.</span></label>
+                  <label class="form-check-label" for="offers-{{ loop.index }}"><strong>{{ 'Offer network boot' if g.language == 'en' else 'Networkboot anbieten' }}</strong><br><span class="small text-secondary">{{ 'This peer provides boot profiles and boot files; we may fetch them from it.' if g.language == 'en' else 'Dieser Peer stellt Bootprofile und Boot-Dateien bereit; wir dürfen sie von ihm holen.' }}</span></label>
                 </div>
                 <div class="form-check form-switch">
                   <input class="form-check-input" type="checkbox" name="stores_network_boot" value="1" id="stores-{{ loop.index }}" {% if nb.get('stores_network_boot') %}checked{% endif %}>
-                  <label class="form-check-label" for="stores-{{ loop.index }}"><strong>Networkboot-Daten vorhalten</strong><br><span class="small text-secondary">Dieser Peer speichert/spiegelt unsere Bootprofile und Boot-Dateien.</span></label>
+                  <label class="form-check-label" for="stores-{{ loop.index }}"><strong>{{ 'Hold network boot data' if g.language == 'en' else 'Networkboot-Daten vorhalten' }}</strong><br><span class="small text-secondary">{{ 'This peer stores/mirrors our boot profiles and boot files.' if g.language == 'en' else 'Dieser Peer speichert/spiegelt unsere Bootprofile und Boot-Dateien.' }}</span></label>
                 </div>
-                <div><button class="btn btn-sm btn-outline-primary" type="submit">Rollen speichern</button></div>
+                <div><button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Save roles' if g.language == 'en' else 'Rollen speichern' }}</button></div>
               </form>
             </td>
             <td>
               {% if nb.get('offers_network_boot') %}
               <form method="post" action="{{ url_for('network_boot_admin.fetch_peer', peer_id=peer.peer_id) }}" class="mb-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-success" type="submit">Von diesem Peer holen</button>
+                <button class="btn btn-sm btn-success" type="submit">{{ 'Fetch from this peer' if g.language == 'en' else 'Von diesem Peer holen' }}</button>
               </form>
               {% endif %}
               {% if nb.get('stores_network_boot') %}
               <form method="post" action="{{ url_for('network_boot_admin.replicate_peer', peer_id=peer.peer_id) }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-success" type="submit">Zu diesem Peer spiegeln</button>
+                <button class="btn btn-sm btn-outline-success" type="submit">{{ 'Mirror to this peer' if g.language == 'en' else 'Zu diesem Peer spiegeln' }}</button>
               </form>
               {% endif %}
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="3" class="text-secondary">Noch keine Federation-Peers eingerichtet.</td></tr>
+          <tr><td colspan="3" class="text-secondary">{{ 'No federation peers set up yet.' if g.language == 'en' else 'Noch keine Federation-Peers eingerichtet.' }}</td></tr>
         {% endfor %}
         </tbody>
       </table>
@@ -134,10 +134,10 @@
   </section>
 
   <section class="card">
-    <div class="card-header"><strong>Lokale Networkboot-Dateien</strong></div>
-    <div class="card-body small">Bis zu 512 Dateien; Prüfsummen werden beim Föderationstransfer geprüft.</div>
-    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">Datei</th><th scope="col">Größe</th></tr></thead><tbody>
-      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td></tr>{% else %}<tr><td colspan="2" class="text-secondary">Noch keine Boot-Dateien vorhanden.</td></tr>{% endfor %}
+    <div class="card-header"><strong>{{ 'Local network boot files' if g.language == 'en' else 'Lokale Networkboot-Dateien' }}</strong></div>
+    <div class="card-body small">{{ 'Up to 512 files; checksums are verified during federation transfer.' if g.language == 'en' else 'Bis zu 512 Dateien; Prüfsummen werden beim Föderationstransfer geprüft.' }}</div>
+    <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th scope="col">{{ 'File' if g.language == 'en' else 'Datei' }}</th><th scope="col">{{ 'Size' if g.language == 'en' else 'Größe' }}</th></tr></thead><tbody>
+      {% for asset in assets %}<tr><td class="text-break">{{ asset.path }}</td><td>{{ asset.size }} Byte</td></tr>{% else %}<tr><td colspan="2" class="text-secondary">{{ 'No boot files present yet.' if g.language == 'en' else 'Noch keine Boot-Dateien vorhanden.' }}</td></tr>{% endfor %}
     </tbody></table></div>
   </section>
 </main>

@@ -5,11 +5,11 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <h1 class="h2 mb-1">Mini Services</h1>
-      <p class="text-secondary mb-0">Lokale Infrastruktur- und Netzwerkdienste zentral verwalten.</p>
+      <p class="text-secondary mb-0">{{ 'Manage local infrastructure and network services centrally.' if g.language == 'en' else 'Lokale Infrastruktur- und Netzwerkdienste zentral verwalten.' }}</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
-      <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Fehler / Audit</a>
-      <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">Benutzer</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">{{ 'Errors / audit' if g.language == 'en' else 'Fehler / Audit' }}</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</a>
     </div>
   </div>
 
@@ -30,26 +30,23 @@
   } %}
   <section data-settings-links="{{ settings_links|tojson|forceescape }}" id="mini-service-control" class="mb-4" data-api="{{ url_for('mini_services_api.index') }}" aria-labelledby="mini-control-title">
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-      <h2 class="h4 mb-0" id="mini-control-title">Dienste steuern</h2>
-      <button type="button" class="btn btn-outline-secondary" id="mini-refresh">Status aktualisieren</button>
+      <h2 class="h4 mb-0" id="mini-control-title">{{ 'Control services' if g.language == 'en' else 'Dienste steuern' }}</h2>
+      <button type="button" class="btn btn-outline-secondary" id="mini-refresh">{{ 'Refresh status' if g.language == 'en' else 'Status aktualisieren' }}</button>
     </div>
-    <p class="small">Start und Stop gelten bei Worker-Diensten für die aktuelle Sitzung. Autostart gilt beim nächsten Dienststart.
-      DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein.
-      Audio-Sender benötigen gespeicherte Ziele.
-      HTTP/PXE wird vom Webserver bereitgestellt; sein Start/Stop speichert die Freigabe dauerhaft und steuert auch die zugehörige TFTP-Auslieferung.</p>
-    <div id="mini-feedback" role="status" aria-live="polite" class="alert alert-secondary">Status wird geladen …</div>
+    <p class="small">{{ 'Start and stop apply to the current session for worker services. Autostart applies at the next service start. DHCP, DNS, TFTP and routing must additionally be enabled in their specialist configuration. Audio senders need stored destinations. HTTP/PXE is provided by the web server; its start/stop stores the approval permanently and also controls the associated TFTP delivery.' if g.language == 'en' else 'Start und Stop gelten bei Worker-Diensten für die aktuelle Sitzung. Autostart gilt beim nächsten Dienststart. DHCP, DNS, TFTP und Routing müssen zusätzlich in ihrer Fachkonfiguration aktiviert sein. Audio-Sender benötigen gespeicherte Ziele. HTTP/PXE wird vom Webserver bereitgestellt; sein Start/Stop speichert die Freigabe dauerhaft und steuert auch die zugehörige TFTP-Auslieferung.' }}</p>
+    <div id="mini-feedback" role="status" aria-live="polite" class="alert alert-secondary">{{ 'Loading status …' if g.language == 'en' else 'Status wird geladen …' }}</div>
     <div id="mini-control-cards" class="row g-3"></div>
   </section>
 
   <div class="row g-3">
-    <div class="col-sm-6 col-xl-3"><article class="card h-100"><div class="card-body d-flex flex-column"><h2 class="h5">LiteLLM / MCP</h2><p class="text-secondary small">Optionales LLM-Gateway: lokaler oder externer Betrieb, Verbindungstest und gesicherte Konfiguration.</p><a class="btn btn-primary mt-auto" href="{{ url_for('litellm_admin.index') }}">LiteLLM konfigurieren</a><a class="btn btn-outline-secondary mt-2" href="{{ url_for('mcp.settings') }}">MCP-Zugänge</a></div></article></div>
+    <div class="col-sm-6 col-xl-3"><article class="card h-100"><div class="card-body d-flex flex-column"><h2 class="h5">LiteLLM / MCP</h2><p class="text-secondary small">{{ 'Optional LLM gateway: local or external operation, connection test and backed-up configuration.' if g.language == 'en' else 'Optionales LLM-Gateway: lokaler oder externer Betrieb, Verbindungstest und gesicherte Konfiguration.' }}</p><a class="btn btn-primary mt-auto" href="{{ url_for('litellm_admin.index') }}">{{ 'Configure LiteLLM' if g.language == 'en' else 'LiteLLM konfigurieren' }}</a><a class="btn btn-outline-secondary mt-2" href="{{ url_for('mcp.settings') }}">{{ 'MCP credentials' if g.language == 'en' else 'MCP-Zugänge' }}</a></div></article></div>
     <div class="col-sm-6 col-xl-3">
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
           <h2 class="h5"><i class="fas fa-network-wired me-2" aria-hidden="true"></i>DHCP / DNS</h2>
-          <p class="text-secondary small">Adressvergabe, lokales DNS, Blocklisten, Leases und Netzwerkoptionen.</p>
-          <div class="small mb-3">DHCP: <strong>{{ 'an' if config.dhcp.enabled else 'aus' }}</strong> · DNS: <strong>{{ 'an' if config.dns.enabled else 'aus' }}</strong></div>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('mini_services_admin.network') }}">Netzwerkdienste öffnen</a>
+          <p class="text-secondary small">{{ 'Address assignment, local DNS, blocklists, leases and network options.' if g.language == 'en' else 'Adressvergabe, lokales DNS, Blocklisten, Leases und Netzwerkoptionen.' }}</p>
+          <div class="small mb-3">DHCP: <strong>{{ ('on' if config.dhcp.enabled else 'off') if g.language == 'en' else ('an' if config.dhcp.enabled else 'aus') }}</strong> · DNS: <strong>{{ ('on' if config.dns.enabled else 'off') if g.language == 'en' else ('an' if config.dns.enabled else 'aus') }}</strong></div>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('mini_services_admin.network') }}">{{ 'Open network services' if g.language == 'en' else 'Netzwerkdienste öffnen' }}</a>
         </div>
       </article>
     </div>
@@ -57,10 +54,10 @@
     <div class="col-sm-6 col-xl-3">
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
-          <h2 class="h5"><i class="fas fa-phone-volume me-2" aria-hidden="true"></i>SIP / Telefonie</h2>
-          <p class="text-secondary small">Automatischer lokaler SIP-Registrar für Chat, Softphones und IP-Telefone.</p>
-          <p class="small mb-3">Zugangsdaten, Nebenstellen und Telefonkonfiguration verwalten. Laufzeitstatus siehe oben.</p>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('telephony_admin.index') }}">SIP-Service öffnen</a>
+          <h2 class="h5"><i class="fas fa-phone-volume me-2" aria-hidden="true"></i>SIP / {{ 'Telephony' if g.language == 'en' else 'Telefonie' }}</h2>
+          <p class="text-secondary small">{{ 'Automatic local SIP registrar for chat, softphones and IP phones.' if g.language == 'en' else 'Automatischer lokaler SIP-Registrar für Chat, Softphones und IP-Telefone.' }}</p>
+          <p class="small mb-3">{{ 'Manage credentials, extensions and phone configuration. See runtime status above.' if g.language == 'en' else 'Zugangsdaten, Nebenstellen und Telefonkonfiguration verwalten. Laufzeitstatus siehe oben.' }}</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('telephony_admin.index') }}">{{ 'Open SIP service' if g.language == 'en' else 'SIP-Service öffnen' }}</a>
         </div>
       </article>
     </div>
@@ -69,8 +66,8 @@
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-ethernet me-2" aria-hidden="true"></i>Network Boot</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
-          <p class="text-secondary small">PXE-/Boot-Inhalte und Federation-Rollen für anbietende und speichernde Peers.</p>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('network_boot_admin.index') }}">Network Boot öffnen</a>
+          <p class="text-secondary small">{{ 'PXE/boot content and federation roles for providing and storing peers.' if g.language == 'en' else 'PXE-/Boot-Inhalte und Federation-Rollen für anbietende und speichernde Peers.' }}</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('network_boot_admin.index') }}">{{ 'Open network boot' if g.language == 'en' else 'Network Boot öffnen' }}</a>
         </div>
       </article>
     </div>
@@ -79,8 +76,8 @@
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-volume-high me-2" aria-hidden="true"></i>Audio</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
-          <p class="text-secondary small">Netzwerk-Audioausgänge, Gruppen, Durchsagen und Warteschlange.</p>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('audio_output_admin.index') }}">Audio-Service öffnen</a>
+          <p class="text-secondary small">{{ 'Network audio outputs, groups, announcements and queue.' if g.language == 'en' else 'Netzwerk-Audioausgänge, Gruppen, Durchsagen und Warteschlange.' }}</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('audio_output_admin.index') }}">{{ 'Open audio service' if g.language == 'en' else 'Audio-Service öffnen' }}</a>
         </div>
       </article>
     </div>
@@ -89,9 +86,9 @@
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-microphone-lines me-2" aria-hidden="true"></i>Live Audio-Streamer</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
-          <p class="text-secondary small">Mikrofon live per Opus/RTP an andere PCs, Raspberry Pis oder kompatible Player übertragen.</p>
-          <p class="small mb-3">Sender und Receiver steuern, lokale Wiedergabe wählen und ein virtuelles Mikrofon bereitstellen.</p>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('audio_streamer_admin.page') }}">Audio-Streamer öffnen</a>
+          <p class="text-secondary small">{{ 'Stream microphone live via Opus/RTP to other PCs, Raspberry Pis or compatible players.' if g.language == 'en' else 'Mikrofon live per Opus/RTP an andere PCs, Raspberry Pis oder kompatible Player übertragen.' }}</p>
+          <p class="small mb-3">{{ 'Control sender and receiver, choose local playback and provide a virtual microphone.' if g.language == 'en' else 'Sender und Receiver steuern, lokale Wiedergabe wählen und ein virtuelles Mikrofon bereitstellen.' }}</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('audio_streamer_admin.page') }}">{{ 'Open audio streamer' if g.language == 'en' else 'Audio-Streamer öffnen' }}</a>
         </div>
       </article>
     </div>
@@ -100,9 +97,9 @@
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-route me-2" aria-hidden="true"></i>Connectivity Relay</h2><span class="badge text-bg-primary align-self-start">Mini Service</span></div>
-          <p class="text-secondary small">STUN/TURN für WebRTC hinter NAT sowie ein eng begrenzter HTTPS-CONNECT-Pfad für freigegebene Administrationsziele.</p>
-          <p class="small mb-3">Standardmäßig aus. Keine automatische Firewallfreigabe und kein offener Proxy.</p>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('connectivity_relay_admin.index') }}">Relay öffnen</a>
+          <p class="text-secondary small">{{ 'STUN/TURN for WebRTC behind NAT plus a tightly limited HTTPS CONNECT path for approved administration targets.' if g.language == 'en' else 'STUN/TURN für WebRTC hinter NAT sowie ein eng begrenzter HTTPS-CONNECT-Pfad für freigegebene Administrationsziele.' }}</p>
+          <p class="small mb-3">{{ 'Off by default. No automatic firewall approval and no open proxy.' if g.language == 'en' else 'Standardmäßig aus. Keine automatische Firewallfreigabe und kein offener Proxy.' }}</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('connectivity_relay_admin.index') }}">{{ 'Open relay' if g.language == 'en' else 'Relay öffnen' }}</a>
         </div>
       </article>
     </div>
@@ -111,9 +108,9 @@
       <article class="card h-100">
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between gap-2"><h2 class="h5"><i class="fas fa-shield-alt me-2" aria-hidden="true"></i>Firewall</h2><span class="badge text-bg-primary align-self-start">Linux</span></div>
-          <p class="text-secondary small">UFW oder firewalld automatisch erkennen, Regeln und Listener prüfen und Ports sicher öffnen oder sperren.</p>
-          <p class="small mb-3">Jede Änderung startet als 20-Sekunden-Test mit vorbereitetem automatischem Rollback.</p>
-          <a class="btn btn-primary mt-auto" href="{{ url_for('firewall_admin.index') }}">Firewall öffnen</a>
+          <p class="text-secondary small">{{ 'Automatically detect UFW or firewalld, check rules and listeners and safely open or block ports.' if g.language == 'en' else 'UFW oder firewalld automatisch erkennen, Regeln und Listener prüfen und Ports sicher öffnen oder sperren.' }}</p>
+          <p class="small mb-3">{{ 'Every change starts as a 20-second test with prepared automatic rollback.' if g.language == 'en' else 'Jede Änderung startet als 20-Sekunden-Test mit vorbereitetem automatischem Rollback.' }}</p>
+          <a class="btn btn-primary mt-auto" href="{{ url_for('firewall_admin.index') }}">{{ 'Open firewall' if g.language == 'en' else 'Firewall öffnen' }}</a>
         </div>
       </article>
     </div>

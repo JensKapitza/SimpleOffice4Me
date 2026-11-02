@@ -66,6 +66,8 @@ class FederationAutoscanSettingsTests(unittest.TestCase):
         for client, token in ((self.admin, "a" * 40), (self.user, "u" * 40)):
             with client.session_transaction() as session:
                 session["_csrf_token"] = token
+                # i18n pin: test asserts German copy; EN default renders English.
+                session["simpleoffice_language"] = "de"
         app.config["TEST_CSRF_PROTECTION"] = True
 
     def tearDown(self):

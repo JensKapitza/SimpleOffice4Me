@@ -35,6 +35,9 @@ class AccountManagementHttpTests(AccountApiFixture):
             '_csrf_token': self.csrf(self.admin, '/auth/account-requests/admin')}).status_code)
 
     def test_parent_association_is_visible_but_does_not_grant_admin_rights(self):
+        # i18n pin: test asserts German copy; EN default renders English.
+        with self.admin.session_transaction() as session:
+            session['simpleoffice_language'] = 'de'
         page = self.admin.get('/auth/account-requests/admin/invite').get_data(as_text=True)
         parent = re.search(r'<option value="(\d+)">admin</option>', page).group(1)
         token = self.token(self.invite(parent_user_id=parent))
@@ -45,12 +48,18 @@ class AccountManagementHttpTests(AccountApiFixture):
         self.assertEqual(400, self.invite('invalidparent', parent_user_id='../../admin').status_code)
 
     def test_unowned_mail_account_cannot_send_and_invitation_still_works(self):
+        # i18n pin: test asserts German copy; EN default renders English.
+        with self.admin.session_transaction() as session:
+            session['simpleoffice_language'] = 'de'
         response = self.invite(send_email='1', mail_account_id='foreign-mail-account')
         token = self.token(response)
         self.assertIn('E-Mail nicht bestätigt', response.get_data(as_text=True))
         self.assertEqual(302, self.redeem(token).status_code)
 
     def test_pending_request_cannot_login_and_case_duplicate_is_not_disclosed(self):
+        # i18n pin: test asserts German copy; EN default renders English.
+        with self.admin.session_transaction() as session:
+            session['simpleoffice_language'] = 'de'
         guest = app.test_client()
         form = {'username': 'candidate', 'email': 'candidate@example.test',
                 'password': self.password, 'is_admin': '1', 'parent_user_id': '1',

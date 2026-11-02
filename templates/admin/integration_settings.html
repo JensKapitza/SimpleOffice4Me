@@ -3,243 +3,243 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="mb-4">
-    <h1 class="h2 mb-1">Integrationen &amp; Dienste</h1>
-    <p class="text-secondary mb-0">Laufzeitwerte für externe Datenquellen und angebundene Dienste.</p>
+    <h1 class="h2 mb-1">{{ 'Integrations & services' if g.language == 'en' else 'Integrationen & Dienste' }}</h1>
+    <p class="text-secondary mb-0">{{ 'Runtime values for external data sources and connected services.' if g.language == 'en' else 'Laufzeitwerte für externe Datenquellen und angebundene Dienste.' }}</p>
   </div>
-  <nav aria-label="Einstellungsbereiche" class="mb-4">
+  <nav aria-label="{{ 'Settings sections' if g.language == 'en' else 'Einstellungsbereiche' }}" class="mb-4">
     <div class="nav nav-tabs">
-      <a class="nav-link" href="{{ url_for('documents.settings') }}">Allgemein</a>
-      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
-      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
-      <a class="nav-link active" href="{{ url_for('admin.integration_settings') }}" aria-current="page">Integrationen &amp; Dienste</a>
-      <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">Drucker</a>
+      <a class="nav-link" href="{{ url_for('documents.settings') }}">{{ 'General' if g.language == 'en' else 'Allgemein' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">{{ 'Documents & media' if g.language == 'en' else 'Dokumente & Medien' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">{{ 'Network & synchronisation' if g.language == 'en' else 'Netzwerk & Synchronisation' }}</a>
+      <a class="nav-link active" href="{{ url_for('admin.integration_settings') }}" aria-current="page">{{ 'Integrations & services' if g.language == 'en' else 'Integrationen & Dienste' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a>
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <section class="card mb-3">
-    <div class="card-header"><strong>Automatische Fehlerberichte</strong></div>
+    <div class="card-header"><strong>{{ 'Automatic error reports' if g.language == 'en' else 'Automatische Fehlerberichte' }}</strong></div>
     <div class="card-body">
-      <p>Erlaubt ausschließlich datensparsame technische Diagnosen an den konfigurierten Fehler-Relay. Dokumentinhalte, Anfragen, Benutzerkennungen, Cookies und Zugangsdaten werden nicht übertragen. Deaktivieren stoppt nur den automatischen Versand; lokales Fehlerprotokoll und manuell erstellbare Fehlerberichte bleiben verfügbar. Das Fehler-Relay auf einem Master wird dadurch nicht abgeschaltet.</p>
+      <p>{{ 'Allows only data-saving technical diagnoses to the configured error relay. Document contents, requests, user IDs, cookies and credentials are not transferred. Disabling only stops automatic sending; local error log and manually creatable error reports stay available. The error relay on a master is not switched off by this.' if g.language == 'en' else 'Erlaubt ausschließlich datensparsame technische Diagnosen an den konfigurierten Fehler-Relay. Dokumentinhalte, Anfragen, Benutzerkennungen, Cookies und Zugangsdaten werden nicht übertragen. Deaktivieren stoppt nur den automatischen Versand; lokales Fehlerprotokoll und manuell erstellbare Fehlerberichte bleiben verfügbar. Das Fehler-Relay auf einem Master wird dadurch nicht abgeschaltet.' }}</p>
       <form method="post" action="{{ url_for('admin_error_reporting_settings.save_error_reporting_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="error-reporting-enabled">Ausgehende automatische Fehlerberichte</label>
+          <label class="form-label" for="error-reporting-enabled">{{ 'Outgoing automatic error reports' if g.language == 'en' else 'Ausgehende automatische Fehlerberichte' }}</label>
           <select class="form-select" id="error-reporting-enabled" name="error_reporting_enabled" required>
-            <option value="" disabled>Bitte auswählen</option>
-            <option value="1" {% if integrations.error_reporting_enabled %}selected{% endif %}>Aktiviert (Standard)</option>
-            <option value="0" {% if not integrations.error_reporting_enabled %}selected{% endif %}>Deaktiviert</option>
+            <option value="" disabled>{{ 'Please select' if g.language == 'en' else 'Bitte auswählen' }}</option>
+            <option value="1" {% if integrations.error_reporting_enabled %}selected{% endif %}>{{ 'Enabled (default)' if g.language == 'en' else 'Aktiviert (Standard)' }}</option>
+            <option value="0" {% if not integrations.error_reporting_enabled %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
           </select>
-          <div class="form-text">Gilt für das nächste Fehlerereignis; ein Neustart ist nicht erforderlich. <code>SIMPLEOFFICE_ERROR_REPORTING=0</code> dient nur bis zur ersten Speicherung als Legacy-Opt-out. Eine gespeicherte Einstellung hat Vorrang.</div>
+          <div class="form-text">{{ 'Applies to the next error event; no restart required.' if g.language == 'en' else 'Gilt für das nächste Fehlerereignis; ein Neustart ist nicht erforderlich.' }} <code>SIMPLEOFFICE_ERROR_REPORTING=0</code> {{ 'serves only as legacy opt-out until first save. A stored setting takes precedence.' if g.language == 'en' else 'dient nur bis zur ersten Speicherung als Legacy-Opt-out. Eine gespeicherte Einstellung hat Vorrang.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mb-3">
-    <div class="card-header"><strong>Eingehender Error-Relay</strong></div>
+    <div class="card-header"><strong>{{ 'Incoming error relay' if g.language == 'en' else 'Eingehender Error-Relay' }}</strong></div>
     <div class="card-body">
-      <p>Steuert die öffentlichen Endpunkte für technische Fehlerberichte. „Automatisch“ folgt dem im Build festgelegten Master-Modus. „Aktiviert“ nimmt anonyme, streng erlaubnislisten-geprüfte Berichte mit Größen- und Ratenbegrenzung an; für GitHub-Issue-Erstellung braucht der Relay weiterhin seinen serverseitigen Token. „Deaktiviert“ liefert für Relay-Endpunkte 404. Die Docker-Rolle <code>error-relay</code> bleibt zusätzlich auf Health und Report-POST begrenzt.</p>
+      <p>{{ 'Controls the public endpoints for technical error reports. “Automatic” follows the master mode set in the build. “Enabled” accepts anonymous, strictly allowlist-checked reports with size and rate limits; for GitHub issue creation the relay still needs its server-side token. “Disabled” returns 404 for relay endpoints. The Docker role' if g.language == 'en' else 'Steuert die öffentlichen Endpunkte für technische Fehlerberichte. „Automatisch“ folgt dem im Build festgelegten Master-Modus. „Aktiviert“ nimmt anonyme, streng erlaubnislisten-geprüfte Berichte mit Größen- und Ratenbegrenzung an; für GitHub-Issue-Erstellung braucht der Relay weiterhin seinen serverseitigen Token. „Deaktiviert“ liefert für Relay-Endpunkte 404. Die Docker-Rolle' }} <code>error-relay</code> {{ 'additionally stays limited to health and report POST.' if g.language == 'en' else 'bleibt zusätzlich auf Health und Report-POST begrenzt.' }}</p>
       <form method="post" action="{{ url_for('admin_error_relay_settings.save_error_relay_mode') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-8">
-          <label class="form-label" for="error-relay-mode">Empfang eingehender Fehlerberichte</label>
+          <label class="form-label" for="error-relay-mode">{{ 'Receiving incoming error reports' if g.language == 'en' else 'Empfang eingehender Fehlerberichte' }}</label>
           <select class="form-select" id="error-relay-mode" name="error_relay_mode">
-            <option value="auto" {% if integrations.error_relay_mode == "auto" %}selected{% endif %}>Automatisch gemäß Build-Rolle (Standard)</option>
-            <option value="enabled" {% if integrations.error_relay_mode == "enabled" %}selected{% endif %}>Aktiviert</option>
-            <option value="disabled" {% if integrations.error_relay_mode == "disabled" %}selected{% endif %}>Deaktiviert</option>
+            <option value="auto" {% if integrations.error_relay_mode == "auto" %}selected{% endif %}>{{ 'Automatic per build role (default)' if g.language == 'en' else 'Automatisch gemäß Build-Rolle (Standard)' }}</option>
+            <option value="enabled" {% if integrations.error_relay_mode == "enabled" %}selected{% endif %}>{{ 'Enabled' if g.language == 'en' else 'Aktiviert' }}</option>
+            <option value="disabled" {% if integrations.error_relay_mode == "disabled" %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
           </select>
-          <div class="form-text"><code>SIMPLEOFFICE_ERROR_RELAY_ENABLED</code> ist bis zur ersten Speicherung ein Legacy-Override. Die persistente Einstellung gilt sofort.</div>
+          <div class="form-text"><code>SIMPLEOFFICE_ERROR_RELAY_ENABLED</code> {{ 'is a legacy override until first save. The persistent setting applies immediately.' if g.language == 'en' else 'ist bis zur ersten Speicherung ein Legacy-Override. Die persistente Einstellung gilt sofort.' }}</div>
         </div>
         <div class="col-12">
           <div class="form-check">
             <input class="form-check-input" id="confirm-public-error-relay" type="checkbox"
                    name="confirm_public_relay" value="1">
-            <label class="form-check-label" for="confirm-public-error-relay">Ich bestätige, dass die gewählte Einstellung einen öffentlichen, nicht authentifizierten Report-Endpunkt freigibt.</label>
+            <label class="form-check-label" for="confirm-public-error-relay">{{ 'I confirm that the chosen setting exposes a public, unauthenticated report endpoint.' if g.language == 'en' else 'Ich bestätige, dass die gewählte Einstellung einen öffentlichen, nicht authentifizierten Report-Endpunkt freigibt.' }}</label>
           </div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Build-Standard zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to build default' if g.language == 'en' else 'Auf Build-Standard zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mb-3">
-    <div class="card-header"><strong>Personaldaten-Synchronisation</strong></div>
+    <div class="card-header"><strong>{{ 'Personnel data synchronisation' if g.language == 'en' else 'Personaldaten-Synchronisation' }}</strong></div>
     <div class="card-body">
-      <p>Steuert den Hintergrund-Worker für bereits ausdrücklich aktivierte Personalsynchronisationen. Die Freigabe je Peer und Person bleibt separat. Änderungen gelten spätestens beim nächsten Worker-Zyklus; <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC</code> und <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS</code> dienen nur als begrenzte Legacy-Startwerte, bis diese Einstellungen gespeichert wurden.</p>
+      <p>{{ 'Controls the background worker for already explicitly enabled personnel synchronisations. Release per peer and person stays separate. Changes apply at the latest at the next worker cycle;' if g.language == 'en' else 'Steuert den Hintergrund-Worker für bereits ausdrücklich aktivierte Personalsynchronisationen. Die Freigabe je Peer und Person bleibt separat. Änderungen gelten spätestens beim nächsten Worker-Zyklus;' }} <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC</code> {{ 'and' if g.language == 'en' else 'und' }} <code>SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS</code> {{ 'serve only as limited legacy start values until these settings have been saved.' if g.language == 'en' else 'dienen nur als begrenzte Legacy-Startwerte, bis diese Einstellungen gespeichert wurden.' }}</p>
       <form method="post" action="{{ url_for('admin.save_personnel_time_autosync_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="personnel-time-autosync-enabled">Hintergrund-Synchronisation</label>
+          <label class="form-label" for="personnel-time-autosync-enabled">{{ 'Background synchronisation' if g.language == 'en' else 'Hintergrund-Synchronisation' }}</label>
           <select class="form-select" id="personnel-time-autosync-enabled" name="personnel_time_autosync_enabled" required>
-            <option value="" disabled>Bitte auswählen</option>
-            <option value="1" {% if integrations.personnel_time_autosync_enabled == 1 %}selected{% endif %}>Aktiviert</option>
-            <option value="0" {% if integrations.personnel_time_autosync_enabled == 0 %}selected{% endif %}>Deaktiviert</option>
+            <option value="" disabled>{{ 'Please select' if g.language == 'en' else 'Bitte auswählen' }}</option>
+            <option value="1" {% if integrations.personnel_time_autosync_enabled == 1 %}selected{% endif %}>{{ 'Enabled' if g.language == 'en' else 'Aktiviert' }}</option>
+            <option value="0" {% if integrations.personnel_time_autosync_enabled == 0 %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
           </select>
-          <div class="form-text">Standard: aktiviert. Pro-Peer-/Person-Freigaben bleiben zusätzlich erforderlich.</div>
+          <div class="form-text">{{ 'Default: enabled. Per-peer/person releases remain additionally required.' if g.language == 'en' else 'Standard: aktiviert. Pro-Peer-/Person-Freigaben bleiben zusätzlich erforderlich.' }}</div>
         </div>
         <div class="col-md-7">
-          <label class="form-label" for="personnel-time-autosync-seconds">Worker-Prüfintervall (Sekunden)</label>
+          <label class="form-label" for="personnel-time-autosync-seconds">{{ 'Worker check interval (seconds)' if g.language == 'en' else 'Worker-Prüfintervall (Sekunden)' }}</label>
           <input class="form-control" id="personnel-time-autosync-seconds" type="number" name="personnel_time_autosync_seconds" value="{{ integrations.personnel_time_autosync_seconds }}" min="{{ personnel_time_autosync_min }}" max="{{ personnel_time_autosync_max }}" step="1" required>
-          <div class="form-text">Standard: 300 Sekunden. Zulässig: 60–3600 Sekunden.</div>
+          <div class="form-text">{{ 'Default: 300 seconds. Allowed: 60–3600 seconds.' if g.language == 'en' else 'Standard: 300 Sekunden. Zulässig: 60–3600 Sekunden.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwerte zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to defaults' if g.language == 'en' else 'Auf Standardwerte zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mb-3">
-    <div class="card-header"><strong>Föderationssuche</strong></div>
+    <div class="card-header"><strong>{{ 'Federation search' if g.language == 'en' else 'Föderationssuche' }}</strong></div>
     <div class="card-body">
-      <p>Die automatische Land-Suche ist optional und standardmäßig deaktiviert. Entdeckte Peers werden nur als Vorschläge gespeichert; sie werden dadurch weder aktiviert noch für Datenfreigaben autorisiert. Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam.</p>
+      <p>{{ 'Automatic country search is optional and deactivated by default. Discovered peers are stored only as suggestions; they are thereby neither activated nor authorised for data releases. Changes to country or interval take effect after a restart of the web process.' if g.language == 'en' else 'Die automatische Land-Suche ist optional und standardmäßig deaktiviert. Entdeckte Peers werden nur als Vorschläge gespeichert; sie werden dadurch weder aktiviert noch für Datenfreigaben autorisiert. Änderungen am Land oder Intervall werden nach einem Neustart des Webprozesses wirksam.' }}</p>
       <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_discovery_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="federation-autoscan-country">Land (ISO-3166 Alpha-2, leer = deaktiviert)</label>
+          <label class="form-label" for="federation-autoscan-country">{{ 'Country (ISO-3166 alpha-2, empty = disabled)' if g.language == 'en' else 'Land (ISO-3166 Alpha-2, leer = deaktiviert)' }}</label>
           <input class="form-control" id="federation-autoscan-country" type="text" name="federation_autoscan_country" value="{{ integrations.federation_autoscan_country }}" maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off">
-          <div class="form-text">Standardmäßig aus. Das frühere SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY wird bis zum Speichern als Legacy-Startwert übernommen.</div>
+          <div class="form-text">{{ 'Off by default. The former SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY is adopted as legacy start value until save.' if g.language == 'en' else 'Standardmäßig aus. Das frühere SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY wird bis zum Speichern als Legacy-Startwert übernommen.' }}</div>
         </div>
         <div class="col-md-7">
-          <label class="form-label" for="federation-autoscan-seconds">Suchintervall (Sekunden)</label>
+          <label class="form-label" for="federation-autoscan-seconds">{{ 'Search interval (seconds)' if g.language == 'en' else 'Suchintervall (Sekunden)' }}</label>
           <input class="form-control" id="federation-autoscan-seconds" type="number" name="federation_autoscan_seconds" value="{{ integrations.federation_autoscan_seconds }}" min="{{ federation_autoscan_min }}" max="{{ federation_autoscan_max }}" step="1" required>
-          <div class="form-text">Standard: 21.600 Sekunden (6 Stunden); zulässig: 3.600–604.800 Sekunden. Das frühere Environment-Intervall wird bis zum Speichern migriert.</div>
+          <div class="form-text">{{ 'Default: 21,600 seconds (6 hours); allowed: 3,600–604,800 seconds. The former environment interval is migrated until save.' if g.language == 'en' else 'Standard: 21.600 Sekunden (6 Stunden); zulässig: 3.600–604.800 Sekunden. Das frühere Environment-Intervall wird bis zum Speichern migriert.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwerte zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to defaults' if g.language == 'en' else 'Auf Standardwerte zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mb-3">
-    <div class="card-header"><strong>Öffentliches Federation-Verzeichnis</strong></div>
+    <div class="card-header"><strong>{{ 'Public federation directory' if g.language == 'en' else 'Öffentliches Federation-Verzeichnis' }}</strong></div>
     <div class="card-body">
-      <p>Wenn aktiviert, dürfen nicht angemeldete Clients ausschließlich die explizit veröffentlichten öffentlichen Peer-Profile abfragen. Dazu gehören Peer-ID, Anzeigename, öffentliche Basis-URL, Land, Fingerprint und öffentlicher Schlüssel. Registrierung, Auflösung, Trust und Rendezvous bleiben weiterhin authentifiziert. Standardmäßig ist die Veröffentlichung deaktiviert.</p>
+      <p>{{ 'When enabled, non-signed-in clients may query only the explicitly published public peer profiles. These include peer ID, display name, public base URL, country, fingerprint and public key. Registration, resolution, trust and rendezvous stay authenticated. Publishing is deactivated by default.' if g.language == 'en' else 'Wenn aktiviert, dürfen nicht angemeldete Clients ausschließlich die explizit veröffentlichten öffentlichen Peer-Profile abfragen. Dazu gehören Peer-ID, Anzeigename, öffentliche Basis-URL, Land, Fingerprint und öffentlicher Schlüssel. Registrierung, Auflösung, Trust und Rendezvous bleiben weiterhin authentifiziert. Standardmäßig ist die Veröffentlichung deaktiviert.' }}</p>
       <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_public_directory_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="federation-public-directory-enabled">Öffentliche Abfrage veröffentlichter Peer-Profile</label>
+          <label class="form-label" for="federation-public-directory-enabled">{{ 'Public query of published peer profiles' if g.language == 'en' else 'Öffentliche Abfrage veröffentlichter Peer-Profile' }}</label>
           <select class="form-select" id="federation-public-directory-enabled" name="federation_public_directory_enabled" required>
-            <option value="" disabled>Bitte auswählen</option>
-            <option value="1" {% if integrations.federation_public_directory_enabled %}selected{% endif %}>Aktiviert</option>
-            <option value="0" {% if not integrations.federation_public_directory_enabled %}selected{% endif %}>Deaktiviert (Standard)</option>
+            <option value="" disabled>{{ 'Please select' if g.language == 'en' else 'Bitte auswählen' }}</option>
+            <option value="1" {% if integrations.federation_public_directory_enabled %}selected{% endif %}>{{ 'Enabled' if g.language == 'en' else 'Aktiviert' }}</option>
+            <option value="0" {% if not integrations.federation_public_directory_enabled %}selected{% endif %}>{{ 'Disabled (default)' if g.language == 'en' else 'Deaktiviert (Standard)' }}</option>
           </select>
-          <div class="form-text">Gilt sofort. <code>SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1</code> dient nur bis zur ersten Speicherung als Legacy-Opt-in; danach ist die persistente Einstellung maßgeblich.</div>
+          <div class="form-text">{{ 'Applies immediately.' if g.language == 'en' else 'Gilt sofort.' }} <code>SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY=1</code> {{ 'serves only as legacy opt-in until first save; afterwards the persistent setting is decisive.' if g.language == 'en' else 'dient nur bis zur ersten Speicherung als Legacy-Opt-in; danach ist die persistente Einstellung maßgeblich.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mb-3">
-    <div class="card-header"><strong>Öffentliches Federation-Profil</strong></div>
+    <div class="card-header"><strong>{{ 'Public federation profile' if g.language == 'en' else 'Öffentliches Federation-Profil' }}</strong></div>
     <div class="card-body">
-      <p>Das Land ist reine Profil-Metadaten und ändert keine Freigaben oder Berechtigungen. Die Basis-URL wird in öffentlichen Peer-Profilen und QR-Codes bekanntgegeben; verwende nur eine für die vorgesehenen Peers erreichbare Adresse und im Internet HTTPS.</p>
+      <p>{{ 'The country is pure profile metadata and changes no releases or permissions. The base URL is announced in public peer profiles and QR codes; use only an address reachable for the intended peers and HTTPS on the internet.' if g.language == 'en' else 'Das Land ist reine Profil-Metadaten und ändert keine Freigaben oder Berechtigungen. Die Basis-URL wird in öffentlichen Peer-Profilen und QR-Codes bekanntgegeben; verwende nur eine für die vorgesehenen Peers erreichbare Adresse und im Internet HTTPS.' }}</p>
       <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_profile_country_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="federation-profile-country">Land (ISO-3166 Alpha-2, leer = nicht angegeben)</label>
+          <label class="form-label" for="federation-profile-country">{{ 'Country (ISO-3166 alpha-2, empty = not specified)' if g.language == 'en' else 'Land (ISO-3166 Alpha-2, leer = nicht angegeben)' }}</label>
           <input class="form-control" id="federation-profile-country" type="text" name="federation_profile_country" value="{{ integrations.federation_profile_country }}" maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off">
-          <div class="form-text"><code>SIMPLEOFFICE_FEDERATION_COUNTRY</code> dient nur bis zur ersten Speicherung als Legacy-Startwert.</div>
+          <div class="form-text"><code>SIMPLEOFFICE_FEDERATION_COUNTRY</code> {{ 'serves only as legacy start value until first save.' if g.language == 'en' else 'dient nur bis zur ersten Speicherung als Legacy-Startwert.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Land speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Land zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save country' if g.language == 'en' else 'Land speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset country' if g.language == 'en' else 'Land zurücksetzen' }}</button>
         </div>
       </form>
       <hr>
       <form method="post" action="{{ url_for('admin_federation_discovery.save_federation_public_url_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-9">
-          <label class="form-label" for="federation-public-url">Basis-URL, optionaler Reverse-Proxy-Pfad möglich</label>
+          <label class="form-label" for="federation-public-url">{{ 'Base URL, optional reverse proxy path possible' if g.language == 'en' else 'Basis-URL, optionaler Reverse-Proxy-Pfad möglich' }}</label>
           <input class="form-control" id="federation-public-url" type="text" name="federation_public_url" value="{{ integrations.federation_public_url }}" maxlength="512" autocomplete="url" placeholder="https://office.example/simpleoffice">
-          <div class="form-text">Zugangsdaten, Query und Fragment sind nicht erlaubt. Beim Speichern wird keine Verbindung ausgelöst; <code>SIMPLEOFFICE_FEDERATION_PUBLIC_URL</code> bleibt bis zur ersten Speicherung der Legacy-Startwert.</div>
+          <div class="form-text">{{ 'Credentials, query and fragment are not allowed. Saving triggers no connection;' if g.language == 'en' else 'Zugangsdaten, Query und Fragment sind nicht erlaubt. Beim Speichern wird keine Verbindung ausgelöst;' }} <code>SIMPLEOFFICE_FEDERATION_PUBLIC_URL</code> {{ 'remains the legacy start value until first save.' if g.language == 'en' else 'bleibt bis zur ersten Speicherung der Legacy-Startwert.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Profil-URL speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Profil-URL zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save profile URL' if g.language == 'en' else 'Profil-URL speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset profile URL' if g.language == 'en' else 'Profil-URL zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mt-3">
-    <div class="card-header"><strong>PrinterShare-Aufbewahrungsbereinigung</strong></div>
+    <div class="card-header"><strong>{{ 'PrinterShare retention cleanup' if g.language == 'en' else 'PrinterShare-Aufbewahrungsbereinigung' }}</strong></div>
     <div class="card-body">
-      <p>Das Intervall steuert, wie oft abgelaufene Druckaufträge physisch bereinigt werden; es ändert nicht deren Aufbewahrungsfrist. Der gespeicherte Wert wird beim Start des Webprozesses übernommen. <code>SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL</code> dient als begrenzter Legacy-Startwert, bis die persistierte Einstellung gespeichert wurde.</p>
+      <p>{{ 'The interval controls how often expired print jobs are physically cleaned up; it does not change their retention period. The stored value is adopted at web process start.' if g.language == 'en' else 'Das Intervall steuert, wie oft abgelaufene Druckaufträge physisch bereinigt werden; es ändert nicht deren Aufbewahrungsfrist. Der gespeicherte Wert wird beim Start des Webprozesses übernommen.' }} <code>SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL</code> {{ 'serves as limited legacy start value until the persisted setting has been saved.' if g.language == 'en' else 'dient als begrenzter Legacy-Startwert, bis die persistierte Einstellung gespeichert wurde.' }}</p>
       <form method="post" action="{{ url_for('admin.save_printershare_purge_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="printershare-purge-interval">Bereinigungsintervall (Sekunden)</label>
+          <label class="form-label" for="printershare-purge-interval">{{ 'Cleanup interval (seconds)' if g.language == 'en' else 'Bereinigungsintervall (Sekunden)' }}</label>
           <input class="form-control" id="printershare-purge-interval" type="number" name="printershare_purge_interval_seconds" value="{{ integrations.printershare_purge_interval_seconds }}" min="{{ printershare_purge_interval_min }}" max="{{ printershare_purge_interval_max }}" step="1" required>
-          <div class="form-text">Standard: 60 Sekunden. Zulässig: 30–3600 Sekunden. Neustart erforderlich.</div>
+          <div class="form-text">{{ 'Default: 60 seconds. Allowed: 30–3600 seconds. Restart required.' if g.language == 'en' else 'Standard: 60 Sekunden. Zulässig: 30–3600 Sekunden. Neustart erforderlich.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card">
-    <div class="card-header"><strong>OpenStreetMap-Download und -Filter</strong></div>
+    <div class="card-header"><strong>{{ 'OpenStreetMap download and filter' if g.language == 'en' else 'OpenStreetMap-Download und -Filter' }}</strong></div>
     <div class="card-body">
-      <p>Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Größenlimit schützt den lokalen Speicher, und die Versuchsanzahl begrenzt Wiederholungen bei vorübergehenden Netzwerkfehlern. Filter- und Export-Leerlauf-Timeouts begrenzen lokale <code>osmium</code>-Prozesse. Die Werte gelten für neu gestartete Vorgänge. Bisherige Environment-Werte werden als Startwerte übernommen, bis die jeweilige persistierte Einstellung gespeichert wurde.</p>
+      <p>{{ 'The read timeout limits waits without data during Geofabrik download; the size limit protects local storage, and the retry count limits repetitions on transient network errors. Filter and export idle timeouts limit local' if g.language == 'en' else 'Das Lese-Timeout begrenzt Wartezeiten ohne Daten beim Geofabrik-Download; das Größenlimit schützt den lokalen Speicher, und die Versuchsanzahl begrenzt Wiederholungen bei vorübergehenden Netzwerkfehlern. Filter- und Export-Leerlauf-Timeouts begrenzen lokale' }} <code>osmium</code>-{{ 'processes. Values apply to newly started operations. Previous environment values are adopted as start values until the respective persisted setting has been saved.' if g.language == 'en' else 'Prozesse. Die Werte gelten für neu gestartete Vorgänge. Bisherige Environment-Werte werden als Startwerte übernommen, bis die jeweilige persistierte Einstellung gespeichert wurde.' }}</p>
       <form method="post" action="{{ url_for('admin_osm_settings.save_osm_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="osm-read-timeout">Lese-Timeout (Sekunden)</label>
+          <label class="form-label" for="osm-read-timeout">{{ 'Read timeout (seconds)' if g.language == 'en' else 'Lese-Timeout (Sekunden)' }}</label>
           <input class="form-control" id="osm-read-timeout" type="number" name="osm_download_read_timeout_seconds" value="{{ integrations.osm_download_read_timeout_seconds }}" min="30" max="3600" step="1" required>
-          <div class="form-text">Standard: 300 Sekunden. Zulässig: 30–3600 Sekunden.</div>
+          <div class="form-text">{{ 'Default: 300 seconds. Allowed: 30–3600 seconds.' if g.language == 'en' else 'Standard: 300 Sekunden. Zulässig: 30–3600 Sekunden.' }}</div>
         </div>
         <div class="col-md-7">
-          <label class="form-label" for="osm-max-download-gib">Maximale Quelldatei (GiB)</label>
+          <label class="form-label" for="osm-max-download-gib">{{ 'Maximum source file (GiB)' if g.language == 'en' else 'Maximale Quelldatei (GiB)' }}</label>
           <input class="form-control" id="osm-max-download-gib" type="number" name="osm_max_download_gib" value="{{ integrations.osm_max_download_gib }}" min="0" max="64" step="1" required>
-          <div class="form-text">Standard: 8 GiB. Zulässig: 0–64 GiB; 0 deaktiviert OSM-Downloads. Schutz wird vor und während des Downloads angewendet.</div>
+          <div class="form-text">{{ 'Default: 8 GiB. Allowed: 0–64 GiB; 0 disables OSM downloads. Protection is applied before and during download.' if g.language == 'en' else 'Standard: 8 GiB. Zulässig: 0–64 GiB; 0 deaktiviert OSM-Downloads. Schutz wird vor und während des Downloads angewendet.' }}</div>
         </div>
         <div class="col-md-7">
-          <label class="form-label" for="osm-download-retries">Downloadversuche</label>
+          <label class="form-label" for="osm-download-retries">{{ 'Download retries' if g.language == 'en' else 'Downloadversuche' }}</label>
           <input class="form-control" id="osm-download-retries" type="number" name="osm_download_retries" value="{{ integrations.osm_download_retries }}" min="1" max="10" step="1" required>
-          <div class="form-text">Standard: 5 Versuche. Zulässig: 1–10; Wartezeit zwischen Wiederholungen bleibt begrenzt.</div>
+          <div class="form-text">{{ 'Default: 5 retries. Allowed: 1–10; wait between retries stays limited.' if g.language == 'en' else 'Standard: 5 Versuche. Zulässig: 1–10; Wartezeit zwischen Wiederholungen bleibt begrenzt.' }}</div>
         </div>
         <div class="col-md-7">
-          <label class="form-label" for="osm-filter-timeout">Filter-Timeout (Sekunden)</label>
+          <label class="form-label" for="osm-filter-timeout">{{ 'Filter timeout (seconds)' if g.language == 'en' else 'Filter-Timeout (Sekunden)' }}</label>
           <input class="form-control" id="osm-filter-timeout" type="number" name="osm_filter_timeout_seconds" value="{{ integrations.osm_filter_timeout_seconds }}" min="{{ osm_filter_timeout_min }}" max="{{ osm_filter_timeout_max }}" step="1" required>
-          <div class="form-text">Standard: 21.600 Sekunden (6 Stunden). Zulässig: 3.600–86.400 Sekunden. Begrenzt nur <code>osmium tags-filter</code>; bei Timeout bleibt der Index nicht als fertig markiert. Gilt für neue Filterläufe ohne Neustart. <code>SIMPLEOFFICE_OSM_FILTER_TIMEOUT</code> dient bis zum Speichern als Legacy-Startwert.</div>
+          <div class="form-text">{{ 'Default: 21,600 seconds (6 hours). Allowed: 3,600–86,400 seconds. Limits only' if g.language == 'en' else 'Standard: 21.600 Sekunden (6 Stunden). Zulässig: 3.600–86.400 Sekunden. Begrenzt nur' }} <code>osmium tags-filter</code>{{ '; on timeout the index is not marked as done. Applies to new filter runs without restart.' if g.language == 'en' else '; bei Timeout bleibt der Index nicht als fertig markiert. Gilt für neue Filterläufe ohne Neustart.' }} <code>SIMPLEOFFICE_OSM_FILTER_TIMEOUT</code> {{ 'serves as legacy start value until save.' if g.language == 'en' else 'dient bis zum Speichern als Legacy-Startwert.' }}</div>
         </div>
         <div class="col-md-7">
-          <label class="form-label" for="osm-export-idle-timeout">Export-Leerlauf-Timeout (Sekunden)</label>
+          <label class="form-label" for="osm-export-idle-timeout">{{ 'Export idle timeout (seconds)' if g.language == 'en' else 'Export-Leerlauf-Timeout (Sekunden)' }}</label>
           <input class="form-control" id="osm-export-idle-timeout" type="number" name="osm_export_idle_timeout_seconds" value="{{ integrations.osm_export_idle_timeout_seconds }}" min="{{ osm_export_idle_timeout_min }}" max="{{ osm_export_idle_timeout_max }}" step="1" required>
-          <div class="form-text">Standard: 1.800 Sekunden. Zulässig: 300–86.400 Sekunden. Beendet <code>osmium export</code> erst nach so langer Zeit ohne Ausgabedaten; laufende Daten setzen den Leerlauf zurück. Gilt für neue Exportläufe ohne Neustart. <code>SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT</code> dient bis zum Speichern als Legacy-Startwert.</div>
+          <div class="form-text">{{ 'Default: 1,800 seconds. Allowed: 300–86,400 seconds. Terminates' if g.language == 'en' else 'Standard: 1.800 Sekunden. Zulässig: 300–86.400 Sekunden. Beendet' }} <code>osmium export</code> {{ 'only after such a long time without output data; ongoing data resets the idle timer. Applies to new export runs without restart.' if g.language == 'en' else 'erst nach so langer Zeit ohne Ausgabedaten; laufende Daten setzen den Leerlauf zurück. Gilt für neue Exportläufe ohne Neustart.' }} <code>SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT</code> {{ 'serves as legacy start value until save.' if g.language == 'en' else 'dient bis zum Speichern als Legacy-Startwert.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
         </div>
       </form>
     </div>
   </section>
   <section class="card mt-3">
-    <div class="card-header"><strong>ClamAV-Sicherheitsprüfung</strong></div>
+    <div class="card-header"><strong>{{ 'ClamAV security check' if g.language == 'en' else 'ClamAV-Sicherheitsprüfung' }}</strong></div>
     <div class="card-body">
-      <p>Begrenzt die Laufzeit einer einzelnen Virenprüfung bei EML-Anhängen, Mail-Downloads und aktivierter WebDAV-Prüfung. Der Wert gilt für neu gestartete Prüfungen. <code>SIMPLEOFFICE_CLAMAV_TIMEOUT</code> wird nur verwendet, solange noch kein persistierter Wert gespeichert wurde.</p>
+      <p>{{ 'Limits the runtime of a single virus check for EML attachments, mail downloads and enabled WebDAV checking. The value applies to newly started checks.' if g.language == 'en' else 'Begrenzt die Laufzeit einer einzelnen Virenprüfung bei EML-Anhängen, Mail-Downloads und aktivierter WebDAV-Prüfung. Der Wert gilt für neu gestartete Prüfungen.' }} <code>SIMPLEOFFICE_CLAMAV_TIMEOUT</code> {{ 'is used only while no persisted value has been stored yet.' if g.language == 'en' else 'wird nur verwendet, solange noch kein persistierter Wert gespeichert wurde.' }}</p>
       <form method="post" action="{{ url_for('admin.save_clamav_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
-          <label class="form-label" for="clamav-timeout">Prüfzeitlimit (Sekunden)</label>
+          <label class="form-label" for="clamav-timeout">{{ 'Check time limit (seconds)' if g.language == 'en' else 'Prüfzeitlimit (Sekunden)' }}</label>
           <input class="form-control" id="clamav-timeout" type="number" name="clamav_timeout_seconds" value="{{ integrations.clamav_timeout_seconds }}" min="5" max="900" step="1" required>
-          <div class="form-text">Standard: 120 Sekunden. Zulässig: 5–900 Sekunden.</div>
+          <div class="form-text">{{ 'Default: 120 seconds. Allowed: 5–900 seconds.' if g.language == 'en' else 'Standard: 120 Sekunden. Zulässig: 5–900 Sekunden.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
-          <button class="btn btn-primary" type="submit">Einstellung speichern</button>
-          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>Auf Standardwert zurücksetzen</button>
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
         </div>
       </form>
     </div>
