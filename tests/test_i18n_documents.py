@@ -578,6 +578,64 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Noch keine Wiki-Seiten.", de_body)
         self.assertIn("Erste Wiki-Seite anlegen", de_body)
 
+    def test_project_issue_detail(self) -> None:
+        from app.project_tracker import ProjectTrackerStore
+        project_id = self._make_project()
+        issue = ProjectTrackerStore(self.root).create_issue(
+            project_id, {"title": "Language Issue"}, "admin")
+        url = (f"/documents/projects/{project_id}"
+               f"/issues/{issue['number']}")
+        en_body = self._get(url, "en")
+        self.assertIn("Edit issue", en_body)
+        self.assertIn("No comments yet.", en_body)
+        de_body = self._get(url, "de")
+        self.assertIn("Issue bearbeiten", de_body)
+        self.assertIn("Noch keine Kommentare.", de_body)
+
+    def test_v3_finance_lifecycle(self) -> None:
+        import os
+        from unittest.mock import patch
+        with patch.dict(os.environ,
+                        {"SIMPLEOFFICE_V3_FINANCE_ENABLED": "1"}):
+            en_body = self._get("/documents/business/lifecycle-v3", "en")
+            self.assertIn("New business document", en_body)
+            self.assertIn("No lifecycle documents yet.", en_body)
+            de_body = self._get("/documents/business/lifecycle-v3", "de")
+            self.assertIn("Neues Geschäftsdokument", de_body)
+            self.assertIn("Noch keine Lifecycle-Dokumente.", de_body)
+
+    def test_smart_folder_merge_preview_renders_both_languages(self) -> None:
+        impact = {"source": "src", "target": "dst", "documents": 3,
+                  "target_documents": 1, "source_preview_ids": ["a"],
+                  "target_preview_ids": ["b"],
+                  "task_preview_available": True, "source_tasks": 0,
+                  "target_tasks": 0, "source_task_rows": [],
+                  "target_task_rows": [], "source_tasks_truncated": False,
+                  "target_tasks_truncated": False, "source_rules": [],
+                  "target_rules": [], "source_rule_definitions": {},
+                  "target_rule_definitions": {}, "source_notes": "",
+                  "target_notes": "", "conflicts": [],
+                  "source_paths": ["src/a.txt"],
+                  "source_paths_truncated": False, "fingerprint": "fp"}
+        en_body = self._render(
+            "documents/smart_folder_merge_preview.html", "en",
+            impact=impact)
+        self.assertIn("Check folder merge", en_body)
+        self.assertIn("Confirm merge", en_body)
+        de_body = self._render(
+            "documents/smart_folder_merge_preview.html", "de",
+            impact=impact)
+        self.assertIn("Ordnerfusion prüfen", de_body)
+        self.assertIn("Fusion bestätigen", de_body)
+
+    def test_photo_snapshot_renders_both_languages(self) -> None:
+        en_body = self._render("documents/_photo_snapshot.html", "en")
+        self.assertIn("Capture &amp; save", en_body)
+        self.assertIn("New photo", en_body)
+        de_body = self._render("documents/_photo_snapshot.html", "de")
+        self.assertIn("Aufnehmen &amp; speichern", de_body)
+        self.assertIn("Neues Foto", de_body)
+
     def test_euer_booking_form(self) -> None:
         en_body = self._get("/documents/business/bookkeeping/new", "en")
         self.assertIn("Book receipt", en_body)
