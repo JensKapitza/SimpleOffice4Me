@@ -356,6 +356,9 @@ app.register_blueprint(mail_routes.bp)
 from . import mail_reader_routes
 app.register_blueprint(mail_reader_routes.bp)
 
+from . import mail_smtp_admin
+app.register_blueprint(mail_smtp_admin.bp)
+
 from . import admin
 app.register_blueprint(admin.bp)
 

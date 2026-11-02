@@ -367,12 +367,12 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SIP_BIND` | [simpleoffice_sip_runtime.py](../simpleoffice_sip_runtime.py) | [MINI_SERVICES_REVIEW](MINI_SERVICES_REVIEW.md) |
 | `SIMPLEOFFICE_SKIP_INVOICE_VALIDATOR_BOOTSTRAP` | [install_invoice_validator.py](../tools/install_invoice_validator.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_SKIP_XRECHNUNG_VALIDATOR_BOOTSTRAP` | [install_xrechnung_validator.py](../tools/install_xrechnung_validator.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_SMTP_FROM` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
-| `SIMPLEOFFICE_SMTP_HOST` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
-| `SIMPLEOFFICE_SMTP_PASSWORD` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
-| `SIMPLEOFFICE_SMTP_PORT` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
-| `SIMPLEOFFICE_SMTP_STARTTLS` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
-| `SIMPLEOFFICE_SMTP_USER` | [calendar_store.py](../app/calendar_store.py) | [KALENDER](KALENDER.md) |
+| `SIMPLEOFFICE_SMTP_FROM` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
+| `SIMPLEOFFICE_SMTP_HOST` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
+| `SIMPLEOFFICE_SMTP_PASSWORD` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
+| `SIMPLEOFFICE_SMTP_PORT` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
+| `SIMPLEOFFICE_SMTP_STARTTLS` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
+| `SIMPLEOFFICE_SMTP_USER` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
 | `SIMPLEOFFICE_HTTPS` | [__init__.py](../app/__init__.py) | [PROXY_HTTPS](PROXY_HTTPS.md) |
 | `SIMPLEOFFICE_TRUSTED_PROXY_HOPS` | [__init__.py](../app/__init__.py) | [CHATGPT_MCP](CHATGPT_MCP.md) |
 | `SIMPLEOFFICE_UPDATE_REF` | [release_updater.py](../tools/release_updater.py) | Quelle und Ergänzungen oben |

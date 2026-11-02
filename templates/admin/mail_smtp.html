@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4">
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3"><div><h1 class="h3 mb-1">{{ 'Mail sending (SMTP)' if g.language == 'en' else 'Mailversand (SMTP)' }}</h1><p class="text-secondary mb-0">{{ 'For booking confirmations and other server-sent mail. Stored in the user-home app store, no environment variables.' if g.language == 'en' else 'Für Buchungsbestätigungen und andere Server-Mails. Im App-Store im Benutzerverzeichnis gespeichert, keine Umgebungsvariablen.' }}</p></div><a class="btn btn-outline-secondary" href="{{ url_for('mail_client.index') }}">{{ 'To mail' if g.language == 'en' else 'Zur Mail' }}</a></div>
+{% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+<div class="card card-body mb-3">
+  <h2 class="h5">{{ 'SMTP settings' if g.language == 'en' else 'SMTP-Einstellungen' }}</h2>
+  <form method="post" action="{{ url_for('mail_smtp_admin.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label" for="smtp-host">{{ 'Host' if g.language == 'en' else 'Host' }}</label><input id="smtp-host" class="form-control font-monospace" name="host" value="{{ smtp.host }}" maxlength="253" autocomplete="off" placeholder="mail.example"></div>
+      <div class="col-md-6"><label class="form-label" for="smtp-sender">{{ 'Sender address' if g.language == 'en' else 'Absenderadresse' }}</label><input id="smtp-sender" class="form-control font-monospace" name="sender" type="email" value="{{ smtp.sender }}" maxlength="320" autocomplete="off" placeholder="office@example"></div>
+      <div class="col-md-3"><label class="form-label" for="smtp-port">{{ 'Port' if g.language == 'en' else 'Port' }}</label><input id="smtp-port" class="form-control font-monospace" name="port" type="number" min="1" max="65535" value="{{ smtp.port }}" inputmode="numeric"></div>
+      <div class="col-md-3"><div class="form-check mt-4"><input id="smtp-starttls" class="form-check-input" type="checkbox" name="starttls" value="1" {% if smtp.starttls %}checked{% endif %}><label class="form-check-label" for="smtp-starttls">STARTTLS</label></div></div>
+      <div class="col-md-6"><label class="form-label" for="smtp-user">{{ 'User (optional)' if g.language == 'en' else 'Benutzer (optional)' }}</label><input id="smtp-user" class="form-control font-monospace" name="user" value="{{ smtp.user }}" maxlength="320" autocomplete="off"></div>
+      <div class="col-md-6"><label class="form-label" for="smtp-password">{{ 'Password' if g.language == 'en' else 'Passwort' }}</label><input id="smtp-password" class="form-control font-monospace" name="password" type="password" value="" maxlength="4096" autocomplete="new-password" placeholder="{% if smtp.password_configured %}{{ 'Stored – empty keeps it' if g.language == 'en' else 'Hinterlegt – leer behält es' }}{% else %}{{ 'Not stored yet' if g.language == 'en' else 'Noch nicht hinterlegt' }}{% endif %}"><div class="form-text">{% if smtp.password_configured %}<span class="badge text-bg-success">{{ 'Stored' if g.language == 'en' else 'Hinterlegt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %}</div></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Save SMTP settings' if g.language == 'en' else 'SMTP-Einstellungen speichern' }}</button></div>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('mail_smtp_admin.test') }}" class="mt-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-secondary" type="submit">{{ 'Test connection (no mail is sent)' if g.language == 'en' else 'Verbindung testen (keine Mail wird versendet)' }}</button>
+  </form>
+</div>
+</main>
+{% endblock %}
