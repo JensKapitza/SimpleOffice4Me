@@ -136,6 +136,12 @@ jobs:
               # its host-SSE2 heuristic for the Android ARM64 target.
               export CIBW_ENVIRONMENT_ANDROID="ARGON2_CFFI_USE_SSE2=0"
             fi
+            if [[ "$PACKAGE_NAME" == cryptography ]]; then
+              # cibuildwheel exposes the Android CPython headers under
+              # include/python3.14, while cryptography's CFFI extension only
+              # receives the prefix include directory by default.
+              export CIBW_ENVIRONMENT_ANDROID='CFLAGS="-I$PYO3_CROSS_LIB_DIR/../include/python3.14"'
+            fi
             if [[ "$PACKAGE_NAME" == Pillow ]]; then
               export CIBW_BEFORE_ALL_ANDROID="true"
               # Upstream forces raqm=enable for its release wheels, but the

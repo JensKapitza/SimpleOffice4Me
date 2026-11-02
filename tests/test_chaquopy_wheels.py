@@ -218,6 +218,11 @@ class ChaquopyWheelsTests(unittest.TestCase):
             ),
         )
 
+    def test_cryptography_android_build_includes_cpython_headers(self):
+        workflow = Path(".github/workflows/android-native-wheels.yml").read_text(encoding="utf-8")
+        self.assertIn('if [[ "$PACKAGE_NAME" == cryptography ]]', workflow)
+        self.assertIn('CFLAGS="-I$PYO3_CROSS_LIB_DIR/../include/python3.14"', workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
