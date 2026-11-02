@@ -401,6 +401,72 @@ class ManagementPagesLanguageTest(unittest.TestCase):
             f"/documents/forms/{form_id}/{record_id}", "de")
         self.assertIn("Änderungen speichern", de_body)
 
+    def _make_project(self) -> str:
+        from app.project_store import ProjectStore
+        project = ProjectStore(self.root).create_project(
+            {"title": "Language Project"}, "admin")
+        return project["project_id"]
+
+    def test_contact_history_aria(self) -> None:
+        en_body = self._get("/documents/contacts/history", "en")
+        self.assertIn("Filter contact history", en_body)
+        de_body = self._get("/documents/contacts/history", "de")
+        self.assertIn("Kontakthistorie filtern", de_body)
+
+    def test_project_activity(self) -> None:
+        project_id = self._make_project()
+        en_body = self._get(
+            f"/documents/projects/{project_id}/activity", "en")
+        self.assertIn("No activity yet", en_body)
+        self.assertIn("Project areas", en_body)
+        de_body = self._get(
+            f"/documents/projects/{project_id}/activity", "de")
+        self.assertIn("Noch keine Aktivität", de_body)
+        self.assertIn("Projektbereiche", de_body)
+
+    def test_project_code_renders_both_languages(self) -> None:
+        from flask import g, render_template
+        project = {"project_id": "p1", "title": "Language Project"}
+        summary = {"branch": "main", "has_head": False, "dirty": False,
+                   "commits": []}
+        context = {"project": project, "summary": summary, "tree": [],
+                   "current_path": "", "ref": "HEAD",
+                   "active_project_tab": "code", "code_available": False}
+        with app.test_request_context("/"):
+            g.language = "en"
+            g.user = {"username": "admin", "display_name": "Admin",
+                      "is_admin": True, "is_disabled": 0, "theme": "system"}
+            en_body = render_template(
+                "documents/project_code.html", **context)
+            g.language = "de"
+            de_body = render_template(
+                "documents/project_code.html", **context)
+        self.assertIn("No files in this git tree.", en_body)
+        self.assertIn("No commits.", en_body)
+        self.assertIn("Keine Dateien in diesem Git-Baum.", de_body)
+        self.assertIn("Keine Commits.", de_body)
+
+    def test_project_code_file_renders_both_languages(self) -> None:
+        from flask import g, render_template
+        context = {
+            "project": {"project_id": "p1", "title": "Language Project"},
+            "file": {"path": "readme.txt", "ref": "HEAD", "size": 12,
+                     "text": "hello"},
+            "markdown_html": None,
+            "active_project_tab": "code", "code_available": False,
+        }
+        with app.test_request_context("/"):
+            g.language = "en"
+            g.user = {"username": "admin", "display_name": "Admin",
+                      "is_admin": True, "is_disabled": 0, "theme": "system"}
+            en_body = render_template(
+                "documents/project_code_file.html", **context)
+            g.language = "de"
+            de_body = render_template(
+                "documents/project_code_file.html", **context)
+        self.assertIn("12 bytes", en_body)
+        self.assertIn("12 Byte", de_body)
+
     def test_published_calendar(self) -> None:
         en_body = self._get("/documents/calendar/published/family", "en",
                             anonymous=True)
