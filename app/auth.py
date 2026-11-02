@@ -127,7 +127,7 @@ def register():
     public_registration = _registration_enabled()
     current_admin = getattr(g, "user", None) is not None and bool(g.user["is_admin"])
     if account_count and not public_registration and not current_admin:
-        abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+        abort(403, description=translate(_session_language(), "auth.error.registration_closed"))
     if account_count and not current_admin:
         return redirect(url_for('account_requests.new'))
     if request.method == 'POST':
@@ -136,17 +136,17 @@ def register():
         error = None
 
         if not username:
-            error = 'Benutzername fehlt.'
+            error = translate(_session_language(), "auth.error.missing_username")
         elif not password:
-            error = 'Passwort fehlt.'
+            error = translate(_session_language(), "auth.error.missing_password")
         elif len(password) < 12:
-            error = 'Das Passwort muss mindestens 12 Zeichen haben.'
+            error = translate(_session_language(), "auth.error.pw_short")
         elif len(password) > 128:
-            error = 'Das Passwort darf höchstens 128 Zeichen haben.'
+            error = translate(_session_language(), "auth.error.pw_long")
         elif db.execute(
             'SELECT id FROM user WHERE username = ?', (username,)
         ).fetchone() is not None:
-            error = 'Der Benutzername ist bereits vergeben.'
+            error = translate(_session_language(), "auth.error.name_taken")
 
         if error is None:
             # Hash before taking the write lock. Admission and bootstrap role
@@ -158,14 +158,14 @@ def register():
                 # the BEGIN IMMEDIATE lock before the bootstrap role is assigned.
                 enabled = db.execute("SELECT enabled FROM registration_settings WHERE id=1").fetchone()
                 if not current_admin and enabled is not None and not bool(enabled[0]):
-                    abort(403, description="Die öffentliche Registrierung ist deaktiviert. Konten werden in der Administration angelegt.")
+                    abort(403, description=translate(_session_language(), "auth.error.registration_closed"))
                 # The pre-lock account count is advisory only. Concurrent bootstrap
                 # requests must not create a second active user without approval.
                 first_user = db.execute("SELECT COUNT(*) FROM user").fetchone()[0] == 0
                 if not first_user and not current_admin:
                     return redirect(url_for('account_requests.new'), code=303)
                 if db.execute('SELECT id FROM user WHERE username = ?', (username,)).fetchone() is not None:
-                    error = 'Der Benutzername ist bereits vergeben.'
+                    error = translate(_session_language(), "auth.error.name_taken")
                 else:
                     db.execute(
                         'INSERT INTO user (username, password, is_admin, created_at, updated_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)',

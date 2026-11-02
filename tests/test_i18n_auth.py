@@ -123,6 +123,43 @@ class AuthLanguageWebTest(unittest.TestCase):
         self.assertIn("Benutzername oder Passwort ist falsch",
                       response.data.decode("utf-8"))
 
+    def _bootstrap_client(self):
+        with app.app_context():
+            db = get_db()
+            db.execute("DELETE FROM user")
+            db.commit()
+        return app.test_client()
+
+    def test_register_page_english_then_german(self) -> None:
+        fresh = self._bootstrap_client()
+        body = fresh.get("/auth/register").data.decode("utf-8")
+        self.assertIn("<h1>Create account</h1>", body)
+        match = re.search(rb'name="_csrf_token" value="([^"]+)"', body.encode())
+        self.assertIsNotNone(match)
+        assert match is not None
+        fresh.post("/auth/language",
+                   data={"_csrf_token": match.group(1).decode(), "language": "de"})
+        body = fresh.get("/auth/register").data.decode("utf-8")
+        self.assertIn("<h1>Konto erstellen</h1>", body)
+
+    def test_register_error_message_german(self) -> None:
+        fresh = self._bootstrap_client()
+        match = re.search(rb'name="_csrf_token" value="([^"]+)"',
+                          fresh.get("/auth/register").data)
+        assert match is not None
+        fresh.post("/auth/language",
+                   data={"_csrf_token": match.group(1).decode(), "language": "de"})
+        match = re.search(rb'name="_csrf_token" value="([^"]+)"',
+                          fresh.get("/auth/register").data)
+        assert match is not None
+        response = fresh.post(
+            "/auth/register",
+            data={"username": "", "password": "short",
+                  "_csrf_token": match.group(1).decode()},
+        )
+        self.assertIn("Benutzername fehlt",
+                      response.data.decode("utf-8"))
+
     def test_settings_offers_session_language_switch(self) -> None:
         client = self.login()
         body = client.get("/documents/settings").data.decode("utf-8")

@@ -185,6 +185,8 @@ class AuthTest(unittest.TestCase):
         self.assertNotIn("access", oauth_token["access_token"])
 
     def test_registration_requires_twelve_character_password(self):
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         response = self.client.post("/auth/register", data={"username": "short", "password": "only-eight"})
         self.assertEqual(200, response.status_code)
         self.assertIn("mindestens 12 Zeichen", response.get_data(as_text=True))
