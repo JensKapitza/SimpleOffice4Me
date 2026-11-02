@@ -47,6 +47,9 @@ class ContactOwnerAdminTests(unittest.TestCase):
         self.user = app.test_client()
         self.admin.post("/auth/login", data={"username": "admin", "password": "admin-password"})
         self.user.post("/auth/login", data={"username": "alice", "password": "alice-password"})
+        for client in (self.admin, self.user):
+            with client.session_transaction() as session:
+                session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)
