@@ -1,0 +1,38 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <h1 class="h2">{{ 'Vision / ML backend' if g.language == 'en' else 'Vision-/ML-Backend' }}</h1>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <p><a href="{{ url_for('mini_services_admin.index') }}">Mini Services</a></p>
+  <p class="text-secondary">{{ 'Local OCR runs on this machine. The ML backend is either a loopback Ollama model or the Meta cloud model (double-gated: server consent plus per-photo consent, synthetic demo environments only).' if g.language == 'en' else 'OCR läuft lokal auf diesem Gerät. ML-Backend ist entweder ein Ollama-Modell auf Loopback oder das Meta-Cloud-Modell (doppelt freigegeben: Server-Einwilligung plus Zustimmung pro Foto, nur synthetische Demo-Umgebungen).' }}</p>
+  <section class="card card-body mb-4" aria-labelledby="vision-status-title">
+    <h2 class="h5" id="vision-status-title">{{ 'Current status' if g.language == 'en' else 'Aktueller Status' }}</h2>
+    <ul class="mb-0">
+      <li>{{ 'Provider' if g.language == 'en' else 'Anbieter' }}: <strong>{{ status.provider }}</strong></li>
+      <li>Ollama: <strong>{{ status.ollama.model or '–' }}</strong> · {{ 'reachable' if g.language == 'en' else 'erreichbar' }}: <strong>{{ 'yes' if status.ollama.reachable else 'no' if g.language == 'en' else ('ja' if status.ollama.reachable else 'nein') }}</strong>{% if status.ollama.error %} ({{ status.ollama.error }}){% endif %}</li>
+      <li>{{ 'Meta key stored' if g.language == 'en' else 'Meta-Key gespeichert' }}: <strong>{{ 'yes' if status.meta.key_present else 'no' if g.language == 'en' else ('ja' if status.meta.key_present else 'nein') }}</strong></li>
+      <li>{{ 'Server consent for Meta' if g.language == 'en' else 'Server-Einwilligung für Meta' }}: <strong>{{ 'yes' if status.meta.server_consent else 'no' if g.language == 'en' else ('ja' if status.meta.server_consent else 'nein') }}</strong></li>
+      <li>{{ 'Synthetic demo environment verified' if g.language == 'en' else 'Synthetische Demo-Umgebung verifiziert' }}: <strong>{{ 'yes' if status.demo_root_verified else 'no' if g.language == 'en' else ('ja' if status.demo_root_verified else 'nein') }}</strong></li>
+    </ul>
+  </section>
+  <form method="post" class="card card-body mb-4">
+    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="enabled" value="1" id="vision-enabled" {{ 'checked' if config.enabled else '' }}><label class="form-check-label" for="vision-enabled">{{ 'Enable ML analysis (OCR plus ML backend)' if g.language == 'en' else 'ML-Analyse aktivieren (OCR plus ML-Backend)' }}</label></div>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label" for="provider">{{ 'ML provider' if g.language == 'en' else 'ML-Anbieter' }}</label><select class="form-select" name="provider" id="provider"><option value="local" {{ 'selected' if config.provider == 'local' else '' }}>{{ 'Local Ollama (loopback only)' if g.language == 'en' else 'Lokales Ollama (nur Loopback)' }}</option><option value="meta" {{ 'selected' if config.provider == 'meta' else '' }}>{{ 'Meta cloud (consent + demo environment)' if g.language == 'en' else 'Meta-Cloud (Einwilligung + Demo-Umgebung)' }}</option></select></div>
+      <div class="col-md-6"><label class="form-label" for="ollama_url">Ollama-URL</label><input class="form-control" id="ollama_url" name="ollama_url" value="{{ config.ollama_url }}" maxlength="512" placeholder="http://127.0.0.1:11434"><div class="form-text">{{ 'Plain HTTP on this machine only; never a remote host.' if g.language == 'en' else 'Nur plain-HTTP auf diesem Gerät; nie ein entfernter Host.' }}</div></div>
+      <div class="col-md-6"><label class="form-label" for="ollama_model">{{ 'Ollama model' if g.language == 'en' else 'Ollama-Modell' }}</label><input class="form-control" id="ollama_model" name="ollama_model" value="{{ config.ollama_model }}" maxlength="160"></div>
+      <div class="col-md-6"><label class="form-label" for="ollama_timeout">{{ 'Timeout per request (seconds)' if g.language == 'en' else 'Timeout je Anfrage (Sekunden)' }}</label><input class="form-control" id="ollama_timeout" type="number" name="ollama_timeout" min="5" max="300" step="1" value="{{ config.ollama_timeout }}"></div>
+    </div>
+    <fieldset class="mt-4"><legend class="h5">{{ 'Meta cloud (optional)' if g.language == 'en' else 'Meta-Cloud (optional)' }}</legend>
+      <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="meta_consent" value="1" id="meta_consent" {{ 'checked' if config.meta_consent else '' }}><label class="form-check-label" for="meta_consent">{{ 'Server consent for Meta inference (still needs per-photo consent)' if g.language == 'en' else 'Server-Einwilligung für Meta-Analyse (braucht zusätzlich Zustimmung pro Foto)' }}</label></div>
+      <div class="row g-3">
+        <div class="col-md-6"><label class="form-label" for="meta_api_key">Meta Model API-Key {{ '(present)' if config.meta_api_key_configured else '' if g.language == 'en' else ('(vorhanden)' if config.meta_api_key_configured else '') }}</label><input class="form-control" id="meta_api_key" type="password" name="meta_api_key" autocomplete="new-password"><div class="form-text">{{ 'Leave empty to keep the stored key. Stored encrypted; an explicit MODEL_API_KEY environment variable takes precedence.' if g.language == 'en' else 'Leer lassen, um den gespeicherten Key zu behalten. Wird verschlüsselt gespeichert; eine gesetzte Umgebungsvariable MODEL_API_KEY hat Vorrang.' }}</div></div>
+        <div class="col-md-6"><label class="form-label" for="meta_endpoint">{{ 'Meta endpoint (empty = official)' if g.language == 'en' else 'Meta-Endpunkt (leer = offiziell)' }}</label><input class="form-control" id="meta_endpoint" name="meta_endpoint" value="{{ config.meta_endpoint }}" maxlength="512" placeholder="https://api.meta.ai/v1/responses"></div>
+        <div class="col-md-6"><label class="form-label" for="meta_model">{{ 'Meta model (empty = approved)' if g.language == 'en' else 'Meta-Modell (leer = freigegeben)' }}</label><input class="form-control" id="meta_model" name="meta_model" value="{{ config.meta_model }}" maxlength="160" placeholder="muse-spark-1.3-contributor"></div>
+      </div>
+    </fieldset>
+    <button class="btn btn-primary align-self-start mt-3" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
+  </form>
+</main>
+{% endblock %}

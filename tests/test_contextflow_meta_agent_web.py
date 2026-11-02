@@ -8,7 +8,6 @@ No live Meta calls: scripted transports and mocks only.
 
 from __future__ import annotations
 
-import os
 import re
 import tempfile
 import unittest
@@ -101,11 +100,18 @@ class MetaAgentWebTest(unittest.TestCase):
             now=NOW,
         )
         self.link_id = str(self.link["link_id"])
-        self._env_patch = mock.patch.dict(
-            os.environ, {"MODEL_API_KEY": "test-only-dummy-key"}
+        self._vision_path = mock.patch(
+            "app.vision_config.default_config_path",
+            return_value=Path(self.temp.name) / "mini.json",
         )
-        self._env_patch.start()
-        self.addCleanup(self._env_patch.stop)
+        self._vision_path.start()
+        self.addCleanup(self._vision_path.stop)
+        from app import vision_config
+
+        with flask_app.app_context():
+            vision_config.persist(
+                vision_config.prepare({"meta_api_key": "test-only-dummy-key"})
+            )
 
     def tearDown(self) -> None:
         from app import app as flask_app

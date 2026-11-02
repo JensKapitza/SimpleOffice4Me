@@ -10,7 +10,6 @@ import hashlib
 import http.client
 import json
 import math
-import os
 import re
 import time
 import uuid
@@ -557,9 +556,9 @@ def index():
     capture = capture_context_from_query(request.args)
     locations = capture_locations()
     from .contextflow.demo import is_verified_demo_root
-    from .contextflow.vision import vision_settings_from_mapping
+    from .vision_config import effective_settings
 
-    vision_settings = vision_settings_from_mapping(current_app.config, os.environ)
+    vision_settings = effective_settings(current_app.config)
     meta_photo_consent_available = bool(
         str(vision_settings.get("provider", "")).strip().lower() == "meta"
         and vision_settings.get("meta_consent") is True

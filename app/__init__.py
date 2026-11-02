@@ -260,7 +260,10 @@ app.config['GOOGLE_OAUTH_AUTO_PROVISION'] = os.environ.get(
 app.config['ALLOW_PUBLIC_REGISTRATION'] = os.environ.get(
     'SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION', '0'
 ).strip().casefold() in {'1', 'true', 'yes', 'on'}
-app.config['MCP_ENABLED'] = os.environ.get('SIMPLEOFFICE_MCP', '1').strip().casefold() in {'1', 'true', 'yes', 'on'}
+from . import mcp_config as _mcp_config
+# MCP on/off is configured on the MCP settings page (admins only) and
+# persisted; the former SIMPLEOFFICE_MCP variable is no longer read.
+app.config['MCP_ENABLED'] = _mcp_config.is_enabled()
 
 
 @app.errorhandler(RequestEntityTooLarge)

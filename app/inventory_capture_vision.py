@@ -7,7 +7,6 @@ diagnostics never reach the browser.
 
 from __future__ import annotations
 
-import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -48,6 +47,32 @@ def capture_ocr(png: bytes) -> dict[str, Any]:
     }
 
 
+_ML_ERROR_TEXT_DE = {
+    "too_large": "Bild für ML-Analyse zu groß.",
+    "disabled": "ML-Analyse ist deaktiviert (Mini-Services → Vision/ML).",
+    "no_demo_root": "Meta-Cloud-Analyse ist nur auf einer verifizierten synthetischen Demo-Umgebung verfügbar.",
+    "not_configured": "Meta-Analyse ist nicht konfiguriert. Mini-Services → Vision/ML: Anbieter wählen, Key eintragen und Einwilligung setzen.",
+    "no_consent": "Meta-Analyse braucht die Einwilligung: Mini-Services → Vision/ML und pro Foto zustimmen.",
+    "no_key": "Meta-Analyse braucht einen Model-API-Key: Mini-Services → Vision/ML.",
+    "unavailable": "ML-Analyse ist vorübergehend nicht verfügbar.",
+}
+
+
+def _ml_error_code(exc: BaseException) -> str:
+    """Map backend failures to stable ML error codes (no details leak)."""
+    if isinstance(exc, PermissionError):
+        detail = exc.args[0] if len(exc.args) == 1 and isinstance(exc.args[0], str) else ""
+        if detail == "Meta inference is limited to a synthetic demo root":
+            return "no_demo_root"
+        if "explicit consent" in detail:
+            return "no_consent"
+        if "Model API key" in detail:
+            return "no_key"
+        if "not configured" in detail:
+            return "not_configured"
+    return "unavailable"
+
+
 def capture_ml_label(
     png: bytes,
     isbn: str,
@@ -56,26 +81,38 @@ def capture_ml_label(
     consent_meta: bool = False,
     root: object = None,
 ) -> dict[str, Any]:
-    """Ask a real Meta backend for an object label (mock never answers)."""
+    """Ask a real ML backend for an object label (mock never answers).
+
+    Failures carry a stable ``error_code`` (``too_large``, ``disabled``,
+    ``no_demo_root``, ``not_configured``, ``no_consent``, ``no_key``,
+    ``unavailable``) plus a German default text; request routes localize
+    the code via ``translate()`` before answering the browser.
+    """
     from .contextflow.vision import (
         MAX_IMAGE_BYTES,
         VisionError,
         suggest_inventory_object,
-        vision_settings_from_mapping,
     )
+    from .vision_config import effective_settings
 
     base: dict[str, Any] = {
         "available": False, "label": "", "item_type": "", "isbn": "",
         "note": "", "subtitle": "", "authors": [], "tags": [],
         "provider": "", "provider_label": "", "model": "", "error": "",
+        "error_code": "",
     }
     if len(png) > MAX_IMAGE_BYTES:
         base["error"] = "Bild für ML-Analyse zu groß."
+        base["error_code"] = "too_large"
         return base
     try:
         if settings is None:
             config = current_app.config if has_app_context() else {}
-            settings = vision_settings_from_mapping(config, os.environ)
+            settings = effective_settings(config)
+        if settings.get("enabled") is False:
+            base["error"] = "ML-Analyse ist deaktiviert (Mini-Services → Vision/ML)."
+            base["error_code"] = "disabled"
+            return base
         answer = suggest_inventory_object(
             png, "image/png", {"isbn": isbn}, settings,
             consent_meta is True, root,
@@ -86,15 +123,8 @@ def capture_ml_label(
                 "inventory_capture_ml_failed exception_type=%s",
                 type(exc).__name__,
             )
-        if (
-            isinstance(exc, PermissionError)
-            and exc.args == ("Meta inference is limited to a synthetic demo root",)
-        ):
-            base["error"] = (
-                "Meta-Cloud-Analyse ist nur auf einer verifizierten synthetischen Demo-Umgebung verfügbar."
-            )
-        else:
-            base["error"] = "ML-Analyse ist vorübergehend nicht verfügbar."
+        base["error_code"] = _ml_error_code(exc)
+        base["error"] = _ML_ERROR_TEXT_DE[base["error_code"]]
         return base
     suggestion = answer.get("suggestion", {})
     raw_tags = suggestion.get("tags", [])

@@ -8,7 +8,6 @@ already exists (no behavior change, same endpoint names).
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from flask import (
@@ -25,11 +24,26 @@ from flask import (
 from .auth import login_required
 from .capture_inbox_store import CaptureInboxConflict, CaptureInboxIndexError
 from .inventory import MAX_PHOTO_BYTES, _single_line, bp
+from .translations import translate
 
 INDEX_ERROR = (
     "Eingangskorb ist vorübergehend nicht verfügbar "
     "(Index beschädigt). Die gespeicherten Originale bleiben erhalten."
 )
+
+
+def _localize_ml_error(payload: dict) -> None:
+    """Render a stable ML error code in the request language (in place)."""
+    ml = payload.get("ml") if isinstance(payload, dict) else None
+    if not isinstance(ml, dict):
+        return
+    code = str(ml.get("error_code", "") or "")
+    if not code or not ml.get("error"):
+        return
+    key = "ml.error." + code
+    text = translate(g.language, key)
+    if text != key:
+        ml["error"] = text
 
 
 def _public_error(exc: Exception, message: str, status: int):
@@ -100,10 +114,7 @@ def capture_inbox():
         lookup_url=url_for("inventory.book_lookup"),
         ml_status_url=(
             url_for("contextflow.ml_status_route")
-            if (
-                current_app.config.get("CONTEXTFLOW_ENABLED", False)
-                or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
-            )
+            if current_app.config.get("CONTEXTFLOW_ENABLED", False)
             else ""
         ),
         batch_url_pattern=url_for(
@@ -150,6 +161,7 @@ def capture_upload():
     analysis_error = ""
     try:
         payload = analyze_photo(raw, entry["entry_id"])
+        _localize_ml_error(payload)
     except ValueError as exc:
         payload = {}
         current_app.logger.info(
@@ -304,6 +316,7 @@ def capture_analyze():
         return jsonify({"ok": False, "error": "Foto fehlt oder überschreitet 12 MiB."}), 400
     try:
         payload = analyze_photo(raw, photo_id)
+        _localize_ml_error(payload)
     except ValueError as exc:
         return _public_error(
             exc, "Foto konnte nicht analysiert werden. Bitte JPEG, PNG oder WebP verwenden.", 400

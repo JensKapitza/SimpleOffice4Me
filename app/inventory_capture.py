@@ -178,9 +178,11 @@ def analyze_photo(
             )
         } | {
             "error": (
-                "ML-Analyse ist vorübergehend nicht verfügbar."
-                if ml_result.get("error") else ""
+                ml_result.get("error", "")
+                or ("ML-Analyse ist vorübergehend nicht verfügbar."
+                    if ml_result.get("error_code") else "")
             ),
+            "error_code": str(ml_result.get("error_code", "") or ""),
         },
         "duplicates": duplicates,
         "missing_fields": missing,
