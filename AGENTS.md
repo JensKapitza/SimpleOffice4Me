@@ -363,3 +363,38 @@ Eine Aufgabe gilt für den betroffenen Umfang erst als abgeschlossen, wenn die a
 Für neue Agent-Sessions gilt zusammenfassend:
 
 > Arbeite pragmatisch und root-cause-orientiert. Löse Probleme statt sie zu unterdrücken. Priorisiere Build-Stabilität, Security und Regression-Sicherheit. Arbeite in kleinen, risikoarmen Batches mit konkreten Datei-/Zeilen-Fixes. Kommuniziere kurz und direkt: was geändert wurde, wo, und warum es das Problem löst. Keine unnötigen Refactorings außerhalb des Scopes. Keine globalen Warning-Suppressions ohne explizite Freigabe.
+
+## 24. Mehrperspektiven-Arbeitsweise für Agenten und Programmierer
+
+Für jede substanzielle Aufgabe, die Code, einen PR, eine Architektur- oder Sicherheitsentscheidung betrifft, werden drei voneinander unabhängige Perspektiven eingesetzt. Bei kleinen Änderungen oder kurzen Auskünften reichen drei knappe Lösungsskizzen oder Prüfungen; daraus entstehen nicht automatisch drei Coding-Branches. Ziel ist ein besser geprüftes Ergebnis aus unterschiedlichen Stärken.
+
+### Agententypen
+
+1. **Aufgaben-Router** – zerlegt das Anliegen in Ziel, Eingaben, Risiken und Abnahmekriterien. Ordnet klar begrenzte, häufige Entscheidungen einem schnellen Spezialisten zu und eskaliert mehrdeutige oder folgenreiche Fragen an die passende Fachprüfung oder den Benutzer.
+2. **Fachspezialist** – untersucht die betroffene Domäne und schlägt eine konkrete Lösung mit möglichst kleinem Dateiumfang und passenden Tests vor.
+3. **Unabhängiger Prüfer** – sucht gezielt nach Gegenbeispielen, Sicherheits- und Datenintegritätsrisiken, Regressionen, fehlenden Tests und Bedienproblemen. Prüft die vorgeschlagene Lösung unabhängig.
+4. **Integrator** – vergleicht die Ergebnisse, entscheidet anhand von Code und Prüfnachweisen und führt nur die ausgewählten Änderungen zusammen.
+
+### Programmierperspektiven
+
+1. **Lead-Entwickler** – achtet auf Architekturpassung, Schnittstellen, langfristige Wartbarkeit und technische Korrektheit.
+2. **Pragmatischer Full-Stack-Entwickler** – stellt einen verständlichen, durchgängigen Benutzerablauf her und bevorzugt die kleinste funktionierende Lösung.
+3. **Skeptischer Qualitäts- und Sicherheitsentwickler** – versucht die Lösung zu widerlegen: Randfälle, Berechtigungen, Datenschutz, Fehlerzustände, Accessibility und Regressionen.
+
+Der Aufgaben-Router und der Integrator sind die koordinierende Instanz, keine zwei zusätzlichen Pflicht-Agenten. Pro Aufgabe werden genau die drei Programmierperspektiven oben unabhängig angefragt. Diese Bezeichnungen beschreiben Arbeitsweisen, keine nachzuahmenden realen Personen.
+
+### 2-aus-3-Auswahl
+
+1. Die drei Perspektiven formulieren zunächst unabhängig ihre Lösung oder Prüfung, Risiken und Abnahmekriterien.
+2. Die koordinierende Instanz vergleicht konkrete Belege: Tests, Reproduktion, Codepfade, Sicherheitsgrenzen und Nutzerablauf. Eine bloße Stimmenmehrheit ersetzt keine technische Prüfung.
+3. Mindestens zwei Perspektiven müssen denselben Lösungsansatz anhand der Belege tragen. Das ist eine Auswahl des Ansatzes, keine Mehrheitsabstimmung über Korrektheit. Ein belegter kritischer Gegenbefund blockiert die Übernahme bis zur Klärung.
+4. Gute, vereinbare Teile der dritten Perspektive werden ergänzt. Bei größeren Aufgaben prüfen die Perspektiven zunächst getrennt; sie erstellen nicht automatisch drei konkurrierende Implementierungen oder PRs. Nur der ausgewählte Ansatz wird umgesetzt und in den vorgesehenen PR übernommen. Falls parallele Implementierung wirklich nötig ist, werden getrennte Worktrees und nicht überlappende Dateiumfänge verwendet.
+5. Die koordinierende Instanz führt die erforderlichen Tests und Abschlussprüfungen aus und hält offene Meinungsverschiedenheiten samt Belegen fest.
+
+### Routing und Eskalation
+
+- Für wiederkehrende Entscheidungen mit fester Auswahlmenge kann eine leichte, spezialisierte lokale Entscheidungsschicht verwendet werden.
+- Lange, neuartige, begründungsbedürftige oder folgenreiche Aufgaben werden an ein leistungsfähigeres Fachmodell beziehungsweise an menschliche Prüfung eskaliert.
+- Konfidenzwerte allein sind kein Sicherheitsnachweis. Schwellenwerte müssen mit repräsentativen, zurückgehaltenen Beispielen geprüft werden; bei unsicherer Zuordnung wird nachgefragt oder sicher angehalten.
+- Unabhängigen Agenten werden standardmäßig keine Secrets oder echten Kunden-, Dokument- und Inventardaten gegeben. Reviews nutzen synthetische oder minimierte, redigierte Reproduktionen; echte Daten nur nach den ausdrücklichen Freigabe- und Isolationsregeln.
+- Für die Hackathon-Anwendung bleiben die Meta-Modell-Vorgaben aus Abschnitt 23 verbindlich. Diese Entwicklungsrollen erzwingen keine zusätzliche Runtime-Abhängigkeit.
