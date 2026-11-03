@@ -357,6 +357,8 @@ class SecurityPageTests(unittest.TestCase):
             db.commit()
         self.addCleanup(app.config.update, self.saved)
         self.client = app.test_client()
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         self.client.post("/auth/login", data={"username": "owner", "password": "owner-password"})
 
     def test_security_center_shows_defender_name_and_host_note(self):

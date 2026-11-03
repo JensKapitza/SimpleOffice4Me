@@ -450,6 +450,8 @@ class MailDraftWebTest(unittest.TestCase):
                 "_csrf_token": self.csrf(client, "/auth/login"),
             },
         )
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         return client
 
     def _post(self, client, **overrides):

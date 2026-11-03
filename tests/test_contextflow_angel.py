@@ -98,8 +98,12 @@ class AngelAvatarRouteTests(unittest.TestCase):
             "/auth/login",
             data={"username": "admin", "password": self.password, "_csrf_token": token},
         )
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self) -> None:
+        for key in [key for key in app.config if key not in self.saved]:
+            app.config.pop(key, None)
         app.config.update(self.saved)
         self.temp.cleanup()
 

@@ -289,6 +289,8 @@ class HintPrefsRouteTests(unittest.TestCase):
                 "_csrf_token": match.group(1).decode(),
             },
         )
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         return client
 
     def csrf(self) -> str:

@@ -333,6 +333,7 @@ personnel_time_clock.init_app(app)
 
 from .contextflow import web as contextflow_web
 from .contextflow import position_web  # noqa: F401 (registers extra routes before the blueprint below)
+from .contextflow import ot_travel_web  # noqa: F401 (registers extra routes before the blueprint below)
 app.register_blueprint(contextflow_web.bp)
 
 from . import eur
@@ -614,7 +615,7 @@ def unhandled_application_error(error):
 @app.before_request
 def load_interface_preferences():
     settings = SettingsStore(app.config["DOCUMENT_ROOT"]).settings()
-    language = session.get("simpleoffice_language", settings["interface"]["default_language"])
+    language = session.get("simpleoffice_language") or settings["interface"]["default_language"]
     g.language = language if language in ("de", "en") else settings["interface"]["default_language"]
     user_theme = str(g.user["theme"] or "system") if getattr(g, "user", None) is not None else "system"
     g.theme_preference = user_theme if user_theme in {"light", "dark", "system"} else "system"
@@ -623,7 +624,7 @@ def load_interface_preferences():
 
 @app.context_processor
 def template_preferences():
-    language = getattr(g, "language", "de")
+    language = getattr(g, "language", "en")
     return {
         "tr": lambda key: translate(language, key),
         "ui_literal_translations": ui_literal_translations(language),

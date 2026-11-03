@@ -13,10 +13,10 @@ class LibraryNavigationTests(unittest.TestCase):
         navigation = NAVIGATION.read_text(encoding="utf-8")
         library_page = LIBRARY_PAGE.read_text(encoding="utf-8")
 
-        link = 'href="{{ url_for(\'library.index\') }}#bulk-scan">Massen-Scan</a>'
+        link = "href=\"{{ url_for('library.index') }}#bulk-scan\">{{ 'Bulk scan' if g.language == 'en' else 'Massen-Scan' }}</a>"
         self.assertEqual(1, navigation.count(link))
         self.assertIn('id="bulk-scan"', library_page)
-        self.assertLess(navigation.index(">Bibliothek</a>"), navigation.index(link))
+        self.assertLess(navigation.index("'Library' if g.language == 'en' else 'Bibliothek'"), navigation.index(link))
 
     def test_printershare_has_direct_barcode_scan_and_label_print_actions(self):
         printershare = PRINTERSHARE_PAGE.read_text(encoding="utf-8")

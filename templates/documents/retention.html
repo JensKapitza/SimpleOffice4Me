@@ -3,63 +3,63 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="mb-4">
-    <h1 class="h2">Fristen und manuelle Aussonderung</h1>
-    <p class="text-secondary">Es wird niemals automatisch gelöscht. Erst die bestätigte Aktion verschiebt ausschließlich Dokumente, deren sämtliche Aufbewahrungsfristen abgelaufen sind.</p>
+    <h1 class="h2">{{ 'Deadlines and manual disposal' if g.language == 'en' else 'Fristen und manuelle Aussonderung' }}</h1>
+    <p class="text-secondary">{{ 'Nothing is ever deleted automatically. Only the confirmed action moves documents whose retention periods have all expired.' if g.language == 'en' else 'Es wird niemals automatisch gelöscht. Erst die bestätigte Aktion verschiebt ausschließlich Dokumente, deren sämtliche Aufbewahrungsfristen abgelaufen sind.' }}</p>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <section class="card mb-4">
     <div class="card-header d-flex justify-content-between align-items-center">
-      <span>Vererbte Ordner- und Tagregeln</span>
+      <span>{{ 'Inherited folder and tag rules' if g.language == 'en' else 'Vererbte Ordner- und Tagregeln' }}</span>
       <span class="badge text-bg-primary">{{ folder_rules|length }}</span>
     </div>
     <div class="card-body">
       <form method="post" action="{{ url_for('documents.add_retention_rule') }}" class="row g-3">
         <div class="col-md-4">
-          <label class="form-label" for="rule-folder">Ordner</label>
+          <label class="form-label" for="rule-folder">{{ 'Folder' if g.language == 'en' else 'Ordner' }}</label>
           <input required class="form-control" id="rule-folder" name="folder" value="." list="archive-folders">
           <datalist id="archive-folders">{% for folder in folders %}<option value="{{ folder }}">{% endfor %}</datalist>
-          <div class="form-text">„.“ gilt für das gesamte Archiv. Unterordner erben die Regel.</div>
+          <div class="form-text">{{ '“.” covers the whole archive. Subfolders inherit the rule.' if g.language == 'en' else '„.“ gilt für das gesamte Archiv. Unterordner erben die Regel.' }}</div>
         </div>
         <div class="col-md-4">
-          <label class="form-label" for="rule-label">Bezeichnung</label>
-          <input required class="form-control" id="rule-label" name="label" placeholder="z. B. Steuerunterlagen">
+          <label class="form-label" for="rule-label">{{ 'Label' if g.language == 'en' else 'Bezeichnung' }}</label>
+          <input required class="form-control" id="rule-label" name="label" placeholder="{{ 'e.g. tax records' if g.language == 'en' else 'z. B. Steuerunterlagen' }}">
         </div>
         <div class="col-md-2">
-          <label class="form-label" for="rule-kind">Wirkung</label>
-          <select class="form-select" id="rule-kind" name="kind"><option value="retention">Aufbewahren</option><option value="work">Bearbeiten bis</option></select>
+          <label class="form-label" for="rule-kind">{{ 'Effect' if g.language == 'en' else 'Wirkung' }}</label>
+          <select class="form-select" id="rule-kind" name="kind"><option value="retention">{{ 'Keep' if g.language == 'en' else 'Aufbewahren' }}</option><option value="work">{{ 'Review by' if g.language == 'en' else 'Bearbeiten bis' }}</option></select>
         </div>
         <div class="col-md-2">
-          <label class="form-label" for="rule-tag">Tag/Pattern</label>
+          <label class="form-label" for="rule-tag">{{ 'Tag/pattern' if g.language == 'en' else 'Tag/Pattern' }}</label>
           <input class="form-control" id="rule-tag" name="tag" placeholder="rechnung*">
         </div>
         <div class="col-md-3">
-          <label class="form-label" for="rule-years">Jahre ab Beginn</label>
+          <label class="form-label" for="rule-years">{{ 'Years from start' if g.language == 'en' else 'Jahre ab Beginn' }}</label>
           <input class="form-control" id="rule-years" name="years" type="number" min="1" max="100" placeholder="8">
-          <div class="form-text">Bei Tagregel ab erstmaligem Setzen des passenden Tags, sonst ab Erstfund.</div>
+          <div class="form-text">{{ 'For tag rules counted from the first matching tag, otherwise from first discovery.' if g.language == 'en' else 'Bei Tagregel ab erstmaligem Setzen des passenden Tags, sonst ab Erstfund.' }}</div>
         </div>
         <div class="col-md-3">
-          <label class="form-label" for="rule-date">Oder festes Datum</label>
+          <label class="form-label" for="rule-date">{{ 'Or fixed date' if g.language == 'en' else 'Oder festes Datum' }}</label>
           <input class="form-control" id="rule-date" name="expires_at" type="date">
         </div>
         <div class="col-md-3 d-flex align-items-end">
-          <button type="submit" class="btn btn-primary w-100">Regel hinzufügen</button>
+          <button type="submit" class="btn btn-primary w-100">{{ 'Add rule' if g.language == 'en' else 'Regel hinzufügen' }}</button>
         </div>
       </form>
-      <p class="small text-secondary mt-3 mb-2">Gib entweder Jahre oder ein festes Datum an. Ein optionales Tag unterstützt Muster wie <code>rechnung*</code>.</p>
+      <p class="small text-secondary mt-3 mb-2">{{ 'Enter either years or a fixed date. An optional tag supports patterns like' if g.language == 'en' else 'Gib entweder Jahre oder ein festes Datum an. Ein optionales Tag unterstützt Muster wie' }} <code>rechnung*</code>.</p>
     </div>
     <div class="table-responsive">
       <table class="table table-striped align-middle mb-0">
-        <thead><tr><th scope="col">Ordner</th><th scope="col">Bezeichnung</th><th scope="col">Wirkung</th><th scope="col">Tag</th><th scope="col">Frist</th><th scope="col"></th></tr></thead>
+        <thead><tr><th scope="col">{{ 'Folder' if g.language == 'en' else 'Ordner' }}</th><th scope="col">{{ 'Label' if g.language == 'en' else 'Bezeichnung' }}</th><th scope="col">{{ 'Effect' if g.language == 'en' else 'Wirkung' }}</th><th scope="col">{{ 'Tag' if g.language == 'en' else 'Tag' }}</th><th scope="col">{{ 'Deadline' if g.language == 'en' else 'Frist' }}</th><th scope="col"></th></tr></thead>
         <tbody>
           {% for rule in folder_rules %}
           <tr>
             <td><code>{{ rule.folder }}</code></td><td>{{ rule.label }}</td>
-            <td>{{ 'Aufbewahren' if rule.kind == 'retention' else 'Bearbeiten bis' }}</td>
-            <td>{{ rule.tag|default('alle') }}</td>
-            <td>{% if rule.expires_at %}{{ rule.expires_at }}{% else %}{{ rule.years }} Jahr(e) ab {{ 'Tag' if rule.tag else 'Erstfund' }}{% endif %}</td>
-            <td class="text-end"><form method="post" action="{{ url_for('documents.remove_retention_rule', rule_id=rule.id) }}"><input type="hidden" name="folder" value="{{ rule.folder }}"><button type="submit" class="btn btn-sm btn-outline-danger">Entfernen</button></form></td>
+            <td>{{ ('Keep' if rule.kind == 'retention' else 'Review by') if g.language == 'en' else ('Aufbewahren' if rule.kind == 'retention' else 'Bearbeiten bis') }}</td>
+            <td>{{ rule.tag|default('all' if g.language == 'en' else 'alle', true) }}</td>
+            <td>{% if rule.expires_at %}{{ rule.expires_at }}{% else %}{{ rule.years }} {{ 'year(s) from' if g.language == 'en' else 'Jahr(e) ab' }} {{ 'tag' if rule.tag and g.language == 'en' else ('Tag' if rule.tag else ('first discovery' if g.language == 'en' else 'Erstfund')) }}{% endif %}</td>
+            <td class="text-end"><form method="post" action="{{ url_for('documents.remove_retention_rule', rule_id=rule.id) }}"><input type="hidden" name="folder" value="{{ rule.folder }}"><button type="submit" class="btn btn-sm btn-outline-danger">{{ 'Remove' if g.language == 'en' else 'Entfernen' }}</button></form></td>
           </tr>
-          {% else %}<tr><td colspan="6" class="text-secondary">Noch keine vererbte Regel konfiguriert.</td></tr>{% endfor %}
+          {% else %}<tr><td colspan="6" class="text-secondary">{{ 'No inherited rule configured yet.' if g.language == 'en' else 'Noch keine vererbte Regel konfiguriert.' }}</td></tr>{% endfor %}
         </tbody>
       </table>
     </div>
@@ -67,36 +67,36 @@
   <div class="row g-4">
     <section class="col-lg-7">
       <div class="card">
-        <div class="card-header">Aussonderbar <span class="badge text-bg-warning">{{ candidates|length }}</span></div>
+        <div class="card-header">{{ 'Disposable' if g.language == 'en' else 'Aussonderbar' }} <span class="badge text-bg-warning">{{ candidates|length }}</span></div>
         <div class="list-group list-group-flush">
           {% for item in candidates %}
           <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=item.document_id) }}">
-            <strong>{{ item.path }}</strong><br><small class="text-secondary">Aufbewahrung vollständig abgelaufen: {{ item.retention_until }}</small>
+            <strong>{{ item.path }}</strong><br><small class="text-secondary">{{ 'Retention fully expired:' if g.language == 'en' else 'Aufbewahrung vollständig abgelaufen:' }} {{ item.retention_until }}</small>
           </a>
-          {% else %}<div class="list-group-item text-secondary">Aktuell ist kein Dokument aussonderbar.</div>{% endfor %}
+          {% else %}<div class="list-group-item text-secondary">{{ 'No document is currently disposable.' if g.language == 'en' else 'Aktuell ist kein Dokument aussonderbar.' }}</div>{% endfor %}
         </div>
       </div>
     </section>
     <aside class="col-lg-5">
       <div class="card mb-4">
-        <div class="card-header">Manuellen Aufräumlauf starten</div>
+        <div class="card-header">{{ 'Start manual cleanup run' if g.language == 'en' else 'Manuellen Aufräumlauf starten' }}</div>
         <div class="card-body">
           <form method="post" action="{{ url_for('documents.run_retention_cleanup') }}">
-            <label class="form-label">Zielordner im Dokumentenspeicher</label>
+            <label class="form-label">{{ 'Target folder in document storage' if g.language == 'en' else 'Zielordner im Dokumentenspeicher' }}</label>
             <input required class="form-control mb-3" name="destination_folder" value="Aussonderung" placeholder="Aussonderung">
-            <label class="form-label">Bestätigung</label>
+            <label class="form-label">{{ 'Confirmation' if g.language == 'en' else 'Bestätigung' }}</label>
             <input required class="form-control mb-3" name="confirm" autocomplete="off" placeholder="AUSSONDERN">
-            <button type="submit" class="btn btn-warning w-100" {% if not candidates %}disabled{% endif %}>{{ candidates|length }} Dokument(e) verschieben</button>
+            <button type="submit" class="btn btn-warning w-100" {% if not candidates %}disabled{% endif %}>{{ candidates|length }} {{ 'document(s) to move' if g.language == 'en' else 'Dokument(e) verschieben' }}</button>
           </form>
-          <div class="form-text mt-2">Originale werden verschoben, nicht gelöscht. ID, SHA-256, alter und neuer Pfad sowie Benutzer werden protokolliert.</div>
+          <div class="form-text mt-2">{{ 'Originals are moved, not deleted. ID, SHA-256, old and new path and user are logged.' if g.language == 'en' else 'Originale werden verschoben, nicht gelöscht. ID, SHA-256, alter und neuer Pfad sowie Benutzer werden protokolliert.' }}</div>
         </div>
       </div>
       <div class="card">
-        <div class="card-header">Fehlende oder fehlerhafte Fristen <span class="badge text-bg-secondary">{{ missing|length }}</span></div>
+        <div class="card-header">{{ 'Missing or invalid deadlines' if g.language == 'en' else 'Fehlende oder fehlerhafte Fristen' }} <span class="badge text-bg-secondary">{{ missing|length }}</span></div>
         <div class="list-group list-group-flush" style="max-height: 32rem; overflow:auto">
           {% for item in missing %}
           <a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=item.document.document_id) }}">{{ item.document.last_path }}</a>
-          {% else %}<div class="list-group-item text-secondary">Alle Dokumente besitzen eine auswertbare Aufbewahrungsfrist.</div>{% endfor %}
+          {% else %}<div class="list-group-item text-secondary">{{ 'All documents have an evaluable retention period.' if g.language == 'en' else 'Alle Dokumente besitzen eine auswertbare Aufbewahrungsfrist.' }}</div>{% endfor %}
         </div>
       </div>
     </aside>

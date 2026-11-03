@@ -320,6 +320,8 @@ class ContactMetaWebTest(unittest.TestCase):
             data={"username": "admin", "password": self.password,
                   "_csrf_token": self.csrf(self.client, "/auth/login")},
         )
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self) -> None:
         app.config.update(self.saved)

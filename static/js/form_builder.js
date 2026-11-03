@@ -1,6 +1,9 @@
 (() => {
   'use strict';
 
+  const english = document.documentElement.lang === 'en';
+  const text = (en, de) => (english ? en : de);
+
   const form = document.getElementById('form-builder-form');
   if (!form) return;
 
@@ -101,7 +104,7 @@
 
   function renumber() {
     list.querySelectorAll('.form-field-card').forEach((card, index) => {
-      card.querySelector('.field-number').textContent = `Feld ${index + 1}`;
+      card.querySelector('.field-number').textContent = `${text('Field', 'Feld')} ${index + 1}`;
     });
   }
 
@@ -159,7 +162,7 @@
     if (currentStep === 2) {
       const cards = Array.from(list.querySelectorAll('.form-field-card'));
       if (!cards.length) {
-        alert('Bitte mindestens ein Feld anlegen.');
+        alert(text('Please add at least one field.', 'Bitte mindestens ein Feld anlegen.'));
         return false;
       }
       for (const card of cards) {
@@ -169,7 +172,7 @@
       }
       const keys = cards.map(card => card.querySelector('.field-key').value.trim());
       if (new Set(keys).size !== keys.length) {
-        alert('Jede Feldkennung darf nur einmal vorkommen.');
+        alert(text('Each field ID may only occur once.', 'Jede Feldkennung darf nur einmal vorkommen.'));
         return false;
       }
       return true;
@@ -188,7 +191,7 @@
     review.appendChild(title);
     const meta = document.createElement('div');
     meta.className = 'text-secondary small mb-3';
-    meta.textContent = `${definition.form_id} · ${definition.fields.length} Felder · Titel: ${definition.title_field}`;
+    meta.textContent = `${definition.form_id} · ${definition.fields.length} ${text('fields', 'Felder')} · ${text('Title:', 'Titel:')} ${definition.title_field}`;
     review.appendChild(meta);
     if (definition.description) {
       const p = document.createElement('p');
@@ -199,7 +202,7 @@
     ul.className = 'mb-0';
     definition.fields.forEach(field => {
       const li = document.createElement('li');
-      li.textContent = `${field.label} · ${field.type}${field.required ? ' · Pflichtfeld' : ''}`;
+      li.textContent = `${field.label} · ${field.type}${field.required ? ` · ${text('required', 'Pflichtfeld')}` : ''}`;
       ul.appendChild(li);
     });
     review.appendChild(ul);
@@ -211,8 +214,10 @@
     back.disabled = currentStep === 1;
     next.hidden = currentStep === 3;
     save.hidden = currentStep !== 3;
-    const labels = ['Basisdaten', 'Felder', 'Prüfen'];
-    status.textContent = `Schritt ${currentStep} von 3 · ${labels[currentStep - 1]}`;
+    const labels = english ? ['Basics', 'Fields', 'Review'] : ['Basisdaten', 'Felder', 'Prüfen'];
+    status.textContent = english
+      ? `Step ${currentStep} of 3 · ${labels[currentStep - 1]}`
+      : `Schritt ${currentStep} von 3 · ${labels[currentStep - 1]}`;
     progress.setAttribute('aria-valuenow', String(currentStep));
     progressBar.style.width = `${currentStep * 33.333}%`;
     if (currentStep === 3) updateReview();

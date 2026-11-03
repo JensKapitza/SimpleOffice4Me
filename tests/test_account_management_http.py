@@ -51,6 +51,9 @@ class AccountManagementHttpTests(AccountApiFixture):
         self.assertEqual(302, self.redeem(token).status_code)
 
     def test_pending_request_cannot_login_and_case_duplicate_is_not_disclosed(self):
+        # This test asserts German UI text while the default locale is English.
+        with self.admin.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         guest = app.test_client()
         form = {'username': 'candidate', 'email': 'candidate@example.test',
                 'password': self.password, 'is_admin': '1', 'parent_user_id': '1',

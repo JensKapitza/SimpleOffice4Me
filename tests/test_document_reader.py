@@ -214,6 +214,7 @@ class ReaderRoutesTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["user_id"] = user_id
             session["_csrf_token"] = "x" * 40
+            session["simpleoffice_language"] = "de"
         self.headers = {"X-CSRF-Token": "x" * 40}
 
     def test_shelf_reader_chapter_progress_and_annotation_roundtrip(self):

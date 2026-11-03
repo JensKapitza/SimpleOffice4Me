@@ -49,6 +49,10 @@ class ProjectUiTests(unittest.TestCase):
             data={"username": "project-ui-admin", "password": "project-ui-password"},
         )
         self.assertLess(response.status_code, 400)
+        # Suite asserts German page content: pin the session to German
+        # (app default for new sessions is English).
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
         store = ProjectStore(documents)
         self.project = store.create_project(
