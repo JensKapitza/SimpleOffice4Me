@@ -134,6 +134,14 @@ from .project_git import (
     normalize_repo_roots,
     validate_repo_roots,
 )
+from .s3_settings import (
+    DEFAULT_S3_CLOCK_SKEW_SECONDS,
+    DEFAULT_S3_MAX_STAGING_MIB,
+    DEFAULT_S3_MAX_UPLOAD_MIB,
+    DEFAULT_S3_REGION,
+    normalize_s3_settings,
+    validate_s3_settings,
+)
 from .v3_capabilities import (
     CAPABILITY_KEYS,
     normalize_v3_settings,
@@ -179,7 +187,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "documents": {"default_state": "new", "default_tags": [], "upload_to_archive": False},
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
-    "s3": {"enabled": False},
+    "s3": {
+        "enabled": False,
+        "region": DEFAULT_S3_REGION,
+        "clock_skew_seconds": DEFAULT_S3_CLOCK_SKEW_SECONDS,
+        "max_staging_mib": DEFAULT_S3_MAX_STAGING_MIB,
+        "max_upload_mib": DEFAULT_S3_MAX_UPLOAD_MIB,
+    },
     "network": {
         "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
         "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
@@ -399,6 +413,7 @@ class SettingsStore:
                 stored_projects.get("repo_roots", []) if isinstance(stored_projects, dict) else [],
             ),
         }
+        result["s3"] = normalize_s3_settings(result.get("s3", {}))
         return result
 
     @staticmethod
@@ -624,7 +639,7 @@ class SettingsStore:
                 "default_duration_minutes": duration,
             },
             "sharing": {"default_expiry_days": expiry},
-            "s3": {"enabled": s3.get("enabled", False)},
+            "s3": validate_s3_settings(s3),
             "network": {
                 "webdav_quota_mib": webdav_quota,
                 "rsync_timeout_seconds": rsync_timeout,

@@ -88,23 +88,44 @@ def configured_upload_limit_bytes(document_root: str | Path | None = None) -> in
     return max(MIN_UPLOAD_LIMIT_MIB, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
 
 
-def configured_s3_overlay_upload_limit_bytes(max_content_bytes: int) -> int:
-    """Return the S3 overlay cap bounded by the total request size."""
-    requested = os.environ.get(
-        'SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(max_content_bytes // MIB),
-    ).strip()
+def _s3_boot_settings(document_root) -> dict:
+    """Read persisted S3 overlay settings; fail closed to defaults."""
     try:
-        limit_mib = int(requested)
-    except ValueError:
-        limit_mib = max_content_bytes // MIB
+        from .s3_settings import (
+            DEFAULT_S3_CLOCK_SKEW_SECONDS,
+            DEFAULT_S3_MAX_STAGING_MIB,
+            DEFAULT_S3_MAX_UPLOAD_MIB,
+            DEFAULT_S3_REGION,
+        )
+        from .settings_store import SettingsStore
+
+        return SettingsStore(document_root).settings()["s3"]
+    except (OSError, ValueError):
+        return {
+            "enabled": False,
+            "region": DEFAULT_S3_REGION,
+            "clock_skew_seconds": DEFAULT_S3_CLOCK_SKEW_SECONDS,
+            "max_staging_mib": DEFAULT_S3_MAX_STAGING_MIB,
+            "max_upload_mib": DEFAULT_S3_MAX_UPLOAD_MIB,
+        }
+
+
+def configured_s3_overlay_upload_limit_bytes(max_content_bytes: int, s3_max_upload_mib: int | None = None) -> int:
+    """Return the S3 overlay cap bounded by the total request size."""
+    if s3_max_upload_mib is None or isinstance(s3_max_upload_mib, bool):
+        return max_content_bytes
+    try:
+        limit_mib = int(s3_max_upload_mib)
+    except (ValueError, TypeError):
+        return max_content_bytes
     return min(max(1, limit_mib), max_content_bytes // MIB) * MIB
 
 
-def apply_upload_limit_settings(app_config: dict, upload_limit_mib: int) -> None:
+def apply_upload_limit_settings(app_config: dict, upload_limit_mib: int, s3_max_upload_mib: int | None = None) -> None:
     """Apply the persisted global request cap and keep the S3 cap subordinate."""
     app_config['MAX_CONTENT_LENGTH'] = upload_limit_mib * MIB
     app_config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_bytes(
-        app_config['MAX_CONTENT_LENGTH'],
+        app_config['MAX_CONTENT_LENGTH'], s3_max_upload_mib,
     )
 
 
@@ -195,21 +216,14 @@ app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
 app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes(app.config['DOCUMENT_ROOT'])
-app.config['S3_OVERLAY_ENABLED'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_ENABLED', '0').strip().casefold() in {'1', 'true', 'yes', 'on'}
-app.config['S3_OVERLAY_REGION'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_REGION', 'us-east-1').strip() or 'us-east-1'
-try:
-    s3_overlay_clock_skew = int(os.environ.get('SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS', '900'))
-except ValueError:
-    s3_overlay_clock_skew = 900
-app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, s3_overlay_clock_skew), 3600)
+_s3_boot = _s3_boot_settings(app.config['DOCUMENT_ROOT'])
+app.config['S3_OVERLAY_ENABLED'] = bool(_s3_boot["enabled"])
+app.config['S3_OVERLAY_REGION'] = _s3_boot["region"]
+app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, _s3_boot["clock_skew_seconds"]), 3600)
 app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_bytes(
-    app.config['MAX_CONTENT_LENGTH'],
+    app.config['MAX_CONTENT_LENGTH'], _s3_boot["max_upload_mib"],
 )
-try:
-    s3_overlay_staging_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_STAGING_MIB', '2048'))
-except ValueError:
-    s3_overlay_staging_mib = 2048
-app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, s3_overlay_staging_mib), 65536) * MIB
+app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, _s3_boot["max_staging_mib"]), 65536) * MIB
 app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes(app.config['DOCUMENT_ROOT'])
 app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
@@ -272,8 +286,12 @@ fdb.init_app(app)
 from . import document_store as document_store
 document_store.init_app(app)
 from .settings_store import SettingsStore
-_startup_media_settings = SettingsStore(app.config['DOCUMENT_ROOT']).settings()['media']
-apply_upload_limit_settings(app.config, int(_startup_media_settings['upload_limit_mib']))
+_startup_settings = SettingsStore(app.config['DOCUMENT_ROOT']).settings()
+apply_upload_limit_settings(
+    app.config,
+    int(_startup_settings['media']['upload_limit_mib']),
+    _startup_settings['s3']['max_upload_mib'],
+)
 
 from . import replication_store as replication_store
 replication_store.init_app(app)

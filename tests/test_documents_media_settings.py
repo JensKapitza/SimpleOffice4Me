@@ -834,16 +834,15 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
 
     def test_persisted_upload_limit_applies_to_request_and_s3_caps(self):
         config = {}
-        with patch.dict(
-            os.environ, {"SIMPLEOFFICE_S3_MAX_UPLOAD_MIB": "2048"}, clear=True,
-        ):
-            apply_upload_limit_settings(config, 1024)
+        apply_upload_limit_settings(config, 1024, 2048)
         self.assertEqual(1024 * 1024 * 1024, config["MAX_CONTENT_LENGTH"])
         self.assertEqual(config["MAX_CONTENT_LENGTH"], config["S3_OVERLAY_MAX_UPLOAD_BYTES"])
         self.assertEqual(
             1024 * 1024 * 1024,
             configured_s3_overlay_upload_limit_bytes(config["MAX_CONTENT_LENGTH"]),
         )
+        apply_upload_limit_settings(config, 1024, 512)
+        self.assertEqual(512 * 1024 * 1024, config["S3_OVERLAY_MAX_UPLOAD_BYTES"])
 
     def test_upload_limit_accepts_supported_endpoints(self):
         store = SettingsStore(self.root)
