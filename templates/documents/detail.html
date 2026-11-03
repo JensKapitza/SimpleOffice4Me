@@ -188,7 +188,7 @@
 <div class="card-header d-flex justify-content-between"><span>{{ 'Malware protection' if g.language == 'en' else 'Schadsoftwareprüfung' }}</span>{% if malware_scan %}<span class="badge {% if not malware_scan.current %}text-bg-warning{% elif malware_scan.verdict == 'clean' %}text-bg-success{% elif malware_scan.verdict == 'infected' %}text-bg-danger{% else %}text-bg-secondary{% endif %}">{% if not malware_scan.current %}{{ 'outdated' if g.language == 'en' else 'veraltet' }}{% else %}{{ malware_scan.verdict }}{% endif %}</span>{% else %}<span class="badge text-bg-secondary">{{ 'not scanned' if g.language == 'en' else 'nicht geprüft' }}</span>{% endif %}</div>
 <div class="card-body small">{% if malware_scan %}<dl class="row mb-0"><dt class="col-5">{{ 'Last scan' if g.language == 'en' else 'Letzte Prüfung' }}</dt><dd class="col-7">{{ malware_scan.scanned_at or '—' }}</dd><dt class="col-5">{{ 'Engine' if g.language == 'en' else 'Scanner' }}</dt><dd class="col-7">{{ malware_scan.engine or '—' }}</dd><dt class="col-5">SHA-256</dt><dd class="col-7"><code>{{ (malware_scan.sha256 or '')[:16] }}{% if malware_scan.sha256 %}…{% else %}—{% endif %}</code></dd></dl>{% if not malware_scan.current %}<div class="alert alert-warning py-2 mb-0 mt-2">{{ 'The file changed after this scan. Scan it again before trusting previews.' if g.language == 'en' else 'Die Datei wurde nach dieser Prüfung geändert. Vor einer Vorschau erneut prüfen.' }}</div>{% endif %}{% else %}<p class="mb-0 text-secondary">{{ 'No ClamAV result exists for this file.' if g.language == 'en' else 'Für diese Datei liegt noch kein ClamAV-Ergebnis vor.' }}</p>{% endif %}</div>
 </div>
-{% if document.last_path.lower().endswith('.eml') %}<div class="card mb-4"><div class="card-header">E-Mail lesen und Anhänge</div><div class="card-body"><p class="mb-2">Dekodierte E-Mail ansehen, zwischen Text und einfachem HTML wechseln sowie MIME-Anhänge anzeigen und sicher freigeben.</p><a class="btn btn-outline-primary me-2 mb-2" href="{{ url_for('contact_audit.eml_preview', document_id=document.document_id, view='text') }}">E-Mail als Text</a><a class="btn btn-outline-primary me-2 mb-2" href="{{ url_for('contact_audit.eml_preview', document_id=document.document_id, view='html') }}">E-Mail als HTML</a><a class="btn btn-outline-warning mb-2" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">Anhänge anzeigen und prüfen</a><div class="mt-3"><strong>Enthaltene Anhänge ({{ eml_attachments|length }})</strong><ul class="list-group mt-2">{% for item in eml_attachments %}<li class="list-group-item"><span class="text-break">{{ item.name }}</span><br><small class="text-secondary">{{ item.type }} · {{ item.size }} Bytes</small></li>{% else %}<li class="list-group-item text-secondary">Keine Anhänge erkannt.</li>{% endfor %}</ul><p class="form-text">Dekodierter Zugriff erst nach ClamAV-Prüfung und Freigabe.</p></div></div></div>{% endif %}
+{% if document.last_path.lower().endswith('.eml') %}<div class="card mb-4"><div class="card-header">{{ 'Read e-mail and attachments' if g.language == 'en' else 'E-Mail lesen und Anhänge' }}</div><div class="card-body"><p class="mb-2">{{ 'View the decoded e-mail, switch between text and simple HTML, and show and safely release MIME attachments.' if g.language == 'en' else 'Dekodierte E-Mail ansehen, zwischen Text und einfachem HTML wechseln sowie MIME-Anhänge anzeigen und sicher freigeben.' }}</p><a class="btn btn-outline-primary me-2 mb-2" href="{{ url_for('contact_audit.eml_preview', document_id=document.document_id, view='text') }}">{{ 'E-mail as text' if g.language == 'en' else 'E-Mail als Text' }}</a><a class="btn btn-outline-primary me-2 mb-2" href="{{ url_for('contact_audit.eml_preview', document_id=document.document_id, view='html') }}">{{ 'E-mail as HTML' if g.language == 'en' else 'E-Mail als HTML' }}</a><a class="btn btn-outline-warning mb-2" href="{{ url_for('documents.document_attachments', document_id=document.document_id) }}">{{ 'Show and check attachments' if g.language == 'en' else 'Anhänge anzeigen und prüfen' }}</a><div class="mt-3"><strong>{{ 'Included attachments' if g.language == 'en' else 'Enthaltene Anhänge' }} ({{ eml_attachments|length }})</strong><ul class="list-group mt-2">{% for item in eml_attachments %}<li class="list-group-item"><span class="text-break">{{ item.name }}</span><br><small class="text-secondary">{{ item.type }} · {{ item.size }} Bytes</small></li>{% else %}<li class="list-group-item text-secondary">{{ 'No attachments detected.' if g.language == 'en' else 'Keine Anhänge erkannt.' }}</li>{% endfor %}</ul><p class="form-text">{{ 'Decoded access only after ClamAV scan and release.' if g.language == 'en' else 'Dekodierter Zugriff erst nach ClamAV-Prüfung und Freigabe.' }}</p></div></div></div>{% endif %}
 {% if safe_attachments %}<div class="card mb-4"><div class="card-header">{{ 'Released e-mail attachments' if g.language == 'en' else 'Freigegebene E-Mail-Anhänge' }}</div><div class="list-group list-group-flush">{% for item in safe_attachments %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=item.document_id) }}"><strong>{{ item.last_path.rsplit('/', 1)[-1] }}</strong><br><small class="text-success">{{ 'ClamAV clean – preview enabled' if g.language == 'en' else 'ClamAV sauber – Vorschau freigegeben' }}</small></a>{% endfor %}</div></div>{% endif %}
 <div class="card mb-4">
 <div class="card-header">{{ 'Organization' if g.language == 'en' else 'Organisation' }}</div>
@@ -293,58 +293,58 @@
 </form>
 </div>
 </div>{% endif %}<div class="card mb-4">
-<div class="card-header">Versionen</div>
+<div class="card-header">{{ 'Versions' if g.language == 'en' else 'Versionen' }}</div>
 <ol class="list-group list-group-numbered list-group-flush">{% for version in versions %}<li class="list-group-item {% if version.document_id == document.document_id %}active{% endif %}">
 <a class="{% if version.document_id == document.document_id %}link-light{% endif %}" href="{{ url_for('documents.detail', document_id=version.document_id) }}">Version {{ version.version_number }}: {{ version.last_path }}</a>
 </li>{% endfor %}</ol>
 </div>{% if content_recovery_versions %}<div class="card mb-4">
-<div class="card-header">Frühere Dateiinhalte</div>
+<div class="card-header">{{ 'Earlier file contents' if g.language == 'en' else 'Frühere Dateiinhalte' }}</div>
 <div class="list-group list-group-flush">{% for version in content_recovery_versions %}<div class="list-group-item">
 <div class="d-flex justify-content-between gap-2">
 <div>
-<strong>Revision vor {{ version.created_at }}</strong>
+<strong>{{ 'Revision before' if g.language == 'en' else 'Revision vor' }} {{ version.created_at }}</strong>
 <br>
-<small class="text-secondary">{{ version.size }} Byte · ersetzt durch {{ version.replaced_by }}</small>
+<small class="text-secondary">{{ version.size }} {{ 'bytes' if g.language == 'en' else 'Byte' }} · {{ 'replaced by' if g.language == 'en' else 'ersetzt durch' }} {{ version.replaced_by }}</small>
 <br>
 <code class="small text-break">{{ version.sha256 }}</code>
-</div>{% if not version.available %}<span class="badge text-bg-danger align-self-start">fehlt</span>{% endif %}</div>{% if version.available %}<form method="post" action="{{ url_for('documents.restore_document_content', document_id=document.document_id) }}" class="mt-2">
+</div>{% if not version.available %}<span class="badge text-bg-danger align-self-start">{{ 'missing' if g.language == 'en' else 'fehlt' }}</span>{% endif %}</div>{% if version.available %}<form method="post" action="{{ url_for('documents.restore_document_content', document_id=document.document_id) }}" class="mt-2">
 <input type="hidden" name="archived_sha256" value="{{ version.sha256 }}">
 <input type="hidden" name="expected_current_sha256" value="{{ document.sha256 }}">
 <div class="form-check mb-2">
 <input required class="form-check-input" type="checkbox" name="confirm" value="WIEDERHERSTELLEN" id="restore-content-{{ loop.index }}">
-<label class="form-check-label small" for="restore-content-{{ loop.index }}">Als neue Revision wiederherstellen; aktuellen Inhalt archivieren</label>
+<label class="form-check-label small" for="restore-content-{{ loop.index }}">{{ 'Restore as a new revision; archive the current content' if g.language == 'en' else 'Als neue Revision wiederherstellen; aktuellen Inhalt archivieren' }}</label>
 </div>
-<button type="submit" class="btn btn-sm btn-outline-primary">Inhalt wiederherstellen</button>
+<button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Restore content' if g.language == 'en' else 'Inhalt wiederherstellen' }}</button>
 </form>{% endif %}</div>{% endfor %}</div>
 </div>{% endif %}{% if public_sharing_allowed %}<div class="card">
-<div class="card-header">Datei freigeben</div>
+<div class="card-header">{{ 'Share file' if g.language == 'en' else 'Datei freigeben' }}</div>
 <div class="card-body">
 <form method="post" action="{{ url_for('documents.create_share', document_id=document.document_id) }}" class="input-group">
-<input required type="password" class="form-control" name="password" minlength="12" placeholder="Passwort">
+<input required type="password" class="form-control" name="password" minlength="12" placeholder="{{ 'Password' if g.language == 'en' else 'Passwort' }}">
 <input class="form-control" type="number" name="expires_days" value="7" min="1" max="365">
-<button type="submit" class="btn btn-outline-primary">HTTPS-Link erzeugen</button>
+<button type="submit" class="btn btn-outline-primary">{{ 'Create HTTPS link' if g.language == 'en' else 'HTTPS-Link erzeugen' }}</button>
 </form>
 </div>
 </div>
-{% else %}<div class="alert alert-secondary mb-0">Vertrauliche Maildatei: Freigaben erfolgen über <a href="{{ url_for('mail_reader.index', mode='case') }}">Mail-Vorgänge</a>.</div>{% endif %}
+{% else %}<div class="alert alert-secondary mb-0">{{ 'Confidential mail file: shares are managed via' if g.language == 'en' else 'Vertrauliche Maildatei: Freigaben erfolgen über' }} <a href="{{ url_for('mail_reader.index', mode='case') }}">{{ 'Mail cases' if g.language == 'en' else 'Mail-Vorgänge' }}</a>.</div>{% endif %}
 </aside>
 </div>
 <section class="mt-5">
-<h2 class="h4">Logbuch dieses Dokuments</h2>{% include "documents/event_list.html" %}</section>
+<h2 class="h4">{{ 'Logbook of this document' if g.language == 'en' else 'Logbuch dieses Dokuments' }}</h2>{% include "documents/event_list.html" %}</section>
 </main>{% endblock %}
 {% block footer %}{% if public_sharing_allowed %}<section class="container-xl pb-4">
 <div class="card">
-<div class="card-header">Freigabelinks</div>
+<div class="card-header">{{ 'Share links' if g.language == 'en' else 'Freigabelinks' }}</div>
 <div class="list-group list-group-flush">{% for share in shares %}<div class="list-group-item">
 <div class="d-flex justify-content-between gap-2">
 <a class="text-break" href="{{ url_for('documents.open_share', share_id=share.share_id, _external=True) }}">{{ url_for('documents.open_share', share_id=share.share_id, _external=True) }}</a>
-<span class="badge {% if share.status == 'aktiv' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ share.status }}</span>
+<span class="badge {% if share.status == 'aktiv' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ ('active' if share.status == 'aktiv' else 'expired') if g.language == 'en' else share.status }}</span>
 </div>
-<small class="d-block text-secondary">Erstellt: {{ share.created_at }} · Ablauf: {{ share.expires_at }} · Abrufe: {{ share.access_log|length }}</small>{% if share.status == 'abgelaufen' %}<form method="post" action="{{ url_for('documents.renew_share', document_id=document.document_id, share_id=share.share_id) }}" class="input-group mt-2">
-<input required type="password" class="form-control form-control-sm" name="password" minlength="12" placeholder="Neues Passwort">
+<small class="d-block text-secondary">{{ 'Created:' if g.language == 'en' else 'Erstellt:' }} {{ share.created_at }} · {{ 'Expires:' if g.language == 'en' else 'Ablauf:' }} {{ share.expires_at }} · {{ 'Views:' if g.language == 'en' else 'Abrufe:' }} {{ share.access_log|length }}</small>{% if share.status == 'abgelaufen' %}<form method="post" action="{{ url_for('documents.renew_share', document_id=document.document_id, share_id=share.share_id) }}" class="input-group mt-2">
+<input required type="password" class="form-control form-control-sm" name="password" minlength="12" placeholder="{{ 'New password' if g.language == 'en' else 'Neues Passwort' }}">
 <input class="form-control form-control-sm" type="number" name="expires_days" value="7" min="1" max="365">
-<button type="submit" class="btn btn-sm btn-outline-primary">Reaktivieren</button>
-</form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">Noch keine Freigabelinks.</div>{% endfor %}</div>
+<button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Reactivate' if g.language == 'en' else 'Reaktivieren' }}</button>
+</form>{% endif %}</div>{% else %}<div class="list-group-item text-secondary">{{ 'No share links yet.' if g.language == 'en' else 'Noch keine Freigabelinks.' }}</div>{% endfor %}</div>
 </div>
 </section>{% endif %}{% endblock %}
 {% block script %}<script defer src="{{ url_for('static', filename='js/doc_image_engel.js') }}"></script>{% endblock %}

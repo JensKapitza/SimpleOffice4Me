@@ -92,6 +92,39 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
         ):
             self.assertIn(expected, body)
 
+    def _import_eml(self) -> str:
+        source = Path(self.temp.name) / "mail.eml"
+        source.write_bytes(
+            b"From: a@example.test\r\nTo: b@example.test\r\n"
+            b"Subject: Test\r\nContent-Type: text/plain\r\n\r\nHallo\r\n"
+        )
+        target = self.store.import_file(source, actor="notes-tester")
+        return self.store.get_document(target)["document_id"]
+
+    def test_eml_card_english(self) -> None:
+        body = self._get_image(self._import_eml(), "en")
+        for expected in (
+            "Read e-mail and attachments",
+            "E-mail as text",
+            "E-mail as HTML",
+            "Show and check attachments",
+            "No attachments detected.",
+            "Decoded access only after ClamAV scan and release.",
+        ):
+            self.assertIn(expected, body)
+
+    def test_eml_card_german(self) -> None:
+        body = self._get_image(self._import_eml(), "de")
+        for expected in (
+            "E-Mail lesen und Anhänge",
+            "E-Mail als Text",
+            "E-Mail als HTML",
+            "Anhänge anzeigen und prüfen",
+            "Keine Anhänge erkannt.",
+            "Dekodierter Zugriff erst nach ClamAV-Prüfung und Freigabe.",
+        ):
+            self.assertIn(expected, body)
+
     def test_notes_linking_english(self) -> None:
         body = self._get("en")
         for expected in (
@@ -114,6 +147,12 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Retain until",
             "deadline missing",
             "Add deadline",
+            "Versions",
+            "Share file",
+            "Create HTTPS link",
+            "Share links",
+            "No share links yet.",
+            "Logbook of this document",
         ):
             self.assertIn(expected, body)
         # The JS translations dict legitimately carries German keys; only the
@@ -143,6 +182,12 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Aufbewahren bis",
             "Frist fehlt",
             "Frist hinzufügen",
+            "Versionen",
+            "Datei freigeben",
+            "HTTPS-Link erzeugen",
+            "Freigabelinks",
+            "Noch keine Freigabelinks.",
+            "Logbuch dieses Dokuments",
         ):
             self.assertIn(expected, body)
 
