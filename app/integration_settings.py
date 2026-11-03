@@ -42,6 +42,12 @@ DEFAULT_FEDERATION_PUBLIC_URL = ""
 DEFAULT_ERROR_REPORTING_ENABLED = True
 DEFAULT_FEDERATION_PUBLIC_DIRECTORY_ENABLED = False
 DEFAULT_ERROR_RELAY_MODE = "auto"
+DEFAULT_LOGIN_QR_ENABLED = True
+DEFAULT_LOGIN_QR_LAN_ENABLED = True
+DEFAULT_LOGIN_QR_PORTS = ""
+DEFAULT_LOGIN_QR_URLS = ""
+MAX_LOGIN_QR_PORTS_CHARS = 2048
+MAX_LOGIN_QR_URLS_CHARS = 8192
 
 
 # Historic environment fallbacks were removed: every integration default now
@@ -251,6 +257,28 @@ def normalize_integration_settings(
         _LOGGER.warning("Invalid stored error-relay mode; using automatic master mode")
         error_relay_mode = DEFAULT_ERROR_RELAY_MODE
     result["error_relay_mode"] = error_relay_mode
+    login_qr_enabled = integrations.get("login_qr_enabled", DEFAULT_LOGIN_QR_ENABLED)
+    if not isinstance(login_qr_enabled, bool):
+        _LOGGER.warning("Invalid stored login-QR preference; using the default")
+        login_qr_enabled = DEFAULT_LOGIN_QR_ENABLED
+    result["login_qr_enabled"] = login_qr_enabled
+    login_qr_lan_enabled = integrations.get(
+        "login_qr_lan_enabled", DEFAULT_LOGIN_QR_LAN_ENABLED,
+    )
+    if not isinstance(login_qr_lan_enabled, bool):
+        _LOGGER.warning("Invalid stored login-QR LAN preference; using the default")
+        login_qr_lan_enabled = DEFAULT_LOGIN_QR_LAN_ENABLED
+    result["login_qr_lan_enabled"] = login_qr_lan_enabled
+    login_qr_ports = integrations.get("login_qr_ports", DEFAULT_LOGIN_QR_PORTS)
+    if not isinstance(login_qr_ports, str) or len(login_qr_ports) > MAX_LOGIN_QR_PORTS_CHARS:
+        _LOGGER.warning("Invalid stored login-QR ports; using the default")
+        login_qr_ports = DEFAULT_LOGIN_QR_PORTS
+    result["login_qr_ports"] = login_qr_ports
+    login_qr_urls = integrations.get("login_qr_urls", DEFAULT_LOGIN_QR_URLS)
+    if not isinstance(login_qr_urls, str) or len(login_qr_urls) > MAX_LOGIN_QR_URLS_CHARS:
+        _LOGGER.warning("Invalid stored login-QR URLs; using the default")
+        login_qr_urls = DEFAULT_LOGIN_QR_URLS
+    result["login_qr_urls"] = login_qr_urls
     return result
 
 
@@ -343,4 +371,22 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str | bo
     ):
         raise ValueError("error relay mode must be auto, enabled, or disabled")
     values["error_relay_mode"] = error_relay_mode
+    login_qr_enabled = integrations.get("login_qr_enabled", DEFAULT_LOGIN_QR_ENABLED)
+    if not isinstance(login_qr_enabled, bool):
+        raise ValueError("login QR enabled must be a boolean")
+    values["login_qr_enabled"] = login_qr_enabled
+    login_qr_lan_enabled = integrations.get(
+        "login_qr_lan_enabled", DEFAULT_LOGIN_QR_LAN_ENABLED,
+    )
+    if not isinstance(login_qr_lan_enabled, bool):
+        raise ValueError("login QR LAN enabled must be a boolean")
+    values["login_qr_lan_enabled"] = login_qr_lan_enabled
+    login_qr_ports = integrations.get("login_qr_ports", DEFAULT_LOGIN_QR_PORTS)
+    if not isinstance(login_qr_ports, str) or len(login_qr_ports) > MAX_LOGIN_QR_PORTS_CHARS:
+        raise ValueError("login QR ports must be a short comma-separated list")
+    values["login_qr_ports"] = login_qr_ports
+    login_qr_urls = integrations.get("login_qr_urls", DEFAULT_LOGIN_QR_URLS)
+    if not isinstance(login_qr_urls, str) or len(login_qr_urls) > MAX_LOGIN_QR_URLS_CHARS:
+        raise ValueError("login QR URLs must be a short comma-separated list")
+    values["login_qr_urls"] = login_qr_urls
     return values

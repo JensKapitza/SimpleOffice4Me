@@ -27,26 +27,30 @@ des Serverhostnamens; weitere Interfaces können administrativ ergänzt werden.
 
 ## Instanzkonfiguration
 
-| Variable | Wirkung |
-| --- | --- |
-| `SIMPLEOFFICE_LOGIN_QR` | Standard `1`; `0` blendet die ganze QR-Auswahl aus und lässt die Anmeldung bestehen |
-| `SIMPLEOFFICE_LOGIN_QR_LAN` | Standard `1`; `0` beschränkt die Auswahl auf die aktuelle Adresse |
-| `SIMPLEOFFICE_LOGIN_QR_PORTS` | Kommagetrennte zusätzliche Ports von 1 bis 65535 für erkannte LAN-Adressen |
-| `SIMPLEOFFICE_LOGIN_QR_URLS` | Kommagetrennte HTTP(S)-Serverbasis- oder Login-URLs; nur für direkte lokale Clients |
+Die Anzeige wird unter **Admin → Integrationen & Dienste → Login-QR-Codes**
+gepflegt; die bisherigen Umgebungsvariablen `SIMPLEOFFICE_LOGIN_QR`,
+`SIMPLEOFFICE_LOGIN_QR_LAN`, `SIMPLEOFFICE_LOGIN_QR_PORTS` und
+`SIMPLEOFFICE_LOGIN_QR_URLS` sind entfernt und werden nicht mehr gelesen.
 
-Die beiden Schalter akzeptieren `1`, `true`, `yes`, `on`; andere Werte deaktivieren
-die jeweilige Ausgabe. Unbekannte Ports werden ausgelassen, doppelte Ziele
+| Einstellung | Wirkung |
+| --- | --- |
+| QR-Codes anzeigen | Standard an; Aus blendet die ganze QR-Auswahl aus und lässt die Anmeldung bestehen |
+| LAN-Kandidaten | Standard an; Aus beschränkt die Auswahl auf die aktuelle Adresse |
+| Zusätzliche LAN-Ports | Kommagetrennte zusätzliche Ports von 1 bis 65535 für erkannte LAN-Adressen |
+| Explizite Adressen | Kommagetrennte HTTP(S)-Serverbasis- oder Login-URLs; nur für direkte lokale Clients |
+
+Unbekannte Ports werden ausgelassen, doppelte Ziele
 zusammengefasst. Die aktuelle Adresse steht zuerst, dann erkannte LAN-Adressen
 und schließlich administrativ ergänzte Adressen. Es werden höchstens 20 Ports
 berücksichtigt. Der Server verwendet dieselbe Schematik (HTTP/HTTPS) wie die
 aktuelle Anfrage; zusätzliche HTTPS-Endpunkte können als vollständige URL
 konfiguriert werden.
 
-Beispiel ohne Zugangsdaten:
+Beispielwerte ohne Zugangsdaten (Ports und Adressen je ein Feld):
 
-```sh
-SIMPLEOFFICE_LOGIN_QR_PORTS=8080,8443
-SIMPLEOFFICE_LOGIN_QR_URLS=https://office.example/tenant/,https://[fd00::1]:8443/
+```text
+Ports: 8080,8443
+Adressen: https://office.example/tenant/,https://[fd00::1]:8443/
 ```
 
 Basis-URLs mit einem Pfad erhalten `/auth/login`; bereits angegebene Loginpfade

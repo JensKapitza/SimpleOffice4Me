@@ -233,6 +233,43 @@
       </form>
     </div>
   </section>
+  <section class="card mb-3" id="login-qr">
+    <div class="card-header"><strong>{{ 'Login QR codes' if g.language == 'en' else 'Login-QR-Codes' }}</strong></div>
+    <div class="card-body">
+      <p>{{ 'URL shortcuts on the login page; a code never grants access. LAN candidates appear only for direct local clients. The former SIMPLEOFFICE_LOGIN_QR, SIMPLEOFFICE_LOGIN_QR_LAN, SIMPLEOFFICE_LOGIN_QR_PORTS and SIMPLEOFFICE_LOGIN_QR_URLS variables are removed.' if g.language == 'en' else 'URL-Kürzel auf der Login-Seite; ein Code gewährt nie Zugang. LAN-Kandidaten erscheinen nur für direkte lokale Clients. Die bisherigen Variablen SIMPLEOFFICE_LOGIN_QR, SIMPLEOFFICE_LOGIN_QR_LAN, SIMPLEOFFICE_LOGIN_QR_PORTS und SIMPLEOFFICE_LOGIN_QR_URLS sind entfernt.' }}</p>
+      <form method="post" action="{{ url_for('admin.save_login_qr_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-6">
+          <label class="form-label" for="login-qr-enabled">{{ 'Show QR codes' if g.language == 'en' else 'QR-Codes anzeigen' }}</label>
+          <select class="form-select" id="login-qr-enabled" name="login_qr_enabled" required>
+            <option value="1" {% if integrations.login_qr_enabled %}selected{% endif %}>{{ 'Enabled (default)' if g.language == 'en' else 'Aktiviert (Standard)' }}</option>
+            <option value="0" {% if not integrations.login_qr_enabled %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="login-qr-lan">{{ 'LAN candidates' if g.language == 'en' else 'LAN-Kandidaten' }}</label>
+          <select class="form-select" id="login-qr-lan" name="login_qr_lan_enabled" required>
+            <option value="1" {% if integrations.login_qr_lan_enabled %}selected{% endif %}>{{ 'Enabled (default)' if g.language == 'en' else 'Aktiviert (Standard)' }}</option>
+            <option value="0" {% if not integrations.login_qr_lan_enabled %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="login-qr-ports">{{ 'Extra LAN ports (comma-separated)' if g.language == 'en' else 'Zusätzliche LAN-Ports (kommagetrennt)' }}</label>
+          <input class="form-control" id="login-qr-ports" type="text" name="login_qr_ports" value="{{ integrations.login_qr_ports }}" maxlength="2048">
+          <div class="form-text">{{ 'Invalid entries are skipped. Maximum 20 candidates.' if g.language == 'en' else 'Ungültige Einträge werden übersprungen. Maximal 20 Kandidaten.' }}</div>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label" for="login-qr-urls">{{ 'Explicit addresses (comma-separated)' if g.language == 'en' else 'Explizite Adressen (kommagetrennt)' }}</label>
+          <input class="form-control" id="login-qr-urls" type="text" name="login_qr_urls" value="{{ integrations.login_qr_urls }}" maxlength="8192">
+          <div class="form-text">{{ 'Only http(s) without credentials, query or fragment. Invalid entries are skipped.' if g.language == 'en' else 'Nur http(s) ohne Zugangsdaten, Query oder Fragment. Ungültige Einträge werden übersprungen.' }}</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
+        </div>
+      </form>
+    </div>
+  </section>
   <section class="card mt-3">
     <div class="card-header"><strong>{{ 'ClamAV security check' if g.language == 'en' else 'ClamAV-Sicherheitsprüfung' }}</strong></div>
     <div class="card-body">

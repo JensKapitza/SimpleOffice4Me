@@ -1,12 +1,13 @@
 """Public login-page URL contracts; DNS is the only simulated I/O boundary."""
 import base64
-import os
 import socket
 from html.parser import HTMLParser
+from pathlib import Path
 from unittest.mock import patch
 from xml.etree import ElementTree
 
 from app import app
+from app.settings_store import SettingsStore
 from account_api_fixture import AccountApiFixture
 
 
@@ -43,7 +44,16 @@ class LoginQRCodeTests(AccountApiFixture):
                      (socket.AF_INET, socket.SOCK_STREAM, 6, '', ('203.0.113.9', 0))]
         variables = {'SIMPLEOFFICE_LOGIN_QR': '1', 'SIMPLEOFFICE_LOGIN_QR_LAN': '1',
                      'SIMPLEOFFICE_LOGIN_QR_PORTS': '', 'SIMPLEOFFICE_LOGIN_QR_URLS': '', **(variables or {})}
-        with patch.dict(os.environ, variables), patch('socket.getaddrinfo', return_value=addresses):
+        SettingsStore(Path(app.config['DOCUMENT_ROOT'])).save(
+            {'integrations': {
+                'login_qr_enabled': variables['SIMPLEOFFICE_LOGIN_QR'] == '1',
+                'login_qr_lan_enabled': variables['SIMPLEOFFICE_LOGIN_QR_LAN'] == '1',
+                'login_qr_ports': variables['SIMPLEOFFICE_LOGIN_QR_PORTS'],
+                'login_qr_urls': variables['SIMPLEOFFICE_LOGIN_QR_URLS'],
+            }},
+            'login-qr-carousel-test',
+        )
+        with patch('socket.getaddrinfo', return_value=addresses):
             response = app.test_client().get('/auth/login', base_url=base, headers=headers,
                 environ_overrides={'REMOTE_ADDR': peer, 'SCRIPT_NAME': mount})
         self.assertEqual(200, response.status_code)

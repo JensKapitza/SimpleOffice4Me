@@ -819,6 +819,45 @@ def save_clamav_settings():
     return redirect(url_for("admin.integration_settings"))
 
 
+@bp.post("/settings/integrations/login-qr")
+@admin_required
+def save_login_qr_settings():
+    reset_defaults = request.form.get("reset") == "1"
+    try:
+        if reset_defaults:
+            integrations = {
+                "login_qr_enabled": True,
+                "login_qr_lan_enabled": True,
+                "login_qr_ports": "",
+                "login_qr_urls": "",
+            }
+        else:
+            integrations = {
+                "login_qr_enabled": request.form.get("login_qr_enabled", "") == "1",
+                "login_qr_lan_enabled": request.form.get("login_qr_lan_enabled", "") == "1",
+                "login_qr_ports": request.form.get("login_qr_ports", "")[:2048],
+                "login_qr_urls": request.form.get("login_qr_urls", "")[:8192],
+            }
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"integrations": integrations}, str(g.user["username"]),
+        )
+        audit(
+            "login_qr_settings_updated",
+            "settings",
+            "integrations.login_qr",
+            detail={**integrations, "reset_to_defaults": reset_defaults},
+        )
+        flash(translate(g.language, "admin.login_qr.reset")
+            if reset_defaults else translate(g.language, "admin.login_qr.saved"))
+    except ValueError as exc:
+        current_app.logger.info("Login QR setting rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    except OSError as exc:
+        current_app.logger.warning("Login QR settings save failed: %s", type(exc).__name__)
+        flash(translate(g.language, "admin.login_qr.failed"))
+    return redirect(url_for("admin.integration_settings"))
+
+
 @bp.post("/settings/integrations/personnel-time")
 @admin_required
 def save_personnel_time_autosync_settings():

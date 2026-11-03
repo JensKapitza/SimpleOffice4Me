@@ -49,6 +49,10 @@ from .integration_settings import (
     DEFAULT_FEDERATION_PROFILE_COUNTRY,
     DEFAULT_FEDERATION_PUBLIC_URL,
     DEFAULT_ERROR_RELAY_MODE,
+    DEFAULT_LOGIN_QR_ENABLED,
+    DEFAULT_LOGIN_QR_LAN_ENABLED,
+    DEFAULT_LOGIN_QR_PORTS,
+    DEFAULT_LOGIN_QR_URLS,
     MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -188,6 +192,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "federation_profile_country": DEFAULT_FEDERATION_PROFILE_COUNTRY,
         "federation_public_url": DEFAULT_FEDERATION_PUBLIC_URL,
         "error_relay_mode": DEFAULT_ERROR_RELAY_MODE,
+        "login_qr_enabled": DEFAULT_LOGIN_QR_ENABLED,
+        "login_qr_lan_enabled": DEFAULT_LOGIN_QR_LAN_ENABLED,
+        "login_qr_ports": DEFAULT_LOGIN_QR_PORTS,
+        "login_qr_urls": DEFAULT_LOGIN_QR_URLS,
     },
 }
 
@@ -335,6 +343,26 @@ class SettingsStore:
             or "error_relay_mode" not in stored_integrations
         ):
             result["integrations"]["error_relay_mode"] = legacy_error_relay_mode()
+        if (
+            not isinstance(stored_integrations, dict)
+            or "login_qr_enabled" not in stored_integrations
+        ):
+            result["integrations"]["login_qr_enabled"] = DEFAULT_LOGIN_QR_ENABLED
+        if (
+            not isinstance(stored_integrations, dict)
+            or "login_qr_lan_enabled" not in stored_integrations
+        ):
+            result["integrations"]["login_qr_lan_enabled"] = DEFAULT_LOGIN_QR_LAN_ENABLED
+        if (
+            not isinstance(stored_integrations, dict)
+            or "login_qr_ports" not in stored_integrations
+        ):
+            result["integrations"]["login_qr_ports"] = DEFAULT_LOGIN_QR_PORTS
+        if (
+            not isinstance(stored_integrations, dict)
+            or "login_qr_urls" not in stored_integrations
+        ):
+            result["integrations"]["login_qr_urls"] = DEFAULT_LOGIN_QR_URLS
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
         )
