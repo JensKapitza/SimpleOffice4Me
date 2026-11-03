@@ -246,16 +246,33 @@ def set_network_private_targets(page, *, base_url: str) -> None:
     button = page.get_by_role(
         "button", name="Netzwerkeinstellungen speichern", exact=True
     )
-    with page.expect_navigation(wait_until="domcontentloaded") as navigation:
+    with page.expect_navigation(
+        url="**/admin/federation/peer-discovery*",
+        wait_until="domcontentloaded",
+    ) as navigation:
         button.click()
     response = navigation.value
     feedback = compact(" ".join(page.locator(".alert[role='status']").all_inner_texts()))
-    if "Federation-Netzwerkeinstellungen gespeichert." not in feedback:
-        status = response.status if response is not None else "no-response"
-        raise RuntimeError(
-            f"Netzwerkeinstellungen wurden nicht gespeichert (HTTP {status}; "
-            f"Rückmeldung: {feedback[:400] or 'keine'})."
-        )
+    if "Federation-Netzwerkeinstellungen gespeichert." in feedback:
+        return
+    # Flash text missing: verify the effect directly. A reload renders the
+    # checkbox checked only when the store flag was really saved, which is
+    # all the later diagnostics need.
+    verify = page.goto(
+        f"{base_url}/admin/federation/peer-discovery",
+        wait_until="domcontentloaded",
+    )
+    if (
+        verify is not None
+        and verify.status < 400
+        and page.locator("#network-allow-private").is_checked()
+    ):
+        return
+    status = response.status if response is not None else "no-response"
+    raise RuntimeError(
+        f"Netzwerkeinstellungen wurden nicht gespeichert (HTTP {status}; "
+        f"Rückmeldung: {feedback[:400] or 'keine'})."
+    )
 
 
 def record_p2p_check(
