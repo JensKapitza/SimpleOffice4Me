@@ -97,7 +97,7 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
                 preview_url = f"{self.base_url}/site-visits/{self.visit['visit_id']}/report"
                 page.goto(preview_url)
-                expect(page.get_by_role("heading", name="Bericht zusammenstellen")).to_be_visible()
+                expect(page.get_by_role("heading", name="Compile report")).to_be_visible()
                 checkboxes = page.locator("input[name='finding_id']")
                 self.assertEqual(32, checkboxes.count())
                 for checkbox in checkboxes.all():
@@ -105,7 +105,7 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
 
                 created_path = Path(self.temp.name) / "created-report.pdf"
                 with page.expect_download(timeout=70000) as download_info:
-                    page.get_by_role("button", name="PDF erzeugen").click()
+                    page.get_by_role("button", name="Generate PDF").click()
                 download_info.value.save_as(created_path)
                 created_bytes = created_path.read_bytes()
                 self.assertGreater(len(created_bytes), 1000)
