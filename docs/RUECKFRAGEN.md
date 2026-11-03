@@ -28,6 +28,7 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 - Nächster Vorschlag (Welle 8): Launcher/Server-Bind (`HOST`, `PORT`, `WSGI_THREADS`, `CHANNEL_TIMEOUT`, `TRUSTED_PROXY_HOPS`, `BACKGROUND_INDEX`, `OSM_INDEX`, `MINI_SERVICES_AUTOSTART`, `CONTAINER_ROLE`) + Archiv-Legacy-Migration (`ARCHIVE_*`) — teils Deployment-Sache, Owner-Entscheid nötig, was Store wird und was CLI-Arg bleibt.
 - Update: Welle 8a (Archiv-Legacy, ohne Owner-Entscheid machbar) — **erledigt, Commit folgt**. Offen bleibt nur Server-Bind/Deployment (Welle 8b, Owner-Entscheid).
 - Blockiert (Lauf 03.11., Baum sauber + sync mit Remote): Welle 8b braucht Owner-Entscheid (Store vs. CLI-Arg für HOST/PORT/Threads/Proxies/Hintergrundschalter). Keine autonome Welle mehr übrig — gestoppt, keine Änderungen.
+- Fremde Arbeit (späterer Lauf 03.11.): Remote `hackai/i18n-en` ist 110 Commits voraus (Main-Integration für PR #973: u.a. #974, #975, Merge-Basis `f60c9419` enthalten). Lokal NICHT gemergt (Regel 1), kein Push möglich (nicht fast-forward, kein Force-Push). Nächster Schritt braucht Owner-Vorgabe: Merge oder Warten.
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)
