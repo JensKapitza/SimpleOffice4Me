@@ -94,7 +94,7 @@ Size-/Function-/Policy-/Diff-/Node-Gates grün (web.py-Split hält
 Routen-Suiten (Login) und Browser-E2E hier nicht ausführbar
 (`PermissionError` Auth-Speicher) — kein Grün behauptet.
 **Folge (03.11., sichere Löschung bei Widerruf, Branch
-`hackai/inventory-batch-20261103`, uncommitted):** Transaktionale
+`hackai/inventory-batch-20261103`, committed `31ae1d42` (local, not pushed)):** Transaktionale
 `purge_peer_inventory` löscht Zeilen + Indexstand in einem Commit;
 aufgerufen bei Freigabe-Rücknahme (save_peer ohne Receive/Deaktivierung),
 Peer-Löschung, Trust-Widerruf, Sync ohne Freigabe und Remote-403
