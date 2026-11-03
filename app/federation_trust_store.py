@@ -76,6 +76,10 @@ class FederationTrustStore:
                 (source_peer, target_peer, trust_level, propagation, max_hops, verification,
                  json.dumps(metadata or {}, sort_keys=True), now if verification != "KNOWN_UNVERIFIED" else None, now),
             )
+        if trust_level not in ("NORMAL", "HIGH"):
+            from .federation_catalog import FederationCatalog
+
+            FederationCatalog(self.store.root).purge_peer_inventory(target_peer)
         return self.get_trust(target_peer, source_peer)
 
     def get_trust(self, target_peer, source_peer=LOCAL_PEER):

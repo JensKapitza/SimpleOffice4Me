@@ -12,6 +12,11 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore
 from .federation_core import normalize_sha256
+from .federation_inventory_index import (
+    INVENTORY_INDEX_SCHEMA,
+    build_inventory_rows,
+    inventory_generation,
+)
 from .federation_peer_auth import (
     authenticate as authenticate_peer,
     authenticated_peer,
@@ -120,6 +125,23 @@ def _peer_can_receive_catalog(root: str | Path) -> bool:
     )
 
 
+def _peer_can_share_inventory(root: str | Path) -> bool:
+    """Default-deny gate: only an identified peer with an explicit send flag."""
+    peer_id = authenticated_peer(root, request)
+    if not peer_id:
+        return False
+    peer = FederationStore(root).get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        return False
+    policy = peer.get("policy")
+    if not isinstance(policy, dict):
+        return False
+    inventory = policy.get("inventory")
+    if not isinstance(inventory, dict):
+        return False
+    return inventory.get("send") is True
+
+
 def _generation(rows: list[dict]) -> str:
     digest = hashlib.sha256()
     for row in rows:
@@ -154,4 +176,29 @@ def document_index():
         "count": len(page),
         "total": len(rows),
         "documents": page,
+    })
+
+
+@bp.get("/inventory")
+def inventory_index():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not _peer_can_share_inventory(root):
+        return jsonify({"error": "inventory_policy_denied"}), 403, {"Cache-Control": "no-store"}
+    try:
+        rows = build_inventory_rows(root)
+    except (OSError, RuntimeError, ValueError):
+        return jsonify({"error": "inventory_unavailable"}), 503
+    generation = inventory_generation(rows)
+    cursor = _bounded_int(request.args.get("cursor", "0"), 0, 0, max(0, len(rows)))
+    limit = _bounded_int(request.args.get("limit", "250"), 250, 1, MAX_PAGE_SIZE)
+    page = rows[cursor:cursor + limit]
+    next_cursor = cursor + len(page)
+    return jsonify({
+        "schema": INVENTORY_INDEX_SCHEMA,
+        "generation": generation,
+        "cursor": cursor,
+        "next_cursor": next_cursor if next_cursor < len(rows) else None,
+        "count": len(page),
+        "total": len(rows),
+        "items": page,
     })

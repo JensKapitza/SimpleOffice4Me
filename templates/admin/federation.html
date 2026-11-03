@@ -315,6 +315,7 @@
   {% elif active_view == 'peers' %}
     {% set peer_policy = edit_peer.get('policy', {}) if edit_peer else {} %}
     {% set document_policy = peer_policy.get('documents', {}) if peer_policy else {} %}
+    {% set inventory_policy = peer_policy.get('inventory', {}) if peer_policy else {} %}
     {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
     {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
     {% set rendezvous_relay_policy = peer_policy.get('rendezvous_relay', {}) if peer_policy else {} %}
@@ -335,6 +336,7 @@
               <input type="hidden" name="_mail_cases_policy_form" value="1">
               <input type="hidden" name="_rendezvous_relay_policy_form" value="1">
               <input type="hidden" name="_network_diagnostics_policy_form" value="1">
+              <input type="hidden" name="_inventory_policy_form" value="1">
               <div class="col-md-6">
                 <label class="form-label" for="peer-id">Peer-ID</label>
                 <input class="form-control" id="peer-id" name="peer_id" value="{{ edit_peer.peer_id if edit_peer else '' }}" {% if edit_peer %}readonly{% endif %} required>
@@ -352,6 +354,20 @@
                 <input class="form-control" id="peer-token" type="password" name="token" autocomplete="new-password">
                 <div class="form-text">{{ 'Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Auf beiden Geräten für genau diesen Peer identisch konfigurieren; wird verschlüsselt gespeichert.' }} Nicht das globale Server-Token verwenden.</div>
               </div>
+
+              <fieldset class="col-12">
+                <legend class="h6 mb-2">Inventarabgleich (nur Kennung + Anzeigename)</legend>
+                <div class="vstack gap-2 border rounded p-3">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="inventory_send" value="1" {% if inventory_policy.get('send', false) %}checked{% endif %}>
+                    <span class="form-check-label">Inventarindex an diesen Peer senden (nur ISBN/GTIN + Anzeigename, Standard aus)</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="inventory_receive" value="1" {% if inventory_policy.get('receive', false) %}checked{% endif %}>
+                    <span class="form-check-label">Inventarindex von diesem Peer empfangen (nur lokal synchronisiert, Standard aus)</span>
+                  </label>
+                </div>
+              </fieldset>
 
               <fieldset class="col-12">
                 <legend class="h6 mb-2">Dokument-Berechtigungen</legend>
@@ -490,6 +506,11 @@
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
                           <button class="btn btn-sm btn-outline-success" type="submit">Dateiindex holen</button>
+                        </form>
+                        <form method="post" action="{{ url_for('federation_admin.sync_peer_inventory_index', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-success" type="submit">Inventarindex holen</button>
                         </form>
                         <form method="post" action="{{ url_for('federation_admin.network_diagnostic_peer', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">

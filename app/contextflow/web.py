@@ -65,7 +65,6 @@ from .inventory_match import (
     resolve_unique_target,
 )
 from .ot_travel_hints import card_ot_travel_hint
-from .peer_stock import peer_availability
 from .vision import (
     InferenceTimeoutError,
     InferenceUnavailable,
@@ -852,27 +851,6 @@ def doc_tag_confirm():
         )
     except DocumentNotFoundError:
         abort(404)
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}, 400
-    return {"ok": True, **result}, 200
-
-
-@bp.post("/peer-stock-check")
-@login_required
-def peer_stock_check():
-    """Ask opt-in friends' shared catalogs for one identifier (JSON).
-
-    Read-only and local: only friends (trust edge plus enabled peer
-    record plus documents-receive opt-in) are consulted, no network
-    is used, no content is stored or forwarded. Friends without a
-    valid index are listed as not_synced/error, never as "no hit".
-    """
-    _gate()
-    actor = _actor()
-    try:
-        result = peer_availability(
-            root=_root(), actor=actor, identifier=request.form.get("identifier", "")
-        )
     except ValueError as exc:
         return {"ok": False, "error": str(exc)}, 400
     return {"ok": True, **result}, 200

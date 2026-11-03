@@ -94,12 +94,29 @@ def capture_inbox():
     return render_template(
         "inventory/capture.html",
         analyze_url=url_for("inventory.capture_analyze"),
+        marketplace_url=url_for("inventory_marketplace.search"),
         upload_url=url_for("inventory.capture_upload"),
         books_url=url_for("inventory.create_book"),
         items_url=url_for("inventory.create_item"),
         lookup_url=url_for("inventory.book_lookup"),
         ml_status_url=(
             url_for("contextflow.ml_status_route")
+            if (
+                current_app.config.get("CONTEXTFLOW_ENABLED", False)
+                or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
+            )
+            else ""
+        ),
+        peer_stock_url=(
+            url_for("contextflow.peer_stock_check")
+            if (
+                current_app.config.get("CONTEXTFLOW_ENABLED", False)
+                or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
+            )
+            else ""
+        ),
+        peer_inventory_url=(
+            url_for("contextflow.peer_inventory_check")
             if (
                 current_app.config.get("CONTEXTFLOW_ENABLED", False)
                 or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
@@ -119,10 +136,16 @@ def capture_inbox():
 def capture_upload():
     """Persist one photo immediately, then analyze the stored original."""
     from .capture_inbox_store import CaptureInboxStore
-    from .inventory_capture import analyze_photo, public_entry, store_upload
+    from .inventory_capture import (
+        analyze_photo,
+        parse_batch_consent,
+        public_entry,
+        store_upload,
+    )
 
     actor = str(g.user["username"])
     root = current_app.config["DOCUMENT_ROOT"]
+    consent = parse_batch_consent(request.form.get("consent_meta"))
     try:
         entry, duplicate, raw = store_upload(
             request.files.get("photo"),
@@ -149,7 +172,8 @@ def capture_upload():
         )
     analysis_error = ""
     try:
-        payload = analyze_photo(raw, entry["entry_id"])
+        payload = analyze_photo(
+            raw, entry["entry_id"], consent_meta=consent, root=root)
     except ValueError as exc:
         payload = {}
         current_app.logger.info(
@@ -255,7 +279,11 @@ def capture_assign(entry_id: str):
 def capture_reanalyze(entry_id: str):
     """Re-run analysis on the stored original (entry keeps its history)."""
     from .capture_inbox_store import CaptureInboxStore
-    from .inventory_capture import public_entry, reanalyze_entry
+    from .inventory_capture import (
+        parse_batch_consent,
+        public_entry,
+        reanalyze_entry,
+    )
 
     actor = str(g.user["username"])
     root = current_app.config["DOCUMENT_ROOT"]
@@ -265,8 +293,10 @@ def capture_reanalyze(entry_id: str):
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     if known is None:
         abort(404)
+    data = request.get_json(silent=True) or request.form
+    consent = parse_batch_consent(data.get("consent_meta"))
     try:
-        updated = reanalyze_entry(entry_id, actor, root)
+        updated = reanalyze_entry(entry_id, actor, root, consent_meta=consent)
     except CaptureInboxIndexError:
         return jsonify({"ok": False, "error": INDEX_ERROR}), 503
     except ValueError as exc:
@@ -311,6 +341,28 @@ def capture_analyze():
     return jsonify(payload), 200
 
 
+def _batch_review_extras(root: str, actor: str) -> dict[str, Any]:
+    """Shelves + default shelf for group review (view and re-analyze)."""
+    from .inventory_capture_shelf import default_shelf_for_actor
+    from .library.store import LibraryStore
+
+    library = LibraryStore(root)
+    shelves = [
+        {
+            "location_id": str(row.get("location_id", "")),
+            "code": str(row.get("code", "") or ""),
+            "name": str(row.get("name", "") or ""),
+            "path": library.location_path(str(row.get("location_id", ""))),
+        }
+        for row in library.locations()
+        if isinstance(row, dict) and row.get("location_id")
+    ]
+    return {
+        "shelves": shelves,
+        "default_location_id": default_shelf_for_actor(root, actor),
+    }
+
+
 def _public_batch_entries(
     stored_entries: list[dict], public_entry: Any,
 ) -> list[dict]:
@@ -340,8 +392,6 @@ def capture_batch(batch_id: str):
     """Review one book group: photos in capture order + combined draft."""
     from .capture_inbox_store import CaptureInboxStore
     from .inventory_capture import public_entry, summarize_batch
-    from .inventory_capture_shelf import default_shelf_for_actor
-    from .library.store import LibraryStore
 
     actor = str(g.user["username"])
     root = current_app.config["DOCUMENT_ROOT"]
@@ -356,24 +406,14 @@ def capture_batch(batch_id: str):
     if not stored_entries:
         abort(404)
     clean_batch = str(batch_id or "").strip().lower()
-    library = LibraryStore(root)
-    shelves = [
-        {
-            "location_id": str(row.get("location_id", "")),
-            "code": str(row.get("code", "") or ""),
-            "name": str(row.get("name", "") or ""),
-            "path": library.location_path(str(row.get("location_id", ""))),
-        }
-        for row in library.locations()
-        if isinstance(row, dict) and row.get("location_id")
-    ]
+    extras = _batch_review_extras(root, actor)
     return jsonify({
         "ok": True,
         "batch_id": clean_batch,
         "entries": _public_batch_entries(stored_entries, public_entry),
         "combined": summarize_batch(stored_entries),
-        "shelves": shelves,
-        "default_location_id": default_shelf_for_actor(root, actor),
+        "shelves": extras["shelves"],
+        "default_location_id": extras["default_location_id"],
         "analyze_url": url_for(
             "inventory.capture_batch_analyze", batch_id=clean_batch),
         "adopt_url": url_for(
@@ -415,12 +455,18 @@ def capture_batch_analyze(batch_id: str):
         return _public_error(
             exc, "Buchgruppe konnte nicht analysiert werden. Bitte neu laden.", 400
         )
+    clean_batch = str(batch_id or "").strip().lower()
+    extras = _batch_review_extras(root, actor)
     return jsonify({
         "ok": True,
-        "batch_id": str(batch_id or "").strip().lower(),
+        "batch_id": clean_batch,
         "entries": _public_batch_entries(fresh, public_entry),
         "combined": combined,
         "analysis_errors": errors,
+        "shelves": extras["shelves"],
+        "default_location_id": extras["default_location_id"],
+        "assign_url": url_for(
+            "inventory.capture_batch_assign", batch_id=clean_batch),
         "consent_meta": consent,
     }), 200
 
@@ -457,6 +503,9 @@ def capture_batch_adopt(batch_id: str):
         "description": get("description", ""),
         "tags": get("tags", ""),
         "location": get("location", ""),
+        "market_price": get("market_price", ""),
+        "currency": get("currency", ""),
+        "price_source": get("price_source", ""),
     }
     try:
         payload = adopt_batch(

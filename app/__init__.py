@@ -332,6 +332,7 @@ app.register_blueprint(personnel_time_clock.bp)
 personnel_time_clock.init_app(app)
 
 from .contextflow import web as contextflow_web
+from .contextflow import peer_check_web  # noqa: F401 (registers extra routes before the blueprint below)
 from .contextflow import position_web  # noqa: F401 (registers extra routes before the blueprint below)
 from .contextflow import ot_travel_web  # noqa: F401 (registers extra routes before the blueprint below)
 app.register_blueprint(contextflow_web.bp)
