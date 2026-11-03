@@ -234,7 +234,7 @@ Dokumentation ist Bestandteil der Implementierung.
 - Installation, Konfiguration, Betrieb, Fehlerverhalten und bekannte Einschränkungen beschreiben.
 - Sicherheitsgrenzen und relevante Architekturentscheidungen erklären.
 - Nicht nur das Was, sondern insbesondere das Warum dokumentieren.
-- Hackathon-Arbeitslog (verbindliche Nutzer-Vorgabe 28.10.2026, geht bei Widerspruch vor): Nach jeder sinnvollen abgeschlossenen Aufgabe oder einem Arbeitspaket einen sachlichen Eintrag im bestehenden Hackathon-Arbeitslog (`SimpleOffice4Me_Muse_Hackathon_Arbeitslog_2026-10-26.md`, Tabellenformat Datum/Commit/Was/Warum) ergänzen. Änderungen/Ergebnis und tatsächliche Verifikation benennen; zusammenhängende Arbeit nach Aufgabe bündeln, maximal 3 Stunden je Log-Eintrag (z. B. Zeitblöcke 1–3 h, 4–6 h), keine minutengenaue Dauerberichterstattung; Zeitangaben nie erfinden, unbelegte Tests nicht behaupten, fachfremde Repo-Wartung nicht ins Hackathon-Log schreiben.
+- Hackathon-Arbeitslog (verbindliche Nutzer-Vorgabe 28.10.2026, geht bei Widerspruch vor): Nach jeder sinnvollen abgeschlossenen Aufgabe oder einem Arbeitspaket einen sachlichen Eintrag im bestehenden Log `docs/WORKLOG_2026-10-26.md` ergänzen. Neue Einträge zweisprachig (Deutsch und Englisch) im Tabellenformat Datum/Commit/Arbeit/Warum und mit tatsächlicher Verifikation verfassen. Zusammenhängende Arbeit nach Aufgabe bündeln, maximal 3 Stunden je Eintrag; Dauer nur angeben, wenn sie erfasst wurde, nie schätzen. Keine minutengenaue Dauerberichterstattung, keine unbelegten Tests oder fremde Repo-Wartung im Hackathon-Log behaupten.
 
 ## 23. Büroengel/ContextFlow-Hackathon: verpflichtende Meta-Modell-Architektur
 
