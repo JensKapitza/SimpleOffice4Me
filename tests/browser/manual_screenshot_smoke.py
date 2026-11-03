@@ -460,6 +460,14 @@ def main() -> int:
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
                 "page_errors": len(page_errors),
+                "page_error_details": [
+                    {
+                        "browser": error.get("browser", ""),
+                        "path": urlparse(error.get("url", "")).path,
+                        "message": (error.get("text", "").splitlines() or [""])[0][:300],
+                    }
+                    for error in page_errors[:10]
+                ],
                 "server_errors": len(server_errors),
                 "failures": failures,
             },
