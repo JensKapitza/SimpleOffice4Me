@@ -7,7 +7,7 @@ import click
 from flask import current_app
 
 from .document_origin import persist_origin_tags
-from .federation_download_worker import process_queue, sync_peer_catalog
+from .federation_download_worker import process_queue, sync_peer_catalog, sync_peer_inventory_catalog
 from .federation_store import FederationStore
 
 
@@ -15,7 +15,7 @@ from .federation_store import FederationStore
 @click.option("--peer", "peer_ids", multiple=True, help="Only sync the selected peer ID; repeatable.")
 @click.option("--page-size", default=500, type=click.IntRange(1, 1000), show_default=True)
 def sync_indexes_command(peer_ids: tuple[str, ...], page_size: int) -> None:
-    """Refresh remote file indexes while retaining the last good offline copy."""
+    """Refresh remote file and inventory indexes, retaining last good offline copies."""
     root = current_app.config["DOCUMENT_ROOT"]
     store = FederationStore(root)
     selected = set(peer_ids)
@@ -29,6 +29,10 @@ def sync_indexes_command(peer_ids: tuple[str, ...], page_size: int) -> None:
             results.append(sync_peer_catalog(root, peer["peer_id"], page_size=page_size))
         except Exception as exc:  # individual peers must not block the remainder
             errors.append({"peer_id": peer["peer_id"], "error": str(exc)[:1000]})
+        try:
+            results.append(sync_peer_inventory_catalog(root, peer["peer_id"], page_size=page_size))
+        except Exception as exc:  # opt-out peers report here without blocking others
+            errors.append({"peer_id": peer["peer_id"], "scope": "inventory", "error": str(exc)[:1000]})
     click.echo(json.dumps({"synced": results, "errors": errors}, ensure_ascii=False))
     if errors and not results:
         raise click.ClickException("all selected federation index synchronizations failed")

@@ -142,6 +142,29 @@ class CaptureUiWiringTests(unittest.TestCase):
         script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
         self.assertIn("if (!cleanText(dataset.peerStockUrl)) return;", script)
 
+    def test_batch_review_has_click_only_peer_inventory_check(self) -> None:
+        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
+        self.assertIn(
+            "window.SimpleOfficeCapturePeerStock.renderPeerInventorySection",
+            inbox)
+        for snippet in (
+            "renderPeerInventorySection",
+            "Freundesbestand (Inventarabgleich): nur auf Klick suchen",
+            "dataset.peerInventoryUrl",
+            "'Freundesbestand prüfen'",
+            "match.display_name",
+            "keine Aussage",
+        ):
+            self.assertIn(snippet, script)
+        self.assertIn("if (!cleanText(dataset.peerInventoryUrl)) return;", script)
+        self.assertEqual(
+            1, script.count("addEventListener('click', () => askPeerInventory())"))
+
+    def test_capture_template_wires_peer_inventory_url(self) -> None:
+        template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
+        self.assertIn('data-peer-inventory-url="{{ peer_inventory_url }}"', template)
+
     def test_batch_review_has_click_only_peer_stock_check(self) -> None:
         inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
         script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
@@ -161,8 +184,6 @@ class CaptureUiWiringTests(unittest.TestCase):
             "keine Aussage",
         ):
             self.assertIn(snippet, script)
-        self.assertNotIn("Freundesbestand prüfen", script)
-        self.assertNotIn("Freundesbestand:", script)
         self.assertEqual(1, script.count("askPeerStock()"))
         self.assertIn(
             "addEventListener('click', () => askPeerStock())",

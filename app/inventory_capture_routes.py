@@ -115,6 +115,14 @@ def capture_inbox():
             )
             else ""
         ),
+        peer_inventory_url=(
+            url_for("contextflow.peer_inventory_check")
+            if (
+                current_app.config.get("CONTEXTFLOW_ENABLED", False)
+                or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
+            )
+            else ""
+        ),
         batch_url_pattern=url_for(
             "inventory.capture_batch", batch_id="0" * 32).replace(
             "0" * 32, "__BATCH__"),

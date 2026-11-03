@@ -15,7 +15,11 @@ from .document_origin import document_origin_tags, persist_origin_tags
 from .document_store import DocumentStore
 from .federation_catalog import FederationCatalog
 from .federation_core import build_manifest, transfer_id, validate_operation
-from .federation_download_worker import process_queue, sync_peer_catalog
+from .federation_download_worker import (
+    process_queue,
+    sync_peer_catalog,
+    sync_peer_inventory_catalog,
+)
 from .federation_orchestrator import orchestrate_third_party
 from .federation_store import FederationStore
 from .federation_worker import _materialize_blob, peer_capabilities, push_blob_to_peer, remote_availability
@@ -345,6 +349,11 @@ def save_peer():
                 "receive": request.form.get("documents_receive") == "1",
                 "seed": request.form.get("documents_seed") == "1",
             }
+        if request.form.get("_inventory_policy_form") == "1":
+            policy["inventory"] = {
+                "send": request.form.get("inventory_send") == "1",
+                "receive": request.form.get("inventory_receive") == "1",
+            }
         if request.form.get("_mail_cases_policy_form") == "1":
             data_classes = policy.get("data_classes")
             if not isinstance(data_classes, dict):
@@ -489,6 +498,17 @@ def sync_peer_index(peer_id: str):
         flash(f"Dateiindex von {peer_id} übernommen: {result['documents']} Einträge.")
     except Exception as exc:
         flash(f"Index-Synchronisation fehlgeschlagen; vorhandener Offline-Index bleibt erhalten: {exc}")
+    return _redirect_dashboard(remote_peer=peer_id)
+
+
+@bp.post("/peers/<peer_id>/sync-inventory-index")
+@admin_required
+def sync_peer_inventory_index(peer_id: str):
+    try:
+        result = sync_peer_inventory_catalog(current_app.config["DOCUMENT_ROOT"], peer_id)
+        flash(f"Inventarindex von {peer_id} übernommen: {result['items']} Einträge (nur Kennung + Anzeigename).")
+    except Exception as exc:
+        flash(f"Inventarindex-Synchronisation fehlgeschlagen; vorhandener Offline-Index bleibt erhalten: {exc}")
     return _redirect_dashboard(remote_peer=peer_id)
 
 

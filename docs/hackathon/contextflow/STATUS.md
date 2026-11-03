@@ -73,6 +73,26 @@ Opt-in-Index-Scope (Produktkennung + Anzeigename, Default-Deny pro Peer,
 nur lokal synchronisiert) — Protokollerweiterung, bewusst nicht in diesem
 Slice. Detailseite (`detail.html`, „Bestand bei Freunden prüfen“) nutzt die
 gleiche Route und bleibt vorerst unverändert.
+**Umsetzung (03.11., echter Peer-Inventarabgleich, Branch
+`hackai/inventory-batch-20261103`, uncommitted):** Eigener Index-Scope
+`sofp-inventory-index/v1`: Serving-Seite liefert nur kanonische ISBN/GTIN
++ neutralen Anzeigenamen aktiver Objekte (kein Preis/Standort/Notiz/Bild,
+keine Doku-Inhalte, keine Eigentümerdaten); Sync-Seite zieht nur mit
+explizitem `policy.inventory.receive is True` (Default deny, kein Netz
+ohne Freigabe); Abfrage nur lokal + exakt, unsynced/fehlerhaft = keine
+Aussage; Widerruf/Objektlöschung/Peer-Deaktivierung/Opt-out entfernen
+Treffer (Generationswechsel → available=0, fehlende Freigabe → Ausschluss).
+Admin: Inventar-Send/Empfang-Checkboxen (Standard aus) + Sync-Button pro
+Peer; CLI `federation-sync-indexes` zieht zusätzlich Inventarindizes.
+Capture-Review zeigt „Freundesbestand (Inventarabgleich)“ per Klick.
+Routen `peer-stock-check` + `peer-inventory-check` in `peer_check_web.py`
+(Etagen-Muster wie `position_web.py`), URLs/Verhalten unverändert.
+Verifiziert: 75/75 gezielte Tests (Index, Sync-Gates, Abfrage incl.
+Default-deny-Matrix + Widerruf, Store/Combine/Price/UI/Marketplace),
+Size-/Function-/Policy-/Diff-/Node-Gates grün (web.py-Split hält
+1000-Zeilen-Limit), Routen-Registrierung per `url_map` belegt;
+Routen-Suiten (Login) und Browser-E2E hier nicht ausführbar
+(`PermissionError` Auth-Speicher) — kein Grün behauptet.
 **Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
 bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
 die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,

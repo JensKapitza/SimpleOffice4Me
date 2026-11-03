@@ -83,5 +83,89 @@
     peerBox.appendChild(peerResults);
     form.appendChild(peerBox);
   };
-  window.SimpleOfficeCapturePeerStock = {renderPeerStockSection};
+  const renderPeerInventorySection = (ctx) => {
+    const {inputs, combined, form, dataset, csrf, cleanText, safeJson} = ctx;
+    if (!cleanText(dataset.peerInventoryUrl)) return;
+    const invBox = document.createElement('div');
+    invBox.className = 'col-12';
+    const invTitle = document.createElement('div');
+    invTitle.className = 'fw-semibold small mb-1';
+    invTitle.textContent = 'Freundesbestand (Inventarabgleich): nur auf Klick suchen, keine Auto-Abfrage';
+    invBox.appendChild(invTitle);
+    const invNote = document.createElement('p');
+    invNote.className = 'small text-secondary mb-1';
+    invNote.textContent = 'Prüft lokal synchronisierte Inventarverzeichnisse ausdrücklich freigegebener Freunde anhand der ISBN/des GTIN-Codes — noch vor einem Nachkauf. Gezählt wird nur exakte Übereinstimmung; unsynced/fehlerhafte Verzeichnisse gelten als keine Aussage. Titel und Barcodes ohne Prüfsumme werden nicht abgeglichen.';
+    invBox.appendChild(invNote);
+    const invStatus = document.createElement('p');
+    invStatus.className = 'small mt-1 mb-0';
+    invStatus.setAttribute('role', 'status');
+    const invResults = document.createElement('div');
+    invResults.className = 'mt-1';
+    const peerInventoryUrl = cleanText(dataset.peerInventoryUrl);
+    const askButton = document.createElement('button');
+    askButton.type = 'button';
+    askButton.className = 'btn btn-sm btn-outline-primary';
+    askButton.textContent = 'Freundesbestand prüfen';
+    const askPeerInventory = async () => {
+      const identifier = cleanText(inputs.isbn ? inputs.isbn.value : '') || cleanText(combined.isbn || '');
+      if (!identifier) {
+        invStatus.textContent = 'Für den Inventarabgleich zuerst eine ISBN/einen GTIN-Code erfassen — Titel und einfache Barcodes werden nicht abgeglichen.';
+        return;
+      }
+      askButton.disabled = true;
+      invStatus.textContent = 'Frage synchronisierte Inventarverzeichnisse (lokal) …';
+      invResults.replaceChildren();
+      try {
+        const data = new FormData();
+        data.append('identifier', identifier);
+        data.append('_csrf_token', csrf);
+        const response = await fetch(peerInventoryUrl, {method: 'POST', body: data, cache: 'no-store'});
+        const payload = await safeJson(response);
+        if (!response.ok || !payload || payload.ok !== true) {
+          invStatus.textContent = cleanText(payload && payload.error) || `Prüfung fehlgeschlagen (${response.status}).`;
+          return;
+        }
+        const friends = Array.isArray(payload.friends) ? payload.friends : [];
+        const hits = friends.filter((entry) => entry && entry.available);
+        const unknown = friends.filter((entry) => entry && entry.state && entry.state !== 'ok').length;
+        let summary = `${payload.friends_checked} Freund(e) geprüft, ${hits.length} mit Bestand.`;
+        if (unknown) summary += ` ${unknown} ohne gültigen Verzeichnisstand — keine Aussage.`;
+        invStatus.textContent = summary;
+        if (!friends.length) {
+          invResults.textContent = 'Keine Freunde mit Inventarfreigabe hinterlegt.';
+          return;
+        }
+        const list = document.createElement('ul');
+        list.className = 'list-unstyled mb-0 small';
+        friends.forEach((entry) => {
+          if (!entry || typeof entry !== 'object') return;
+          const item = document.createElement('li');
+          const names = (entry.matches || []).map((match) => cleanText(match && match.display_name)).filter(Boolean);
+          const label = names.length ? ` („${names[0]}“)` : '';
+          const name = cleanText(entry.peer_id);
+          if (entry.available) {
+            item.textContent = `✓ ${name} hat den Titel${label}`;
+          } else if (!entry.state || entry.state === 'ok') {
+            item.textContent = `○ ${name} (kein Bestand, Verzeichnis gültig)`;
+          } else if (entry.state === 'not_synced') {
+            item.textContent = `? ${name} (Verzeichnis nie synchronisiert — keine Aussage)`;
+          } else {
+            item.textContent = `? ${name} (Verzeichnisfehler — keine Aussage)`;
+          }
+          list.appendChild(item);
+        });
+        invResults.appendChild(list);
+      } catch (_error) {
+        invStatus.textContent = 'Prüfung fehlgeschlagen (Netzwerk).';
+      } finally {
+        askButton.disabled = false;
+      }
+    };
+    askButton.addEventListener('click', () => askPeerInventory());
+    invBox.appendChild(askButton);
+    invBox.appendChild(invStatus);
+    invBox.appendChild(invResults);
+    form.appendChild(invBox);
+  };
+  window.SimpleOfficeCapturePeerStock = {renderPeerStockSection, renderPeerInventorySection};
 })();

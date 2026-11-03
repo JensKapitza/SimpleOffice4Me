@@ -658,6 +658,9 @@
       window.SimpleOfficeCapturePeerStock.renderPeerStockSection({
         inputs, combined, form, dataset, csrf, cleanText, safeJson,
       });
+      window.SimpleOfficeCapturePeerStock.renderPeerInventorySection({
+        inputs, combined, form, dataset, csrf, cleanText, safeJson,
+      });
     }
     const missing = (combined.missing_fields || []).join(', ');
     if (missing) {

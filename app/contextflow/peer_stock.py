@@ -34,6 +34,7 @@ from .inventory_match import (
     IdentifierTooLongError,
     MalformedGtinError,
     clean_identifier,
+    classify_identifier,
     normalize_gtin,
 )
 
@@ -118,14 +119,8 @@ def _remote_candidates(entry: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def _classify_query(query: str) -> tuple[str, str]:
-    try:
-        return "isbn", normalize_isbn(query)
-    except ValueError:
-        pass
-    canonical_gtin = normalize_gtin(query)
-    if canonical_gtin:
-        return "gtin", canonical_gtin
-    return "barcode", query
+    """Shared identifier classification (see inventory_match)."""
+    return classify_identifier(query)
 
 
 def index_state(catalog: FederationCatalog, peer_id: str) -> str:

@@ -14,6 +14,7 @@ from .federation_blocks import FederationBlockStore, content_manifest_valid, nor
 from .federation_catalog import FederationCatalog
 from .federation_scoped_dedup import scoped_deduplicated_download
 from .federation_core import complete, preallocate, verify_chunk, verify_file, write_chunk
+from .federation_inventory_index import INVENTORY_INDEX_SCHEMA
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request, remote_blob_manifest
 
@@ -91,6 +92,73 @@ def sync_peer_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -
         catalog.fail_index(peer_id, str(exc))
         federation.set_peer_health(peer_id, error=str(exc))
         logger.exception("federation catalog sync failed peer=%s", peer_id)
+        raise
+
+
+def _inventory_receive_opt_in(peer: dict[str, Any]) -> bool:
+    """Local default-deny gate: only an explicit inventory-receive flag syncs."""
+    policy = peer.get("policy")
+    if not isinstance(policy, dict):
+        return False
+    inventory = policy.get("inventory")
+    return isinstance(inventory, dict) and inventory.get("receive") is True
+
+
+def sync_peer_inventory_catalog(root: str | Path, peer_id: str, *, page_size: int = 500) -> dict[str, Any]:
+    """Copy a peer's shared inventory index locally (canonical IDs + names only).
+
+    Default deny: the local peer record must carry an explicit
+    ``policy.inventory.receive`` flag, otherwise no network access
+    happens at all. Unknown or oversized rows are skipped by ingest;
+    a schema mismatch or HTTP error fails the sync without touching
+    previously synced rows.
+    """
+    federation = FederationStore(root)
+    peer = federation.get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        raise ValueError("Federation-Peer ist nicht aktiv")
+    if not _inventory_receive_opt_in(peer):
+        raise ValueError("Inventarabgleich für diesen Peer ist nicht freigegeben")
+    _, _, token = _peer(root, peer_id)
+    catalog = FederationCatalog(root)
+    cursor = 0
+    generation = ""
+    imported = 0
+    logger.info("federation inventory catalog sync started peer=%s", peer_id)
+    try:
+        while True:
+            page = _json_request(
+                f"{peer['base_url']}/federation/v1/catalog/inventory?cursor={cursor}&limit={max(1, min(page_size, 1000))}",
+                token=token, timeout=60,
+            )
+            if page.get("schema") != INVENTORY_INDEX_SCHEMA:
+                raise ValueError("Peer liefert keinen kompatiblen Inventarindex")
+            page_generation = str(page.get("generation") or "")
+            if not page_generation:
+                raise ValueError("Remote-Index besitzt keine Generation")
+            if generation and generation != page_generation:
+                cursor = 0; imported = 0; generation = page_generation
+                catalog.begin_inventory_index(peer_id, generation)
+                continue
+            if not generation:
+                generation = page_generation
+                catalog.begin_inventory_index(peer_id, generation)
+            items = page.get("items") or []
+            if not isinstance(items, list):
+                raise ValueError("Remote-Index enthält keine Inventarliste")
+            imported += catalog.ingest_inventory(peer_id, generation, [row for row in items if isinstance(row, dict)])
+            next_cursor = page.get("next_cursor")
+            if next_cursor is None:
+                break
+            cursor = int(next_cursor)
+        catalog.finish_inventory_index(peer_id, generation)
+        federation.record_event("inventory_catalog_synced", peer_id=peer_id, detail={"generation": generation, "items": imported})
+        logger.info("federation inventory catalog sync completed peer=%s items=%s", peer_id, imported)
+        return {"peer_id": peer_id, "generation": generation, "items": imported}
+    except Exception as exc:
+        catalog.fail_inventory_index(peer_id, str(exc))
+        federation.record_event("inventory_catalog_sync_failed", peer_id=peer_id, detail={"error": str(exc)[:500]})
+        logger.exception("federation inventory catalog sync failed peer=%s", peer_id)
         raise
 
 
