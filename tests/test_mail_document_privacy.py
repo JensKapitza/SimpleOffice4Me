@@ -77,6 +77,8 @@ class MailDocumentPrivacyTests(unittest.TestCase):
         self.clients = {}
         for actor in ("alice", "bob", "admin"):
             client = app.test_client()
+            with client.session_transaction() as session:
+                session["simpleoffice_language"] = "de"
             client.post("/auth/login", data={"username": actor, "password": "synthetic-password"})
             self.clients[actor] = client
 

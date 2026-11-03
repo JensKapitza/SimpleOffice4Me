@@ -1,23 +1,23 @@
 {% extends 'layout.html' %}
-{% block title %}Vorschlag prüfen · Büroengel{% endblock %}
+{% block title %}{{ tr('cf.suggest.title') }}{% endblock %}
 {% block body %}{% include "documents/nav.html" %}
 <main id="main-content" class="cf-page">
   <link rel="stylesheet" href="{{ url_for('static', filename='contextflow.css') }}">
   <header class="cf-hero">
     <div class="cf-hero-text">
-      <h1>Vorschlag prüfen</h1>
-      <p class="cf-lead">Entwurf für <strong>{{ draft.visit_title }}</strong>{% if draft.asset_name %} · Gerät <strong>{{ draft.asset_name }}</strong>{% endif %}.</p>
-      <p class="cf-pills"><span class="cf-pill" role="note">{{ draft.provider_label }}</span> <span class="cf-pill" role="note">Modell: {{ draft.model or 'unbekannt' }}</span></p>
+      <h1>{{ tr('cf.suggest.heading') }}</h1>
+      <p class="cf-lead">{{ tr('cf.suggest.lead_a') }} <strong>{{ draft.visit_title }}</strong>{% if draft.asset_name %} {{ tr('cf.suggest.device') }} <strong>{{ draft.asset_name }}</strong>{% endif %}.</p>
+      <p class="cf-pills"><span class="cf-pill" role="note">{{ draft.provider_label }}</span> <span class="cf-pill" role="note">{{ tr('cf.agent.model') }}: {{ draft.model or tr('cf.suggest.model_unknown') }}</span></p>
     </div>
   </header>
 
   <article class="cf-card">
-    <p class="cf-status">Entwurf — noch nichts gespeichert, noch kein Befund angelegt.</p>
+    <p class="cf-status">{{ tr('cf.suggest.status') }}</p>
     <dl class="cf-draft">
-      <dt>Titel</dt><dd>{{ draft.draft.title }}</dd>
-      <dt>Beschreibung</dt><dd>{{ draft.draft.description or '–' }}</dd>
-      <dt>Aussagetyp</dt><dd>{{ draft.draft.evidence_class }}</dd>
-      <dt>Sicherheit</dt><dd>{{ draft.draft.confidence }} %</dd>
+      <dt>{{ tr('cf.suggest.f_title') }}</dt><dd>{{ draft.draft.title }}</dd>
+      <dt>{{ tr('cf.suggest.f_desc') }}</dt><dd>{{ draft.draft.description or '–' }}</dd>
+      <dt>{{ tr('cf.suggest.f_type') }}</dt><dd>{{ draft.draft.evidence_class }}</dd>
+      <dt>{{ tr('cf.suggest.f_conf') }}</dt><dd>{{ draft.draft.confidence }} %</dd>
     </dl>
     <form class="cf-approve" method="post" action="{{ url_for('contextflow.confirm_suggestion') }}">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
@@ -30,10 +30,10 @@
       <input type="hidden" name="expected_fingerprint" value="{{ draft.fingerprint }}">
       <label class="cf-check">
         <input type="checkbox" name="approved" value="yes" required>
-        Genau diesen Vorschlag als Befund übernehmen
+        {{ tr('cf.suggest.adopt') }}
       </label>
-      <button class="cf-btn cf-primary" type="submit">Befund anlegen</button>
-      <a class="cf-btn cf-quiet" href="{{ url_for('contextflow.dashboard') }}">Verwerfen</a>
+      <button class="cf-btn cf-primary" type="submit">{{ tr('cf.suggest.create') }}</button>
+      <a class="cf-btn cf-quiet" href="{{ url_for('contextflow.dashboard') }}">{{ tr('cf.suggest.drop') }}</a>
     </form>
   </article>
 </main>

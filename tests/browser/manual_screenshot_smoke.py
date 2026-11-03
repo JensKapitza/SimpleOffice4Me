@@ -176,6 +176,12 @@ def main() -> int:
 
             page.on("response", record_response)
 
+            # The smoke checks below use German labels. Select that locale
+            # explicitly now that English is the anonymous-session default.
+            page.goto(f"{BASE_URL}/auth/login", wait_until="domcontentloaded")
+            with page.expect_navigation(wait_until="domcontentloaded"):
+                page.get_by_role("button", name="German", exact=True).click()
+
             register_response = page.goto(
                 f"{BASE_URL}/auth/register", wait_until="domcontentloaded"
             )

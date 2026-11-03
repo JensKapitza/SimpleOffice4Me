@@ -443,6 +443,8 @@ class TravelHintRoutesTest(unittest.TestCase):
             "/auth/login",
             data={"username": "admin", "password": self.password, "_csrf_token": token},
         )
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self) -> None:
         app.config.update(self.saved)

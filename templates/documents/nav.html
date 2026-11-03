@@ -1,9 +1,9 @@
-<nav class="navbar navbar-expand-xxl navbar-dark app-navbar sticky-top" aria-label="Hauptnavigation">
+<nav class="navbar navbar-expand-xxl navbar-dark app-navbar sticky-top" aria-label="{{ 'Main navigation' if g.language == 'en' else 'Hauptnavigation' }}">
   <div class="container-fluid">
     <a class="navbar-brand fw-semibold" href="{{ url_for('documents.dashboard') }}">
       SimpleOffice
     </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-navigation" aria-controls="main-navigation" aria-expanded="false" aria-label="Navigation öffnen">
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#main-navigation" aria-controls="main-navigation" aria-expanded="false" aria-label="{{ 'Open navigation' if g.language == 'en' else 'Navigation öffnen' }}">
       <span class="navbar-toggler-icon"></span>
     </button>
 
@@ -15,34 +15,34 @@
 
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-work" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            Arbeit
+            {{ 'Work' if g.language == 'en' else 'Arbeit' }}
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-work">
-            <li><a class="dropdown-item" href="{{ url_for('documents.projects') }}">Projekte</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('site_visits.index') }}">Ortstermine</a></li>
-            {% if contextflow_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('contextflow.dashboard') }}">Büroengel</a></li>{% endif %}
+            <li><a class="dropdown-item" href="{{ url_for('documents.projects') }}">{{ 'Projects' if g.language == 'en' else 'Projekte' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('site_visits.index') }}">{{ 'Site visits' if g.language == 'en' else 'Ortstermine' }}</a></li>
+            {% if contextflow_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('contextflow.dashboard') }}">{{ 'Office angel' if g.language == 'en' else 'Büroengel' }}</a></li>{% endif %}
             {% if feature_enabled('projects') %}<li><a class="dropdown-item" href="{{ url_for('tasks.board') }}">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}</a></li>{% endif %}
-            <li><a class="dropdown-item" href="{{ url_for('shopping.index') }}">Einkaufen</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.objects') }}">Objekte</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('shopping.index') }}">{{ 'Shopping' if g.language == 'en' else 'Einkaufen' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.objects') }}">{{ 'Objects' if g.language == 'en' else 'Objekte' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.forms') }}">{{ 'Forms' if g.language == 'en' else 'Formulare' }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('rentals.index') }}">Vermietung</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('inventory.index') }}">Inventar Scan</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('rentals.index') }}">{{ 'Rentals' if g.language == 'en' else 'Vermietung' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('inventory.index') }}">{{ 'Inventory scan' if g.language == 'en' else 'Inventar Scan' }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('contact_audit.business_documents.invoice_overview') }}">{{ tr('invoice.nav') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('contact_audit.euer.finance.index') }}">Finanzen</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('eur.receipts') }}">EÜR-Belege</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('contact_audit.euer.overview') }}">EÜR-Auswertung</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.euer.finance.index') }}">{{ 'Finances' if g.language == 'en' else 'Finanzen' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('eur.receipts') }}">{{ 'EÜR receipts' if g.language == 'en' else 'EÜR-Belege' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.euer.overview') }}">{{ 'EÜR evaluation' if g.language == 'en' else 'EÜR-Auswertung' }}</a></li>
           </ul>
         </div>
 
         {% if feature_enabled('mail') or feature_enabled('calendar') or feature_enabled('contacts') %}
           <div class="nav-item dropdown">
-            <a class="nav-link dropdown-toggle" href="#" id="nav-communication" role="button" data-bs-toggle="dropdown" aria-expanded="false">Kommunikation</a>
+            <a class="nav-link dropdown-toggle" href="#" id="nav-communication" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ 'Communication' if g.language == 'en' else 'Kommunikation' }}</a>
             <ul class="dropdown-menu" aria-labelledby="nav-communication">
-              {% if feature_enabled('mail') %}<li><a class="dropdown-item" href="{{ url_for('chat.index') }}">Chat</a></li><li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}">Mail</a></li><li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}">Spam/Dubletten</a></li>{% endif %}
+              {% if feature_enabled('mail') %}<li><a class="dropdown-item" href="{{ url_for('chat.index') }}">Chat</a></li><li><a class="dropdown-item" href="{{ url_for('mail_reader.index') }}">Mail</a></li><li><a class="dropdown-item" href="{{ url_for('mail_index.index') }}">{{ 'Spam/duplicates' if g.language == 'en' else 'Spam/Dubletten' }}</a></li>{% endif %}
               {% if feature_enabled('calendar') %}<li><a class="dropdown-item" href="{{ url_for('documents.calendar') }}">{{ tr('calendar') }}</a></li>{% endif %}
               {% if feature_enabled('contacts') %}<li><a class="dropdown-item" href="{{ url_for('documents.contacts') }}">{{ tr('contacts') }}</a></li><li><a class="dropdown-item" href="{{ url_for('fritzbox_contacts.index') }}">FRITZ!Box</a></li>{% endif %}
-              {% if g.user['is_admin'] %}<li><hr class="dropdown-divider"></li><li><a class="dropdown-item" href="{{ url_for('telephony_admin.index') }}">Telefonie</a></li>{% endif %}
+              {% if g.user['is_admin'] %}<li><hr class="dropdown-divider"></li><li><a class="dropdown-item" href="{{ url_for('telephony_admin.index') }}">{{ 'Telephony' if g.language == 'en' else 'Telefonie' }}</a></li>{% endif %}
             </ul>
           </div>
         {% endif %}
@@ -52,36 +52,36 @@
             {{ tr('documents') }}
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-documents">
-            <li><a class="dropdown-item fw-semibold" href="{{ url_for('documents.images', _anchor='capture-first') }}">Erfassen</a></li>
+            <li><a class="dropdown-item fw-semibold" href="{{ url_for('documents.images', _anchor='capture-first') }}">{{ 'Capture' if g.language == 'en' else 'Erfassen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.index') }}">{{ tr('documents') }}</a></li>
             {% if v3_inbox_enabled %}<li><a class="dropdown-item" href="{{ url_for('v3_inbox.index') }}">Inbox 3.0</a></li>{% endif %}
-            <li><a class="dropdown-item" href="{{ url_for('documents.document_search') }}">Suchen</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.replication') }}">Speicher</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('contact_audit.business_documents.template_manager') }}">Vorlagen</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.document_recovery') }}">Wiederherstellen</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.retention_overview') }}">Fristen</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.document_search') }}">{{ 'Search' if g.language == 'en' else 'Suchen' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.replication') }}">{{ 'Storage' if g.language == 'en' else 'Speicher' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('contact_audit.business_documents.template_manager') }}">{{ 'Templates' if g.language == 'en' else 'Vorlagen' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.document_recovery') }}">{{ 'Recover' if g.language == 'en' else 'Wiederherstellen' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.retention_overview') }}">{{ 'Deadlines' if g.language == 'en' else 'Fristen' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.images') }}">{{ tr('images') }}</a></li>
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('library.index') }}">Bibliothek</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('library.index') }}#bulk-scan">Massen-Scan</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">Drucker</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('screen.index') }}">Bildschirm</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('library.index') }}">{{ 'Library' if g.language == 'en' else 'Bibliothek' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('library.index') }}#bulk-scan">{{ 'Bulk scan' if g.language == 'en' else 'Massen-Scan' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('printershare.index') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('screen.index') }}">{{ 'Screens' if g.language == 'en' else 'Bildschirm' }}</a></li>
           </ul>
         </div>
 
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-admin" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            Verwaltung
+            {{ 'Administration' if g.language == 'en' else 'Verwaltung' }}
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-admin">
-            <li><a class="dropdown-item" href="{{ url_for('personnel.index') }}">Personal</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.security_center') }}">Sicherheit</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('personnel.index') }}">{{ 'Staff' if g.language == 'en' else 'Personal' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.security_center') }}">{{ 'Security' if g.language == 'en' else 'Sicherheit' }}</a></li>
             {% if g.user['is_admin'] %}
-              <li><a class="dropdown-item" href="{{ url_for('personnel_time_analytics.index') }}">Zeit-Analyse</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('personnel_time_analytics.index') }}">{{ 'Time analytics' if g.language == 'en' else 'Zeit-Analyse' }}</a></li>
               <li><hr class="dropdown-divider"></li>
               <li><a class="dropdown-item" href="{{ url_for('federation_admin.dashboard') }}">Federation</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan">Netzwerk scannen</a></li>
-              <li><a class="dropdown-item" href="{{ url_for('chat_policy_admin.index') }}">Chat-Regeln</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan">{{ 'Scan network' if g.language == 'en' else 'Netzwerk scannen' }}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('chat_policy_admin.index') }}">{{ 'Chat rules' if g.language == 'en' else 'Chat-Regeln' }}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('software_admin.index') }}">Updates</a></li>
               <li><a class="dropdown-item" href="{{ url_for('licensing_admin.index') }}">{{ 'Licensing' if g.language == 'en' else 'Lizenzierung' }}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('admin.users') }}">Administration</a></li>
@@ -90,26 +90,26 @@
               <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}">Extensions 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a></li>
             {% else %}
-              <li><a class="dropdown-item" href="{{ url_for('federation_status.shared_diagnostics') }}">Federation-Status</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('federation_status.shared_diagnostics') }}">{{ 'Federation status' if g.language == 'en' else 'Federation-Status' }}</a></li>
             {% endif %}
           </ul>
         </div>
 
         <div class="nav-item dropdown">
           <a class="nav-link dropdown-toggle" href="#" id="nav-more" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            Mehr
+            {{ 'More' if g.language == 'en' else 'Mehr' }}
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-more">
-            <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">Daten-Roulette</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">Datenlogger</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">{{ 'Data roulette' if g.language == 'en' else 'Daten-Roulette' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">{{ 'Data logger' if g.language == 'en' else 'Datenlogger' }}</a></li>
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.notes_wiki') }}">{{ tr('notes') }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.logbook') }}">{{ tr('logbook') }}</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('reader.shelf') }}">Bücherregal</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">Einrichten</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('reader.shelf') }}">{{ 'Bookshelf' if g.language == 'en' else 'Bücherregal' }}</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('documents.first_run_setup') }}">{{ 'Setup' if g.language == 'en' else 'Einrichten' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('documents.settings') }}">{{ tr('settings') }}</a></li>
             {% if v3_android_offline_enabled|default(false) %}<li><a class="dropdown-item" href="{{ url_for('v3_android_offline.index') }}">Android Offline</a></li>{% endif %}
-            <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">Passwort-Vault</a></li>
+            <li><a class="dropdown-item" href="{{ url_for('vault.index') }}">{{ 'Password vault' if g.language == 'en' else 'Passwort-Vault' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('google_drive_admin.index') }}">Drive</a></li>
             <li><a class="dropdown-item" href="{{ url_for('mcp.settings') }}">MCP</a></li>
             {% for item in v3_extension_ui_items|default([]) %}<li><a class="dropdown-item" href="{{ item.url }}">{{ item.label }}</a></li>{% endfor %}
@@ -138,8 +138,8 @@
           <form method="post" action="{{ url_for('gamification_leaderboard.document_release', document_id=document.document_id) }}" class="px-xxl-1">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="released" value="{{ '0' if roulette.released else '1' }}">
-            <button class="nav-link border-0 bg-transparent text-nowrap" type="submit" title="{{ 'Roulette-Freigabe entfernen' if roulette.released else 'Datei für Daten-Roulette freigeben' }}">
-              {{ 'Roulette aus' if roulette.released else 'Für Roulette' }}
+            <button class="nav-link border-0 bg-transparent text-nowrap" type="submit" title="{{ 'Remove roulette release' if roulette.released else 'Release file for data roulette' }}">
+              {{ 'Roulette off' if roulette.released else 'For roulette' }}
             </button>
           </form>
         {% endif %}
@@ -152,7 +152,7 @@
           </select>
         </form>
 
-        <span class="navbar-text px-xxl-2 small text-nowrap" title="Build {{ app_build.build_timestamp or 'unbekannt' }} · Revision {{ app_build.revision[:12] if app_build.revision else 'unbekannt' }}">Version {{ app_build.version }}</span>
+        <span class="navbar-text px-xxl-2 small text-nowrap" title="Build {{ app_build.build_timestamp or ('unknown' if g.language == 'en' else 'unbekannt') }} · Revision {{ app_build.revision[:12] if app_build.revision else ('unknown' if g.language == 'en' else 'unbekannt') }}">Version {{ app_build.version }}</span>
         <span class="navbar-text px-xxl-2 small text-nowrap">{{ g.user['display_name'] or g.user['username'] }}</span>
         {% if android_local_account is not defined or not android_local_account %}
           <form method="post" action="{{ url_for('auth.logout') }}">
@@ -165,4 +165,4 @@
 </nav>
 {% if request.blueprint == 'rentals' %}{% include "rentals/_nav.html" %}{% endif %}
 
-{% if g.user and g.user.is_admin and pending_account_requests %}<div class="alert alert-info mx-2 my-2 py-2" role="status" aria-live="polite"><a href="{{ url_for('account_requests.admin') }}">{{ pending_account_requests }} Kontoantrag/Kontoanträge warten auf Freigabe.</a></div>{% endif %}
+{% if g.user and g.user.is_admin and pending_account_requests %}<div class="alert alert-info mx-2 my-2 py-2" role="status" aria-live="polite"><a href="{{ url_for('account_requests.admin') }}">{{ pending_account_requests }} {{ 'account request(s) pending approval.' if g.language == 'en' else 'Kontoantrag/Kontoanträge warten auf Freigabe.' }}</a></div>{% endif %}
