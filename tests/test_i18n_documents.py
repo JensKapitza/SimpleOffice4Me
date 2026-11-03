@@ -682,6 +682,18 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         de_body = self._get(f"/documents/{document_id}", "de")
         self.assertIn("Die Textdatei ist leer.", de_body)
 
+    def test_detail_unsupported_text_and_truncation_both_languages(self) -> None:
+        binary_id = self._make_text_document(b"\x00\xff\x00", "binary.txt")
+        en_binary = self._get(f"/documents/{binary_id}", "en")
+        self.assertIn("not supported UTF-8", en_binary)
+        de_binary = self._get(f"/documents/{binary_id}", "de")
+        self.assertIn("kein unterstützter UTF-8-Text", de_binary)
+        long_id = self._make_text_document(b"row\n" * 301, "long.csv")
+        en_long = self._get(f"/documents/{long_id}", "en")
+        self.assertIn("300 lines", en_long)
+        de_long = self._get(f"/documents/{long_id}", "de")
+        self.assertIn("300 Zeilen", de_long)
+
     def test_photo_snapshot_renders_both_languages(self) -> None:
         en_body = self._render("documents/_photo_snapshot.html", "en")
         self.assertIn("Capture &amp; save", en_body)

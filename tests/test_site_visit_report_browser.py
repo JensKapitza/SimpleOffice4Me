@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import re
 import tempfile
 import threading
 import unittest
@@ -14,6 +15,14 @@ from werkzeug.serving import make_server
 from app import app
 from app import db as database
 from app.site_visit_store import SiteVisitStore
+
+
+# Product UI renders English by default and German when the session pins
+# ``simpleoffice_language`` to ``de``. The saved-report link is located by
+# its stable ``/reports/`` href; the label assertion accepts both locales.
+_SAVED_REPORT_LABEL_RE = re.compile(r"(Download PDF again|PDF erneut herunterladen)")
+_COMPILE_REPORT_RE = re.compile(r"(Compile report|Bericht zusammenstellen)")
+_GENERATE_PDF_RE = re.compile(r"(Generate PDF|PDF erzeugen)")
 
 
 @unittest.skipUnless(importlib.util.find_spec("playwright"), "Playwright browser extra is required")
@@ -36,16 +45,16 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
         )
         with app.app_context():
             database.ensure_auth_database()
-        client = app.test_client()
-        client.post(
+        self.client = app.test_client()
+        self.client.post(
             "/auth/register",
             data={"username": "report-browser", "password": "site-visit-browser-passphrase"},
         )
-        client.post(
+        self.client.post(
             "/auth/login",
             data={"username": "report-browser", "password": "site-visit-browser-passphrase"},
         )
-        cookie = client.get_cookie(app.config.get("SESSION_COOKIE_NAME", "session"))
+        cookie = self.client.get_cookie(app.config.get("SESSION_COOKIE_NAME", "session"))
         self.assertIsNotNone(cookie)
         self.cookie = cookie.value
 
@@ -97,7 +106,7 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
                 page.on("pageerror", lambda error: page_errors.append(str(error)))
                 preview_url = f"{self.base_url}/site-visits/{self.visit['visit_id']}/report"
                 page.goto(preview_url)
-                expect(page.get_by_role("heading", name="Compile report")).to_be_visible()
+                expect(page.get_by_role("heading", name=_COMPILE_REPORT_RE)).to_be_visible()
                 checkboxes = page.locator("input[name='finding_id']")
                 self.assertEqual(32, checkboxes.count())
                 for checkbox in checkboxes.all():
@@ -105,7 +114,7 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
 
                 created_path = Path(self.temp.name) / "created-report.pdf"
                 with page.expect_download(timeout=70000) as download_info:
-                    page.get_by_role("button", name="Generate PDF").click()
+                    page.get_by_role("button", name=_GENERATE_PDF_RE).click()
                 download_info.value.save_as(created_path)
                 created_bytes = created_path.read_bytes()
                 self.assertGreater(len(created_bytes), 1000)
@@ -117,8 +126,10 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
                 self.assertIn("Synthetic finding 32", text)
 
                 page.goto(f"{self.base_url}/site-visits/{self.visit['visit_id']}")
-                saved_report_link = page.get_by_role("link", name="Download PDF again")
+                saved_report_link = page.locator('a[href*="/reports/"]')
+                expect(saved_report_link).to_have_count(1)
                 expect(saved_report_link).to_be_visible()
+                self.assertRegex(saved_report_link.inner_text(), _SAVED_REPORT_LABEL_RE)
                 saved_path = Path(self.temp.name) / "saved-report.pdf"
                 with page.expect_download(timeout=70000) as saved_info:
                     saved_report_link.click()
@@ -128,6 +139,27 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
             finally:
                 context.close()
                 browser.close()
+
+    def test_saved_report_link_labels_render_in_english_and_german(self) -> None:
+        """Saved-report re-download link exists in both locales (no browser)."""
+        entry = self.store.save_report_pdf(
+            self.visit["visit_id"], "report-browser", b"%PDF-1.4\n%EOF\n", []
+        )
+        detail_url = f"/site-visits/{self.visit['visit_id']}"
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        english = self.client.get(detail_url)
+        self.assertEqual(200, english.status_code)
+        english_body = english.get_data(as_text=True)
+        self.assertIn("Download PDF again", english_body)
+        self.assertIn(f"/reports/{entry['report_id']}.pdf", english_body)
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+        german = self.client.get(detail_url)
+        self.assertEqual(200, german.status_code)
+        german_body = german.get_data(as_text=True)
+        self.assertIn("PDF erneut herunterladen", german_body)
+        self.assertIn(f"/reports/{entry['report_id']}.pdf", german_body)
 
 
 if __name__ == "__main__":

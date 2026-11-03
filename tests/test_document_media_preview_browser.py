@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import io
+import re
 import tempfile
 import threading
 import unittest
@@ -16,6 +17,16 @@ from app import app
 from app import db as database
 from app.document_store import DocumentStore
 from app.preview_service import PreviewService
+
+
+# Product UI renders English by default and German when the session pins
+# ``simpleoffice_language`` to ``de``. Browser CI runs with a fresh session
+# (English); assertions accept both locales without dropping the functional
+# payload (fallback shown, no inline <pre>, truncation note).
+_UNSUPPORTED_TEXT_RE = re.compile(r"(kein unterstützter UTF-8-Text|not supported UTF-8)")
+_TRUNCATION_NOTE_RE = re.compile(r"300 (Zeilen|lines)")
+_DOWNLOAD_ORIGINAL_RE = re.compile(r"(Download original file|Originaldatei herunterladen)")
+_DOWNLOAD_PDF_RE = re.compile(r"(Download PDF|PDF herunterladen)")
 
 
 @unittest.skipUnless(importlib.util.find_spec("playwright"), "Playwright browser extra is required")
@@ -161,8 +172,8 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             self.assertEqual("metadata", player.get_attribute("preload"))
             self.assertEqual("video/mp4", player.locator("source").get_attribute("type"))
             self.assertEqual(0, panel.locator("img").count())
-            self.assertTrue(panel.get_by_role("link", name="Download original file").is_visible())
-            breadcrumbs = page.locator('nav[aria-label="Document path"] ol')
+            self.assertTrue(panel.get_by_role("link", name=_DOWNLOAD_ORIGINAL_RE).is_visible())
+            breadcrumbs = page.locator("nav ol.breadcrumb")
             self.assertIn("very-long-folder-name", breadcrumbs.inner_text())
             self.assertLessEqual(
                 breadcrumbs.evaluate("node => node.scrollWidth"),
@@ -183,9 +194,9 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             pdf_document = self.documents["pdf"]
             page.goto(f"{self.base_url}/documents/{pdf_document['document_id']}")
             pdf_panel = page.locator("#document-preview")
-            self.assertTrue(pdf_panel.locator('iframe[title^="PDF preview"]').is_visible())
+            self.assertTrue(pdf_panel.locator("iframe").is_visible())
             self.assertEqual(0, pdf_panel.locator("img").count())
-            self.assertTrue(pdf_panel.get_by_role("link", name="Download PDF").is_visible())
+            self.assertTrue(pdf_panel.get_by_role("link", name=_DOWNLOAD_PDF_RE).is_visible())
 
             image_document = self.documents["image"]
             page.goto(f"{self.base_url}/documents/{image_document['document_id']}")
@@ -237,12 +248,16 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             binary_document = self.documents["binary_text"]
             page.goto(f"{self.base_url}/documents/{binary_document['document_id']}")
             self.assertEqual(0, page.locator("#document-preview pre").count())
-            self.assertIn("not supported UTF-8 text", page.locator("#document-preview").inner_text())
+            self.assertRegex(
+                page.locator("#document-preview").inner_text(), _UNSUPPORTED_TEXT_RE
+            )
 
             invalid_document = self.documents["invalid_text"]
             page.goto(f"{self.base_url}/documents/{invalid_document['document_id']}")
             self.assertEqual(0, page.locator("#document-preview pre").count())
-            self.assertIn("not supported UTF-8 text", page.locator("#document-preview").inner_text())
+            self.assertRegex(
+                page.locator("#document-preview").inner_text(), _UNSUPPORTED_TEXT_RE
+            )
 
             large_document = self.documents["large_text"]
             page.goto(f"{self.base_url}/documents/{large_document['document_id']}")
@@ -252,7 +267,9 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             long_document = self.documents["long_text"]
             page.goto(f"{self.base_url}/documents/{long_document['document_id']}")
             self.assertEqual(300, len(page.locator("#document-preview pre").inner_text().splitlines()))
-            self.assertIn("300 lines", page.locator("#document-preview").inner_text())
+            self.assertRegex(
+                page.locator("#document-preview").inner_text(), _TRUNCATION_NOTE_RE
+            )
         finally:
             context.close()
             browser.close()
