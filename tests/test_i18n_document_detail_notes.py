@@ -56,6 +56,42 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         return response.get_data(as_text=True)
 
+    def _get_image(self, document_id: str, language: str) -> str:
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = language
+        response = self.client.get(f"/documents/{document_id}")
+        self.addCleanup(response.close)
+        self.assertEqual(200, response.status_code)
+        return response.get_data(as_text=True)
+
+    def _import_png(self) -> str:
+        try:
+            from PIL import Image
+        except ImportError:
+            self.skipTest("Pillow is not installed")
+        source = Path(self.temp.name) / "pixel.png"
+        Image.new("RGB", (4, 2), "white").save(source)
+        target = self.store.import_file(source, actor="notes-tester")
+        return self.store.get_document(target)["document_id"]
+
+    def test_image_analysis_english(self) -> None:
+        body = self._get_image(self._import_png(), "en")
+        for expected in (
+            "Image analysis",
+            "Dimensions",
+            "Re-analyze EXIF / OCR",
+        ):
+            self.assertIn(expected, body)
+
+    def test_image_analysis_german(self) -> None:
+        body = self._get_image(self._import_png(), "de")
+        for expected in (
+            "Bildanalyse",
+            "Abmessungen",
+            "EXIF / OCR erneut analysieren",
+        ):
+            self.assertIn(expected, body)
+
     def test_notes_linking_english(self) -> None:
         body = self._get("en")
         for expected in (

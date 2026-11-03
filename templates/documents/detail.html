@@ -276,20 +276,20 @@
 </form>
 </div>
 </div>{% if document.image_analysis %}<div class="card mb-4">
-<div class="card-header">Bildanalyse</div>
+<div class="card-header">{{ 'Image analysis' if g.language == 'en' else 'Bildanalyse' }}</div>
 <div class="card-body">
 <dl class="row small mb-2">
 <dt class="col-5">Format</dt>
 <dd class="col-7">{{ document.image_analysis.format|default('?') }}</dd>
-<dt class="col-5">Abmessungen</dt>
+<dt class="col-5">{{ 'Dimensions' if g.language == 'en' else 'Abmessungen' }}</dt>
 <dd class="col-7">{{ document.image_analysis.width|default('?') }} × {{ document.image_analysis.height|default('?') }} px</dd>
 <dt class="col-5">OCR</dt>
-<dd class="col-7">{{ document.image_analysis.ocr_status|default('nicht ausgeführt') }}{% if document.image_analysis.ocr_characters %} · {{ document.image_analysis.ocr_characters }} Zeichen{% endif %}</dd>{% for key, value in document.image_analysis.exif|default({})|dictsort %}<dt class="col-5 text-break">{{ key }}</dt>
+<dd class="col-7">{{ document.image_analysis.ocr_status|default('not run' if g.language == 'en' else 'nicht ausgeführt') }}{% if document.image_analysis.ocr_characters %} · {{ document.image_analysis.ocr_characters }} {{ 'characters' if g.language == 'en' else 'Zeichen' }}{% endif %}</dd>{% for key, value in document.image_analysis.exif|default({})|dictsort %}<dt class="col-5 text-break">{{ key }}</dt>
 <dd class="col-7 text-break">{{ value }}</dd>{% endfor %}</dl>{% if document.ocr_text %}<details>
-<summary>Erkannter Text</summary>
+<summary>{{ 'Recognized text' if g.language == 'en' else 'Erkannter Text' }}</summary>
 <pre class="small text-wrap mt-2 mb-0">{{ document.ocr_text }}</pre>
 </details>{% endif %}<form method="post" class="mt-3" action="{{ url_for('documents.analyze_image', document_id=document.document_id) }}">
-<button type="submit" class="btn btn-sm btn-outline-primary">EXIF / OCR erneut analysieren</button>
+<button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Re-analyze EXIF / OCR' if g.language == 'en' else 'EXIF / OCR erneut analysieren' }}</button>
 </form>
 </div>
 </div>{% endif %}<div class="card mb-4">
