@@ -2,7 +2,7 @@
 
 **Historische Hackathon-Baseline:** `af5a600bae1f526e61198edbec4d9022e742f228` (`main` am 26.10.2026, Merge PR #868)
 **Integration:** `hackathon/contextflow-mvp` wurde am 03.11.2026 per PR #971 in `main` übernommen (Merge-Commit `9f09a863efc113b9ff483ecf22bcb5180688694a`); der Branch wurde nicht rebased.
-**Aktueller Arbeitsbranch:** `hackai/inventory-batch-20261103`, basiert auf `origin/main` `6465f52ee9098edf6101232631601effedbf9b0f`, lokal 8 Commits voraus, noch nicht gepusht.
+**Aktueller Arbeitsbranch:** `hackai/inventory-batch-20261103`, basiert auf `origin/main` `6465f52ee9098edf6101232631601effedbf9b0f`; Capture-Folgeänderungen sind lokal und noch nicht gepusht.
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
 **Stand (03.11., Capture-Härtung, Branch `hackai/inventory-batch-20261103`,
 committed `150b1918`):** Geprüfter Port der Hands-on-Fixes aus Referenz-Worktree
@@ -34,7 +34,7 @@ Routen-Suiten in diesem Worktree NICHT verifiziert (Test-Login scheitert an
 behauptet). Preis-Vorschläge bleiben offene Lücke (bewusst kein Scope dieses
 Slices).
 **Folge (03.11., Marktpreis im Review, Branch `hackai/inventory-batch-20261103`,
-committed `754c689c` (lokal, nicht gepusht):** Batch-Review nutzt `GET /inventory/marketplace/search`
+committed `754c689c`, lokal nicht gepusht):** Batch-Review nutzt `GET /inventory/marketplace/search`
 (kein neuer Scraper); Klick-Suche, Treffer mit Anbieter/Preis/Quelle/Link,
 „Preis übernehmen“ nur bei numerischem Preis (sonst deaktiviert), eigene
 Werte nur mit „Ersetzen“-Haken überschrieben. Adopt speichert
@@ -62,7 +62,7 @@ Titel-Case-Probe, `test_adopt_rejects_negative_marketplace_price`,
 Policy-/Diff-/Node-Gates grün; Routen-Suiten (Login) hier nicht
 verifizierbar (`PermissionError` Auth-Speicher) — kein Grün behauptet.
 **Korrektur (03.11., kein Inventarabgleich, Branch
-`hackai/inventory-batch-20261103`, committed `d0dc7d48` (local, not pushed)):** Codex-Fund bestätigt —
+`hackai/inventory-batch-20261103`, committed `d0dc7d48`, lokal nicht gepusht):** Codex-Fund bestätigt —
 `peer_stock.py` liest nur lokale Dokumentenindex-Kopien
 (`FederationCatalog.remote_files`); kein `ObjectStore`-Zugriff in
 irgendeiner Föderations-/Resource-Datei, also existiert keine geteilte
