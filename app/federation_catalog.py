@@ -114,6 +114,25 @@ class FederationCatalog:
                     ON federation_download_request(status, next_attempt_at, created_at);
                 CREATE INDEX IF NOT EXISTS federation_download_remote
                     ON federation_download_request(peer_id, remote_document_id, status);
+                CREATE TABLE IF NOT EXISTS federation_inventory_peer(
+                    peer_id TEXT PRIMARY KEY,
+                    generation TEXT NOT NULL DEFAULT '',
+                    last_index_at INTEGER,
+                    last_index_error TEXT NOT NULL DEFAULT '',
+                    updated_at INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS federation_remote_item(
+                    peer_id TEXT NOT NULL,
+                    identifier TEXT NOT NULL,
+                    identifier_type TEXT NOT NULL DEFAULT '',
+                    display_name TEXT NOT NULL DEFAULT '',
+                    available INTEGER NOT NULL DEFAULT 1,
+                    generation TEXT NOT NULL DEFAULT '',
+                    indexed_at INTEGER NOT NULL,
+                    PRIMARY KEY(peer_id, identifier)
+                );
+                CREATE INDEX IF NOT EXISTS federation_remote_item_lookup
+                    ON federation_remote_item(peer_id, identifier);
                 CREATE TABLE IF NOT EXISTS federation_download_event(
                     event_id INTEGER PRIMARY KEY AUTOINCREMENT,
                     request_id TEXT NOT NULL DEFAULT '',
@@ -151,6 +170,138 @@ class FederationCatalog:
         with self._db() as db:
             row = db.execute("SELECT * FROM federation_catalog_peer WHERE peer_id=?", (peer_id,)).fetchone()
         return dict(row) if row else {}
+
+    def _ensure_inventory_peer(self, peer_id: str) -> str:
+        peer_id = sanitize_peer_id(peer_id)
+        with self._db() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO federation_inventory_peer(peer_id,updated_at) VALUES(?,?)",
+                (peer_id, _now()),
+            )
+        return peer_id
+
+    def inventory_state(self, peer_id: str) -> dict[str, Any]:
+        peer_id = self._ensure_inventory_peer(peer_id)
+        with self._db() as db:
+            row = db.execute("SELECT * FROM federation_inventory_peer WHERE peer_id=?", (peer_id,)).fetchone()
+        return dict(row) if row else {}
+
+    def begin_inventory_index(self, peer_id: str, generation: str) -> None:
+        peer_id = self._ensure_inventory_peer(peer_id)
+        with self._db() as db:
+            db.execute(
+                "UPDATE federation_inventory_peer SET generation=?,last_index_error='',updated_at=? WHERE peer_id=?",
+                (generation[:160], _now(), peer_id),
+            )
+        self.record_event("inventory_index_sync_started", peer_id=peer_id, detail={"generation": generation})
+
+    def ingest_inventory(self, peer_id: str, generation: str, rows: list[dict[str, Any]]) -> int:
+        """Store synced inventory rows; unknown or oversized shapes are skipped.
+
+        Only canonical ISBN/GTIN identifiers with a short display name
+        are accepted — anything else fails closed without an error so
+        one malformed row cannot poison a whole sync.
+        """
+        peer_id = self._ensure_inventory_peer(peer_id)
+        timestamp = _now()
+        inserted = 0
+        with self._db() as db:
+            for item in rows:
+                if not isinstance(item, dict):
+                    continue
+                raw_identifier = str(item.get("identifier", "") or "").strip()
+                if not raw_identifier or len(raw_identifier) > 120:
+                    continue
+                identifier_type = str(item.get("identifier_type", "") or "").strip()
+                if identifier_type not in {"isbn", "gtin"}:
+                    continue
+                identifier = raw_identifier
+                display_name = " ".join(str(item.get("display_name", "") or "").split())[:160]
+                db.execute(
+                    """INSERT INTO federation_remote_item(
+                           peer_id,identifier,identifier_type,display_name,available,
+                           generation,indexed_at
+                       ) VALUES(?,?,?,?,?,?,?)
+                       ON CONFLICT(peer_id,identifier) DO UPDATE SET
+                         identifier_type=excluded.identifier_type,
+                         display_name=excluded.display_name,available=1,
+                         generation=excluded.generation,indexed_at=excluded.indexed_at""",
+                    (peer_id, identifier, identifier_type, display_name, 1, generation[:160], timestamp),
+                )
+                inserted += 1
+        return inserted
+
+    def finish_inventory_index(self, peer_id: str, generation: str) -> None:
+        peer_id = self._ensure_inventory_peer(peer_id)
+        timestamp = _now()
+        with self._db() as db:
+            db.execute(
+                "UPDATE federation_remote_item SET available=0 WHERE peer_id=? AND generation<>?",
+                (peer_id, generation[:160]),
+            )
+            db.execute(
+                "UPDATE federation_inventory_peer SET generation=?,last_index_at=?,last_index_error='',updated_at=? WHERE peer_id=?",
+                (generation[:160], timestamp, timestamp, peer_id),
+            )
+        self.record_event("inventory_index_sync_completed", peer_id=peer_id, detail={"generation": generation})
+
+    def fail_inventory_index(self, peer_id: str, error: str) -> None:
+        peer_id = self._ensure_inventory_peer(peer_id)
+        with self._db() as db:
+            db.execute(
+                "UPDATE federation_inventory_peer SET last_index_error=?,updated_at=? WHERE peer_id=?",
+                (str(error)[:1000], _now(), peer_id),
+            )
+        self.record_event("inventory_index_sync_failed", peer_id=peer_id, detail={"error": str(error)[:500]})
+
+    def purge_peer_inventory(self, peer_id: str) -> dict[str, Any]:
+        """Permanently delete one peer's local inventory index copy.
+
+        Transactional: rows and the peer's index state are removed in a
+        single commit, so consent revocation, peer deletion, or a
+        remote 403 never leaves stale personal data behind. Afterwards
+        the peer reports as not synced without any stored rows.
+        """
+        peer_id = self._ensure_inventory_peer(peer_id)
+        with self._db() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS removed FROM federation_remote_item WHERE peer_id=?",
+                (peer_id,),
+            ).fetchone()
+            removed = int(row["removed"]) if row else 0
+            db.execute("DELETE FROM federation_remote_item WHERE peer_id=?", (peer_id,))
+            db.execute(
+                "UPDATE federation_inventory_peer SET generation='',last_index_at=NULL,last_index_error='',updated_at=? WHERE peer_id=?",
+                (_now(), peer_id),
+            )
+        if removed:
+            self.record_event("inventory_index_purged", peer_id=peer_id, detail={"removed": removed})
+        return {"peer_id": peer_id, "removed": removed}
+
+    def remote_inventory_items(self, peer_id: str, identifier: str = "") -> list[dict[str, Any]]:
+        """Return synced inventory rows, optionally filtered to one identifier."""
+        peer_id = sanitize_peer_id(peer_id)
+        key = str(identifier or "").strip()[:120]
+        with self._db() as db:
+            if key:
+                rows = db.execute(
+                    "SELECT * FROM federation_remote_item WHERE peer_id=? AND identifier=? ORDER BY identifier",
+                    (peer_id, key),
+                ).fetchall()
+            else:
+                rows = db.execute(
+                    "SELECT * FROM federation_remote_item WHERE peer_id=? ORDER BY identifier LIMIT 5000",
+                    (peer_id,),
+                ).fetchall()
+        return [
+            {
+                "peer_id": row["peer_id"], "identifier": row["identifier"],
+                "identifier_type": row["identifier_type"], "display_name": row["display_name"],
+                "available": bool(row["available"]), "generation": row["generation"],
+                "indexed_at": row["indexed_at"],
+            }
+            for row in rows
+        ]
 
     def begin_index(self, peer_id: str, generation: str) -> None:
         peer_id = self._ensure_peer(peer_id)

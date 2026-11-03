@@ -66,6 +66,137 @@ def title_lines(text: str, limit: int = _MAX_TITLE_LINES) -> list[str]:
     return lines
 
 
+_NAME_WORD_RE = re.compile(r"[A-ZÄÖÜ][a-zäöüß]+(?:[.'\-][A-ZÄÖÜa-zäöüß]+)*$")
+_NON_TITLE_LINE_RE = re.compile(r"^[\d\s\-–—.,:;!?/()×x|]+$")
+_MIN_HIERARCHY_CONFIDENCE = 0.6
+_MIN_TITLE_CONFIDENCE = 0.8
+_TITLE_RUN_RATIO = 0.6
+_TITLE_DOMINANCE_RATIO = 1.5
+_MAX_AUTHOR_LINES = 2
+_MAX_SUBTITLE_LINES = 2
+
+
+def _hierarchy_line(block: Any) -> dict[str, Any] | None:
+    """Normalize one OCR block into a candidate cover line or drop it."""
+    if not isinstance(block, dict):
+        return None
+    text = " ".join(str(block.get("text", "") or "").split())[:_MAX_LINE]
+    if len(text) < 2 or isbn_from_text(text):
+        return None
+    if _NON_TITLE_LINE_RE.match(text):
+        return None
+    try:
+        confidence = float(block.get("confidence", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if confidence < _MIN_HIERARCHY_CONFIDENCE:
+        return None
+    points = block.get("box") or []
+    xs = [float(p[0]) for p in points if len(p) > 0]
+    ys = [float(p[1]) for p in points if len(p) > 1]
+    if len(xs) < 3 or len(ys) < 3:
+        return None
+    return {
+        "text": text,
+        "confidence": confidence,
+        "center_y": sum(ys) / len(ys),
+        "center_x": sum(xs) / len(xs),
+        "height": max(ys) - min(ys),
+    }
+
+
+def _looks_like_name(text: str) -> bool:
+    """Conservative person-name shape (2+ capitalized words, no digits)."""
+    words = text.split()
+    if len(words) < 2 or len(text) > 80:
+        return False
+    if any(char.isdigit() for char in text):
+        return False
+    return all(bool(_NAME_WORD_RE.match(word)) for word in words)
+
+
+def split_cover_hierarchy(blocks: Any) -> dict[str, Any]:
+    """Split OCR blocks into author, title and subtitle (pure, fail-closed).
+
+    Cover typography — not text order — decides: the tallest line and its
+    similarly tall neighbours form the title, a smaller name-shaped line
+    directly above forms the author, smaller lines directly below form the
+    subtitle. Without usable block geometry (or without a clearly dominant
+    title) every field stays empty and ``title_confident`` is False, so the
+    caller never mistakes an author line for a book title. Real cover text
+    is never hardcoded here; only relative sizes, positions and confidence
+    thresholds steer the split.
+    """
+    empty = {
+        "title": "", "subtitle": "", "authors": [],
+        "title_confident": False, "title_evidence": "",
+    }
+    if not isinstance(blocks, list):
+        return dict(empty)
+    lines = []
+    for block in blocks:
+        line = _hierarchy_line(block)
+        if line and line["height"] > 0:
+            lines.append(line)
+    if len(lines) < 2:
+        return dict(empty)
+    lines.sort(key=lambda item: (item["center_y"], item["center_x"]))
+    tallest = max(lines, key=lambda item: item["height"])
+    smallest_title_height = tallest["height"] * _TITLE_RUN_RATIO
+    title_idx = lines.index(tallest)
+    top = title_idx
+    while top - 1 >= 0 and lines[top - 1]["height"] >= smallest_title_height:
+        top -= 1
+    bottom = title_idx
+    while (
+        bottom + 1 < len(lines)
+        and lines[bottom + 1]["height"] >= smallest_title_height
+    ):
+        bottom += 1
+    title_run = lines[top:bottom + 1]
+    if any(item["confidence"] < _MIN_TITLE_CONFIDENCE for item in title_run):
+        return dict(empty)
+    rest = [item for item in lines if item not in title_run]
+    if not rest:
+        return dict(empty)
+    median_rest = sorted(item["height"] for item in rest)[len(rest) // 2]
+    if min(item["height"] for item in title_run) < (
+        median_rest * _TITLE_DOMINANCE_RATIO
+    ):
+        return dict(empty)
+    authors: list[str] = []
+    for item in lines[:top]:
+        if item["height"] >= smallest_title_height:
+            return dict(empty)
+        if _looks_like_name(item["text"]):
+            authors.append(item["text"])
+        if len(authors) >= _MAX_AUTHOR_LINES:
+            break
+    subtitle_parts: list[str] = []
+    for item in lines[bottom + 1:]:
+        if len(subtitle_parts) >= _MAX_SUBTITLE_LINES:
+            break
+        if item["height"] >= min(
+            run_item["height"] for run_item in title_run
+        ):
+            break
+        subtitle_parts.append(item["text"])
+    title = " ".join(item["text"] for item in title_run)
+    evidence = (
+        f"{len(title_run)} Zeile(n), Höhe "
+        f"{min(item['height'] for item in title_run):.0f}-"
+        f"{max(item['height'] for item in title_run):.0f}px, "
+        f"Konfidenz {min(item['confidence'] for item in title_run):.2f}"
+    )
+    return {
+        "title": title,
+        "subtitle": " ".join(subtitle_parts),
+        "authors": authors,
+        "title_confident": True,
+        "title_evidence": evidence,
+    }
+
+
 def route_kind(
     isbn: str, ml_label: str, ml_available: bool, ml_item_type: str = ""
 ) -> dict[str, Any]:

@@ -1,8 +1,141 @@
 # ContextFlow – STATUS (Neu-gegen-Alt-Nachweis)
 
-**Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
-**Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
+**Historische Hackathon-Baseline:** `af5a600bae1f526e61198edbec4d9022e742f228` (`main` am 26.10.2026, Merge PR #868)
+**Integration:** `hackathon/contextflow-mvp` wurde am 03.11.2026 per PR #971 in `main` übernommen (Merge-Commit `9f09a863efc113b9ff483ecf22bcb5180688694a`); der Branch wurde nicht rebased.
+**Aktueller Arbeitsbranch:** `hackai/inventory-batch-20261103`, basiert auf `origin/main` `6465f52ee9098edf6101232631601effedbf9b0f`; Capture-Folgeänderungen sind lokal und noch nicht gepusht.
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
+**Stand (03.11., Capture-Härtung, Branch `hackai/inventory-batch-20261103`,
+committed `150b1918`):** Geprüfter Port der Hands-on-Fixes aus Referenz-Worktree
+`inventory-batch-20261030` (nur Lücken, keine Doppelarbeit): Batch-Re-Analyse
+antwortet wieder mit Regalen + Zuordnungs-URL (shared `_batch_review_extras`
+für Ansicht und Re-Analyse), Gruppen-Review zeigt Duplikate mit
+Direkt-Zuordnung auf vorhandenes Buch, „Fortsetzen"-Knopf nimmt eine
+Buchgruppe nach Reload wieder auf, Seiten-Checkbox wirkt auch bei
+Einzel-Upload/Re-Analyse. Anpassung an Main: Consent-Tests auf
+Fehler-Redaktionsvertrag umgestellt (keine Provider-Details im Payload),
+`capture_ml_label`-Docstring-Hunk entfällt (Funktion liegt in
+`inventory_capture_vision.py`). Verifiziert: Batch+UI 43/43 OK (6 neu),
+Nachbar-Capture-Suiten 137/137 OK, Policy/File-/Function-Size/compileall/
+diff-check/node-check grün. Kein Live-Spark-Aufruf, keine Browser-/Kamera-
+Abnahme (Eigentümer-Schritte). Issues #658/#767 bleiben offen — keine volle
+Erledigung behauptet.
+**Folge (03.11., Batch-Reihenfolge, Branch `hackai/inventory-batch-20261103`,
+committed `5ed867bd` (local, not pushed)):** Root-Cause-Fix für gekippte Aufnahmereihenfolge: zwei Fotos
+können denselben `created_at`-Stempel tragen, danach sortierte `list_batch`
+nach zufälliger `entry_id`. Neu: persistierte Positionsnummer `batch_seq`,
+unter dem bestehenden Schreib-Lock vergeben (`create`: fortlaufend je
+Akteur+Gruppe; `set_batch`: Umzug ans Gruppenende, Entgruppieren löscht die
+Nummer); Altbestände ohne Nummer bleiben lesbar und sortieren weiter nach
+Zeitstempel. Verifiziert (Muse + Codex unabhängig): `BatchStoreTests`,
+`BatchCombineTests` und beide Capture-UI-Klassen, 25/25 OK, darunter der neue
+Freeze-Test `test_capture_order_survives_shared_timestamp`. Breitere
+Routen-Suiten in diesem Worktree NICHT verifiziert (Test-Login scheitert an
+`PermissionError` auf geschütztem Auth-Speicher; Lauf abgebrochen, kein Grün
+behauptet). Preis-Vorschläge bleiben offene Lücke (bewusst kein Scope dieses
+Slices).
+**Folge (03.11., Marktpreis im Review, Branch `hackai/inventory-batch-20261103`,
+committed `754c689c`, lokal nicht gepusht):** Batch-Review nutzt `GET /inventory/marketplace/search`
+(kein neuer Scraper); Klick-Suche, Treffer mit Anbieter/Preis/Quelle/Link,
+„Preis übernehmen“ nur bei numerischem Preis (sonst deaktiviert), eigene
+Werte nur mit „Ersetzen“-Haken überschrieben. Adopt speichert
+`market_price`/`currency`/`price_source` (URL nie, `price_source` nie ohne
+Preis). Codex-Fund behoben (BOM/Mojibake raus, Tests in
+`test_inventory_capture_price.py`, `capture_marketplace.js` separiert).
+Verifiziert: Store/Combine/Price/UI 34/34 OK, Size-/Function-/Policy-/
+Diff-/Node-Gates grün; Routen-Suiten hier nicht verifizierbar
+(`PermissionError` Auth-Speicher).
+**Folge (03.11., Freundesbestand + Preis-Fail-closed, Branch
+`hackai/inventory-batch-20261103`, committed `41cd9dfd` (local, not pushed)):** Batch-Review prüft auf
+Klick den Bestand freigegebener Freundeskataloge vor einem Nachkauf —
+wiederverwendet `POST /contextflow/peer-stock-check` (Trust-Kante +
+Freigabe-Opt-in, nur lokale Indexkopien, kein Netzwerk, keine stillen
+Abfragen). Titelabfragen bewusst nicht angeboten: Endpoint matcht Titel nur
+bei exakt gleicher Schreibweise (`clean_identifier` ohne Case-Faltung;
+`find_exact_matches` konsultiert Titel nie) — UI deshalb ISBN/Barcode-only,
+unsynced/fehlerhafte Kataloge als „keine Aussage“. Preis-Übernahme
+fail-closed: gültig nur endlich ≥ 0 (deutsches/englisches Format),
+Währung normalisiert (A–Z, max. 3), Quelle Anbieter-gebunden; Backend
+(`money`) bleibt maßgeblich und verwirft negativ/ungültig mit 400.
+Verifiziert: PeerStore/Store/Combine/Price/UI 40/40 OK (neu: exakte
+Titel-Case-Probe, `test_adopt_rejects_negative_marketplace_price`,
+`test_marketplace_price_take_is_fail_closed` u. a.), Size-/Function-/
+Policy-/Diff-/Node-Gates grün; Routen-Suiten (Login) hier nicht
+verifizierbar (`PermissionError` Auth-Speicher) — kein Grün behauptet.
+**Korrektur (03.11., kein Inventarabgleich, Branch
+`hackai/inventory-batch-20261103`, committed `d0dc7d48`, lokal nicht gepusht):** Codex-Fund bestätigt —
+`peer_stock.py` liest nur lokale Dokumentenindex-Kopien
+(`FederationCatalog.remote_files`); kein `ObjectStore`-Zugriff in
+irgendeiner Föderations-/Resource-Datei, also existiert keine geteilte
+Inventarquelle. Capture-Review spricht nun ehrlich von „Geteilte Dokumente
+suchen“; Treffer sind Dokumenthinweise, kein Besitznachweis. Offene
+Anforderung: echter Peer-Inventarabgleich braucht einen neuen
+Opt-in-Index-Scope (Produktkennung + Anzeigename, Default-Deny pro Peer,
+nur lokal synchronisiert) — Protokollerweiterung, bewusst nicht in diesem
+Slice. Detailseite (`detail.html`, „Bestand bei Freunden prüfen“) nutzt die
+gleiche Route und bleibt vorerst unverändert.
+**Umsetzung (03.11., echter Peer-Inventarabgleich, Branch
+`hackai/inventory-batch-20261103`, committed `b432ab3e` (local, not pushed)):** Eigener Index-Scope
+`sofp-inventory-index/v1`: Serving-Seite liefert nur kanonische ISBN/GTIN
++ neutralen Anzeigenamen aktiver Objekte (kein Preis/Standort/Notiz/Bild,
+keine Doku-Inhalte, keine Eigentümerdaten); Sync-Seite zieht nur mit
+explizitem `policy.inventory.receive is True` (Default deny, kein Netz
+ohne Freigabe); Abfrage nur lokal + exakt, unsynced/fehlerhaft = keine
+Aussage; Widerruf/Objektlöschung/Peer-Deaktivierung/Opt-out entfernen
+Treffer (Generationswechsel → available=0, fehlende Freigabe → Ausschluss).
+Admin: Inventar-Send/Empfang-Checkboxen (Standard aus) + Sync-Button pro
+Peer; CLI `federation-sync-indexes` zieht zusätzlich Inventarindizes.
+Capture-Review zeigt „Freundesbestand (Inventarabgleich)“ per Klick.
+Routen `peer-stock-check` + `peer-inventory-check` in `peer_check_web.py`
+(Etagen-Muster wie `position_web.py`), URLs/Verhalten unverändert.
+Verifiziert: 75/75 gezielte Tests (Index, Sync-Gates, Abfrage incl.
+Default-deny-Matrix + Widerruf, Store/Combine/Price/UI/Marketplace),
+Size-/Function-/Policy-/Diff-/Node-Gates grün (web.py-Split hält
+1000-Zeilen-Limit), Routen-Registrierung per `url_map` belegt;
+Routen-Suiten (Login) und Browser-E2E hier nicht ausführbar
+(`PermissionError` Auth-Speicher) — kein Grün behauptet.
+**Folge (03.11., sichere Löschung bei Widerruf, Branch
+`hackai/inventory-batch-20261103`, committed `31ae1d42` (local, not pushed)):** Transaktionale
+`purge_peer_inventory` löscht Zeilen + Indexstand in einem Commit;
+aufgerufen bei Freigabe-Rücknahme (save_peer ohne Receive/Deaktivierung),
+Peer-Löschung, Trust-Widerruf, Sync ohne Freigabe und Remote-403
+(Zugriff entzogen). Temporäre Netz-/Schemafehler behalten die letzte
+Kopie, melden aber Fehler (Status unbekannt, keine Trefferbehauptung).
+Verifiziert: 83/83 gezielte Tests OK (inkl. 8 neuer Purge-Tests),
+Size-/Function-/Policy-/Compile-/Diff-/Node-Gates grün; Routen-Suiten
+(Login) und Browser-E2E nicht ausführbar — kein Grün behauptet.
+**Folge (03.11., OCR-Titelhierarchie + Kleinstbild-Upscale, Branch
+`hackai/inventory-batch-20261103`, committed `444b8da4` (local, not pushed)):** Root-Cause-Fix
+dafür, dass `title_lines[0]` (Autorzeile) als Buchtitel vorausgefüllt wurde: `split_cover_hierarchy`
+entscheidet nach Typografie statt Textreihenfolge (größte Zeile + Nachbarn = Titel, kleinere
+Namenszeile darüber = Autor, kleinere darunter = Untertitel), nur bei klarer Evidenz
+(Konfidenz ≥ 0,80, Dominanz ≥ 1,5× Median), sonst bleibt der Titel leer und fehlend.
+`capture_ocr` reicht Blöcke durch und skaliert nur Kleinstbilder (< 900 px, 2× LANCZOS,
+fail-soft); echte Handyfotos bleiben unverändert. Realnachweis lokal auf dem Nutzer-Cover
+(306×466 px, Datei nie im Repo): Titel „UNNÜTZES WISSEN" mit Ü = U+00DC per Codepoint-Nachweis,
+Autor erkannt, Untertitel mit OCR-Typo wörtlich ans Review (keine Autokorrektur); Baseline und
+Upscale liefern identischen Titel (direkter PIL-Pfad: Konfidenz 0,9543 → 0,9853, 14 Blöcke,
+Kleindruck-Zeile lesbar; produktionsnaher Pfad `optimize_upload` → `capture_ocr`: 0,9602 → 0,9779,
+13 Blöcke, unabhängig von Codex gemessen und hier läuferseitig bestätigt, Titel/Autor identisch).
+Der Untertitel-Kleindruck schwankt läuferseitig (o/p-Wechsel, ß→B), Titel und Autor sind
+in allen Läufen stabil.
+Verifiziert: 79/79 gezielte Capture-Tests OK — eng begrenzt auf diese Auswahl/Umgebung
+(Batch+Price+OCR-Hierarchie+Inbox im Worktree mit SimpleOffice4Me-.venv; 12 neu, erfundene
+Texte; alter Inbox-Test auf fail-closed umgestellt, separater Positiv-Test mit Evidenz);
+Policy-/File-/Function-Size-/Compile-/Diff-Gates grün. Eigenterseitige Gegenprüfung:
+reines OCR-Hierarchie-Modul 12/12 grün; kombinierte OCR+Inbox-Ausführung 40 Tests/15 Fehler
+durch `PermissionError` an `instance/installation-id.lock` und Login-/Auth-Speicher im
+geschützten Pfad — Routen-Suiten damit beidseitig unbestätigt, 79/79 ist kein Routen-Nachweis.
+Kein Live-Bildinferenz-Aufruf in diesem Slice (Key und Modell
+`muse-spark-1.3-contributor` eigenterseitig per offiziellem Meta-GET `/v1/models` geprüft;
+kein Keywert, kein Nutzinhalt im Log), keine Kamera-Abnahme.
+**Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
+bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
+die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,
+Capture-UI- und Marketplace-Tests bestanden mit dem verfügbaren Python
+3.12.14. Policy-, Datei-/Funktionsgrößen-, Compileall-, Node-Syntax- und
+Diff-Whitespace-Gates ebenfalls bestanden. Das belegt nicht die blockierende
+Python-Matrix 3.11/3.14; Routen-/Login-Suiten und Browser-E2E blieben wegen
+des geschützten Auth-Speichers bzw. fehlender Browser-Abnahme offen.
 **Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
 `origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
 (9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5

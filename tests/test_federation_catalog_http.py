@@ -21,8 +21,14 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.app.register_blueprint(bp)
         self.context = self.app.app_context()
         self.context.push()
+        # Settings live outside DOCUMENT_ROOT in production (user-home
+        # config dir); keep the fixture the same so store.scan() does not
+        # index the settings file as a document.
+        self.settings_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.settings_temp.cleanup)
         self._store_patcher = patch.object(
-            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+            app_config_store, "settings_path",
+            return_value=Path(self.settings_temp.name) / "app-config.json",
         )
         self._store_patcher.start()
         self.addCleanup(self._store_patcher.stop)
