@@ -150,7 +150,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertTrue(page.locator("#archive").is_enabled())
                 self.assertEqual("files", page.locator("#document-files").get_attribute("name"))
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Dateiimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text("File import completed")
             finally:
                 context.close()
                 browser.close()
@@ -339,7 +339,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
                 page.locator("#document-upload-form button[type=submit]").click()
                 expect(page.locator("#document-selection")).to_contain_text(
-                    "Import nach 100 von 1001 Dateien angehalten"
+                    "Import paused after 100 of 1001 files"
                 )
                 self.assertEqual(1, len(page.evaluate("window.uploadBatches")))
                 import_id = page.evaluate("window.uploadBatches[0].importId")
@@ -399,7 +399,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 )
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Dateiimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text("File import completed")
                 file_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(11, len(file_import))
                 self.assertEqual(1001, sum(batch["count"] for batch in file_import))
@@ -426,7 +426,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 supported = page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input")
                 self.assertEqual(not supported, page.locator("#pick-document-folder").is_disabled())
                 if not supported:
-                    self.assertIn("nicht unterstützt", page.locator("#pick-document-folder").get_attribute("title"))
+                    self.assertIn("not supported", page.locator("#pick-document-folder").get_attribute("title"))
             finally:
                 context.close()
                 browser.close()

@@ -237,12 +237,12 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             binary_document = self.documents["binary_text"]
             page.goto(f"{self.base_url}/documents/{binary_document['document_id']}")
             self.assertEqual(0, page.locator("#document-preview pre").count())
-            self.assertIn("kein unterstützter UTF-8-Text", page.locator("#document-preview").inner_text())
+            self.assertIn("not supported UTF-8 text", page.locator("#document-preview").inner_text())
 
             invalid_document = self.documents["invalid_text"]
             page.goto(f"{self.base_url}/documents/{invalid_document['document_id']}")
             self.assertEqual(0, page.locator("#document-preview pre").count())
-            self.assertIn("kein unterstützter UTF-8-Text", page.locator("#document-preview").inner_text())
+            self.assertIn("not supported UTF-8 text", page.locator("#document-preview").inner_text())
 
             large_document = self.documents["large_text"]
             page.goto(f"{self.base_url}/documents/{large_document['document_id']}")

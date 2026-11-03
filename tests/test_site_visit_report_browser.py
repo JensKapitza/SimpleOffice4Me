@@ -117,7 +117,7 @@ class SiteVisitReportBrowserTests(unittest.TestCase):
                 self.assertIn("Synthetic finding 32", text)
 
                 page.goto(f"{self.base_url}/site-visits/{self.visit['visit_id']}")
-                saved_report_link = page.get_by_role("link", name="PDF erneut herunterladen")
+                saved_report_link = page.get_by_role("link", name="Download PDF again")
                 expect(saved_report_link).to_be_visible()
                 saved_path = Path(self.temp.name) / "saved-report.pdf"
                 with page.expect_download(timeout=70000) as saved_info:
