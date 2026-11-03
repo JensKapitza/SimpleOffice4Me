@@ -73,6 +73,11 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Delete document",
             "Delete safely",
             "Browse smart views / collection folders",
+            "Deadlines",
+            "Review by",
+            "Retain until",
+            "deadline missing",
+            "Add deadline",
         ):
             self.assertIn(expected, body)
         # The JS translations dict legitimately carries German keys; only the
@@ -97,6 +102,11 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Dokument löschen",
             "Sicher löschen",
             "Smart Views / Sammelordner durchsuchen",
+            "Fristen",
+            "Bearbeiten bis",
+            "Aufbewahren bis",
+            "Frist fehlt",
+            "Frist hinzufügen",
         ):
             self.assertIn(expected, body)
 

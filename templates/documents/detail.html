@@ -244,34 +244,34 @@
 </div>
 <div class="card mb-4">
 <div class="card-header d-flex justify-content-between">
-<span>Fristen</span>
+<span>{{ 'Deadlines' if g.language == 'en' else 'Fristen' }}</span>
 <span class="badge {% if retention.status == 'locked' %}text-bg-danger{% elif retention.status == 'cleanup_ready' %}text-bg-warning{% elif retention.status == 'active' %}text-bg-success{% else %}text-bg-secondary{% endif %}">{{ retention.status }}</span>
 </div>
 <div class="card-body">
 <dl class="row small">
-<dt class="col-5">Bearbeiten bis</dt>
-<dd class="col-7">{{ retention.work_until or 'keine Sperrfrist' }}</dd>
-<dt class="col-5">Aufbewahren bis</dt>
-<dd class="col-7">{{ retention.retention_until or 'Frist fehlt' }}</dd>
-</dl>{% if retention.work_locked %}<div class="alert alert-danger">Bearbeitung gesperrt. Fristen und manuelle Aussonderung bleiben möglich.</div>{% endif %}{% for finding in retention.findings %}<div class="border-top py-2 small">
+<dt class="col-5">{{ 'Review by' if g.language == 'en' else 'Bearbeiten bis' }}</dt>
+<dd class="col-7">{{ retention.work_until or ('no embargo' if g.language == 'en' else 'keine Sperrfrist') }}</dd>
+<dt class="col-5">{{ 'Retain until' if g.language == 'en' else 'Aufbewahren bis' }}</dt>
+<dd class="col-7">{{ retention.retention_until or ('deadline missing' if g.language == 'en' else 'Frist fehlt') }}</dd>
+</dl>{% if retention.work_locked %}<div class="alert alert-danger">{{ 'Editing locked. Deadlines and manual disposal remain available.' if g.language == 'en' else 'Bearbeitung gesperrt. Fristen und manuelle Aussonderung bleiben möglich.' }}</div>{% endif %}{% for finding in retention.findings %}<div class="border-top py-2 small">
 <strong>{{ finding.label }}</strong>
 <br>{{ finding.expires_at }} · {{ finding.source_type }} {{ finding.source }}{% if finding.tag %} · Tag {{ finding.tag }}{% endif %}</div>{% endfor %}{% for finding in retention.retention_findings %}{% if finding.document_id != document.document_id %}<div class="border-top py-2 small">
-<strong>Transitiv: {{ finding.label }}</strong>
+<strong>{{ 'Transitive: ' if g.language == 'en' else 'Transitiv: ' }}{{ finding.label }}</strong>
 <br>{{ finding.expires_at }} · {{ finding.document_path }}</div>{% endif %}{% endfor %}<form method="post" action="{{ url_for('documents.add_document_deadline', document_id=document.document_id) }}" class="row g-2 mt-2">
 <div class="col-12">
-<input required class="form-control" name="label" placeholder="Grund, z. B. Steuerunterlage">
+<input required class="form-control" name="label" placeholder="{{ 'Reason, e.g. tax record' if g.language == 'en' else 'Grund, z. B. Steuerunterlage' }}">
 </div>
 <div class="col-6">
 <select class="form-select" name="kind">
-<option value="retention">Aufbewahren bis</option>
-<option value="work">Bearbeiten bis</option>
+<option value="retention">{{ 'Retain until' if g.language == 'en' else 'Aufbewahren bis' }}</option>
+<option value="work">{{ 'Review by' if g.language == 'en' else 'Bearbeiten bis' }}</option>
 </select>
 </div>
 <div class="col-6">
 <input required class="form-control" type="date" name="expires_at">
 </div>
 <div class="col-12">
-<button type="submit" class="btn btn-outline-primary w-100">Frist hinzufügen</button>
+<button type="submit" class="btn btn-outline-primary w-100">{{ 'Add deadline' if g.language == 'en' else 'Frist hinzufügen' }}</button>
 </div>
 </form>
 </div>
