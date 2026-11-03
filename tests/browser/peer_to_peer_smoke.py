@@ -23,6 +23,12 @@ PEER_B_DOCKER_IP = os.environ.get("BROWSER_PEER_B_IP", "").strip()
 PEER_LINK_TOKEN = os.environ.get(
     "BROWSER_PEER_LINK_TOKEN", "browser-peer-link-not-a-secret"
 )
+# Shared server token for the testnet peers' own federation identity (no env
+# config inside the app containers: the identity is stored per peer via the
+# admin UI below, exactly like a production admin would configure it).
+SHARED_SERVER_TOKEN = os.environ.get(
+    "BROWSER_PEER_SHARED_TOKEN", ""
+).strip() or PEER_LINK_TOKEN
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
 FIXTURE_DIR = OUTPUT_DIR / "fixtures"
@@ -179,6 +185,40 @@ def configure_peer(
             raise RuntimeError(f"Peer {peer_id} ist nicht erreichbar.")
 
 
+def set_local_identity(
+    page,
+    *,
+    base_url: str,
+    peer_id: str,
+    server_token: str,
+) -> None:
+    # Stores the peer's own federation identity (peer ID + shared server
+    # token) through the admin UI. Capability probes authenticate with this
+    # token, so both testnet peers need the same value before probing.
+    response = page.goto(
+        f"{base_url}/admin/federation/peer-discovery",
+        wait_until="domcontentloaded",
+    )
+    if response is None or response.status >= 400:
+        status = response.status if response else "no-response"
+        raise RuntimeError(f"Federation-Seite nicht erreichbar: {status}")
+    page.locator("#identity-peer-id").fill(peer_id)
+    page.locator("#identity-token").fill(server_token)
+    button = page.get_by_role(
+        "button", name="Identität speichern", exact=True
+    )
+    with page.expect_navigation(wait_until="domcontentloaded") as navigation:
+        button.click()
+    response = navigation.value
+    feedback = compact(" ".join(page.locator(".alert[role='status']").all_inner_texts()))
+    if "Eigene Federation-Identität gespeichert." not in feedback:
+        status = response.status if response is not None else "no-response"
+        raise RuntimeError(
+            f"Identität {peer_id} wurde nicht gespeichert (HTTP {status}; "
+            f"Rückmeldung: {feedback[:400] or 'keine'})."
+        )
+
+
 def record_p2p_check(
     summary: dict[str, object],
     name: str,
@@ -305,6 +345,18 @@ def run_peer_to_peer(
 
     try:
         register_and_login(page_b, PEER_BASE_URL, PEER_USERNAME)
+        set_local_identity(
+            page_a,
+            base_url=BASE_URL,
+            peer_id="peer-a",
+            server_token=SHARED_SERVER_TOKEN,
+        )
+        set_local_identity(
+            page_b,
+            base_url=PEER_BASE_URL,
+            peer_id="peer-b",
+            server_token=SHARED_SERVER_TOKEN,
+        )
         configure_peer(
             page_a,
             base_url=BASE_URL,
