@@ -94,6 +94,7 @@ def capture_inbox():
     return render_template(
         "inventory/capture.html",
         analyze_url=url_for("inventory.capture_analyze"),
+        marketplace_url=url_for("inventory_marketplace.search"),
         upload_url=url_for("inventory.capture_upload"),
         books_url=url_for("inventory.create_book"),
         items_url=url_for("inventory.create_item"),
@@ -486,6 +487,9 @@ def capture_batch_adopt(batch_id: str):
         "description": get("description", ""),
         "tags": get("tags", ""),
         "location": get("location", ""),
+        "market_price": get("market_price", ""),
+        "currency": get("currency", ""),
+        "price_source": get("price_source", ""),
     }
     try:
         payload = adopt_batch(

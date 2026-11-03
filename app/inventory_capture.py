@@ -844,6 +844,13 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
         "publisher": str(fields.get("publisher", "") or ""),
         "published_date": str(
             fields.get("published_date", fields.get("year", "")) or ""),
+        "market_price": str(fields.get("market_price", "") or ""),
+        "currency": str(fields.get("currency", "") or ""),
+        "price_source": (
+            str(fields.get("price_source", "") or "")
+            if str(fields.get("market_price", "") or "").strip()
+            else ""
+        ),
         "metadata_source": "capture-batch",
     }
     stored_fields = inventory_module._object_fields(form_like, isbn)

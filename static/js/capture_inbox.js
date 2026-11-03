@@ -644,6 +644,16 @@
     }
     addField('Beschreibung', 'description', prefill.description);
     addField('Tags (Komma-getrennt)', 'tags', Array.isArray(prefill.tags) ? prefill.tags.join(', ') : '');
+    addField('Preis (EUR-Richtwert)', 'market_price', '');
+    addField('Währung', 'currency', 'EUR');
+    addField('Preisquelle', 'price_source', '');
+    if (inputs.currency) inputs.currency.maxLength = 3;
+    if (inputs.market_price) inputs.market_price.setAttribute('inputmode', 'decimal');
+    if (window.SimpleOfficeCaptureMarketplace) {
+      window.SimpleOfficeCaptureMarketplace.renderMarketplaceSection({
+        inputs, combined, form, dataset, cleanText, safeJson,
+      });
+    }
     const missing = (combined.missing_fields || []).join(', ');
     if (missing) {
       const hint = document.createElement('p');
@@ -767,6 +777,9 @@
       }
       data.append('description', get('description'));
       data.append('tags', get('tags'));
+      data.append('market_price', get('market_price'));
+      data.append('currency', get('currency'));
+      data.append('price_source', get('price_source'));
       data.append('capture_request_id', adoptToken);
       data.append('_csrf_token', csrf);
       const target = `${batchUrlFor(payload.batch_id)}/adopt`;

@@ -60,6 +60,73 @@ class CaptureUiWiringTests(unittest.TestCase):
         script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
         self.assertGreaterEqual(script.count("consent_meta', '1'"), 3)
 
+    def test_batch_review_has_click_only_marketplace_search(self) -> None:
+        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
+        for snippet in (
+            "nur auf Klick suchen, kein Automatismus",
+            "dataset.marketplaceUrl",
+            "'Amazon suchen'",
+            "'eBay suchen'",
+            "'Preis übernehmen'",
+            "'Angebot ansehen'",
+            "Bereits eingetragene Preiswerte ersetzen",
+            "data-marketplace-overwrite",
+            "SimpleOfficeCaptureMarketplace",
+            "renderMarketplaceSection",
+        ):
+            self.assertIn(snippet, script)
+        for snippet in (
+            "'Preis (EUR-Richtwert)', 'market_price'",
+            "'Währung', 'currency'",
+            "'Preisquelle', 'price_source'",
+        ):
+            self.assertIn(snippet, inbox)
+        self.assertEqual(
+            1, script.count("searchMarketplace(provider)"))
+        self.assertIn(
+            "addEventListener('click', () => searchMarketplace(provider))",
+            script)
+        self.assertIn("data.append('market_price'", inbox)
+        self.assertIn("data.append('currency'", inbox)
+        self.assertIn("data.append('price_source'", inbox)
+        self.assertIn(
+            "window.SimpleOfficeCaptureMarketplace.renderMarketplaceSection",
+            inbox)
+
+    def test_marketplace_review_link_uses_shared_allowlist(self) -> None:
+        script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
+        self.assertIn("SimpleOfficeInventoryNavigation", script)
+        self.assertIn("safeMarketplaceUrl(row.url)", script)
+        self.assertIn("noopener noreferrer", script)
+        self.assertNotIn("window.open", script)
+        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertNotIn("window.open", inbox)
+
+    def test_capture_template_wires_marketplace_url(self) -> None:
+        template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
+        self.assertIn('data-marketplace-url="{{ marketplace_url }}"', template)
+        navigation = template.index("js/inventory_navigation.js")
+        marketplace = template.index("js/capture_marketplace.js")
+        inbox = template.index("js/capture_inbox.js")
+        self.assertLess(navigation, marketplace)
+        self.assertLess(marketplace, inbox)
+
+    def test_priceless_result_offers_link_only(self) -> None:
+        script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
+        self.assertIn("const hasPrice = cleanText(row.market_price) !== ''", script)
+        self.assertIn("take.disabled = !hasPrice", script)
+        self.assertIn("Dieser Treffer enthält keinen Preis", script)
+        self.assertIn("if (cleanText(input.value) && !overwrite)", script)
+        self.assertIn("Eigene Preiswerte behalten", script)
+
+    def test_no_ml_price_invention_in_capture_analysis(self) -> None:
+        source = (ROOT / "app/inventory_capture.py").read_text(encoding="utf-8")
+        head = source.index("def analyze_photo(")
+        tail = source.index("def store_upload(")
+        self.assertNotIn("market_price", source[head:tail])
+        self.assertNotIn("price_source", source[head:tail])
+
     def test_ml_status_uses_shared_formatter_with_text_assignment(self) -> None:
         template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
         helper_pos = template.index("js/capture_ml_status.js")
