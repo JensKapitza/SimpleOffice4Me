@@ -15,7 +15,9 @@ from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
+from app import admin_lists
 from app import app
+from app import app_config_store
 from app import db as database
 from app.attachment_security import (
     AttachmentSecurity,
@@ -342,6 +344,12 @@ class SecurityPageTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        store_patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        store_patcher.start()
+        self.addCleanup(store_patcher.stop)
         self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
         app.config.update(
             TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"),
@@ -385,7 +393,8 @@ class SecurityPageTests(unittest.TestCase):
         self.assertIn("ClamAV-Ereignisse", body)
 
     def test_scan_now_button_needs_runnable_provider(self):
-        env = {"SIMPLEOFFICE_SCANNER": "defender", "SIMPLEOFFICE_SECURITY_ADMINS": "owner"}
+        admin_lists.save({"security_admins": "owner"})
+        env = {"SIMPLEOFFICE_SCANNER": "defender"}
         available = {"state": "available", "engine": "Start-MpScan", "version": "x"}
         with patch.dict(os.environ, env, clear=False), \
              patch("app.attachment_security.WindowsDefender.status", return_value=available):
@@ -398,7 +407,8 @@ class SecurityPageTests(unittest.TestCase):
         self.assertNotIn("Verwaltete Dateien jetzt scannen", page.get_data(as_text=True))
 
     def test_signature_update_uses_active_scanner(self):
-        env = {"SIMPLEOFFICE_SCANNER": "defender", "SIMPLEOFFICE_SECURITY_ADMINS": "owner"}
+        admin_lists.save({"security_admins": "owner"})
+        env = {"SIMPLEOFFICE_SCANNER": "defender"}
         with patch.dict(os.environ, env, clear=False), \
              patch("app.attachment_security.WindowsDefender.update", return_value="aktuell") as update:
             response = self.client.post("/documents/security/update", follow_redirects=True)
@@ -407,7 +417,8 @@ class SecurityPageTests(unittest.TestCase):
         self.assertIn("Windows Defender-Signaturen wurden aktualisiert.", response.get_data(as_text=True))
 
     def test_signature_update_stays_admin_gated(self):
-        env = {"SIMPLEOFFICE_SCANNER": "defender", "SIMPLEOFFICE_SECURITY_ADMINS": ""}
+        admin_lists.save({"security_admins": ""})
+        env = {"SIMPLEOFFICE_SCANNER": "defender"}
         with patch.dict(os.environ, env, clear=False), \
              patch("app.attachment_security.WindowsDefender.update") as update:
             response = self.client.post("/documents/security/update")

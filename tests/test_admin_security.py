@@ -12,6 +12,8 @@ from pypdf import PdfReader
 from werkzeug.security import generate_password_hash
 
 from app import app
+from app import admin_lists
+from app import app_config_store
 from app import db as database
 from app.applogging import SecretRedactionFilter, redact
 from app.printershare_store import PrinterShareStore
@@ -34,6 +36,12 @@ class AdminSecurityTest(unittest.TestCase):
             TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"),
             DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
         )
+        store_patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        store_patcher.start()
+        self.addCleanup(store_patcher.stop)
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()
@@ -248,7 +256,8 @@ class AdminSecurityTest(unittest.TestCase):
         # Application administrator alone is deliberately insufficient. Server
         # actions are a separate privilege configured through the security-admin
         # allowlist and enforced both in the UI and on POST endpoints.
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": ""}, clear=False):
+        admin_lists.save({"security_admins": ""})
+        with patch.dict(os.environ, {}, clear=False):
             page = self.admin.get("/documents/security")
             body = page.get_data(as_text=True)
             self.assertEqual(200, page.status_code)
@@ -261,7 +270,8 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertNotIn("Verwaltete Dateien jetzt scannen", worker_page.get_data(as_text=True))
             self.assertEqual(403, self.worker.post("/documents/security/scan-now").status_code)
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": "owner", "SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
+        admin_lists.save({"security_admins": "owner"})
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
              patch("app.documents.AttachmentSecurity.scan_documents", return_value={
                  "clean": 0, "infected": 0, "errors": 0, "skipped": 0,
              }), \
@@ -274,7 +284,8 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertNotIn("ausschließlich für konfigurierte Sicherheitsadministratoren", body)
             self.assertEqual(302, self.admin.post("/documents/security/scan-now").status_code)
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SECURITY_ADMINS": "owner", "SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
+        admin_lists.save({"security_admins": "owner"})
+        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
              patch("app.attachment_security.ClamAV.status",
                    return_value={"state": "unavailable", "engine": "", "version": "missing"}):
             page = self.admin.get("/documents/security")

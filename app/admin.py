@@ -152,8 +152,10 @@ def users():
             continue
         visible.append(row)
     orphaned = ownerless_contacts(current_app.config["DOCUMENT_ROOT"])
+    from . import admin_lists as _admin_lists
     return render_template(
         "admin/users.html", users=visible, account_users=rows, features=FEATURES,
+        admin_lists=_admin_lists.status(),
         parent_names={row["id"]: row["username"] for row in rows},
         feature_details=FEATURE_DETAILS,
         permissions={row["id"]: permissions_for(row["id"]) for row in visible},

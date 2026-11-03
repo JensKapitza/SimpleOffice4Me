@@ -194,8 +194,8 @@ def _attachment_security() -> AttachmentSecurity:
 
 
 def _security_admin(actor: str) -> bool:
-    configured = {item.strip() for item in os.environ.get("SIMPLEOFFICE_SECURITY_ADMINS", "").split(",") if item.strip()}
-    return actor in configured
+    from . import admin_lists as _admin_lists
+    return actor in _admin_lists.security_admins()
 
 
 def _form_relation_choices(form: dict, actor: str) -> dict[str, list[tuple[str, str]]]:

@@ -69,7 +69,7 @@ def _result(value):
 def _visible_document(document_id):
     store = DocumentStore(_root()); item = store.get_document(document_id)
     path = item.get("last_path", "")
-    if not path or not VirtualFileSystem.from_environment(_root()).allows(_actor(), path, "read"):
+    if not path or not VirtualFileSystem.from_store(_root()).allows(_actor(), path, "read"):
         raise PermissionError("document access denied")
     return item
 
@@ -90,7 +90,7 @@ def _call(name, args):
     if name == "fetch":
         item=_visible_document(str(args["document_id"])); allowed={k:item.get(k) for k in ("document_id","title","original_name","last_path","mime_type","size","state","tags","created_at","last_seen_at","text_extraction")}; return allowed
     if name in {"tag_document","mark_document_deletion_candidate"}:
-        item=_visible_document(str(args["document_id"])); vfs=VirtualFileSystem.from_environment(_root())
+        item=_visible_document(str(args["document_id"])); vfs=VirtualFileSystem.from_store(_root())
         if not vfs.allows(_actor(),item["last_path"],"write"): raise PermissionError("document write access denied")
         store=DocumentStore(_root()); tags=[str(value).strip() for value in item.get("tags",[]) if str(value).strip()]
         if name=="tag_document": additions=[str(value).strip() for value in args["tags"] if str(value).strip()]

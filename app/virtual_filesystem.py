@@ -82,9 +82,9 @@ class VirtualFileSystem:
         return actor.split(":", 1)[1] if actor.startswith(("webdav:", "sftp:", "rsync:", "s3:")) else actor
 
     @classmethod
-    def from_environment(cls, root: str | Path) -> "VirtualFileSystem":
-        admins = os.environ.get("SIMPLEOFFICE_DOCUMENT_ADMINS", "")
-        return cls(root, admins.split(","))
+    def from_store(cls, root: str | Path) -> "VirtualFileSystem":
+        from . import admin_lists as _admin_lists
+        return cls(root, sorted(_admin_lists.document_admins()))
 
     def _virtual_relative(self, value: str | Path) -> Path:
         """Translate a client path to a lexical path below the virtual root."""

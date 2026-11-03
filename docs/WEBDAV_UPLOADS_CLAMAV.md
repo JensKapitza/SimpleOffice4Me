@@ -75,16 +75,12 @@ sudo systemctl restart clamav-daemon
 ```
 
 Über **Dokumente → Sicherheit** (`/documents/security`) sehen Benutzer aus
-`SIMPLEOFFICE_SECURITY_ADMINS` Scannerstatus und Version. Dort stehen außerdem
+der Sicherheits-Admin-Liste (**Admin → Benutzer → Admin-Listen**)
+Scannerstatus und Version. Dort stehen außerdem
 **Signaturen aktualisieren** und **Bestand jetzt prüfen** zur Verfügung. Ohne
-diese Umgebungsvariable gibt es bewusst keinen Web-Administrator. Der
+Listeneintrag gibt es bewusst keinen Web-Administrator
+(`SIMPLEOFFICE_SECURITY_ADMINS` ist entfernt). Der
 Bestandsscan ändert keine Dokumentrechte und löscht Funde nicht automatisch.
-
-Beispiel:
-
-```bash
-SIMPLEOFFICE_SECURITY_ADMINS=alice,bob
-```
 
 Die offizielle ClamAV-Dokumentation verlangt für `clamd` eine vorhandene und
 aktuelle Signaturdatenbank. `freshclam` verwaltet die offiziellen Datenbanken

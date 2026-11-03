@@ -53,7 +53,7 @@ Hinweise zu fehlenden Werkzeugen und der für das erkannte System passende
 Installationsbefehl. Die Prüfung installiert nichts und benötigt keine
 Administratorrechte.
 
-- `SIMPLEOFFICE_SECURITY_ADMINS=alice,bob`: Benutzer für Serverprüfung und Signaturupdate; ohne Wert gibt es keinen Web-Administrator.
+- Sicherheits-Admin-Liste unter **Admin → Benutzer → Admin-Listen**: Benutzer für Serverprüfung und Signaturupdate; ohne Eintrag gibt es keinen Web-Administrator (`SIMPLEOFFICE_SECURITY_ADMINS` ist entfernt).
 - `SIMPLEOFFICE_CLAMAV_SCANNER=/usr/bin/clamdscan`: optionaler absoluter Pfad; nur `clamdscan` oder `clamscan` werden akzeptiert.
 - `SIMPLEOFFICE_CLAMAV_TIMEOUT=120`: Legacy-Startwert, effektiv 5 bis 900 Sekunden; wird nur verwendet, solange kein persistierter Adminwert existiert.
 
@@ -74,7 +74,7 @@ Das Prüfzeitlimit kann unter **Admin → Einstellungen → Integrationen & Dien
 - Quarantänedateien werden zufällig benannt, exklusiv mit `0600` angelegt und nicht über Download, Freigaben oder WebDAV angeboten.
 - Bei fehlendem Scanner, Timeout oder Fehler gilt **fail closed**: keine Freigabe.
 - Die Serverprüfung umfasst nur reguläre Dateien im verwalteten Bestand; Symlinks und Systempfade werden übersprungen.
-- Anwendungsadministratoren (einschließlich des bei der Ersteinrichtung angelegten ersten Administrators) sowie optional über `SIMPLEOFFICE_SECURITY_ADMINS` delegierte Sicherheitsadministratoren dürfen Update und Bestandsscan auslösen. Dokumentrechte werden nicht gelockert.
+- Anwendungsadministratoren (einschließlich des bei der Ersteinrichtung angelegten ersten Administrators) sowie optional über die Admin-Listen delegierte Sicherheitsadministratoren dürfen Update und Bestandsscan auslösen. Dokumentrechte werden nicht gelockert.
 - Das ClamAV-Ereignisjournal zeigt Start und Abschluss einer Bestandsprüfung, Ergebniszähler, Laufzeit, Signatur-Updates sowie einzelne Datei-Funde und -Fehler. Fehler werden als sichere Kategorien protokolliert; Zugangsdaten, Kommandoausgaben und vollständige interne Pfade werden nicht in die Oberfläche übernommen.
 - Mail-Absender und Betreff sind unbestätigte Fremdangaben, kein Identitätsnachweis. Daten werden nicht extern übertragen.
 

@@ -33,8 +33,9 @@ Ordner für jeden bekannten Benutzer eine Rolle gewählt werden:
 
 Regeln liegen in der bestehenden `.simpleoffice-folder.json`. Ein Ordner kann
 Rechte des Elternordners übernehmen und eigene Einträge überschreiben oder die
-Vererbung abschalten. Administratoren werden kommagetrennt über
-`SIMPLEOFFICE_DOCUMENT_ADMINS` konfiguriert. Bei genau einem Benutzer darf
+Vererbung abschalten. Administratoren werden kommagetrennt unter
+**Admin → Benutzer → Admin-Listen** konfiguriert
+(`SIMPLEOFFICE_DOCUMENT_ADMINS` ist entfernt). Bei genau einem Benutzer darf
 dieser die erste Regel selbst setzen; bei mehreren Benutzern ist aus
 Sicherheitsgründen ein expliziter Administrator erforderlich.
 
@@ -104,7 +105,6 @@ weiterhin die geschützte Umgebung:
 
 ```bash
 export SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents
-export SIMPLEOFFICE_DOCUMENT_ADMINS=jens
 export SIMPLEOFFICE_SFTP_HOST_KEY=/etc/simpleoffice/sftp_host_ed25519_key
 export SIMPLEOFFICE_SFTP_BIND=127.0.0.1
 export SIMPLEOFFICE_SFTP_PORT=2222

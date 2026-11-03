@@ -259,7 +259,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS` (Legacy-Import) | [datalogger_store.py](../app/datalogger_store.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md); bevorzugt über Datenlogger → Worker-Einstellungen konfigurieren |
 | `SIMPLEOFFICE_DATA_DIR` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DESKTOP` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_DOCUMENT_ADMINS` | [virtual_filesystem.py](../app/virtual_filesystem.py) | [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
+| `SIMPLEOFFICE_DOCUMENT_ADMINS` (entfernt) | [admin_lists.py](../app/admin_lists.py) | Admin → Benutzer → Admin-Listen; [ERSTSTART_UND_DESKTOP_SETUP](ERSTSTART_UND_DESKTOP_SETUP.md) |
 | `SIMPLEOFFICE_DOCUMENT_ROOT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [ERSTER_START](ERSTER_START.md) |
 | `SIMPLEOFFICE_EBAY_CLIENT_ID` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
 | `SIMPLEOFFICE_EBAY_CLIENT_SECRET` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [INVENTAR_MARKETPLACE_SUCHEN](INVENTAR_MARKETPLACE_SUCHEN.md); Admin → Integrationen → Marketplace & OAuth |
@@ -360,7 +360,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_S3_OVERLAY_REGION` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_SCANNER` (`auto`: ClamAV zuerst, sonst `clamav`/`defender`; ungültig fail closed) | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SECRET_KEY` | [secret_key.py](../app/secret_key.py) | [ERSTER_START](ERSTER_START.md) |
-| `SIMPLEOFFICE_SECURITY_ADMINS` | [documents_core.py](../app/documents_core.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
+| `SIMPLEOFFICE_SECURITY_ADMINS` (entfernt) | [admin_lists.py](../app/admin_lists.py) | Admin → Benutzer → Admin-Listen; [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SENSOR_` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SERVER_PEER_ID` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Quelle und Ergänzungen oben |
