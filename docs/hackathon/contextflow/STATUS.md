@@ -4,7 +4,7 @@
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
 **Stand (03.11., Capture-Härtung, Branch `hackai/inventory-batch-20261103`,
-uncommitted):** Geprüfter Port der Hands-on-Fixes aus Referenz-Worktree
+committed `150b1918`):** Geprüfter Port der Hands-on-Fixes aus Referenz-Worktree
 `inventory-batch-20261030` (nur Lücken, keine Doppelarbeit): Batch-Re-Analyse
 antwortet wieder mit Regalen + Zuordnungs-URL (shared `_batch_review_extras`
 für Ansicht und Re-Analyse), Gruppen-Review zeigt Duplikate mit
@@ -18,6 +18,20 @@ Nachbar-Capture-Suiten 137/137 OK, Policy/File-/Function-Size/compileall/
 diff-check/node-check grün. Kein Live-Spark-Aufruf, keine Browser-/Kamera-
 Abnahme (Eigentümer-Schritte). Issues #658/#767 bleiben offen — keine volle
 Erledigung behauptet.
+**Folge (03.11., Batch-Reihenfolge, Branch `hackai/inventory-batch-20261103`,
+uncommitted):** Root-Cause-Fix für gekippte Aufnahmereihenfolge: zwei Fotos
+können denselben `created_at`-Stempel tragen, danach sortierte `list_batch`
+nach zufälliger `entry_id`. Neu: persistierte Positionsnummer `batch_seq`,
+unter dem bestehenden Schreib-Lock vergeben (`create`: fortlaufend je
+Akteur+Gruppe; `set_batch`: Umzug ans Gruppenende, Entgruppieren löscht die
+Nummer); Altbestände ohne Nummer bleiben lesbar und sortieren weiter nach
+Zeitstempel. Verifiziert (Muse + Codex unabhängig): `BatchStoreTests`,
+`BatchCombineTests` und beide Capture-UI-Klassen, 25/25 OK, darunter der neue
+Freeze-Test `test_capture_order_survives_shared_timestamp`. Breitere
+Routen-Suiten in diesem Worktree NICHT verifiziert (Test-Login scheitert an
+`PermissionError` auf geschütztem Auth-Speicher; Lauf abgebrochen, kein Grün
+behauptet). Preis-Vorschläge bleiben offene Lücke (bewusst kein Scope dieses
+Slices).
 **Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
 `origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
 (9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5

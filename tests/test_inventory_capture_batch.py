@@ -164,6 +164,39 @@ class BatchStoreTests(unittest.TestCase):
         created = [row["created_at"] for row in rows]
         self.assertEqual(sorted(created), created)
 
+    def test_capture_order_survives_shared_timestamp(self) -> None:
+        frozen = "2026-11-03T09:00:00+00:00"
+        with mock.patch("app.capture_inbox_store.utc_now",
+                        return_value=frozen):
+            first, _ = self.store.create(
+                "anna", b"fake-title-page", ".png", "b1" * 16, BATCH_A)
+            second, _ = self.store.create(
+                "anna", b"fake-imprint", ".png", "b2" * 16, BATCH_A)
+            third, _ = self.store.create(
+                "anna", b"fake-spine", ".png", "b3" * 16, BATCH_A)
+        self.assertEqual(frozen, first["created_at"])
+        self.assertEqual(frozen, third["created_at"])
+        rows = self.store.list_batch("anna", BATCH_A)
+        self.assertEqual(
+            [first["entry_id"], second["entry_id"], third["entry_id"]],
+            [row["entry_id"] for row in rows])
+        self.assertEqual(
+            [1, 2, 3], [row["batch_seq"] for row in rows])
+        moved = self.store.set_batch(second["entry_id"], "anna", "")
+        self.assertNotIn("batch_seq", moved)
+        self.assertEqual("", moved["batch_id"])
+        remaining = self.store.list_batch("anna", BATCH_A)
+        self.assertEqual(
+            [first["entry_id"], third["entry_id"]],
+            [row["entry_id"] for row in remaining])
+        rejoined = self.store.set_batch(
+            second["entry_id"], "anna", BATCH_A)
+        self.assertEqual(4, rejoined["batch_seq"])
+        rows = self.store.list_batch("anna", BATCH_A)
+        self.assertEqual(
+            [first["entry_id"], third["entry_id"], second["entry_id"]],
+            [row["entry_id"] for row in rows])
+
     def test_invalid_batch_rejected(self) -> None:
         with self.assertRaises(ValueError):
             self.store.create("anna", b"fake", ".png", batch_id="bad")

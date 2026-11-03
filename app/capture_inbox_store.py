@@ -51,6 +51,37 @@ class CaptureInboxConflict(ValueError):
     """Same actor + token was reused with different image bytes."""
 
 
+def _batch_seq(entry: Any) -> int:
+    """Persisted per-batch capture position; legacy entries sort first.
+
+    Entries stored before the sequence existed carry no ``batch_seq``
+    and keep their previous relative order (timestamp, then id).
+    New entries start at 1 in allocation order, so equal timestamps
+    can never reverse the capture order.
+    """
+    seq = entry.get("batch_seq") if isinstance(entry, dict) else None
+    if isinstance(seq, bool) or not isinstance(seq, int) or seq < 1:
+        return 0
+    return seq
+
+
+def _next_batch_seq(entries: dict[str, Any], actor: str, batch_id: str) -> int:
+    """Highest persisted position in one actor batch, plus one (min 1)."""
+    highest = 0
+    for item in entries.values():
+        if not isinstance(item, dict):
+            continue
+        if item.get("actor") != actor:
+            continue
+        if str(item.get("batch_id", "") or "") != batch_id:
+            continue
+        seq = item.get("batch_seq")
+        if isinstance(seq, bool) or not isinstance(seq, int):
+            continue
+        highest = max(highest, seq)
+    return highest + 1
+
+
 class CaptureInboxStore:
     """Actor-scoped persistent inbox for unclassified captures."""
 
@@ -191,6 +222,9 @@ class CaptureInboxStore:
                     "created_by": clean_actor,
                 }],
             }
+            if clean_batch:
+                entry["batch_seq"] = _next_batch_seq(
+                    entries, clean_actor, clean_batch)
             try:
                 entries[entry_id] = entry
                 index["entries"] = entries
@@ -243,7 +277,10 @@ class CaptureInboxStore:
             and str(entry.get("batch_id", "") or "") == clean_batch
         ]
         rows.sort(key=lambda row: (
-            str(row.get("created_at", "")), str(row.get("entry_id", ""))))
+            _batch_seq(row),
+            str(row.get("created_at", "")),
+            str(row.get("entry_id", "")),
+        ))
         return rows
 
     def set_batch(
@@ -285,6 +322,11 @@ class CaptureInboxStore:
                     )
             now = utc_now()
             entry["batch_id"] = clean_batch
+            if clean_batch:
+                entry["batch_seq"] = _next_batch_seq(
+                    entries, str(actor or ""), clean_batch)
+            else:
+                entry.pop("batch_seq", None)
             entry["updated_at"] = now
             history = entry.setdefault("history", [])
             if isinstance(history, list):
