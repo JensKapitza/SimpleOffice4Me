@@ -74,7 +74,7 @@ nur lokal synchronisiert) — Protokollerweiterung, bewusst nicht in diesem
 Slice. Detailseite (`detail.html`, „Bestand bei Freunden prüfen“) nutzt die
 gleiche Route und bleibt vorerst unverändert.
 **Umsetzung (03.11., echter Peer-Inventarabgleich, Branch
-`hackai/inventory-batch-20261103`, uncommitted):** Eigener Index-Scope
+`hackai/inventory-batch-20261103`, committed `b432ab3e` (local, not pushed)):** Eigener Index-Scope
 `sofp-inventory-index/v1`: Serving-Seite liefert nur kanonische ISBN/GTIN
 + neutralen Anzeigenamen aktiver Objekte (kein Preis/Standort/Notiz/Bild,
 keine Doku-Inhalte, keine Eigentümerdaten); Sync-Seite zieht nur mit
