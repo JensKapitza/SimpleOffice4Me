@@ -1,6 +1,50 @@
 (() => {
   "use strict";
 
+  const EN = (document.documentElement.lang || "").toLowerCase().startsWith("en");
+  const STR = {
+    serverUnreadable: EN ? "Could not read the server response." : "Die Serverantwort konnte nicht gelesen werden.",
+    importFailed: EN ? "Contact import failed." : "Kontaktimport fehlgeschlagen.",
+    evaluatingPhoto: EN ? "Evaluating photo locally …" : "Foto wird lokal ausgewertet …",
+    fieldsAdopted: (count, engine) => EN
+      ? `${count} field(s) adopted as suggestion${engine}. Please review before saving.`
+      : `${count} Feld(er) als Vorschlag übernommen${engine}. Bitte vor dem Speichern prüfen.`,
+    qrAdopted: (count) => EN
+      ? `${count} field(s) adopted from the QR code. Please review before saving.`
+      : `${count} Feld(er) aus dem QR-Code übernommen. Bitte vor dem Speichern prüfen.`,
+    modelLabel: EN ? "Model: " : "Modell: ",
+    unknown: EN ? "unknown" : "unbekannt",
+    local: EN ? "local" : "lokal",
+    nothingStored: EN ? "nothing stored" : "nichts gespeichert",
+    spellingAdjusted: EN ? "Spelling adjusted – please review" : "Schreibweise angepasst – bitte prüfen",
+    evidence: (source, text) => EN ? `Evidence (${source}): “${text}”` : `Beleg (${source}): „${text}“`,
+    adopt: EN ? "Adopt" : "Übernehmen",
+    suggestionsCount: (count, warnings) => EN
+      ? `${count} field suggestion(s) – please review and adopt individually. ${warnings}`.trim()
+      : `${count} Feldvorschlag(e) – bitte einzeln prüfen und übernehmen. ${warnings}`.trim(),
+    targetMissing: (field) => EN ? `Target field for “${field}” is missing in the form.` : `Zielfeld für „${field}“ fehlt im Formular.`,
+    reallyReplace: EN ? "Really replace?" : "Wirklich ersetzen?",
+    alreadyFilled: (name) => EN ? `“${name}” is already filled – second click replaces the value.` : `„${name}“ ist bereits ausgefüllt – zweiter Klick ersetzt den Wert.`,
+    adopted: EN ? "Adopted" : "Übernommen",
+    adoptedOnce: (name) => EN ? `“${name}” adopted. It is only saved together with the form.` : `„${name}“ übernommen. Gespeichert wird erst mit „Kontakt speichern“.`,
+    adoptEmpty: (filled, skipped) => EN
+      ? `${filled} empty field(s) adopted, ${skipped} skipped (already filled or without target field). It is only saved together with the form.`
+      : `${filled} leere(s) Feld(er) übernommen, ${skipped} übersprungen (bereits ausgefüllt oder ohne Zielfeld). Gespeichert wird erst mit „Kontakt speichern“.`,
+    discarded: EN ? "Suggestions discarded. Nothing was adopted or saved." : "Vorschläge verworfen. Nichts wurde übernommen oder gespeichert.",
+    needTextOrPhoto: EN ? "Please paste contact text or select at least one photo." : "Bitte Kontakttext einfügen oder mindestens ein Foto auswählen.",
+    maxPhotos: EN ? "Please select at most 3 photos." : "Bitte höchstens 3 Fotos auswählen.",
+    photoType: (name) => EN ? `“${name}”: only JPEG, PNG or WebP up to 5 MiB.` : `„${name}“: nur JPEG, PNG oder WebP bis 5 MiB.`,
+    notAvailable: EN ? "Suggestions are not available here." : "Vorschläge sind hier nicht verfügbar.",
+    cloudAssign: EN ? "External Meta AI (Muse Spark 1.3 Contributor) assigns the sources … (text only, no photos)" : "Externe Meta-KI (Muse Spark 1.3 Contributor) ordnet die Quellen zu … (nur Text, keine Fotos)",
+    localAssign: EN ? "Local Meta AI assigns the sources …" : "Lokale Meta-KI ordnet die Quellen zu …",
+    suggestFailed: EN ? "Could not create suggestions." : "Vorschläge konnten nicht erstellt werden.",
+    needQrImage: EN ? "Please select a QR code image first or capture it with the camera." : "Bitte zuerst ein QR-Code-Bild auswählen oder mit der Kamera aufnehmen.",
+    qrUnsupported: EN ? "This browser cannot read QR codes directly from images. You can paste the QR content manually below." : "Dieser Browser kann QR-Codes nicht direkt aus Bildern lesen. Du kannst den QR-Inhalt unten manuell einfügen.",
+    qrReading: EN ? "Reading QR code locally in the browser …" : "QR-Code wird lokal im Browser gelesen …",
+    qrNoNative: EN ? "The browser supports barcode detection, but no QR codes." : "Der Browser unterstützt Barcode-Erkennung, aber keine QR-Codes.",
+    qrNotFound: EN ? "No QR code detected in the image. You can paste the content manually below." : "Auf dem Bild wurde kein QR-Code erkannt. Du kannst den Inhalt unten manuell einfügen.",
+  };
+
   const createForm = document.getElementById("contact-create-form");
   if (!createForm) return;
 
@@ -47,10 +91,10 @@
     try {
       payload = await response.json();
     } catch (_error) {
-      throw new Error("Die Serverantwort konnte nicht gelesen werden.");
+      throw new Error(STR.serverUnreadable);
     }
     if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || "Kontaktimport fehlgeschlagen.");
+      throw new Error(payload.error || STR.importFailed);
     }
     return payload;
   };
@@ -60,7 +104,7 @@
     event.preventDefault();
     const button = event.submitter;
     if (button instanceof HTMLButtonElement) button.disabled = true;
-    setStatus("Foto wird lokal ausgewertet …", "secondary");
+    setStatus(STR.evaluatingPhoto, "secondary");
     setPreview("");
     try {
       const payload = await postForm(photoForm);
@@ -69,7 +113,7 @@
       const warning = payload.warning ? ` ${payload.warning}` : "";
       setPreview(payload.text || "");
       setStatus(
-        `${count} Feld(er) als Vorschlag übernommen${engine}. Bitte vor dem Speichern prüfen.${warning}`,
+        `${STR.fieldsAdopted(count, engine)}${warning}`,
         count ? "success" : "warning",
       );
     } catch (error) {
@@ -90,7 +134,7 @@
     const count = applyFields(payload.fields);
     setPreview(qrText instanceof HTMLTextAreaElement ? qrText.value : "");
     setStatus(
-      `${count} Feld(er) aus dem QR-Code übernommen. Bitte vor dem Speichern prüfen.`,
+      STR.qrAdopted(count),
       count ? "success" : "warning",
     );
   };
@@ -156,7 +200,7 @@
     hideEngelCard();
     engelSuggestions = Array.isArray(payload.suggestions) ? payload.suggestions : [];
     if (engelProvider) {
-      const parts = [`Modell: ${payload.model || "unbekannt"}`, payload.provider_label || "lokal", "nichts gespeichert"];
+      const parts = [`${STR.modelLabel}${payload.model || STR.unknown}`, payload.provider_label || STR.local, STR.nothingStored];
       engelProvider.textContent = parts.join(" · ");
     }
     engelSuggestions.forEach((item) => {
@@ -170,7 +214,7 @@
       if (item.corrected) {
         const badge = document.createElement("span");
         badge.className = "badge text-bg-warning";
-        badge.textContent = "Schreibweise angepasst – bitte prüfen";
+        badge.textContent = STR.spellingAdjusted;
         head.appendChild(badge);
       }
       row.appendChild(head);
@@ -179,12 +223,12 @@
       row.appendChild(value);
       const proof = document.createElement("div");
       proof.className = "small text-secondary";
-      proof.textContent = `Beleg (${item.source_label || item.source}): „${item.evidence}“`;
+      proof.textContent = STR.evidence(item.source_label || item.source, item.evidence);
       row.appendChild(proof);
       const button = document.createElement("button");
       button.type = "button";
       button.className = "btn btn-sm btn-outline-primary mt-2";
-      button.textContent = "Übernehmen";
+      button.textContent = STR.adopt;
       button.dataset.field = item.field;
       button.dataset.value = item.value;
       row.appendChild(button);
@@ -193,7 +237,7 @@
     engelCard.hidden = false;
     const warnings = Array.isArray(payload.warnings) ? payload.warnings.filter(Boolean) : [];
     setEngelStatus(
-      `${engelSuggestions.length} Feldvorschlag(e) – bitte einzeln prüfen und übernehmen. ${warnings.join(" ")}`.trim(),
+      STR.suggestionsCount(engelSuggestions.length, warnings.join(" ")),
       engelSuggestions.length ? "success" : "warning",
     );
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -204,7 +248,7 @@
   const resetAdoptButtons = () => {
     engelList?.querySelectorAll("button[data-field]").forEach((item) => {
       if (item.disabled) return;
-      item.textContent = "Übernehmen";
+      item.textContent = STR.adopt;
       item.classList.remove("btn-warning");
       item.classList.add("btn-outline-primary");
     });
@@ -215,23 +259,23 @@
     if (!button || button.disabled) return;
     const input = engelTarget(button.dataset.field || "");
     if (!input) {
-      setEngelStatus(`Zielfeld für „${button.dataset.field}“ fehlt im Formular.`, "warning");
+      setEngelStatus(STR.targetMissing(button.dataset.field), "warning");
       return;
     }
     const current = input.value.trim();
     const next = String(button.dataset.value || "").trim();
-    if (current && current !== next && button.textContent !== "Wirklich ersetzen?") {
+    if (current && current !== next && button.textContent !== STR.reallyReplace) {
       resetAdoptButtons();
-      button.textContent = "Wirklich ersetzen?";
+      button.textContent = STR.reallyReplace;
       button.classList.remove("btn-outline-primary");
       button.classList.add("btn-warning");
-      setEngelStatus(`„${input.name}“ ist bereits ausgefüllt – zweiter Klick ersetzt den Wert.`, "warning");
+      setEngelStatus(STR.alreadyFilled(input.name), "warning");
       return;
     }
     fillTarget(input, next);
     button.disabled = true;
-    button.textContent = "Übernommen";
-    setEngelStatus(`„${input.name}“ übernommen. Gespeichert wird erst mit „Kontakt speichern“.`, "success");
+    button.textContent = STR.adopted;
+    setEngelStatus(STR.adoptedOnce(input.name), "success");
   });
 
   engelAdoptEmpty?.addEventListener("click", () => {
@@ -244,14 +288,14 @@
       filled += 1;
     });
     setEngelStatus(
-      `${filled} leere(s) Feld(er) übernommen, ${skipped} übersprungen (bereits ausgefüllt oder ohne Zielfeld). Gespeichert wird erst mit „Kontakt speichern“.`,
+      STR.adoptEmpty(filled, skipped),
       filled ? "success" : "warning",
     );
   });
 
   engelDismiss?.addEventListener("click", () => {
     hideEngelCard();
-    setEngelStatus("Vorschläge verworfen. Nichts wurde übernommen oder gespeichert.", "secondary");
+    setEngelStatus(STR.discarded, "secondary");
   });
 
   engelForm?.addEventListener("submit", async (event) => {
@@ -260,30 +304,28 @@
     const files = Array.from(engelPhotos?.files || []);
     const hasText = Boolean(engelText?.value.trim());
     if (!hasText && !files.length) {
-      setEngelStatus("Bitte Kontakttext einfügen oder mindestens ein Foto auswählen.", "warning");
+      setEngelStatus(STR.needTextOrPhoto, "warning");
       return;
     }
     if (files.length > 3) {
-      setEngelStatus("Bitte höchstens 3 Fotos auswählen.", "warning");
+      setEngelStatus(STR.maxPhotos, "warning");
       return;
     }
     for (const file of files) {
       if (file.size > 5 * 1024 * 1024 || !/^image\/(jpeg|png|webp)$/i.test(file.type || "")) {
-        setEngelStatus(`„${file.name}“: nur JPEG, PNG oder WebP bis 5 MiB.`, "warning");
+        setEngelStatus(STR.photoType(file.name), "warning");
         return;
       }
     }
     const url = engelScope?.dataset.suggestUrl || "";
     if (!url) {
-      setEngelStatus("Vorschläge sind hier nicht verfügbar.", "warning");
+      setEngelStatus(STR.notAvailable, "warning");
       return;
     }
     const button = event.submitter;
     if (button instanceof HTMLButtonElement) button.disabled = true;
     setEngelStatus(
-      engelConsent?.checked
-        ? "Externe Meta-KI (Muse Spark 1.3 Contributor) ordnet die Quellen zu … (nur Text, keine Fotos)"
-        : "Lokale Meta-KI ordnet die Quellen zu …",
+      engelConsent?.checked ? STR.cloudAssign : STR.localAssign,
       "secondary",
     );
     try {
@@ -292,10 +334,10 @@
       try {
         payload = await response.json();
       } catch (_error) {
-        throw new Error("Die Serverantwort konnte nicht gelesen werden.");
+        throw new Error(STR.serverUnreadable);
       }
       if (!response.ok || payload.ok === false) {
-        throw new Error(payload.error || "Vorschläge konnten nicht erstellt werden.");
+        throw new Error(payload.error || STR.suggestFailed);
       }
       renderEngelCard(payload);
     } catch (error) {
@@ -325,18 +367,18 @@
 
   qrScanButton?.addEventListener("click", async () => {
     if (!(qrImage instanceof HTMLInputElement) || !qrImage.files?.length) {
-      setStatus("Bitte zuerst ein QR-Code-Bild auswählen oder mit der Kamera aufnehmen.", "warning");
+      setStatus(STR.needQrImage, "warning");
       return;
     }
     const canUseNative = "BarcodeDetector" in window;
     const canUseLocalQr = typeof window.jsQR === "function";
     if (!canUseNative && !canUseLocalQr) {
-      setStatus("Dieser Browser kann QR-Codes nicht direkt aus Bildern lesen. Du kannst den QR-Inhalt unten manuell einfügen.", "warning");
+      setStatus(STR.qrUnsupported, "warning");
       return;
     }
 
     qrScanButton.disabled = true;
-    setStatus("QR-Code wird lokal im Browser gelesen …", "secondary");
+    setStatus(STR.qrReading, "secondary");
     let bitmap = null;
     try {
       bitmap = await createImageBitmap(qrImage.files[0]);
@@ -346,7 +388,7 @@
           if (typeof BarcodeDetector.getSupportedFormats === "function") {
             const supported = await BarcodeDetector.getSupportedFormats();
             if (!supported.includes("qr_code")) {
-              throw new Error("Der Browser unterstützt Barcode-Erkennung, aber keine QR-Codes.");
+              throw new Error(STR.qrNoNative);
             }
           }
           const detector = new BarcodeDetector({formats: ["qr_code"]});
@@ -357,7 +399,7 @@
         }
       }
       if (!rawValue && canUseLocalQr) rawValue = decodeQrBitmap(bitmap);
-      if (!rawValue) throw new Error("Auf dem Bild wurde kein QR-Code erkannt. Du kannst den Inhalt unten manuell einfügen.");
+      if (!rawValue) throw new Error(STR.qrNotFound);
       if (qrText instanceof HTMLTextAreaElement) qrText.value = rawValue;
       await submitQrPayload();
     } catch (error) {
@@ -372,6 +414,27 @@
 (() => {
   "use strict";
 
+  const EN = (document.documentElement.lang || "").toLowerCase().startsWith("en");
+  const STR = {
+    demoPlaceholder: EN ? "ML: demo placeholder (no real analysis)" : "ML: Demo-Platzhalter (keine echte Analyse)",
+    metaModel: EN ? "Meta model" : "Meta-Modell",
+    keyStored: EN ? "key stored" : "Schlüssel hinterlegt",
+    noApiKey: EN ? "no API key" : "kein API-Schlüssel",
+    modelListed: EN ? " · model listed" : " · Modell gelistet",
+    modelUnconfirmed: EN ? " · model unconfirmed" : " · Modell nicht bestätigt",
+    modelUnchecked: EN ? " · model unchecked" : " · Modell nicht geprüft",
+    modelLabel: EN ? "Model: " : "Modell: ",
+    unknown: EN ? "unknown" : "unbekannt",
+    noModel: EN ? "ML: no model configured" : "ML: kein Modell konfiguriert",
+    modelNotApproved: (model) => EN ? `ML: model not approved · ${model}` : `ML: Modell nicht freigegeben · ${model}`,
+    activeLocal: (model) => EN ? `ML active · local Meta model via Ollama · ${model}` : `ML aktiv · Meta-Modell lokal via Ollama · ${model}`,
+    reachableMissing: (model) => EN ? `ML reachable, model missing · ${model}` : `ML erreichbar, Modell fehlt · ${model}`,
+    unreachable: (model, hint) => EN ? `ML unreachable · ${model} (${hint})` : `ML nicht erreichbar · ${model} (${hint})`,
+    checkOllama: EN ? "check Ollama" : "Ollama prüfen",
+    ocrMissing: EN ? "OCR: not installed" : "OCR: nicht installiert",
+    statusUnknown: EN ? "ML status unknown" : "ML-Status unbekannt",
+  };
+
   const mlBadge = document.getElementById("ml-status-badge");
   const mlUrl = mlBadge?.dataset.mlStatusUrl || "";
 
@@ -383,27 +446,27 @@
     const meta = payload.meta || {};
     const ocr = payload.ocr || {};
     if (provider === "mock") {
-      parts.push("ML: Demo-Platzhalter (keine echte Analyse)");
+      parts.push(STR.demoPlaceholder);
     } else if (provider === "meta") {
-      const key = meta.key_present ? "Schlüssel hinterlegt" : "kein API-Schlüssel";
-      const listed = meta.model_listed === true ? " · Modell gelistet" : (meta.model_listed === false ? " · Modell nicht bestätigt" : " · Modell nicht geprüft");
-      parts.push(`ML: ${meta.label || "Meta-Modell"} · ${key}${listed}`);
-      mlBadge.title = `Modell: ${meta.model || "unbekannt"}`;
+      const key = meta.key_present ? STR.keyStored : STR.noApiKey;
+      const listed = meta.model_listed === true ? STR.modelListed : (meta.model_listed === false ? STR.modelUnconfirmed : STR.modelUnchecked);
+      parts.push(`ML: ${meta.label || STR.metaModel} · ${key}${listed}`);
+      mlBadge.title = `${STR.modelLabel}${meta.model || STR.unknown}`;
     } else if (!ollama.model) {
-      parts.push("ML: kein Modell konfiguriert");
+      parts.push(STR.noModel);
     } else if (ollama.model_allowed !== true) {
-      parts.push(`ML: Modell nicht freigegeben · ${ollama.model}`);
+      parts.push(STR.modelNotApproved(ollama.model));
     } else if (ollama.reachable && ollama.model_seen) {
-      parts.push(`ML aktiv · Meta-Modell lokal via Ollama · ${ollama.model}`);
+      parts.push(STR.activeLocal(ollama.model));
     } else if (ollama.reachable) {
-      parts.push(`ML erreichbar, Modell fehlt · ${ollama.model}`);
+      parts.push(STR.reachableMissing(ollama.model));
     } else {
-      parts.push(`ML nicht erreichbar · ${ollama.model} (${ollama.error || "Ollama prüfen"})`);
+      parts.push(STR.unreachable(ollama.model, ollama.error || STR.checkOllama));
     }
     const engines = [];
     if (ocr.rapidocr) engines.push("RapidOCR");
     if (ocr.tesseract) engines.push("Tesseract");
-    parts.push(engines.length ? `OCR: ${engines.join(" + ")}` : "OCR: nicht installiert");
+    parts.push(engines.length ? `OCR: ${engines.join(" + ")}` : STR.ocrMissing);
     mlBadge.textContent = parts.join(" · ");
   };
 
@@ -412,9 +475,9 @@
     .then((response) => (response.ok ? response.json() : Promise.reject(new Error(String(response.status)))))
     .then((payload) => {
       if (payload && payload.ok !== false) renderMlStatus(payload);
-      else mlBadge.textContent = "ML-Status unbekannt";
+      else mlBadge.textContent = STR.statusUnknown;
     })
     .catch(() => {
-      mlBadge.textContent = "ML-Status unbekannt";
+      mlBadge.textContent = STR.statusUnknown;
     });
 })();
