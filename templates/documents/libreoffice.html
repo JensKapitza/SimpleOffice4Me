@@ -58,4 +58,4 @@
   <div class="alert alert-secondary small">{{ 'During parallel editing, the WebDAV lock and ETag check prevent unnoticed overwrites. Editing and retention locks apply unchanged.' if g.language == 'en' else 'Bei paralleler Bearbeitung verhindern WebDAV-Sperre und ETag-Prüfung ein unbemerktes Überschreiben. Bearbeitungs- und Aufbewahrungssperren gelten unverändert.' }}</div>
 </main>
 {% endblock %}
-{% block script %}<script>document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const field=document.getElementById(button.dataset.copy);await navigator.clipboard.writeText(field.value);button.textContent={{ "'Copied'" if g.language == 'en' else "'Kopiert'" }}}}))</script>{% endblock %}
+{% block script %}<script>document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const field=document.getElementById(button.dataset.copy);await navigator.clipboard.writeText(field.value);button.textContent={{ ('Copied' if g.language == 'en' else 'Kopiert')|tojson }}}}))</script>{% endblock %}

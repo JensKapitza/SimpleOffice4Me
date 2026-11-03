@@ -1,4 +1,3 @@
-import os
 from app.sqlite_utils import connect as sqlite_connect
 import tempfile
 import time
@@ -8,6 +7,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_attestations import FederationAttestationStore
 from app.federation_identity import FederationIdentity
 from app.federation_trust_store import FederationTrustStore
@@ -371,10 +371,13 @@ class FederationBlockPolicyTests(unittest.TestCase):
     def _import_confirmation(self, verifier_peer, target_peer):
         with tempfile.TemporaryDirectory() as signer_temp:
             signer_root = Path(signer_temp)
-            with patch.dict(
-                os.environ,
-                {"SIMPLEOFFICE_FEDERATION_PEER_ID": verifier_peer},
+            # The signer id comes from the user-home identity store (no
+            # environment): point it at the signer root for this import.
+            with patch.object(
+                app_config_store, "settings_path",
+                return_value=signer_root / "app-config.json",
             ):
+                app_config_store.put("federation", {"peer_id": verifier_peer})
                 signer = FederationAttestationStore(signer_root)
                 value = signer.add_signed(
                     target_peer,
