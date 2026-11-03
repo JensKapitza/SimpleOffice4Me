@@ -38,7 +38,7 @@ Optionen:
   --channel-timeout SEKUNDEN  Leerlaufzeit einer Verbindung (Standard: 120)
   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
   --check-system              Systemwerkzeuge prüfen, ohne Serverstart/Installation
-  --standalone                Python 3.12 unabhängig vom System herunterladen und verwenden
+  --standalone                Python 3.14 unabhängig vom System herunterladen und verwenden
   --help                      Diese Hilfe anzeigen
 
 Beim Start werden unter Linux zuerst vorhandene/native Distribution-Pakete
@@ -331,7 +331,7 @@ ensure_python_runtime() {
   fi
   if command -v "$PYTHON" >/dev/null 2>&1; then
     current_version="$($PYTHON -c 'import sys; print(".".join(map(str, sys.version_info[:3])))' 2>/dev/null || printf 'unbekannt')"
-    echo "Vorhandenes $PYTHON ($current_version) ist nicht freigegeben; benötigt wird CPython 3.11–3.15 final." >&2
+    echo "Vorhandenes $PYTHON ($current_version) ist nicht freigegeben; benötigt wird CPython 3.11–3.14." >&2
   else
     echo "Python 3 wurde nicht gefunden; prüfe native Pakete für $DISTRO_NAME ..."
   fi
@@ -419,7 +419,7 @@ requirements = {
     "reportlab": ">=4.0,<6",
     "pypdf": ">=5.0,<7",
     "waitress": ">=3.0,<4",
-    "cryptography": ">=48.0.1,<51",
+    "cryptography": ">=50.0.2,<51",
     "watchdog": ">=6,<7",
     "tzdata": ">=2024.1",
 }
@@ -462,7 +462,7 @@ except ImportError:
     from pip._vendor.packaging.version import Version
 
 requirements = {
-    "cryptography": (">=48.0.1,<51", "cryptography"),
+    "cryptography": (">=50.0.2,<51", "cryptography"),
     "Pillow": (">=13.0.0,<14", "PIL"),
 }
 problems = []
@@ -520,9 +520,9 @@ setup_standalone_runtime() {
       "$tools_dir/uv-bootstrap/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: 'uv>=0.9,<1' || return 1
     fi
   fi
-  echo "Standalone: prüfe verwaltete CPython-3.12-Laufzeit ..."
-  UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" python install 3.12 || return 1
-  managed_python="$(UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" python find --managed-python 3.12)" || return 1
+  echo "Standalone: prüfe verwaltete CPython-3.14-Laufzeit ..."
+  UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" python install 3.14 || return 1
+  managed_python="$(UV_PYTHON_INSTALL_DIR="$tools_dir/python" "$uv_cmd" python find --managed-python 3.14)" || return 1
   [ -x "$managed_python" ] || { echo "Kein ausführbares verwaltetes Python gefunden." >&2; return 1; }
 
   if [ -x "$VENV/bin/python" ] && "$VENV/bin/python" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
@@ -556,11 +556,11 @@ if [ -x "$VENV/bin/python" ]; then
   RUNTIME_PYTHON="$VENV/bin/python"
 elif [ "$CHECK_SYSTEM" -eq 1 ]; then
   if ! python_is_compatible; then
-    echo "--check-system verändert das System nicht. Für die Prüfung wird CPython 3.11–3.15 final benötigt." >&2
+    echo "--check-system verändert das System nicht. Für die Prüfung wird CPython 3.11–3.14 benötigt." >&2
     exit 1
   fi
 elif ! ensure_python_runtime; then
-  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird CPython 3.11–3.15 final." >&2
+  echo "Keine geeignete Python-Laufzeit gefunden. Benötigt wird CPython 3.11–3.14." >&2
   if [ -n "$NATIVE_PM" ]; then
     echo "Erkannter Paketmanager: $NATIVE_PM ($DISTRO_NAME)." >&2
   fi

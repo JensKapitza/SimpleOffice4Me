@@ -1,26 +1,28 @@
 # Python-Runtime-Support und Neuinstallation
 
-Stand: 21. Oktober 2026.
+Stand: 2. November 2026.
 
-**Unterstützt: CPython 3.11 bis 3.15 (jeweils finale, aktuelle Patchversion).**
-Python 3.10 und ältere Versionen werden nicht mehr unterstützt. Das gilt auch
-für Ubuntu 22.04 mit dessen System-Python 3.10. Es gibt keine Legacy-Ausnahme,
-keine Sicherheitsfreigabe für ältere Pillow-Versionen und keine Migration.
+**Stabile Standardversion für Builds und Neuinstallationen: CPython 3.14.**
+Im Serverbetrieb werden finale CPython-Versionen 3.11 bis 3.14 unterstützt.
+Python 3.15 ist experimentell: Es ist kein Release-Ziel und seine CI-Prüfung
+ist nicht blockierend. Python 3.10 und ältere Versionen werden nicht
+unterstützt, auch nicht das Ubuntu-22.04-System-Python 3.10.
 
 ## Installation unter Linux
 
-Die Anwendung verwendet eine eigene virtuelle Umgebung. Python 3.12 ist eine
-praktische Wahl; jede freigegebene Version 3.11–3.15 ist möglich.
+Die Anwendung verwendet eine eigene virtuelle Umgebung. Der Starter bevorzugt
+CPython 3.14; für bestehende Installationen bleiben die Versionen 3.11 bis 3.14
+kompatibel.
 
 ```bash
 git clone https://github.com/JensKapitza/SimpleOffice4Me.git
 cd SimpleOffice4Me
-PYTHON=python3.12 ./start.sh --check-system
-PYTHON=python3.12 ./start.sh
+PYTHON=python3.14 ./start.sh --check-system
+PYTHON=python3.14 ./start.sh
 ```
 
 Ist kein geeignetes System-Python vorhanden, bietet der vorhandene Starter
-einen Standalone-Installer für Python 3.12:
+einen Standalone-Installer für Python 3.14:
 
 ```bash
 ./start.sh --standalone
@@ -53,8 +55,9 @@ nicht angeboten. Der CI-Nachweis ersetzt keinen Laufzeit-/Gerätetest.
 ## Prüfung
 
 ```bash
-python3.12 simpleoffice_runtime_support.py
+python3.14 simpleoffice_runtime_support.py
 ./start.sh --check-system
 ```
 
-Nur finale CPython-Versionen 3.11–3.15 sind freigegeben.
+Für produktive Installationen sind finale CPython-Versionen 3.11–3.14
+freigegeben; neue Builds verwenden 3.14. Python 3.15 bleibt experimentell.

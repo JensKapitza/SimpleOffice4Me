@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       SIMPLEOFFICE_ANDROID_ABI: arm64-v8a
-      SIMPLEOFFICE_ANDROID_PYTHON: '3.15'
+      SIMPLEOFFICE_ANDROID_PYTHON: '3.14'
       SIMPLEOFFICE_ANDROID_WHEEL_DIR: ${{ github.workspace }}/android/apk/app/wheelhouse
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,22 +70,22 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: android-cp315-arm64-Pillow-wheel
+          name: android-cp314-arm64-Pillow-wheel
           path: android/apk/app/wheelhouse
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: android-cp315-arm64-cryptography-wheel
+          name: android-cp314-arm64-cryptography-wheel
           path: android/apk/app/wheelhouse
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: android-cp315-arm64-cffi-wheel
+          name: android-cp314-arm64-cffi-wheel
           path: android/apk/app/wheelhouse
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          name: android-cp315-arm64-argon2-cffi-bindings-wheel
+          name: android-cp314-arm64-argon2-cffi-bindings-wheel
           path: android/apk/app/wheelhouse
 
       - name: Verify local Android wheel hashes
@@ -97,7 +97,7 @@ jobs:
       - name: Set up Chaquopy build Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.15'
+          python-version: '3.14'
 
       - name: Select Chaquopy build interpreter
         shell: bash
@@ -111,7 +111,7 @@ jobs:
         run: |
           python -m pip install --require-hashes -r requirements-ci-tools.txt
           python tools/check_chaquopy_wheels.py \
-            --python '3.15' \
+            --python '3.14' \
             --abi 'arm64-v8a' \
             --wheel-dir android/apk/app/wheelhouse
 

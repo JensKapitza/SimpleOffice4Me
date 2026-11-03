@@ -8,7 +8,7 @@ Die Android-App soll sich wie eine normale Android-Anwendung verhalten, ohne den
 
 Die unterstützte APK hat `minSdk 24` und unterstützt damit Android 7.0 oder neuer.
 
-- `arm64-v8a`: Python 3.15.
+- `arm64-v8a`: Python 3.14.
 - `armeabi-v7a` wird derzeit nicht gebaut oder als unterstütztes APK-Profil angeboten.
 
 Die native Integration verwendet nur APIs, die ab API 24 vorhanden sind. Safe Browsing bleibt weiterhin erst ab Android 8 aktiviert.

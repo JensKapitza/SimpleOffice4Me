@@ -11,9 +11,9 @@ if (errorReportUrl && !errorReportUrl.startsWith('https://')) {
 def escapedErrorReportUrl = errorReportUrl.replace('\\', '\\\\').replace('"', '\\"')
 
 def androidAbi = (System.getenv('SIMPLEOFFICE_ANDROID_ABI') ?: 'arm64-v8a').trim()
-def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.15').trim()
+def pythonRuntimeVersion = (System.getenv('SIMPLEOFFICE_ANDROID_PYTHON') ?: '3.14').trim()
 def androidRuntimeProfiles = [
-    'arm64-v8a': '3.15',
+    'arm64-v8a': '3.14',
 ]
 def expectedPythonVersion = androidRuntimeProfiles[androidAbi]
 def androidWheelDirectory = (System.getenv('SIMPLEOFFICE_ANDROID_WHEEL_DIR') ?: '').trim()
@@ -30,7 +30,7 @@ if (androidWheelDirectory) {
     def cffiWheels = fileTree(dir: wheelDirectory).matching { include 'cffi-2.0.0-*.whl' }.files
     def argon2BindingsWheels = fileTree(dir: wheelDirectory).matching { include 'argon2_cffi_bindings-21.2.0-*.whl' }.files
     def pillowWheels = fileTree(dir: wheelDirectory).matching { include 'pillow-13.0.0-*.whl' }.files
-    def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-48.0.1-*.whl' }.files
+    def cryptographyWheels = fileTree(dir: wheelDirectory).matching { include 'cryptography-50.0.2-*.whl' }.files
     def reportlabWheels = fileTree(dir: wheelDirectory).matching { include 'reportlab-4.2.5-py3-none-any.whl' }.files
     if (cffiWheels.size() != 1 || argon2BindingsWheels.size() != 1 || pillowWheels.size() != 1 || cryptographyWheels.size() != 1 || reportlabWheels.size() != 1) {
         def wheelNames = (wheelDirectory.listFiles() ?: [])
@@ -39,7 +39,7 @@ if (androidWheelDirectory) {
             .sort()
         throw new GradleException(
             'Android wheel directory must contain exactly one verified cffi 2.0.0, '
-            + 'argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 48.0.1, and ReportLab 4.2.5 wheel. '
+            + 'argon2-cffi-bindings 21.2.0, Pillow 13.0.0, cryptography 50.0.2, and ReportLab 4.2.5 wheel. '
             + "Match counts: cffi=${cffiWheels.size()}, argon2=${argon2BindingsWheels.size()}, "
             + "Pillow=${pillowWheels.size()}, cryptography=${cryptographyWheels.size()}, "
             + "ReportLab=${reportlabWheels.size()}; wheel files: ${wheelNames}"
@@ -258,7 +258,7 @@ chaquopy {
             if (localCryptographyWheel) {
                 install localCryptographyWheel.absolutePath
             } else {
-                install 'cryptography==48.0.1'
+                install 'cryptography==50.0.2'
             }
             install 'tzdata==2026.2'
         }

@@ -8,9 +8,40 @@ import argparse
 import json
 import re
 import subprocess
+import sys
 import time
-from defusedxml import ElementTree as ET
 from pathlib import Path
+
+
+def capture_filtered_logcat(output: Path) -> None:
+    """Persist bounded app/Android UI errors to diagnose emulator smoke failures."""
+    command = [
+        'adb', 'logcat', '-d', '-t', '2000', '-v', 'threadtime', '-s',
+        'AndroidRuntime:E', 'ActivityManager:W', 'ActivityTaskManager:W',
+        'WindowManager:W', 'chromium:E', 'System.err:E',
+    ]
+    try:
+        result = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        contents = f'Filtered Android logcat capture unavailable: {type(error).__name__}\n'
+    else:
+        contents = result.stdout or ''
+        if result.stderr:
+            contents += '\n--- logcat stderr ---\n' + result.stderr
+        contents += f'\nlogcat_exit_code={result.returncode}\n'
+    try:
+        (output / 'filtered-logcat.txt').write_text(contents[-100_000:], encoding='utf-8')
+    except OSError as error:
+        print(
+            f'Could not save filtered Android logcat ({type(error).__name__})',
+            file=sys.stderr,
+        )
 
 
 def adb(*arguments):
@@ -18,6 +49,8 @@ def adb(*arguments):
 
 
 def main():
+    from defusedxml import ElementTree as ET
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('apk', type=Path)
     parser.add_argument('--output', type=Path, default=Path('artifacts/tauri-android-ui'))
@@ -102,6 +135,7 @@ def main():
         print(json.dumps({'ok': True, 'checks': ['client-launch', 'http-rejected',
               'public-trusted-https-opens', 'reopen-prefills-saved-endpoint']}))
     finally:
+        capture_filtered_logcat(args.output)
         with (args.output / 'screen.png').open('wb') as stream:
             subprocess.run(['adb', 'exec-out', 'screencap', '-p'], stdout=stream, check=True, timeout=30)
         subprocess.run(['adb', 'shell', 'am', 'force-stop', 'de.simpleoffice4me.tauri'], check=True, timeout=30)

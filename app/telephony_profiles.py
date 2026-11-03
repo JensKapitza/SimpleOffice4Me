@@ -1,7 +1,6 @@
 """Persistent SIP extension profiles for the Mini Services telephony assistant."""
 from __future__ import annotations
 
-import hashlib
 import ipaddress
 import re
 import sqlite3
@@ -12,6 +11,13 @@ from pathlib import Path
 from typing import Iterator
 
 from .telephony_numbering import clean_number
+from simpleoffice_sip_crypto import (
+    decrypt_sip_digest_verifiers,
+    encrypt_sip_digest_verifiers,
+    migrate_legacy_sip_verifiers,
+    sip_digest_ha1 as _sip_digest_ha1,
+    sip_digest_verifiers as _sip_digest_verifiers,
+)
 
 ALLOWED_TRANSPORTS = {"udp", "tcp", "tls"}
 _HOST_LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
@@ -48,25 +54,31 @@ def _clean_transport(value: str) -> str:
     return transport
 
 
-def sip_digest_ha1(username: str, realm: str, password: str) -> str:
-    """Return RFC-compatible MD5 HA1 without persisting the clear-text password."""
+def sip_digest_ha1(username: str, realm: str, password: str, algorithm: str = "MD5") -> str:
+    """Return one RFC 8760 HA1 value after validating the local SIP identity."""
     user = clean_number(username, "Nebenstelle")
     clean_realm = _clean_host(realm)
     secret = str(password or "")
     if not secret:
         raise ValueError("SIP-Passwort fehlt")
-    material = f"{user}:{clean_realm}:{secret}".encode("utf-8")
-    try:
-        return hashlib.md5(material, usedforsecurity=False).hexdigest()
-    except TypeError:  # pragma: no cover - older compatible Python builds
-        return hashlib.md5(material).hexdigest()  # nosec B324 - SIP Digest compatibility
+    return _sip_digest_ha1(user, clean_realm, secret, algorithm)
+
+
+def sip_digest_verifiers(username: str, realm: str, password: str) -> dict[str, str]:
+    user = clean_number(username, "Nebenstelle")
+    clean_realm = _clean_host(realm)
+    secret = str(password or "")
+    if not secret:
+        raise ValueError("SIP-Passwort fehlt")
+    return _sip_digest_verifiers(user, clean_realm, secret)
 
 
 class TelephonyProfileStore:
     """Store device profiles while keeping SIP secrets encrypted at rest."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, master_key: str | bytes):
         self.root = Path(root)
+        self.master_key = master_key
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "telephony-profiles.sqlite3"
         self.initialize()
@@ -108,6 +120,7 @@ class TelephonyProfileStore:
             columns = {str(row[1]) for row in db.execute("PRAGMA table_info(telephony_profile)").fetchall()}
             if "digest_ha1" not in columns:
                 db.execute("ALTER TABLE telephony_profile ADD COLUMN digest_ha1 TEXT NOT NULL DEFAULT ''")
+        migrate_legacy_sip_verifiers(self.path, self.master_key)
 
     def settings(self) -> dict:
         defaults = {
@@ -148,7 +161,15 @@ class TelephonyProfileStore:
             )
         return self.settings()
 
-    def create_profile(self, extension: str, display_name: str, secret_enc: str, *, device_kind: str = "softphone", digest_ha1: str = "") -> dict:
+    def create_profile(
+        self,
+        extension: str,
+        display_name: str,
+        secret_enc: str,
+        *,
+        device_kind: str = "softphone",
+        digest_ha1: str | dict[str, str] = "",
+    ) -> dict:
         number = clean_number(extension, "Nebenstelle")
         label = " ".join(str(display_name or number).split())[:200]
         kind = str(device_kind or "softphone").strip().lower()
@@ -156,16 +177,18 @@ class TelephonyProfileStore:
             raise ValueError("Unbekannter Geraetetyp")
         if not str(secret_enc).startswith("enc:v1:"):
             raise ValueError("SIP-Zugang muss verschluesselt gespeichert werden")
-        digest = str(digest_ha1 or "").strip().casefold()
-        if digest and not _DIGEST_RE.fullmatch(digest):
-            raise ValueError("SIP-Digest-Verifier ist ungueltig")
+        verifiers = self._digest_verifiers(digest_ha1)
+        encrypted_verifiers = (
+            encrypt_sip_digest_verifiers(number, verifiers, self.master_key)
+            if verifiers else ""
+        )
         timestamp = _now()
         with self._db() as db:
             db.execute(
                 """INSERT INTO telephony_profile(
                        extension,display_name,auth_user,secret_enc,digest_ha1,device_kind,enabled,created_at,updated_at
-                   ) VALUES(?,?,?,?,?,?,1,?,?)""",
-                (number, label, number, secret_enc, digest, kind, timestamp, timestamp),
+                 ) VALUES(?,?,?,?,?,?,1,?,?)""",
+                (number, label, number, secret_enc, encrypted_verifiers, kind, timestamp, timestamp),
             )
         return self.profile(number)
 
@@ -198,17 +221,25 @@ class TelephonyProfileStore:
             raise KeyError("Nebenstelle nicht gefunden")
         return str(row["secret_enc"])
 
-    def rotate_secret(self, extension: str, secret_enc: str, *, digest_ha1: str = "") -> dict:
+    def rotate_secret(
+        self,
+        extension: str,
+        secret_enc: str,
+        *,
+        digest_ha1: str | dict[str, str] = "",
+    ) -> dict:
         number = clean_number(extension, "Nebenstelle")
         if not str(secret_enc).startswith("enc:v1:"):
             raise ValueError("SIP-Zugang muss verschluesselt gespeichert werden")
-        digest = str(digest_ha1 or "").strip().casefold()
-        if digest and not _DIGEST_RE.fullmatch(digest):
-            raise ValueError("SIP-Digest-Verifier ist ungueltig")
+        verifiers = self._digest_verifiers(digest_ha1)
+        encrypted_verifiers = (
+            encrypt_sip_digest_verifiers(number, verifiers, self.master_key)
+            if verifiers else ""
+        )
         with self._db() as db:
             cursor = db.execute(
                 "UPDATE telephony_profile SET secret_enc=?,digest_ha1=?,updated_at=? WHERE extension=?",
-                (secret_enc, digest, _now(), number),
+                (secret_enc, encrypted_verifiers, _now(), number),
             )
             if cursor.rowcount != 1:
                 raise KeyError("Nebenstelle nicht gefunden")
@@ -224,7 +255,22 @@ class TelephonyProfileStore:
             ).fetchone()
         if row is None:
             raise KeyError("Nebenstelle nicht gefunden")
-        return {**dict(row), "enabled": bool(row["enabled"])}
+        verifiers = decrypt_sip_digest_verifiers(number, str(row["digest_ha1"] or ""), self.master_key) if row["digest_ha1"] else {}
+        return {
+            **dict(row),
+            "digest_ha1": verifiers.get("MD5", ""),
+            "digest_ha1_sha256": verifiers.get("SHA-256", ""),
+            "enabled": bool(row["enabled"]),
+        }
+
+    @staticmethod
+    def _digest_verifiers(value: str | dict[str, str]) -> dict[str, str]:
+        if isinstance(value, dict):
+            return value
+        digest = str(value or "").strip().casefold()
+        if digest and not _DIGEST_RE.fullmatch(digest):
+            raise ValueError("SIP-Digest-Verifier ist ungueltig")
+        return {"MD5": digest} if digest else {}
 
     def delete_profile(self, extension: str) -> None:
         number = clean_number(extension, "Nebenstelle")

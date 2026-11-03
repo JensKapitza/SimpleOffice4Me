@@ -20,6 +20,8 @@ SBOM
 
 VALID_CI = """
 python-version: ["3.11", "3.14", "3.15"]
+runtime: experimental
+continue-on-error: true
 python simpleoffice_runtime_support.py
 python tools/check_project_policy.py .
 python tools/check_file_size.py . --limit 1000

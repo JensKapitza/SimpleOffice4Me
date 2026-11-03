@@ -32,6 +32,18 @@ from .archive_settings import (
     legacy_archive_min_free_memory_mb,
 )
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
+from .finance_settings import (
+    DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+    DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+    MAX_BANK_BROWSER_TIMEOUT_SECONDS as MAX_BANK_BROWSER_TIMEOUT_SECONDS,
+    MAX_FINANCE_IMPORT_LIMIT_BYTES as MAX_FINANCE_IMPORT_LIMIT_BYTES,
+    MAX_FINANCE_STAGING_TTL_SECONDS as MAX_FINANCE_STAGING_TTL_SECONDS,
+    MIN_BANK_BROWSER_TIMEOUT_SECONDS as MIN_BANK_BROWSER_TIMEOUT_SECONDS,
+    MIN_FINANCE_IMPORT_LIMIT_BYTES as MIN_FINANCE_IMPORT_LIMIT_BYTES,
+    MIN_FINANCE_STAGING_TTL_SECONDS as MIN_FINANCE_STAGING_TTL_SECONDS,
+    validate_finance_settings,
+)
 from .integration_settings import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
@@ -180,6 +192,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "calendar": {"default_visibility": "private", "default_public_notice": "Belegt", "default_duration_minutes": 60},
     "sharing": {"default_expiry_days": 7},
     "s3": {"enabled": False},
+    "finance": {
+        "bank_browser_enabled": True,
+        "bank_browser_timeout_seconds": DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+        "statement_import_limit_bytes": DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+        "statement_staging_ttl_seconds": DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+    },
     "network": {
         "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
         "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
@@ -528,7 +546,7 @@ class SettingsStore:
             # partial writes so callers preserve the other controls in the
             # same section.
             merged = {**latest, **settings}
-            for section in ("network", "media", "integrations", "v3", "projects"):
+            for section in ("finance", "network", "media", "integrations", "v3", "projects"):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -548,6 +566,7 @@ class SettingsStore:
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
         s3 = settings.get("s3", {})
+        finance = validate_finance_settings(settings.get("finance", {}))
         network = settings.get("network", {})
         media = settings.get("media", {})
         integrations = settings.get("integrations", {})
@@ -625,6 +644,7 @@ class SettingsStore:
             },
             "sharing": {"default_expiry_days": expiry},
             "s3": {"enabled": s3.get("enabled", False)},
+            "finance": finance,
             "network": {
                 "webdav_quota_mib": webdav_quota,
                 "rsync_timeout_seconds": rsync_timeout,

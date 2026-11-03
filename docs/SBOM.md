@@ -49,9 +49,9 @@ invented when the advisory supplies only a CVSS vector.
 
 ## Current Android constraint
 
-The installable APK profile targets ARM64/Python 3.15. ARM32 is not offered
+The installable APK profile targets ARM64/Python 3.14. ARM32 is not offered
 because the patched Pillow 13 baseline has no verified wheel for that ABI. CI
-builds hash-verified ARM64 wheels for Pillow 13.0.0, cryptography 48.0.1, cffi
+builds hash-verified ARM64 wheels for Pillow 13.0.0, cryptography 50.0.2, cffi
 2.0.0, and argon2-cffi-bindings 21.2.0, installs them into the APK, then checks
 that the APK metadata matches every direct Gradle pin and validates its
 CycloneDX JSON/XML inventories. The Pillow 13.0.0 baseline is enforced against
