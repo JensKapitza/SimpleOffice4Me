@@ -62,7 +62,7 @@ Titel-Case-Probe, `test_adopt_rejects_negative_marketplace_price`,
 Policy-/Diff-/Node-Gates grün; Routen-Suiten (Login) hier nicht
 verifizierbar (`PermissionError` Auth-Speicher) — kein Grün behauptet.
 **Korrektur (03.11., kein Inventarabgleich, Branch
-`hackai/inventory-batch-20261103`, uncommitted):** Codex-Fund bestätigt —
+`hackai/inventory-batch-20261103`, committed `d0dc7d48` (local, not pushed)):** Codex-Fund bestätigt —
 `peer_stock.py` liest nur lokale Dokumentenindex-Kopien
 (`FederationCatalog.remote_files`); kein `ObjectStore`-Zugriff in
 irgendeiner Föderations-/Resource-Datei, also existiert keine geteilte
