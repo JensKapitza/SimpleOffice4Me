@@ -82,6 +82,126 @@ class InventorySyncGateTests(unittest.TestCase):
         self.assertTrue(rows[0]["available"])
         self.assertEqual(BOOK_TITLE, rows[0]["display_name"])
 
+    def test_purge_deletes_rows_and_resets_state(self):
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        catalog.begin_inventory_index("friend-ok", "gen1")
+        catalog.finish_inventory_index("friend-ok", "gen1")
+        result = catalog.purge_peer_inventory("friend-ok")
+
+        self.assertEqual({"peer_id": "friend-ok", "removed": 1}, result)
+        self.assertEqual([], catalog.remote_inventory_items("friend-ok"))
+        state = catalog.inventory_state("friend-ok")
+        self.assertIsNone(state["last_index_at"])
+        self.assertEqual("", state["generation"])
+        self.assertEqual("", state["last_index_error"])
+        again = catalog.purge_peer_inventory("friend-ok")
+        self.assertEqual(0, again["removed"])
+
+    def test_save_peer_without_receive_purges_rows(self):
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        peers = FederationStore(self.root)
+        peers.save_peer("friend-ok", "Freund Ok", "http://127.0.0.1:9", "",
+                        {"inventory": {"send": True}}, True)
+
+        self.assertEqual([], catalog.remote_inventory_items("friend-ok"))
+        self.assertIsNone(catalog.inventory_state("friend-ok")["last_index_at"])
+
+    def test_save_peer_disabled_purges_rows(self):
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        peers = FederationStore(self.root)
+        peers.save_peer("friend-ok", "Freund Ok", "http://127.0.0.1:9", "",
+                        {"inventory": {"send": True, "receive": True}}, False)
+
+        self.assertEqual([], catalog.remote_inventory_items("friend-ok"))
+
+    def test_delete_peer_purges_rows(self):
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        FederationStore(self.root).delete_peer("friend-ok")
+
+        self.assertEqual([], catalog.remote_inventory_items("friend-ok"))
+
+    def test_trust_revocation_purges_rows(self):
+        from app.federation_catalog import FederationCatalog
+        from app.federation_trust_store import FederationTrustStore
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        FederationTrustStore(self.root).set_trust("friend-ok", "NONE")
+
+        self.assertEqual([], catalog.remote_inventory_items("friend-ok"))
+
+    def test_sync_without_receive_purges_existing_rows(self):
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-quiet", "gen1", [_row()])
+        with mock.patch(
+            "app.federation_download_worker._json_request",
+            side_effect=AssertionError("kein Netzwerk erwartet"),
+        ):
+            with self.assertRaises(ValueError):
+                sync_peer_inventory_catalog(self.root, "friend-quiet")
+
+        self.assertEqual([], catalog.remote_inventory_items("friend-quiet"))
+
+    def test_sync_forbidden_purges_rows(self):
+        import urllib.error
+
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        catalog.begin_inventory_index("friend-ok", "gen1")
+        catalog.finish_inventory_index("friend-ok", "gen1")
+        forbidden = urllib.error.HTTPError(
+            "http://127.0.0.1:9/federation/v1/catalog/inventory",
+            403, "Forbidden", {}, None)
+        with mock.patch(
+            "app.federation_download_worker._json_request",
+            side_effect=forbidden,
+        ):
+            with self.assertRaises(ValueError) as raised:
+                sync_peer_inventory_catalog(self.root, "friend-ok")
+
+        self.assertIn("entzogen", str(raised.exception))
+        self.assertEqual([], catalog.remote_inventory_items("friend-ok"))
+        state = catalog.inventory_state("friend-ok")
+        self.assertIsNone(state["last_index_at"])
+        self.assertEqual("", state["last_index_error"])
+
+    def test_sync_transient_error_keeps_rows_but_unknown(self):
+        import urllib.error
+
+        from app.federation_catalog import FederationCatalog
+
+        catalog = FederationCatalog(self.root)
+        catalog.ingest_inventory("friend-ok", "gen1", [_row()])
+        catalog.begin_inventory_index("friend-ok", "gen1")
+        catalog.finish_inventory_index("friend-ok", "gen1")
+        with mock.patch(
+            "app.federation_download_worker._json_request",
+            side_effect=urllib.error.URLError("timeout"),
+        ):
+            with self.assertRaises(urllib.error.URLError):
+                sync_peer_inventory_catalog(self.root, "friend-ok")
+
+        rows = catalog.remote_inventory_items("friend-ok")
+        self.assertEqual(1, len(rows))
+        self.assertTrue(rows[0]["available"])
+        self.assertTrue(catalog.inventory_state("friend-ok")["last_index_error"])
+
     def test_schema_mismatch_fails_without_touching_rows(self):
         catalog = FederationCatalog(self.root)
         catalog.ingest_inventory("friend-ok", "gen1", [_row()])

@@ -118,6 +118,7 @@ def sync_peer_inventory_catalog(root: str | Path, peer_id: str, *, page_size: in
     if not peer or not peer.get("enabled"):
         raise ValueError("Federation-Peer ist nicht aktiv")
     if not _inventory_receive_opt_in(peer):
+        FederationCatalog(root).purge_peer_inventory(peer_id)
         raise ValueError("Inventarabgleich für diesen Peer ist nicht freigegeben")
     _, _, token = _peer(root, peer_id)
     catalog = FederationCatalog(root)
@@ -156,6 +157,11 @@ def sync_peer_inventory_catalog(root: str | Path, peer_id: str, *, page_size: in
         logger.info("federation inventory catalog sync completed peer=%s items=%s", peer_id, imported)
         return {"peer_id": peer_id, "generation": generation, "items": imported}
     except Exception as exc:
+        if isinstance(exc, urllib.error.HTTPError) and exc.code == 403:
+            purged = catalog.purge_peer_inventory(peer_id)
+            federation.record_event("inventory_catalog_access_revoked", peer_id=peer_id, detail={"removed": purged["removed"]})
+            logger.warning("federation inventory catalog access revoked peer=%s", peer_id)
+            raise ValueError("Inventarfreigabe wurde entzogen; lokale Kopie gelöscht") from exc
         catalog.fail_inventory_index(peer_id, str(exc))
         federation.record_event("inventory_catalog_sync_failed", peer_id=peer_id, detail={"error": str(exc)[:500]})
         logger.exception("federation inventory catalog sync failed peer=%s", peer_id)

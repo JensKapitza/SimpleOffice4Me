@@ -250,12 +250,23 @@ class FederationStore:
                 ),
             )
         self.record_event("peer_saved", peer_id=peer_id, detail={"base_url": base_url, "enabled": enabled})
-        return self.get_peer(peer_id) or {}
+        stored = self.get_peer(peer_id) or {}
+        policy = stored.get("policy")
+        inventory = policy.get("inventory") if isinstance(policy, dict) else None
+        if not (stored.get("enabled") and isinstance(inventory, dict)
+                and inventory.get("receive") is True):
+            from .federation_catalog import FederationCatalog
+
+            FederationCatalog(self.root).purge_peer_inventory(peer_id)
+        return stored
 
     def delete_peer(self, peer_id: str) -> None:
         peer_id = sanitize_peer_id(peer_id)
         with self._db() as db:
             db.execute("DELETE FROM federation_peer WHERE peer_id=?", (peer_id,))
+        from .federation_catalog import FederationCatalog
+
+        FederationCatalog(self.root).purge_peer_inventory(peer_id)
         self.record_event("peer_deleted", peer_id=peer_id)
 
     def peer_token(self, peer_id: str) -> str:

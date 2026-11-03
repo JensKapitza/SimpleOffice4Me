@@ -254,6 +254,30 @@ class FederationCatalog:
             )
         self.record_event("inventory_index_sync_failed", peer_id=peer_id, detail={"error": str(error)[:500]})
 
+    def purge_peer_inventory(self, peer_id: str) -> dict[str, Any]:
+        """Permanently delete one peer's local inventory index copy.
+
+        Transactional: rows and the peer's index state are removed in a
+        single commit, so consent revocation, peer deletion, or a
+        remote 403 never leaves stale personal data behind. Afterwards
+        the peer reports as not synced without any stored rows.
+        """
+        peer_id = self._ensure_inventory_peer(peer_id)
+        with self._db() as db:
+            row = db.execute(
+                "SELECT COUNT(*) AS removed FROM federation_remote_item WHERE peer_id=?",
+                (peer_id,),
+            ).fetchone()
+            removed = int(row["removed"]) if row else 0
+            db.execute("DELETE FROM federation_remote_item WHERE peer_id=?", (peer_id,))
+            db.execute(
+                "UPDATE federation_inventory_peer SET generation='',last_index_at=NULL,last_index_error='',updated_at=? WHERE peer_id=?",
+                (_now(), peer_id),
+            )
+        if removed:
+            self.record_event("inventory_index_purged", peer_id=peer_id, detail={"removed": removed})
+        return {"peer_id": peer_id, "removed": removed}
+
     def remote_inventory_items(self, peer_id: str, identifier: str = "") -> list[dict[str, Any]]:
         """Return synced inventory rows, optionally filtered to one identifier."""
         peer_id = sanitize_peer_id(peer_id)

@@ -93,6 +93,16 @@ Size-/Function-/Policy-/Diff-/Node-Gates grün (web.py-Split hält
 1000-Zeilen-Limit), Routen-Registrierung per `url_map` belegt;
 Routen-Suiten (Login) und Browser-E2E hier nicht ausführbar
 (`PermissionError` Auth-Speicher) — kein Grün behauptet.
+**Folge (03.11., sichere Löschung bei Widerruf, Branch
+`hackai/inventory-batch-20261103`, uncommitted):** Transaktionale
+`purge_peer_inventory` löscht Zeilen + Indexstand in einem Commit;
+aufgerufen bei Freigabe-Rücknahme (save_peer ohne Receive/Deaktivierung),
+Peer-Löschung, Trust-Widerruf, Sync ohne Freigabe und Remote-403
+(Zugriff entzogen). Temporäre Netz-/Schemafehler behalten die letzte
+Kopie, melden aber Fehler (Status unbekannt, keine Trefferbehauptung).
+Verifiziert: 83/83 gezielte Tests OK (inkl. 8 neuer Purge-Tests),
+Size-/Function-/Policy-/Compile-/Diff-/Node-Gates grün; Routen-Suiten
+(Login) und Browser-E2E nicht ausführbar — kein Grün behauptet.
 **Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
 bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
 die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,
