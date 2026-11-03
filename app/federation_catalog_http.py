@@ -101,27 +101,23 @@ def _catalog_rows() -> list[dict]:
 
 
 def _peer_can_receive_catalog(root: str | Path) -> bool:
-    """Apply the configured document-sharing policy to identified peers."""
+    """Default-deny gate: only an identified peer with explicit send+seed flags."""
     peer_id = authenticated_peer(root, request)
     if not peer_id:
-        # Identity-neutral legacy bearer access is retained for older peers.
-        return True
+        # Identity-neutral legacy bearer access never establishes peer scope: deny catalog.
+        return False
     peer = FederationStore(root).get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         return False
     policy = peer.get("policy")
-    if policy is None:
-        return True
     if not isinstance(policy, dict):
         return False
-    if "documents" not in policy:
-        return True
     document_policy = policy.get("documents")
     if not isinstance(document_policy, dict):
         return False
-    return all(
-        document_policy.get(permission, True) is True
-        for permission in ("send", "seed")
+    return (
+        document_policy.get("send") is True
+        and document_policy.get("seed") is True
     )
 
 

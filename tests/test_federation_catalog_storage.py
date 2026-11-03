@@ -29,9 +29,29 @@ class FederationCatalogStorageTests(unittest.TestCase):
         fixture.FederationHttpStorageTests.setUp(self)
         self.app.register_blueprint(bp)
         self.url = "/federation/v1/catalog/documents"
+        # The catalog is default-deny: only an identified peer with explicit
+        # documents.send + documents.seed flags may list it.
+        with self.app.app_context():
+            FederationStore(self.root).save_peer(
+                "catalog-peer",
+                "Catalog Peer",
+                "https://catalog-peer.invalid",
+                "catalog-peer-token",
+                {"documents": {"send": True, "receive": True, "seed": True}},
+            )
+
+    def _catalog_headers(self):
+        return {
+            **self.auth,
+            **peer_headers("catalog-peer", "catalog-peer-token", "GET", self.url, b""),
+        }
 
     def index(self, status=200, *, headers=None, query=None):
-        response = self.client.get(self.url, headers=self.auth if headers is None else headers, query_string=query)
+        response = self.client.get(
+            self.url,
+            headers=self._catalog_headers() if headers is None else headers,
+            query_string=query,
+        )
         self.addCleanup(response.close)
         self.assertEqual(status, response.status_code, response.data)
         return response.json
@@ -160,9 +180,16 @@ class FederationCatalogStorageTests(unittest.TestCase):
         with patch("app.federation_catalog_http.storage_for") as storage:
             self.index(401, headers={})
             FederationModerationStore(self.root).ban("blocked", "abuse", actor="admin")
-            self.index(401)
+            # Identity-neutral Bearer [REDACTED] stays unauthenticated while a ban exists.
+            self.index(401, headers=self.auth)
             storage.assert_not_called()
         with self.app.app_context():
-            FederationStore(self.root).save_peer("allowed", "Allowed", "https://allowed.invalid", "allowed-proof")
-        signed = {**self.auth, **peer_headers("allowed", "allowed-proof", "GET", self.url)}
+            FederationStore(self.root).save_peer(
+                "allowed",
+                "Allowed",
+                "https://allowed.invalid",
+                "allowed-proof",
+                {"documents": {"send": True, "receive": True, "seed": True}},
+            )
+        signed = {**self.auth, **peer_headers("allowed", "allowed-proof", "GET", self.url, b"")}
         self.index(headers=signed)
