@@ -1,7 +1,8 @@
 # ContextFlow – STATUS (Neu-gegen-Alt-Nachweis)
 
-**Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
-**Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
+**Historische Hackathon-Baseline:** `af5a600bae1f526e61198edbec4d9022e742f228` (`main` am 26.10.2026, Merge PR #868)
+**Integration:** `hackathon/contextflow-mvp` wurde am 03.11.2026 per PR #971 in `main` übernommen (Merge-Commit `9f09a863efc113b9ff483ecf22bcb5180688694a`); der Branch wurde nicht rebased.
+**Aktueller Arbeitsbranch:** `hackai/inventory-batch-20261103`, basiert auf `origin/main` `6465f52ee9098edf6101232631601effedbf9b0f`, lokal 8 Commits voraus, noch nicht gepusht.
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
 **Stand (03.11., Capture-Härtung, Branch `hackai/inventory-batch-20261103`,
 committed `150b1918`):** Geprüfter Port der Hands-on-Fixes aus Referenz-Worktree
@@ -33,7 +34,7 @@ Routen-Suiten in diesem Worktree NICHT verifiziert (Test-Login scheitert an
 behauptet). Preis-Vorschläge bleiben offene Lücke (bewusst kein Scope dieses
 Slices).
 **Folge (03.11., Marktpreis im Review, Branch `hackai/inventory-batch-20261103`,
-committed `754c689c` (local, not pushed)):** Batch-Review nutzt `GET /inventory/marketplace/search`
+committed `754c689c` (lokal, nicht gepusht):** Batch-Review nutzt `GET /inventory/marketplace/search`
 (kein neuer Scraper); Klick-Suche, Treffer mit Anbieter/Preis/Quelle/Link,
 „Preis übernehmen“ nur bei numerischem Preis (sonst deaktiviert), eigene
 Werte nur mit „Ersetzen“-Haken überschrieben. Adopt speichert
@@ -60,6 +61,14 @@ Titel-Case-Probe, `test_adopt_rejects_negative_marketplace_price`,
 `test_marketplace_price_take_is_fail_closed` u. a.), Size-/Function-/
 Policy-/Diff-/Node-Gates grün; Routen-Suiten (Login) hier nicht
 verifizierbar (`PermissionError` Auth-Speicher) — kein Grün behauptet.
+**Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
+bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
+die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,
+Capture-UI- und Marketplace-Tests bestanden mit dem verfügbaren Python
+3.12.14. Policy-, Datei-/Funktionsgrößen-, Compileall-, Node-Syntax- und
+Diff-Whitespace-Gates ebenfalls bestanden. Das belegt nicht die blockierende
+Python-Matrix 3.11/3.14; Routen-/Login-Suiten und Browser-E2E blieben wegen
+des geschützten Auth-Speichers bzw. fehlender Browser-Abnahme offen.
 **Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
 `origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
 (9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5
