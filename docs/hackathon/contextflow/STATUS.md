@@ -103,6 +103,23 @@ Kopie, melden aber Fehler (Status unbekannt, keine Trefferbehauptung).
 Verifiziert: 83/83 gezielte Tests OK (inkl. 8 neuer Purge-Tests),
 Size-/Function-/Policy-/Compile-/Diff-/Node-Gates grün; Routen-Suiten
 (Login) und Browser-E2E nicht ausführbar — kein Grün behauptet.
+**Folge (03.11., OCR-Titelhierarchie + Kleinstbild-Upscale, Branch
+`hackai/inventory-batch-20261103`, committed `444b8da4` (local, not pushed)):** Root-Cause-Fix
+dafür, dass `title_lines[0]` (Autorzeile) als Buchtitel vorausgefüllt wurde: `split_cover_hierarchy`
+entscheidet nach Typografie statt Textreihenfolge (größte Zeile + Nachbarn = Titel, kleinere
+Namenszeile darüber = Autor, kleinere darunter = Untertitel), nur bei klarer Evidenz
+(Konfidenz ≥ 0,80, Dominanz ≥ 1,5× Median), sonst bleibt der Titel leer und fehlend.
+`capture_ocr` reicht Blöcke durch und skaliert nur Kleinstbilder (< 900 px, 2× LANCZOS,
+fail-soft); echte Handyfotos bleiben unverändert. Realnachweis lokal auf dem Nutzer-Cover
+(306×466 px, Datei nie im Repo): Titel „UNNÜTZES WISSEN" mit Ü = U+00DC per Codepoint-Nachweis,
+Autor erkannt, Untertitel mit OCR-Typo wörtlich ans Review (keine Autokorrektur); Baseline und
+Upscale liefern identischen Titel (Konfidenz 0,9543 → 0,9853, Kleindruck-Zeile lesbar).
+Verifiziert: 79/79 gezielte Capture-Tests OK (12 neu, erfundene Texte; alter Inbox-Test auf
+fail-closed umgestellt, separater Positiv-Test mit Evidenz); Policy-/File-/Function-Size-/
+Compile-/Diff-Gates grün. Kein Live-Bildinferenz-Aufruf in diesem Slice (Key und Modell
+`muse-spark-1.3-contributor` eigenterseitig per offiziellem Meta-GET `/v1/models` geprüft;
+kein Keywert, kein Nutzinhalt im Log), keine Kamera-Abnahme,
+Login-Routen-Suiten nur Inbox (volle Login-Suiten `PermissionError` Auth-Speicher).
 **Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
 bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
 die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,
