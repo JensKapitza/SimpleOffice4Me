@@ -67,6 +67,12 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "No other document found.",
             "Link free text",
             "Record knowledge, a decision or an observation",
+            "Organization",
+            "Move to folder",
+            "Copy to folder",
+            "Delete document",
+            "Delete safely",
+            "Browse smart views / collection folders",
         ):
             self.assertIn(expected, body)
         # The JS translations dict legitimately carries German keys; only the
@@ -85,6 +91,12 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Optionale Bezeichnung",
             "Kein anderes Dokument gefunden.",
             "Freitext verknüpfen",
+            "Organisation",
+            "In Ordner verschieben",
+            "In Ordner kopieren",
+            "Dokument löschen",
+            "Sicher löschen",
+            "Smart Views / Sammelordner durchsuchen",
         ):
             self.assertIn(expected, body)
 
