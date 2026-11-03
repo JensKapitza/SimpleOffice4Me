@@ -39,6 +39,10 @@ class CalendarWebTest(unittest.TestCase):
             "/auth/login",
             data={"username": "jens", "password": "sicheres-passwort"},
         )
+        with self.client.session_transaction() as session:
+            # The calendar suite checks German copy; keep it independent of
+            # the application's configurable anonymous-session default.
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)

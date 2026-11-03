@@ -64,6 +64,7 @@ from .inventory_match import (
     find_exact_matches,
     resolve_unique_target,
 )
+from .ot_travel_hints import card_ot_travel_hint
 from .peer_stock import peer_availability
 from .vision import (
     InferenceTimeoutError,
@@ -201,6 +202,7 @@ def _card(
         )
     primary_device = devices[0] if devices else None
     credit = card_credit_hint(root, actor, contact_id)
+    ot_travel = card_ot_travel_hint(root, actor, contact_id)
     return {
         "link_id": str(link.get("link_id", "")),
         "completed_on": str(link.get("completed_on", "")),
@@ -221,6 +223,7 @@ def _card(
         "invoice_state": invoice_state,
         "invoice_display": invoice_display,
         "credit": credit,
+        "ot_travel": ot_travel,
         "devices": devices,
         "primary_device": primary_device,
     }

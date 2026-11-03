@@ -32,6 +32,10 @@ class DocumentQuickActionsTest(unittest.TestCase):
         self.client = app.test_client()
         self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"})
         self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"})
+        # Suite asserts German page content: pin the session to German
+        # (app default for new sessions is English).
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.previous)

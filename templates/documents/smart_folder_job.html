@@ -3,18 +3,18 @@
 {% block body %}
 {% if job.state in ['queued', 'running', 'retry_scheduled'] %}<meta http-equiv="refresh" content="4">{% endif %}
 <main id="main-content" class="container-xl py-4">
-  <h1 class="h3">Sammelordner-Stapelaktion</h1>
-  <p>Status: <strong>{{ job.state }}</strong>{% if job.attempt %} · Versuch {{ job.attempt }}{% endif %}</p>
+  <h1 class="h3">{{ 'Smart folder batch job' if g.language == 'en' else 'Sammelordner-Stapelaktion' }}</h1>
+  <p>Status: <strong>{{ job.state }}</strong>{% if job.attempt %} · {{ 'attempt' if g.language == 'en' else 'Versuch' }} {{ job.attempt }}{% endif %}</p>
   {% set progress = job.progress if job.progress is mapping else {} %}
   {% set total = progress.get('total', 0)|int %}
   {% set completed = progress.get('completed', 0)|int %}
   {% if total > 0 %}
-  <label class="form-label" for="batch-progress">Fortschritt: {{ completed }} / {{ total }}</label>
+  <label class="form-label" for="batch-progress">{{ 'Progress:' if g.language == 'en' else 'Fortschritt:' }} {{ completed }} / {{ total }}</label>
   <progress id="batch-progress" class="w-100" value="{{ completed }}" max="{{ total }}">{{ completed }} / {{ total }}</progress>
-  {% else %}<p>Wartet auf einen verfügbaren Worker.</p>{% endif %}
-  {% if progress.get('action') %}<p class="small text-secondary">Aktion: {{ progress.get('action') }}</p>{% endif %}
-  {% if job.state == 'failed' %}<div class="alert alert-danger" role="alert">{{ job.last_error or 'Die Stapelaktion ist fehlgeschlagen.' }}</div>{% endif %}
-  {% if job.state == 'succeeded' %}<div class="alert alert-success" role="status" aria-live="polite">Stapelaktion abgeschlossen.</div>{% endif %}
-  <a href="{{ url_for('documents.smart_folder_view', folder=job.payload.get('folder', '')) }}">Zur Smart View zurück</a>
+  {% else %}<p>{{ 'Waiting for an available worker.' if g.language == 'en' else 'Wartet auf einen verfügbaren Worker.' }}</p>{% endif %}
+  {% if progress.get('action') %}<p class="small text-secondary">{{ 'Action:' if g.language == 'en' else 'Aktion:' }} {{ progress.get('action') }}</p>{% endif %}
+  {% if job.state == 'failed' %}<div class="alert alert-danger" role="alert">{{ job.last_error or ('The batch job failed.' if g.language == 'en' else 'Die Stapelaktion ist fehlgeschlagen.') }}</div>{% endif %}
+  {% if job.state == 'succeeded' %}<div class="alert alert-success" role="status" aria-live="polite">{{ 'Batch job finished.' if g.language == 'en' else 'Stapelaktion abgeschlossen.' }}</div>{% endif %}
+  <a href="{{ url_for('documents.smart_folder_view', folder=job.payload.get('folder', '')) }}">{{ 'Back to smart view' if g.language == 'en' else 'Zur Smart View zurück' }}</a>
 </main>
 {% endblock %}

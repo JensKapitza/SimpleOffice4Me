@@ -73,6 +73,10 @@ class FederationAdminUiTests(unittest.TestCase):
             data={"username": "federation-ui-admin", "password": "federation-ui-password"},
         )
         self.assertLess(response.status_code, 400)
+        # Suite asserts German page content: pin the session to German
+        # (app default for new sessions is English).
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)

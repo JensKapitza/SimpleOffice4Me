@@ -1,94 +1,88 @@
 {% extends 'layout.html' %}
-{% block title %}Meta-Demo-Analyse · Büroengel{% endblock %}
+{% block title %}{{ tr('cf.agent.title') }}{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='contextflow.css') }}">{% endblock %}
 {% block body %}{% include "documents/nav.html" %}
 <main id="main-content" class="cf-page">
-  <p class="cf-back"><a href="{{ url_for('contextflow.dashboard') }}">← Zurück zum Büroengel</a></p>
+  <p class="cf-back"><a href="{{ url_for('contextflow.dashboard') }}">{{ tr('cf.agent.back') }}</a></p>
   <header class="cf-hero">
     <div class="cf-hero-text">
-      <h1>Meta-Demo-Analyse (synthetisch)</h1>
-      <p class="cf-lead">Der echte Meta-Modellaufruf untersucht einen bestätigten
-        Demo-Fall in mehreren Schritten, liest Belege über Werkzeuge und liefert
-        nur einen Vorschlag – nichts wird erstellt, versendet oder verändert.</p>
+      <h1>{{ tr('cf.agent.heading') }}</h1>
+      <p class="cf-lead">{{ tr('cf.agent.lead') }}</p>
       <p class="cf-pills">
         {% if meta_ready %}
         <span class="cf-pill" role="note">{{ provider_label }}</span>
-        <span class="cf-pill cf-pill-quiet">Modell: {{ model_id }}</span>
+        <span class="cf-pill cf-pill-quiet">{{ tr('cf.agent.model') }}: {{ model_id }}</span>
         {% else %}
-        <span class="cf-pill cf-pill-quiet">Meta-Demo nicht aktiviert (Anbieter: {{ provider }})</span>
+        <span class="cf-pill cf-pill-quiet">{{ tr('cf.agent.not_active') % {'provider': provider} }}</span>
         {% endif %}
-        {% if server_consent %}<span class="cf-pill">Serverfreigabe aktiv</span>
-        {% else %}<span class="cf-pill cf-pill-quiet">Serverfreigabe ausstehend</span>{% endif %}
-        {% if key_present %}<span class="cf-pill">Schlüssel vorhanden</span>
-        {% else %}<span class="cf-pill cf-pill-quiet">Kein Schlüssel</span>{% endif %}
-        {% if demo_root_ok %}<span class="cf-pill">Synthetischer Demo-Root</span>
-        {% else %}<span class="cf-pill cf-pill-quiet">Kein Demo-Root</span>{% endif %}
+        {% if server_consent %}<span class="cf-pill">{{ tr('cf.agent.consent_on') }}</span>
+        {% else %}<span class="cf-pill cf-pill-quiet">{{ tr('cf.agent.consent_off') }}</span>{% endif %}
+        {% if key_present %}<span class="cf-pill">{{ tr('cf.agent.key_on') }}</span>
+        {% else %}<span class="cf-pill cf-pill-quiet">{{ tr('cf.agent.key_off') }}</span>{% endif %}
+        {% if demo_root_ok %}<span class="cf-pill">{{ tr('cf.agent.root_on') }}</span>
+        {% else %}<span class="cf-pill cf-pill-quiet">{{ tr('cf.agent.root_off') }}</span>{% endif %}
       </p>
     </div>
   </header>
 
   {% if error %}
-  <section aria-label="Fehler" class="cf-card">
-    <h2 tabindex="-1" autofocus>Analyse nicht möglich</h2>
+  <section aria-label="{{ tr('cf.agent.error_label') }}" class="cf-card">
+    <h2 tabindex="-1" autofocus>{{ tr('cf.agent.error_heading') }}</h2>
     <p class="cf-reason">{{ error }}</p>
   </section>
   {% endif %}
 
   {% if not result %}
-  <section aria-label="Analyse starten" class="cf-card">
-    <h2>Fall wählen und einwilligen</h2>
+  <section aria-label="{{ tr('cf.agent.start_label') }}" class="cf-card">
+    <h2>{{ tr('cf.agent.choose') }}</h2>
     {% if not cards %}
-    <p class="cf-reason">Noch kein bestätigter Fall vorhanden.</p>
+    <p class="cf-reason">{{ tr('cf.agent.no_case') }}</p>
     {% else %}
     <form method="post" action="{{ url_for('contextflow.agent_run') }}" id="cf-agent-form">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <p>
-        <label for="cf-agent-link"><strong>Bestätigter Fall</strong></label><br>
+        <label for="cf-agent-link"><strong>{{ tr('cf.agent.case') }}</strong></label><br>
         <select id="cf-agent-link" name="link_id" required>
           {% for card in cards %}
-          <option value="{{ card.link_id }}"{% if card.link_id == preselected %} selected{% endif %}>{% if card.case_title %}{{ card.case_title }} · {% endif %}Fall {{ card.case_short }} · Link {{ card.link_short }}</option>
+          <option value="{{ card.link_id }}"{% if card.link_id == preselected %} selected{% endif %}>{% if card.case_title %}{{ card.case_title }} · {% endif %}{{ tr('cf.agent.case_option') % {'case': card.case_short, 'link': card.link_short} }}</option>
           {% endfor %}
         </select>
       </p>
       <p>
         <label class="cf-checkbox">
           <input type="checkbox" name="consent_meta" value="yes">
-          <span><strong>Ich willige in genau diesen Meta-Modellaufruf ein.</strong>
-            <span class="cf-muted">Nur synthetische Demo-Daten verlassen den Rechner;
-            Inhalte können zum Training künftiger Meta-Modelle verwendet werden
-            (Contributor-Modus).</span></span>
+          <span><strong>{{ tr('cf.agent.consent') }}</strong>
+            <span class="cf-muted">{{ tr('cf.agent.consent_sub') }}</span></span>
         </label>
       </p>
-      <p class="cf-muted">Die Analyse dauert meist unter einer Minute; möglich sind
-        bis zu 5 Minuten (Budget: 5 Schritte × 60 Sekunden je Aufruf).
-        Bitte einmal klicken und abwarten.</p>
-      <p><button class="cf-btn" type="submit" id="cf-agent-submit">Analyse starten</button></p>
+      <p class="cf-muted">{{ tr('cf.agent.duration') }}</p>
+      <p><button class="cf-btn" type="submit" id="cf-agent-submit">{{ tr('cf.agent.start_btn') }}</button></p>
     </form>
     {% endif %}
   </section>
   {% endif %}
 
   {% if result %}
-  <section aria-label="Analyseergebnis" class="cf-card">
-    <h2 tabindex="-1" autofocus>Vorschlag des Meta-Agenten{% if result_case and result_case.title %} für „{{ result_case.title }}“{% endif %}</h2>
-    <p class="cf-status">{{ result.steps }} Modellschritte · {{ result.tool_calls|length }} Werkzeugaufrufe · Modell {{ result.model }}{% if result.response_model %} (Antwort: {{ result.response_model }}){% endif %}{% if result.response_models_display %} · Antwortmodelle: {{ result.response_models_display }}{% endif %}{% if run_seconds is not none %} · Laufzeit: {{ "%.1f"|format(run_seconds) }} s{% endif %}{% if result.usage %} · Tokens Ein/Aus: {{ result.usage.input_tokens|default("–") }} / {{ result.usage.output_tokens|default("–") }}{% endif %}</p>
-    {% if result_case %}<p class="cf-muted">Fall-ID: {{ result_case.id }}</p>{% endif %}
+  <section aria-label="{{ tr('cf.agent.result_label') }}" class="cf-card">
+    <h2 tabindex="-1" autofocus>{{ tr('cf.agent.proposal') }}{% if result_case and result_case.title %} {{ tr('cf.agent.proposal_for') }} „{{ result_case.title }}“{% endif %}</h2>
+    <p class="cf-status">{{ result.steps }} {{ tr('cf.agent.steps') }} · {{ result.tool_calls|length }} {{ tr('cf.agent.calls') }} · {{ tr('cf.agent.model') }} {{ result.model }}{% if result.response_model %} ({{ tr('cf.agent.response') }} {{ result.response_model }}){% endif %}{% if result.response_models_display %} · {{ tr('cf.agent.response_models') }} {{ result.response_models_display }}{% endif %}{% if run_seconds is not none %} · {{ tr('cf.agent.runtime') }} {{ "%.1f"|format(run_seconds) }} s{% endif %}{% if result.usage %} · {{ tr('cf.agent.tokens') }} {{ result.usage.input_tokens|default("–") }} / {{ result.usage.output_tokens|default("–") }}{% endif %}</p>
+    {% if result_case %}<p class="cf-muted">{{ tr('cf.agent.case_id') }} {{ result_case.id }}</p>{% endif %}
     <p class="cf-reason">{{ result.summary }}</p>
-    <h3>Werkzeugaufrufe (alle lesend, alle serverseitig ausgeführt)</h3>
+    <h3>{{ tr('cf.agent.calls_heading') }}</h3>
     <ul class="cf-evidence">
       {% for call in result.tool_calls %}
       <li><span class="cf-type">{{ call.name }}</span>
-        {% if call.ok %}<span aria-hidden="true">✔</span><span class="visually-hidden">erfolgreich</span>{% else %}<span aria-hidden="true">✘</span><span class="visually-hidden">fehlgeschlagen</span>{% endif %}
+        {% if call.ok %}<span aria-hidden="true">✔</span><span class="visually-hidden">{{ tr('cf.agent.ok') }}</span>{% else %}<span aria-hidden="true">✘</span><span class="visually-hidden">{{ tr('cf.agent.fail') }}</span>{% endif %}
         {% if call.detail %}<span class="cf-muted">{{ call.detail }}</span>{% endif %}</li>
       {% endfor %}
     </ul>
-    <h3>Feststellungen</h3>
+    <h3>{{ tr('cf.agent.findings') }}</h3>
     <ul>
       {% for finding in result.findings %}
       <li><strong>{{ finding.title }}</strong> ({{ finding.severity }})<br>{{ finding.detail }}</li>
       {% endfor %}
     </ul>
-    <h3>Beleg-IDs (alle in diesem Lauf gelesen)</h3>
+    <h3>{{ tr('cf.agent.evidence') }}</h3>
     <ul class="cf-evidence">
       {% for item in evidence %}
       <li><span class="cf-type">{{ item.label }}</span>
@@ -96,27 +90,27 @@
       {% endfor %}
     </ul>
     {% if result.unknowns %}
-    <h3>Unbekannt / ungeklärt</h3>
+    <h3>{{ tr('cf.agent.unknowns') }}</h3>
     <ul>
       {% for item in result.unknowns %}
       <li>{{ item }}</li>
       {% endfor %}
     </ul>
     {% endif %}
-    <h3>Vorgeschlagene nächste Schritte</h3>
+    <h3>{{ tr('cf.agent.next') }}</h3>
     <ul>
       {% for action in result.proposed_actions %}
       <li><strong>{{ action.title }}</strong> <span class="cf-muted">({{ action.type }} · {{ action.target }})</span><br>{{ action.why }}</li>
       {% endfor %}
     </ul>
-    <p class="cf-invoice"><strong>Nur ein Vorschlag – nichts wurde erstellt oder versendet.</strong>
-      Die Freigabe läuft über den bestehenden Ablauf (Aufgabe, Rechnungseditor, Mail-Entwurf).</p>
+    <p class="cf-invoice"><strong>{{ tr('cf.agent.only') }}</strong>
+      {{ tr('cf.agent.approval') }}</p>
     {% if follow %}
-    <nav class="cf-links" aria-label="Weiter im bestehenden Ablauf">
-      <a href="{{ follow.mail_url }}">Mail-Vorgang öffnen</a>
-      <a href="{{ follow.tasks_url }}">Aufgaben-Board öffnen</a>
-      {% if follow.editor_url %}<a href="{{ follow.editor_url }}">Rechnungseditor öffnen</a>{% endif %}
-      <a href="{{ url_for('contextflow.dashboard') }}">Zurück zum Büroengel</a>
+    <nav class="cf-links" aria-label="{{ tr('cf.links.label') }}">
+      <a href="{{ follow.mail_url }}">{{ tr('cf.links.mail_open') }}</a>
+      <a href="{{ follow.tasks_url }}">{{ tr('cf.links.tasks_open') }}</a>
+      {% if follow.editor_url %}<a href="{{ follow.editor_url }}">{{ tr('cf.links.editor') }}</a>{% endif %}
+      <a href="{{ url_for('contextflow.dashboard') }}">{{ tr('cf.agent.back_dash') }}</a>
     </nav>
     {% endif %}
   </section>

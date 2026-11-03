@@ -102,6 +102,8 @@ class ContextflowWebTest(unittest.TestCase):
                 "_csrf_token": self.csrf(client, "/auth/login"),
             },
         )
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         return client
 
     def seed_link(self, actor: str = "admin") -> dict:

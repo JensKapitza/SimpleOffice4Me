@@ -53,6 +53,10 @@ class ProjectTrackerUiTests(unittest.TestCase):
             data={"username": "tracker-admin", "password": "tracker-password"},
         )
         self.assertLess(response.status_code, 400)
+        # Suite asserts German page content: pin the session to German
+        # (app default for new sessions is English).
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         self.store = ProjectStore(self.documents)
         self.project = self.store.create_project({"title": "Mini Tracker"}, "tracker-admin")
 

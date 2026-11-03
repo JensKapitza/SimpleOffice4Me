@@ -51,6 +51,11 @@ class AdminSecurityTest(unittest.TestCase):
         self.worker = app.test_client()
         self.admin.post("/auth/login", data={"username": "owner", "password": "owner-password"})
         self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
+        # Suite asserts German page content: pin both sessions to German
+        # (app default for new sessions is English).
+        for client in (self.admin, self.worker):
+            with client.session_transaction() as session:
+                session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.saved)
@@ -67,6 +72,10 @@ class AdminSecurityTest(unittest.TestCase):
         denied = self.worker.get("/documents/")
         self.assertEqual(302, denied.status_code)
         self.assertIn("/auth/login", denied.headers["Location"])
+        # The denied request invalidates the worker session (including the
+        # language pin from setUp): pin German again before the login attempt.
+        with self.worker.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         login = self.worker.post("/auth/login", data={"username": "worker", "password": "worker-password"})
         self.assertIn("gesperrt", login.get_data(as_text=True))
 
