@@ -28,3 +28,8 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)
+
+## 5. Neue Branch-Regel 03.11. (Eigentümer-Direktweisung, entschieden)
+- Fertige Aufgaben per PR an `main` (Update in agent-arbeitsweise-Memory); gilt für alle Agenten + Trigger-Wiederholungen.
+- Feststellung 03.11.: Keine MD-Datei enthält neue Branch-Regeln (alle neu eingelesen: regeln.md, UPDATE.md, Kurzbrief, Büroengel, Voranalyse, update2.md, Arbeitslog, AGENTS.md vollständig, alle Memory-Dateien, RUECKFRAGEN/WORKLOG). Es gilt die Chat-Weisung.
+- Welle 4c committet (`c37382b8` + Worklog `f37773c5`), Push + PR an main als Nächstes.
