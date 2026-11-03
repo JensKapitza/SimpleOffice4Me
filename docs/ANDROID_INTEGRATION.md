@@ -28,6 +28,30 @@ beziehungsweise nutzbarer Nested-Virtualisierung nicht starten. Vor Freigabe
 muss der App-Start einschließlich `_rust`-Import auf einem ARM64-Gerät oder
 einem Emulator mit funktionierender Hardwarevirtualisierung nachgewiesen werden.
 
+Der Android-APK-Workflow prüft zusätzlich den im APK verpackten Startvertrag und
+lädt einen Bericht als CI-Artefakt hoch. Dieser Contract-Modus belegt nur, dass
+der Startcode den echten `_rust`-Import und den Diagnosemarker enthält; er ist
+kein Geräte- oder Laufzeitnachweis. Für eine Geräteabnahme ein aktuelles
+ARM64-APK-Artefakt aus CI und genau ein verbundenes, gestartetes
+`arm64-v8a`-Gerät verwenden:
+
+```powershell
+$apk = Read-Host "Pfad zur heruntergeladenen APK"
+python tools/android_emulator_smoke.py `
+  --apk $apk `
+  --run-emulator `
+  --output .\artifacts\android\runtime-smoke
+```
+
+Das Skript löscht vor Installation und App-Start den alten Logcat-Puffer,
+installiert das angegebene APK, startet die App und verlangt innerhalb des
+Zeitlimits den frischen Marker für den `_rust`-Import. Kein oder mehrere
+Geräte, eine andere ABI, ein fehlender Marker oder ein erkannter Importfehler
+führen zu einem Fehlerstatus. Der Bericht und ein bereinigter Logcat-Auszug
+liegen im Ausgabeordner. Ein erfolgreicher Marker bestätigt nur App-Start und
+Import; er ersetzt weder den gesonderten SAF-Ordnerimport-Test noch eine
+vollständige Android-Geräteabnahme.
+
 ## Dateien mit Android teilen oder öffnen
 
 Die Activity ist als Ziel für `ACTION_SEND` und `ACTION_SEND_MULTIPLE` registriert. Dadurch kann der Benutzer in Galerie, Dateien, PDF-Readern und anderen Apps **Teilen -> SimpleOffice4Me** wählen.
