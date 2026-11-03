@@ -113,13 +113,21 @@ Namenszeile darüber = Autor, kleinere darunter = Untertitel), nur bei klarer Ev
 fail-soft); echte Handyfotos bleiben unverändert. Realnachweis lokal auf dem Nutzer-Cover
 (306×466 px, Datei nie im Repo): Titel „UNNÜTZES WISSEN" mit Ü = U+00DC per Codepoint-Nachweis,
 Autor erkannt, Untertitel mit OCR-Typo wörtlich ans Review (keine Autokorrektur); Baseline und
-Upscale liefern identischen Titel (Konfidenz 0,9543 → 0,9853, Kleindruck-Zeile lesbar).
-Verifiziert: 79/79 gezielte Capture-Tests OK (12 neu, erfundene Texte; alter Inbox-Test auf
-fail-closed umgestellt, separater Positiv-Test mit Evidenz); Policy-/File-/Function-Size-/
-Compile-/Diff-Gates grün. Kein Live-Bildinferenz-Aufruf in diesem Slice (Key und Modell
+Upscale liefern identischen Titel (direkter PIL-Pfad: Konfidenz 0,9543 → 0,9853, 14 Blöcke,
+Kleindruck-Zeile lesbar; produktionsnaher Pfad `optimize_upload` → `capture_ocr`: 0,9602 → 0,9779,
+13 Blöcke, unabhängig von Codex gemessen und hier läuferseitig bestätigt, Titel/Autor identisch).
+Der Untertitel-Kleindruck schwankt läuferseitig (o/p-Wechsel, ß→B), Titel und Autor sind
+in allen Läufen stabil.
+Verifiziert: 79/79 gezielte Capture-Tests OK — eng begrenzt auf diese Auswahl/Umgebung
+(Batch+Price+OCR-Hierarchie+Inbox im Worktree mit SimpleOffice4Me-.venv; 12 neu, erfundene
+Texte; alter Inbox-Test auf fail-closed umgestellt, separater Positiv-Test mit Evidenz);
+Policy-/File-/Function-Size-/Compile-/Diff-Gates grün. Eigenterseitige Gegenprüfung:
+reines OCR-Hierarchie-Modul 12/12 grün; kombinierte OCR+Inbox-Ausführung 40 Tests/15 Fehler
+durch `PermissionError` an `instance/installation-id.lock` und Login-/Auth-Speicher im
+geschützten Pfad — Routen-Suiten damit beidseitig unbestätigt, 79/79 ist kein Routen-Nachweis.
+Kein Live-Bildinferenz-Aufruf in diesem Slice (Key und Modell
 `muse-spark-1.3-contributor` eigenterseitig per offiziellem Meta-GET `/v1/models` geprüft;
-kein Keywert, kein Nutzinhalt im Log), keine Kamera-Abnahme,
-Login-Routen-Suiten nur Inbox (volle Login-Suiten `PermissionError` Auth-Speicher).
+kein Keywert, kein Nutzinhalt im Log), keine Kamera-Abnahme.
 **Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
 bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
 die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,
