@@ -26,9 +26,19 @@ PEER_LINK_TOKEN = os.environ.get(
 # Shared server token for the testnet peers' own federation identity (no env
 # config inside the app containers: the identity is stored per peer via the
 # admin UI below, exactly like a production admin would configure it).
-SHARED_SERVER_TOKEN = os.environ.get(
-    "BROWSER_PEER_SHARED_TOKEN", ""
-).strip() or PEER_LINK_TOKEN
+# MUST differ from PEER_LINK_TOKEN: peer authentication rejects a peer entry
+# whose token equals the shared server token, and the catalog policy gate
+# fails open for unidentified (legacy) requests.
+SHARED_SERVER_TOKEN = (
+    os.environ.get("BROWSER_PEER_SHARED_TOKEN", "").strip()
+    or os.environ.get("BROWSER_PEER_A_TOKEN", "").strip()
+    or "browser-federation-shared-not-a-secret"
+)
+if SHARED_SERVER_TOKEN == PEER_LINK_TOKEN:
+    raise RuntimeError(
+        "BROWSER_PEER_SHARED_TOKEN must differ from BROWSER_PEER_LINK_TOKEN: "
+        "peer authentication rejects a shared Bearer [REDACTED] as peer identity."
+    )
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
 FIXTURE_DIR = OUTPUT_DIR / "fixtures"
