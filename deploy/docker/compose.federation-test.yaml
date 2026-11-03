@@ -13,7 +13,8 @@ services:
       SIMPLEOFFICE_CONTAINER_ROLE: web
       SIMPLEOFFICE_HOST: 0.0.0.0
       SIMPLEOFFICE_PORT: 8080
-      SIMPLEOFFICE_V3_FEDERATION_ENABLED: "true"
+      # V3 flag intent lives here for documentation only; the seed tool writes
+      # v3.federation into the peer disk store (runtime reads no environment).
       SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-peer-a
       SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://peer-a:8080
       SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token
@@ -49,7 +50,8 @@ services:
       SIMPLEOFFICE_CONTAINER_ROLE: web
       SIMPLEOFFICE_HOST: 0.0.0.0
       SIMPLEOFFICE_PORT: 8080
-      SIMPLEOFFICE_V3_FEDERATION_ENABLED: "true"
+      # V3 flag intent lives here for documentation only; the seed tool writes
+      # v3.federation into the peer disk store (runtime reads no environment).
       SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-peer-b
       SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://peer-b:8080
       SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token
@@ -85,7 +87,8 @@ services:
       SIMPLEOFFICE_CONTAINER_ROLE: web
       SIMPLEOFFICE_HOST: 0.0.0.0
       SIMPLEOFFICE_PORT: 8080
-      SIMPLEOFFICE_V3_FEDERATION_ENABLED: "true"
+      # V3 flag intent lives here for documentation only; the seed tool writes
+      # v3.federation into the peer disk store (runtime reads no environment).
       SIMPLEOFFICE_FEDERATION_PEER_ID: federation-test-relay
       SIMPLEOFFICE_FEDERATION_PUBLIC_URL: http://relay:8080
       SIMPLEOFFICE_FEDERATION_TOKEN: federation-test-only-global-token

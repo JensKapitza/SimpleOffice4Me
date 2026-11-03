@@ -60,6 +60,13 @@ def _seed_local_testnet_identity(root) -> None:
         {"integrations": {"federation_public_url": base_url}},
         actor="federation-testnet-seed",
     )
+    # The isolated Compose network documents the V3 intent via
+    # SIMPLEOFFICE_V3_FEDERATION_ENABLED, but the runtime reads only the disk
+    # store (No-Env rule), so the seed translates it into the persisted flag.
+    SettingsStore(root).save(
+        {"v3": {"v3.federation": True}},
+        actor="federation-testnet-seed",
+    )
     print("PASS: disposable local identity configured")
 
 

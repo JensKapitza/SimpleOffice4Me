@@ -19,6 +19,7 @@ from pathlib import Path
 from app import app
 from app.db import ensure_auth_database, get_db
 from app.password_security import hash_password
+from app.settings_store import SettingsStore
 
 
 class ManagementBatch13Test(unittest.TestCase):
@@ -70,28 +71,25 @@ class ManagementBatch13Test(unittest.TestCase):
         return response.data.decode("utf-8")
 
     def test_v3_finance_detail(self) -> None:
-        import os
-        from unittest.mock import patch
         from app.v3_finance import FinanceLifecycleStore
         self.root.mkdir(parents=True, exist_ok=True)
         offer = FinanceLifecycleStore(self.root).create(
             "offer", "admin", title="Sprachangebot",
             working={"amount": "10.00", "description": "Test"})
         url = f"/documents/business/lifecycle-v3/{offer.lifecycle_id}"
-        with patch.dict(os.environ,
-                        {"SIMPLEOFFICE_V3_FINANCE_ENABLED": "1"}):
-            en_body = self._get(url, "en")
-            self.assertIn("Sprachangebot", en_body)
-            self.assertIn("Save draft", en_body)
-            self.assertIn("Snapshot / references", en_body)
-            self.assertIn("Immutable history", en_body)
-            self.assertIn("created", en_body)
-            self.assertNotIn("Entwurf speichern", en_body)
-            self.assertNotIn("Unveränderliche Historie", en_body)
-            de_body = self._get(url, "de")
-            self.assertIn("Entwurf speichern", de_body)
-            self.assertIn("Snapshot / Referenzen", de_body)
-            self.assertIn("Unveränderliche Historie", de_body)
+        SettingsStore(self.root).save({"v3": {"v3.finance": True}}, "test")
+        en_body = self._get(url, "en")
+        self.assertIn("Sprachangebot", en_body)
+        self.assertIn("Save draft", en_body)
+        self.assertIn("Snapshot / references", en_body)
+        self.assertIn("Immutable history", en_body)
+        self.assertIn("created", en_body)
+        self.assertNotIn("Entwurf speichern", en_body)
+        self.assertNotIn("Unveränderliche Historie", en_body)
+        de_body = self._get(url, "de")
+        self.assertIn("Entwurf speichern", de_body)
+        self.assertIn("Snapshot / Referenzen", de_body)
+        self.assertIn("Unveränderliche Historie", de_body)
 
     def test_eur_receipts(self) -> None:
         en_body = self._get("/documents/accounting/receipts", "en")
@@ -278,28 +276,25 @@ class ManagementBatch13Test(unittest.TestCase):
 
     def test_v3_crm_workspace(self) -> None:
         import gc
-        import os
-        from unittest.mock import patch
         from app.contact_store import ContactStore
         self.root.mkdir(parents=True, exist_ok=True)
         contact = ContactStore(self.root).upsert(
             {"display_name": "Sprach Kontakt"}, "admin")
         url = f"/crm-v3/contacts/{contact['contact_id']}"
-        with patch.dict(os.environ,
-                        {"SIMPLEOFFICE_V3_CRM_ENABLED": "1"}):
-            en_body = self._get(url, "en")
-            self.assertIn("Sprach Kontakt", en_body)
-            self.assertIn("Roles and relationships", en_body)
-            self.assertIn("No 3.0 relationships yet.", en_body)
-            self.assertIn("Add relationship", en_body)
-            self.assertIn("Save relationship", en_body)
-            self.assertNotIn("Rollen und Beziehungen", en_body)
-            self.assertNotIn("Beziehung speichern", en_body)
-            de_body = self._get(url, "de")
-            self.assertIn("Rollen und Beziehungen", de_body)
-            self.assertIn("Noch keine 3.0-Beziehungen.", de_body)
-            self.assertIn("Beziehung hinzufügen", de_body)
-            self.assertIn("Beziehung speichern", de_body)
+        SettingsStore(self.root).save({"v3": {"v3.crm": True}}, "test")
+        en_body = self._get(url, "en")
+        self.assertIn("Sprach Kontakt", en_body)
+        self.assertIn("Roles and relationships", en_body)
+        self.assertIn("No 3.0 relationships yet.", en_body)
+        self.assertIn("Add relationship", en_body)
+        self.assertIn("Save relationship", en_body)
+        self.assertNotIn("Rollen und Beziehungen", en_body)
+        self.assertNotIn("Beziehung speichern", en_body)
+        de_body = self._get(url, "de")
+        self.assertIn("Rollen und Beziehungen", de_body)
+        self.assertIn("Noch keine 3.0-Beziehungen.", de_body)
+        self.assertIn("Beziehung hinzufügen", de_body)
+        self.assertIn("Beziehung speichern", de_body)
         # Windows-only: repeated workspace requests leave a cyclic-garbage
         # sqlite handle on v3-relations.sqlite3 until collection; collect
         # here so tearDown can remove the temp dir. No-op elsewhere.

@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 
 from app import app
+from app.settings_store import SettingsStore
 from app.db import ensure_auth_database, get_db
 from app.password_security import hash_password
 
@@ -593,16 +594,13 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Noch keine Kommentare.", de_body)
 
     def test_v3_finance_lifecycle(self) -> None:
-        import os
-        from unittest.mock import patch
-        with patch.dict(os.environ,
-                        {"SIMPLEOFFICE_V3_FINANCE_ENABLED": "1"}):
-            en_body = self._get("/documents/business/lifecycle-v3", "en")
-            self.assertIn("New business document", en_body)
-            self.assertIn("No lifecycle documents yet.", en_body)
-            de_body = self._get("/documents/business/lifecycle-v3", "de")
-            self.assertIn("Neues Geschäftsdokument", de_body)
-            self.assertIn("Noch keine Lifecycle-Dokumente.", de_body)
+        SettingsStore(self.root).save({"v3": {"v3.finance": True}}, "test")
+        en_body = self._get("/documents/business/lifecycle-v3", "en")
+        self.assertIn("New business document", en_body)
+        self.assertIn("No lifecycle documents yet.", en_body)
+        de_body = self._get("/documents/business/lifecycle-v3", "de")
+        self.assertIn("Neues Geschäftsdokument", de_body)
+        self.assertIn("Noch keine Lifecycle-Dokumente.", de_body)
 
     def test_smart_folder_merge_preview_renders_both_languages(self) -> None:
         impact = {"source": "src", "target": "dst", "documents": 3,
