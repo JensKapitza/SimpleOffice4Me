@@ -1,6 +1,26 @@
 (() => {
   "use strict";
 
+  const EN = typeof document !== "undefined"
+    ? (document.documentElement.lang || "").toLowerCase().startsWith("en")
+    : false;
+  const STR = {
+    ocrMissing: EN ? "OCR: not installed" : "OCR: nicht installiert",
+    metaModel: EN ? "Meta model" : "Meta-Modell",
+    keyStored: EN ? "key stored" : "Schlüssel hinterlegt",
+    noApiKey: EN ? "no API key" : "kein API-Schlüssel",
+    modelListed: EN ? "model listed" : "Modell gelistet",
+    modelUnconfirmed: EN ? "model unconfirmed" : "Modell nicht bestätigt",
+    modelUnchecked: EN ? "model unchecked" : "Modell nicht geprüft",
+    unknown: EN ? "unknown" : "unbekannt",
+    noModel: EN ? "ML: no model configured" : "ML: kein Modell konfiguriert",
+    modelNotApproved: (model) => EN ? `ML: model not approved · ${model}` : `ML: Modell nicht freigegeben · ${model}`,
+    activeLocal: (model) => EN ? `ML active · local Meta model via Ollama · ${model}` : `ML aktiv · Meta-Modell lokal via Ollama · ${model}`,
+    reachableUnseen: (model) => EN ? `ML: Ollama reachable, model ${model} not seen` : `ML: Ollama erreichbar, Modell ${model} nicht gesehen`,
+    unreachable: (model) => EN ? `ML: Ollama unreachable · ${model}` : `ML: Ollama nicht erreichbar · ${model}`,
+    demoPlaceholder: EN ? "ML: demo placeholder (no real analysis)" : "ML: Demo-Platzhalter (keine echte Analyse)",
+  };
+
   const cleanText = (value) => String(value || "").trim();
 
   const ocrSuffix = (ocr) => {
@@ -8,43 +28,43 @@
       ocr && ocr.rapidocr ? "RapidOCR" : "",
       ocr && ocr.tesseract ? "Tesseract" : "",
     ].filter(Boolean);
-    return engines.length ? `OCR: ${engines.join(" + ")}` : "OCR: nicht installiert";
+    return engines.length ? `OCR: ${engines.join(" + ")}` : STR.ocrMissing;
   };
 
   const metaLine = (meta) => {
-    const label = cleanText(meta.label) || "Meta-Modell";
+    const label = cleanText(meta.label) || STR.metaModel;
     const modelId = cleanText(meta.model);
-    const key = meta.key_present ? "Schlüssel hinterlegt" : "kein API-Schlüssel";
+    const key = meta.key_present ? STR.keyStored : STR.noApiKey;
     const listed = meta.model_listed === true
-      ? "Modell gelistet"
-      : (meta.model_listed === false ? "Modell nicht bestätigt" : "Modell nicht geprüft");
+      ? STR.modelListed
+      : (meta.model_listed === false ? STR.modelUnconfirmed : STR.modelUnchecked);
     const head = modelId ? `ML: ${label} · ${modelId}` : `ML: ${label}`;
     return `${head} · ${key} · ${listed}`;
   };
 
   const localLine = (ollama) => {
     const modelId = cleanText(ollama.model);
-    if (!modelId) return "ML: kein Modell konfiguriert";
-    if (!ollama.model_allowed) return `ML: Modell nicht freigegeben · ${modelId}`;
+    if (!modelId) return STR.noModel;
+    if (!ollama.model_allowed) return STR.modelNotApproved(modelId);
     if (ollama.reachable && ollama.model_seen) {
-      return `ML aktiv · Meta-Modell lokal via Ollama · ${modelId}`;
+      return STR.activeLocal(modelId);
     }
     if (ollama.reachable) {
-      return `ML: Ollama erreichbar, Modell ${modelId} nicht gesehen`;
+      return STR.reachableUnseen(modelId);
     }
-    return `ML: Ollama nicht erreichbar · ${modelId}`;
+    return STR.unreachable(modelId);
   };
 
   function formatMlStatus(payload) {
     const data = payload && typeof payload === "object" ? payload : {};
-    const provider = cleanText(data.provider) || "unbekannt";
+    const provider = cleanText(data.provider) || STR.unknown;
     let ml;
     if (provider === "meta") {
       ml = metaLine(data.meta || {});
     } else if (provider === "local") {
       ml = localLine(data.ollama || {});
     } else if (provider === "mock") {
-      ml = "ML: Demo-Platzhalter (keine echte Analyse)";
+      ml = STR.demoPlaceholder;
     } else {
       ml = `ML: ${provider}`;
     }
