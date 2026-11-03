@@ -119,6 +119,48 @@ class PeerInventoryAvailabilityTests(unittest.TestCase):
         self.assertEqual("error", states["friend-quiet"]["state"])
         self.assertFalse(states["friend-quiet"]["available"])
 
+    def test_ok_hit_includes_local_index_timestamp(self):
+        catalog = FederationCatalog(self.document_root)
+        expected = catalog.inventory_state("friend-ok")["last_index_at"]
+        self.assertTrue(expected)
+        payload = self.check(BOOK_ISBN)
+        entry = {item["peer_id"]: item for item in payload["friends"]}["friend-ok"]
+
+        self.assertEqual("ok", entry["state"])
+        self.assertTrue(entry["available"])
+        self.assertEqual(expected, entry.get("last_index_at"))
+
+    def test_ok_no_hit_includes_local_index_timestamp(self):
+        catalog = FederationCatalog(self.document_root)
+        catalog.ingest_inventory("friend-ok", "gen2", [
+            {"identifier": TOOL_GTIN, "identifier_type": "gtin", "display_name": TOOL_NAME},
+        ])
+        catalog.begin_inventory_index("friend-ok", "gen2")
+        catalog.finish_inventory_index("friend-ok", "gen2")
+        expected = catalog.inventory_state("friend-ok")["last_index_at"]
+        payload = self.check(BOOK_ISBN)
+        entry = {item["peer_id"]: item for item in payload["friends"]}["friend-ok"]
+
+        self.assertEqual("ok", entry["state"])
+        self.assertFalse(entry["available"])
+        self.assertEqual(expected, entry.get("last_index_at"))
+
+    def test_non_ok_peers_stay_fail_closed_without_timestamp(self):
+        payload = self.check(BOOK_ISBN)
+        states = {entry["peer_id"]: entry for entry in payload["friends"]}
+
+        self.assertEqual("not_synced", states["friend-quiet"]["state"])
+        self.assertNotIn("last_index_at", states["friend-quiet"])
+
+        catalog = FederationCatalog(self.document_root)
+        catalog.begin_inventory_index("friend-quiet", "gen9")
+        catalog.fail_inventory_index("friend-quiet", "boom")
+        payload = self.check(BOOK_ISBN)
+        states = {entry["peer_id"]: entry for entry in payload["friends"]}
+        self.assertEqual("error", states["friend-quiet"]["state"])
+        self.assertFalse(states["friend-quiet"]["available"])
+        self.assertNotIn("last_index_at", states["friend-quiet"])
+
     def test_revoked_item_disappears_after_resync(self):
         catalog = FederationCatalog(self.document_root)
         catalog.ingest_inventory("friend-ok", "gen2", [

@@ -102,6 +102,13 @@
     const invResults = document.createElement('div');
     invResults.className = 'mt-1';
     const peerInventoryUrl = cleanText(dataset.peerInventoryUrl);
+    const formatIndexStand = (value) => {
+      const epoch = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+      if (typeof epoch !== 'number' || !Number.isFinite(epoch) || epoch <= 0) return '';
+      const date = new Date(epoch * 1000);
+      if (Number.isNaN(date.getTime())) return '';
+      return ` — Stand vom ${date.toLocaleString()}`;
+    };
     const askButton = document.createElement('button');
     askButton.type = 'button';
     askButton.className = 'btn btn-sm btn-outline-primary';
@@ -144,9 +151,9 @@
           const label = names.length ? ` („${names[0]}“)` : '';
           const name = cleanText(entry.peer_id);
           if (entry.available) {
-            item.textContent = `✓ ${name} hat den Titel${label}`;
+            item.textContent = `✓ ${name} hat den Titel${label}${formatIndexStand(entry.last_index_at)}`;
           } else if (!entry.state || entry.state === 'ok') {
-            item.textContent = `○ ${name} (kein Bestand, Verzeichnis gültig)`;
+            item.textContent = `○ ${name} (kein Bestand, Verzeichnis gültig${formatIndexStand(entry.last_index_at)})`;
           } else if (entry.state === 'not_synced') {
             item.textContent = `? ${name} (Verzeichnis nie synchronisiert — keine Aussage)`;
           } else {

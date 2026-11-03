@@ -86,6 +86,9 @@ def peer_inventory_availability(*, root: object, actor: str, identifier: object)
     Exact ISBN/GTIN only: the canonical key must equal a synced row's
     identifier. Friends without a valid index are listed with state
     not_synced/error and available:false (no claim either way).
+    Friends with a valid index additionally carry the local
+    ``last_index_at`` sync timestamp as a display hint; no TTL is
+    invented and nothing is fetched over the network.
     """
     if not str(actor or "").strip():
         raise ValueError("actor is required")
@@ -118,10 +121,15 @@ def peer_inventory_availability(*, root: object, actor: str, identifier: object)
                 })
                 if len(matches) >= MAX_MATCHES_PER_FRIEND:
                     break
-        checked.append({
+        result: dict[str, Any] = {
             "peer_id": peer_id, "state": state,
             "available": bool(matches), "matches": matches,
-        })
+        }
+        if state == INDEX_OK:
+            # Freshness hint only: the existing local sync timestamp.
+            # Errors and unsynced indexes stay fail-closed without it.
+            result["last_index_at"] = catalog.inventory_state(peer_id).get("last_index_at")
+        checked.append(result)
     consulted = sum(1 for entry in checked if entry["state"] == INDEX_OK)
     return {
         "identifier": query,

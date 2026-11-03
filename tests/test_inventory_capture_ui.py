@@ -161,6 +161,29 @@ class CaptureUiWiringTests(unittest.TestCase):
         self.assertEqual(
             1, script.count("addEventListener('click', () => askPeerInventory())"))
 
+    def test_peer_inventory_renders_local_index_freshness(self) -> None:
+        script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
+        for snippet in (
+            "last_index_at",
+            "Stand vom",
+            "toLocaleString",
+        ):
+            self.assertIn(snippet, script)
+        # No invented TTL, no peer polling, no extra personal data.
+        self.assertNotIn("stale", script)
+        self.assertNotIn("MAX_AGE", script)
+        self.assertNotIn("maxAge", script)
+        self.assertEqual(2, script.count("fetch("))
+
+    def test_peer_stock_section_has_no_freshness_timestamp(self) -> None:
+        script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
+        stock_start = script.index("const renderPeerStockSection")
+        inventory_start = script.index("const renderPeerInventorySection")
+        self.assertLess(stock_start, inventory_start)
+        stock_section = script[stock_start:inventory_start]
+        self.assertNotIn("last_index_at", stock_section)
+        self.assertNotIn("Stand vom", stock_section)
+
     def test_capture_template_wires_peer_inventory_url(self) -> None:
         template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
         self.assertIn('data-peer-inventory-url="{{ peer_inventory_url }}"', template)
