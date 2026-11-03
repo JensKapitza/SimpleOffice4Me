@@ -74,6 +74,9 @@ services:
       - /tmp:rw,nosuid,nodev,noexec,size=256m
 
   relay:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
     image: simpleoffice4me:local
     restart: "no"
     init: true
