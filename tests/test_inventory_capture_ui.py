@@ -151,13 +151,18 @@ class CaptureUiWiringTests(unittest.TestCase):
         for snippet in (
             "SimpleOfficeCapturePeerStock",
             "renderPeerStockSection",
-            "nur auf Klick prüfen, keine Auto-Abfrage",
+            "nur auf Klick suchen, keine Auto-Abfrage",
             "dataset.peerStockUrl",
-            "'Freundesbestand prüfen'",
+            "'Geteilte Dokumente suchen'",
+            "Geteilte Dokumente: nur auf Klick suchen",
             "Titelabfragen werden nicht unterstützt",
+            "Dokumenthinweis",
+            "kein Besitznachweis",
             "keine Aussage",
         ):
             self.assertIn(snippet, script)
+        self.assertNotIn("Freundesbestand prüfen", script)
+        self.assertNotIn("Freundesbestand:", script)
         self.assertEqual(1, script.count("askPeerStock()"))
         self.assertIn(
             "addEventListener('click', () => askPeerStock())",

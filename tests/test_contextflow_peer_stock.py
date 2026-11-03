@@ -331,6 +331,23 @@ class PeerTitleQueryContracts(unittest.TestCase):
         self.assertFalse(states["friend-quiet"]["available"])
         self.assertEqual(1, payload["friends_unavailable"])
 
+    def test_result_carries_no_inventory_claim(self):
+        payload = self.check("Der Musterroman")
+
+        self.assertEqual(
+            {"identifier", "kind", "friends_checked",
+             "friends_unavailable", "friends"},
+            set(payload.keys()))
+        self.assertEqual([], [key for key in payload
+                              if "invent" in key or "stock" in key
+                              or "own" in key])
+        for entry in payload["friends"]:
+            self.assertEqual(
+                {"peer_id", "state", "available", "matches"},
+                set(entry.keys()))
+            for match in entry["matches"]:
+                self.assertEqual({"ref", "field"}, set(match.keys()))
+
 
 if __name__ == "__main__":
     unittest.main()

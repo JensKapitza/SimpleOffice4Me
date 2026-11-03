@@ -1,4 +1,8 @@
-"""Friend stock check over locally shared federation indexes (Bueroengel).
+"""Document-hint check over locally shared federation document indexes.
+
+There is no shared inventory-item index: the check reads only the
+local catalog copy of shared *documents* (file paths, ids, tags),
+so hits are document hints, never proof that a friend owns the item.
 
 Friend = peer with an explicit NORMAL/HIGH trust edge AND an enabled
 peer record AND a local documents-receive opt-in (both policy shapes:

@@ -7,11 +7,11 @@
     peerBox.className = 'col-12';
     const peerTitle = document.createElement('div');
     peerTitle.className = 'fw-semibold small mb-1';
-    peerTitle.textContent = 'Freundesbestand: nur auf Klick prüfen, keine Auto-Abfrage';
+    peerTitle.textContent = 'Geteilte Dokumente: nur auf Klick suchen, keine Auto-Abfrage';
     peerBox.appendChild(peerTitle);
     const peerNote = document.createElement('p');
     peerNote.className = 'small text-secondary mb-1';
-    peerNote.textContent = 'Prüft freigegebene Freundeskataloge (lokal, ohne Netzwerk) anhand der ISBN/des Barcodes — noch vor einem Nachkauf. Titelabfragen werden nicht unterstützt: Titel treffen nur bei exakt gleicher Schreibweise, daher keine verlässliche Aussage.';
+    peerNote.textContent = 'Durchsucht lokal gespiegelte Dokumentenverzeichnisse freigegebener Freunde anhand der ISBN/des Barcodes — noch vor einem Nachkauf. Treffer sind Dokumenthinweise, kein Besitznachweis: Ein Inventarabgleich mit Freunden existiert nicht. Titelabfragen werden nicht unterstützt — Titel treffen nur bei exakt gleicher Schreibweise, daher keine verlässliche Aussage.';
     peerBox.appendChild(peerNote);
     const peerStatus = document.createElement('p');
     peerStatus.className = 'small mt-1 mb-0';
@@ -22,15 +22,15 @@
     const askButton = document.createElement('button');
     askButton.type = 'button';
     askButton.className = 'btn btn-sm btn-outline-primary';
-    askButton.textContent = 'Freundesbestand prüfen';
+    askButton.textContent = 'Geteilte Dokumente suchen';
     const askPeerStock = async () => {
       const identifier = cleanText(inputs.isbn ? inputs.isbn.value : '') || cleanText(combined.isbn || '');
       if (!identifier) {
-        peerStatus.textContent = 'Für die Freundesprüfung zuerst eine ISBN/einen Barcode erfassen — Titelabfragen werden nicht unterstützt.';
+        peerStatus.textContent = 'Für die Dokumentensuche zuerst eine ISBN/einen Barcode erfassen — Titelabfragen werden nicht unterstützt.';
         return;
       }
       askButton.disabled = true;
-      peerStatus.textContent = 'Frage geteilte Freundeskataloge (lokal) …';
+      peerStatus.textContent = 'Frage geteilte Dokumentenverzeichnisse (lokal) …';
       peerResults.replaceChildren();
       try {
         const data = new FormData();
@@ -45,7 +45,7 @@
         const friends = Array.isArray(payload.friends) ? payload.friends : [];
         const hits = friends.filter((entry) => entry && entry.available);
         const unknown = friends.filter((entry) => entry && entry.state && entry.state !== 'ok').length;
-        let summary = `${payload.friends_checked} Freund(e) geprüft, ${hits.length} Treffer.`;
+        let summary = `${payload.friends_checked} Freund(e) geprüft, ${hits.length} Dokumenthinweis(e).`;
         if (unknown) summary += ` ${unknown} ohne gültigen Index — keine Aussage.`;
         peerStatus.textContent = summary;
         if (!friends.length) {
@@ -60,7 +60,7 @@
           const count = Array.isArray(entry.matches) ? entry.matches.length : 0;
           const name = cleanText(entry.peer_id);
           if (entry.available) {
-            item.textContent = `✓ ${name} (${count} Treffer)`;
+            item.textContent = `✓ ${name} (${count} Dokumenthinweis(e), kein Besitznachweis)`;
           } else if (!entry.state || entry.state === 'ok') {
             item.textContent = `○ ${name} (kein Treffer, Index gültig)`;
           } else if (entry.state === 'not_synced') {

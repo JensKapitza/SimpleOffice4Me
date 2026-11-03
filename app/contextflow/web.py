@@ -860,11 +860,12 @@ def doc_tag_confirm():
 @bp.post("/peer-stock-check")
 @login_required
 def peer_stock_check():
-    """Ask opt-in friends' shared catalogs for one identifier (JSON).
+    """Ask opt-in friends' shared document catalogs for one identifier (JSON).
 
     Read-only and local: only friends (trust edge plus enabled peer
     record plus documents-receive opt-in) are consulted, no network
-    is used, no content is stored or forwarded. Friends without a
+    is used, no content is stored or forwarded. Results are document
+    hints, not inventory ownership proof. Friends without a
     valid index are listed as not_synced/error, never as "no hit".
     """
     _gate()

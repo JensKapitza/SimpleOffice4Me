@@ -61,6 +61,18 @@ Titel-Case-Probe, `test_adopt_rejects_negative_marketplace_price`,
 `test_marketplace_price_take_is_fail_closed` u. a.), Size-/Function-/
 Policy-/Diff-/Node-Gates grün; Routen-Suiten (Login) hier nicht
 verifizierbar (`PermissionError` Auth-Speicher) — kein Grün behauptet.
+**Korrektur (03.11., kein Inventarabgleich, Branch
+`hackai/inventory-batch-20261103`, uncommitted):** Codex-Fund bestätigt —
+`peer_stock.py` liest nur lokale Dokumentenindex-Kopien
+(`FederationCatalog.remote_files`); kein `ObjectStore`-Zugriff in
+irgendeiner Föderations-/Resource-Datei, also existiert keine geteilte
+Inventarquelle. Capture-Review spricht nun ehrlich von „Geteilte Dokumente
+suchen“; Treffer sind Dokumenthinweise, kein Besitznachweis. Offene
+Anforderung: echter Peer-Inventarabgleich braucht einen neuen
+Opt-in-Index-Scope (Produktkennung + Anzeigename, Default-Deny pro Peer,
+nur lokal synchronisiert) — Protokollerweiterung, bewusst nicht in diesem
+Slice. Detailseite (`detail.html`, „Bestand bei Freunden prüfen“) nutzt die
+gleiche Route und bleibt vorerst unverändert.
 **Codex-Review (03.11., committed `9f61a19e`):** unabhängige Prüfung
 bestätigte die Preis-Providerbindung, die Peer-Stock-Freigabegrenzen und
 die Commit-Angabe. 51/51 gezielte Store-, Combine-, Price-, Peer-Stock-,
