@@ -169,6 +169,8 @@ class InvoiceRelationshipRouteTests(unittest.TestCase):
     @staticmethod
     def _login(username: str, *, register: bool = True):
         client = app.test_client()
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         password = "synthetic-invoice-password"
         if register:
             client.post("/auth/register", data={"username": username, "password": password})

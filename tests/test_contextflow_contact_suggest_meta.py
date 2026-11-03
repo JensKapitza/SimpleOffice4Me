@@ -334,7 +334,6 @@ class ContactMetaWebTest(unittest.TestCase):
             data={"username": "admin", "password": self.password,
                   "_csrf_token": self.csrf(self.client, "/auth/login")},
         )
-        # EN is the app default; this suite asserts German UI strings.
         with self.client.session_transaction() as session:
             session["simpleoffice_language"] = "de"
 

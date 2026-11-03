@@ -109,7 +109,6 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         for client, token in ((self.admin, "a" * 40), (self.user, "u" * 40)):
             with client.session_transaction() as session:
                 session["_csrf_token"] = token
-                # i18n pin: test asserts German copy; EN default renders English.
                 session["simpleoffice_language"] = "de"
         app.config["TEST_CSRF_PROTECTION"] = True
 
@@ -564,7 +563,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         path = "/documents/settings"
         denied = self.user.post(
             path,
-            data={"display_name": "Tampered", "theme": "dark", "default_language": "en"},
+            data={"display_name": "Tampered", "theme": "dark", "default_language": "de"},
             headers={"X-CSRF-Token": "u" * 40},
         )
         self.assertEqual(403, denied.status_code)

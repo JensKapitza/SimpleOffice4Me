@@ -13,6 +13,11 @@ USER=os.environ.get("BROWSER_TEST_USERNAME","web-export-admin")
 PASSWORD=os.environ.get("BROWSER_TEST_PASSWORD","Browser-Test-2026!")
 
 def login(page):
+    # The smoke uses German labels; set its locale explicitly instead of
+    # depending on the application default.
+    page.goto(BASE_URL+"/auth/login",wait_until="domcontentloaded")
+    with page.expect_navigation(wait_until="domcontentloaded"):
+        page.get_by_role("button",name="German",exact=True).click()
     page.goto(BASE_URL+"/auth/register",wait_until="domcontentloaded")
     if page.locator("#username").count():
         page.locator("#username").fill(USER); page.locator("#password").fill(PASSWORD)
