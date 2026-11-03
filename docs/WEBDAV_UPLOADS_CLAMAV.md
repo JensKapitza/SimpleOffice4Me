@@ -44,8 +44,8 @@ SIMPLEOFFICE_CLAMAV_TIMEOUT=120
 Nach einer Änderung der Umgebung muss der SimpleOffice-Dienst neu gestartet
 werden. `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` ist die maximale Größe der
 privaten WebDAV-Quarantäne. Der Wert wird auf 1 bis 65.536 MiB begrenzt; der
-Standard ist 1.024 MiB. Die normale Upload-Grenze
-`SIMPLEOFFICE_MAX_UPLOAD_MIB` gilt zusätzlich.
+Standard ist 1.024 MiB. Die normale gespeicherte Upload-Grenze
+gilt zusätzlich.
 
 Das ClamAV-Zeitlimit lässt sich persistent unter **Admin → Einstellungen →
 Integrationen & Dienste → ClamAV-Sicherheitsprüfung** verwalten. Der hier

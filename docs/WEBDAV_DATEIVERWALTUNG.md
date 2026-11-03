@@ -170,13 +170,14 @@ dokumentiert.
   nicht sicher verfügbar; eine vorhandene Revision bleibt unverändert.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
 
-Uploads unterliegen `SIMPLEOFFICE_MAX_UPLOAD_MIB`. Temporärdateien werden nach
+Uploads unterliegen dem gespeicherten Uploadlimit. Temporärdateien werden nach
 Fehlern entfernt. Ein Prozessabbruch vor dem atomaren Austausch lässt das
 bisherige Dokument unverändert; ein nicht mehr verwendeter Lock läuft nach
 höchstens einer Stunde ab.
 
-Mit `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` kann zusätzlich ein standardmäßig
-deaktiviertes Kontingent für den sichtbaren Dateibaum gesetzt werden. Clients
+In den Einstellungen (Netzwerk & Synchronisation) kann zusätzlich ein
+standardmäßig deaktiviertes Kontingent für den sichtbaren Dateibaum gesetzt
+werden (`SIMPLEOFFICE_WEBDAV_QUOTA_MIB` ist entfernt). Clients
 lesen Belegung und Rest über die geschützten Live Properties
 `DAV:quota-used-bytes` und `DAV:quota-available-bytes`. Berechnung, Lock-Refresh,
 Lock-Discovery und 507-Verhalten sind in

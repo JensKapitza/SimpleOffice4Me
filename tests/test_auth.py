@@ -19,6 +19,7 @@ from app import app_config_store
 from app import auth
 from app import db as database
 from app.secret_key import load_or_create_secret_key
+from app.settings_store import SettingsStore
 
 
 class _Response:
@@ -84,22 +85,27 @@ class AuthTest(unittest.TestCase):
                 load_or_create_secret_key(key_file)
             self.assertEqual("too-short\n", key_file.read_text(encoding="utf-8"))
 
-    def test_upload_limit_configuration_is_bounded(self):
-        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}, clear=True):
-            self.assertEqual(1024 * MIB, configured_upload_limit_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "invalid"}, clear=True):
+    def test_upload_limit_comes_from_settings_file_not_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            self.assertEqual(512 * MIB, configured_upload_limit_bytes(root))
+            store.save({"media": {"upload_limit_mib": 1024}}, "auth-test")
+            self.assertEqual(1024 * MIB, configured_upload_limit_bytes(root))
+            with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "2048"}, clear=True):
+                self.assertEqual(1024 * MIB, configured_upload_limit_bytes(root))
             self.assertEqual(512 * MIB, configured_upload_limit_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "99999"}, clear=True):
-            self.assertEqual(4096 * MIB, configured_upload_limit_bytes())
 
-    def test_webdav_quota_is_optional_bounded_and_invalid_values_disable_it(self):
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "2048"}, clear=True):
-            self.assertEqual(2048 * MIB, configured_webdav_quota_bytes())
-        for value in ("", "invalid", "-1", "0"):
-            with self.subTest(value=value), patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": value}, clear=True):
-                self.assertEqual(0, configured_webdav_quota_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "999999999"}, clear=True):
-            self.assertEqual(1024 * 1024 * MIB, configured_webdav_quota_bytes())
+    def test_webdav_quota_comes_from_settings_file_not_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            self.assertEqual(0, configured_webdav_quota_bytes(root))
+            store.save({"network": {"webdav_quota_mib": 2048}}, "auth-test")
+            self.assertEqual(2048 * MIB, configured_webdav_quota_bytes(root))
+            with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "1024"}, clear=True):
+                self.assertEqual(2048 * MIB, configured_webdav_quota_bytes(root))
+            self.assertEqual(0, configured_webdav_quota_bytes())
 
     def test_webdav_clamav_is_opt_in_and_quarantine_capacity_is_bounded(self):
         for value in ("1", "true", "YES", "on"):

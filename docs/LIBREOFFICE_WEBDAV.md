@@ -30,7 +30,7 @@ die Funktion verändert keine ACL oder Freigabe. Details stehen unter
 - Eine von LibreOffice erreichbare SimpleOffice-URL.
 - Außerhalb von `localhost` gültiges HTTPS. Hinter einem Reverse Proxy muss `SIMPLEOFFICE_TRUSTED_PROXY_HOPS` korrekt gesetzt sein.
 - Pro Gerät ein separat erzeugtes WebDAV-App-Passwort mit Schreibumfang. Das normale Login-Passwort und OAuth-Token werden nicht an LibreOffice gegeben. Details zu Ablauf und Einzelwiderruf stehen in [WEBDAV_ZUGAENGE.md](WEBDAV_ZUGAENGE.md).
-- Die bestehende Upload-Grenze `SIMPLEOFFICE_MAX_UPLOAD_MIB` gilt auch für `PUT`.
+- Die bestehende gespeicherte Upload-Grenze gilt auch für `PUT`.
 
 Der Link enthält weder Passwort noch Session-Cookie. Ein neuer Gerätezugang lässt vorhandene Zugänge unverändert. Einzelnes **Widerrufen** beendet nur diesen Zugang; **Alle Zugänge widerrufen** beendet den gesamten WebDAV-Zugriff. Bereits geöffnete lokale Arbeitskopien werden dadurch nicht gelöscht.
 

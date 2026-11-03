@@ -41,7 +41,6 @@ from .settings_limits import (
     MAX_UPLOAD_LIMIT_MIB,
     MIN_UPLOAD_LIMIT_MIB,
     MIB,
-    MAX_WEBDAV_QUOTA_MIB,
 )
 
 DEFAULT_WEBDAV_QUARANTINE_MIB = 1024
@@ -76,16 +75,16 @@ def configured_session_cookie_secure() -> bool:
     }
 
 
-def configured_upload_limit_bytes() -> int:
-    """Return a bounded total request limit for file imports."""
-    requested = os.environ.get(
-        "SIMPLEOFFICE_MAX_UPLOAD_MIB",
-        str(DEFAULT_UPLOAD_LIMIT_MIB),
-    ).strip()
-    try:
-        limit_mib = int(requested)
-    except ValueError:
-        limit_mib = DEFAULT_UPLOAD_LIMIT_MIB
+def configured_upload_limit_bytes(document_root: str | Path | None = None) -> int:
+    """Return a bounded total request limit for file imports.
+
+    The value comes from the media settings file; without a document root
+    there is nothing to read, so the default applies (no environment).
+    """
+    if document_root is None:
+        return DEFAULT_UPLOAD_LIMIT_MIB * MIB
+    from .settings_store import SettingsStore
+    limit_mib = SettingsStore(document_root).settings()["media"]["upload_limit_mib"]
     return max(MIN_UPLOAD_LIMIT_MIB, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
 
 
@@ -112,22 +111,15 @@ def apply_upload_limit_settings(app_config: dict, upload_limit_mib: int) -> None
 def configured_webdav_quota_bytes(document_root: str | Path | None = None) -> int:
     """Return the optional managed-tree WebDAV quota in bytes.
 
-    Zero keeps the historic unlimited behavior.  Invalid or negative values
-    fail safely to that backwards-compatible default instead of introducing
-    a surprising storage outage during startup.
+    Zero keeps the historic unlimited behavior.  The value comes from the
+    settings file; without a document root there is nothing to read, so the
+    result is zero (no environment).
     """
-    if document_root is not None:
-        from .settings_store import SettingsStore
-        quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quota_mib"]
-        return quota_mib * MIB
-    requested = os.environ.get("SIMPLEOFFICE_WEBDAV_QUOTA_MIB", "0").strip()
-    try:
-        limit_mib = int(requested)
-    except ValueError:
+    if document_root is None:
         return 0
-    if limit_mib <= 0:
-        return 0
-    return min(limit_mib, MAX_WEBDAV_QUOTA_MIB) * MIB
+    from .settings_store import SettingsStore
+    quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quota_mib"]
+    return quota_mib * MIB
 
 
 def configured_webdav_upload_scan() -> bool:
@@ -202,7 +194,7 @@ app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
-app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
+app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes(app.config['DOCUMENT_ROOT'])
 app.config['S3_OVERLAY_ENABLED'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_ENABLED', '0').strip().casefold() in {'1', 'true', 'yes', 'on'}
 app.config['S3_OVERLAY_REGION'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_REGION', 'us-east-1').strip() or 'us-east-1'
 try:
@@ -218,7 +210,7 @@ try:
 except ValueError:
     s3_overlay_staging_mib = 2048
 app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, s3_overlay_staging_mib), 65536) * MIB
-app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
+app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes(app.config['DOCUMENT_ROOT'])
 app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
 app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
 app.config['TEMPLATES_AUTO_RELOAD'] = True

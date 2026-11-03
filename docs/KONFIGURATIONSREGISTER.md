@@ -287,6 +287,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_TOKEN` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_FIREWALL_AGENT_STATE` | [simpleoffice_firewall_agent.py](../simpleoffice_firewall_agent.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FIREWALL_SOCKET` | [simpleoffice_firewall.py](../simpleoffice_firewall.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_FINTS_PRODUCT_ID` | [finance_fints.py](../app/finance_fints.py) | Bei der Deutschen Kreditwirtschaft registrierte Produkt-ID, pro Abruf erforderlich; [FINANCE_STORAGE](FINANCE_STORAGE.md) |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
@@ -311,10 +312,11 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_INSTALLATION_ID` | [system_identity.py](../app/system_identity.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_INSTANCE_DIR` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_LICENSE_MASTER_TOKEN` (entfernt) | [license_secrets.py](../app/license_secrets.py) | Admin → Lizenzierung → Master-Token (verschlüsselt) |
+| `SIMPLEOFFICE_LITELLM_PROVIDER_KEY` (kein Operator-Env; containerinterne Variable, Wert wird aus dem ML-Store injiziert) | [litellm_service.py](../app/litellm_service.py) | Admin Mini-Services Vision/ML; [LITELLM_OPERATIONS](LITELLM_OPERATIONS.md) |
 | `SIMPLEOFFICE_LOG_STDERR_ONLY` | [applogging.py](../app/applogging.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER` (entfernt) | [federation_network.py](../app/federation_network.py) | Admin → Federation → Netzwerkeinstellungen (Standard an); [MAIL_VORGAENGE](MAIL_VORGAENGE.md) |
 | `SIMPLEOFFICE_MAIL_ENV_CREDENTIAL_BINDINGS` | [mail_env_credentials.py](../app/mail_env_credentials.py) | [IMAP_SIEVE_EMAIL_ARCHIV](IMAP_SIEVE_EMAIL_ARCHIV.md) |
-| `SIMPLEOFFICE_MAX_UPLOAD_MIB` | [__init__.py](../app/__init__.py) | [DATEI_WIEDERHERSTELLUNG](DATEI_WIEDERHERSTELLUNG.md) |
+| `SIMPLEOFFICE_MAX_UPLOAD_MIB` (entfernt; war nie wirksam, Startup nutzt immer die Datei) | [__init__.py](../app/__init__.py) | Persistente Einstellung `media.upload_limit_mib` unter Einstellungen → Dokumente & Medien; [DATEI_WIEDERHERSTELLUNG](DATEI_WIEDERHERSTELLUNG.md) |
 | `SIMPLEOFFICE_MCP` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHATGPT_MCP](CHATGPT_MCP.md) |
 | `SIMPLEOFFICE_MINI_SERVICES_AUTOSTART` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_MINI_SERVICES_CONFIG` | [simpleoffice_mini_core.py](../simpleoffice_mini_core.py) | [MINI_SERVICES](MINI_SERVICES.md) |
@@ -402,7 +404,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES` | [video_settings.py](../app/video_settings.py) | [VIDEO_VORSCHAU](VIDEO_VORSCHAU.md) |
 | `SIMPLEOFFICE_WEBDAV_CLAMAV` | [__init__.py](../app/__init__.py) | [WEBDAV_DATEIVERWALTUNG](WEBDAV_DATEIVERWALTUNG.md) |
 | `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` | [__init__.py](../app/__init__.py) | [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
-| `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (Legacy-Initialwert; persistierte Einstellung unter Einstellungen → Netzwerk & Synchronisation hat Vorrang) | [__init__.py](../app/__init__.py), [settings_store.py](../app/settings_store.py) | [WEBDAV_QUOTA_UND_LOCKS](WEBDAV_QUOTA_UND_LOCKS.md) |
+| `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (entfernt; war nie wirksam, Startup nutzt immer die Datei) | [__init__.py](../app/__init__.py), [settings_store.py](../app/settings_store.py) | [WEBDAV_QUOTA_UND_LOCKS](WEBDAV_QUOTA_UND_LOCKS.md) |
 | `SIMPLEOFFICE_WORKER_ROOT` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | [start.bat](../start.bat) | [PRODUKTIONSBETRIEB](PRODUKTIONSBETRIEB.md) |
 | `SIMPLEOFFICE_WSGI_THREADS` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
