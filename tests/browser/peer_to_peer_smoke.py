@@ -229,6 +229,35 @@ def set_local_identity(
         )
 
 
+def set_network_private_targets(page, *, base_url: str) -> None:
+    # Allows RFC1918/CG-NAT peer targets through the admin network form.
+    # The testnet peers talk over private docker addresses; without this
+    # opt-in the server-side network diagnostics reject them as policy.
+    response = page.goto(
+        f"{base_url}/admin/federation/peer-discovery",
+        wait_until="domcontentloaded",
+    )
+    if response is None or response.status >= 400:
+        status = response.status if response else "no-response"
+        raise RuntimeError(f"Federation-Seite nicht erreichbar: {status}")
+    checkbox = page.locator("#network-allow-private")
+    if not checkbox.is_checked():
+        checkbox.check()
+    button = page.get_by_role(
+        "button", name="Netzwerkeinstellungen speichern", exact=True
+    )
+    with page.expect_navigation(wait_until="domcontentloaded") as navigation:
+        button.click()
+    response = navigation.value
+    feedback = compact(" ".join(page.locator(".alert[role='status']").all_inner_texts()))
+    if "Federation-Netzwerkeinstellungen gespeichert." not in feedback:
+        status = response.status if response is not None else "no-response"
+        raise RuntimeError(
+            f"Netzwerkeinstellungen wurden nicht gespeichert (HTTP {status}; "
+            f"Rückmeldung: {feedback[:400] or 'keine'})."
+        )
+
+
 def record_p2p_check(
     summary: dict[str, object],
     name: str,
@@ -367,6 +396,8 @@ def run_peer_to_peer(
             peer_id="peer-b",
             server_token=SHARED_SERVER_TOKEN,
         )
+        set_network_private_targets(page_a, base_url=BASE_URL)
+        set_network_private_targets(page_b, base_url=PEER_BASE_URL)
         configure_peer(
             page_a,
             base_url=BASE_URL,
