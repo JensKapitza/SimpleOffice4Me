@@ -27,6 +27,7 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 - Offen: Diese Reihenfolge ok? S3/Quarantäne evtl. mit Upload-Limit-Welle bündeln?
 - Nächster Vorschlag (Welle 8): Launcher/Server-Bind (`HOST`, `PORT`, `WSGI_THREADS`, `CHANNEL_TIMEOUT`, `TRUSTED_PROXY_HOPS`, `BACKGROUND_INDEX`, `OSM_INDEX`, `MINI_SERVICES_AUTOSTART`, `CONTAINER_ROLE`) + Archiv-Legacy-Migration (`ARCHIVE_*`) — teils Deployment-Sache, Owner-Entscheid nötig, was Store wird und was CLI-Arg bleibt.
 - Update: Welle 8a (Archiv-Legacy, ohne Owner-Entscheid machbar) — **erledigt, Commit folgt**. Offen bleibt nur Server-Bind/Deployment (Welle 8b, Owner-Entscheid).
+- Blockiert (Lauf 03.11., Baum sauber + sync mit Remote): Welle 8b braucht Owner-Entscheid (Store vs. CLI-Arg für HOST/PORT/Threads/Proxies/Hintergrundschalter). Keine autonome Welle mehr übrig — gestoppt, keine Änderungen.
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)
