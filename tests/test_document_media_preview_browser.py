@@ -252,7 +252,7 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             long_document = self.documents["long_text"]
             page.goto(f"{self.base_url}/documents/{long_document['document_id']}")
             self.assertEqual(300, len(page.locator("#document-preview pre").inner_text().splitlines()))
-            self.assertIn("300 Zeilen", page.locator("#document-preview").inner_text())
+            self.assertIn("300 lines", page.locator("#document-preview").inner_text())
         finally:
             context.close()
             browser.close()
