@@ -72,6 +72,8 @@ env:
   BROWSER_PEER_A_TOKEN: browser-federation-shared-not-a-secret
   BROWSER_PEER_B_TOKEN: browser-federation-shared-not-a-secret
   BROWSER_PEER_LINK_TOKEN: browser-peer-link-not-a-secret
+  BROWSER_PEER_SHARED_TOKEN: browser-peer-identity-not-a-secret
+  BROWSER_PEER_ALLOW_IDENTITY_MUTATION: '1'
 
 jobs:
   browser-screenshot:
@@ -94,6 +96,8 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             tests/browser/manual_screenshot_smoke.py \
+            tests/browser/peer_to_peer_smoke.py \
+            tests/browser/peer_to_peer_safety.py \
             tests/browser/mcp_smoke.py \
             tests/browser/page_crawl.py \
             tests/browser/route_inventory.py

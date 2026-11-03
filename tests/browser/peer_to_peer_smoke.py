@@ -12,6 +12,12 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 
 from browser_artifacts import make_html_snapshot_writer
 from page_crawl import same_primary_origin
+from peer_to_peer_safety import (
+    validate_identity_form_destination,
+    validate_identity_mutation_targets,
+    validate_same_origin_target,
+    validate_testnet_peer_targets,
+)
 
 BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8080").rstrip("/")
 PEER_BASE_URL = os.environ.get("PEER_BASE_URL", "").rstrip("/")
@@ -20,25 +26,21 @@ PEER_A_DOCKER_URL = os.environ.get("BROWSER_PEER_A_DOCKER_URL", "http://peer-a:8
 PEER_B_DOCKER_URL = os.environ.get("BROWSER_PEER_B_DOCKER_URL", "http://peer-b:8080").rstrip("/")
 PEER_A_DOCKER_IP = os.environ.get("BROWSER_PEER_A_IP", "").strip()
 PEER_B_DOCKER_IP = os.environ.get("BROWSER_PEER_B_IP", "").strip()
-PEER_LINK_TOKEN = os.environ.get(
-    "BROWSER_PEER_LINK_TOKEN", "browser-peer-link-not-a-secret"
-)
+PEER_LINK_TOKEN = os.environ.get("BROWSER_PEER_LINK_TOKEN", "").strip()
 # Shared server token for the testnet peers' own federation identity (no env
 # config inside the app containers: the identity is stored per peer via the
 # admin UI below, exactly like a production admin would configure it).
-# MUST differ from PEER_LINK_TOKEN: peer authentication rejects a peer entry
-# whose token equals the shared server token, and the catalog policy gate
-# fails open for unidentified (legacy) requests.
-SHARED_SERVER_TOKEN = (
-    os.environ.get("BROWSER_PEER_SHARED_TOKEN", "").strip()
-    or os.environ.get("BROWSER_PEER_A_TOKEN", "").strip()
-    or "browser-federation-shared-not-a-secret"
+SHARED_SERVER_TOKEN = os.environ.get("BROWSER_PEER_SHARED_TOKEN", "").strip()
+ALLOW_IDENTITY_MUTATION = (
+    os.environ.get("BROWSER_PEER_ALLOW_IDENTITY_MUTATION", "").strip() == "1"
 )
-if SHARED_SERVER_TOKEN == PEER_LINK_TOKEN:
-    raise RuntimeError(
-        "BROWSER_PEER_SHARED_TOKEN must differ from BROWSER_PEER_LINK_TOKEN: "
-        "peer authentication rejects a shared Bearer [REDACTED] as peer identity."
-    )
+if PEER_TO_PEER:
+    if not PEER_LINK_TOKEN or not SHARED_SERVER_TOKEN:
+        raise RuntimeError("P2P smoke requires separate explicit link and shared server tokens.")
+    if SHARED_SERVER_TOKEN == PEER_LINK_TOKEN:
+        raise RuntimeError(
+            "BROWSER_PEER_SHARED_TOKEN must differ from BROWSER_PEER_LINK_TOKEN."
+        )
 OUTPUT_DIR = Path(os.environ.get("BROWSER_SCREENSHOT_DIR", "test-results/browser"))
 DOWNLOAD_DIR = OUTPUT_DIR / "downloads"
 FIXTURE_DIR = OUTPUT_DIR / "fixtures"
@@ -96,23 +98,48 @@ def attach_peer_diagnostics(
 
 def register_and_login(page, base_url: str, username: str) -> None:
     # This smoke uses German accessible labels throughout its workflow.
-    page.goto(f"{base_url}/auth/login", wait_until="domcontentloaded")
+    response = page.goto(f"{base_url}/auth/login", wait_until="domcontentloaded")
+    if response is None or response.status >= 400:
+        status = response.status if response else "no-response"
+        raise RuntimeError(f"Anmeldeseite nicht erreichbar: {status}")
+    validate_same_origin_target(base_url=base_url, target_url=page.url)
     with page.expect_navigation(wait_until="domcontentloaded"):
         page.get_by_role("button", name="German", exact=True).click()
+    validate_same_origin_target(base_url=base_url, target_url=page.url)
     response = page.goto(
         f"{base_url}/auth/register", wait_until="domcontentloaded"
     )
     if response is None or response.status >= 400:
         status = response.status if response else "no-response"
         raise RuntimeError(f"Registrierungsseite nicht erreichbar: {status}")
-    page.locator("#username").fill(username)
-    page.locator("#password").fill(PASSWORD)
+    validate_same_origin_target(base_url=base_url, target_url=page.url)
+    register_form = page.locator("form").filter(has=page.locator("#username")).filter(
+        has=page.locator("#password")
+    )
+    if register_form.count() != 1:
+        raise RuntimeError("Expected exactly one local registration form")
+    validate_same_origin_target(
+        base_url=base_url,
+        target_url=register_form.evaluate("element => element.action"),
+    )
+    register_form.locator("#username").fill(username)
+    register_form.locator("#password").fill(PASSWORD)
     page.get_by_role(
         "button", name="Lokales Konto erstellen", exact=True
     ).click()
     page.wait_for_url("**/auth/login")
-    page.locator("#username").fill(username)
-    page.locator("#password").fill(PASSWORD)
+    validate_same_origin_target(base_url=base_url, target_url=page.url)
+    login_form = page.locator("form").filter(has=page.locator("#username")).filter(
+        has=page.locator("#password")
+    )
+    if login_form.count() != 1:
+        raise RuntimeError("Expected exactly one local login form")
+    validate_same_origin_target(
+        base_url=base_url,
+        target_url=login_form.evaluate("element => element.action"),
+    )
+    login_form.locator("#username").fill(username)
+    login_form.locator("#password").fill(PASSWORD)
     page.get_by_role("button", name="Anmelden", exact=True).click()
     page.wait_for_load_state("domcontentloaded")
     if "/auth/login" in page.url:
@@ -137,12 +164,17 @@ def configure_peer(
     if response is None or response.status >= 400:
         status = response.status if response else "no-response"
         raise RuntimeError(f"Federation-Seite nicht erreichbar: {status}")
+    validate_same_origin_target(base_url=base_url, target_url=page.url)
 
     form = page.locator("form").filter(
         has=page.locator("input[name='peer_id']")
     ).filter(
         has=page.locator("input[name='base_url']")
     ).first
+    validate_same_origin_target(
+        base_url=base_url,
+        target_url=form.evaluate("element => element.action"),
+    )
     form.locator("input[name='peer_id']").fill(peer_id)
     form.locator("input[name='label']").fill(peer_label)
     form.locator("input[name='base_url']").fill(peer_docker_url)
@@ -202,6 +234,12 @@ def set_local_identity(
     peer_id: str,
     server_token: str,
 ) -> None:
+    validate_identity_mutation_targets(
+        base_url=base_url,
+        peer_base_url=PEER_BASE_URL,
+        shared_token=server_token,
+        explicitly_allowed=ALLOW_IDENTITY_MUTATION,
+    )
     # Stores the peer's own federation identity (peer ID + shared server
     # token) through the admin UI. Capability probes authenticate with this
     # token, so both testnet peers need the same value before probing.
@@ -212,8 +250,22 @@ def set_local_identity(
     if response is None or response.status >= 400:
         status = response.status if response else "no-response"
         raise RuntimeError(f"Federation-Seite nicht erreichbar: {status}")
-    page.locator("#identity-peer-id").fill(peer_id)
-    page.locator("#identity-token").fill(server_token)
+    validate_identity_form_destination(
+        base_url=base_url,
+        final_url=page.url,
+        was_redirected=response.request.redirected_from is not None,
+    )
+    form = page.locator("form").filter(has=page.locator("#identity-peer-id"))
+    if form.count() != 1:
+        raise RuntimeError("Expected exactly one own-identity form")
+    form_action = form.evaluate("element => element.action")
+    validate_identity_form_destination(
+        base_url=base_url,
+        final_url=form_action,
+        was_redirected=False,
+    )
+    form.locator("#identity-peer-id").fill(peer_id)
+    form.locator("#identity-token").fill(server_token)
     button = page.get_by_role(
         "button", name="Identität speichern", exact=True
     )
@@ -323,6 +375,20 @@ def run_peer_to_peer(
 ) -> None:
     if not PEER_TO_PEER:
         return
+
+    validate_testnet_peer_targets(
+        peer_a_url=PEER_A_DOCKER_URL,
+        peer_b_url=PEER_B_DOCKER_URL,
+        peer_a_ip=PEER_A_DOCKER_IP,
+        peer_b_ip=PEER_B_DOCKER_IP,
+        link_token=PEER_LINK_TOKEN,
+    )
+    validate_identity_mutation_targets(
+        base_url=BASE_URL,
+        peer_base_url=PEER_BASE_URL,
+        shared_token=SHARED_SERVER_TOKEN,
+        explicitly_allowed=ALLOW_IDENTITY_MUTATION,
+    )
 
     title = f"Browser P2P {RUN_ID}"
     message_a = f"Peer A nach Peer B {RUN_ID}"
