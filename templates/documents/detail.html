@@ -118,24 +118,24 @@
 <div class="row g-4">
 <section class="col-lg-7">
 <div class="card mb-4">
-<div class="card-header">Notizen</div>
+<div class="card-header">{{ 'Notes' if g.language == 'en' else 'Notizen' }}</div>
 <div class="card-body">
 <form method="post" action="{{ url_for('documents.add_note', document_id=document.document_id) }}">
-<textarea required class="form-control" name="text" rows="3" placeholder="Wissen, Entscheidung oder Beobachtung festhalten …">
+<textarea required class="form-control" name="text" rows="3" placeholder="{{ 'Record knowledge, a decision or an observation …' if g.language == 'en' else 'Wissen, Entscheidung oder Beobachtung festhalten …' }}">
 </textarea>
-<button type="submit" class="btn btn-primary mt-2">Notiz speichern</button>
+<button type="submit" class="btn btn-primary mt-2">{{ 'Save note' if g.language == 'en' else 'Notiz speichern' }}</button>
 </form>
 </div>{% for note in document.notes|reverse %}<article class="list-group-item">
 <div style="white-space:pre-wrap">{{ note.text }}</div>
 <small class="text-secondary">{{ note.author }} · {{ note.created_at }}</small>
 <a class="btn btn-sm btn-outline-secondary ms-2" href="{{ url_for('documents.download_note_snapshot', document_id=document.document_id, note_id=note.id) }}">PDF</a>
-</article>{% else %}<div class="card-body text-secondary">Noch keine Notizen.</div>{% endfor %}</div>
+</article>{% else %}<div class="card-body text-secondary">{{ 'No notes yet.' if g.language == 'en' else 'Noch keine Notizen.' }}</div>{% endfor %}</div>
 <div class="card">
-<div class="card-header">Dokumente und Freitext verknüpfen</div>
+<div class="card-header">{{ 'Link documents and free text' if g.language == 'en' else 'Dokumente und Freitext verknüpfen' }}</div>
 <div class="card-body">
 <form method="get" class="input-group mb-3">
-<input class="form-control" name="link_query" value="{{ link_query }}" placeholder="Dateiname, Dokument-ID oder Tag suchen">
-<button type="submit" class="btn btn-outline-primary">Suchen</button>
+<input class="form-control" name="link_query" value="{{ link_query }}" placeholder="{{ 'Search filename, document ID or tag' if g.language == 'en' else 'Dateiname, Dokument-ID oder Tag suchen' }}">
+<button type="submit" class="btn btn-outline-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button>
 </form>{% if link_query %}<div class="list-group mb-3">{% for match in link_matches %}<div class="list-group-item">
 <strong>{{ match.path }}</strong>
 <br>
@@ -148,35 +148,35 @@
 <select class="form-select form-select-sm" name="relation_type">{{ relation_options() }}</select>
 </div>
 <div class="col-md-5">
-<input class="form-control form-control-sm" name="label" placeholder="Optionale Bezeichnung">
+<input class="form-control form-control-sm" name="label" placeholder="{{ 'Optional label' if g.language == 'en' else 'Optionale Bezeichnung' }}">
 </div>
 <div class="col-md-2">
-<button type="submit" class="btn btn-sm btn-primary w-100">Verbinden</button>
+<button type="submit" class="btn btn-sm btn-primary w-100">{{ 'Link' if g.language == 'en' else 'Verbinden' }}</button>
 </div>
 <div class="col-12 form-check ms-2">
 <input class="form-check-input" type="checkbox" name="propagates_retention" value="1" id="retention-{{ match.document_id }}">
-<label class="form-check-label small" for="retention-{{ match.document_id }}">Aufbewahrungsfristen transitiv verbinden</label>
+<label class="form-check-label small" for="retention-{{ match.document_id }}">{{ 'Link retention periods transitively' if g.language == 'en' else 'Aufbewahrungsfristen transitiv verbinden' }}</label>
 </div>
 </form>
-</div>{% else %}<div class="alert alert-secondary">Kein anderes Dokument gefunden.</div>{% endfor %}</div>{% endif %}
+</div>{% else %}<div class="alert alert-secondary">{{ 'No other document found.' if g.language == 'en' else 'Kein anderes Dokument gefunden.' }}</div>{% endfor %}</div>{% endif %}
 <details>
-<summary class="text-primary">Freitext, URL, Aktenzeichen oder eigene Beziehungsart hinzufügen</summary>
+<summary class="text-primary">{{ 'Add free text, URL, file reference or a custom relation type' if g.language == 'en' else 'Freitext, URL, Aktenzeichen oder eigene Beziehungsart hinzufügen' }}</summary>
 <form method="post" action="{{ url_for('documents.add_document_relationship', document_id=document.document_id) }}" class="row g-2 mt-3">
 <div class="col-12">
-<textarea required class="form-control" name="target_text" rows="2" placeholder="z. B. Aktenzeichen 2026-123, https://…, Entscheidung aus Telefonat">
+<textarea required class="form-control" name="target_text" rows="2" placeholder="{{ 'e.g. file reference 2026-123, https://…, decision from a phone call' if g.language == 'en' else 'z. B. Aktenzeichen 2026-123, https://…, Entscheidung aus Telefonat' }}">
 </textarea>
 </div>
 <div class="col-md-4">
 <select class="form-select" name="relation_type">{{ relation_options() }}</select>
 </div>
 <div class="col-md-4">
-<input class="form-control" name="custom_relation_type" placeholder="Eigene Beziehungsart, z. B. beschlossen_in">
+<input class="form-control" name="custom_relation_type" placeholder="{{ 'Custom relation type, e.g. decided_in' if g.language == 'en' else 'Eigene Beziehungsart, z. B. beschlossen_in' }}">
 </div>
 <div class="col-md-4">
-<input class="form-control" name="label" placeholder="Optionale Bezeichnung">
+<input class="form-control" name="label" placeholder="{{ 'Optional label' if g.language == 'en' else 'Optionale Bezeichnung' }}">
 </div>
 <div class="col-12">
-<button type="submit" class="btn btn-primary">Freitext verknüpfen</button>
+<button type="submit" class="btn btn-primary">{{ 'Link free text' if g.language == 'en' else 'Freitext verknüpfen' }}</button>
 </div>
 </form>
 </details>
