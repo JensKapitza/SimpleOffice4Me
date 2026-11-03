@@ -14,22 +14,15 @@ from typing import Any
 from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED as DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
     DEFAULT_ARCHIVE_DISK_RESERVE_MB as DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_CONTENT_FILES as DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
     DEFAULT_ARCHIVE_MAX_MEMBERS as DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO as DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+    DEFAULT_ARCHIVE_MAX_MEMBER_MB as DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+    DEFAULT_ARCHIVE_MAX_TEXT_MB as DEFAULT_ARCHIVE_MAX_TEXT_MB,
+    DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB as DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     DEFAULT_ARCHIVE_MEMBER_YIELD_MS as DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU as DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB as DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
-    legacy_archive_disk_reserve_mb,
-    legacy_archive_deep_index_enabled,
-    legacy_archive_max_load_per_cpu,
-    legacy_archive_max_content_files,
-    legacy_archive_max_compression_ratio,
-    legacy_archive_max_member_mb,
-    legacy_archive_max_members,
-    legacy_archive_max_text_mb,
-    legacy_archive_max_text_per_member_mb,
-    legacy_archive_member_yield_ms,
-    legacy_archive_min_free_memory_mb,
 )
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .integration_settings import (
@@ -566,19 +559,19 @@ class SettingsStore:
             "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
             "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
             "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
-            # This legacy option can only enable automatic resource-aware indexing;
+            # This option can only enable automatic resource-aware indexing;
             # it no longer bypasses CPU or memory safeguards.
-            "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
-            "archive_max_load_per_cpu": legacy_archive_max_load_per_cpu(),
-            "archive_min_free_memory_mb": legacy_archive_min_free_memory_mb(),
-            "archive_disk_reserve_mb": legacy_archive_disk_reserve_mb(),
-            "archive_max_members": legacy_archive_max_members(),
-            "archive_max_member_mb": legacy_archive_max_member_mb(),
-            "archive_max_content_files": legacy_archive_max_content_files(),
-            "archive_max_compression_ratio": legacy_archive_max_compression_ratio(),
-            "archive_max_text_mb": legacy_archive_max_text_mb(),
-            "archive_max_text_per_member_mb": legacy_archive_max_text_per_member_mb(),
-            "archive_member_yield_ms": legacy_archive_member_yield_ms(),
+            "archive_deep_index_enabled": DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+            "archive_max_load_per_cpu": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+            "archive_min_free_memory_mb": DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+            "archive_disk_reserve_mb": DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+            "archive_max_members": DEFAULT_ARCHIVE_MAX_MEMBERS,
+            "archive_max_member_mb": DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+            "archive_max_content_files": DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+            "archive_max_compression_ratio": DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+            "archive_max_text_mb": DEFAULT_ARCHIVE_MAX_TEXT_MB,
+            "archive_max_text_per_member_mb": DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+            "archive_member_yield_ms": DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
         }
 
     @staticmethod

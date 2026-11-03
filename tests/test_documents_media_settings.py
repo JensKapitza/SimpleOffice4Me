@@ -755,57 +755,35 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
             self.assertTrue(media["archive_ocr_enabled"])
             self.assertFalse(media["preview_enabled"])
 
-    def test_legacy_archive_deep_index_environment_migrates_once_and_settings_win(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "0"}):
-                self.assertFalse(store.settings()["media"]["archive_deep_index_enabled"])
-                store.save({"media": {"preview_enabled": False}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1"}):
-                media = SettingsStore(legacy_root).settings()["media"]
+    def test_archive_deep_index_uses_default_and_settings_win(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(
+                DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+                store.settings()["media"]["archive_deep_index_enabled"],
+            )
+            store.save({"media": {"archive_deep_index_enabled": False}}, "media-admin")
+            media = SettingsStore(root).settings()["media"]
             self.assertFalse(media["archive_deep_index_enabled"])
-            self.assertFalse(media["preview_enabled"])
+            store.save({"media": {"preview_enabled": False}}, "media-admin")
+            self.assertFalse(
+                SettingsStore(root).settings()["media"]["archive_deep_index_enabled"],
+            )
 
-        with tempfile.TemporaryDirectory() as legacy_root:
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "invalid"}):
-                self.assertEqual(
-                    DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
-                    SettingsStore(legacy_root).settings()["media"]["archive_deep_index_enabled"],
-                )
-
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1"}):
-                self.assertTrue(store.settings()["media"]["archive_deep_index_enabled"])
-                store.save({"media": {"preview_enabled": False}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "0"}):
-                self.assertTrue(
-                    SettingsStore(legacy_root).settings()["media"]["archive_deep_index_enabled"],
-                )
-
-    def test_legacy_archive_load_threshold_migrates_once_and_is_bounded(self):
-        with tempfile.TemporaryDirectory() as legacy_root:
-            store = SettingsStore(legacy_root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "2.5"}):
-                self.assertEqual(2.5, store.settings()["media"]["archive_max_load_per_cpu"])
-                store.save({"media": {"preview_enabled": False}}, "media-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "0.5"}):
-                self.assertEqual(2.5, store.settings()["media"]["archive_max_load_per_cpu"])
-
-        expectations = {
-            "invalid": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
-            "nan": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
-            "1e999": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
-            "0": 0.1,
-            "1000": 8.0,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as legacy_root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": raw}):
-                    actual = SettingsStore(legacy_root).settings()["media"][
-                        "archive_max_load_per_cpu"
-                    ]
-                self.assertEqual(expected, actual)
+    def test_archive_load_threshold_uses_default_persists_and_rejects_out_of_range(self):
+        with tempfile.TemporaryDirectory() as root:
+            store = SettingsStore(root)
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+                store.settings()["media"]["archive_max_load_per_cpu"],
+            )
+            store.save({"media": {"archive_max_load_per_cpu": 2.5}}, "media-admin")
+            self.assertEqual(
+                2.5, SettingsStore(root).settings()["media"]["archive_max_load_per_cpu"],
+            )
+            for raw in ("invalid", float("nan"), 0.09, 8.01, True):
+                with self.subTest(raw=raw), self.assertRaises(ValueError):
+                    store.save({"media": {"archive_max_load_per_cpu": raw}}, "media-admin")
 
     def test_upload_limit_uses_default_and_persists(self):
         with tempfile.TemporaryDirectory() as root:
