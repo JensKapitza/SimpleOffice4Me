@@ -43,29 +43,22 @@ Gesamtabnahme offen.
 
 ## Aktivierung
 
-Das Overlay ist standardmäßig deaktiviert. In der Serverumgebung setzen:
+Das Overlay ist standardmäßig deaktiviert. Administratoren schalten es unter
+**Administration → S3-Overlay** ein und pflegen dort auch Region,
+Uhrentoleranz und Kontingente (persistente `s3`-Sektion der Einstellungsdatei;
+die früheren `SIMPLEOFFICE_S3_*`-Umgebungsvariablen sind entfernt). Danach
+lautet die Endpoint-URL `https://<server>/s3`. Path-Style ist erforderlich; der
+virtuelle Bucket heißt `simpleoffice`. Außerhalb von localhost weist das
+Overlay unverschlüsselte HTTP-Anfragen ab. Bei einem Reverse Proxy muss HTTPS
+korrekt an Flask weitergegeben werden.
 
-```text
-SIMPLEOFFICE_S3_OVERLAY_ENABLED=true
-SIMPLEOFFICE_S3_OVERLAY_REGION=us-east-1
-SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS=900
-SIMPLEOFFICE_S3_MAX_UPLOAD_MIB=512
-SIMPLEOFFICE_S3_MAX_STAGING_MIB=2048
-```
-
-Nach einem Neustart lautet die Endpoint-URL `https://<server>/s3`. Path-Style
-ist erforderlich; der virtuelle Bucket heißt `simpleoffice`. Außerhalb von
-localhost weist das Overlay unverschlüsselte HTTP-Anfragen ab. Bei einem
-Reverse Proxy muss HTTPS korrekt an Flask weitergegeben werden.
-
-Die S3-Grenze kann mit `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` verkleinert werden. Sie
-kann das globale Upload-Limit der Anwendung nicht überschreiten. Ungültige
-Werte fallen auf das globale Limit zurück. `SIMPLEOFFICE_S3_MAX_STAGING_MIB`
-begrenzt den gesamten temporären Multipart-Speicher (Standard 2048 MiB,
-zulässig 64 bis 65536 MiB). Pro Zugang sind höchstens 20 Uploads gleichzeitig
-aktiv. Die zulässige SigV4-Uhrabweichung
-wird mit `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` eingestellt, standardmäßig
-900 Sekunden und serverseitig auf maximal 3600 Sekunden begrenzt.
+Die S3-Grenze (`s3.max_upload_mib`, leer = folgt dem globalen Limit) kann das
+globale Upload-Limit der Anwendung nicht überschreiten; ungültige Werte fallen
+auf das globale Limit zurück. `s3.max_staging_mib` begrenzt den gesamten
+temporären Multipart-Speicher (Standard 2048 MiB, zulässig 64 bis 65536 MiB).
+Pro Zugang sind höchstens 20 Uploads gleichzeitig aktiv. Die zulässige
+SigV4-Uhrabweichung (`s3.clock_skew_seconds`) beträgt standardmäßig 900
+Sekunden und ist serverseitig auf maximal 3600 Sekunden begrenzt.
 
 ## S3-Zugänge verwalten
 

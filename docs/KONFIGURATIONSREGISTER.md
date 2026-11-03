@@ -358,11 +358,11 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_RSYNC_MAX_FILES` | Legacy-Startwert bis `network.rsync_max_files` unter `/admin/settings/network` gespeichert wird | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RSYNC_TIMEOUT` | `3600`, effektiv 30–86400 | Legacy-Startwert bis `network.rsync_timeout_seconds` unter `/admin/settings/network` gespeichert wird; [Rsync-Sitzungen](VIRTUELLES_DATEISYSTEM_SFTP.md) |
 | `SIMPLEOFFICE_RUN_XRECHNUNG_INTEGRATION` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
-| `SIMPLEOFFICE_S3_MAX_STAGING_MIB` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
-| `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
-| `SIMPLEOFFICE_S3_OVERLAY_ENABLED` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
-| `SIMPLEOFFICE_S3_OVERLAY_REGION` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
+| `SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS` (entfernt) | [s3_settings.py](../app/s3_settings.py) | Admin → S3-Overlay (`s3.clock_skew_seconds`); [S3_OVERLAY](S3_OVERLAY.md) |
+| `SIMPLEOFFICE_S3_MAX_STAGING_MIB` (entfernt) | [s3_settings.py](../app/s3_settings.py) | Admin → S3-Overlay (`s3.max_staging_mib`); [S3_OVERLAY](S3_OVERLAY.md) |
+| `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` (entfernt) | [s3_settings.py](../app/s3_settings.py) | Admin → S3-Overlay (`s3.max_upload_mib`, leer folgt Request-Cap); [S3_OVERLAY](S3_OVERLAY.md) |
+| `SIMPLEOFFICE_S3_OVERLAY_ENABLED` (entfernt) | [s3_settings.py](../app/s3_settings.py) | Admin → S3-Overlay (`s3.enabled`); [S3_OVERLAY](S3_OVERLAY.md) |
+| `SIMPLEOFFICE_S3_OVERLAY_REGION` (entfernt) | [s3_settings.py](../app/s3_settings.py) | Admin → S3-Overlay (`s3.region`); [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_SCANNER` (entfernt) | [attachment_security.py](../app/attachment_security.py) | Admin → Integrationen & Dienste → ClamAV-Sicherheitsprüfung (`integrations.scanner_choice`); [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SECRET_KEY` | [secret_key.py](../app/secret_key.py) | [ERSTER_START](ERSTER_START.md) |
 | `SIMPLEOFFICE_SECURITY_ADMINS` (entfernt) | [admin_lists.py](../app/admin_lists.py) | Admin → Benutzer → Admin-Listen; [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
