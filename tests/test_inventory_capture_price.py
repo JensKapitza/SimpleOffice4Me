@@ -80,6 +80,7 @@ class BatchAdoptPriceTests(unittest.TestCase):
              "description": "", "tags": "",
              "market_price": "12,50", "currency": "eur",
              "price_source": "Amazon",
+             "provider": "temu",
              "marketplace_url": "https://www.amazon.de/dp/X",
              "url": "https://example.evil/x"},
             "d2" * 16)
@@ -92,6 +93,7 @@ class BatchAdoptPriceTests(unittest.TestCase):
         self.assertEqual("Amazon", stored.get("price_source"))
         self.assertNotIn("marketplace_url", stored)
         self.assertNotIn("url", stored)
+        self.assertNotIn("provider", stored)
         self.assertNotIn("amazon.de", str(item))
 
     def test_adopt_drops_price_source_without_price(self) -> None:

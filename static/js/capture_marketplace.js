@@ -28,16 +28,19 @@
       return Number.isFinite(amount) && amount >= 0;
     };
     const normalizeCurrency = (value) => cleanText(value).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
-    const applyMarketplacePrice = (row) => {
+    const applyMarketplacePrice = (provider, row) => {
+      if (provider !== 'amazon' && provider !== 'ebay') {
+        marketStatus.textContent = 'Unbekannter Anbieter — nichts übernommen.';
+        return;
+      }
       if (!isValidPrice(row.market_price)) {
         marketStatus.textContent = 'Dieser Treffer enthält keinen gültigen Preis — nichts übernommen, nur „Angebot ansehen“ möglich.';
         return;
       }
       const overwriteBox = marketBox.querySelector('[data-marketplace-overwrite]');
       const overwrite = Boolean(overwriteBox && overwriteBox.checked);
-      const providerName = row.provider === 'ebay' ? 'eBay' : 'Amazon';
-      const source = cleanText(row.price_source) || providerName;
-      const targets = [['market_price', row.market_price], ['currency', normalizeCurrency(row.currency)], ['price_source', source]];
+      const providerName = provider === 'ebay' ? 'eBay' : 'Amazon';
+      const targets = [['market_price', row.market_price], ['currency', normalizeCurrency(row.currency)], ['price_source', providerName]];
       let kept = false;
       let applied = false;
       targets.forEach(([name, value]) => {
@@ -54,20 +57,24 @@
       else marketStatus.textContent = 'Eigene Preiswerte behalten — „Ersetzen“ aktivieren zum Überschreiben.';
     };
     const renderMarketplaceResults = (provider, data) => {
+      if (provider !== 'amazon' && provider !== 'ebay') {
+        marketStatus.textContent = 'Unbekannter Anbieter — keine Treffer übernommen.';
+        return;
+      }
       marketResults.replaceChildren();
       const rows = Array.isArray(data.results) ? data.results.slice(0, 3) : [];
       if (!rows.length) {
         marketStatus.textContent = cleanText(data.warning || data.error) || 'Keine Marketplace-Treffer gefunden.';
         return;
       }
+      const providerName = provider === 'ebay' ? 'eBay' : 'Amazon';
       rows.forEach((row) => {
         if (!row || typeof row !== 'object') return;
-        const providerName = row.provider === 'ebay' ? 'eBay' : 'Amazon';
+        if (row.provider !== provider) return;
         const item = document.createElement('div');
         item.className = 'list-group-item py-2 small';
         const price = [cleanText(row.market_price), cleanText(row.currency)].filter(Boolean).join(' ');
-        const source = cleanText(row.price_source) || providerName;
-        item.textContent = `${cleanText(row.title) || 'Treffer'}${price ? ` · ${price}` : ''} · ${source} `;
+        item.textContent = `${cleanText(row.title) || 'Treffer'}${price ? ` · ${price}` : ''} · ${providerName} `;
         const take = document.createElement('button');
         take.type = 'button';
         take.className = 'btn btn-sm btn-outline-success ms-1';
@@ -75,7 +82,7 @@
         const hasPrice = isValidPrice(row.market_price);
         take.disabled = !hasPrice;
         if (!hasPrice) take.title = 'Kein Preis in diesem Treffer — nur „Angebot ansehen“ möglich.';
-        take.addEventListener('click', () => applyMarketplacePrice(row));
+        take.addEventListener('click', () => applyMarketplacePrice(provider, row));
         item.appendChild(take);
         const target = marketplaceNav.safeMarketplaceUrl ? marketplaceNav.safeMarketplaceUrl(row.url) : '';
         if (target) {
@@ -92,6 +99,10 @@
       marketStatus.textContent = `${rows.length} Treffer — bitte prüfen und gezielt übernehmen.`;
     };
     const searchMarketplace = async (provider) => {
+      if (provider !== 'amazon' && provider !== 'ebay') {
+        marketStatus.textContent = 'Unbekannter Anbieter — keine Suche gestartet.';
+        return;
+      }
       const query = cleanText(inputs.isbn ? inputs.isbn.value : '') || cleanText(combined.isbn || '') || cleanText(inputs.title ? inputs.title.value : '');
       if (!query) { marketStatus.textContent = 'Für die Marketplace-Suche zuerst ISBN oder Titel eingeben.'; return; }
       if (!marketplaceUrl) { marketStatus.textContent = 'Marketplace-Suche ist nicht verfügbar.'; return; }

@@ -44,7 +44,7 @@ Verifiziert: Store/Combine/Price/UI 34/34 OK, Size-/Function-/Policy-/
 Diff-/Node-Gates grün; Routen-Suiten hier nicht verifizierbar
 (`PermissionError` Auth-Speicher).
 **Folge (03.11., Freundesbestand + Preis-Fail-closed, Branch
-`hackai/inventory-batch-20261103`, uncommitted):** Batch-Review prüft auf
+`hackai/inventory-batch-20261103`, committed `41cd9dfd` (local, not pushed)):** Batch-Review prüft auf
 Klick den Bestand freigegebener Freundeskataloge vor einem Nachkauf —
 wiederverwendet `POST /contextflow/peer-stock-check` (Trust-Kante +
 Freigabe-Opt-in, nur lokale Indexkopien, kein Netzwerk, keine stillen

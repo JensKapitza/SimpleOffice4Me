@@ -2,6 +2,7 @@
   'use strict';
   const renderPeerStockSection = (ctx) => {
     const {inputs, combined, form, dataset, csrf, cleanText, safeJson} = ctx;
+    if (!cleanText(dataset.peerStockUrl)) return;
     const peerBox = document.createElement('div');
     peerBox.className = 'col-12';
     const peerTitle = document.createElement('div');
@@ -26,10 +27,6 @@
       const identifier = cleanText(inputs.isbn ? inputs.isbn.value : '') || cleanText(combined.isbn || '');
       if (!identifier) {
         peerStatus.textContent = 'Für die Freundesprüfung zuerst eine ISBN/einen Barcode erfassen — Titelabfragen werden nicht unterstützt.';
-        return;
-      }
-      if (!peerStockUrl) {
-        peerStatus.textContent = 'Freundesprüfung ist nicht verfügbar (ContextFlow deaktiviert).';
         return;
       }
       askButton.disabled = true;

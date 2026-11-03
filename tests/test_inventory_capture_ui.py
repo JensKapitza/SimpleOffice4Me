@@ -128,6 +128,20 @@ class CaptureUiWiringTests(unittest.TestCase):
         self.assertIn("normalizeCurrency(row.currency)", script)
         self.assertIn(".toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)", script)
 
+    def test_marketplace_price_source_is_provider_bound(self) -> None:
+        script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
+        self.assertIn("if (provider !== 'amazon' && provider !== 'ebay') {", script)
+        self.assertNotIn("row.price_source", script)
+        self.assertIn("if (row.provider !== provider) return;", script)
+        self.assertIn(
+            "take.addEventListener('click', () => applyMarketplacePrice(provider, row))",
+            script)
+        self.assertIn("'price_source', providerName]", script)
+
+    def test_peer_stock_section_renders_only_with_route(self) -> None:
+        script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
+        self.assertIn("if (!cleanText(dataset.peerStockUrl)) return;", script)
+
     def test_batch_review_has_click_only_peer_stock_check(self) -> None:
         inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
         script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")

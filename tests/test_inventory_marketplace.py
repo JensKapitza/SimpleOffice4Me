@@ -141,6 +141,18 @@ class InventoryMarketplaceTests(unittest.TestCase):
         self.assertEqual("4.99", results[0]["market_price"])
         self.assertEqual("Musik", results[0]["categories"])
 
+    def test_unknown_provider_is_rejected_without_network(self):
+        with mock.patch(
+            "app.inventory_marketplace._html_request",
+            side_effect=AssertionError("kein Netzwerk erwartet"),
+        ), mock.patch(
+            "app.inventory_marketplace._json_request",
+            side_effect=AssertionError("kein Netzwerk erwartet"),
+        ):
+            with self.assertRaises(ValueError) as raised:
+                search_marketplace("temu", "9783499249167")
+        self.assertIn("Unbekannter Marketplace", str(raised.exception))
+
     def test_frontend_supports_api_free_marketplace_and_selected_title(self):
         script = (Path(__file__).resolve().parents[1] / "static" / "js" / "inventory.js").read_text(encoding="utf-8")
         self.assertIn("visualViewport", script)
