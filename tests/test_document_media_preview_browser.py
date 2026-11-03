@@ -161,8 +161,8 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             self.assertEqual("metadata", player.get_attribute("preload"))
             self.assertEqual("video/mp4", player.locator("source").get_attribute("type"))
             self.assertEqual(0, panel.locator("img").count())
-            self.assertTrue(panel.get_by_role("link", name="Originaldatei herunterladen").is_visible())
-            breadcrumbs = page.locator('nav[aria-label="Dokumentpfad"] ol')
+            self.assertTrue(panel.get_by_role("link", name="Download original file").is_visible())
+            breadcrumbs = page.locator('nav[aria-label="Document path"] ol')
             self.assertIn("very-long-folder-name", breadcrumbs.inner_text())
             self.assertLessEqual(
                 breadcrumbs.evaluate("node => node.scrollWidth"),
@@ -183,9 +183,9 @@ class DocumentMediaPreviewBrowserTests(unittest.TestCase):
             pdf_document = self.documents["pdf"]
             page.goto(f"{self.base_url}/documents/{pdf_document['document_id']}")
             pdf_panel = page.locator("#document-preview")
-            self.assertTrue(pdf_panel.locator('iframe[title^="PDF-Vorschau"]').is_visible())
+            self.assertTrue(pdf_panel.locator('iframe[title^="PDF preview"]').is_visible())
             self.assertEqual(0, pdf_panel.locator("img").count())
-            self.assertTrue(pdf_panel.get_by_role("link", name="PDF herunterladen").is_visible())
+            self.assertTrue(pdf_panel.get_by_role("link", name="Download PDF").is_visible())
 
             image_document = self.documents["image"]
             page.goto(f"{self.base_url}/documents/{image_document['document_id']}")

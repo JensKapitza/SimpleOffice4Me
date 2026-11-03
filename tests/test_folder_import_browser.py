@@ -125,10 +125,10 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertEqual("files", page.locator("#document-folder").get_attribute("name"))
                 self.assertTrue(page.locator("#document-files").get_attribute("name") is None)
                 self.assertTrue(page.locator("#archive").is_disabled())
-                self.assertIn("2 Datei(en)", page.locator("#document-selection").inner_text())
+                self.assertIn("2 file(s)", page.locator("#document-selection").inner_text())
 
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text("Folder import completed")
                 imported = Path(app.config["DOCUMENT_ROOT"]) / "imports"
                 imported_roots = list(imported.glob("*/root/a.txt"))
                 self.assertEqual(1, len(imported_roots))
@@ -219,7 +219,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                       };
                     }""")
                     page.locator("#document-upload-form button[type=submit]").click()
-                    expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                    expect(page.locator("#document-selection")).to_contain_text("Folder import completed")
                     return page.evaluate("""() => ({
                       ids: window.capturedSourceIds,
                       keys: window.capturedFormKeys,
@@ -366,7 +366,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 }""")
                 self._select_folder_files(page, [f"root/file-{index}.txt" for index in range(1001)])
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text("Folder import completed")
                 large_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(11, len(large_import))
                 self.assertEqual(1001, sum(batch["count"] for batch in large_import))
@@ -378,7 +378,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self._select_folder_files(page, [deep + f"file-{index}.txt" for index in range(210)])
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text("Folder import completed")
                 long_path_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(3, len(long_path_import))
                 self.assertEqual(210, sum(batch["count"] for batch in long_path_import))

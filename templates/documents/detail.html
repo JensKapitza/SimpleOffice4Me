@@ -1,18 +1,18 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
-{% macro relation_options() -%}<option value="requires">Benötigt dieses Dokument</option>
-<option value="supports">Mehr Wissen / Hinweis</option>
-<option value="same_case">Gleicher Vorgang / Akte</option>
-<option value="same_person">Gleiche Person</option>
-<option value="same_topic">Gleiches Thema</option>
-<option value="same_folder">Gleicher Ordner</option>
-<option value="collection_member">Teil einer Sammlung</option>
-<option value="related" selected>Allgemein verbunden</option>{%- endmacro %}
+{% macro relation_options() -%}<option value="requires">{{ 'Requires this document' if g.language == 'en' else 'Benötigt dieses Dokument' }}</option>
+<option value="supports">{{ 'More knowledge / note' if g.language == 'en' else 'Mehr Wissen / Hinweis' }}</option>
+<option value="same_case">{{ 'Same case / file' if g.language == 'en' else 'Gleicher Vorgang / Akte' }}</option>
+<option value="same_person">{{ 'Same person' if g.language == 'en' else 'Gleiche Person' }}</option>
+<option value="same_topic">{{ 'Same topic' if g.language == 'en' else 'Gleiches Thema' }}</option>
+<option value="same_folder">{{ 'Same folder' if g.language == 'en' else 'Gleicher Ordner' }}</option>
+<option value="collection_member">{{ 'Part of a collection' if g.language == 'en' else 'Teil einer Sammlung' }}</option>
+<option value="related" selected>{{ 'Generally linked' if g.language == 'en' else 'Allgemein verbunden' }}</option>{%- endmacro %}
 {% block body %}<main id="main-content" class="container-xl py-4">
-<a class="text-decoration-none" href="{{ url_for('documents.index') }}">← Dokumente</a>
+<a class="text-decoration-none" href="{{ url_for('documents.index') }}">← {{ 'Documents' if g.language == 'en' else 'Dokumente' }}</a>
 <div class="d-flex flex-wrap justify-content-between gap-3 mt-2 mb-3">
 <div>
-<nav aria-label="Dokumentpfad" class="mb-1"><ol class="breadcrumb flex-wrap mb-0">{% for part in document_path_parts %}<li class="breadcrumb-item text-break">{{ part }}</li>{% endfor %}</ol></nav>
+<nav aria-label="{{ 'Document path' if g.language == 'en' else 'Dokumentpfad' }}" class="mb-1"><ol class="breadcrumb flex-wrap mb-0">{% for part in document_path_parts %}<li class="breadcrumb-item text-break">{{ part }}</li>{% endfor %}</ol></nav>
 <h1 class="h3 mb-1 text-break" title="{{ document.last_path }}">{{ document_path_parts[-1] if document_path_parts else document.last_path }}</h1>
 <p class="text-secondary mb-0">ID: <code>{{ document.document_id }}</code>
 </p>
@@ -43,27 +43,27 @@
     {% if preview.kind == 'video' %}
     <video id="document-video-preview" class="w-100 rounded bg-dark" controls playsinline preload="metadata"{% if preview.thumbnail_available %} poster="{{ preview.thumbnail_url }}"{% endif %} style="max-height:70vh">
       <source src="{{ preview.media_url }}" type="{{ preview.mime }}">
-      Dein Browser kann dieses Videoformat nicht direkt abspielen. Lade die Originaldatei herunter.
+      {{ 'Your browser cannot play this video format directly. Download the original file.' if g.language == 'en' else 'Dein Browser kann dieses Videoformat nicht direkt abspielen. Lade die Originaldatei herunter.' }}
     </video>
-    <p class="small text-secondary mt-2 mb-0">Falls Codec oder Browser die Wiedergabe nicht unterstützen: <a href="{{ preview.download_url }}" download>Originaldatei herunterladen</a>.</p>
+    <p class="small text-secondary mt-2 mb-0">{{ 'If codec or browser does not support playback:' if g.language == 'en' else 'Falls Codec oder Browser die Wiedergabe nicht unterstützen:' }} <a href="{{ preview.download_url }}" download>{{ 'Download original file' if g.language == 'en' else 'Originaldatei herunterladen' }}</a>.</p>
     {% elif preview.kind == 'audio' %}
     <audio id="document-audio-preview" class="w-100" controls preload="metadata">
       <source src="{{ preview.media_url }}" type="{{ preview.mime }}">
-      Dein Browser kann dieses Audioformat nicht direkt abspielen. Lade die Originaldatei herunter.
+      {{ 'Your browser cannot play this audio format directly. Download the original file.' if g.language == 'en' else 'Dein Browser kann dieses Audioformat nicht direkt abspielen. Lade die Originaldatei herunter.' }}
     </audio>
-    <p class="small text-secondary mt-2 mb-0">Falls Codec oder Browser die Wiedergabe nicht unterstützen: <a href="{{ preview.download_url }}" download>Originaldatei herunterladen</a>.</p>
+    <p class="small text-secondary mt-2 mb-0">{{ 'If codec or browser does not support playback:' if g.language == 'en' else 'Falls Codec oder Browser die Wiedergabe nicht unterstützen:' }} <a href="{{ preview.download_url }}" download>{{ 'Download original file' if g.language == 'en' else 'Originaldatei herunterladen' }}</a>.</p>
     {% elif preview.kind == 'pdf' %}
-    <iframe class="w-100 border rounded" title="PDF-Vorschau: {{ preview.name }}" src="{{ preview.url }}" loading="lazy" referrerpolicy="no-referrer" style="height:65vh"></iframe>
-    <p class="small text-secondary mt-2 mb-0">Wenn der Browser keine PDF-Vorschau unterstützt: <a href="{{ preview.download_url }}" download>PDF herunterladen</a>.</p>
+    <iframe class="w-100 border rounded" title="{{ 'PDF preview' if g.language == 'en' else 'PDF-Vorschau' }}: {{ preview.name }}" src="{{ preview.url }}" loading="lazy" referrerpolicy="no-referrer" style="height:65vh"></iframe>
+    <p class="small text-secondary mt-2 mb-0">{{ 'If the browser does not support PDF preview:' if g.language == 'en' else 'Wenn der Browser keine PDF-Vorschau unterstützt:' }} <a href="{{ preview.download_url }}" download>{{ 'Download PDF' if g.language == 'en' else 'PDF herunterladen' }}</a>.</p>
     {% elif preview.kind == 'image' and preview.thumbnail_available %}
-    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Vorschau: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
+    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="{{ 'Preview' if g.language == 'en' else 'Vorschau' }}: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
     {% elif preview.kind == 'document' and preview.thumbnail_available %}
-    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="Dokumentvorschau: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
+    <img class="img-fluid rounded" src="{{ preview.thumbnail_url }}" alt="{{ 'Document preview' if g.language == 'en' else 'Dokumentvorschau' }}: {{ preview.name }}" loading="eager" fetchpriority="high" decoding="async" style="max-height:65vh">
     {% elif preview.kind == 'text' and preview.text %}
     <pre class="text-start bg-body-tertiary border rounded p-3 mb-0 text-break" style="max-height:55vh;overflow:auto;white-space:pre-wrap">{{ preview.text }}</pre>
-    {% if preview.text_truncated %}<p class="small text-secondary mt-2 mb-0">Die Vorschau ist aus Sicherheitsgründen auf 300 Zeilen und 12.000 Zeichen begrenzt. Das Original bleibt vollständig verfügbar.</p>{% endif %}
+    {% if preview.text_truncated %}<p class="small text-secondary mt-2 mb-0">{{ 'Preview is limited to 300 lines and 12,000 characters for security reasons. The original remains fully available.' if g.language == 'en' else 'Die Vorschau ist aus Sicherheitsgründen auf 300 Zeilen und 12.000 Zeichen begrenzt. Das Original bleibt vollständig verfügbar.' }}</p>{% endif %}
     {% elif preview.kind == 'text' %}
-    <p class="text-secondary mb-0" role="status">{% if preview.text_status == 'too_large' %}Die Textdatei überschreitet das Vorschau-Limit von 256 KiB.{% elif preview.text_status in ['binary', 'encoding'] %}Die Datei ist kein unterstützter UTF-8-Text und wird nicht inline dargestellt.{% elif preview.text_status == 'empty' %}Die Textdatei ist leer.{% else %}Die Textvorschau ist derzeit nicht verfügbar.{% endif %} Das Original kann sicher geöffnet oder heruntergeladen werden.</p>
+    <p class="text-secondary mb-0" role="status">{% if preview.text_status == 'too_large' %}{{ 'The text file exceeds the 256 KiB preview limit.' if g.language == 'en' else 'Die Textdatei überschreitet das Vorschau-Limit von 256 KiB.' }}{% elif preview.text_status in ['binary', 'encoding'] %}{{ 'The file is not supported UTF-8 text and is not shown inline.' if g.language == 'en' else 'Die Datei ist kein unterstützter UTF-8-Text und wird nicht inline dargestellt.' }}{% elif preview.text_status == 'empty' %}{{ 'The text file is empty.' if g.language == 'en' else 'Die Textdatei ist leer.' }}{% else %}{{ 'The text preview is currently unavailable.' if g.language == 'en' else 'Die Textvorschau ist derzeit nicht verfügbar.' }}{% endif %} {{ 'The original can be safely opened or downloaded.' if g.language == 'en' else 'Das Original kann sicher geöffnet oder heruntergeladen werden.' }}</p>
     {% elif preview.kind == 'archive' %}
     {% if preview.archive.status == 'ready' %}
     <div class="d-flex align-items-center gap-3 mb-3">
@@ -72,9 +72,9 @@
         <strong>{{ preview.archive.format }}{% if preview.archive.title %}: {{ preview.archive.title }}{% endif %}</strong>
         {% if preview.archive.author %}<div class="text-secondary">{{ preview.archive.author }}</div>{% endif %}
         {% if preview.archive.format == 'EPUB' %}
-        <div class="small text-secondary">{{ preview.archive.chapter_count }} Kapitel · {{ preview.archive.total_uncompressed_bytes }} Bytes entpackter Inhalt</div>
+        <div class="small text-secondary">{{ preview.archive.chapter_count }} {{ 'chapters' if g.language == 'en' else 'Kapitel' }} · {{ preview.archive.total_uncompressed_bytes }} {{ 'bytes of unpacked content' if g.language == 'en' else 'Bytes entpackter Inhalt' }}</div>
         {% else %}
-        <div class="small text-secondary">{{ preview.archive.entry_count }} Einträge · {{ preview.archive.file_count }} Dateien · {{ preview.archive.total_uncompressed_bytes }} Bytes entpackter Inhalt</div>
+        <div class="small text-secondary">{{ preview.archive.entry_count }} {{ 'entries' if g.language == 'en' else 'Einträge' }} · {{ preview.archive.file_count }} {{ 'files' if g.language == 'en' else 'Dateien' }} · {{ preview.archive.total_uncompressed_bytes }} {{ 'bytes of unpacked content' if g.language == 'en' else 'Bytes entpackter Inhalt' }}</div>
         {% endif %}
       </div>
     </div>
@@ -98,10 +98,10 @@
     {% else %}
     <div class="d-flex align-items-center gap-3 text-secondary" role="status">
       <i class="fas {{ preview.icon }} fa-3x" aria-hidden="true"></i>
-      <span>{% if preview.preview_status in ['pending', 'processing'] %}Die Vorschau wird noch erstellt.{% else %}Für diesen Dateityp ist keine Bildvorschau verfügbar.{% endif %} Das Original bleibt unverändert.</span>
+      <span>{% if preview.preview_status in ['pending', 'processing'] %}{{ 'The preview is still being generated.' if g.language == 'en' else 'Die Vorschau wird noch erstellt.' }}{% else %}{{ 'No image preview is available for this file type.' if g.language == 'en' else 'Für diesen Dateityp ist keine Bildvorschau verfügbar.' }}{% endif %} {{ 'The original remains unchanged.' if g.language == 'en' else 'Das Original bleibt unverändert.' }}</span>
     </div>
     {% endif %}
-    {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">Original öffnen</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>Original herunterladen</a></div>{% endif %}
+    {% if preview.kind not in ['video', 'audio'] %}<div class="mt-3"><a class="btn btn-sm btn-outline-primary" href="{{ preview.url }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a> <a class="btn btn-sm btn-outline-secondary" href="{{ preview.download_url }}" download>{{ 'Download original' if g.language == 'en' else 'Original herunterladen' }}</a></div>{% endif %}
   </div>
 </section>
 {% if preview.kind == 'image' and contextflow_enabled|default(false) %}
