@@ -55,7 +55,7 @@
         <label class="form-label w-100">Messgröße / JSON-Pfad<input name="metric" id="source-metric" class="form-control" list="linux-metrics" placeholder="leer = load1"><datalist id="linux-metrics">{% for metric in linux_metrics %}<option value="{{ metric }}">{% endfor %}{% for metric in file_metrics %}<option value="{{ metric }}">{% endfor %}</datalist><input name="json_path" class="form-control mt-1" placeholder="temperature.value oder chip.temp1.temp1_input"></label>
         <div class="form-text mb-2"><strong>Linux:</strong> {{ linux_metrics|join(', ') }}. Leeres Feld verwendet automatisch <code>load1</code>.</div>
         <label class="form-label w-100">Pfad oder URL<input name="path" class="form-control" placeholder="Projekte oder / (Linux-Datenträger)"><input name="url" class="form-control mt-1" placeholder="http://sensor.local/status"></label>
-        <label class="form-label w-100">Optionaler HTTP-Header aus Umgebung<input name="header_env" class="form-control" placeholder="SIMPLEOFFICE_SENSOR_KELLER_TOKEN"></label>
+        <label class="form-label w-100">Optionaler HTTP-Header-Token<input name="header_secret" type="password" autocomplete="new-password" class="form-control" placeholder="Token (wird im Sensor gespeichert, nie angezeigt)"></label>
         <label><input type="checkbox" name="recursive" value="1" checked> Unterordner einbeziehen</label><button type="submit" class="btn btn-primary d-block mt-2">Quelle speichern</button>
       </form>
       <hr><h3 class="h6">Vorhandene Quellen</h3>

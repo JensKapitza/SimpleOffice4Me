@@ -119,7 +119,10 @@ from .settings_limits import (
     MAX_CHAT_ATTACHMENT_BYTES,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
+    DEFAULT_WEBDAV_CLAMAV_ENABLED,
+    DEFAULT_WEBDAV_QUARANTINE_MIB,
     DEFAULT_WEBDAV_QUOTA_MIB,
+    MAX_WEBDAV_QUARANTINE_MIB,
     MIN_CHAT_ATTACHMENT_BYTES as MIN_CHAT_ATTACHMENT_BYTES,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
@@ -128,6 +131,15 @@ from .settings_limits import (
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
     MIN_UPLOAD_LIMIT_MIB,
+)
+from .datalogger_collectors import (
+    DEFAULT_SENSOR_ALLOWED_HOSTS,
+    normalize_sensor_allowed_hosts,
+    validate_sensor_allowed_hosts,
+)
+from .finance_fints import (
+    normalize_fints_product_id,
+    validate_fints_product_id,
 )
 from .project_git import (
     DEFAULT_REPO_ROOTS,
@@ -146,6 +158,11 @@ from .v3_capabilities import (
     CAPABILITY_KEYS,
     normalize_v3_settings,
     validate_v3_settings,
+)
+from .v3_extensions import (
+    DEFAULT_EXTENSION_HTTP_ALLOWLIST,
+    normalize_extension_http_allowlist,
+    validate_extension_http_allowlist,
 )
 
 
@@ -196,6 +213,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "network": {
         "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
+        "webdav_quarantine_mib": DEFAULT_WEBDAV_QUARANTINE_MIB,
+        "webdav_clamav_enabled": DEFAULT_WEBDAV_CLAMAV_ENABLED,
         "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
         "rsync_max_bytes": DEFAULT_RSYNC_MAX_BYTES,
         "rsync_max_files": DEFAULT_RSYNC_MAX_FILES,
@@ -227,6 +246,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "v3": {key: False for key in CAPABILITY_KEYS},
     "projects": {"repo_roots": list(DEFAULT_REPO_ROOTS)},
+    "extensions": {"http_allowlist": list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)},
+    "finance": {"fints_product_id": ""},
+    "datalogger": {"allowed_hosts": list(DEFAULT_SENSOR_ALLOWED_HOSTS)},
 }
 
 from .translations import (
@@ -274,6 +296,8 @@ class SettingsStore:
             result["network"]["rsync_max_bytes"] = self._legacy_rsync_max_bytes()
         if not isinstance(stored_network, dict) or "rsync_max_files" not in stored_network:
             result["network"]["rsync_max_files"] = self._legacy_rsync_max_files()
+        if not isinstance(stored_network, dict) or "webdav_quarantine_mib" not in stored_network:
+            result["network"]["webdav_quarantine_mib"] = DEFAULT_WEBDAV_QUARANTINE_MIB
         result["network"] = self._normalize_network_settings(result["network"])
         stored_integrations = stored.get("integrations") if isinstance(stored, dict) else None
         if (
@@ -414,6 +438,29 @@ class SettingsStore:
             ),
         }
         result["s3"] = normalize_s3_settings(result.get("s3", {}))
+        stored_finance = result.get("finance", {})
+        result["finance"] = {
+            "fints_product_id": normalize_fints_product_id(
+                stored_finance.get("fints_product_id", "")
+                if isinstance(stored_finance, dict)
+                else "",
+            ),
+        }
+        stored_datalogger = result.get("datalogger", {})
+        result["datalogger"] = {
+            "allowed_hosts": normalize_sensor_allowed_hosts(
+                stored_datalogger.get("allowed_hosts", [])
+                if isinstance(stored_datalogger, dict)
+                else [],
+            ),
+        }
+        result["extensions"] = {
+            "http_allowlist": normalize_extension_http_allowlist(
+                result.get("extensions", {}).get("http_allowlist", [])
+                if isinstance(result.get("extensions", {}), dict)
+                else [],
+            ),
+        }
         return result
 
     @staticmethod
@@ -457,8 +504,22 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored rsync file-count limit; using the default")
             rsync_max_files = DEFAULT_RSYNC_MAX_FILES
+        quarantine = network.get("webdav_quarantine_mib", DEFAULT_WEBDAV_QUARANTINE_MIB)
+        if (
+            isinstance(quarantine, bool)
+            or not isinstance(quarantine, int)
+            or not 1 <= quarantine <= MAX_WEBDAV_QUARANTINE_MIB
+        ):
+            _LOGGER.warning("Invalid stored WebDAV quarantine; using the default")
+            quarantine = DEFAULT_WEBDAV_QUARANTINE_MIB
+        clamav_enabled = network.get("webdav_clamav_enabled", DEFAULT_WEBDAV_CLAMAV_ENABLED)
+        if not isinstance(clamav_enabled, bool):
+            _LOGGER.warning("Invalid stored WebDAV scan toggle; using the default")
+            clamav_enabled = DEFAULT_WEBDAV_CLAMAV_ENABLED
         return {
             "webdav_quota_mib": quota,
+            "webdav_quarantine_mib": quarantine,
+            "webdav_clamav_enabled": clamav_enabled,
             "rsync_timeout_seconds": rsync_timeout,
             "rsync_max_bytes": rsync_max_bytes,
             "rsync_max_files": rsync_max_files,
@@ -543,7 +604,7 @@ class SettingsStore:
             # partial writes so callers preserve the other controls in the
             # same section.
             merged = {**latest, **settings}
-            for section in ("network", "media", "integrations", "v3", "projects"):
+            for section in ("network", "media", "integrations", "v3", "projects", "extensions", "finance"):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -568,6 +629,9 @@ class SettingsStore:
         integrations = settings.get("integrations", {})
         v3 = settings.get("v3", {})
         projects = settings.get("projects", {})
+        extensions = settings.get("extensions", {})
+        finance = settings.get("finance", {})
+        datalogger = settings.get("datalogger", {})
         if not isinstance(network, dict):
             raise ValueError("network settings must be an object")
         webdav_quota = network.get("webdav_quota_mib", DEFAULT_WEBDAV_QUOTA_MIB)
@@ -600,6 +664,18 @@ class SettingsStore:
             or not MIN_RSYNC_MAX_FILES <= rsync_max_files <= MAX_RSYNC_MAX_FILES
         ):
             raise ValueError("rsync file-count limit must be between 0 and 100,000")
+        quarantine = network.get("webdav_quarantine_mib", DEFAULT_WEBDAV_QUARANTINE_MIB)
+        if (
+            isinstance(quarantine, bool)
+            or not isinstance(quarantine, int)
+            or not 1 <= quarantine <= MAX_WEBDAV_QUARANTINE_MIB
+        ):
+            raise ValueError("WebDAV quarantine must be between 1 and 65,536 MiB")
+        webdav_clamav_enabled = network.get(
+            "webdav_clamav_enabled", DEFAULT_WEBDAV_CLAMAV_ENABLED,
+        )
+        if not isinstance(webdav_clamav_enabled, bool):
+            raise ValueError("WebDAV scan toggle must be boolean")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
@@ -610,6 +686,27 @@ class SettingsStore:
         if not isinstance(projects, dict):
             raise ValueError("project settings must be an object")
         projects = {"repo_roots": validate_repo_roots(projects.get("repo_roots", []))}
+        if not isinstance(extensions, dict):
+            raise ValueError("extension settings must be an object")
+        extensions = {
+            "http_allowlist": validate_extension_http_allowlist(
+                extensions.get("http_allowlist", list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)),
+            ),
+        }
+        if not isinstance(finance, dict):
+            raise ValueError("finance settings must be an object")
+        finance = {
+            "fints_product_id": validate_fints_product_id(
+                finance.get("fints_product_id", ""),
+            ),
+        }
+        if not isinstance(datalogger, dict):
+            raise ValueError("datalogger settings must be an object")
+        datalogger = {
+            "allowed_hosts": validate_sensor_allowed_hosts(
+                datalogger.get("allowed_hosts", list(DEFAULT_SENSOR_ALLOWED_HOSTS)),
+            ),
+        }
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "en"))
@@ -642,6 +739,8 @@ class SettingsStore:
             "s3": validate_s3_settings(s3),
             "network": {
                 "webdav_quota_mib": webdav_quota,
+                "webdav_quarantine_mib": quarantine,
+                "webdav_clamav_enabled": webdav_clamav_enabled,
                 "rsync_timeout_seconds": rsync_timeout,
                 "rsync_max_bytes": rsync_max_bytes,
                 "rsync_max_files": rsync_max_files,
@@ -652,4 +751,7 @@ class SettingsStore:
             },
             "v3": v3,
             "projects": projects,
+            "extensions": extensions,
+            "finance": finance,
+            "datalogger": datalogger,
         }

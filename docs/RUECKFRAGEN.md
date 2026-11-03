@@ -23,8 +23,9 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 4. V3-Capability-Flags (`V3_*`) — Test-Seam (`environ`-Param) existiert.
 5. Projekt-Repo-Roots (`PROJECT_REPO_ROOTS`).
 6. S3-Region/Timeouts (`S3_*`, teils Store vorhanden).
-7. FinTS-Produkt-ID, Sensor-Secrets, Piper-Modell, Extension-Allowlist, Upload-Quarantäne.
+7. FinTS-Produkt-ID, Sensor-Secrets, Piper-Modell, Extension-Allowlist, Upload-Quarantäne — **erledigt (Welle 7, Commit folgt)**.
 - Offen: Diese Reihenfolge ok? S3/Quarantäne evtl. mit Upload-Limit-Welle bündeln?
+- Nächster Vorschlag (Welle 8): Launcher/Server-Bind (`HOST`, `PORT`, `WSGI_THREADS`, `CHANNEL_TIMEOUT`, `TRUSTED_PROXY_HOPS`, `BACKGROUND_INDEX`, `OSM_INDEX`, `MINI_SERVICES_AUTOSTART`, `CONTAINER_ROLE`) + Archiv-Legacy-Migration (`ARCHIVE_*`) — teils Deployment-Sache, Owner-Entscheid nötig, was Store wird und was CLI-Arg bleibt.
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)

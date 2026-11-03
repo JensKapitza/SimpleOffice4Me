@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import os
+import logging
 from pathlib import Path
 import re
 import socket
@@ -369,6 +369,49 @@ SecretResolver = Callable[[str], str]
 BuiltinHandler = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
 
 
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_EXTENSION_HTTP_ALLOWLIST: tuple[str, ...] = ("*",)
+MAX_EXTENSION_HTTP_ALLOWLIST_ENTRIES = 128
+MAX_EXTENSION_HTTP_ALLOWLIST_CHARS = 253
+
+
+def normalize_extension_http_allowlist(value: Any) -> list[str]:
+    """Coerce a stored allowlist to a bounded list of host entries."""
+    items = value if isinstance(value, list) else list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)
+    result: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            _LOGGER.warning("Invalid stored extension allowlist entry; ignoring it")
+            continue
+        text = item.strip().casefold()
+        if not text or len(text) > MAX_EXTENSION_HTTP_ALLOWLIST_CHARS or text in result:
+            _LOGGER.warning("Invalid stored extension allowlist entry; ignoring it")
+            continue
+        result.append(text)
+        if len(result) >= MAX_EXTENSION_HTTP_ALLOWLIST_ENTRIES:
+            break
+    return result or ["*"]
+
+
+def validate_extension_http_allowlist(value: Any) -> list[str]:
+    """Validate an allowlist for saving; every entry must parse as a host."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("Die Extension-Allowlist darf nicht leer sein.")
+    if len(value) > MAX_EXTENSION_HTTP_ALLOWLIST_ENTRIES:
+        raise ValueError("Die Extension-Allowlist darf höchstens 128 Einträge haben.")
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("Die Extension-Allowlist darf nur nicht-leere Einträge haben.")
+        if len(item.strip()) > MAX_EXTENSION_HTTP_ALLOWLIST_CHARS:
+            raise ValueError("Ein Allowlist-Eintrag ist zu lang.")
+    try:
+        HttpExtensionTransport(allow_hosts=value)
+    except RuntimeError as exc:
+        raise ValueError(f"Ungültiger Allowlist-Eintrag: {exc}") from exc
+    return normalize_extension_http_allowlist(value)
+
+
 class HttpExtensionTransport:
     def __init__(
         self,
@@ -379,14 +422,7 @@ class HttpExtensionTransport:
     ):
         configured = allow_hosts
         if configured is None:
-            configured = {
-                item.strip().casefold()
-                for item in os.environ.get(
-                    "SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST",
-                    "",
-                ).split(",")
-                if item.strip()
-            }
+            configured = set(DEFAULT_EXTENSION_HTTP_ALLOWLIST)
         self.allow_hosts = frozenset(configured)
         self.secret_resolver = secret_resolver
         self.breaker = breaker or CircuitBreaker()
@@ -492,7 +528,19 @@ class ExtensionRegistry:
         self.root = Path(root).expanduser().resolve()
         self.manifests = ExtensionManifestStore(self.root)
         self.states = ExtensionStateStore(self.root)
-        self.transport = transport or HttpExtensionTransport()
+        if transport is None:
+            try:
+                from .settings_store import SettingsStore
+
+                allow_hosts: Any = SettingsStore(self.root).settings().get(
+                    "extensions", {}
+                ).get("http_allowlist", list(DEFAULT_EXTENSION_HTTP_ALLOWLIST))
+            except (OSError, ValueError):
+                allow_hosts = list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)
+            transport = HttpExtensionTransport(
+                allow_hosts=normalize_extension_http_allowlist(allow_hosts),
+            )
+        self.transport = transport
         self._builtins: dict[str, tuple[ExtensionManifest, dict[str, BuiltinHandler], frozenset[str], bool]] = {}
 
     def register_builtin(

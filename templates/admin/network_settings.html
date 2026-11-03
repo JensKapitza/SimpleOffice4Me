@@ -28,6 +28,19 @@
           <div class="form-text">{{ 'Default: 0 (unlimited). Allowed: 0 or 1–1,048,576 MiB (up to 1 TiB). Restart required.' if g.language == 'en' else 'Standard: 0 (unbegrenzt). Zulässig: 0 oder 1–1.048.576 MiB (bis 1 TiB). Neustart erforderlich.' }}</div>
         </div>
         <div class="col-md-7">
+          <label class="form-label" for="webdav-quarantine">{{ 'WebDAV quarantine (MiB)' if g.language == 'en' else 'WebDAV-Quarantäne (MiB)' }}</label>
+          <input class="form-control" id="webdav-quarantine" type="number" name="webdav_quarantine_mib" value="{{ network.webdav_quarantine_mib }}" min="1" max="65536" step="1" required>
+          <div class="form-text">{{ 'Default: 1024 MiB. Allowed: 1–65,536 MiB. Private capacity for failed upload scans.' if g.language == 'en' else 'Standard: 1024 MiB. Zulässig: 1–65.536 MiB. Private Kapazität für fehlgeschlagene Upload-Prüfungen.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <input type="hidden" name="webdav_clamav_enabled" value="0">
+          <div class="form-check mt-2">
+            <input class="form-check-input" id="webdav-clamav" type="checkbox" name="webdav_clamav_enabled" value="1" {% if network.webdav_clamav_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="webdav-clamav">{{ 'Scan WebDAV uploads with ClamAV' if g.language == 'en' else 'WebDAV-Uploads mit ClamAV prüfen' }}</label>
+          </div>
+          <div class="form-text">{{ 'Default: off. Failed scans land in the private quarantine above. Restart required.' if g.language == 'en' else 'Standard: aus. Fehlgeschlagene Prüfungen landen in der privaten Quarantäne oben. Neustart erforderlich.' }}</div>
+        </div>
+        <div class="col-md-7">
           <label class="form-label" for="rsync-timeout">{{ 'Rsync process time limit (seconds)' if g.language == 'en' else 'Rsync-Prozesszeitlimit (Sekunden)' }}</label>
           <input class="form-control" id="rsync-timeout" type="number" name="rsync_timeout_seconds" value="{{ network.rsync_timeout_seconds }}" min="30" max="86400" step="1" required>
           <div class="form-text">{{ 'Default: 3600 seconds. Allowed: 30–86400 seconds. Limits only the local rsync process; materialisation and VFS adoption are not included. Applies to new sessions without restart.' if g.language == 'en' else 'Standard: 3600 Sekunden. Zulässig: 30–86400 Sekunden. Begrenzt nur den lokalen rsync-Prozess; Materialisierung und VFS-Übernahme sind nicht enthalten. Gilt für neue Sitzungen ohne Neustart.' }}</div>

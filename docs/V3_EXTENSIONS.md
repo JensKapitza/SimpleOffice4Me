@@ -30,7 +30,7 @@ Disabling an extension removes it from invocation immediately. No Flask route, b
 
 External extensions use POST with a JSON envelope containing api_version, extension_id, extension_version, point, operation and payload.
 
-Production endpoints must use HTTPS. Plain HTTP is accepted only on loopback for development. Non-loopback hosts also require an explicit local hostname allowlist through SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST.
+Production endpoints must use HTTPS. Plain HTTP is accepted only on loopback for development. Non-loopback hosts also require an explicit local hostname allowlist through the persisted `extensions.http_allowlist` setting (V3 extensions admin page, no environment variable).
 
 Requests are capped at 256 KiB, responses at 1 MiB and timeouts at 10 seconds. Redirects are not followed. Repeated transport failures open an in-process circuit breaker. invoke_all isolates one failing integration from the others.
 

@@ -89,6 +89,7 @@
               <li><a class="dropdown-item" href="{{ url_for('v3_health.index') }}">System Health 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('v3_capabilities_admin.index') }}">Capabilities 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('project_repo_admin.index') }}">{{ 'Project repositories' if g.language == 'en' else 'Projekt-Repositories' }}</a></li>
+              <li><a class="dropdown-item" href="{{ url_for('finance_admin.index') }}">{{ 'FinTS product' if g.language == 'en' else 'FinTS-Produkt' }}</a></li>
               <li><a class="dropdown-item" href="{{ url_for('v3_extensions_admin.index') }}">Extensions 3.0</a></li>
               <li><a class="dropdown-item" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a></li>
             {% else %}

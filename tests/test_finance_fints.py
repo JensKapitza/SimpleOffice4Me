@@ -62,11 +62,11 @@ class FinanceFinTSTests(unittest.TestCase):
             "endpoint": "https://bank.example.test/fints",
         }
         client_type = Mock()
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FINTS_PRODUCT_ID": ""}), patch(
+        with patch(
             "app.finance_fints._library", return_value=client_type,
         ) as load_library:
             with self.assertRaisesRegex(FinTSUnavailable, "registrierte Produkt-ID"):
-                _client(connection, "temporary-pin")
+                _client(connection, "temporary-pin", product_id="")
         load_library.assert_called_once_with()
         client_type.assert_not_called()
 
@@ -77,11 +77,11 @@ class FinanceFinTSTests(unittest.TestCase):
         }
         invalid_values = ("invalid\nproduct", "x" * 65)
         for product_id in invalid_values:
-            with self.subTest(product_id=product_id), patch.dict(
-                os.environ, {"SIMPLEOFFICE_FINTS_PRODUCT_ID": product_id},
-            ), patch("app.finance_fints._library", return_value=Mock()) as load_library:
+            with self.subTest(product_id=product_id), patch(
+                "app.finance_fints._library", return_value=Mock(),
+            ) as load_library:
                 with self.assertRaisesRegex(FinTSUnavailable, "Produkt-ID fehlt oder ist ungültig"):
-                    _client(connection, "temporary-pin")
+                    _client(connection, "temporary-pin", product_id=product_id)
                 load_library.return_value.assert_not_called()
 
     def test_fints_passes_registered_product_id_to_client(self):
@@ -90,10 +90,10 @@ class FinanceFinTSTests(unittest.TestCase):
             "endpoint": "https://bank.example.test/fints",
         }
         client_type = Mock()
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FINTS_PRODUCT_ID": "registered-test-product"}), patch(
+        with patch(
             "app.finance_fints._library", return_value=client_type,
         ):
-            client = _client(connection, "temporary-pin")
+            client = _client(connection, "temporary-pin", product_id="registered-test-product")
 
         self.assertIs(client_type.return_value, client)
         client_type.assert_called_once_with(

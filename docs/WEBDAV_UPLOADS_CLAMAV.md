@@ -32,20 +32,21 @@ sudo freshclam
 sudo systemctl enable --now clamav-daemon
 ```
 
-Danach in der geschützten Dienstkonfiguration, nicht im Repository:
+Danach in der Administration unter **Admin → Einstellungen → Netzwerk**:
 
-```bash
-SIMPLEOFFICE_WEBDAV_CLAMAV=1
-SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB=1024
-```
+- WebDAV-Upload-Prüfung per ClamAV einschalten (`network.webdav_clamav_enabled`,
+  Standard: aus),
+- Quarantänegröße prüfen (`network.webdav_quarantine_mib`, Standard: 1024 MiB).
+
+Es sind keine Umgebungsvariablen nötig; nach einer Änderung muss der
+SimpleOffice-Dienst neu gestartet werden.
 
 Scanner-Auswahl, Scannerpfad und Zeitlimit werden stattdessen persistent unter
 **Admin → Einstellungen → Integrationen & Dienste → ClamAV-Sicherheitsprüfung**
 gepflegt (`SIMPLEOFFICE_CLAMAV_SCANNER` und `SIMPLEOFFICE_CLAMAV_TIMEOUT` sind
 entfernt).
 
-Nach einer Änderung der Umgebung muss der SimpleOffice-Dienst neu gestartet
-werden. `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` ist die maximale Größe der
+`network.webdav_quarantine_mib` ist die maximale Größe der
 privaten WebDAV-Quarantäne. Der Wert wird auf 1 bis 65.536 MiB begrenzt; der
 Standard ist 1.024 MiB. Die normale gespeicherte Upload-Grenze
 gilt zusätzlich.
@@ -228,7 +229,8 @@ aktivierten Upload entstehen ausschließlich
 `.simpleoffice-meta/webdav-upload-quarantine` und zusätzliche Scan-/Audit-
 Einträge. Vorhandene Dokumente werden nicht verändert.
 
-Zum sofortigen Rückkehrverhalten `SIMPLEOFFICE_WEBDAV_CLAMAV=0` setzen und den
+Zum sofortigen Rückkehrverhalten die WebDAV-Upload-Prüfung in der Administration
+(Admin → Einstellungen → Netzwerk) ausschalten und den
 Dienst neu starten. WebDAV schreibt dann wie zuvor mit ETag-, Lock-, Digest-,
 Quota-, Versions- und Audit-Schutz, aber ohne vorgeschalteten Scan. Bereits
 isolierte Quarantänedateien bleiben erhalten und müssen kontrolliert behandelt

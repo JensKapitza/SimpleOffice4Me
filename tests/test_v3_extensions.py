@@ -248,5 +248,16 @@ class V3ExtensionTests(unittest.TestCase):
         self.assertTrue(sent["authenticated"])
 
 
+    def test_default_transport_uses_stored_allowlist_not_environment(self):
+        import os as _os
+        from unittest.mock import patch as _patch
+
+        from app.v3_extensions import DEFAULT_EXTENSION_HTTP_ALLOWLIST
+
+        with _patch.dict(_os.environ, {"SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST": "evil.example"}):
+            transport = HttpExtensionTransport()
+        self.assertEqual(frozenset(DEFAULT_EXTENSION_HTTP_ALLOWLIST), transport.allow_hosts)
+
+
 if __name__ == "__main__":
     unittest.main()

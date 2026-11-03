@@ -57,6 +57,7 @@ from .settings_store import (
     MIN_VIDEO_PREVIEW_FRAMES,
     SettingsStore,
 )
+from .media_settings import validate_piper_model
 
 
 def _bounded_media_integer(
@@ -271,5 +272,10 @@ def media_settings_from_form(
         "video_preview_frames": _bounded_media_integer(
             form, "video_preview_frames", MIN_VIDEO_PREVIEW_FRAMES,
             MAX_VIDEO_PREVIEW_FRAMES,
+        ),
+        "piper_model": (
+            current.get("piper_model", "")
+            if form.get("piper_model") is None
+            else validate_piper_model(form.get("piper_model", ""))
         ),
     }

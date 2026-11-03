@@ -10,8 +10,17 @@ from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
-from app.datalogger_collectors import CollectionError, collect_file, collect_http, collect_linux, json_path
+from app.datalogger_collectors import (
+    CollectionError,
+    collect_file,
+    collect_http,
+    collect_linux,
+    json_path,
+    normalize_sensor_allowed_hosts,
+    validate_sensor_allowed_hosts,
+)
 from app.datalogger_store import DataLoggerStore
+from app.settings_store import SettingsStore
 from tools.datalogger_worker import acquire_lock, run
 from tools.launcher import datalogger_enabled, start_datalogger_worker
 
@@ -85,9 +94,9 @@ class CollectorTest(unittest.TestCase):
                 collect_file(root, {"metric": "count", "max_entries": 1})
 
     def test_http_denies_hosts_unless_explicitly_allowed(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with tempfile.TemporaryDirectory() as root:
             with self.assertRaisesRegex(CollectionError, "host_denied"):
-                collect_http({"url": "https://example.com/value", "json_path": "value"})
+                collect_http({"url": "https://example.com/value", "json_path": "value"}, root)
 
     @patch("app.datalogger_collectors.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("127.0.0.1", 80))])
     @patch("app.datalogger_collectors.build_opener")
@@ -95,8 +104,30 @@ class CollectorTest(unittest.TestCase):
         response = MagicMock(); response.read.return_value = b'{"room":{"temperature":22.4}}'
         headers = Message(); headers["Content-Type"] = "application/json"; response.headers = headers
         opener.return_value.open.return_value = response
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS": "sensor.local"}):
-            self.assertEqual(22.4, collect_http({"url": "http://sensor.local/status", "json_path": "room.temperature"}))
+        with tempfile.TemporaryDirectory() as root:
+            SettingsStore(root).save({"datalogger": {"allowed_hosts": ["sensor.local"]}}, "test")
+            self.assertEqual(22.4, collect_http({"url": "http://sensor.local/status", "json_path": "room.temperature"}, root))
+
+    @patch("app.datalogger_collectors.socket.getaddrinfo", return_value=[(2, 1, 6, "", ("127.0.0.1", 80))])
+    @patch("app.datalogger_collectors.build_opener")
+    def test_http_sends_stored_header_secret_not_environment(self, opener, _dns):
+        response = MagicMock(); response.read.return_value = b'{"value": 3}'
+        headers = Message(); headers["Content-Type"] = "application/json"; response.headers = headers
+        opener.return_value.open.return_value = response
+        with tempfile.TemporaryDirectory() as root:
+            SettingsStore(root).save({"datalogger": {"allowed_hosts": ["sensor.local"]}}, "test")
+            with patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(3, collect_http({"url": "http://sensor.local/status", "header_secret": "tok-1"}, root))
+        sent = opener.return_value.open.call_args[0][0]
+        self.assertEqual("tok-1", sent.get_header("Authorization"))
+
+    def test_sensor_allowed_hosts_normalize_and_validate(self):
+        self.assertEqual(["localhost", "127.0.0.1", "::1"], normalize_sensor_allowed_hosts(["LOCALHOST ", "127.0.0.1", "::1", 7, ""]))
+        self.assertEqual(["localhost"], normalize_sensor_allowed_hosts([""]))
+        self.assertEqual(["localhost", "127.0.0.1", "::1"], normalize_sensor_allowed_hosts("not-a-list"))
+        with self.assertRaises(ValueError):
+            validate_sensor_allowed_hosts([])
+        self.assertEqual(["sensor.local"], validate_sensor_allowed_hosts(["Sensor.Local "]))
 
     def test_linux_load_collector_is_numeric(self):
         self.assertIsInstance(collect_linux({"metric": "load1"}), float)
@@ -173,17 +204,37 @@ class DataLoggerWebTest(unittest.TestCase):
         )
         self.assertEqual(
             302,
-            self.owner.post(url, data={"poll_interval_seconds": "12"}, headers=headers).status_code,
+            self.owner.post(
+                url,
+                data={"poll_interval_seconds": "12", "allowed_hosts": "sensor.local"},
+                headers=headers,
+            ).status_code,
         )
         store = DataLoggerStore(app.config["DOCUMENT_ROOT"])
         self.assertEqual(12, store.poll_interval_seconds())
         self.assertEqual(
+            ["sensor.local"],
+            SettingsStore(app.config["DOCUMENT_ROOT"]).settings()["datalogger"]["allowed_hosts"],
+        )
+        self.assertEqual(
             400,
-            self.owner.post(url, data={"poll_interval_seconds": "61"}, headers=headers).status_code,
+            self.owner.post(url, data={"poll_interval_seconds": "61", "allowed_hosts": "sensor.local"}, headers=headers).status_code,
         )
         self.assertEqual(12, store.poll_interval_seconds())
+        self.assertEqual(
+            400,
+            self.owner.post(url, data={"poll_interval_seconds": "12", "allowed_hosts": ""}, headers=headers).status_code,
+        )
+        self.assertEqual(
+            ["sensor.local"],
+            SettingsStore(app.config["DOCUMENT_ROOT"]).settings()["datalogger"]["allowed_hosts"],
+        )
         self.assertEqual(302, self.owner.post(url, data={"reset": "1"}, headers=headers).status_code)
         self.assertEqual(5, store.poll_interval_seconds())
+        self.assertEqual(
+            ["localhost", "127.0.0.1", "::1"],
+            SettingsStore(app.config["DOCUMENT_ROOT"]).settings()["datalogger"]["allowed_hosts"],
+        )
 
 
 if __name__ == "__main__": unittest.main()

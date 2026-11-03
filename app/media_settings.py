@@ -62,6 +62,31 @@ DEFAULT_PREVIEW_MAX_PIXELS = 80_000_000
 MIN_PREVIEW_MAX_PIXELS = 1_000_000
 MAX_PREVIEW_MAX_PIXELS = 250_000_000
 
+DEFAULT_PIPER_MODEL = ""
+MAX_PIPER_MODEL_CHARS = 1000
+
+
+def normalize_piper_model(value: object) -> str:
+    """Coerce the stored Piper model path; corrupt values mean not configured."""
+    if not isinstance(value, str):
+        _LOGGER.warning("Invalid stored Piper model; using default")
+        return DEFAULT_PIPER_MODEL
+    text = value.strip()
+    if len(text) > MAX_PIPER_MODEL_CHARS:
+        _LOGGER.warning("Invalid stored Piper model; using default")
+        return DEFAULT_PIPER_MODEL
+    return text
+
+
+def validate_piper_model(value: object) -> str:
+    """Validate the Piper model path for saving (empty means not configured)."""
+    if not isinstance(value, str):
+        raise ValueError("Piper model must be a string")
+    text = value.strip()
+    if len(text) > MAX_PIPER_MODEL_CHARS:
+        raise ValueError("Piper model path is too long")
+    return text
+
 DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "upload_limit_mib": DEFAULT_UPLOAD_LIMIT_MIB,
     "chat_attachment_max_bytes": DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
@@ -82,6 +107,7 @@ DEFAULT_MEDIA_SETTINGS: dict[str, Any] = {
     "preview_timeout_seconds": DEFAULT_PREVIEW_TIMEOUT_SECONDS,
     "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
     "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
+    "piper_model": DEFAULT_PIPER_MODEL,
 }
 
 
@@ -94,6 +120,7 @@ def normalize_media_settings(media: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(normalized.get("archive_ocr_enabled"), bool):
         _LOGGER.warning("Invalid stored archive OCR setting; using default")
         normalized["archive_ocr_enabled"] = DEFAULT_ARCHIVE_OCR_ENABLED
+    normalized["piper_model"] = normalize_piper_model(normalized.get("piper_model", DEFAULT_PIPER_MODEL))
     (
         normalized["archive_deep_index_enabled"],
         normalized["archive_max_load_per_cpu"],
@@ -243,4 +270,5 @@ def validate_media_settings(media: dict[str, Any]) -> dict[str, Any]:
         "preview_timeout_seconds": preview_timeout,
         "preview_max_bytes": preview_max_bytes,
         "preview_max_pixels": preview_max_pixels,
+        "piper_model": validate_piper_model(media.get("piper_model", DEFAULT_PIPER_MODEL)),
     }

@@ -228,6 +228,29 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
         self.assertEqual("network.webdav_quota", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["restart_required"])
 
+    def test_network_clamav_toggle_persists_and_older_forms_keep_current(self):
+        path = "/admin/settings/network"
+        store = SettingsStore(self.root)
+        self.assertFalse(store.settings()["network"]["webdav_clamav_enabled"])
+        saved = self.admin.post(
+            path, data={"webdav_quota_mib": "0", "webdav_clamav_enabled": "1"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, saved.status_code)
+        self.assertTrue(SettingsStore(self.root).settings()["network"]["webdav_clamav_enabled"])
+        kept = self.admin.post(
+            path, data={"webdav_quota_mib": "0"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, kept.status_code)
+        self.assertTrue(SettingsStore(self.root).settings()["network"]["webdav_clamav_enabled"])
+        cleared = self.admin.post(
+            path, data={"webdav_quota_mib": "0", "webdav_clamav_enabled": "0"},
+            headers={"X-CSRF-Token": "a" * 40},
+        )
+        self.assertEqual(302, cleared.status_code)
+        self.assertFalse(SettingsStore(self.root).settings()["network"]["webdav_clamav_enabled"])
+
     def test_invalid_network_quota_is_rejected_and_reset_restores_default(self):
         path = "/admin/settings/network"
         for value in ("-1", "invalid", "1.5", str(MAX_WEBDAV_QUOTA_MIB + 1), "9" * 32):

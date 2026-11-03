@@ -272,7 +272,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ERROR_RELAY_ENABLED` (Legacy-Migration) | [error_relay.py](../app/error_relay.py) | Persistenter Modus `integrations.error_relay_mode`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORTING` (Legacy-Migration) | [github_error_reporter.py](../app/github_error_reporter.py) | Persistente Präferenz `integrations.error_reporting_enabled`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORT_URL` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
-| `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` | [v3_extensions.py](../app/v3_extensions.py) | [V3_EXTENSIONS](V3_EXTENSIONS.md) |
+| `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` (entfernt) | [v3_extensions.py](../app/v3_extensions.py) | Persistente Einstellung `extensions.http_allowlist` unter „V3-Erweiterungen“; [V3_EXTENSIONS](V3_EXTENSIONS.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | Legacy-Startwert für die optionale Admin-Einstellung `integrations.federation_autoscan_country` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
@@ -292,7 +292,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_TOKEN` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_FIREWALL_AGENT_STATE` | [simpleoffice_firewall_agent.py](../simpleoffice_firewall_agent.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FIREWALL_SOCKET` | [simpleoffice_firewall.py](../simpleoffice_firewall.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_FINTS_PRODUCT_ID` | [finance_fints.py](../app/finance_fints.py) | Bei der Deutschen Kreditwirtschaft registrierte Produkt-ID, pro Abruf erforderlich; [FINANCE_STORAGE](FINANCE_STORAGE.md) |
+| `SIMPLEOFFICE_FINTS_PRODUCT_ID` (entfernt) | [finance_fints.py](../app/finance_fints.py) | Persistente Einstellung `finance.fints_product_id` in der Administration unter FinTS; [FINANCE_STORAGE](FINANCE_STORAGE.md) |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
@@ -341,7 +341,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_OSM_REINDEX_ON_START` | [start.bat](../start.bat) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | [personnel_time_analytics.py](../app/personnel_time_analytics.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | [personnel_time_analytics.py](../app/personnel_time_analytics.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_PIPER_MODEL` | [audio_output_engine.py](../app/audio_output_engine.py) | [AUDIO_OUTPUT](AUDIO_OUTPUT.md) |
+| `SIMPLEOFFICE_PIPER_MODEL` (entfernt) | [audio_output_engine.py](../app/audio_output_engine.py) | Persistente Einstellung `media.piper_model` unter Admin → Dokumente & Medien; [AUDIO_OUTPUT](AUDIO_OUTPUT.md) |
 | `SIMPLEOFFICE_PORT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_PREVIEWS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PREVIEW_MAX_BYTES` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
@@ -366,8 +366,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SCANNER` (entfernt) | [attachment_security.py](../app/attachment_security.py) | Admin → Integrationen & Dienste → ClamAV-Sicherheitsprüfung (`integrations.scanner_choice`); [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SECRET_KEY` | [secret_key.py](../app/secret_key.py) | [ERSTER_START](ERSTER_START.md) |
 | `SIMPLEOFFICE_SECURITY_ADMINS` (entfernt) | [admin_lists.py](../app/admin_lists.py) | Admin → Benutzer → Admin-Listen; [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
-| `SIMPLEOFFICE_SENSOR_` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
-| `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
+| `SIMPLEOFFICE_SENSOR_` (entfernt) | [datalogger_collectors.py](../app/datalogger_collectors.py) | Token steht direkt in der Quellenkonfiguration (`header_secret`), nie in der Umgebung; [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
+| `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` (entfernt) | [datalogger_collectors.py](../app/datalogger_collectors.py) | Persistente Einstellung `datalogger.allowed_hosts` in den Worker-Einstellungen; [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SERVER_PEER_ID` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_SERVER_PUBLIC_URL` (nur Server-Container-Build; App liest Netzwerkeinstellungen) | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Admin → Federation → Netzwerkeinstellungen; [SITE_VISITS](SITE_VISITS.md) |
 | `SIMPLEOFFICE_SFTP_BIND` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
@@ -407,8 +407,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_V3_WORKBOARD_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.workboard`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
 | `SIMPLEOFFICE_VERSION` | [__init__.py](../app/__init__.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES` | [video_settings.py](../app/video_settings.py) | [VIDEO_VORSCHAU](VIDEO_VORSCHAU.md) |
-| `SIMPLEOFFICE_WEBDAV_CLAMAV` | [__init__.py](../app/__init__.py) | [WEBDAV_DATEIVERWALTUNG](WEBDAV_DATEIVERWALTUNG.md) |
-| `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` | [__init__.py](../app/__init__.py) | [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
+| `SIMPLEOFFICE_WEBDAV_CLAMAV` (entfernt) | [__init__.py](../app/__init__.py) | Persistente Einstellung `network.webdav_clamav_enabled` unter Admin → Netzwerk; [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
+| `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` (entfernt) | [__init__.py](../app/__init__.py) | Persistente Einstellung `network.webdav_quarantine_mib` unter Admin → Netzwerk; [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
 | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (entfernt; war nie wirksam, Startup nutzt immer die Datei) | [__init__.py](../app/__init__.py), [settings_store.py](../app/settings_store.py) | [WEBDAV_QUOTA_UND_LOCKS](WEBDAV_QUOTA_UND_LOCKS.md) |
 | `SIMPLEOFFICE_WORKER_ROOT` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | [start.bat](../start.bat) | [PRODUKTIONSBETRIEB](PRODUKTIONSBETRIEB.md) |
