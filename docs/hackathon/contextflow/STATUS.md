@@ -19,7 +19,7 @@ diff-check/node-check grün. Kein Live-Spark-Aufruf, keine Browser-/Kamera-
 Abnahme (Eigentümer-Schritte). Issues #658/#767 bleiben offen — keine volle
 Erledigung behauptet.
 **Folge (03.11., Batch-Reihenfolge, Branch `hackai/inventory-batch-20261103`,
-uncommitted):** Root-Cause-Fix für gekippte Aufnahmereihenfolge: zwei Fotos
+committed `5ed867bd` (local, not pushed)):** Root-Cause-Fix für gekippte Aufnahmereihenfolge: zwei Fotos
 können denselben `created_at`-Stempel tragen, danach sortierte `list_batch`
 nach zufälliger `entry_id`. Neu: persistierte Positionsnummer `batch_seq`,
 unter dem bestehenden Schreib-Lock vergeben (`create`: fortlaufend je
