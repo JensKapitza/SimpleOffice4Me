@@ -2,6 +2,11 @@
 
 Offene Punkte für den nächsten Lauf — während des Blocks gesammelt, nicht gefragt.
 
+## 0. Block-Ergebnis (zum Abhaken)
+- Push + PR-966-Kommentar erledigt; Remote-i18n per Merge integriert (4 Kommentar-Konflikte).
+- Welle 4a (Login-QR) + 4b (Admin-Listen) verifiziert, committed, gepusht.
+- Push scheiterte 2x an DNS (github.com nicht auflösbar), 3. Versuch ok. Falls wieder: warten + retry, kein Force-Push.
+
 ## 1. Push-Strategie bei parallelen Agenten (beantwortet durch Merge)
 - Der Branch war divergent (remote: 7 i18n-Commits). Ohne Force-Push per Merge integriert.
 - Offen: Sollen parallele Agenten weiter auf demselben Branch arbeiten oder eigene Branches bekommen?
