@@ -280,5 +280,57 @@ class PeerStockContracts(unittest.TestCase):
                 self.assertNotIn(token, source)
 
 
+class PeerTitleQueryContracts(unittest.TestCase):
+    """Store-level proof that title queries are only exact-case matches.
+
+    No auth database, no login: exercises peer_availability() directly
+    so the contract runs anywhere. Titles match only with byte-identical
+    spelling, which is why the capture review restricts friend checks
+    to ISBN/barcode.
+    """
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.document_root = Path(self.temp.name) / "documents"
+        receive = {"documents": {"send": True, "receive": True, "seed": True}}
+        trust = FederationTrustStore(self.document_root)
+        trust.set_trust("friend-ok", "HIGH")
+        trust.set_trust("friend-quiet", "NORMAL")
+        peers = FederationStore(self.document_root)
+        peers.save_peer("friend-ok", "Freund Ok", "http://127.0.0.1:9", "", receive, True)
+        peers.save_peer("friend-quiet", "Freund Ruhig", "http://127.0.0.1:9", "", receive, True)
+        catalog = FederationCatalog(self.document_root)
+        catalog.ingest(
+            "friend-ok",
+            "gen1",
+            [_row("doc-title", "books/Der Musterroman.pdf", ["Der Musterroman"])],
+        )
+        catalog.begin_index("friend-ok", "gen1")
+        catalog.finish_index("friend-ok", "gen1")
+
+    def check(self, identifier):
+        return peer_availability(
+            root=self.document_root, actor="anna", identifier=identifier)
+
+    def test_title_query_matches_only_exact_spelling(self):
+        exact = self.check("Der Musterroman")
+        lowered = self.check("der musterroman")
+
+        ok = {entry["peer_id"]: entry for entry in exact["friends"]}["friend-ok"]
+        self.assertTrue(ok["available"])
+        quiet = {entry["peer_id"]: entry for entry in lowered["friends"]}["friend-ok"]
+        self.assertFalse(quiet["available"])
+        self.assertEqual([], quiet["matches"])
+
+    def test_unsynced_friend_reports_no_claim(self):
+        payload = self.check("Der Musterroman")
+        states = {entry["peer_id"]: entry for entry in payload["friends"]}
+
+        self.assertEqual("not_synced", states["friend-quiet"]["state"])
+        self.assertFalse(states["friend-quiet"]["available"])
+        self.assertEqual(1, payload["friends_unavailable"])
+
+
 if __name__ == "__main__":
     unittest.main()

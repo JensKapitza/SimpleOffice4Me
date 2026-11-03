@@ -17,16 +17,27 @@
     marketResults.className = 'list-group mt-1';
     const marketplaceUrl = cleanText(dataset.marketplaceUrl);
     const marketplaceNav = window.SimpleOfficeInventoryNavigation || {};
+    const isValidPrice = (value) => {
+      const text = cleanText(value).replace(/\s/g, '');
+      if (!text || /[^0-9.,]/.test(text)) return false;
+      const normalized = text.includes(',')
+        ? text.replace(/\./g, '').replace(',', '.')
+        : text;
+      if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return false;
+      const amount = Number(normalized);
+      return Number.isFinite(amount) && amount >= 0;
+    };
+    const normalizeCurrency = (value) => cleanText(value).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
     const applyMarketplacePrice = (row) => {
-      if (cleanText(row.market_price) === '') {
-        marketStatus.textContent = 'Dieser Treffer enthält keinen Preis — nichts übernommen, nur „Angebot ansehen“ möglich.';
+      if (!isValidPrice(row.market_price)) {
+        marketStatus.textContent = 'Dieser Treffer enthält keinen gültigen Preis — nichts übernommen, nur „Angebot ansehen“ möglich.';
         return;
       }
       const overwriteBox = marketBox.querySelector('[data-marketplace-overwrite]');
       const overwrite = Boolean(overwriteBox && overwriteBox.checked);
       const providerName = row.provider === 'ebay' ? 'eBay' : 'Amazon';
       const source = cleanText(row.price_source) || providerName;
-      const targets = [['market_price', row.market_price], ['currency', row.currency], ['price_source', source]];
+      const targets = [['market_price', row.market_price], ['currency', normalizeCurrency(row.currency)], ['price_source', source]];
       let kept = false;
       let applied = false;
       targets.forEach(([name, value]) => {
@@ -61,7 +72,7 @@
         take.type = 'button';
         take.className = 'btn btn-sm btn-outline-success ms-1';
         take.textContent = 'Preis übernehmen';
-        const hasPrice = cleanText(row.market_price) !== '';
+        const hasPrice = isValidPrice(row.market_price);
         take.disabled = !hasPrice;
         if (!hasPrice) take.title = 'Kein Preis in diesem Treffer — nur „Angebot ansehen“ möglich.';
         take.addEventListener('click', () => applyMarketplacePrice(row));

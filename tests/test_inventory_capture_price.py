@@ -111,6 +111,25 @@ class BatchAdoptPriceTests(unittest.TestCase):
         self.assertNotIn("market_price", stored)
         self.assertNotIn("price_source", stored)
 
+    def test_adopt_rejects_negative_marketplace_price(self) -> None:
+        from app.inventory_capture import adopt_batch
+
+        self.create_analyzed(PNG_1PX, "c6" * 16, BATCH_B)
+        saved = app.config.get("DOCUMENT_ROOT")
+        app.config["DOCUMENT_ROOT"] = self.root
+        try:
+            with app.test_request_context("/"):
+                with self.assertRaises(ValueError) as raised:
+                    adopt_batch(
+                        BATCH_B, "anna", self.root,
+                        {"title": "Negativer Preis", "item_type": "book",
+                         "market_price": "-12,50", "currency": "EUR",
+                         "price_source": "eBay"},
+                        "d5" * 16)
+        finally:
+            app.config["DOCUMENT_ROOT"] = saved
+        self.assertIn("Preis", str(raised.exception))
+
     def test_adopt_rejects_invalid_marketplace_price(self) -> None:
         from app.inventory_capture import adopt_batch
 

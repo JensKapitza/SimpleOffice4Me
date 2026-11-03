@@ -114,11 +114,50 @@ class CaptureUiWiringTests(unittest.TestCase):
 
     def test_priceless_result_offers_link_only(self) -> None:
         script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
-        self.assertIn("const hasPrice = cleanText(row.market_price) !== ''", script)
+        self.assertIn("const hasPrice = isValidPrice(row.market_price)", script)
         self.assertIn("take.disabled = !hasPrice", script)
-        self.assertIn("Dieser Treffer enthält keinen Preis", script)
+        self.assertIn("keinen gültigen Preis", script)
         self.assertIn("if (cleanText(input.value) && !overwrite)", script)
         self.assertIn("Eigene Preiswerte behalten", script)
+
+    def test_marketplace_price_take_is_fail_closed(self) -> None:
+        script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
+        self.assertIn("const isValidPrice = (value) => {", script)
+        self.assertIn("Number.isFinite(amount) && amount >= 0", script)
+        self.assertIn("if (!isValidPrice(row.market_price)) {", script)
+        self.assertIn("normalizeCurrency(row.currency)", script)
+        self.assertIn(".toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3)", script)
+
+    def test_batch_review_has_click_only_peer_stock_check(self) -> None:
+        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
+        self.assertIn(
+            "window.SimpleOfficeCapturePeerStock.renderPeerStockSection",
+            inbox)
+        for snippet in (
+            "SimpleOfficeCapturePeerStock",
+            "renderPeerStockSection",
+            "nur auf Klick prüfen, keine Auto-Abfrage",
+            "dataset.peerStockUrl",
+            "'Freundesbestand prüfen'",
+            "Titelabfragen werden nicht unterstützt",
+            "keine Aussage",
+        ):
+            self.assertIn(snippet, script)
+        self.assertEqual(1, script.count("askPeerStock()"))
+        self.assertIn(
+            "addEventListener('click', () => askPeerStock())",
+            script)
+        self.assertIn("data.append('identifier', identifier)", script)
+
+    def test_capture_template_wires_peer_stock_url(self) -> None:
+        template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
+        self.assertIn('data-peer-stock-url="{{ peer_stock_url }}"', template)
+        marketplace = template.index("js/capture_marketplace.js")
+        peer_stock = template.index("js/capture_peer_stock.js")
+        inbox = template.index("js/capture_inbox.js")
+        self.assertLess(marketplace, peer_stock)
+        self.assertLess(peer_stock, inbox)
 
     def test_no_ml_price_invention_in_capture_analysis(self) -> None:
         source = (ROOT / "app/inventory_capture.py").read_text(encoding="utf-8")

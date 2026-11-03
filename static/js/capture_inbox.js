@@ -654,6 +654,11 @@
         inputs, combined, form, dataset, cleanText, safeJson,
       });
     }
+    if (window.SimpleOfficeCapturePeerStock) {
+      window.SimpleOfficeCapturePeerStock.renderPeerStockSection({
+        inputs, combined, form, dataset, csrf, cleanText, safeJson,
+      });
+    }
     const missing = (combined.missing_fields || []).join(', ');
     if (missing) {
       const hint = document.createElement('p');

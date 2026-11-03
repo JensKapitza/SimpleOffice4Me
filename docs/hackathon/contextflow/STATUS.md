@@ -43,6 +43,23 @@ Preis). Codex-Fund behoben (BOM/Mojibake raus, Tests in
 Verifiziert: Store/Combine/Price/UI 34/34 OK, Size-/Function-/Policy-/
 Diff-/Node-Gates grün; Routen-Suiten hier nicht verifizierbar
 (`PermissionError` Auth-Speicher).
+**Folge (03.11., Freundesbestand + Preis-Fail-closed, Branch
+`hackai/inventory-batch-20261103`, uncommitted):** Batch-Review prüft auf
+Klick den Bestand freigegebener Freundeskataloge vor einem Nachkauf —
+wiederverwendet `POST /contextflow/peer-stock-check` (Trust-Kante +
+Freigabe-Opt-in, nur lokale Indexkopien, kein Netzwerk, keine stillen
+Abfragen). Titelabfragen bewusst nicht angeboten: Endpoint matcht Titel nur
+bei exakt gleicher Schreibweise (`clean_identifier` ohne Case-Faltung;
+`find_exact_matches` konsultiert Titel nie) — UI deshalb ISBN/Barcode-only,
+unsynced/fehlerhafte Kataloge als „keine Aussage“. Preis-Übernahme
+fail-closed: gültig nur endlich ≥ 0 (deutsches/englisches Format),
+Währung normalisiert (A–Z, max. 3), Quelle Anbieter-gebunden; Backend
+(`money`) bleibt maßgeblich und verwirft negativ/ungültig mit 400.
+Verifiziert: PeerStore/Store/Combine/Price/UI 40/40 OK (neu: exakte
+Titel-Case-Probe, `test_adopt_rejects_negative_marketplace_price`,
+`test_marketplace_price_take_is_fail_closed` u. a.), Size-/Function-/
+Policy-/Diff-/Node-Gates grün; Routen-Suiten (Login) hier nicht
+verifizierbar (`PermissionError` Auth-Speicher) — kein Grün behauptet.
 **Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
 `origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
 (9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5

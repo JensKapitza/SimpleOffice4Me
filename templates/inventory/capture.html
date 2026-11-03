@@ -10,6 +10,7 @@
        data-lookup-url="{{ lookup_url }}"
        data-ml-status-url="{{ ml_status_url }}"
        data-marketplace-url="{{ marketplace_url }}"
+       data-peer-stock-url="{{ peer_stock_url }}"
        data-batch-pattern="{{ batch_url_pattern }}"
        data-detail-pattern="{{ url_for('inventory.item_detail', object_id='__OBJECT__') }}"
        data-csrf="{{ csrf_token() }}"></div>
@@ -60,4 +61,4 @@
   <div id="capture-cards" class="row g-3"></div>
 </main>
 {% endblock %}
-{% block script %}<script defer src="{{ url_for('static', filename='js/capture_ml_status.js') }}"></script><script defer src="{{ url_for('static', filename='js/inventory_navigation.js') }}"></script><script defer src="{{ url_for('static', filename='js/capture_marketplace.js') }}"></script><script defer src="{{ url_for('static', filename='js/capture_inbox.js') }}"></script>{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/capture_ml_status.js') }}"></script><script defer src="{{ url_for('static', filename='js/inventory_navigation.js') }}"></script><script defer src="{{ url_for('static', filename='js/capture_marketplace.js') }}"></script><script defer src="{{ url_for('static', filename='js/capture_peer_stock.js') }}"></script><script defer src="{{ url_for('static', filename='js/capture_inbox.js') }}"></script>{% endblock %}
