@@ -242,6 +242,7 @@
         <div class="col-md-6">
           <label class="form-label" for="login-qr-enabled">{{ 'Show QR codes' if g.language == 'en' else 'QR-Codes anzeigen' }}</label>
           <select class="form-select" id="login-qr-enabled" name="login_qr_enabled" required>
+            <option value="" disabled>{{ 'Please select' if g.language == 'en' else 'Bitte auswählen' }}</option>
             <option value="1" {% if integrations.login_qr_enabled %}selected{% endif %}>{{ 'Enabled (default)' if g.language == 'en' else 'Aktiviert (Standard)' }}</option>
             <option value="0" {% if not integrations.login_qr_enabled %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
           </select>
@@ -249,6 +250,7 @@
         <div class="col-md-6">
           <label class="form-label" for="login-qr-lan">{{ 'LAN candidates' if g.language == 'en' else 'LAN-Kandidaten' }}</label>
           <select class="form-select" id="login-qr-lan" name="login_qr_lan_enabled" required>
+            <option value="" disabled>{{ 'Please select' if g.language == 'en' else 'Bitte auswählen' }}</option>
             <option value="1" {% if integrations.login_qr_lan_enabled %}selected{% endif %}>{{ 'Enabled (default)' if g.language == 'en' else 'Aktiviert (Standard)' }}</option>
             <option value="0" {% if not integrations.login_qr_lan_enabled %}selected{% endif %}>{{ 'Disabled' if g.language == 'en' else 'Deaktiviert' }}</option>
           </select>
@@ -284,6 +286,7 @@
         <div class="col-md-7">
           <label class="form-label" for="scanner-choice">{{ 'Malware scanner' if g.language == 'en' else 'Virenscanner' }}</label>
           <select class="form-select" id="scanner-choice" name="scanner_choice" required>
+            <option value="" disabled>{{ 'Please select' if g.language == 'en' else 'Bitte auswählen' }}</option>
             {% for value in ['auto', 'clamav', 'defender'] %}
             <option value="{{ value }}"{{ ' selected' if integrations.scanner_choice == value else '' }}>{{ {'auto': 'Automatic (ClamAV first)' if g.language == 'en' else 'Automatisch (ClamAV zuerst)', 'clamav': 'ClamAV', 'defender': 'Windows Defender'}[value] }}</option>
             {% endfor %}

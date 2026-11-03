@@ -127,7 +127,11 @@ class LoginQRAdminTests(unittest.TestCase):
         self.assertEqual("https://office.example/tenant/", integrations["login_qr_urls"])
         page = self.client.get("/admin/settings/integrations")
         self.assertEqual(200, page.status_code)
-        self.assertIn('id="login-qr"', page.get_data(as_text=True))
+        body = page.get_data(as_text=True)
+        self.assertIn('id="login-qr"', body)
+        self.assertIn('id="login-qr-enabled"', body)
+        self.assertIn('id="login-qr-lan"', body)
+        self.assertIn('<option value="" disabled>', body)
         reset = self.client.post(
             "/admin/settings/integrations/login-qr", data={"reset": "1"},
         )

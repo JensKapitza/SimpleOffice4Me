@@ -160,6 +160,7 @@ class ScannerAdminTests(unittest.TestCase):
         body = page.get_data(as_text=True)
         self.assertIn('id="scanner-choice"', body)
         self.assertIn('id="clamav-scanner-path"', body)
+        self.assertIn('<option value="" disabled>', body)
 
     def test_admin_save_rejects_invalid_choice_and_path(self):
         self.client.post(
