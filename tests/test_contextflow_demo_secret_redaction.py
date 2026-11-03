@@ -9,6 +9,10 @@ messages, while useful non-sensitive diagnostics remain.
 from __future__ import annotations
 
 import io
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -51,6 +55,33 @@ def _captured_banner(vision: dict) -> tuple[str, str]:
     return out.getvalue(), err.getvalue()
 
 
+def _run_demo_cli(provider: str, api_key: str) -> subprocess.CompletedProcess[str]:
+    repo_root = Path(__file__).resolve().parents[1]
+    with tempfile.TemporaryDirectory(prefix="contextflow-secret-output-") as root:
+        env = os.environ.copy()
+        env["CONTEXTFLOW_VISION_PROVIDER"] = provider
+        # Set even an empty value so local .env loading cannot change the
+        # missing-key path during this subprocess test.
+        env["MODEL_API_KEY"] = api_key
+        return subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tools.contextflow_demo",
+                "--port",
+                "0",
+                "--root",
+                root,
+            ],
+            cwd=repo_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=20,
+        )
+
+
 class DemoSecretRedactionTest(unittest.TestCase):
     def test_success_banner_hides_password_and_api_key(self) -> None:
         vision = vision_config_from_env(
@@ -83,21 +114,18 @@ class DemoSecretRedactionTest(unittest.TestCase):
         self.assertIn("Mock", stdout)
 
     def test_failure_paths_do_not_render_provided_secret(self) -> None:
-        with self.assertRaises(SystemExit) as invalid_provider:
-            vision_config_from_env(
-                {
-                    "CONTEXTFLOW_VISION_PROVIDER": "bogus-provider",
-                    "MODEL_API_KEY": SENTINEL_API_KEY,
-                }
-            )
-        self.assertNotIn(SENTINEL_API_KEY, str(invalid_provider.exception))
-        self.assertNotIn(DEMO_PASSWORD, str(invalid_provider.exception))
-        self.assertIn("must be local, meta or mock", str(invalid_provider.exception))
-
-        with self.assertRaises(SystemExit) as missing_key:
-            vision_config_from_env({"CONTEXTFLOW_VISION_PROVIDER": "meta"})
-        self.assertNotIn(DEMO_PASSWORD, str(missing_key.exception))
-        self.assertIn("MODEL_API_KEY is missing", str(missing_key.exception))
+        cases = (
+            ("bogus-provider", SENTINEL_API_KEY, "must be local, meta or mock"),
+            ("meta", "", "MODEL_API_KEY is missing"),
+        )
+        for provider, key, expected_diagnostic in cases:
+            with self.subTest(provider=provider):
+                result = _run_demo_cli(provider, key)
+                combined = result.stdout + result.stderr
+                self.assertNotEqual(0, result.returncode)
+                self.assertNotIn(SENTINEL_API_KEY, combined)
+                self.assertNotIn(DEMO_PASSWORD, combined)
+                self.assertIn(expected_diagnostic, combined)
 
 
 if __name__ == "__main__":
