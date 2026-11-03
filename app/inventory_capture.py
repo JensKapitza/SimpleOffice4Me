@@ -101,8 +101,8 @@ def analyze_photo(
     """Analyze one inbox photo and return the JSON payload (no storage).
 
     Raises ValueError for invalid image data. ``consent_meta`` is an
-    explicit per-request opt-in for the Meta cloud path (batch review
-    only); single-photo callers keep the default False.
+    explicit per-request opt-in for the Meta cloud path (capture page
+    checkbox, default off).
     """
     from .library.ocr_input import optimize_upload
 
@@ -239,10 +239,14 @@ def public_entry(entry: dict[str, Any], preview_url: str) -> dict[str, Any]:
     }
 
 
-def reanalyze_entry(entry_id: str, actor: str, root: str) -> dict[str, Any]:
+def reanalyze_entry(
+    entry_id: str, actor: str, root: str, *, consent_meta: bool = False
+) -> dict[str, Any]:
     """Re-run analysis on the stored original; returns the stored entry.
 
-    Raises ValueError when the entry or its original is unavailable.
+    ``consent_meta`` is the explicit per-request Meta opt-in from the
+    capture page checkbox (default off). Raises ValueError when the
+    entry or its original is unavailable.
     """
     from .capture_inbox_store import CaptureInboxStore
 
@@ -252,7 +256,8 @@ def reanalyze_entry(entry_id: str, actor: str, root: str) -> dict[str, Any]:
         raw = path.read_bytes()
     except OSError as exc:
         raise ValueError("Original ist nicht verfügbar") from exc
-    payload = analyze_photo(raw, entry_id)
+    payload = analyze_photo(
+        raw, entry_id, consent_meta=consent_meta is True, root=root)
     updated = store.save_analysis(entry_id, actor, payload)
     if updated is None:
         raise ValueError("Erfassung ist nicht verfügbar")

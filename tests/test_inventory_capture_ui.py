@@ -44,6 +44,22 @@ class CaptureUiWiringTests(unittest.TestCase):
         self.assertIn("payload.assign_url", script)
         self.assertIn("Fotos, ", script)
 
+    def test_batch_review_shows_duplicates_with_group_assign(self) -> None:
+        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertIn("combined.duplicates", script)
+        self.assertIn("Gruppe diesem Buch zuordnen", script)
+        self.assertIn("assignIdInput", script)
+        self.assertIn("assignExistingBtn", script)
+
+    def test_batch_cards_offer_resume_for_existing_groups(self) -> None:
+        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertIn("Fortsetzen", script)
+        self.assertIn("currentBatch = batchId", script)
+
+    def test_single_capture_sends_meta_consent_when_checked(self) -> None:
+        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertGreaterEqual(script.count("consent_meta', '1'"), 3)
+
     def test_ml_status_uses_shared_formatter_with_text_assignment(self) -> None:
         template = (ROOT / "templates/inventory/capture.html").read_text(encoding="utf-8")
         helper_pos = template.index("js/capture_ml_status.js")

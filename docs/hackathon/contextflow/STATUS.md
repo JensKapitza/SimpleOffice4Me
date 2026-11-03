@@ -3,6 +3,21 @@
 **Baseline `origin/main`:** `af5a600bae1f526e61198edbec4d9022e742f228` (26.10.2026, Merge PR #868)
 **Hackathon-Branch:** `hackathon/contextflow-mvp` (ab Baseline, `main` unberührt)
 **Spezifikation (maßgeblich):** `../../../../update2.md` im Elternordner — keine Kopie im Repo.
+**Stand (03.11., Capture-Härtung, Branch `hackai/inventory-batch-20261103`,
+uncommitted):** Geprüfter Port der Hands-on-Fixes aus Referenz-Worktree
+`inventory-batch-20261030` (nur Lücken, keine Doppelarbeit): Batch-Re-Analyse
+antwortet wieder mit Regalen + Zuordnungs-URL (shared `_batch_review_extras`
+für Ansicht und Re-Analyse), Gruppen-Review zeigt Duplikate mit
+Direkt-Zuordnung auf vorhandenes Buch, „Fortsetzen"-Knopf nimmt eine
+Buchgruppe nach Reload wieder auf, Seiten-Checkbox wirkt auch bei
+Einzel-Upload/Re-Analyse. Anpassung an Main: Consent-Tests auf
+Fehler-Redaktionsvertrag umgestellt (keine Provider-Details im Payload),
+`capture_ml_label`-Docstring-Hunk entfällt (Funktion liegt in
+`inventory_capture_vision.py`). Verifiziert: Batch+UI 43/43 OK (6 neu),
+Nachbar-Capture-Suiten 137/137 OK, Policy/File-/Function-Size/compileall/
+diff-check/node-check grün. Kein Live-Spark-Aufruf, keine Browser-/Kamera-
+Abnahme (Eigentümer-Schritte). Issues #658/#767 bleiben offen — keine volle
+Erledigung behauptet.
 **Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
 `origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
 (9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5
