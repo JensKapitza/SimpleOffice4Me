@@ -32,6 +32,7 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 - Update Fremde Arbeit: Remote wächst weiter (jetzt 112 voraus, Head `41e63317 test(contextflow): capture demo failure output`) — fremde Arbeit läuft NOCH, weiter warten.
 - Update Fremde Arbeit 2: Remote jetzt 113 voraus, Head `6d33f080 fix(testnet): seed disposable local identity for federation test peers` — weiter warten.
 - Dauerlauf 03.11. (Baum sauber, sync mit `origin/hackai/i18n-en` auf `36970321`): keine autonome No-Env-Welle übrig — 8b (Server-Bind) weiter blockiert (Store vs. CLI-Arg, Owner-Entscheid fehlt). Keine Änderungen, gestoppt. PR #973-CI für `dc9abe37`/`36970321` läuft (Analyze-Teile pass, Rest pending).
+- Dauerlauf 03.11. später (Baum sauber, sync auf `64ae29ee`): PR #973-CI für #976-Commits fast überall pass, aber `Contact, folder and capture browser flows` fail (Job `126006220146`, 2m34s). Job-Log bis Run-Ende gesperrt, Annotations ohne Detail, kein lokales Playwright — Ursache (eigene EN-Asserts vs. Infra-Flake wie im Vorlauf 2m45s) noch offen. Zeitnähe zum Vorlauf-Fail spricht für denselben frühen Abbruch, unbewiesen. Nächster Schritt: Log nach Run-Ende lesen, dann gezielt fixen. Keine Code-Änderung, gestoppt.
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)
