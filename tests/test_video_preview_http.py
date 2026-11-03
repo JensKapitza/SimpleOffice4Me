@@ -226,7 +226,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
         self.assertIn("<video", preview_html)
         self.assertIn('controls playsinline preload="metadata"', preview_html)
         self.assertIn(f"/documents/{self.document['document_id']}/preview?raw=1", preview_html)
-        self.assertIn("Originaldatei herunterladen", preview_html)
+        self.assertIn("Download original file", preview_html)
         self.assertNotIn("<img", preview_html)
         thumbnail = self.client.get(
             f"/documents/{self.document['document_id']}/thumbnail"
@@ -237,7 +237,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
     def test_detail_media_types_use_native_players_and_safe_download_fallback(self):
         fixtures = (
             ("voice.m4a", b"audio-placeholder", "<audio", "audio/mp4"),
-            ("scan.pdf", b"%PDF-1.7-placeholder", "<iframe", "PDF herunterladen"),
+            ("scan.pdf", b"%PDF-1.7-placeholder", "<iframe", "Download PDF"),
             ("unknown.bin", b"unknown", "fa-file", "download=1"),
         )
         for filename, payload, expected_markup, expected_link in fixtures:
@@ -273,7 +273,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
         html = response.get_data(as_text=True)
 
         self.assertEqual(200, response.status_code)
-        self.assertIn('aria-label="Dokumentpfad"', html)
+        self.assertIn('aria-label="Document path"', html)
         for folder in folders:
             self.assertIn(folder, html)
         self.assertIn("breadcrumb-item text-break", html)
@@ -323,7 +323,7 @@ class VideoPreviewHttpTests(unittest.TestCase):
         self.addCleanup(response.close)
         self.assertEqual(200, response.status_code)
         html = response.get_data(as_text=True)
-        self.assertIn('aria-label="Dokumentpfad"', html)
+        self.assertIn('aria-label="Document path"', html)
         for folder in folders:
             self.assertIn(folder, html)
         self.assertIn("breadcrumb-item text-break", html)

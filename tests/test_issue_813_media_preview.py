@@ -82,7 +82,7 @@ class Issue813MediaPreviewTests(unittest.TestCase):
         section = self.preview_section(document["document_id"])
         self.assertIn("<video", section)
         self.assertIn('controls playsinline preload="metadata"', section)
-        self.assertIn("Originaldatei herunterladen", section)
+        self.assertIn("Download original file", section)
         self.assertNotIn("<img", section)
         media = self.client.get(
             f"/documents/{document['document_id']}/preview?raw=1")
@@ -118,11 +118,11 @@ class Issue813MediaPreviewTests(unittest.TestCase):
         song_section = self.preview_section(song["document_id"])
         self.assertIn("<audio", song_section)
         self.assertIn('controls preload="metadata"', song_section)
-        self.assertIn("Originaldatei herunterladen", song_section)
+        self.assertIn("Download original file", song_section)
         self.assertNotIn("<img", song_section)
         note_section = self.preview_section(note["document_id"])
         self.assertIn("fa-file", note_section)
-        self.assertIn("Original öffnen", note_section)
+        self.assertIn("Open original", note_section)
         self.assertIn("download=1", note_section)
         self.assertNotIn("<img", note_section)
         self.assertNotIn("<video", note_section)
@@ -137,7 +137,7 @@ class Issue813MediaPreviewTests(unittest.TestCase):
         self.assertIn("<iframe", section)
         self.assertIn(f"/documents/{document['document_id']}/preview",
                       section)
-        self.assertIn("PDF herunterladen", section)
+        self.assertIn("Download PDF", section)
         self.assertNotIn("<img", section)
         media = self.client.get(
             f"/documents/{document['document_id']}/preview?raw=1")
@@ -156,8 +156,8 @@ class Issue813MediaPreviewTests(unittest.TestCase):
                                         {"status": "failed"})
         section = self.preview_section(document["document_id"])
         self.assertNotIn("<img", section)
-        self.assertIn("keine Bildvorschau", section)
-        self.assertIn("Original öffnen", section)
+        self.assertIn("No image preview", section)
+        self.assertIn("Open original", section)
         self.assertIn("download=1", section)
 
     def test_ready_image_uses_cached_thumbnail(self):
