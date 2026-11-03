@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from app import app
 from app import db as database
+from app.settings_store import SettingsStore
 from app.todo_store import TodoStore
 
 
@@ -25,13 +24,9 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
             DATABASE=str(root / "users.sqlite"),
             DOCUMENT_ROOT=str(self.documents),
         )
-        self.env = patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED": "1"},
-            clear=False,
+        SettingsStore(self.documents).save(
+            {"v3": {"v3.android_offline": True}}, "v3-android-test",
         )
-        self.env.start()
-        self.addCleanup(self.env.stop)
 
         with app.app_context():
             database.ensure_auth_database()
@@ -79,12 +74,10 @@ class V3AndroidOfflineRoutesTests(unittest.TestCase):
         self.headers = {"X-CSRF-Token": "x" * 40}
 
     def test_capability_off_keeps_api_undiscoverable(self):
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED": "0"},
-            clear=False,
-        ):
-            response = self.client.get("/api/v3/android-offline/tasks")
+        SettingsStore(self.documents).save(
+            {"v3": {"v3.android_offline": False}}, "v3-android-test",
+        )
+        response = self.client.get("/api/v3/android-offline/tasks")
         self.assertEqual(404, response.status_code)
 
     def test_authenticated_owner_is_rendered_and_login_page_has_no_owner_binding(self):

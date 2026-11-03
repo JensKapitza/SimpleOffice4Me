@@ -172,7 +172,7 @@ def activity_section(entity: EntityContext, request: EntityRequest) -> dict | No
     """Optional adapter: absence of the activity subsystem hides the section."""
     from .v3_capabilities import enabled
 
-    if not enabled("v3.activity"):
+    if not enabled("v3.activity", root=request.root):
         return None
     try:
         from .v3_activity import ActivityStore

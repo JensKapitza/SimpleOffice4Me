@@ -21,9 +21,11 @@ Quellpfade aufgelistet, niemals tatsächlich konfigurierte Werte.
   Mailpasswort referenzieren.
 - Build-/Geräte-/Installationsvariablen sind teilweise intern verwaltet. Ein
   Fund in Quelltext ist kein Auftrag, ihn manuell zu setzen.
-- Nur die [3.0-Capability-Registry](V3_BETRIEBSLEITFADEN.md) verwendet durchgehend
-  die dort beschriebene Schalterauswertung. Andere Variablen besitzen eigene
-  Defaults, Parser, Vorrangregeln und Grenzen in den verlinkten Quellen.
+- Die [3.0-Capability-Registry](V3_BETRIEBSLEITFADEN.md) liest ihre Schalter aus
+  der `v3`-Sektion der Einstellungsdatei (Admin → Capabilities 3.0); die
+  früheren `SIMPLEOFFICE_V3_*_ENABLED`-Variablen sind entfernt. Andere Variablen
+  besitzen eigene Defaults, Parser, Vorrangregeln und Grenzen in den verlinkten
+  Quellen.
 
 ## Ergänzte Optionen und Verfeinerungen
 
@@ -387,22 +389,22 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_TRUSTED_PROXY_HOPS` | [__init__.py](../app/__init__.py) | [CHATGPT_MCP](CHATGPT_MCP.md) |
 | `SIMPLEOFFICE_UPDATE_REF` | [release_updater.py](../tools/release_updater.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_V2_STORAGE_PASSWORD_FILE` | [runtime_keys.py](../app/v2/runtime_keys.py) | [V2_ENCRYPTED_RUNTIME_CUTOVER](V2_ENCRYPTED_RUNTIME_CUTOVER.md) |
-| `SIMPLEOFFICE_V3_ACTIVITY_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [ANDROID](ANDROID.md) |
-| `SIMPLEOFFICE_V3_AUTOMATION_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_CRM_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_EXTENSIONS_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_FEDERATION_ENABLED` | [v3_capabilities.py](../app/v3_capabilities.py) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_FINANCE_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_HEALTH_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_INBOX_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_JOBS_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_POLICY_ENABLED` | [v3_capabilities.py](../app/v3_capabilities.py) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_RELATIONS_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_SAMPLE_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_SEARCH_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
-| `SIMPLEOFFICE_V3_WORKBOARD_ENABLED` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_ACTIVITY_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.activity`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.android_offline`); [ANDROID](ANDROID.md) |
+| `SIMPLEOFFICE_V3_AUTOMATION_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.automation`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_CRM_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.crm`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.entity_context`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_EXTENSIONS_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.extensions`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_FEDERATION_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.federation`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_FINANCE_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.finance`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_HEALTH_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.health`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_INBOX_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.inbox`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_JOBS_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.jobs`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_POLICY_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.policy`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_RELATIONS_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.relations`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_SAMPLE_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.sample`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_SEARCH_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.search`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
+| `SIMPLEOFFICE_V3_WORKBOARD_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.workboard`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
 | `SIMPLEOFFICE_VERSION` | [__init__.py](../app/__init__.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES` | [video_settings.py](../app/video_settings.py) | [VIDEO_VORSCHAU](VIDEO_VORSCHAU.md) |
 | `SIMPLEOFFICE_WEBDAV_CLAMAV` | [__init__.py](../app/__init__.py) | [WEBDAV_DATEIVERWALTUNG](WEBDAV_DATEIVERWALTUNG.md) |

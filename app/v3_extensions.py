@@ -577,7 +577,7 @@ class ExtensionRegistry:
         operation: str,
         payload: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if not capability_enabled("v3.extensions"):
+        if not capability_enabled("v3.extensions", root=self.root):
             raise ExtensionUnavailable("extension subsystem is disabled")
         if point not in POINT_CAPABILITY:
             raise ExtensionDenied("unknown extension point")
@@ -648,7 +648,7 @@ class ExtensionRegistry:
         return results, sorted(failures)
 
     def ui_items(self) -> list[dict[str, str]]:
-        if not capability_enabled("v3.extensions"):
+        if not capability_enabled("v3.extensions", root=self.root):
             return []
         rows, _errors = self.list_status()
         result = []
@@ -673,7 +673,7 @@ def external_search_hits(
     actor: str,
     limit: int = 30,
 ) -> tuple[list[dict[str, str]], list[str]]:
-    if not capability_enabled("v3.extensions"):
+    if not capability_enabled("v3.extensions", root=root):
         return [], []
     registry = ExtensionRegistry(root)
     results, failures = registry.invoke_all(

@@ -13,6 +13,7 @@ from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 from app.security_controls import protect_browser_mutation
+from app.settings_store import SettingsStore
 from app.v3_federation_routes import bp as v3_bp
 
 
@@ -24,12 +25,16 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
         self.old_env = {
             name: os.environ.get(name)
             for name in (
-                "SIMPLEOFFICE_V3_FEDERATION_ENABLED",
                 "SIMPLEOFFICE_FEDERATION_PEER_ID",
                 "SIMPLEOFFICE_FEDERATION_TOKEN",
             )
         }
-        os.environ["SIMPLEOFFICE_V3_FEDERATION_ENABLED"] = "true"
+        SettingsStore(self.root_a).save(
+            {"v3": {"v3.federation": True}}, "v3-federation-test",
+        )
+        SettingsStore(self.root_b).save(
+            {"v3": {"v3.federation": True}}, "v3-federation-test",
+        )
         self.token_a = "unique-peer-a-secret"
         self.token_b = "unique-peer-b-secret"
         self.app_a = self._app(self.root_a)

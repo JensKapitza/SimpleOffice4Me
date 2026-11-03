@@ -1,0 +1,52 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">{{ 'Capabilities 3.0' if g.language == 'en' else 'Capabilities 3.0' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Optional 3.0 features, all off by default. Changes apply to newly started requests; an enabled switch alone grants no user, role, object or peer rights.' if g.language == 'en' else 'Optionale 3.0-Funktionen, alle standardmäßig aus. Änderungen gelten für neu gestartete Anfragen; ein eingeschalteter Schalter erteilt allein keine Benutzer-, Rollen-, Objekt- oder Peer-Rechte.' }}</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a class="btn btn-outline-secondary" href="{{ url_for('v3_health.index') }}">System Health 3.0</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">{{ 'System inventory' if g.language == 'en' else 'Systeminventar' }}</a>
+    </div>
+  </div>
+  <section class="card">
+    <div class="card-body">
+      <form method="post" action="{{ url_for('v3_capabilities_admin.save') }}">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="table-responsive">
+          <table class="table align-middle">
+            <thead>
+              <tr>
+                <th scope="col">{{ 'Enabled' if g.language == 'en' else 'Eingeschaltet' }}</th>
+                <th scope="col">Capability</th>
+                <th scope="col">{{ 'Function' if g.language == 'en' else 'Funktion' }}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in rows %}
+              <tr>
+                <td>
+                  <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="v3-{{ loop.index }}" name="{{ row.key }}" value="1"{{ ' checked' if row.enabled else '' }}>
+                    <label class="form-check-label visually-hidden" for="v3-{{ loop.index }}">{{ row.key }}</label>
+                  </div>
+                </td>
+                <td><code>{{ row.key }}</code></td>
+                <td>{{ row.description }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="d-flex flex-wrap gap-2 mt-3">
+          <button class="btn btn-primary" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

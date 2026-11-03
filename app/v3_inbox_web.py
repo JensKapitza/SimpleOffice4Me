@@ -15,10 +15,9 @@ def begin_web_inbox_upload(config: Mapping[str, object], item, actor: str, sourc
         "error": "",
         "error_status": 400,
     }
-    if not v3_capability_enabled("v3.inbox"):
-        return result
-
     root = str(config["DOCUMENT_ROOT"])
+    if not v3_capability_enabled("v3.inbox", root=root):
+        return result
     store = InboxStore(root)
     inbox_item = store.begin(
         "web",

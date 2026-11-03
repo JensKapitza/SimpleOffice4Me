@@ -298,7 +298,7 @@ def record_completed_best_effort(
     malware_status: str,
     mime_type: str="",
 ) -> InboxItem | None:
-    if not capability_enabled("v3.inbox"):
+    if not capability_enabled("v3.inbox", root=root):
         return None
     try:
         store=InboxStore(root)

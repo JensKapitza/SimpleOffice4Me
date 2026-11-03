@@ -29,7 +29,6 @@ class V3ReleaseGateMatrixTests(unittest.TestCase):
     def test_migrated_domains_survive_capability_combinations_and_rollback(self):
         saved = dict(app.config)
         self.addCleanup(lambda: app.config.update(saved))
-        flags = {"SIMPLEOFFICE_" + r["key"].replace(".", "_").upper() + "_ENABLED": "0" for r in snapshot({})}
         profiles = [
             ("all-off", []),
             ("relations-events", ["relations", "activity"]),
@@ -122,15 +121,15 @@ class V3ReleaseGateMatrixTests(unittest.TestCase):
             )
             job = JobStore(root).enqueue("matrix", {}, "admin", idempotency_key="matrix")
             for name, active in profiles:
-                env = dict(
-                    flags,
-                    SIMPLEOFFICE_FEDERATION_TOKEN="matrix-federation-token",
-                )
-                for key in active:
-                    env["SIMPLEOFFICE_V3_" + key.upper() + "_ENABLED"] = "1"
+                env = {
+                    "SIMPLEOFFICE_FEDERATION_TOKEN": "matrix-federation-token",
+                }
                 settings_store = SettingsStore(root)
                 settings = settings_store.settings()
                 settings["s3"]["enabled"] = name == "s3-on"
+                settings["v3"] = {
+                    f"v3.{key}": (key in active) for key in all_keys
+                }
                 settings_store.save(settings, "release-matrix")
                 with patch.dict(os.environ, env), self.subTest(profile=name):
                     with app.app_context():

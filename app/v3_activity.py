@@ -1,6 +1,7 @@
 """Best-effort domain activity stream for the additive SimpleOffice 3.0 rollout."""
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
@@ -8,7 +9,7 @@ import os
 from pathlib import Path
 import sqlite3
 import uuid
-from typing import Callable
+from typing import Callable, Iterator
 
 from .v3_capabilities import enabled as capability_enabled
 
@@ -54,10 +55,15 @@ class ActivityStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
-    def _db(self):
+    @contextmanager
+    def _db(self) -> Iterator[sqlite3.Connection]:
         db = sqlite3.connect(self.path)
         db.row_factory = sqlite3.Row
-        return db
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
 
     def _initialize(self):
         with self._db() as db:
@@ -206,7 +212,7 @@ def emit_activity_best_effort(
     source: str = "",
 ) -> DomainEvent | None:
     """Adapter for existing modules. Disabled/unavailable activity must never fail a domain operation."""
-    if not capability_enabled("v3.activity"):
+    if not capability_enabled("v3.activity", root=root):
         return None
     try:
         return ActivityStore(root).record(

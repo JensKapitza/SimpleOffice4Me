@@ -112,6 +112,23 @@ jobs:
           set -euo pipefail
           docker build --pull -t simpleoffice4me:browser-test .
 
+      - name: Seed 3.0 capability flags into both peer volumes
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 3.0 flags live in the settings file, not the process environment.
+          # Seed the same 14 flags the screenshots need before the peers start.
+          flags='{"v3.sample": true, "v3.relations": true, "v3.activity": true, "v3.jobs": true, "v3.search": true, "v3.entity_context": true, "v3.inbox": true, "v3.automation": true, "v3.workboard": true, "v3.crm": true, "v3.finance": true, "v3.extensions": true, "v3.health": true, "v3.android_offline": true}'
+          for peer in a b; do
+            docker volume create "simpleoffice-browser-peer-${peer}-${GITHUB_RUN_ID}"
+            docker run --rm \
+              --volume "simpleoffice-browser-peer-${peer}-${GITHUB_RUN_ID}:/var/lib/simpleoffice4me" \
+              -e "V3FLAGS=${flags}" \
+              --entrypoint python \
+              simpleoffice4me:browser-test \
+              -c 'import json,os,pathlib; target=pathlib.Path("/var/lib/simpleoffice4me/documents/.simpleoffice-meta/settings.json"); target.parent.mkdir(parents=True,exist_ok=True); target.write_text(json.dumps({"v3": json.loads(os.environ["V3FLAGS"])}),encoding="utf-8")'
+          done
+
       - name: Start two SimpleOffice peers
         shell: bash
         run: |
@@ -132,20 +149,6 @@ jobs:
             -e SIMPLEOFFICE_MCP=1 \
             -e SIMPLEOFFICE_S3_OVERLAY_ENABLED=true \
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
-            -e SIMPLEOFFICE_V3_SAMPLE_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_RELATIONS_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_ACTIVITY_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_JOBS_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_SEARCH_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_INBOX_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_AUTOMATION_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_WORKBOARD_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_CRM_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_FINANCE_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_EXTENSIONS_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_HEALTH_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED=1 \
             simpleoffice4me:browser-test
           docker run -d \
             --name simpleoffice-browser-peer-b \
@@ -161,20 +164,6 @@ jobs:
             -e SIMPLEOFFICE_DATALOGGER=0 \
             -e SIMPLEOFFICE_MCP=0 \
             -e SIMPLEOFFICE_MINI_SERVICES_AUTOSTART=0 \
-            -e SIMPLEOFFICE_V3_SAMPLE_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_RELATIONS_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_ACTIVITY_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_JOBS_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_SEARCH_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_INBOX_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_AUTOMATION_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_WORKBOARD_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_CRM_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_FINANCE_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_EXTENSIONS_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_HEALTH_ENABLED=1 \
-            -e SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED=1 \
             simpleoffice4me:browser-test
 
       - name: Wait for both web services
