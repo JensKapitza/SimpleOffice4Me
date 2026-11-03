@@ -63,10 +63,10 @@ class SoftwareArtifactConfigurationTests(unittest.TestCase):
             config = SoftwareArtifactConfiguration(Path(temp))
             app = self._app()
             with app.app_context():
-                result = config.save("New/Repo", token="[REDACTED]", actor="admin")
+                result = config.save("New/Repo", token="dummy-artifact-token", actor="admin")
                 self.assertTrue(result["managed"])
                 self.assertTrue(result["configured"])
-                self.assertEqual("[REDACTED]", config.token())
+                self.assertEqual("dummy-artifact-token", config.token())
                 self.assertEqual("New/Repo", config.repository())
                 cleared = config.save("New/Repo", clear_token=True, actor="admin")
                 self.assertTrue(cleared["managed"])

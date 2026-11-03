@@ -104,11 +104,15 @@ def server_public_url() -> str:
 
 
 def mail_case_worker_enabled() -> bool:
-    """Mail-case federation background worker (default on; explicit opt-out)."""
-    raw = _raw("mail_case_worker_enabled")
-    if not raw:
+    """Mail-case federation background worker (default on; explicit opt-out).
+
+    A missing key means enabled; an explicitly stored empty/false value
+    (unchecked admin checkbox) means disabled.
+    """
+    raw = _store.get(SECTION, "mail_case_worker_enabled", None)
+    if raw is None:
         return True
-    return raw.casefold() in TRUE_VALUES
+    return str(raw).strip().casefold() in TRUE_VALUES
 
 
 _FIELD_CLEANERS = {

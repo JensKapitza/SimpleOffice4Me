@@ -228,7 +228,7 @@ class AuthTest(unittest.TestCase):
     # This security check temporarily uses production flags. The mail retry worker
     # must not outlive the disposable auth fixture or race its directory cleanup.
     @patch("app.mail_case_federation_runtime._enabled", return_value=False)
-    def test_public_registration_requires_approval_after_bootstrap(self):
+    def test_public_registration_requires_approval_after_bootstrap(self, _worker_enabled):
         self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
         previous = {key: app.config.get(key) for key in ("TESTING", "TEST_CSRF_PROTECTION", "ALLOW_PUBLIC_REGISTRATION")}
         app.config.update(TESTING=False, TEST_CSRF_PROTECTION=False, ALLOW_PUBLIC_REGISTRATION=False)

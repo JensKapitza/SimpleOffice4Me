@@ -9,6 +9,7 @@ from flask import Flask
 
 from app import app, app_config_store, db as database
 from app import resource_commander_credentials as credentials
+from app.resource_provider import ProviderError
 
 
 class CommanderCredentialsStoreTests(unittest.TestCase):
@@ -40,7 +41,8 @@ class CommanderCredentialsStoreTests(unittest.TestCase):
         self.assertTrue(status["peer_tokens_configured"])
         self.assertEqual("inbound-secret-1", credentials.inbound_token())
         self.assertEqual("peer-secret-1", credentials.peer_commander_token("peer-a"))
-        self.assertEqual("", credentials.peer_commander_token("unknown-peer"))
+        with self.assertRaises(ProviderError):
+            credentials.peer_commander_token("unknown-peer")
         raw = (Path(self.temp.name) / "app-config.json").read_text(encoding="utf-8")
         self.assertNotIn("inbound-secret-1", raw)
         self.assertNotIn("peer-secret-1", raw)

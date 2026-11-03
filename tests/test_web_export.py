@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database, get_db
+from pathlib import Path
+
 from app import app_config_store
 from app.web_export import _configured_base_url, _consume_token
 
@@ -29,7 +31,7 @@ class WebExportTests(unittest.TestCase):
     def _isolated_store(self):
         return patch.object(
             app_config_store, "settings_path",
-            return_value=self.tmp.name + "/app-config.json",
+            return_value=Path(self.tmp.name) / "app-config.json",
         )
 
     def insert_token(self, secret, *, uses=1, minutes=5, revoked=False, auth_version=7, disabled=False):

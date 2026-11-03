@@ -31,7 +31,7 @@ class ResourceCommanderAuthorizationTests(unittest.TestCase):
     def test_unconfigured_commander_token_rejects_any_bearer(self):
         with self.app.test_request_context(
             "/resource-commander/api/list",
-            headers={"Authorization": "Bearer [REDACTED]"},
+            headers={"Authorization": "Bearer commander-secret"},
         ):
             self.assertFalse(remote_access_authorized())
             self.assertFalse(api_access_authorized())
@@ -40,7 +40,7 @@ class ResourceCommanderAuthorizationTests(unittest.TestCase):
         save_commander_credentials({"token": "commander-secret"})
         with self.app.test_request_context(
             "/resource-commander/api/list",
-            headers={"Authorization": "Bearer [REDACTED]"},
+            headers={"Authorization": "Bearer commander-secret"},
         ):
             self.assertTrue(remote_access_authorized())
             self.assertTrue(api_access_authorized())
