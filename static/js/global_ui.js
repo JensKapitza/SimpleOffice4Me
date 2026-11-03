@@ -1,5 +1,42 @@
 (() => {
   "use strict";
+  const EN = (document.documentElement.lang || "").toLowerCase().startsWith("en");
+  const STR = {
+    helpOverrides: {
+      email: EN ? "Email address used for this entry." : "E-Mail-Adresse, die für diesen Eintrag verwendet wird.",
+      phone: EN ? "Phone number for this contact or case." : "Telefonnummer für diesen Kontakt oder Vorgang.",
+      telephone: EN ? "Phone number for this contact or case." : "Telefonnummer für diesen Kontakt oder Vorgang.",
+      password: EN ? "Password for this access. Do not store it in notes or other free-text fields." : "Passwort für diesen Zugang. Nicht in Notizen oder anderen Freitextfeldern speichern.",
+      username: EN ? "Username used by the person or device to sign in." : "Benutzername, mit dem sich die Person oder das Gerät anmeldet.",
+      name: EN ? "Name under which this entry is shown." : "Bezeichnung, unter der dieser Eintrag angezeigt wird.",
+      title: EN ? "Short, unique title of the entry." : "Kurzer, eindeutiger Titel des Eintrags.",
+      description: EN ? "Additional description. Only enter information relevant to this case." : "Zusätzliche Beschreibung. Nur Informationen eintragen, die für diesen Vorgang relevant sind.",
+      date: EN ? "Date for this case." : "Datum für diesen Vorgang.",
+      start: EN ? "Start time or start date of the case." : "Startzeit oder Startdatum des Vorgangs.",
+      end: EN ? "End time or end date of the case." : "Endzeit oder Enddatum des Vorgangs.",
+      due: EN ? "Due date. The case should be done from this point on." : "Fälligkeit. Ab diesem Zeitpunkt sollte der Vorgang erledigt sein.",
+      status: EN ? "Current processing state of this entry." : "Aktueller Bearbeitungsstand dieses Eintrags.",
+      priority: EN ? "Priority of this entry. Higher priority means more important or more urgent processing." : "Priorität dieses Eintrags. Höhere Priorität bedeutet wichtigere oder dringendere Bearbeitung.",
+      search: EN ? "Enter a search term. Matches are filtered using the available data." : "Suchbegriff eingeben. Die Treffer werden anhand der verfügbaren Daten gefiltert.",
+      q: EN ? "Enter a search term. Matches are filtered using the available data." : "Suchbegriff eingeben. Die Treffer werden anhand der verfügbaren Daten gefiltert.",
+    },
+    thisField: EN ? "This field" : "Dieses Feld",
+    inputField: EN ? "Input field" : "Eingabefeld",
+    helpPrefix: EN ? "Help: " : "Hilfe: ",
+    selectOption: (friendly) => EN ? `${friendly}: choose the desired option.` : `${friendly}: gewünschte Option auswählen.`,
+    enterText: (friendly) => EN ? `${friendly}: enter suitable information as text.` : `${friendly}: passende Informationen als Text eintragen.`,
+    checkOption: (friendly) => EN ? `${friendly}: enable if this option should apply.` : `${friendly}: aktivieren, wenn diese Option gelten soll.`,
+    useChoice: (friendly) => EN ? `${friendly}: use this choice.` : `${friendly}: diese Auswahl verwenden.`,
+    pickFile: (friendly) => EN ? `${friendly}: choose a suitable file from the device.` : `${friendly}: passende Datei vom Gerät auswählen.`,
+    enterNumber: (friendly) => EN ? `${friendly}: enter a valid numeric value.` : `${friendly}: gültigen Zahlenwert eintragen.`,
+    pickMoment: (friendly) => EN ? `${friendly}: choose a suitable point in time.` : `${friendly}: passenden Zeitpunkt auswählen.`,
+    enterValue: (friendly) => EN ? `${friendly}: enter a suitable value.` : `${friendly}: passenden Wert eintragen.`,
+    filesSelected: (count) => EN ? `${count} files selected` : `${count} Dateien ausgewählt`,
+    copied: EN ? "Copied to clipboard" : "In Zwischenablage kopiert",
+    copyFailed: EN ? "Copying not possible" : "Kopieren nicht möglich",
+    backOnline: EN ? "Connection restored" : "Verbindung wiederhergestellt",
+    offline: EN ? "Offline. Network features are temporarily unavailable." : "Offline. Netzwerkfunktionen sind vorübergehend nicht verfügbar.",
+  };
 
   document.documentElement.classList.add("js");
 
@@ -71,24 +108,7 @@
     .replace(/\b\w/g, (char) => char.toUpperCase())
     .trim();
 
-  const helpOverrides = {
-    email: "E-Mail-Adresse, die für diesen Eintrag verwendet wird.",
-    phone: "Telefonnummer für diesen Kontakt oder Vorgang.",
-    telephone: "Telefonnummer für diesen Kontakt oder Vorgang.",
-    password: "Passwort für diesen Zugang. Nicht in Notizen oder anderen Freitextfeldern speichern.",
-    username: "Benutzername, mit dem sich die Person oder das Gerät anmeldet.",
-    name: "Bezeichnung, unter der dieser Eintrag angezeigt wird.",
-    title: "Kurzer, eindeutiger Titel des Eintrags.",
-    description: "Zusätzliche Beschreibung. Nur Informationen eintragen, die für diesen Vorgang relevant sind.",
-    date: "Datum für diesen Vorgang.",
-    start: "Startzeit oder Startdatum des Vorgangs.",
-    end: "Endzeit oder Enddatum des Vorgangs.",
-    due: "Fälligkeit. Ab diesem Zeitpunkt sollte der Vorgang erledigt sein.",
-    status: "Aktueller Bearbeitungsstand dieses Eintrags.",
-    priority: "Priorität dieses Eintrags. Höhere Priorität bedeutet wichtigere oder dringendere Bearbeitung.",
-    search: "Suchbegriff eingeben. Die Treffer werden anhand der verfügbaren Daten gefiltert.",
-    q: "Suchbegriff eingeben. Die Treffer werden anhand der verfügbaren Daten gefiltert.",
-  };
+  const helpOverrides = STR.helpOverrides;
 
   const fieldLabel = (control) => {
     if (!(control instanceof HTMLElement)) return null;
@@ -110,17 +130,17 @@
     const matchingKey = Object.keys(helpOverrides).find((candidate) => key.includes(candidate));
     if (matchingKey) return helpOverrides[matchingKey];
     const labelText = String(label?.textContent || control.getAttribute("aria-label") || "").replace(/\s*\?\s*$/, "").trim();
-    const friendly = labelText || humanizeFieldName(control.name || control.id) || "Dieses Feld";
-    if (control instanceof HTMLSelectElement) return `${friendly}: gewünschte Option auswählen.`;
-    if (control instanceof HTMLTextAreaElement) return `${friendly}: passende Informationen als Text eintragen.`;
+    const friendly = labelText || humanizeFieldName(control.name || control.id) || STR.thisField;
+    if (control instanceof HTMLSelectElement) return STR.selectOption(friendly);
+    if (control instanceof HTMLTextAreaElement) return STR.enterText(friendly);
     if (control instanceof HTMLInputElement) {
-      if (control.type === "checkbox") return `${friendly}: aktivieren, wenn diese Option gelten soll.`;
-      if (control.type === "radio") return `${friendly}: diese Auswahl verwenden.`;
-      if (control.type === "file") return `${friendly}: passende Datei vom Gerät auswählen.`;
-      if (control.type === "number") return `${friendly}: gültigen Zahlenwert eintragen.`;
-      if (control.type === "date" || control.type === "datetime-local" || control.type === "time") return `${friendly}: passenden Zeitpunkt auswählen.`;
+      if (control.type === "checkbox") return STR.checkOption(friendly);
+      if (control.type === "radio") return STR.useChoice(friendly);
+      if (control.type === "file") return STR.pickFile(friendly);
+      if (control.type === "number") return STR.enterNumber(friendly);
+      if (control.type === "date" || control.type === "datetime-local" || control.type === "time") return STR.pickMoment(friendly);
     }
-    return `${friendly}: passenden Wert eintragen.`;
+    return STR.enterValue(friendly);
   };
 
   let fieldHelpCounter = 0;
@@ -139,7 +159,7 @@
     help.id = helpId;
     help.tabIndex = 0;
     help.setAttribute("role", "button");
-    help.setAttribute("aria-label", `Hilfe: ${helpText}`);
+    help.setAttribute("aria-label", `${STR.helpPrefix}${helpText}`);
     help.setAttribute("data-bs-toggle", "tooltip");
     help.setAttribute("data-bs-placement", "top");
     help.setAttribute("title", helpText);
@@ -149,7 +169,7 @@
       const anchor = control.closest(".input-group") || control;
       anchor.insertAdjacentElement("afterend", help);
       if (!control.hasAttribute("aria-label")) {
-        control.setAttribute("aria-label", humanizeFieldName(control.name || control.id) || "Eingabefeld");
+        control.setAttribute("aria-label", humanizeFieldName(control.name || control.id) || STR.inputField);
       }
     }
     const describedBy = new Set((control.getAttribute("aria-describedby") || "").split(/\s+/).filter(Boolean));
@@ -182,7 +202,7 @@
     input.insertAdjacentElement("afterend", status);
     const update = () => {
       const count = input.files?.length || 0;
-      status.textContent = count === 0 ? "" : (count === 1 ? input.files[0].name : `${count} Dateien ausgewählt`);
+      status.textContent = count === 0 ? "" : (count === 1 ? input.files[0].name : STR.filesSelected(count));
     };
     input.addEventListener("change", update);
   };
@@ -378,9 +398,9 @@
     try {
       if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(text);
       else if (!fallbackCopy(text)) throw new Error("copy failed");
-      announce(trigger.dataset.copySuccess || "In Zwischenablage kopiert");
+      announce(trigger.dataset.copySuccess || STR.copied);
     } catch (_error) {
-      announce("Kopieren nicht möglich");
+      announce(STR.copyFailed);
     }
   });
 
@@ -389,7 +409,7 @@
     document.body.dataset.networkStatus = online ? "online" : "offline";
     const banner = document.getElementById("network-offline-banner");
     if (banner) banner.hidden = online;
-    announce(online ? "Verbindung wiederhergestellt" : "Offline. Netzwerkfunktionen sind vorübergehend nicht verfügbar.");
+    announce(online ? STR.backOnline : STR.offline);
   };
   window.addEventListener("online", updateNetworkState);
   window.addEventListener("offline", updateNetworkState);
