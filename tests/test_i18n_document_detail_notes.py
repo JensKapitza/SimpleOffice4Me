@@ -92,6 +92,32 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
         ):
             self.assertIn(expected, body)
 
+    def _get_image_with_engel(self, document_id: str, language: str) -> str:
+        previous = app.config.get("CONTEXTFLOW_ENABLED")
+        app.config.update(CONTEXTFLOW_ENABLED=True)
+        try:
+            return self._get_image(document_id, language)
+        finally:
+            app.config.update(CONTEXTFLOW_ENABLED=previous)
+
+    def test_engel_section_english(self) -> None:
+        body = self._get_image_with_engel(self._import_png(), "en")
+        for expected in (
+            "Office Angel",
+            "Real analysis of the stored image",
+            "Analyze image",
+        ):
+            self.assertIn(expected, body)
+
+    def test_engel_section_german(self) -> None:
+        body = self._get_image_with_engel(self._import_png(), "de")
+        for expected in (
+            "Büroengel",
+            "Echte Analyse des gespeicherten Bildes",
+            "Bild analysieren",
+        ):
+            self.assertIn(expected, body)
+
     def _import_eml(self) -> str:
         source = Path(self.temp.name) / "mail.eml"
         source.write_bytes(
@@ -153,6 +179,7 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Share links",
             "No share links yet.",
             "Logbook of this document",
+            "Book receipt",
         ):
             self.assertIn(expected, body)
         # The JS translations dict legitimately carries German keys; only the
@@ -188,6 +215,7 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
             "Freigabelinks",
             "Noch keine Freigabelinks.",
             "Logbuch dieses Dokuments",
+            "Beleg buchen",
         ):
             self.assertIn(expected, body)
 

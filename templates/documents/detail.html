@@ -16,10 +16,10 @@
 <h1 class="h3 mb-1 text-break" title="{{ document.last_path }}">{{ document_path_parts[-1] if document_path_parts else document.last_path }}</h1>
 <p class="text-secondary mb-0">ID: <code>{{ document.document_id }}</code>
 </p>
-{% if import_origin_path %}<p class="small mb-0"><a href="{{ url_for('documents.smart_folder_view', folder=import_origin_path) }}">Ursprungsordner: {{ import_origin_path.rsplit('/', 1)[-1] }}</a></p>{% endif %}
+{% if import_origin_path %}<p class="small mb-0"><a href="{{ url_for('documents.smart_folder_view', folder=import_origin_path) }}">{{ 'Source folder:' if g.language == 'en' else 'Ursprungsordner:' }} {{ import_origin_path.rsplit('/', 1)[-1] }}</a></p>{% endif %}
 </div>
 <div class="d-flex flex-wrap justify-content-end gap-2 align-self-start">
-<a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">Beleg buchen</a>
+<a class="btn btn-outline-success" href="{{ url_for('contact_audit.euer.new_booking', document_id=document.document_id) }}">{{ 'Book receipt' if g.language == 'en' else 'Beleg buchen' }}</a>
 <form method="post" action="{{ url_for('documents.create_document_task', document_id=document.document_id) }}">
 <input type="hidden" name="title" value="{{ 'Review document' if g.language == 'en' else 'Dokument prüfen' }}">
 <input type="hidden" name="description" value="{{ 'Open the linked source document, perform the required work, and record the result here.' if g.language == 'en' else 'Quelldokument öffnen, erforderliche Bearbeitung durchführen und Ergebnis in der Aufgabe dokumentieren.' }}">
@@ -106,10 +106,10 @@
 </section>
 {% if preview.kind == 'image' and contextflow_enabled|default(false) %}
 <section id="doc-image-engel" class="card mb-4" data-suggest-url="{{ url_for('contextflow.doc_image_suggest') }}" data-document-id="{{ document.document_id }}" data-csrf="{{ csrf_token() }}">
-  <div class="card-header"><strong>✦ Büroengel · Bildanalyse</strong></div>
+  <div class="card-header"><strong>{{ '✦ Office Angel · Image analysis' if g.language == 'en' else '✦ Büroengel · Bildanalyse' }}</strong></div>
   <div class="card-body">
-    <p class="small text-secondary mb-2">Echte Analyse des gespeicherten Bildes durch das lokale Meta-Modell. Modell und Ergebnis werden angezeigt, nichts wird gespeichert.</p>
-    <button type="button" class="btn btn-outline-primary" id="doc-image-analyze">Bild analysieren</button>
+    <p class="small text-secondary mb-2">{{ 'Real analysis of the stored image by the local Meta model. Model and result are shown, nothing is stored.' if g.language == 'en' else 'Echte Analyse des gespeicherten Bildes durch das lokale Meta-Modell. Modell und Ergebnis werden angezeigt, nichts wird gespeichert.' }}</p>
+    <button type="button" class="btn btn-outline-primary" id="doc-image-analyze">{{ 'Analyze image' if g.language == 'en' else 'Bild analysieren' }}</button>
     <div id="doc-image-status" class="mt-2" role="status" aria-live="polite"></div>
     <div id="doc-image-result" class="mt-2" hidden></div>
   </div>
