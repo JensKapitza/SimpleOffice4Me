@@ -31,7 +31,7 @@ def _scan_with_safe_fallback(security: AttachmentSecurity, path: Path):
     try:
         return security.scanner.scan(path)
     except RuntimeError:
-        if os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip():
+        if (getattr(security.scanner, "scanner_path", "") or "").strip():
             raise
         selected = Path(security.scanner.executable()).name.casefold()
         fallback = shutil.which("clamscan")

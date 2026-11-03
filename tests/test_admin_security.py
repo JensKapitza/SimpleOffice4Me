@@ -15,6 +15,7 @@ from app import app
 from app import admin_lists
 from app import app_config_store
 from app import db as database
+from app.settings_store import SettingsStore
 from app.applogging import SecretRedactionFilter, redact
 from app.printershare_store import PrinterShareStore
 
@@ -271,8 +272,10 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertEqual(403, self.worker.post("/documents/security/scan-now").status_code)
 
         admin_lists.save({"security_admins": "owner"})
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
-             patch("app.documents.AttachmentSecurity.scan_documents", return_value={
+        SettingsStore(app.config["DOCUMENT_ROOT"]).save(
+            {"integrations": {"scanner_choice": "clamav"}}, "admin-security-test",
+        )
+        with patch("app.documents.AttachmentSecurity.scan_documents", return_value={
                  "clean": 0, "infected": 0, "errors": 0, "skipped": 0,
              }), \
              patch("app.attachment_security.ClamAV.status",
@@ -285,8 +288,10 @@ class AdminSecurityTest(unittest.TestCase):
             self.assertEqual(302, self.admin.post("/documents/security/scan-now").status_code)
 
         admin_lists.save({"security_admins": "owner"})
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "clamav"}, clear=False), \
-             patch("app.attachment_security.ClamAV.status",
+        SettingsStore(app.config["DOCUMENT_ROOT"]).save(
+            {"integrations": {"scanner_choice": "clamav"}}, "admin-security-test",
+        )
+        with patch("app.attachment_security.ClamAV.status",
                    return_value={"state": "unavailable", "engine": "", "version": "missing"}):
             page = self.admin.get("/documents/security")
             self.assertEqual(200, page.status_code)

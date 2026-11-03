@@ -273,13 +273,27 @@
   <section class="card mt-3">
     <div class="card-header"><strong>{{ 'ClamAV security check' if g.language == 'en' else 'ClamAV-Sicherheitsprüfung' }}</strong></div>
     <div class="card-body">
-      <p>{{ 'Limits the runtime of a single virus check for EML attachments, mail downloads and enabled WebDAV checking. The value applies to newly started checks.' if g.language == 'en' else 'Begrenzt die Laufzeit einer einzelnen Virenprüfung bei EML-Anhängen, Mail-Downloads und aktivierter WebDAV-Prüfung. Der Wert gilt für neu gestartete Prüfungen.' }} <code>SIMPLEOFFICE_CLAMAV_TIMEOUT</code> {{ 'is used only while no persisted value has been stored yet.' if g.language == 'en' else 'wird nur verwendet, solange noch kein persistierter Wert gespeichert wurde.' }}</p>
-      <form method="post" action="{{ url_for('admin.save_clamav_settings') }}" class="row g-3 align-items-end">
+      <p>{{ 'Limits the runtime of a single virus check for EML attachments, mail downloads and enabled WebDAV checking. The value applies to newly started checks.' if g.language == 'en' else 'Begrenzt die Laufzeit einer einzelnen Virenprüfung bei EML-Anhängen, Mail-Downloads und aktivierter WebDAV-Prüfung. Der Wert gilt für neu gestartete Prüfungen.' }}</p>
+      <form method="post" action="{{ url_for('clamav_admin.save_clamav_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-md-7">
           <label class="form-label" for="clamav-timeout">{{ 'Check time limit (seconds)' if g.language == 'en' else 'Prüfzeitlimit (Sekunden)' }}</label>
           <input class="form-control" id="clamav-timeout" type="number" name="clamav_timeout_seconds" value="{{ integrations.clamav_timeout_seconds }}" min="5" max="900" step="1" required>
           <div class="form-text">{{ 'Default: 120 seconds. Allowed: 5–900 seconds.' if g.language == 'en' else 'Standard: 120 Sekunden. Zulässig: 5–900 Sekunden.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="scanner-choice">{{ 'Malware scanner' if g.language == 'en' else 'Virenscanner' }}</label>
+          <select class="form-select" id="scanner-choice" name="scanner_choice" required>
+            {% for value in ['auto', 'clamav', 'defender'] %}
+            <option value="{{ value }}"{{ ' selected' if integrations.scanner_choice == value else '' }}>{{ {'auto': 'Automatic (ClamAV first)' if g.language == 'en' else 'Automatisch (ClamAV zuerst)', 'clamav': 'ClamAV', 'defender': 'Windows Defender'}[value] }}</option>
+            {% endfor %}
+          </select>
+          <div class="form-text">{{ 'Automatic keeps ClamAV first and falls back to Windows Defender on Windows. An invalid choice disables scanning fail-closed.' if g.language == 'en' else 'Automatisch nutzt zuerst ClamAV und fällt unter Windows auf Windows Defender zurück. Eine ungültige Auswahl deaktiviert die Prüfung fail-closed.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="clamav-scanner-path">{{ 'Explicit ClamAV scanner path (optional)' if g.language == 'en' else 'Expliziter ClamAV-Scannerpfad (optional)' }}</label>
+          <input class="form-control" id="clamav-scanner-path" type="text" name="clamav_scanner_path" value="{{ integrations.clamav_scanner_path }}" maxlength="1024" autocomplete="off" spellcheck="false">
+          <div class="form-text">{{ 'Empty means automatic discovery. Otherwise an absolute clamdscan or clamscan path; an explicit path disables the automatic clamdscan fallback.' if g.language == 'en' else 'Leer bedeutet automatische Suche. Sonst ein absoluter clamdscan- oder clamscan-Pfad; ein expliziter Pfad deaktiviert den automatischen clamdscan-Fallback.' }}</div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2">
           <button class="btn btn-primary" type="submit">{{ 'Save setting' if g.language == 'en' else 'Einstellung speichern' }}</button>

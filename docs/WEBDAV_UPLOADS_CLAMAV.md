@@ -37,9 +37,12 @@ Danach in der geschützten Dienstkonfiguration, nicht im Repository:
 ```bash
 SIMPLEOFFICE_WEBDAV_CLAMAV=1
 SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB=1024
-SIMPLEOFFICE_CLAMAV_SCANNER=/usr/bin/clamdscan
-SIMPLEOFFICE_CLAMAV_TIMEOUT=120
 ```
+
+Scanner-Auswahl, Scannerpfad und Zeitlimit werden stattdessen persistent unter
+**Admin → Einstellungen → Integrationen & Dienste → ClamAV-Sicherheitsprüfung**
+gepflegt (`SIMPLEOFFICE_CLAMAV_SCANNER` und `SIMPLEOFFICE_CLAMAV_TIMEOUT` sind
+entfernt).
 
 Nach einer Änderung der Umgebung muss der SimpleOffice-Dienst neu gestartet
 werden. `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` ist die maximale Größe der
@@ -48,11 +51,9 @@ Standard ist 1.024 MiB. Die normale gespeicherte Upload-Grenze
 gilt zusätzlich.
 
 Das ClamAV-Zeitlimit lässt sich persistent unter **Admin → Einstellungen →
-Integrationen & Dienste → ClamAV-Sicherheitsprüfung** verwalten. Der hier
-angegebene `SIMPLEOFFICE_CLAMAV_TIMEOUT`-Wert wird als Legacy-Startwert
-übernommen, bis ein Administrator einen persistenten Wert speichert.
+Integrationen & Dienste → ClamAV-Sicherheitsprüfung** verwalten.
 
-`SIMPLEOFFICE_CLAMAV_SCANNER` darf ausschließlich auf einen absoluten Pfad zu
+Der explizite Scannerpfad darf ausschließlich auf einen absoluten Pfad zu
 `clamdscan` oder `clamscan` zeigen. Ohne Vorgabe wird zuerst `clamdscan`, dann
 `clamscan` im `PATH` gesucht. `clamdscan` ist für wiederholte Desktop-Speicher-
 vorgänge schneller; `clamscan` funktioniert ohne laufenden Daemon. Unter Unix

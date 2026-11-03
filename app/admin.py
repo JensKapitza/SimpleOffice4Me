@@ -20,12 +20,10 @@ from .request_audit import audit_mutation_response
 from .runtime_inventory import clear_runtime_inventory, runtime_inventory
 from .settings_store import (
     DEFAULT_SETTINGS,
-    DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     DEFAULT_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
     DEFAULT_RSYNC_TIMEOUT_SECONDS,
-    MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_CHAT_ATTACHMENT_BYTES,
     MAX_FEDERATION_AUTOSCAN_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
@@ -38,7 +36,6 @@ from .settings_store import (
     MAX_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-    MIN_CLAMAV_TIMEOUT_SECONDS,
     MIN_FEDERATION_AUTOSCAN_SECONDS,
     MIN_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MIN_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -781,44 +778,6 @@ def save_network_settings():
         current_app.logger.warning("Network settings save failed: %s", type(exc).__name__)
         flash(translate(g.language, "admin.network.failed"))
     return redirect(url_for("admin.network_settings"))
-
-
-@bp.post("/settings/integrations/clamav")
-@admin_required
-def save_clamav_settings():
-    reset_defaults = request.form.get("reset") == "1"
-    try:
-        raw = str(DEFAULT_CLAMAV_TIMEOUT_SECONDS)
-        if not reset_defaults:
-            raw = request.form.get("clamav_timeout_seconds", "")
-        if (
-            not raw.isascii()
-            or not raw.isdigit()
-            or len(raw) > len(str(MAX_CLAMAV_TIMEOUT_SECONDS))
-        ):
-            raise ValueError("Bitte ein ganzzahliges ClamAV-Zeitlimit eingeben.")
-        timeout = int(raw)
-        if not MIN_CLAMAV_TIMEOUT_SECONDS <= timeout <= MAX_CLAMAV_TIMEOUT_SECONDS:
-            raise ValueError("Das ClamAV-Zeitlimit muss zwischen 5 und 900 Sekunden liegen.")
-        integrations = {"clamav_timeout_seconds": timeout}
-        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
-            {"integrations": integrations}, str(g.user["username"]),
-        )
-        audit(
-            "clamav_settings_updated",
-            "settings",
-            "integrations.clamav_timeout_seconds",
-            detail={**integrations, "reset_to_defaults": reset_defaults},
-        )
-        flash(translate(g.language, "admin.clamav.reset")
-            if reset_defaults else translate(g.language, "admin.clamav.saved"))
-    except ValueError as exc:
-        current_app.logger.info("ClamAV setting rejected: %s", type(exc).__name__)
-        flash(str(exc))
-    except OSError as exc:
-        current_app.logger.warning("ClamAV settings save failed: %s", type(exc).__name__)
-        flash(translate(g.language, "admin.clamav.failed"))
-    return redirect(url_for("admin.integration_settings"))
 
 
 @bp.post("/settings/integrations/login-qr")

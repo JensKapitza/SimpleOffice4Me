@@ -1,4 +1,3 @@
-import os
 import subprocess
 import tempfile
 import unittest
@@ -33,8 +32,7 @@ class ClamAVFallbackTests(unittest.TestCase):
                 return _Completed(2, stderr="Could not connect to clamd socket")
             return _Completed(0, stdout=f"{self.path}: OK")
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_SCANNER": ""}, clear=False), \
-             patch("app.attachment_security.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name in {"clamdscan", "clamscan"} else None), \
+        with patch("app.attachment_security.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name in {"clamdscan", "clamscan"} else None), \
              patch("app.attachment_security.subprocess.run", side_effect=fake_run):
             result = ClamAV().scan(self.path)
 
@@ -49,8 +47,7 @@ class ClamAVFallbackTests(unittest.TestCase):
             calls.append(command[0])
             return _Completed(1, stdout=f"{self.path}: Eicar-Test-Signature FOUND")
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_SCANNER": ""}, clear=False), \
-             patch("app.attachment_security.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name in {"clamdscan", "clamscan"} else None), \
+        with patch("app.attachment_security.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name in {"clamdscan", "clamscan"} else None), \
              patch("app.attachment_security.subprocess.run", side_effect=fake_run):
             result = ClamAV().scan(self.path)
 
@@ -60,11 +57,10 @@ class ClamAVFallbackTests(unittest.TestCase):
     def test_explicit_scanner_configuration_does_not_fallback(self):
         explicit = Path(self.temp.name) / "clamdscan"
         explicit.write_text("", encoding="utf-8")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_SCANNER": str(explicit)}, clear=False), \
-             patch("app.attachment_security.subprocess.run", return_value=_Completed(2, stderr="socket unavailable")), \
+        with patch("app.attachment_security.subprocess.run", return_value=_Completed(2, stderr="socket unavailable")), \
              patch("app.attachment_security.shutil.which", return_value="/usr/bin/clamscan"):
             with self.assertRaises(RuntimeError):
-                ClamAV().scan(self.path)
+                ClamAV(scanner_path=str(explicit)).scan(self.path)
 
     def test_timeout_from_auto_clamdscan_can_fallback(self):
         calls = []
@@ -75,8 +71,7 @@ class ClamAVFallbackTests(unittest.TestCase):
                 raise subprocess.TimeoutExpired(command, 5)
             return _Completed(0, stdout=f"{self.path}: OK")
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_CLAMAV_SCANNER": ""}, clear=False), \
-             patch("app.attachment_security.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name in {"clamdscan", "clamscan"} else None), \
+        with patch("app.attachment_security.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name in {"clamdscan", "clamscan"} else None), \
              patch("app.attachment_security.subprocess.run", side_effect=fake_run):
             result = ClamAV(timeout=5).scan(self.path)
 

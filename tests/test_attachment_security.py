@@ -197,9 +197,9 @@ class AttachmentSecurityTests(unittest.TestCase):
         self.assertNotIn("shell", kwargs)
 
     def test_windows_scanner_executable_name_is_accepted(self):
-        scanner = ClamAV(10)
         path = Path("C:/Program Files/ClamAV/clamscan.exe")
-        with patch.dict("os.environ", {"SIMPLEOFFICE_CLAMAV_SCANNER": str(path)}, clear=False), patch.object(Path, "is_absolute", return_value=True), patch.object(Path, "is_file", return_value=True):
+        scanner = ClamAV(10, scanner_path=str(path))
+        with patch.object(Path, "is_absolute", return_value=True), patch.object(Path, "is_file", return_value=True):
             self.assertEqual(str(path), scanner.executable())
 
     def test_portable_sidecar_preserves_file_and_origin(self):

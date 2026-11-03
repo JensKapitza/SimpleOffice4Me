@@ -82,7 +82,6 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 "SIMPLEOFFICE_PREVIEW_MAX_BYTES": str(DEFAULT_PREVIEW_MAX_BYTES),
                 "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": str(DEFAULT_PREVIEW_MAX_PIXELS),
                 "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": str(DEFAULT_VIDEO_PREVIEW_FRAMES),
-                "SIMPLEOFFICE_CLAMAV_TIMEOUT": str(DEFAULT_CLAMAV_TIMEOUT_SECONDS),
                 "SIMPLEOFFICE_ARCHIVE_OCR": "0",
                 "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "auto",
                 "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": str(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU),
@@ -529,7 +528,7 @@ class DocumentsMediaSettingsTests(unittest.TestCase):
                 ("clamav_settings_updated",),
             ).fetchone()
         self.assertEqual("media-admin", row["actor_name"])
-        self.assertEqual("integrations.clamav_timeout_seconds", row["target_id"])
+        self.assertEqual("integrations.clamav_scanner", row["target_id"])
         self.assertTrue(json.loads(row["detail"])["reset_to_defaults"])
 
     def test_clamav_timeout_uses_default_and_persists(self):

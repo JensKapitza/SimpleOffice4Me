@@ -152,11 +152,14 @@ Downloads und haben Vorrang vor `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS`,
 Diese Environment-Werte werden nur bis zum Speichern der persistenten
 Einstellungen als begrenzte Legacy-Startwerte verwendet.
 
-Das ClamAV-Zeitlimit ist im Administrationsbereich **Integrationen & Dienste**
-unter **ClamAV-Sicherheitsprüfung** persistent konfigurierbar. Der gespeicherte
-Wert gilt für neu gestartete Prüfungen und hat Vorrang vor
-`SIMPLEOFFICE_CLAMAV_TIMEOUT`; der Environment-Wert dient nur der Migration,
-solange keine persistierte Einstellung existiert.
+Das ClamAV-Zeitlimit, die Scanner-Auswahl (`scanner_choice`: `auto` mit ClamAV
+zuerst, sonst `clamav`/`defender`; ungültig fail closed) und der optionale
+explizite ClamAV-Scannerpfad (`clamav_scanner_path`) sind im
+Administrationsbereich **Integrationen & Dienste** unter
+**ClamAV-Sicherheitsprüfung** persistent konfigurierbar. Die gespeicherten Werte
+gelten für neu gestartete Prüfungen; es gibt keine Umgebungsvariablen mehr
+(`SIMPLEOFFICE_CLAMAV_TIMEOUT`, `SIMPLEOFFICE_SCANNER` und
+`SIMPLEOFFICE_CLAMAV_SCANNER` sind entfernt).
 
 Die globale Hintergrund-Synchronisation der Personaldaten und ihr Prüfintervall
 sind unter **Admin → Einstellungen → Integrationen & Dienste →
@@ -252,8 +255,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_BUILD_NUMBER` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_REVISION` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [settings_store.py](../app/settings_store.py) | Legacy-Migration; die persistente Einstellung wird in [chat_routes.py](../app/chat_routes.py) angewendet |
-| `SIMPLEOFFICE_CLAMAV_SCANNER` | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
-| `SIMPLEOFFICE_CLAMAV_TIMEOUT` | `120`, effektiv 5–900 | Legacy-Startwert bis `integrations.clamav_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird; [ClamAV-Anhänge](ANHAENGE_CLAMAV.md) |
+| `SIMPLEOFFICE_CLAMAV_SCANNER` (entfernt) | [attachment_security.py](../app/attachment_security.py) | Admin → Integrationen & Dienste → ClamAV-Sicherheitsprüfung (`integrations.clamav_scanner_path`); [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
+| `SIMPLEOFFICE_CLAMAV_TIMEOUT` (entfernt) | `120`, effektiv 5–900 | Persistente Einstellung `integrations.clamav_timeout_seconds` unter `/admin/settings/integrations`; [ClamAV-Anhänge](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CONTAINER_ROLE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DATALOGGER` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS` (Legacy-Import) | [datalogger_store.py](../app/datalogger_store.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md); bevorzugt über Datenlogger → Worker-Einstellungen konfigurieren |
@@ -358,7 +361,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_S3_MAX_UPLOAD_MIB` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_S3_OVERLAY_ENABLED` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
 | `SIMPLEOFFICE_S3_OVERLAY_REGION` | [__init__.py](../app/__init__.py) | [S3_OVERLAY](S3_OVERLAY.md) |
-| `SIMPLEOFFICE_SCANNER` (`auto`: ClamAV zuerst, sonst `clamav`/`defender`; ungültig fail closed) | [attachment_security.py](../app/attachment_security.py) | [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
+| `SIMPLEOFFICE_SCANNER` (entfernt) | [attachment_security.py](../app/attachment_security.py) | Admin → Integrationen & Dienste → ClamAV-Sicherheitsprüfung (`integrations.scanner_choice`); [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SECRET_KEY` | [secret_key.py](../app/secret_key.py) | [ERSTER_START](ERSTER_START.md) |
 | `SIMPLEOFFICE_SECURITY_ADMINS` (entfernt) | [admin_lists.py](../app/admin_lists.py) | Admin → Benutzer → Admin-Listen; [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SENSOR_` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |

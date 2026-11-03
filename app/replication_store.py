@@ -324,6 +324,7 @@ def init_app(app) -> None:
     app.cli.add_command(run_replications_command)
     from . import (
         admin_lists_admin,
+        clamav_scanner_admin,
         federation_admin,
         federation_blocks_http,
         federation_blocks_v2_http,
@@ -364,6 +365,7 @@ def init_app(app) -> None:
     app.register_blueprint(federation_network_admin.bp)
     app.register_blueprint(federation_peer_admin.bp)
     app.register_blueprint(admin_lists_admin.bp)
+    app.register_blueprint(clamav_scanner_admin.bp)
     app.register_blueprint(federation_status.bp)
     app.register_blueprint(gamification_federation_http.bp)
     app.register_blueprint(gamification_leaderboard_routes.bp)

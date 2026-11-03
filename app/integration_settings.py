@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 
@@ -48,6 +49,13 @@ DEFAULT_LOGIN_QR_PORTS = ""
 DEFAULT_LOGIN_QR_URLS = ""
 MAX_LOGIN_QR_PORTS_CHARS = 2048
 MAX_LOGIN_QR_URLS_CHARS = 8192
+DEFAULT_SCANNER_CHOICE = "auto"
+SCANNER_CHOICES = ("auto", "clamav", "defender")
+DEFAULT_CLAMAV_SCANNER_PATH = ""
+MAX_CLAMAV_SCANNER_PATH_CHARS = 1024
+CLAMAV_SCANNER_NAMES = frozenset({
+    "clamdscan", "clamscan", "clamdscan.exe", "clamscan.exe",
+})
 
 
 # Historic environment fallbacks were removed: every integration default now
@@ -107,6 +115,21 @@ def legacy_federation_public_directory_enabled() -> bool:
 
 def legacy_federation_profile_country() -> str:
     return DEFAULT_FEDERATION_PROFILE_COUNTRY
+
+def normalize_clamav_scanner_path(value: Any) -> str:
+    """Canonicalize an explicit ClamAV scanner path without touching the filesystem."""
+    if not isinstance(value, str):
+        raise ValueError("ClamAV scanner path must be a string")
+    raw = value.strip()
+    if not raw:
+        return DEFAULT_CLAMAV_SCANNER_PATH
+    if len(raw) > MAX_CLAMAV_SCANNER_PATH_CHARS:
+        raise ValueError("ClamAV scanner path is too long")
+    candidate = Path(raw)
+    if not candidate.is_absolute() or candidate.name.casefold() not in CLAMAV_SCANNER_NAMES:
+        raise ValueError("ClamAV scanner path must be an absolute clamdscan or clamscan path")
+    return raw
+
 
 def normalize_federation_public_url(value: Any) -> str:
     """Canonicalize a configured public profile URL without making a request."""
@@ -279,6 +302,21 @@ def normalize_integration_settings(
         _LOGGER.warning("Invalid stored login-QR URLs; using the default")
         login_qr_urls = DEFAULT_LOGIN_QR_URLS
     result["login_qr_urls"] = login_qr_urls
+    scanner_choice = integrations.get("scanner_choice", DEFAULT_SCANNER_CHOICE)
+    if not isinstance(scanner_choice, str) or scanner_choice.strip().casefold() not in SCANNER_CHOICES:
+        _LOGGER.warning("Invalid stored scanner choice; using automatic selection")
+        scanner_choice = DEFAULT_SCANNER_CHOICE
+    else:
+        scanner_choice = scanner_choice.strip().casefold()
+    result["scanner_choice"] = scanner_choice
+    try:
+        scanner_path = normalize_clamav_scanner_path(
+            integrations.get("clamav_scanner_path", DEFAULT_CLAMAV_SCANNER_PATH),
+        )
+    except ValueError:
+        _LOGGER.warning("Invalid stored ClamAV scanner path; using automatic discovery")
+        scanner_path = DEFAULT_CLAMAV_SCANNER_PATH
+    result["clamav_scanner_path"] = scanner_path
     return result
 
 
@@ -389,4 +427,16 @@ def validate_integration_settings(integrations: Any) -> dict[str, int | str | bo
     if not isinstance(login_qr_urls, str) or len(login_qr_urls) > MAX_LOGIN_QR_URLS_CHARS:
         raise ValueError("login QR URLs must be a short comma-separated list")
     values["login_qr_urls"] = login_qr_urls
+    scanner_choice = integrations.get("scanner_choice", values["scanner_choice"])
+    if not isinstance(scanner_choice, str) or scanner_choice.strip().casefold() not in SCANNER_CHOICES:
+        raise ValueError("scanner choice must be auto, clamav, or defender")
+    values["scanner_choice"] = scanner_choice.strip().casefold()
+    try:
+        values["clamav_scanner_path"] = normalize_clamav_scanner_path(
+            integrations.get("clamav_scanner_path", values["clamav_scanner_path"]),
+        )
+    except ValueError as exc:
+        raise ValueError(
+            "ClamAV scanner path must be empty or an absolute clamdscan or clamscan path"
+        ) from exc
     return values

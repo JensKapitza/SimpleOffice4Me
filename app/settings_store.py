@@ -53,6 +53,8 @@ from .integration_settings import (
     DEFAULT_LOGIN_QR_LAN_ENABLED,
     DEFAULT_LOGIN_QR_PORTS,
     DEFAULT_LOGIN_QR_URLS,
+    DEFAULT_SCANNER_CHOICE,
+    DEFAULT_CLAMAV_SCANNER_PATH,
     MAX_CLAMAV_TIMEOUT_SECONDS as MAX_CLAMAV_TIMEOUT_SECONDS,
     MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS as MAX_PERSONNEL_TIME_AUTOSYNC_SECONDS,
     MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS as MAX_PRINTERSHARE_PURGE_INTERVAL_SECONDS,
@@ -196,6 +198,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "login_qr_lan_enabled": DEFAULT_LOGIN_QR_LAN_ENABLED,
         "login_qr_ports": DEFAULT_LOGIN_QR_PORTS,
         "login_qr_urls": DEFAULT_LOGIN_QR_URLS,
+        "scanner_choice": DEFAULT_SCANNER_CHOICE,
+        "clamav_scanner_path": DEFAULT_CLAMAV_SCANNER_PATH,
     },
 }
 
@@ -363,6 +367,16 @@ class SettingsStore:
             or "login_qr_urls" not in stored_integrations
         ):
             result["integrations"]["login_qr_urls"] = DEFAULT_LOGIN_QR_URLS
+        if (
+            not isinstance(stored_integrations, dict)
+            or "scanner_choice" not in stored_integrations
+        ):
+            result["integrations"]["scanner_choice"] = DEFAULT_SCANNER_CHOICE
+        if (
+            not isinstance(stored_integrations, dict)
+            or "clamav_scanner_path" not in stored_integrations
+        ):
+            result["integrations"]["clamav_scanner_path"] = DEFAULT_CLAMAV_SCANNER_PATH
         result["integrations"] = self._normalize_integration_settings(
             result["integrations"]
         )
