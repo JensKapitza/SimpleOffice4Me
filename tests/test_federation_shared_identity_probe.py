@@ -61,6 +61,50 @@ class SharedIdentityProbeTest(unittest.TestCase):
         )
         self.assertIn(response.status_code, (401, 403))
 
+    def test_link_token_equal_to_shared_token_cannot_identify_peer(self):
+        # Security control the P2P smoke must respect: a peer entry whose
+        # token equals the shared server token cannot establish peer
+        # identity (fail-open legacy paths would bypass policy gates).
+        from app.federation_peer_auth import authenticate as authenticate_peer
+        from app.federation_peer_auth import headers as peer_headers
+
+        store = FederationStore(self.root)
+        store.save_peer("peer-x", "Peer X", "http://peer-x:8080", SHARED_TOKEN)
+        local_identity.save({"peer_id": "peer-a", "token": SHARED_TOKEN}, "en")
+        signed = peer_headers("peer-x", SHARED_TOKEN, "GET", "/federation/v1/catalog/documents", b"")
+        with self.app.test_request_context(
+            "/federation/v1/catalog/documents", method="GET", headers=signed,
+        ):
+            from flask import request as flask_request
+
+            with self.assertRaises(ValueError):
+                authenticate_peer(str(self.root), flask_request)
+
+    def test_identified_peer_without_document_permission_is_denied_catalog(self):
+        from app import federation_catalog_http as catalog_http
+        from app.federation_peer_auth import authenticate as authenticate_peer
+        from app.federation_peer_auth import headers as peer_headers
+
+        store = FederationStore(self.root)
+        store.save_peer(
+            "peer-x", "Peer X", "http://peer-x:8080", "link-token-present",
+            policy={"documents": {"send": False, "receive": False}},
+        )
+        local_identity.save({"peer_id": "peer-a", "token": SHARED_TOKEN}, "en")
+        signed = peer_headers(
+            "peer-x", "link-token-present", "GET",
+            "/federation/v1/catalog/documents", b"",
+        )
+        with self.app.test_request_context(
+            "/federation/v1/catalog/documents", method="GET", headers=signed,
+        ):
+            from flask import request as flask_request
+
+            self.assertEqual("peer-x", authenticate_peer(str(self.root), flask_request))
+            self.assertFalse(
+                catalog_http._peer_can_receive_catalog(str(self.root))
+            )
+
     def test_sender_prefers_shared_token_over_link_token(self):
         store = FederationStore(self.root)
         store.save_peer(
