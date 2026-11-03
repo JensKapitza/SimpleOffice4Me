@@ -158,6 +158,8 @@ def effective_settings(config: Mapping[str, Any]) -> dict[str, Any]:
     (tests and programmatic overrides), stored admin settings second,
     built-in defaults last. Environment variables never configure the ML
     backend. The stored key is decrypted on use only and fails closed to "".
+    The isolated demo may supply a process-memory key through the explicit
+    ``CONTEXTFLOW_DEMO_META_API_KEY`` config slot; it is never persisted.
     The return shape matches :func:`vision_settings_from_mapping`.
     """
     try:
@@ -165,6 +167,10 @@ def effective_settings(config: Mapping[str, Any]) -> dict[str, Any]:
     except (OSError, ValueError):
         stored = validate({})
     get = config.get
+    # The demo launcher may inject its process key for one synthetic-only
+    # run. It is memory-only; normal installations use the encrypted admin
+    # setting. select_provider still enforces explicit consent + demo root.
+    demo_key = str(get("CONTEXTFLOW_DEMO_META_API_KEY", "") or "")
     try:
         file_key = secret(stored) if stored.get("meta_api_key_enc") else ""
     except ValueError:
@@ -176,7 +182,7 @@ def effective_settings(config: Mapping[str, Any]) -> dict[str, Any]:
         "ollama_model": get("CONTEXTFLOW_OLLAMA_MODEL", stored["ollama_model"]) or "",
         "ollama_timeout": get("CONTEXTFLOW_OLLAMA_TIMEOUT", stored["ollama_timeout"]) or 60,
         "meta_consent": bool(get("CONTEXTFLOW_META_CONSENT", stored["meta_consent"])),
-        "meta_api_key": file_key,
+        "meta_api_key": demo_key or file_key,
         "meta_endpoint": get("CONTEXTFLOW_META_ENDPOINT", stored["meta_endpoint"]) or "",
         "meta_model": get("CONTEXTFLOW_META_MODEL", stored["meta_model"]) or "",
     }

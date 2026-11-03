@@ -73,7 +73,7 @@ def vision_config_from_env(
     if provider == "meta" and not str(source.get("MODEL_API_KEY", "") or "").strip():
         _fail(
             "Meta Muse Spark 1.3 Contributor was selected but MODEL_API_KEY is missing. "
-            "Set it in the process environment; it is never written to the demo config."
+            "Set it in the process environment or parent .env; it is kept in memory only for the synthetic demo."
         )
     raw_timeout = str(source.get("CONTEXTFLOW_OLLAMA_TIMEOUT", "") or "").strip()
     try:
@@ -88,6 +88,12 @@ def vision_config_from_env(
         "CONTEXTFLOW_OLLAMA_MODEL": model,
         "CONTEXTFLOW_OLLAMA_TIMEOUT": timeout,
         "CONTEXTFLOW_META_CONSENT": provider == "meta",
+        # One-process bootstrap only. effective_settings consumes this
+        # explicit config override in memory; it is never persisted or logged.
+        "CONTEXTFLOW_DEMO_META_API_KEY": (
+            str(source.get("MODEL_API_KEY", "") or "").strip()
+            if provider == "meta" else ""
+        ),
         "CONTEXTFLOW_META_ENDPOINT": META_MODEL_API_ENDPOINT,
         "CONTEXTFLOW_META_MODEL": META_MODEL_API_MODEL,
     }

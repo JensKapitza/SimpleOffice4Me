@@ -1651,3 +1651,21 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
 - Damit ist der HTTP-Livepfad verifiziert; der dokumentierte
   Sandbox-`listen()`-Block (WinError 10013) gilt nur für
   Serverstarts innerhalb der Muse-Sandbox.
+
+## 2026-11-03 – PR #973 Konfliktkandidat: Review-Fixes
+
+- Drei Sicherheits-/Integrationsblocker lokal behoben: `app_config_store.put`
+  überschreibt beschädigte Konfigurationen nicht mehr; der isolierte Demo-
+  Starter reicht `MODEL_API_KEY` nur in einem dedizierten Prozessspeicher-
+  Slot weiter (normale App-Key-Eingabe bleibt verschlüsselt im Admin-Bereich);
+  SMTP-STARTTLS kann weder neu deaktiviert noch durch Alt-Konfiguration
+  umgangen werden.
+- README, T20-Runbook und Vision-Admin-Text stimmen mit dem Key-Verhalten
+  überein. Tests decken korruptes Store-JSON, Demo→Provider-Key-Weg ohne
+  Netzwerk, Ablehnung unverschlüsseltem SMTP und die Admin-UI ab.
+- Verifiziert: zusammen 183 gezielte Tests bestanden (Store, Meta-Demo,
+  Vision-Admin, SMTP/Kalender, S3, Finance-Download, Telephony/SIP,
+  Runtime/Packaging/Workflow). Runtime-Shelltests liefen mit Git Bash und
+  Python UTF-8-Modus, nicht über den nicht installierten WSL-Alias.
+- Nicht verifiziert: echte Meta-Inferenz dieses Kandidaten und volle Online-
+  CI. PR #973 bleibt remote konfliktbehaftet; Fixes sind lokal und ungepusht.

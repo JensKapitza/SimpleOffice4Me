@@ -36,24 +36,32 @@ class MailSmtpStoreTests(unittest.TestCase):
         self.assertFalse(smtp.password_configured())
 
     def test_settings_roundtrip(self):
-        smtp.save({
+        values = {
             "host": "mail.example",
             "sender": "office@example",
             "port": "2525",
-            "starttls": "",
             "user": "office",
             "password": "secret-password",
-        })
+        }
+        with self.assertRaisesRegex(ValueError, "STARTTLS"):
+            smtp.save({**values, "starttls": ""})
+        smtp.save({**values, "starttls": "1"})
         self.assertTrue(smtp.configured())
         self.assertEqual("mail.example", smtp.host())
         self.assertEqual("office@example", smtp.sender())
         self.assertEqual(2525, smtp.port())
-        self.assertFalse(smtp.starttls())
+        self.assertTrue(smtp.starttls())
         self.assertEqual("office", smtp.user())
         self.assertEqual("secret-password", smtp.password())
         status = smtp.status()
         self.assertTrue(status["password_configured"])
         self.assertNotIn("secret-password", str(status))
+
+    def test_legacy_plain_smtp_setting_is_forced_to_starttls(self):
+        app_config_store.put("smtp", {"starttls": ""})
+        self.assertTrue(smtp.starttls())
+        with self.assertRaisesRegex(ValueError, "STARTTLS"):
+            smtp.validate({"host": "mail.example", "sender": "office@example", "starttls": False})
 
     def test_empty_password_keeps_stored_secret(self):
         smtp.save({"host": "mail.example", "sender": "office@example", "password": "secret-password"})
@@ -147,6 +155,7 @@ class MailSmtpAdminTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn("mail.example", body)
         self.assertIn("Hinterlegt", body)
+        self.assertIn("STARTTLS erforderlich", body)
         self.assertNotIn("hidden-secret", body)
 
     def test_save_settings(self):

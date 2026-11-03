@@ -33,6 +33,22 @@ class AppConfigStoreTests(unittest.TestCase):
         self.assertEqual("meta", store.get("vision", "provider"))
         self.assertEqual(30, store.get("vision", "timeout"))
 
+    def test_put_does_not_overwrite_corrupt_file(self):
+        path = store.settings_path()
+        path.write_text('{"vision":', encoding="utf-8")
+        original = path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "beschädigt"):
+            store.put("vision", {"provider": "meta"})
+        self.assertEqual(original, path.read_bytes())
+
+    def test_put_fails_closed_without_overwriting_corrupt_file(self):
+        path = store.settings_path()
+        path.write_text('{"vision":', encoding="utf-8")
+        original = path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "beschädigt"):
+            store.put("vision", {"provider": "meta"})
+        self.assertEqual(original, path.read_bytes())
+
     def test_secret_encrypted_never_cleartext(self):
         with app.app_context():
             store.put_secret("vision", "meta_api_key", "sk-test-only")

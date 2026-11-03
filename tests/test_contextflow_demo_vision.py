@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from tools.contextflow_demo import (
@@ -80,7 +81,7 @@ class DemoVisionEnvTest(unittest.TestCase):
             vision_config_from_env({"CONTEXTFLOW_OLLAMA_MODEL": "qwen3-vl:2b"})
         self.assertIn("ausschließlich Meta-Modelle", str(raised.exception))
 
-    def test_meta_cloud_is_explicit_and_never_copies_key_into_config(self) -> None:
+    def test_meta_cloud_key_uses_explicit_memory_only_config_slot(self) -> None:
         config = vision_config_from_env(
             {
                 "CONTEXTFLOW_VISION_PROVIDER": "meta",
@@ -92,7 +93,25 @@ class DemoVisionEnvTest(unittest.TestCase):
         self.assertEqual("https://api.meta.ai/v1/responses", config["CONTEXTFLOW_META_ENDPOINT"])
         self.assertEqual("muse-spark-1.3-contributor", config["CONTEXTFLOW_META_MODEL"])
         self.assertNotIn("MODEL_API_KEY", config)
-        self.assertNotIn("do-not-copy-this", " ".join(map(str, config.values())))
+        self.assertEqual("do-not-copy-this", config["CONTEXTFLOW_DEMO_META_API_KEY"])
+
+    def test_demo_key_reaches_provider_in_memory_without_settings_store(self) -> None:
+        from app.contextflow.vision import select_provider
+        from app.vision_config import effective_settings, validate
+
+        config = vision_config_from_env({
+            "CONTEXTFLOW_VISION_PROVIDER": "meta",
+            "MODEL_API_KEY": "ephemeral-demo-key",
+        })
+        with mock.patch(
+            "app.vision_config.settings", return_value=validate({}),
+        ):
+            settings = effective_settings(config)
+        with mock.patch(
+            "app.contextflow.vision.is_verified_demo_root", return_value=True,
+        ):
+            provider = select_provider(settings, True, Path("synthetic-demo"))
+        self.assertEqual("ephemeral-demo-key", provider.api_key)
 
     def test_meta_cloud_requires_api_key(self) -> None:
         with self.assertRaises(SystemExit) as raised:
