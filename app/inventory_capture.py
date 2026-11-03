@@ -26,6 +26,7 @@ from .capture_analysis import (
     isbn_from_text,
     missing_book_fields,
     route_kind,
+    split_cover_hierarchy,
     title_lines,
 )
 from .inventory_capture_vision import capture_ml_label, capture_ocr
@@ -120,17 +121,28 @@ def analyze_photo(
     duplicates = capture_duplicates(isbn)
     metadata = capture_metadata(isbn)
     lines = title_lines(text)
+    hierarchy = split_cover_hierarchy(ocr.get("blocks", []))
     year = str(metadata.get("year", "") or "") or extract_year(text)
-    title = (
-        str(metadata.get("title", "") or "")
-        or str(ml_result.get("label", "") or "")
-        or (lines[0] if lines else "")
-    )
+    ml_label = str(ml_result.get("label", "") or "")
+    if str(metadata.get("title", "") or ""):
+        title = str(metadata.get("title", "") or "")
+        title_source = "cache"
+    elif hierarchy.get("title_confident") and hierarchy.get("title"):
+        title = str(hierarchy["title"])
+        title_source = "ocr-hierarchie"
+    elif ml_label:
+        title = ml_label
+        title_source = "ml"
+    else:
+        title = ""
+        title_source = "ocr"
     ml_tags = ml_result.get("tags", [])
     ml_tags = [tag for tag in ml_tags if isinstance(tag, str)] \
         if isinstance(ml_tags, list) else []
     description = str(ml_result.get("note", "") or "")
     subtitle = str(ml_result.get("subtitle", "") or "").strip()
+    if not subtitle and hierarchy.get("title_confident"):
+        subtitle = str(hierarchy.get("subtitle", "") or "").strip()
     if subtitle and subtitle.casefold() not in description.casefold():
         description = (description + "\nUntertitel: " + subtitle).strip()
     prefill: dict[str, Any] = {
@@ -141,12 +153,16 @@ def analyze_photo(
     if route["kind"] == "book":
         prefill.update({
             "title": title,
-            "authors": metadata.get("authors") or ml_result.get("authors", []),
+            "authors": (
+                metadata.get("authors") or ml_result.get("authors", [])
+                or hierarchy.get("authors", [])
+            ),
             "subtitle": subtitle,
             "year": year,
             "publisher": metadata.get("publisher", ""),
             "title_lines": lines,
-            "metadata_source": "cache" if metadata.get("title") else "ocr",
+            "metadata_source": title_source,
+            "title_evidence": str(hierarchy.get("title_evidence", "") or ""),
         })
         missing = missing_book_fields(prefill)
     else:
