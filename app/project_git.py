@@ -6,6 +6,7 @@ tree. All repository commands use argv execution without a shell.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -20,6 +21,49 @@ MAX_GIT_OUTPUT_BYTES = 2 * 1024 * 1024
 MAX_TREE_ENTRIES = 500
 MAX_COMMITS = 200
 _REF = re.compile(r"^(?:HEAD|[0-9a-fA-F]{7,40})$")
+
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_REPO_ROOTS: tuple[str, ...] = ()
+MAX_REPO_ROOTS = 64
+MAX_REPO_ROOT_CHARS = 1024
+
+
+def normalize_repo_roots(value: Any) -> list[str]:
+    """Coerce a stored repo-roots value to a bounded list of absolute paths."""
+    items = value if isinstance(value, list) else []
+    result: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            _LOGGER.warning("Invalid stored project repo root; ignoring it")
+            continue
+        text = item.strip()
+        if not text or len(text) > MAX_REPO_ROOT_CHARS:
+            _LOGGER.warning("Invalid stored project repo root; ignoring it")
+            continue
+        if not Path(text).is_absolute() or text in result:
+            _LOGGER.warning("Invalid stored project repo root; ignoring it")
+            continue
+        result.append(text)
+        if len(result) >= MAX_REPO_ROOTS:
+            break
+    return result
+
+
+def validate_repo_roots(value: Any) -> list[str]:
+    """Validate repo roots for saving; non-string or relative entries are rejected."""
+    if not isinstance(value, list):
+        raise ValueError("project repo roots must be a list")
+    if len(value) > MAX_REPO_ROOTS:
+        raise ValueError("project repo roots must hold at most 64 entries")
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("project repo roots must be non-empty strings")
+        if len(item.strip()) > MAX_REPO_ROOT_CHARS:
+            raise ValueError("project repo root is too long")
+        if not Path(item.strip()).is_absolute():
+            raise ValueError("project repo roots must be absolute paths")
+    return normalize_repo_roots(value)
 
 
 class ProjectGitError(RuntimeError):
@@ -306,11 +350,15 @@ class ProjectGitService:
 
     def _allowed_roots(self) -> list[Path]:
         roots = [self.root]
-        configured = os.environ.get("SIMPLEOFFICE_PROJECT_REPO_ROOTS", "")
-        for item in configured.split(os.pathsep):
-            text = item.strip()
-            if not text:
-                continue
+        try:
+            from .settings_store import SettingsStore
+
+            configured = SettingsStore(self.root).settings().get("projects", {}).get(
+                "repo_roots", []
+            )
+        except (OSError, ValueError):
+            configured = []
+        for text in normalize_repo_roots(configured):
             try:
                 root = Path(text).expanduser().resolve(strict=True)
             except OSError:

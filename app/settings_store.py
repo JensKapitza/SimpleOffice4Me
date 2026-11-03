@@ -129,6 +129,11 @@ from .settings_limits import (
     MIN_RSYNC_MAX_FILES,
     MIN_UPLOAD_LIMIT_MIB,
 )
+from .project_git import (
+    DEFAULT_REPO_ROOTS,
+    normalize_repo_roots,
+    validate_repo_roots,
+)
 from .v3_capabilities import (
     CAPABILITY_KEYS,
     normalize_v3_settings,
@@ -207,6 +212,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "clamav_scanner_path": DEFAULT_CLAMAV_SCANNER_PATH,
     },
     "v3": {key: False for key in CAPABILITY_KEYS},
+    "projects": {"repo_roots": list(DEFAULT_REPO_ROOTS)},
 }
 
 from .translations import (
@@ -387,6 +393,12 @@ class SettingsStore:
             result["integrations"]
         )
         result["v3"] = normalize_v3_settings(result.get("v3", {}))
+        stored_projects = result.get("projects", {})
+        result["projects"] = {
+            "repo_roots": normalize_repo_roots(
+                stored_projects.get("repo_roots", []) if isinstance(stored_projects, dict) else [],
+            ),
+        }
         return result
 
     @staticmethod
@@ -512,10 +524,11 @@ class SettingsStore:
                 if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
                     latest["s3"] = {"enabled": True}
             # Ordinary preferences and admin S3 changes share one atomic merge.
-            # Network, media, integration and v3 settings support partial writes
-            # so callers preserve the other controls in the same section.
+            # Network, media, integration, v3 and project settings support
+            # partial writes so callers preserve the other controls in the
+            # same section.
             merged = {**latest, **settings}
-            for section in ("network", "media", "integrations", "v3"):
+            for section in ("network", "media", "integrations", "v3", "projects"):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -539,6 +552,7 @@ class SettingsStore:
         media = settings.get("media", {})
         integrations = settings.get("integrations", {})
         v3 = settings.get("v3", {})
+        projects = settings.get("projects", {})
         if not isinstance(network, dict):
             raise ValueError("network settings must be an object")
         webdav_quota = network.get("webdav_quota_mib", DEFAULT_WEBDAV_QUOTA_MIB)
@@ -578,6 +592,9 @@ class SettingsStore:
         integrations = validate_integration_settings(integrations)
         media = validate_media_settings(media)
         v3 = validate_v3_settings(v3)
+        if not isinstance(projects, dict):
+            raise ValueError("project settings must be an object")
+        projects = {"repo_roots": validate_repo_roots(projects.get("repo_roots", []))}
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "en"))
@@ -619,4 +636,5 @@ class SettingsStore:
                 **integrations,
             },
             "v3": v3,
+            "projects": projects,
         }

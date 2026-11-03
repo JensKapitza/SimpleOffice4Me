@@ -348,7 +348,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_PREVIEW_MAX_PIXELS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL` | [printershare.py](../app/printershare.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_PROJECT_REPO_ROOTS` | [project_git.py](../app/project_git.py) | [PROJECT_TRACKER](PROJECT_TRACKER.md) |
+| `SIMPLEOFFICE_PROJECT_REPO_ROOTS` (entfernt) | [project_git.py](../app/project_git.py) | Admin → Projekt-Repositories (`projects.repo_roots`); [PROJECT_TRACKER](PROJECT_TRACKER.md) |
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS` (entfernt) | [resource_commander_credentials.py](../app/resource_commander_credentials.py) | Admin → Federation → Resource Commander (verschlüsselt) |
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` (entfernt) | [resource_commander_credentials.py](../app/resource_commander_credentials.py) | Admin → Federation → Resource Commander (verschlüsselt); [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_` (entfernt; dynamischer Präfix) | [resource_commander_credentials.py](../app/resource_commander_credentials.py) | Admin → Federation → Resource Commander (Peer-Mapping, verschlüsselt) |
