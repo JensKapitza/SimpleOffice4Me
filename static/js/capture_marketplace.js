@@ -1,12 +1,37 @@
 (() => {
   'use strict';
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    title: EN ? 'Market price: search only on click, no automation' : 'Marktpreis: nur auf Klick suchen, kein Automatismus',
+    unknownProvider: EN ? 'Unknown provider — nothing adopted.' : 'Unbekannter Anbieter — nichts übernommen.',
+    noValidPrice: EN ? 'This hit contains no valid price — nothing adopted, only “View offer” is possible.' : 'Dieser Treffer enthält keinen gültigen Preis — nichts übernommen, nur „Angebot ansehen“ möglich.',
+    partialKept: EN ? 'Price partially adopted; own values kept — enable “Replace” to overwrite.' : 'Preis teils übernommen; eigene Werte behalten — „Ersetzen“ aktivieren zum Überschreiben.',
+    priceAdopted: (provider) => EN ? `Price adopted (${provider}). Please review.` : `Preis übernommen (${provider}). Bitte prüfen.`,
+    keepOwn: EN ? 'Own price values kept — enable “Replace” to overwrite.' : 'Eigene Preiswerte behalten — „Ersetzen“ aktivieren zum Überschreiben.',
+    unknownProviderHits: EN ? 'Unknown provider — no hits adopted.' : 'Unbekannter Anbieter — keine Treffer übernommen.',
+    noHits: EN ? 'No marketplace hits found.' : 'Keine Marketplace-Treffer gefunden.',
+    hitFallback: EN ? 'Hit' : 'Treffer',
+    adoptPrice: EN ? 'Adopt price' : 'Preis übernehmen',
+    noPriceTitle: EN ? 'No price in this hit — only “View offer” is possible.' : 'Kein Preis in diesem Treffer — nur „Angebot ansehen“ möglich.',
+    viewOffer: EN ? 'View offer' : 'Angebot ansehen',
+    hitsReview: (n) => EN ? `${n} hits — please review and adopt selectively.` : `${n} Treffer — bitte prüfen und gezielt übernehmen.`,
+    unknownProviderSearch: EN ? 'Unknown provider — no search started.' : 'Unbekannter Anbieter — keine Suche gestartet.',
+    needQuery: EN ? 'For the marketplace search, first enter ISBN or title.' : 'Für die Marketplace-Suche zuerst ISBN oder Titel eingeben.',
+    unavailable: EN ? 'Marketplace search is not available.' : 'Marketplace-Suche ist nicht verfügbar.',
+    searching: (provider, query) => EN ? `Searching ${provider} for “${query}” …` : `Suche ${provider} nach „${query}“ …`,
+    searchFailed: EN ? 'Marketplace search failed.' : 'Marketplace-Suche fehlgeschlagen.',
+    unreachable: EN ? 'Marketplace search is unreachable.' : 'Marketplace-Suche ist nicht erreichbar.',
+    searchAmazon: EN ? 'Search Amazon' : 'Amazon suchen',
+    searchEbay: EN ? 'Search eBay' : 'eBay suchen',
+    replaceOwn: EN ? 'Replace already entered price values' : 'Bereits eingetragene Preiswerte ersetzen',
+  };
   const renderMarketplaceSection = (ctx) => {
     const {inputs, combined, form, dataset, cleanText, safeJson} = ctx;
     const marketBox = document.createElement('div');
     marketBox.className = 'col-12';
     const marketTitle = document.createElement('div');
     marketTitle.className = 'fw-semibold small mb-1';
-    marketTitle.textContent = 'Marktpreis: nur auf Klick suchen, kein Automatismus';
+    marketTitle.textContent = STR.title;
     marketBox.appendChild(marketTitle);
     const marketButtons = document.createElement('div');
     marketButtons.className = 'd-flex flex-wrap gap-2 mb-1';
@@ -30,11 +55,11 @@
     const normalizeCurrency = (value) => cleanText(value).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
     const applyMarketplacePrice = (provider, row) => {
       if (provider !== 'amazon' && provider !== 'ebay') {
-        marketStatus.textContent = 'Unbekannter Anbieter — nichts übernommen.';
+        marketStatus.textContent = STR.unknownProvider;
         return;
       }
       if (!isValidPrice(row.market_price)) {
-        marketStatus.textContent = 'Dieser Treffer enthält keinen gültigen Preis — nichts übernommen, nur „Angebot ansehen“ möglich.';
+        marketStatus.textContent = STR.noValidPrice;
         return;
       }
       const overwriteBox = marketBox.querySelector('[data-marketplace-overwrite]');
@@ -52,19 +77,19 @@
         input.value = text;
         applied = true;
       });
-      if (applied && kept) marketStatus.textContent = 'Preis teils übernommen; eigene Werte behalten — „Ersetzen“ aktivieren zum Überschreiben.';
-      else if (applied) marketStatus.textContent = `Preis übernommen (${providerName}). Bitte prüfen.`;
-      else marketStatus.textContent = 'Eigene Preiswerte behalten — „Ersetzen“ aktivieren zum Überschreiben.';
+      if (applied && kept) marketStatus.textContent = STR.partialKept;
+      else if (applied) marketStatus.textContent = STR.priceAdopted(providerName);
+      else marketStatus.textContent = STR.keepOwn;
     };
     const renderMarketplaceResults = (provider, data) => {
       if (provider !== 'amazon' && provider !== 'ebay') {
-        marketStatus.textContent = 'Unbekannter Anbieter — keine Treffer übernommen.';
+        marketStatus.textContent = STR.unknownProviderHits;
         return;
       }
       marketResults.replaceChildren();
       const rows = Array.isArray(data.results) ? data.results.slice(0, 3) : [];
       if (!rows.length) {
-        marketStatus.textContent = cleanText(data.warning || data.error) || 'Keine Marketplace-Treffer gefunden.';
+        marketStatus.textContent = cleanText(data.warning || data.error) || STR.noHits;
         return;
       }
       const providerName = provider === 'ebay' ? 'eBay' : 'Amazon';
@@ -74,14 +99,14 @@
         const item = document.createElement('div');
         item.className = 'list-group-item py-2 small';
         const price = [cleanText(row.market_price), cleanText(row.currency)].filter(Boolean).join(' ');
-        item.textContent = `${cleanText(row.title) || 'Treffer'}${price ? ` · ${price}` : ''} · ${providerName} `;
+        item.textContent = `${cleanText(row.title) || STR.hitFallback}${price ? ` · ${price}` : ''} · ${providerName} `;
         const take = document.createElement('button');
         take.type = 'button';
         take.className = 'btn btn-sm btn-outline-success ms-1';
-        take.textContent = 'Preis übernehmen';
+        take.textContent = STR.adoptPrice;
         const hasPrice = isValidPrice(row.market_price);
         take.disabled = !hasPrice;
-        if (!hasPrice) take.title = 'Kein Preis in diesem Treffer — nur „Angebot ansehen“ möglich.';
+        if (!hasPrice) take.title = STR.noPriceTitle;
         take.addEventListener('click', () => applyMarketplacePrice(provider, row));
         item.appendChild(take);
         const target = marketplaceNav.safeMarketplaceUrl ? marketplaceNav.safeMarketplaceUrl(row.url) : '';
@@ -91,33 +116,33 @@
           view.href = target;
           view.target = '_blank';
           view.rel = 'noopener noreferrer';
-          view.textContent = 'Angebot ansehen';
+          view.textContent = STR.viewOffer;
           item.appendChild(view);
         }
         marketResults.appendChild(item);
       });
-      marketStatus.textContent = `${rows.length} Treffer — bitte prüfen und gezielt übernehmen.`;
+      marketStatus.textContent = STR.hitsReview(rows.length);
     };
     const searchMarketplace = async (provider) => {
       if (provider !== 'amazon' && provider !== 'ebay') {
-        marketStatus.textContent = 'Unbekannter Anbieter — keine Suche gestartet.';
+        marketStatus.textContent = STR.unknownProviderSearch;
         return;
       }
       const query = cleanText(inputs.isbn ? inputs.isbn.value : '') || cleanText(combined.isbn || '') || cleanText(inputs.title ? inputs.title.value : '');
-      if (!query) { marketStatus.textContent = 'Für die Marketplace-Suche zuerst ISBN oder Titel eingeben.'; return; }
-      if (!marketplaceUrl) { marketStatus.textContent = 'Marketplace-Suche ist nicht verfügbar.'; return; }
-      marketStatus.textContent = `Suche ${provider === 'ebay' ? 'eBay' : 'Amazon'} nach „${query}“ …`;
+      if (!query) { marketStatus.textContent = STR.needQuery; return; }
+      if (!marketplaceUrl) { marketStatus.textContent = STR.unavailable; return; }
+      marketStatus.textContent = STR.searching(provider === 'ebay' ? 'eBay' : 'Amazon', query);
       marketResults.replaceChildren();
       try {
         const response = await fetch(`${marketplaceUrl}?provider=${encodeURIComponent(provider)}&q=${encodeURIComponent(query)}`, {headers: {Accept: 'application/json'}, cache: 'no-store'});
         const data = await safeJson(response);
-        if (!response.ok) { marketStatus.textContent = cleanText(data && data.error) || 'Marketplace-Suche fehlgeschlagen.'; return; }
+        if (!response.ok) { marketStatus.textContent = cleanText(data && data.error) || STR.searchFailed; return; }
         renderMarketplaceResults(provider, data);
       } catch (_error) {
-        marketStatus.textContent = 'Marketplace-Suche ist nicht erreichbar.';
+        marketStatus.textContent = STR.unreachable;
       }
     };
-    [['amazon', 'Amazon suchen'], ['ebay', 'eBay suchen']].forEach(([provider, label]) => {
+    [['amazon', STR.searchAmazon], ['ebay', STR.searchEbay]].forEach(([provider, label]) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = 'btn btn-sm btn-outline-primary';
@@ -134,7 +159,7 @@
     overwriteBoxEl.setAttribute('data-marketplace-overwrite', '1');
     const overwriteLabel = document.createElement('label');
     overwriteLabel.className = 'form-check-label small';
-    overwriteLabel.textContent = 'Bereits eingetragene Preiswerte ersetzen';
+    overwriteLabel.textContent = STR.replaceOwn;
     overwriteWrap.appendChild(overwriteBoxEl);
     overwriteWrap.appendChild(overwriteLabel);
     marketBox.appendChild(overwriteWrap);
