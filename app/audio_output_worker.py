@@ -53,6 +53,14 @@ class AudioOutputWorker:
 
     def start(self):
         with self.lock:
+            if self.root is None:
+                try:
+                    from flask import current_app, has_app_context
+
+                    if has_app_context():
+                        self.root = current_app.config["DOCUMENT_ROOT"]
+                except (RuntimeError, KeyError):
+                    pass
             if self.cleaning_players:
                 raise RuntimeError("Audio-Player wird noch beendet; Status aktualisieren")
             if self.stop_event.is_set() and self.processes:
@@ -205,7 +213,7 @@ class AudioOutputWorker:
             if job["kind"] == "sound":
                 path = render_preset(payload["preset"], cache)
             elif job["kind"] == "tts":
-                path = render_tts(payload["text"], payload["voice"], cache, cancel_event=self.stop_event)
+                path = render_tts(payload["text"], payload["voice"], cache, document_root=self.root, cancel_event=self.stop_event)
             else:
                 raise ValueError("Auftragstyp ist für lokale Wiedergabe nicht unterstützt")
             if self.stop_event.is_set():

@@ -1669,3 +1669,33 @@ und offene Punkte stehen im letzten Abschnitt („Scan-zu-Foto-UX").
   Python UTF-8-Modus, nicht über den nicht installierten WSL-Alias.
 - Nicht verifiziert: echte Meta-Inferenz dieses Kandidaten und volle Online-
   CI. PR #973 bleibt remote konfliktbehaftet; Fixes sind lokal und ungepusht.
+
+## 2026-11-03 – PR #973 aktualisierte Welle 8a integriert (lokal)
+
+- Remote-Head wechselte während des Reviews von `8617970c` auf `f60c9419`.
+  Der neueste Head wurde ohne Force in einen separaten Tracking-Ref geladen
+  und in den Main-Integrationskandidaten gemergt.
+- Konfliktauflösung in `SettingsStore`: Finance-Browser- und FinTS-Werte
+  liegen nun in einer gemeinsamen Sektion; Partial-Saves bewahren Finance,
+  Extensions, Netzwerk, Medien, Integrationen, V3 und Projekte. Worklog
+  enthält sowohl PR-Abgleich als auch die neue Archiv-Welle.
+- Gezielte Konflikttests für Finance-Browser, FinTS, Archive-Settings,
+  Datalogger, Piper und V3-Extensions: 55/55 OK.
+- Kandidat bleibt lokal; GitHub-PR meldet weiterhin `CONFLICTING` und hat
+  noch nicht die neueste Konfliktauflösung oder die Review-Fixes erhalten.
+
+## 2026-11-03 – Nachprüfung des PR-Integrationskandidaten
+
+- Windows-Archiv-OCR repariert: temporäre Archivdateien rufen `chmod(fd)` nur
+  noch auf POSIX auf. Die gespeicherte OCR-Option gehört jetzt zur Cache-
+  Richtlinie; ein Wechsel von aus auf an analysiert dasselbe Archiv erneut.
+- HTTP-Extension-Freigabe ist deny-by-default. Nur exakte, syntaktisch gültige
+  DNS-Hostnamen und IP-Adressen können eingetragen werden; Wildcards, Ports,
+  Benutzer-Präfixe und implizite Loopback-Freigaben sind entfernt. Leere Liste
+  sperrt alle HTTP-Extensions. UI, Doku und Regressionstests sind angepasst.
+- Tests: 106/106 in betroffenen Archiv-, Datalogger-, Finance-, Replikations-,
+  Piper- und Extension-Suiten bestanden. Vorherige Windows-Proben mit
+  `getloadavg` wurden mit gemocktem Linux-Signal plattformneutral gemacht.
+- GitHub #973 bleibt remote `CONFLICTING`; die Online-Checks sind ausschließlich
+  sieben grüne CodeQL-Läufe. Der lokale Kandidat ist noch uncommitted und
+  ungepusht; finale Projekt-Gates/Commit sind der nächste Schritt.

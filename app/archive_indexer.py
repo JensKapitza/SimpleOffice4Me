@@ -256,7 +256,8 @@ def _private_member_file(store: Any, source: BinaryIO, suffix: str, size: int) -
         fd, raw_name = tempfile.mkstemp(prefix="member-", suffix=suffix[:16], dir=directory)
         target = Path(raw_name)
         try:
-            os.chmod(fd, stat.S_IRUSR | stat.S_IWUSR)
+            if os.name == "posix":
+                os.chmod(fd, stat.S_IRUSR | stat.S_IWUSR)
             copied = 0
             with os.fdopen(fd, "wb") as handle:
                 while True:
@@ -439,6 +440,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
     )
     resource_policy_unchanged = (
         isinstance(previous_policy, dict)
+        and previous_policy.get("archive_ocr_enabled") is archive_ocr_enabled
         and previous_policy.get("load_threshold_per_cpu") == max_load_per_cpu
         and previous_policy.get("min_free_memory_mb") == min_free_memory_mb
         and previous_policy.get("disk_reserve_mb") == disk_reserve_mb
@@ -567,6 +569,7 @@ def index_archive(store: Any, path: str | Path) -> dict[str, Any] | None:
         "catalog": catalog,
         "search_text": _truncate_utf8_bytes("".join(text_parts), max_text),
         "resource_policy": {
+            "archive_ocr_enabled": archive_ocr_enabled,
             "deep_index_enabled": deep_index_enabled,
             "load_threshold_per_cpu": max_load_per_cpu,
             "min_free_memory_mb": min_free_memory_mb,

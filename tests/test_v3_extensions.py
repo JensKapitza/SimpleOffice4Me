@@ -248,5 +248,43 @@ class V3ExtensionTests(unittest.TestCase):
         self.assertTrue(sent["authenticated"])
 
 
+    def test_default_transport_uses_stored_allowlist_not_environment(self):
+        import os as _os
+        from unittest.mock import patch as _patch
+
+        from app.v3_extensions import DEFAULT_EXTENSION_HTTP_ALLOWLIST
+
+        with _patch.dict(_os.environ, {"SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST": "evil.example"}):
+            transport = HttpExtensionTransport()
+        self.assertEqual(frozenset(DEFAULT_EXTENSION_HTTP_ALLOWLIST), transport.allow_hosts)
+        external = ExtensionManifest.from_dict(
+            manifest(endpoint="https://example.test/plugin"), external=True,
+        )
+        with self.assertRaises(ExtensionDenied):
+            transport._authorize_endpoint(external)
+        local = ExtensionManifest.from_dict(manifest(), external=True)
+        with self.assertRaises(ExtensionDenied):
+            transport._authorize_endpoint(local)
+        local_transport = HttpExtensionTransport(allow_hosts={"127.0.0.1"})
+        local_transport._authorize_endpoint(local)
+
+    def test_extension_allowlist_is_exact_and_denies_wildcards(self):
+        from app.v3_extensions import normalize_extension_http_allowlist, validate_extension_http_allowlist
+
+        self.assertEqual([], normalize_extension_http_allowlist(["*"]))
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["*"])
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["example.test:443"])
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["bad host"])
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["example.test/path"])
+        self.assertEqual(["example.test"], validate_extension_http_allowlist(["Example.Test"]))
+        self.assertEqual([], validate_extension_http_allowlist([]))
+        self.assertEqual(["127.0.0.1"], validate_extension_http_allowlist(["127.0.0.1"]))
+        self.assertEqual(["::1"], validate_extension_http_allowlist(["::1"]))
+
+
 if __name__ == "__main__":
     unittest.main()

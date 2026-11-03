@@ -11,7 +11,8 @@ kein zusätzlicher Netzwerkdienst. Live-Audio bleibt im Audio-Streamer.
 Für automatisch erkannte PulseAudio-/PipeWire-Ausgänge werden die vorhandenen
 Programme `pactl` und `paplay` benötigt. Manuell definierte lokale Ausgänge nutzen
 die vorhandenen Alternativen `pw-play`, `aplay` oder `ffplay`. Piper plus das
-lokale Modell aus `SIMPLEOFFICE_PIPER_MODEL` werden nur für Sprachausgabe benötigt.
+lokale Modell aus den Medien-Einstellungen (`media.piper_model`, Admin →
+Dokumente & Medien) werden nur für Sprachausgabe benötigt.
 Signaltöne entstehen mit Python-Standardbibliothek als WAV. Nichts wird durch
 den Audio-Worker installiert oder heruntergeladen.
 

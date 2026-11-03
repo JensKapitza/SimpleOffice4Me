@@ -41,10 +41,9 @@ from .settings_limits import (
     MAX_UPLOAD_LIMIT_MIB,
     MIN_UPLOAD_LIMIT_MIB,
     MIB,
+    DEFAULT_WEBDAV_QUARANTINE_MIB,
+    MAX_WEBDAV_QUARANTINE_MIB,
 )
-
-DEFAULT_WEBDAV_QUARANTINE_MIB = 1024
-MAX_WEBDAV_QUARANTINE_MIB = 64 * 1024
 
 
 def _jinja_error_context(error, extracted_frames):
@@ -143,24 +142,31 @@ def configured_webdav_quota_bytes(document_root: str | Path | None = None) -> in
     return quota_mib * MIB
 
 
-def configured_webdav_upload_scan() -> bool:
-    """Return whether WebDAV PUT bodies require a clean ClamAV verdict."""
-    return os.environ.get("SIMPLEOFFICE_WEBDAV_CLAMAV", "0").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+def configured_webdav_upload_scan(document_root: str | Path | None = None) -> bool:
+    """Return whether WebDAV PUT bodies require a clean ClamAV verdict.
+
+    The value comes from the settings file; without a document root there is
+    nothing to read, so the result is False (no environment).
+    """
+    if document_root is None:
+        return False
+    from .settings_store import SettingsStore
+    enabled = SettingsStore(document_root).settings()["network"]["webdav_clamav_enabled"]
+    return bool(enabled)
 
 
-def configured_webdav_quarantine_bytes() -> int:
-    """Return the bounded private capacity for failed WebDAV upload scans."""
-    requested = os.environ.get(
-        "SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB",
-        str(DEFAULT_WEBDAV_QUARANTINE_MIB),
-    ).strip()
-    try:
-        limit_mib = int(requested)
-    except ValueError:
-        limit_mib = DEFAULT_WEBDAV_QUARANTINE_MIB
-    return max(1, min(limit_mib, MAX_WEBDAV_QUARANTINE_MIB)) * MIB
+def configured_webdav_quarantine_bytes(document_root: str | Path | None = None) -> int:
+    """Return the bounded private capacity for failed WebDAV upload scans.
+
+    The value comes from the settings file; without a document root there is
+    nothing to read, so the default applies (no environment).
+    """
+    if document_root is None:
+        return DEFAULT_WEBDAV_QUARANTINE_MIB * MIB
+    from .settings_store import SettingsStore
+
+    quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quarantine_mib"]
+    return max(1, min(quota_mib, MAX_WEBDAV_QUARANTINE_MIB)) * MIB
 
 
 def google_oauth_web_config() -> dict[str, object]:
@@ -225,8 +231,8 @@ app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_b
 )
 app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, _s3_boot["max_staging_mib"]), 65536) * MIB
 app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes(app.config['DOCUMENT_ROOT'])
-app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
-app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
+app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan(app.config['DOCUMENT_ROOT'])
+app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes(app.config['DOCUMENT_ROOT'])
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = load_or_create_secret_key(Path(app.instance_path) / "session-secret")
 # NOTE: Google OAuth client ID/secret are intentionally NOT cached in

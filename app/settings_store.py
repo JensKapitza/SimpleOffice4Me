@@ -14,22 +14,15 @@ from typing import Any
 from .archive_settings import (
     DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED as DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
     DEFAULT_ARCHIVE_DISK_RESERVE_MB as DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+    DEFAULT_ARCHIVE_MAX_CONTENT_FILES as DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
     DEFAULT_ARCHIVE_MAX_MEMBERS as DEFAULT_ARCHIVE_MAX_MEMBERS,
     DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO as DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+    DEFAULT_ARCHIVE_MAX_MEMBER_MB as DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+    DEFAULT_ARCHIVE_MAX_TEXT_MB as DEFAULT_ARCHIVE_MAX_TEXT_MB,
+    DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB as DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
     DEFAULT_ARCHIVE_MEMBER_YIELD_MS as DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
     DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU as DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB as DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
-    legacy_archive_disk_reserve_mb,
-    legacy_archive_deep_index_enabled,
-    legacy_archive_max_load_per_cpu,
-    legacy_archive_max_content_files,
-    legacy_archive_max_compression_ratio,
-    legacy_archive_max_member_mb,
-    legacy_archive_max_members,
-    legacy_archive_max_text_mb,
-    legacy_archive_max_text_per_member_mb,
-    legacy_archive_member_yield_ms,
-    legacy_archive_min_free_memory_mb,
 )
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .finance_settings import (
@@ -42,6 +35,7 @@ from .finance_settings import (
     MIN_BANK_BROWSER_TIMEOUT_SECONDS as MIN_BANK_BROWSER_TIMEOUT_SECONDS,
     MIN_FINANCE_IMPORT_LIMIT_BYTES as MIN_FINANCE_IMPORT_LIMIT_BYTES,
     MIN_FINANCE_STAGING_TTL_SECONDS as MIN_FINANCE_STAGING_TTL_SECONDS,
+    normalize_finance_settings,
     validate_finance_settings,
 )
 from .integration_settings import (
@@ -131,7 +125,10 @@ from .settings_limits import (
     MAX_CHAT_ATTACHMENT_BYTES,
     DEFAULT_RSYNC_MAX_BYTES,
     DEFAULT_RSYNC_MAX_FILES,
+    DEFAULT_WEBDAV_CLAMAV_ENABLED,
+    DEFAULT_WEBDAV_QUARANTINE_MIB,
     DEFAULT_WEBDAV_QUOTA_MIB,
+    MAX_WEBDAV_QUARANTINE_MIB,
     MIN_CHAT_ATTACHMENT_BYTES as MIN_CHAT_ATTACHMENT_BYTES,
     MAX_RSYNC_MAX_BYTES,
     MAX_RSYNC_MAX_FILES,
@@ -140,6 +137,15 @@ from .settings_limits import (
     MIN_RSYNC_MAX_BYTES,
     MIN_RSYNC_MAX_FILES,
     MIN_UPLOAD_LIMIT_MIB,
+)
+from .datalogger_collectors import (
+    DEFAULT_SENSOR_ALLOWED_HOSTS,
+    normalize_sensor_allowed_hosts,
+    validate_sensor_allowed_hosts,
+)
+from .finance_fints import (
+    normalize_fints_product_id,
+    validate_fints_product_id,
 )
 from .project_git import (
     DEFAULT_REPO_ROOTS,
@@ -158,6 +164,11 @@ from .v3_capabilities import (
     CAPABILITY_KEYS,
     normalize_v3_settings,
     validate_v3_settings,
+)
+from .v3_extensions import (
+    DEFAULT_EXTENSION_HTTP_ALLOWLIST,
+    normalize_extension_http_allowlist,
+    validate_extension_http_allowlist,
 )
 
 
@@ -211,9 +222,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "bank_browser_timeout_seconds": DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
         "statement_import_limit_bytes": DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
         "statement_staging_ttl_seconds": DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+        "fints_product_id": "",
     },
     "network": {
         "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
+        "webdav_quarantine_mib": DEFAULT_WEBDAV_QUARANTINE_MIB,
+        "webdav_clamav_enabled": DEFAULT_WEBDAV_CLAMAV_ENABLED,
         "rsync_timeout_seconds": DEFAULT_RSYNC_TIMEOUT_SECONDS,
         "rsync_max_bytes": DEFAULT_RSYNC_MAX_BYTES,
         "rsync_max_files": DEFAULT_RSYNC_MAX_FILES,
@@ -245,6 +259,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "v3": {key: False for key in CAPABILITY_KEYS},
     "projects": {"repo_roots": list(DEFAULT_REPO_ROOTS)},
+    "extensions": {"http_allowlist": list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)},
+    "datalogger": {"allowed_hosts": list(DEFAULT_SENSOR_ALLOWED_HOSTS)},
 }
 
 from .translations import (
@@ -292,6 +308,8 @@ class SettingsStore:
             result["network"]["rsync_max_bytes"] = self._legacy_rsync_max_bytes()
         if not isinstance(stored_network, dict) or "rsync_max_files" not in stored_network:
             result["network"]["rsync_max_files"] = self._legacy_rsync_max_files()
+        if not isinstance(stored_network, dict) or "webdav_quarantine_mib" not in stored_network:
+            result["network"]["webdav_quarantine_mib"] = DEFAULT_WEBDAV_QUARANTINE_MIB
         result["network"] = self._normalize_network_settings(result["network"])
         stored_integrations = stored.get("integrations") if isinstance(stored, dict) else None
         if (
@@ -432,6 +450,28 @@ class SettingsStore:
             ),
         }
         result["s3"] = normalize_s3_settings(result.get("s3", {}))
+        stored_finance = result.get("finance", {})
+        normalized_finance = normalize_finance_settings(stored_finance)
+        normalized_finance["fints_product_id"] = normalize_fints_product_id(
+            stored_finance.get("fints_product_id", "")
+            if isinstance(stored_finance, dict) else "",
+        )
+        result["finance"] = normalized_finance
+        stored_datalogger = result.get("datalogger", {})
+        result["datalogger"] = {
+            "allowed_hosts": normalize_sensor_allowed_hosts(
+                stored_datalogger.get("allowed_hosts", [])
+                if isinstance(stored_datalogger, dict)
+                else [],
+            ),
+        }
+        result["extensions"] = {
+            "http_allowlist": normalize_extension_http_allowlist(
+                result.get("extensions", {}).get("http_allowlist", [])
+                if isinstance(result.get("extensions", {}), dict)
+                else [],
+            ),
+        }
         return result
 
     @staticmethod
@@ -475,8 +515,22 @@ class SettingsStore:
         ):
             _LOGGER.warning("Invalid stored rsync file-count limit; using the default")
             rsync_max_files = DEFAULT_RSYNC_MAX_FILES
+        quarantine = network.get("webdav_quarantine_mib", DEFAULT_WEBDAV_QUARANTINE_MIB)
+        if (
+            isinstance(quarantine, bool)
+            or not isinstance(quarantine, int)
+            or not 1 <= quarantine <= MAX_WEBDAV_QUARANTINE_MIB
+        ):
+            _LOGGER.warning("Invalid stored WebDAV quarantine; using the default")
+            quarantine = DEFAULT_WEBDAV_QUARANTINE_MIB
+        clamav_enabled = network.get("webdav_clamav_enabled", DEFAULT_WEBDAV_CLAMAV_ENABLED)
+        if not isinstance(clamav_enabled, bool):
+            _LOGGER.warning("Invalid stored WebDAV scan toggle; using the default")
+            clamav_enabled = DEFAULT_WEBDAV_CLAMAV_ENABLED
         return {
             "webdav_quota_mib": quota,
+            "webdav_quarantine_mib": quarantine,
+            "webdav_clamav_enabled": clamav_enabled,
             "rsync_timeout_seconds": rsync_timeout,
             "rsync_max_bytes": rsync_max_bytes,
             "rsync_max_files": rsync_max_files,
@@ -523,19 +577,19 @@ class SettingsStore:
             "preview_max_bytes": DEFAULT_PREVIEW_MAX_BYTES,
             "preview_max_pixels": DEFAULT_PREVIEW_MAX_PIXELS,
             "archive_ocr_enabled": DEFAULT_ARCHIVE_OCR_ENABLED,
-            # This legacy option can only enable automatic resource-aware indexing;
+            # This option can only enable automatic resource-aware indexing;
             # it no longer bypasses CPU or memory safeguards.
-            "archive_deep_index_enabled": legacy_archive_deep_index_enabled(),
-            "archive_max_load_per_cpu": legacy_archive_max_load_per_cpu(),
-            "archive_min_free_memory_mb": legacy_archive_min_free_memory_mb(),
-            "archive_disk_reserve_mb": legacy_archive_disk_reserve_mb(),
-            "archive_max_members": legacy_archive_max_members(),
-            "archive_max_member_mb": legacy_archive_max_member_mb(),
-            "archive_max_content_files": legacy_archive_max_content_files(),
-            "archive_max_compression_ratio": legacy_archive_max_compression_ratio(),
-            "archive_max_text_mb": legacy_archive_max_text_mb(),
-            "archive_max_text_per_member_mb": legacy_archive_max_text_per_member_mb(),
-            "archive_member_yield_ms": legacy_archive_member_yield_ms(),
+            "archive_deep_index_enabled": DEFAULT_ARCHIVE_DEEP_INDEX_ENABLED,
+            "archive_max_load_per_cpu": DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU,
+            "archive_min_free_memory_mb": DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
+            "archive_disk_reserve_mb": DEFAULT_ARCHIVE_DISK_RESERVE_MB,
+            "archive_max_members": DEFAULT_ARCHIVE_MAX_MEMBERS,
+            "archive_max_member_mb": DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+            "archive_max_content_files": DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
+            "archive_max_compression_ratio": DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+            "archive_max_text_mb": DEFAULT_ARCHIVE_MAX_TEXT_MB,
+            "archive_max_text_per_member_mb": DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+            "archive_member_yield_ms": DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
         }
 
     @staticmethod
@@ -561,7 +615,10 @@ class SettingsStore:
             # partial writes so callers preserve the other controls in the
             # same section.
             merged = {**latest, **settings}
-            for section in ("finance", "network", "media", "integrations", "v3", "projects"):
+            for section in (
+                "network", "media", "integrations", "v3", "projects",
+                "extensions", "finance",
+            ):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -581,12 +638,20 @@ class SettingsStore:
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
         s3 = settings.get("s3", {})
-        finance = validate_finance_settings(settings.get("finance", {}))
+        raw_finance = settings.get("finance", {})
+        if not isinstance(raw_finance, dict):
+            raise ValueError("finance settings must be an object")
+        fints_product_id = validate_fints_product_id(
+            raw_finance.get("fints_product_id", ""),
+        )
+        finance = validate_finance_settings(raw_finance)
         network = settings.get("network", {})
         media = settings.get("media", {})
         integrations = settings.get("integrations", {})
         v3 = settings.get("v3", {})
         projects = settings.get("projects", {})
+        extensions = settings.get("extensions", {})
+        datalogger = settings.get("datalogger", {})
         if not isinstance(network, dict):
             raise ValueError("network settings must be an object")
         webdav_quota = network.get("webdav_quota_mib", DEFAULT_WEBDAV_QUOTA_MIB)
@@ -619,6 +684,18 @@ class SettingsStore:
             or not MIN_RSYNC_MAX_FILES <= rsync_max_files <= MAX_RSYNC_MAX_FILES
         ):
             raise ValueError("rsync file-count limit must be between 0 and 100,000")
+        quarantine = network.get("webdav_quarantine_mib", DEFAULT_WEBDAV_QUARANTINE_MIB)
+        if (
+            isinstance(quarantine, bool)
+            or not isinstance(quarantine, int)
+            or not 1 <= quarantine <= MAX_WEBDAV_QUARANTINE_MIB
+        ):
+            raise ValueError("WebDAV quarantine must be between 1 and 65,536 MiB")
+        webdav_clamav_enabled = network.get(
+            "webdav_clamav_enabled", DEFAULT_WEBDAV_CLAMAV_ENABLED,
+        )
+        if not isinstance(webdav_clamav_enabled, bool):
+            raise ValueError("WebDAV scan toggle must be boolean")
         if not isinstance(media, dict):
             raise ValueError("media settings must be an object")
         if not isinstance(integrations, dict):
@@ -629,6 +706,25 @@ class SettingsStore:
         if not isinstance(projects, dict):
             raise ValueError("project settings must be an object")
         projects = {"repo_roots": validate_repo_roots(projects.get("repo_roots", []))}
+        if not isinstance(extensions, dict):
+            raise ValueError("extension settings must be an object")
+        extensions = {
+            "http_allowlist": validate_extension_http_allowlist(
+                extensions.get("http_allowlist", list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)),
+            ),
+        }
+        if not isinstance(finance, dict):
+            raise ValueError("finance settings must be an object")
+        # validate_finance_settings deliberately returns only its own keys;
+        # preserve the separate FinTS field validated from the raw section.
+        finance["fints_product_id"] = fints_product_id
+        if not isinstance(datalogger, dict):
+            raise ValueError("datalogger settings must be an object")
+        datalogger = {
+            "allowed_hosts": validate_sensor_allowed_hosts(
+                datalogger.get("allowed_hosts", list(DEFAULT_SENSOR_ALLOWED_HOSTS)),
+            ),
+        }
         if not isinstance(s3.get("enabled", False), bool):
             raise ValueError("S3 enabled must be boolean")
         language = str(interface.get("default_language", "en"))
@@ -662,6 +758,8 @@ class SettingsStore:
             "finance": finance,
             "network": {
                 "webdav_quota_mib": webdav_quota,
+                "webdav_quarantine_mib": quarantine,
+                "webdav_clamav_enabled": webdav_clamav_enabled,
                 "rsync_timeout_seconds": rsync_timeout,
                 "rsync_max_bytes": rsync_max_bytes,
                 "rsync_max_files": rsync_max_files,
@@ -672,4 +770,6 @@ class SettingsStore:
             },
             "v3": v3,
             "projects": projects,
+            "extensions": extensions,
+            "datalogger": datalogger,
         }

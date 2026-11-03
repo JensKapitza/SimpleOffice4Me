@@ -5,8 +5,9 @@ import json
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
-from .access_control import is_admin
+from .access_control import audit, is_admin
 from .auth import login_required
+from .settings_store import SettingsStore
 from .v3_capabilities import enabled
 from .v3_extensions import (
     ExtensionDenied,
@@ -16,6 +17,7 @@ from .v3_extensions import (
     ExtensionStateStore,
     KNOWN_CAPABILITIES,
     POINT_CAPABILITY,
+    validate_extension_http_allowlist,
 )
 from .translations import translate
 
@@ -57,7 +59,36 @@ def index():
         errors=errors,
         known_capabilities=sorted(KNOWN_CAPABILITIES),
         point_capability=POINT_CAPABILITY,
+        allowlist=SettingsStore(root).settings()["extensions"]["http_allowlist"],
     )
+
+
+@bp.post("/allowlist")
+@admin_required
+def save_allowlist():
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        raw = request.form.get("allow_hosts", "")
+        entries = [
+            line.strip()
+            for line in raw.replace(",", "\n").splitlines()
+            if line.strip()
+        ]
+        allowlist = validate_extension_http_allowlist(entries)
+        SettingsStore(root).save(
+            {"extensions": {"http_allowlist": allowlist}}, str(g.user["username"]),
+        )
+        audit(
+            "v3_extension_allowlist_updated",
+            "settings",
+            "extensions.http_allowlist",
+            detail={"http_allowlist": allowlist},
+        )
+        flash(translate(g.language, "v3ext.allowlist.saved"))
+    except (OSError, ValueError) as exc:
+        current_app.logger.info("Extension allowlist rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    return redirect(url_for("v3_extensions_admin.index"))
 
 
 @bp.post("/register")

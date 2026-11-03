@@ -147,11 +147,46 @@ def normalize_account(account: Any) -> DiscoveredBankAccount:
     )
 
 
+def _stored_product_id() -> str:
+    """Read the registered FinTS product ID from the settings file."""
+    try:
+        from flask import current_app, has_app_context
+
+        if not has_app_context():
+            return ""
+        from .settings_store import SettingsStore
+
+        value = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["finance"]["fints_product_id"]
+        return value if isinstance(value, str) else ""
+    except (OSError, ValueError, KeyError, RuntimeError):
+        return ""
+
+
+def normalize_fints_product_id(value: object) -> str:
+    """Coerce a stored product ID to a safe string (empty means unconfigured)."""
+    if not isinstance(value, str):
+        return ""
+    return value.strip()
+
+
+def validate_fints_product_id(value: object) -> str:
+    """Validate a product ID for saving; empty keeps the unconfigured state."""
+    if not isinstance(value, str):
+        raise ValueError("Die FinTS-Produkt-ID muss eine Zeichenkette sein.")
+    text = value.strip()
+    if len(text) > 64 or (text and (not text.isascii() or any(
+        ord(character) < 32 or ord(character) == 127 for character in text
+    ))):
+        raise ValueError("Die FinTS-Produkt-ID ist ungültig (maximal 64 ASCII-Zeichen).")
+    return text
+
+
 def _client(
     connection: dict[str, Any],
     pin: str,
     *,
     from_data: bytes | None = None,
+    product_id: str | None = None,
 ):
     if text(connection.get("provider"), 30).casefold() != "fints":
         raise ValueError("Bankverbindung ist keine FinTS-Verbindung")
@@ -170,7 +205,9 @@ def _client(
     if not endpoint.lower().startswith("https://"):
         raise ValueError("FinTS-URL muss HTTPS verwenden")
     client_class = _library()
-    product_id = os.environ.get("SIMPLEOFFICE_FINTS_PRODUCT_ID", "").strip()
+    if product_id is None:
+        product_id = _stored_product_id()
+    product_id = product_id.strip() if isinstance(product_id, str) else ""
     if (
         not product_id
         or len(product_id) > 64
@@ -179,7 +216,8 @@ def _client(
     ):
         raise FinTSUnavailable(
             "FinTS-Produkt-ID fehlt oder ist ungültig. Hinterlege eine gültige, bei der "
-            "Deutschen Kreditwirtschaft registrierte Produkt-ID in SIMPLEOFFICE_FINTS_PRODUCT_ID."
+            "Deutschen Kreditwirtschaft registrierte Produkt-ID in den FinTS-Einstellungen "
+            "(Administration)."
         )
     options = {"product_id": product_id}
     if from_data is not None:

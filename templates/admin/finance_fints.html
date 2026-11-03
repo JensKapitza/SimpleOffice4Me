@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">{{ 'FinTS product registration' if g.language == 'en' else 'FinTS-Produktregistrierung' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Registered product ID for FinTS bank access. Empty keeps FinTS disabled. At most 64 printable ASCII characters.' if g.language == 'en' else 'Registrierte Produkt-ID für den FinTS-Bankzugang. Leer lässt FinTS deaktiviert. Höchstens 64 druckbare ASCII-Zeichen.' }}</p>
+    </div>
+  </div>
+  <section class="card">
+    <div class="card-body">
+      <form method="post" action="{{ url_for('finance_admin.save') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="fints-product">{{ 'Product ID' if g.language == 'en' else 'Produkt-ID' }}</label>
+          <input class="form-control" id="fints-product" type="text" name="fints_product_id" value="{{ fints_product_id }}" maxlength="64" autocomplete="off" spellcheck="false">
+          <div class="form-text">{{ 'Default: empty (disabled).' if g.language == 'en' else 'Standard: leer (deaktiviert).' }}</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

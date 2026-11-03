@@ -34,6 +34,7 @@ from .settings_store import (
     MAX_RSYNC_MAX_FILES,
     MAX_RSYNC_TIMEOUT_SECONDS,
     MAX_WEBDAV_QUOTA_MIB, DEFAULT_WEBDAV_QUOTA_MIB,
+    MAX_WEBDAV_QUARANTINE_MIB,
     MIN_OSM_FILTER_TIMEOUT_SECONDS,
     MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MIN_FEDERATION_AUTOSCAN_SECONDS,
@@ -653,6 +654,8 @@ def save_network_settings():
         if reset_defaults:
             network = {
                 "webdav_quota_mib": DEFAULT_SETTINGS["network"]["webdav_quota_mib"],
+                "webdav_quarantine_mib": DEFAULT_SETTINGS["network"]["webdav_quarantine_mib"],
+                "webdav_clamav_enabled": DEFAULT_SETTINGS["network"]["webdav_clamav_enabled"],
                 "rsync_timeout_seconds": (
                     DEFAULT_SETTINGS["network"]["rsync_timeout_seconds"]
                     if "rsync_timeout_seconds" in request.form
@@ -679,6 +682,19 @@ def save_network_settings():
                 quota = int(raw)
             if not DEFAULT_WEBDAV_QUOTA_MIB <= quota <= MAX_WEBDAV_QUOTA_MIB:
                 raise ValueError("Bitte ein gültiges WebDAV-Kontingent in MiB eingeben.")
+            raw_quarantine = request.form.get("webdav_quarantine_mib")
+            if raw_quarantine is None:
+                quarantine = current["webdav_quarantine_mib"]
+            else:
+                if (
+                    not raw_quarantine.isascii()
+                    or not raw_quarantine.isdigit()
+                    or len(raw_quarantine) > len(str(MAX_WEBDAV_QUARANTINE_MIB))
+                ):
+                    raise ValueError("Bitte eine gültige WebDAV-Quarantäne in MiB eingeben.")
+                quarantine = int(raw_quarantine)
+            if not 1 <= quarantine <= MAX_WEBDAV_QUARANTINE_MIB:
+                raise ValueError("Bitte eine gültige WebDAV-Quarantäne in MiB eingeben.")
             raw_timeout = request.form.get("rsync_timeout_seconds")
             if raw_timeout is None:
                 rsync_timeout = current["rsync_timeout_seconds"]
@@ -718,13 +734,20 @@ def save_network_settings():
                 rsync_max_files = int(raw_max_files)
                 if not MIN_RSYNC_MAX_FILES <= rsync_max_files <= MAX_RSYNC_MAX_FILES:
                     raise ValueError("Das Rsync-Dateianzahl-Limit muss zwischen 0 und 100.000 liegen.")
+            if "webdav_clamav_enabled" in request.form:
+                clamav_enabled = request.form.get("webdav_clamav_enabled") == "1"
+            else:
+                clamav_enabled = current["webdav_clamav_enabled"]
             network = {
                 "webdav_quota_mib": quota,
+                "webdav_quarantine_mib": quarantine,
+                "webdav_clamav_enabled": clamav_enabled,
                 "rsync_timeout_seconds": rsync_timeout,
                 "rsync_max_bytes": rsync_max_bytes,
                 "rsync_max_files": rsync_max_files,
             }
         webdav_changed = network["webdav_quota_mib"] != current["webdav_quota_mib"]
+        clamav_changed = network["webdav_clamav_enabled"] != current["webdav_clamav_enabled"]
         rsync_changed = network["rsync_timeout_seconds"] != current["rsync_timeout_seconds"]
         rsync_max_changed = network["rsync_max_bytes"] != current["rsync_max_bytes"]
         rsync_files_changed = network["rsync_max_files"] != current["rsync_max_files"]
@@ -736,8 +759,9 @@ def save_network_settings():
                 "network_settings_updated", "settings", "network.webdav_quota",
                 detail={
                     "webdav_quota_mib": network["webdav_quota_mib"],
+                    "webdav_clamav_enabled": network["webdav_clamav_enabled"],
                     "reset_to_defaults": reset_defaults,
-                    "restart_required": webdav_changed,
+                    "restart_required": webdav_changed or clamav_changed,
                 },
             )
         if rsync_changed:
@@ -764,6 +788,8 @@ def save_network_settings():
         )
         if webdav_changed:
             notice += " Neustart erforderlich, damit das WebDAV-Kontingent gilt."
+        if clamav_changed:
+            notice += " Neustart erforderlich, damit die WebDAV-Prüfung gilt."
         if rsync_changed:
             notice += " Das Rsync-Zeitlimit gilt für neue Sitzungen."
         if rsync_max_changed:

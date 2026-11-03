@@ -75,28 +75,28 @@ ausgewertet. Der tiefe Archivindex ist zusätzlich als persistente Admin-Einstel
 
 | Variable | Standard | Bedeutung / zulässige numerische Grenzen |
 |---|---|---|
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` (Legacy-Migration) | `auto` | Gilt nur bis `media.archive_deep_index_enabled` gespeichert wurde; enabled Werte umgehen niemals CPU-/RAM-Prüfungen |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` (entfernt) | `auto` | Entfernt; `media.archive_deep_index_enabled` (Standard an) gilt immer, enabled umgeht niemals CPU-/RAM-Prüfungen |
 | `media.archive_max_load_per_cpu` (persistente Admin-Einstellung) | `0.75` | Lastschwelle pro CPU; `0.1–8.0` |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` (Legacy-Migration) | `0.75` | Gilt nur bis `media.archive_max_load_per_cpu` gespeichert wurde; ungültige Werte nutzen den Standard, Ausreißer werden auf `0.1–8.0` begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` (entfernt) | `0.75` | Entfernt; `media.archive_max_load_per_cpu` gilt immer (Speichern prüft `0.1–8.0` streng, korrupte Datei = Standard) |
 | `media.archive_min_free_memory_mb` (persistente Admin-Einstellung) | `384` | Mindestmenge freien RAM; `64–65536 MiB` |
-| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | `384` | Gilt nur bis der persistente RAM-Grenzwert gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (entfernt) | `384` | Entfernt; `media.archive_min_free_memory_mb` gilt immer (korrupte Datei = Standard) |
 | `media.archive_disk_reserve_mb` (persistente Admin-Einstellung) | `2048` | Freier Speicherplatz, der neben der 10-%-Scratch-Grenze erhalten bleibt; `128–1048576 MiB` |
-| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | `2048` | Gilt nur bis die persistente Datenträgerreserve gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (entfernt) | `2048` | Entfernt; `media.archive_disk_reserve_mb` gilt immer (korrupte Datei = Standard) |
 | `media.archive_member_yield_ms` (persistente Admin-Einstellung) | `2` | Pause je verarbeitetem Archiveintrag; `0–100 ms` |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_member_yield_ms` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (entfernt) | `2` | Entfernt; `media.archive_member_yield_ms` gilt immer (korrupte Datei = Standard) |
 | `media.archive_max_members` (persistente Admin-Einstellung) | `20000` | Maximale Zahl katalogisierter Archiveinträge; `100–200000` |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | `20000` | Gilt nur bis `media.archive_max_members` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (entfernt) | `20000` | Entfernt; `media.archive_max_members` gilt immer (korrupte Datei = Standard) |
 | `media.archive_max_member_mb` (persistente Admin-Einstellung) | `512` | Größter Eintrag, dessen Inhalt extrahiert wird; `1–8192 MiB` |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | `512` | Gilt nur bis `media.archive_max_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (entfernt) | `512` | Entfernt; `media.archive_max_member_mb` gilt immer (korrupte Datei = Standard) |
 | `media.archive_max_text_mb` (persistente Admin-Einstellung) | `8` | Gesamtes abgeleitetes Volltextbudget pro Archiv; `1–64 MiB` |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | `8` | Gilt nur bis `media.archive_max_text_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (entfernt) | `8` | Entfernt; `media.archive_max_text_mb` gilt immer (korrupte Datei = Standard) |
 | `media.archive_max_text_per_member_mb` (persistente Admin-Einstellung) | `2` | Textbudget je Eintrag; `1–32 MiB` |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | `2` | Gilt nur bis `media.archive_max_text_per_member_mb` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (entfernt) | `2` | Entfernt; `media.archive_max_text_per_member_mb` gilt immer (korrupte Datei = Standard) |
 | `media.archive_max_content_files` (persistente Admin-Einstellung) | `500` | Höchstzahl der Einträge für Inhaltsverarbeitung; `1–10000` |
-| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | `500` | Gilt nur bis `media.archive_max_content_files` gespeichert wurde; Ausreißer werden begrenzt |
+| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (entfernt) | `500` | Entfernt; `media.archive_max_content_files` gilt immer (korrupte Datei = Standard) |
 | `media.archive_max_compression_ratio` (persistente Admin-Einstellung) | `200` | Verhältnis unkomprimierter zu komprimierter Größe; `10–10000`; greift ab 1 MiB je Eintrag |
-| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` (Legacy-Migration) | `200` | Gilt nur bis `media.archive_max_compression_ratio` gespeichert wurde; Ausreißer werden begrenzt |
-| `SIMPLEOFFICE_ARCHIVE_OCR` | `0` | Legacy-Startwert bis `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gespeichert wird; optionale OCR für unterstützte Bild-Einträge |
+| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` (entfernt) | `200` | Entfernt; `media.archive_max_compression_ratio` gilt immer (korrupte Datei = Standard) |
+| `SIMPLEOFFICE_ARCHIVE_OCR` (entfernt; war nie wirksam, kein Leser im Code) | `0` | Entfernt; `media.archive_ocr_enabled` unter `/admin/settings/documents-media` gilt immer; optionale OCR für unterstützte Bild-Einträge |
 
 Erzwungene tiefe Indexierung hebt nicht Größen-, Pfad-, Scratch- oder
 Kompressionsschutz auf. Das Scratch-Budget nutzt höchstens ein Zehntel des
@@ -239,18 +239,18 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ANDROID_ACCOUNT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_BOOTSTRAP_TOKEN` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ANDROID_PYTHON` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` | [archive_settings.py](../app/archive_settings.py) | Legacy-Migrationswert; Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (Legacy-Migration) | [archive_settings.py](../app/archive_settings.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_ARCHIVE_OCR` | [archive_indexer.py](../app/archive_indexer.py) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DEEP_INDEX` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO` (entfernt) | [archive_indexer.py](../app/archive_indexer.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_ARCHIVE_OCR` (entfernt; war nie wirksam) | [archive_indexer.py](../app/archive_indexer.py) | Entfernt; Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BACKGROUND_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_BUILD_BRANCH` | [software_distribution_core.py](../app/software_distribution_core.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_EPOCH` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
@@ -272,7 +272,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ERROR_RELAY_ENABLED` (Legacy-Migration) | [error_relay.py](../app/error_relay.py) | Persistenter Modus `integrations.error_relay_mode`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORTING` (Legacy-Migration) | [github_error_reporter.py](../app/github_error_reporter.py) | Persistente Präferenz `integrations.error_reporting_enabled`; [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
 | `SIMPLEOFFICE_ERROR_REPORT_URL` | [android-apk-build.yml](../.github/workflows/android-apk-build.yml) | [GITHUB_ERROR_REPORTING](GITHUB_ERROR_REPORTING.md) |
-| `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` | [v3_extensions.py](../app/v3_extensions.py) | [V3_EXTENSIONS](V3_EXTENSIONS.md) |
+| `SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST` (entfernt) | [v3_extensions.py](../app/v3_extensions.py) | Persistente Einstellung `extensions.http_allowlist` unter „V3-Erweiterungen“; [V3_EXTENSIONS](V3_EXTENSIONS.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS` | [federation_discovery_endpoint.py](../app/federation_discovery_endpoint.py) | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
 | `SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY` | Legacy-Startwert für die optionale Admin-Einstellung `integrations.federation_autoscan_country` | [FEDERATION_DISCOVERY_TRUST](FEDERATION_DISCOVERY_TRUST.md) |
@@ -292,7 +292,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_FEDERATION_TOKEN` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_FIREWALL_AGENT_STATE` | [simpleoffice_firewall_agent.py](../simpleoffice_firewall_agent.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_FIREWALL_SOCKET` | [simpleoffice_firewall.py](../simpleoffice_firewall.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_FINTS_PRODUCT_ID` | [finance_fints.py](../app/finance_fints.py) | Bei der Deutschen Kreditwirtschaft registrierte Produkt-ID, pro Abruf erforderlich; [FINANCE_STORAGE](FINANCE_STORAGE.md) |
+| `SIMPLEOFFICE_FINTS_PRODUCT_ID` (entfernt) | [finance_fints.py](../app/finance_fints.py) | Persistente Einstellung `finance.fints_product_id` in der Administration unter FinTS; [FINANCE_STORAGE](FINANCE_STORAGE.md) |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
 | `SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE` (entfernt) | [software_artifact_config.py](../app/software_artifact_config.py) | Admin → Software-Verwaltung → GitHub-Artefaktquelle (verschlüsselt) |
@@ -341,7 +341,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_OSM_REINDEX_ON_START` | [start.bat](../start.bat) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | [personnel_time_analytics.py](../app/personnel_time_analytics.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | [personnel_time_analytics.py](../app/personnel_time_analytics.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_PIPER_MODEL` | [audio_output_engine.py](../app/audio_output_engine.py) | [AUDIO_OUTPUT](AUDIO_OUTPUT.md) |
+| `SIMPLEOFFICE_PIPER_MODEL` (entfernt) | [audio_output_engine.py](../app/audio_output_engine.py) | Persistente Einstellung `media.piper_model` unter Admin → Dokumente & Medien; [AUDIO_OUTPUT](AUDIO_OUTPUT.md) |
 | `SIMPLEOFFICE_PORT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_PREVIEWS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PREVIEW_MAX_BYTES` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
@@ -366,8 +366,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SCANNER` (entfernt) | [attachment_security.py](../app/attachment_security.py) | Admin → Integrationen & Dienste → ClamAV-Sicherheitsprüfung (`integrations.scanner_choice`); [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_SECRET_KEY` | [secret_key.py](../app/secret_key.py) | [ERSTER_START](ERSTER_START.md) |
 | `SIMPLEOFFICE_SECURITY_ADMINS` (entfernt) | [admin_lists.py](../app/admin_lists.py) | Admin → Benutzer → Admin-Listen; [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
-| `SIMPLEOFFICE_SENSOR_` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
-| `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` | [datalogger_collectors.py](../app/datalogger_collectors.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
+| `SIMPLEOFFICE_SENSOR_` (entfernt) | [datalogger_collectors.py](../app/datalogger_collectors.py) | Token steht direkt in der Quellenkonfiguration (`header_secret`), nie in der Umgebung; [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
+| `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS` (entfernt) | [datalogger_collectors.py](../app/datalogger_collectors.py) | Persistente Einstellung `datalogger.allowed_hosts` in den Worker-Einstellungen; [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_SERVER_PEER_ID` | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_SERVER_PUBLIC_URL` (nur Server-Container-Build; App liest Netzwerkeinstellungen) | [server-deb-build.yml](../.github/workflows/server-deb-build.yml) | Admin → Federation → Netzwerkeinstellungen; [SITE_VISITS](SITE_VISITS.md) |
 | `SIMPLEOFFICE_SFTP_BIND` (nur direkter SFTP-Starter / Kindprozess-IPC; Mini Service nutzt gespeicherte Einstellung) | [sftp_server.py](../app/sftp_server.py) | [VIRTUELLES_DATEISYSTEM_SFTP](VIRTUELLES_DATEISYSTEM_SFTP.md); über Mini Services → SFTP konfigurieren |
@@ -407,8 +407,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_V3_WORKBOARD_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.workboard`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
 | `SIMPLEOFFICE_VERSION` | [__init__.py](../app/__init__.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES` | [video_settings.py](../app/video_settings.py) | [VIDEO_VORSCHAU](VIDEO_VORSCHAU.md) |
-| `SIMPLEOFFICE_WEBDAV_CLAMAV` | [__init__.py](../app/__init__.py) | [WEBDAV_DATEIVERWALTUNG](WEBDAV_DATEIVERWALTUNG.md) |
-| `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` | [__init__.py](../app/__init__.py) | [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
+| `SIMPLEOFFICE_WEBDAV_CLAMAV` (entfernt) | [__init__.py](../app/__init__.py) | Persistente Einstellung `network.webdav_clamav_enabled` unter Admin → Netzwerk; [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
+| `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` (entfernt) | [__init__.py](../app/__init__.py) | Persistente Einstellung `network.webdav_quarantine_mib` unter Admin → Netzwerk; [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
 | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (entfernt; war nie wirksam, Startup nutzt immer die Datei) | [__init__.py](../app/__init__.py), [settings_store.py](../app/settings_store.py) | [WEBDAV_QUOTA_UND_LOCKS](WEBDAV_QUOTA_UND_LOCKS.md) |
 | `SIMPLEOFFICE_WORKER_ROOT` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | [start.bat](../start.bat) | [PRODUKTIONSBETRIEB](PRODUKTIONSBETRIEB.md) |
