@@ -32,6 +32,17 @@ Routen-Suiten in diesem Worktree NICHT verifiziert (Test-Login scheitert an
 `PermissionError` auf geschütztem Auth-Speicher; Lauf abgebrochen, kein Grün
 behauptet). Preis-Vorschläge bleiben offene Lücke (bewusst kein Scope dieses
 Slices).
+**Folge (03.11., Marktpreis im Review, Branch `hackai/inventory-batch-20261103`,
+committed `754c689c` (local, not pushed)):** Batch-Review nutzt `GET /inventory/marketplace/search`
+(kein neuer Scraper); Klick-Suche, Treffer mit Anbieter/Preis/Quelle/Link,
+„Preis übernehmen“ nur bei numerischem Preis (sonst deaktiviert), eigene
+Werte nur mit „Ersetzen“-Haken überschrieben. Adopt speichert
+`market_price`/`currency`/`price_source` (URL nie, `price_source` nie ohne
+Preis). Codex-Fund behoben (BOM/Mojibake raus, Tests in
+`test_inventory_capture_price.py`, `capture_marketplace.js` separiert).
+Verifiziert: Store/Combine/Price/UI 34/34 OK, Size-/Function-/Policy-/
+Diff-/Node-Gates grün; Routen-Suiten hier nicht verifizierbar
+(`PermissionError` Auth-Speicher).
 **Stand (30.10., Merge main + Fix, committed `2052c528` + `f729d1f7`):**
 `origin/main` bis `070473b4` (61 Commits, PR #929) konfliktfrei gemergt
 (9 Auto-Merges, verifiziert: Branch- + Main-Seite belegt); daneben 5
