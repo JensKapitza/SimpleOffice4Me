@@ -26,6 +26,10 @@ _ERRORS = {
         "SMTP-Zugang prüfen (Benutzer, Passwort druckbar).",
         "Check the SMTP credentials (user, printable password).",
     ),
+    "tls": (
+        "SMTP erfordert STARTTLS; unverschlüsselte Verbindungen sind gesperrt.",
+        "SMTP requires STARTTLS; unencrypted connections are disabled.",
+    ),
 }
 
 
@@ -51,9 +55,9 @@ def port() -> int:
 
 
 def starttls() -> bool:
-    return str(_store.get(SECTION, "starttls", "1") or "").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+    # Legacy settings may contain false, but credentials and appointment
+    # contents must never travel over plaintext SMTP.
+    return True
 
 
 def user() -> str:
@@ -99,15 +103,17 @@ def validate(values: Mapping[str, Any], language: str = "de") -> dict[str, Any]:
         raise _fail("smtp", language) from None
     if not 1 <= port_value <= MAX_PORT:
         raise _fail("smtp", language)
-    raw_tls = values.get("starttls", "")
+    raw_tls = values.get("starttls", "1")
     if isinstance(raw_tls, bool):
-        starttls_value = "1" if raw_tls else ""
-    elif raw_tls in (None, ""):
-        starttls_value = ""
+        if not raw_tls:
+            raise _fail("tls", language)
+        starttls_value = "1"
     elif str(raw_tls).strip().casefold() in {"1", "true", "yes", "on"}:
         starttls_value = "1"
-    elif str(raw_tls).strip().casefold() in {"0", "false", "no", "off"}:
-        starttls_value = ""
+    elif raw_tls is None or str(raw_tls).strip().casefold() in {
+        "", "0", "false", "no", "off",
+    }:
+        raise _fail("tls", language)
     else:
         raise _fail("smtp", language)
     raw_password = values.get("password", "")

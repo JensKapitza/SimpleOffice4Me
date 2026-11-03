@@ -253,6 +253,7 @@
         retry.addEventListener('click', async () => {
           retry.disabled = true;
           const data = new FormData();
+          if (consentBox && consentBox.checked) data.append('consent_meta', '1');
           data.append('_csrf_token', csrf);
           const response = await fetch(entry.analyze_url, {method: 'POST', body: data, cache: 'no-store'});
           const payload = await safeJson(response);
@@ -456,6 +457,7 @@
     data.append('photo', file, file.name || 'foto.jpg');
     data.append('client_request_id', clientRequestId);
     if (currentBatch) data.append('batch_id', currentBatch);
+    if (consentBox && consentBox.checked) data.append('consent_meta', '1');
     data.append('_csrf_token', csrf);
     const response = await fetch(dataset.uploadUrl, {method: 'POST', body: data, cache: 'no-store'});
     const payload = await safeJson(response);
@@ -495,6 +497,20 @@
       open.textContent = 'Buchgruppe prüfen und übernehmen';
       open.addEventListener('click', () => openBatchReview(batchId, body, open));
       body.appendChild(open);
+      const resume = document.createElement('button');
+      resume.type = 'button';
+      resume.className = 'btn btn-outline-success ms-2';
+      resume.textContent = 'Fortsetzen (weitere Fotos)';
+      resume.addEventListener('click', () => {
+        currentBatch = batchId;
+        updateBatchStatus();
+        setGlobal(`Buchgruppe ${batchId.slice(0, 8)} fortgesetzt — weitere Fotos gehören zu diesem Buch.`, 'success');
+        knownEntries.forEach((entry) => {
+          const col = cards.querySelector(`[data-entry-id="${entry.entry_id}"]`);
+          if (col) col.replaceWith(renderEntry(entry));
+        });
+      });
+      body.appendChild(resume);
       card.appendChild(body);
       col.appendChild(card);
       batchBox.appendChild(col);
@@ -564,6 +580,32 @@
       note.textContent = `Unterschiedliche ISBNs: ${(combined.isbn_candidates || []).join(' · ')} — bitte korrekte ISBN unten wählen.`;
       wrap.appendChild(note);
     }
+    (combined.duplicates || []).forEach((dup) => {
+      const note = document.createElement('div');
+      note.className = 'alert alert-warning py-1 small mb-1';
+      note.textContent = `Bereits vorhanden: #${dup.display_id || ''} ${dup.name || ''} `;
+      if (dup.url) {
+        const link = document.createElement('a');
+        link.href = dup.url;
+        link.textContent = 'Öffnen';
+        note.appendChild(link);
+        note.appendChild(document.createTextNode(' '));
+      }
+      if (payload.assign_url && dup.object_id) {
+        const linkBtn = document.createElement('button');
+        linkBtn.type = 'button';
+        linkBtn.className = 'btn btn-sm btn-outline-success ms-1';
+        linkBtn.textContent = 'Gruppe diesem Buch zuordnen';
+        linkBtn.addEventListener('click', () => {
+          if (assignIdInput && assignExistingBtn) {
+            assignIdInput.value = dup.object_id || '';
+            assignExistingBtn.click();
+          }
+        });
+        note.appendChild(linkBtn);
+      }
+      wrap.appendChild(note);
+    });
     const rolesByPhoto = {};
     (payload.entries || []).forEach((item) => {
       if (item && item.entry_id) rolesByPhoto[item.entry_id] = item.photo_role || '';
@@ -602,6 +644,24 @@
     }
     addField('Beschreibung', 'description', prefill.description);
     addField('Tags (Komma-getrennt)', 'tags', Array.isArray(prefill.tags) ? prefill.tags.join(', ') : '');
+    addField('Preis (EUR-Richtwert)', 'market_price', '');
+    addField('Währung', 'currency', 'EUR');
+    addField('Preisquelle', 'price_source', '');
+    if (inputs.currency) inputs.currency.maxLength = 3;
+    if (inputs.market_price) inputs.market_price.setAttribute('inputmode', 'decimal');
+    if (window.SimpleOfficeCaptureMarketplace) {
+      window.SimpleOfficeCaptureMarketplace.renderMarketplaceSection({
+        inputs, combined, form, dataset, cleanText, safeJson,
+      });
+    }
+    if (window.SimpleOfficeCapturePeerStock) {
+      window.SimpleOfficeCapturePeerStock.renderPeerStockSection({
+        inputs, combined, form, dataset, csrf, cleanText, safeJson,
+      });
+      window.SimpleOfficeCapturePeerStock.renderPeerInventorySection({
+        inputs, combined, form, dataset, csrf, cleanText, safeJson,
+      });
+    }
     const missing = (combined.missing_fields || []).join(', ');
     if (missing) {
       const hint = document.createElement('p');
@@ -610,6 +670,8 @@
       form.appendChild(hint);
     }
     let shelfSelect = null;
+    let assignIdInput = null;
+    let assignExistingBtn = null;
     if (combined.kind === 'book') {
       const shelfWrap = document.createElement('div');
       shelfWrap.className = 'col-12';
@@ -723,6 +785,9 @@
       }
       data.append('description', get('description'));
       data.append('tags', get('tags'));
+      data.append('market_price', get('market_price'));
+      data.append('currency', get('currency'));
+      data.append('price_source', get('price_source'));
       data.append('capture_request_id', adoptToken);
       data.append('_csrf_token', csrf);
       const target = `${batchUrlFor(payload.batch_id)}/adopt`;
@@ -748,6 +813,17 @@
         link.href = result.detail_url;
         link.textContent = 'Öffnen';
         done.appendChild(link);
+      }
+      if (result.duplicate && result.object_id && assignIdInput && assignExistingBtn) {
+        const linkExisting = document.createElement('button');
+        linkExisting.type = 'button';
+        linkExisting.className = 'btn btn-sm btn-outline-success ms-1';
+        linkExisting.textContent = 'Gruppe diesem Buch zuordnen';
+        linkExisting.addEventListener('click', () => {
+          assignIdInput.value = result.object_id || '';
+          assignExistingBtn.click();
+        });
+        done.appendChild(linkExisting);
       }
       state.appendChild(done);
       renderShelfState(result);
@@ -853,6 +929,8 @@
         }
         renderBatches();
       });
+      assignIdInput = idInput;
+      assignExistingBtn = assignExisting;
       assignRow.appendChild(assignExisting);
       form.appendChild(assignRow);
     }

@@ -164,6 +164,39 @@ class BatchStoreTests(unittest.TestCase):
         created = [row["created_at"] for row in rows]
         self.assertEqual(sorted(created), created)
 
+    def test_capture_order_survives_shared_timestamp(self) -> None:
+        frozen = "2026-11-03T09:00:00+00:00"
+        with mock.patch("app.capture_inbox_store.utc_now",
+                        return_value=frozen):
+            first, _ = self.store.create(
+                "anna", b"fake-title-page", ".png", "b1" * 16, BATCH_A)
+            second, _ = self.store.create(
+                "anna", b"fake-imprint", ".png", "b2" * 16, BATCH_A)
+            third, _ = self.store.create(
+                "anna", b"fake-spine", ".png", "b3" * 16, BATCH_A)
+        self.assertEqual(frozen, first["created_at"])
+        self.assertEqual(frozen, third["created_at"])
+        rows = self.store.list_batch("anna", BATCH_A)
+        self.assertEqual(
+            [first["entry_id"], second["entry_id"], third["entry_id"]],
+            [row["entry_id"] for row in rows])
+        self.assertEqual(
+            [1, 2, 3], [row["batch_seq"] for row in rows])
+        moved = self.store.set_batch(second["entry_id"], "anna", "")
+        self.assertNotIn("batch_seq", moved)
+        self.assertEqual("", moved["batch_id"])
+        remaining = self.store.list_batch("anna", BATCH_A)
+        self.assertEqual(
+            [first["entry_id"], third["entry_id"]],
+            [row["entry_id"] for row in remaining])
+        rejoined = self.store.set_batch(
+            second["entry_id"], "anna", BATCH_A)
+        self.assertEqual(4, rejoined["batch_seq"])
+        rows = self.store.list_batch("anna", BATCH_A)
+        self.assertEqual(
+            [first["entry_id"], third["entry_id"], second["entry_id"]],
+            [row["entry_id"] for row in rows])
+
     def test_invalid_batch_rejected(self) -> None:
         with self.assertRaises(ValueError):
             self.store.create("anna", b"fake", ".png", batch_id="bad")
@@ -329,7 +362,8 @@ class BatchRouteTests(unittest.TestCase):
         return f"{self.token_counter:032x}"[-32:]
 
     def upload(self, data: bytes = PNG_1PX, batch_id: str = "",
-               client=None, request_id: str | None = None):
+               client=None, request_id: str | None = None,
+               consent: bool = False):
         who = client or self.client
         form = {
             "photo": (io.BytesIO(data), "foto.png"),
@@ -339,6 +373,8 @@ class BatchRouteTests(unittest.TestCase):
         }
         if batch_id:
             form["batch_id"] = batch_id
+        if consent:
+            form["consent_meta"] = "1"
         return who.post(
             "/inventory/capture/upload",
             data=form,
@@ -522,6 +558,98 @@ class BatchRouteTests(unittest.TestCase):
         self.assertEqual(
             {}, InventoryEnrichmentStore(self.documents).object_metas())
         self.assertEqual([], ObjectStore(self.documents).objects())
+
+    def test_batch_analyze_keeps_shelf_and_assign_context(self) -> None:
+        from app.library.store import LibraryStore
+
+        shelf = LibraryStore(self.documents).create_location(
+            "Regal A", "anna", code="A-1")
+        first = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]
+        self.upload(PNG_RED_1PX, BATCH_A)
+        self.save_analyses([
+            (first["entry_id"], _photo_payload(first["entry_id"])),
+        ])
+
+        def fake_analyze(raw: bytes, photo_id: str, **kwargs):
+            return _photo_payload(photo_id)
+
+        with mock.patch("app.inventory_capture.analyze_photo",
+                        side_effect=fake_analyze):
+            response = self.client.post(
+                f"/inventory/capture/batch/{BATCH_A}/analyze",
+                data={"_csrf_token": self.csrf()},
+            )
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertIn("shelves", payload)
+        self.assertIn("default_location_id", payload)
+        self.assertIn("assign_url", payload)
+        self.assertEqual(
+            shelf["location_id"], payload["shelves"][0]["location_id"])
+        review = self.client.get(
+            f"/inventory/capture/batch/{BATCH_A}").get_json()
+        self.assertEqual(review["shelves"], payload["shelves"])
+        self.assertEqual(review["assign_url"], payload["assign_url"])
+        self.assertEqual(
+            review["default_location_id"], payload["default_location_id"])
+
+    def test_single_upload_consent_reaches_ml_gate(self) -> None:
+        seen: list[dict] = []
+
+        def fake_label(png: bytes, isbn: str, **kwargs):
+            seen.append(kwargs)
+            return {"available": False, "label": "", "item_type": "",
+                    "isbn": "", "note": "", "subtitle": "", "authors": [],
+                    "tags": [], "provider": "", "provider_label": "",
+                    "model": "", "error": "ML-Analyse ist blockiert."}
+
+        with mock.patch("app.inventory_capture.capture_ml_label",
+                        side_effect=fake_label):
+            checked = self.upload(PNG_1PX, consent=True).get_json()
+            plain = self.upload(PNG_RED_1PX).get_json()
+        self.assertTrue(checked["ok"])
+        self.assertTrue(plain["ok"])
+        self.assertEqual(2, len(seen))
+        self.assertTrue(seen[0].get("consent_meta"))
+        self.assertFalse(seen[1].get("consent_meta"))
+        self.assertEqual(self.documents, seen[0].get("root"))
+        for payload in (checked, plain):
+            ml = payload["entry"]["analysis"]["ml"]
+            self.assertFalse(ml["available"])
+            self.assertEqual("", ml["model"])
+            self.assertEqual(
+                "ML-Analyse ist vorübergehend nicht verfügbar.",
+                ml["error"])
+            self.assertNotIn("blockiert", ml["error"])
+
+    def test_single_reanalyze_consent_reaches_ml_gate(self) -> None:
+        entry = self.upload(PNG_1PX).get_json()["entry"]
+        seen: list[dict] = []
+
+        def fake_label(png: bytes, isbn: str, **kwargs):
+            seen.append(kwargs)
+            return {"available": False, "label": "", "item_type": "",
+                    "isbn": "", "note": "", "subtitle": "", "authors": [],
+                    "tags": [], "provider": "", "provider_label": "",
+                    "model": "", "error": "ML-Analyse ist blockiert."}
+
+        with mock.patch("app.inventory_capture.capture_ml_label",
+                        side_effect=fake_label):
+            response = self.client.post(
+                f"/inventory/capture/{entry['entry_id']}/analyze",
+                data={"consent_meta": "1",
+                      "_csrf_token": self.csrf()},
+            )
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, len(seen))
+        self.assertTrue(seen[0].get("consent_meta"))
+        self.assertEqual(self.documents, seen[0].get("root"))
+        ml = response.get_json()["entry"]["analysis"]["ml"]
+        self.assertFalse(ml["available"])
+        self.assertEqual("", ml["model"])
+        self.assertEqual(
+            "ML-Analyse ist vorübergehend nicht verfügbar.", ml["error"])
 
     def test_batch_analyze_saves_per_photo_and_combines(self) -> None:
         first = self.upload(PNG_1PX, BATCH_A).get_json()["entry"]

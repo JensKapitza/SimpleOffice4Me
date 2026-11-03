@@ -25,10 +25,10 @@
   <section class="card mb-4">
     <div class="card-header"><strong>{{ 'HTTP allowlist' if g.language == 'en' else 'HTTP-Allowlist' }}</strong></div>
     <div class="card-body">
-      <p class="small text-secondary">{{ 'One host per line, optional :port, optional user@ prefix. * allows everything. Invalid entries are rejected; changes apply immediately.' if g.language == 'en' else 'Ein Host pro Zeile, optional :Port, optional user@-Präfix. * erlaubt alles. Ungültige Einträge werden abgelehnt; Änderungen gelten sofort.' }}</p>
+      <p class="small text-secondary">{{ 'HTTP calls are denied until you list exact hostnames, one per line. Wildcards, ports and user prefixes are not accepted. Leave the list empty to deny all HTTP extension calls. Add localhost explicitly for local development.' if g.language == 'en' else 'HTTP-Aufrufe bleiben gesperrt, bis du exakte Hostnamen einträgst (einen pro Zeile). Wildcards, Ports und Benutzer-Präfixe sind nicht erlaubt. Eine leere Liste sperrt alle HTTP-Extension-Aufrufe. Trage localhost für lokale Entwicklung ausdrücklich ein.' }}</p>
       <form method="post" action="{{ url_for('v3_extensions_admin.save_allowlist') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <textarea class="form-control font-monospace mb-2" name="allow_hosts" rows="4" required>{{ allowlist | join('\n') }}</textarea>
+        <textarea class="form-control font-monospace mb-2" name="allow_hosts" rows="4">{{ allowlist | join('\n') }}</textarea>
         <button type="submit" class="btn btn-primary">{{ 'Save allowlist' if g.language == 'en' else 'Allowlist speichern' }}</button>
       </form>
     </div>

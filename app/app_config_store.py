@@ -84,10 +84,10 @@ def put(section_name: str, values: Mapping[str, Any]) -> dict[str, Any]:
             raise ValueError("Ungültiger Konfigurationsschlüssel.")
         if not _jsonable(value):
             raise ValueError("Konfigurationswert ist nicht speicherbar.")
-    try:
-        data = _load()
-    except (OSError, ValueError):
-        data = {}
+    # A damaged or unreadable existing file must not be replaced by a
+    # one-section store: that would silently delete every other setting
+    # and encrypted credential. Missing files already return {} in _load.
+    data = _load()
     data[section_name] = {**(data.get(section_name) or {}), **candidate}
     _dump(data)
     return dict(data[section_name])

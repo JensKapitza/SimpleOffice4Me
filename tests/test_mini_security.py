@@ -137,7 +137,10 @@ class NetworkBootExposureTests(unittest.TestCase):
 class SipBoundsTests(unittest.TestCase):
     def test_challenges_evict_oldest_nonce_and_its_replay_count(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = SipRegistrarService(Path(directory) / "mini.json")
+            service = SipRegistrarService(
+                Path(directory) / "mini.json",
+                master_key="test-installation-key-that-is-long-enough",
+            )
             with patch("simpleoffice_sip_runtime._MAX_NONCES", 4):
                 service._challenge({}, "127.0.0.1")
                 oldest = next(iter(service.nonces))

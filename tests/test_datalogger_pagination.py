@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.datalogger import _source_config
 from app.datalogger_collectors import CollectionError, collect_linux
@@ -23,7 +24,11 @@ class DataLoggerPaginationTests(unittest.TestCase):
         self.assertEqual("/", config["path"])
 
     def test_existing_empty_linux_metric_self_heals(self):
-        value = collect_linux({"metric": ""})
+        # Keep this behavior test portable: Windows does not implement
+        # os.getloadavg, while the collector itself correctly reports that
+        # metric as unavailable on that platform.
+        with patch("app.datalogger_collectors.os.getloadavg", return_value=(0.25, 0.5, 0.75), create=True):
+            value = collect_linux({"metric": ""})
         self.assertIsInstance(value, float)
 
     def test_unknown_linux_metric_is_rejected_when_configured(self):

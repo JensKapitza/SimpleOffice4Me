@@ -14,7 +14,7 @@ This project is the Android counterpart of the Electron desktop wrapper. Electro
 
 The installable APK requires Android API 24 / Android 7.0 or newer:
 
-- `arm64-v8a`: modern 64-bit ARM devices, using Python 3.13.
+- `arm64-v8a`: modern 64-bit ARM devices, using Python 3.14.
 
 Legacy ARM32 is not offered because no verified Pillow 13 wheel is available for that ABI.
 
@@ -34,13 +34,13 @@ The **Bildschirm** page can open Android's system cast settings when provided by
 
 Requirements: JDK 17, Android SDK 36 and Gradle 8.13.
 
-The supported local build uses ARM64 and Python 3.13. It requires the pinned
+The supported local build uses ARM64 and Python 3.14. It requires the pinned
 Pillow and cryptography wheels produced by the Android native-wheel build. The
 wheel preflight downloads the ReportLab universal wheel from PyPI and verifies
 its published SHA-256 before Gradle uses it:
 
-1. Download `android-cp313-arm64-Pillow-wheel` and
-   `android-cp313-arm64-cryptography-wheel` from the Android native-wheel CI.
+1. Download `android-cp314-arm64-Pillow-wheel` and
+   `android-cp314-arm64-cryptography-wheel` from the Android native-wheel CI.
 2. Extract both wheels and their `*-SHA256SUMS` files into
    `android/apk/app/wheelhouse` and verify them with:
 
@@ -53,7 +53,7 @@ its published SHA-256 before Gradle uses it:
 
    ```bash
    python tools/check_chaquopy_wheels.py \
-     --python 3.13 \
+     --python 3.14 \
      --abi arm64-v8a \
      --wheel-dir android/apk/app/wheelhouse
    ```
@@ -61,7 +61,7 @@ its published SHA-256 before Gradle uses it:
 
 ```bash
 cd android/apk
-export CHAQUOPY_BUILD_PYTHON="$(command -v python3.13)"
+export CHAQUOPY_BUILD_PYTHON="$(command -v python3.14)"
 export SIMPLEOFFICE_ANDROID_WHEEL_DIR="$PWD/app/wheelhouse"
 gradle assembleDebug
 ```

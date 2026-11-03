@@ -87,7 +87,7 @@ class StartScriptTests(unittest.TestCase):
             '"reportlab": ">=4.0,<6"',
             '"pypdf": ">=5.0,<7"',
             '"waitress": ">=3.0,<4"',
-            '"cryptography": ">=48.0.1,<51"',
+            '"cryptography": ">=50.0.2,<51"',
             '"watchdog": ">=6,<7"',
             '"tzdata": ">=2024.1"',
         ):

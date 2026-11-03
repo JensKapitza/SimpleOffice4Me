@@ -1,4 +1,8 @@
-"""Friend stock check over locally shared federation indexes (Bueroengel).
+"""Document-hint check over locally shared federation document indexes.
+
+There is no shared inventory-item index: the check reads only the
+local catalog copy of shared *documents* (file paths, ids, tags),
+so hits are document hints, never proof that a friend owns the item.
 
 Friend = peer with an explicit NORMAL/HIGH trust edge AND an enabled
 peer record AND a local documents-receive opt-in (both policy shapes:
@@ -30,6 +34,7 @@ from .inventory_match import (
     IdentifierTooLongError,
     MalformedGtinError,
     clean_identifier,
+    classify_identifier,
     normalize_gtin,
 )
 
@@ -114,14 +119,8 @@ def _remote_candidates(entry: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 def _classify_query(query: str) -> tuple[str, str]:
-    try:
-        return "isbn", normalize_isbn(query)
-    except ValueError:
-        pass
-    canonical_gtin = normalize_gtin(query)
-    if canonical_gtin:
-        return "gtin", canonical_gtin
-    return "barcode", query
+    """Shared identifier classification (see inventory_match)."""
+    return classify_identifier(query)
 
 
 def index_state(catalog: FederationCatalog, peer_id: str) -> str:

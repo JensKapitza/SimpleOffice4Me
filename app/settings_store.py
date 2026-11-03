@@ -25,6 +25,19 @@ from .archive_settings import (
     DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB as DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
 )
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
+from .finance_settings import (
+    DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+    DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+    DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+    MAX_BANK_BROWSER_TIMEOUT_SECONDS as MAX_BANK_BROWSER_TIMEOUT_SECONDS,
+    MAX_FINANCE_IMPORT_LIMIT_BYTES as MAX_FINANCE_IMPORT_LIMIT_BYTES,
+    MAX_FINANCE_STAGING_TTL_SECONDS as MAX_FINANCE_STAGING_TTL_SECONDS,
+    MIN_BANK_BROWSER_TIMEOUT_SECONDS as MIN_BANK_BROWSER_TIMEOUT_SECONDS,
+    MIN_FINANCE_IMPORT_LIMIT_BYTES as MIN_FINANCE_IMPORT_LIMIT_BYTES,
+    MIN_FINANCE_STAGING_TTL_SECONDS as MIN_FINANCE_STAGING_TTL_SECONDS,
+    normalize_finance_settings,
+    validate_finance_settings,
+)
 from .integration_settings import (
     DEFAULT_CLAMAV_TIMEOUT_SECONDS,
     DEFAULT_PERSONNEL_TIME_AUTOSYNC_ENABLED,
@@ -204,6 +217,13 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "max_staging_mib": DEFAULT_S3_MAX_STAGING_MIB,
         "max_upload_mib": DEFAULT_S3_MAX_UPLOAD_MIB,
     },
+    "finance": {
+        "bank_browser_enabled": True,
+        "bank_browser_timeout_seconds": DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+        "statement_import_limit_bytes": DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+        "statement_staging_ttl_seconds": DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+        "fints_product_id": "",
+    },
     "network": {
         "webdav_quota_mib": DEFAULT_WEBDAV_QUOTA_MIB,
         "webdav_quarantine_mib": DEFAULT_WEBDAV_QUARANTINE_MIB,
@@ -240,7 +260,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "v3": {key: False for key in CAPABILITY_KEYS},
     "projects": {"repo_roots": list(DEFAULT_REPO_ROOTS)},
     "extensions": {"http_allowlist": list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)},
-    "finance": {"fints_product_id": ""},
     "datalogger": {"allowed_hosts": list(DEFAULT_SENSOR_ALLOWED_HOSTS)},
 }
 
@@ -432,13 +451,12 @@ class SettingsStore:
         }
         result["s3"] = normalize_s3_settings(result.get("s3", {}))
         stored_finance = result.get("finance", {})
-        result["finance"] = {
-            "fints_product_id": normalize_fints_product_id(
-                stored_finance.get("fints_product_id", "")
-                if isinstance(stored_finance, dict)
-                else "",
-            ),
-        }
+        normalized_finance = normalize_finance_settings(stored_finance)
+        normalized_finance["fints_product_id"] = normalize_fints_product_id(
+            stored_finance.get("fints_product_id", "")
+            if isinstance(stored_finance, dict) else "",
+        )
+        result["finance"] = normalized_finance
         stored_datalogger = result.get("datalogger", {})
         result["datalogger"] = {
             "allowed_hosts": normalize_sensor_allowed_hosts(
@@ -597,7 +615,10 @@ class SettingsStore:
             # partial writes so callers preserve the other controls in the
             # same section.
             merged = {**latest, **settings}
-            for section in ("network", "media", "integrations", "v3", "projects", "extensions", "finance"):
+            for section in (
+                "network", "media", "integrations", "v3", "projects",
+                "extensions", "finance",
+            ):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
                     merged[section] = {**latest[section], **section_update}
@@ -617,13 +638,19 @@ class SettingsStore:
         calendar = settings.get("calendar", {})
         sharing = settings.get("sharing", {})
         s3 = settings.get("s3", {})
+        raw_finance = settings.get("finance", {})
+        if not isinstance(raw_finance, dict):
+            raise ValueError("finance settings must be an object")
+        fints_product_id = validate_fints_product_id(
+            raw_finance.get("fints_product_id", ""),
+        )
+        finance = validate_finance_settings(raw_finance)
         network = settings.get("network", {})
         media = settings.get("media", {})
         integrations = settings.get("integrations", {})
         v3 = settings.get("v3", {})
         projects = settings.get("projects", {})
         extensions = settings.get("extensions", {})
-        finance = settings.get("finance", {})
         datalogger = settings.get("datalogger", {})
         if not isinstance(network, dict):
             raise ValueError("network settings must be an object")
@@ -688,11 +715,9 @@ class SettingsStore:
         }
         if not isinstance(finance, dict):
             raise ValueError("finance settings must be an object")
-        finance = {
-            "fints_product_id": validate_fints_product_id(
-                finance.get("fints_product_id", ""),
-            ),
-        }
+        # validate_finance_settings deliberately returns only its own keys;
+        # preserve the separate FinTS field validated from the raw section.
+        finance["fints_product_id"] = fints_product_id
         if not isinstance(datalogger, dict):
             raise ValueError("datalogger settings must be an object")
         datalogger = {
@@ -730,6 +755,7 @@ class SettingsStore:
             },
             "sharing": {"default_expiry_days": expiry},
             "s3": validate_s3_settings(s3),
+            "finance": finance,
             "network": {
                 "webdav_quota_mib": webdav_quota,
                 "webdav_quarantine_mib": quarantine,
@@ -745,6 +771,5 @@ class SettingsStore:
             "v3": v3,
             "projects": projects,
             "extensions": extensions,
-            "finance": finance,
             "datalogger": datalogger,
         }

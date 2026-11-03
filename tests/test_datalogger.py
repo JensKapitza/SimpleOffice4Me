@@ -130,13 +130,15 @@ class CollectorTest(unittest.TestCase):
         self.assertEqual(["sensor.local"], validate_sensor_allowed_hosts(["Sensor.Local "]))
 
     def test_linux_load_collector_is_numeric(self):
-        self.assertIsInstance(collect_linux({"metric": "load1"}), float)
+        with patch("app.datalogger_collectors.os.getloadavg", return_value=(0.5, 0.25, 0.1), create=True):
+            self.assertIsInstance(collect_linux({"metric": "load1"}), float)
 
     def test_worker_records_success_without_flask(self):
         with tempfile.TemporaryDirectory() as root:
             store = DataLoggerStore(root); channel = store.create_channel("Load", "alice")
             store.add_source(channel, "alice", "linux", "Load", {"metric": "load1"}, 10)
-            run(root, once=True)
+            with patch("app.datalogger_collectors.os.getloadavg", return_value=(0.5, 0.25, 0.1), create=True):
+                run(root, once=True)
             self.assertEqual(1, len(store.samples(channel)))
             self.assertEqual("ok", store.sources(channel)[0]["last_status"])
 

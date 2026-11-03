@@ -49,10 +49,12 @@ start.bat demo --port 5088
 
 Details, 3-Minuten-Demo und Grenzen:
 [ContextFlow-Hackathon-README](docs/hackathon/contextflow/README.md).
-Der Cloud-Pfad braucht `MODEL_API_KEY` (Prozess-Umgebung oder `.env`
-direkt oberhalb des Repo-Ordners, außerhalb von Git – nie Schlüssel in
-README oder Code); ohne Schlüssel läuft nur die lokale/Mock-Demo, ein
-Cloud-Live-Erfolg wird nicht behauptet.
+Für eine installierte Anwendung wird der Meta-Key unter
+**Admin → Mini-Services → Vision/ML** eingegeben und verschlüsselt
+gespeichert. Der lokale Demo-Starter liest `MODEL_API_KEY` aus der
+Prozessumgebung oder der Eltern-`.env` ausschließlich in den Arbeitsspeicher;
+der Schlüssel wird nicht gespeichert oder protokolliert. Ohne Key läuft
+nur die lokale/Mock-Demo; ein Cloud-Live-Erfolg wird nicht behauptet.
 
 ### Hackathon judges: run and verify the live Meta demo
 
@@ -69,9 +71,12 @@ start.bat demo --port 5088 --fresh
 On Linux/macOS, create `.venv` with `python3 -m venv .venv`, install with
 `.venv/bin/python -m pip install -e .`, then launch with
 `CONTEXTFLOW_VISION_PROVIDER=meta .venv/bin/python tools/contextflow_demo.py --port 5088 --fresh`.
-Put your own `MODEL_API_KEY` in the parent-folder `.env` (one directory above
-the checkout), or set it in the process environment. The demo loader reads
-only this key from that file; never commit it or show it in a recording.
+For the demo, set your own `MODEL_API_KEY` in the process environment or in
+the parent-folder `.env` (one directory above the checkout). The launcher
+passes it only in memory to the synthetic demo; it is not persisted or logged.
+For a regular installation, enter the key at **Admin → Mini-Services →
+Vision/ML**; it is encrypted at rest. Never commit or show the key in a
+recording.
 Open `http://127.0.0.1:5088/contextflow/` and sign in as `demo` /
 `demo-contextflow-1`. The isolated demo uses synthetic data and binds only to
 localhost. A configured model badge alone is not proof of inference: show a
@@ -362,10 +367,12 @@ mehrwertiger CardDAV-/Thunderbird-Felder stehen in
 
 ## Voraussetzungen
 
-- **CPython 3.11–3.15 final** für Produktion. Python 3.10 und ältere Versionen,
-  einschließlich Ubuntu 22.04-System-Python, sind nicht unterstützt. Die
-  [Runtime-Policy](docs/PYTHON_RUNTIME_SUPPORT.md) erklärt Mindestversion,
-  saubere Neuinstallation und vorhandene Standalone-Installation.
+- **CPython 3.14** ist die stabile Standardversion für Builds und neue
+  Installationen. Produktions-Runtimes 3.11–3.14 werden unterstützt; Python
+  3.15 wird experimentell und nicht als Release-Ziel geprüft. Python 3.10 und
+  ältere Versionen, einschließlich Ubuntu 22.04-System-Python, sind nicht
+  unterstützt. Die [Runtime-Policy](docs/PYTHON_RUNTIME_SUPPORT.md) erklärt
+  Mindestversion, Neuinstallation und Standalone-Installation.
 - ein aktueller Browser, zum Beispiel Firefox oder Chromium
 - Ghostscript und eine Java-Laufzeit für die verpflichtende PDF/A-/EN16931-
   Rechnungsprüfung; der Mustang-Validator selbst wird automatisch installiert

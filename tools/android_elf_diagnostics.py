@@ -14,7 +14,7 @@ _RUST_ELF_PATHS = (
     f"cryptography/hazmat/bindings/{_RUST_ELF}",
     "cryptography/hazmat/bindings/_rust.abi3-aarch64-linux-android.so",
 )
-_PYTHON_ELF = "libpython3.15.so"
+_PYTHON_ELF = "libpython3.14.so"
 
 
 def _is_relevant_elf(name: str) -> bool:
@@ -82,10 +82,10 @@ def extract_linkage_diagnostics(apk: Path, output: Path, *, require_python_depen
             reports.append(report)
     if require_python_dependency:
         rust_dynamic = (output / "_rust.abi3.so.dynamic.txt").read_text(encoding="utf-8")
-        if "Shared library: [libpython3.15.so]" not in rust_dynamic:
+        if f"Shared library: [{_PYTHON_ELF}]" not in rust_dynamic:
             raise ValueError(
                 "Android cryptography _rust.abi3.so has no DT_NEEDED for "
-                "libpython3.15.so; known PyLong_Type startup failure (#811)"
+                f"{_PYTHON_ELF}; known PyLong_Type startup failure (#811)"
             )
     return reports
 

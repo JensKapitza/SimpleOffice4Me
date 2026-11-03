@@ -163,8 +163,11 @@ class CaptureRouteTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_book_via_isbn_with_duplicate_hint(self) -> None:
+        # No block geometry in this OCR mock, so no line may become the
+        # title without typographic evidence: the title stays empty and
+        # missing, while ISBN routing and the duplicate hint still work.
         ocr = {"text": OCR_WITH_ISBN, "engine": "rapidocr", "status": "completed",
-               "characters": 60, "confidence": 90, "error": ""}
+               "characters": 60, "confidence": 90, "blocks": [], "error": ""}
         ml = {"available": False, "label": "", "item_type": "", "isbn": "",
               "provider": "", "provider_label": "", "model": "",
               "error": "ML: Ollama nicht erreichbar"}
@@ -186,11 +189,54 @@ class CaptureRouteTests(unittest.TestCase):
         self.assertEqual("photo-1", payload["photo_id"])
         self.assertEqual("book", payload["kind"])
         self.assertEqual("9783161484100", payload["isbn"])
-        self.assertEqual("Der Musterroman", payload["prefill"]["title"])
+        self.assertEqual("", payload["prefill"]["title"])
+        self.assertIn("title", payload["missing_fields"])
         self.assertIn("authors", payload["missing_fields"])
         self.assertEqual(1, len(payload["duplicates"]))
         self.assertEqual("obj-1", payload["duplicates"][0]["object_id"])
         self.assertFalse(payload["ml"]["available"])
+
+    def test_book_with_cover_blocks_prefills_hierarchy(self) -> None:
+        # Invented cover lines with typographic evidence: a small author
+        # line above a tall two-line title plus a smaller subtitle.
+        def block(text, center_y, height, confidence=0.98):
+            y0, y1 = center_y - height / 2.0, center_y + height / 2.0
+            return {"text": text, "confidence": confidence,
+                    "box": [[100.0, y0], [200.0, y0],
+                            [200.0, y1], [100.0, y1]]}
+
+        blocks = [
+            block("Jonas Berger", 24.0, 28.0),
+            block("WILDER", 76.0, 100.0),
+            block("GARTEN", 128.0, 77.0),
+            block("für", 156.0, 30.0),
+            block("kleine Entdecker", 178.0, 65.0),
+            block("9783161484100", 260.0, 22.0),
+        ]
+        ocr = {"text": "\n".join(item["text"] for item in blocks),
+               "engine": "rapidocr", "status": "completed",
+               "characters": 120, "confidence": 0.97,
+               "blocks": blocks, "error": ""}
+        ml = {"available": False, "label": "", "item_type": "", "isbn": "",
+              "provider": "", "provider_label": "", "model": "",
+              "error": "ML: Ollama nicht erreichbar"}
+        with (
+            mock.patch("app.inventory_capture.capture_ocr", return_value=ocr),
+            mock.patch("app.inventory_capture.capture_ml_label",
+                       return_value=ml),
+            mock.patch("app.inventory_capture.capture_metadata",
+                       return_value={}),
+        ):
+            response = self.post_photo()
+        payload = response.get_json()
+        self.assertTrue(payload["ok"])
+        self.assertEqual("book", payload["kind"])
+        prefill = payload["prefill"]
+        self.assertEqual("WILDER GARTEN", prefill["title"])
+        self.assertEqual(["Jonas Berger"], prefill["authors"])
+        self.assertIn("kleine Entdecker", prefill["description"])
+        self.assertEqual("ocr-hierarchie", prefill["metadata_source"])
+        self.assertNotIn("title", payload["missing_fields"])
 
     def test_hammer_routes_to_object_with_ml_label(self) -> None:
         ocr = {"text": "", "engine": "rapidocr", "status": "no-text",

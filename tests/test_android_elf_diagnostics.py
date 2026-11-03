@@ -31,7 +31,7 @@ class AndroidElfDiagnosticsTests(unittest.TestCase):
                         requirements.getvalue(),
                     )
                     archive.writestr(
-                        "assets/chaquopy/bootstrap-native/arm64-v8a/libpython3.15.so",
+                        "assets/chaquopy/bootstrap-native/arm64-v8a/libpython3.14.so",
                         b"python-elf",
                     )
 
@@ -47,7 +47,7 @@ class AndroidElfDiagnosticsTests(unittest.TestCase):
                     b"python-elf",
                     found[
                         "test.apk!/assets/chaquopy/bootstrap-native/arm64-v8a/"
-                        "libpython3.15.so"
+                        "libpython3.14.so"
                     ],
                 )
 
@@ -60,7 +60,7 @@ class AndroidElfDiagnosticsTests(unittest.TestCase):
                     "cryptography/hazmat/bindings/_rust.abi3-aarch64-linux-android.so",
                     b"rust",
                 )
-                archive.writestr("libpython3.15.so", b"python")
+                archive.writestr("libpython3.14.so", b"python")
 
             def fake_readelf(command, **_kwargs):
                 text = (
@@ -80,11 +80,11 @@ class AndroidElfDiagnosticsTests(unittest.TestCase):
             apk = Path(tmp) / "app.apk"
             with ZipFile(apk, "w") as archive:
                 archive.writestr("cryptography/hazmat/bindings/_rust.abi3.so", b"rust")
-                archive.writestr("libpython3.15.so", b"python")
+                archive.writestr("libpython3.14.so", b"python")
 
             def fake_readelf(command, **_kwargs):
                 text = (
-                    " 0x00000001 (NEEDED) Shared library: [libpython3.15.so]"
+                    " 0x00000001 (NEEDED) Shared library: [libpython3.14.so]"
                     if command[1] == "-d" else "Symbol table"
                 )
                 return CompletedProcess(command, 0, stdout=text, stderr="")
@@ -104,7 +104,7 @@ class AndroidElfDiagnosticsTests(unittest.TestCase):
                     "cryptography/hazmat/bindings/_rust.abi3-aarch64-linux-android.so",
                     b"platform-specific",
                 )
-                archive.writestr("libpython3.15.so", b"python")
+                archive.writestr("libpython3.14.so", b"python")
 
             with self.assertRaisesRegex(ValueError, "multiple linkage ELF entries"):
                 extract_linkage_diagnostics(apk, Path(tmp) / "reports")

@@ -36,6 +36,8 @@ class ArchiveIndexerTest(unittest.TestCase):
     def test_archive_ocr_is_opt_in_and_persisted_setting_wins(self):
         with tempfile.TemporaryDirectory() as temp, patch(
             "app.archive_indexer.system_busy", return_value=(False, "test resources"),
+        ), patch(
+            "app.archive_indexer._disk_budget", return_value=(10 * 1024**3, 5 * 1024**3),
         ):
             root = Path(temp)
             store = DocumentStore(root)
@@ -51,12 +53,8 @@ class ArchiveIndexerTest(unittest.TestCase):
             SettingsStore(root).save(
                 {"media": {"archive_ocr_enabled": True}}, "archive-admin",
             )
-            second_archive = root / "ocr-enabled.zip"
-            with zipfile.ZipFile(second_archive, "w") as archive:
-                archive.writestr("scan.png", b"synthetic image bytes")
-            store.scan()
             with patch.object(store, "_image_ocr", return_value="archive OCR marker") as ocr:
-                result = index_archive(store, second_archive)
+                result = index_archive(store, first_archive)
             ocr.assert_called_once()
             self.assertIn("archive OCR marker", result["search_text"])
 
@@ -174,7 +172,7 @@ class ArchiveIndexerTest(unittest.TestCase):
 
     def test_admin_load_threshold_is_applied_and_bounded(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
-            "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0),
+            "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0), create=True,
         ), patch("app.archive_indexer._free_memory_bytes", return_value=1024 * 1024 * 1024):
             busy, reason = system_busy(True, 0.75)
             self.assertTrue(busy)
@@ -191,7 +189,7 @@ class ArchiveIndexerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             media = SettingsStore(temporary).settings()["media"]
             with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
-                "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0),
+                "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0), create=True,
             ), patch("app.archive_indexer._free_memory_bytes", return_value=1024 * 1024 * 1024):
                 busy, reason = system_busy(
                     media["archive_deep_index_enabled"],
@@ -447,7 +445,7 @@ class ArchiveIndexerTest(unittest.TestCase):
 
     def test_memory_threshold_and_disk_reserve_fail_closed_at_configured_limits(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
-            "app.archive_indexer.os.getloadavg", return_value=(0.0, 0.0, 0.0),
+            "app.archive_indexer.os.getloadavg", return_value=(0.0, 0.0, 0.0), create=True,
         ), patch("app.archive_indexer._free_memory_bytes", return_value=128 * 1024 * 1024):
             self.assertEqual((False, "resources available"), system_busy(True, 0.75, 64))
             busy, reason = system_busy(True, 0.75, 256)

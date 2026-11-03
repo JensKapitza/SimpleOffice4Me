@@ -30,7 +30,7 @@ Disabling an extension removes it from invocation immediately. No Flask route, b
 
 External extensions use POST with a JSON envelope containing api_version, extension_id, extension_version, point, operation and payload.
 
-Production endpoints must use HTTPS. Plain HTTP is accepted only on loopback for development. Non-loopback hosts also require an explicit local hostname allowlist through the persisted `extensions.http_allowlist` setting (V3 extensions admin page, no environment variable).
+Production endpoints must use HTTPS. Plain HTTP is accepted only on loopback for development. Every endpoint, including loopback, must match an exact host in the persisted `extensions.http_allowlist` setting (V3 extensions admin page, no environment variable). The default is empty (deny all); wildcards, ports and user prefixes are rejected. IPv4 and IPv6 literals are accepted as exact entries.
 
 Requests are capped at 256 KiB, responses at 1 MiB and timeouts at 10 seconds. Redirects are not followed. Repeated transport failures open an in-process circuit breaker. invoke_all isolates one failing integration from the others.
 

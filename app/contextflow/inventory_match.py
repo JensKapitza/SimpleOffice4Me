@@ -113,6 +113,23 @@ def normalize_gtin(value: str) -> str:
     return digits.zfill(14)
 
 
+def classify_identifier(query: str) -> tuple[str, str]:
+    """Classify a cleaned identifier as ISBN, GTIN, or plain barcode.
+
+    Returns the kind plus the canonical key used for exact matching:
+    validated ISBN-13 digits, zero-padded 14-digit GTIN, or the raw
+    query for anything else. Titles are never consulted.
+    """
+    try:
+        return "isbn", normalize_isbn(query)
+    except ValueError:
+        pass
+    canonical_gtin = normalize_gtin(query)
+    if canonical_gtin:
+        return "gtin", canonical_gtin
+    return "barcode", query
+
+
 def find_exact_matches(
     root: str | Path, identifier: object
 ) -> tuple[str, list[dict[str, str]]]:
