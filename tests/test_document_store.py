@@ -13,6 +13,20 @@ from app.document_store import CONTROL_DIR, POLICY_FILE, DocumentStore
 
 
 class DocumentStoreTest(unittest.TestCase):
+    def test_atomic_create_uses_short_temporary_name_for_long_archive_basename(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            relative = f"email/{'a' * 40}/work/2026/{'b' * 128}.eml"
+            store = DocumentStore(root)
+            (root / Path(relative).parent).mkdir(parents=True)
+
+            created = store.create_document_at(relative, b"synthetic email", "alice")
+
+            destination = root / relative
+            self.assertTrue(destination.is_file())
+            self.assertEqual(b"synthetic email", destination.read_bytes())
+            self.assertEqual(relative, created["last_path"])
+
     def test_eml_backfill_indexes_decoded_headers_and_body_without_attachments(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
