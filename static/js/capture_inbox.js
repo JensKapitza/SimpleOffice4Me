@@ -49,6 +49,11 @@
     linkNetworkKept: EN ? 'Linking failed (network). Original stays in the inbox.' : 'Zuordnung fehlgeschlagen (Netzwerk). Original bleibt im Korb.',
     linkedTo: (id, name, extra) => EN ? `Assigned: #${id || ''} ${name || ''}${extra} ` : `Zugeordnet: #${id || ''} ${name || ''}${extra} `,
     uploadFailed: (code) => EN ? `Upload failed (${code}).` : `Upload fehlgeschlagen (${code}).`,
+    queueSaving: (n) => EN ? `${n} photo(s) being saved and analyzed …` : `${n} Foto(s) werden gespeichert und analysiert …`,
+    photoFallback: EN ? 'Photo' : 'Foto',
+    queuePartial: (stored, total, failures) => EN ? `${stored} of ${total} photos saved. Errors: ${failures}` : `${stored} von ${total} Fotos gespeichert. Fehler: ${failures}`,
+    queueDup: EN ? 'This photo is already in the inbox – no duplicate created.' : 'Dieses Foto ist bereits im Eingangskorb – kein Duplikat angelegt.',
+    batchStarted: EN ? 'New book started — the next photos belong to this book group.' : 'Neues Buch begonnen — die nächsten Fotos gehören zu dieser Buchgruppe.',
   };
   const root = document.getElementById('capture-app');
   if (!root) return;
