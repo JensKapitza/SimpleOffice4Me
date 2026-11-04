@@ -174,7 +174,9 @@ def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
 @bp.get("")
 @login_required
 def index():
-    return render_template("screen/index.html", screen_status=platform_status())
+    from .screen_ready_hints import suggest_screen_review
+    state = platform_status()
+    return render_template("screen/index.html", screen_status=state, screen_hints=suggest_screen_review(state))
 
 
 @bp.get("/status")
