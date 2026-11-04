@@ -4,8 +4,8 @@
 {% block body %}
 <main id="main-content" class="container-xl py-3 py-md-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
-    <div><h1 class="h2 mb-1">Formulare</h1><p class="text-secondary mb-0">Eigene Eingabemasken erstellen, Daten erfassen und anschließend auswerten, exportieren oder drucken.</p></div>
-    <a class="btn btn-primary" href="#form-wizard"> Neues Formular</a>
+    <div><h1 class="h2 mb-1">{{ 'Forms' if g.language == 'en' else 'Formulare' }}</h1><p class="text-secondary mb-0">{{ 'Build custom input forms, capture data, then evaluate, export or print it.' if g.language == 'en' else 'Eigene Eingabemasken erstellen, Daten erfassen und anschließend auswerten, exportieren oder drucken.' }}</p></div>
+    <a class="btn btn-primary" href="#form-wizard"> {{ 'New form' if g.language == 'en' else 'Neues Formular' }}</a>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
@@ -27,63 +27,63 @@
         <div class="card-body d-flex flex-column">
           <div class="d-flex justify-content-between gap-2 align-items-start">
             <div><h2 class="h5 mb-1">{{ form.name }}</h2><div class="small text-secondary">{{ form.form_id }}</div></div>
-            <span class="badge text-bg-light border">{{ counts[form.form_id] }} Datensätze</span>
+            <span class="badge text-bg-light border">{{ counts[form.form_id] }} {{ 'records' if g.language == 'en' else 'Datensätze' }}</span>
           </div>
-          <p class="text-secondary small mt-3 mb-2">{{ form.description or 'Keine Beschreibung hinterlegt.' }}</p>
-          <div class="small mb-3">{{ form.fields|length }} Felder</div>
+          <p class="text-secondary small mt-3 mb-2">{{ form.description or ('No description given.' if g.language == 'en' else 'Keine Beschreibung hinterlegt.') }}</p>
+          <div class="small mb-3">{{ form.fields|length }} {{ 'fields' if g.language == 'en' else 'Felder' }}</div>
           <div class="d-flex flex-wrap gap-2 mt-auto">
-            <a class="btn btn-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#data-entry">Daten erfassen</a>
-            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#analysis">Auswerten</a>
-            <button class="btn btn-outline-secondary btn-sm" type="button" data-edit-form="{{ form.form_id }}">Bearbeiten</button>
+            <a class="btn btn-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#data-entry">{{ 'Capture data' if g.language == 'en' else 'Daten erfassen' }}</a>
+            <a class="btn btn-outline-primary btn-sm" href="{{ url_for('documents.form_records', form_id=form.form_id) }}#analysis">{{ 'Evaluate' if g.language == 'en' else 'Auswerten' }}</a>
+            <button class="btn btn-outline-secondary btn-sm" type="button" data-edit-form="{{ form.form_id }}">{{ 'Edit' if g.language == 'en' else 'Bearbeiten' }}</button>
           </div>
         </div>
       </div>
     </article>
     {% else %}
-    <div class="col-12"><div class="alert alert-secondary">Noch keine Formulare vorhanden.</div></div>
+    <div class="col-12"><div class="alert alert-secondary">{{ 'No forms yet.' if g.language == 'en' else 'Noch keine Formulare vorhanden.' }}</div></div>
     {% endfor %}
   </div>
 
   <section class="card mt-4" id="form-wizard">
     <div class="card-header d-flex flex-wrap justify-content-between gap-2 align-items-center">
-      <strong>Formular-Assistent</strong>
-      <span class="small text-secondary" id="form-wizard-status">Schritt 1 von 3 · Basisdaten</span>
+      <strong>{{ 'Form assistant' if g.language == 'en' else 'Formular-Assistent' }}</strong>
+      <span class="small text-secondary" id="form-wizard-status">{{ 'Step 1 of 3 · Basics' if g.language == 'en' else 'Schritt 1 von 3 · Basisdaten' }}</span>
     </div>
     <div class="card-body">
-      <nav class="mb-4" aria-label="Formular-Assistent Schritte">
-        <div class="progress" role="progressbar" aria-label="Fortschritt" aria-valuemin="1" aria-valuemax="3" aria-valuenow="1" id="form-wizard-progress"><div class="progress-bar" style="width:33%"></div></div>
-        <div class="d-flex justify-content-between small text-secondary mt-2"><span>1. Basisdaten</span><span>2. Felder</span><span>3. Prüfen</span></div>
+      <nav class="mb-4" aria-label="{{ 'Form assistant steps' if g.language == 'en' else 'Formular-Assistent Schritte' }}">
+        <div class="progress" role="progressbar" aria-label="{{ 'Progress' if g.language == 'en' else 'Fortschritt' }}" aria-valuemin="1" aria-valuemax="3" aria-valuenow="1" id="form-wizard-progress"><div class="progress-bar" style="width:33%"></div></div>
+        <div class="d-flex justify-content-between small text-secondary mt-2"><span>{{ '1. Basics' if g.language == 'en' else '1. Basisdaten' }}</span><span>{{ '2. Fields' if g.language == 'en' else '2. Felder' }}</span><span>{{ '3. Review' if g.language == 'en' else '3. Prüfen' }}</span></div>
       </nav>
 
       <form method="post" action="{{ url_for('documents.save_form_definition') }}" id="form-builder-form">
         <textarea class="d-none" name="definition" id="form-definition-json" aria-hidden="true"></textarea>
 
         <section data-wizard-step="1">
-          <h2 class="h5">Basisdaten</h2>
-          <p class="text-secondary">Name und Zweck des Formulars festlegen. Die Kennung wird automatisch erzeugt und kann bei Bedarf angepasst werden.</p>
+          <h2 class="h5">{{ 'Basics' if g.language == 'en' else 'Basisdaten' }}</h2>
+          <p class="text-secondary">{{ 'Set the form name and purpose. The ID is generated automatically and can be adjusted if needed.' if g.language == 'en' else 'Name und Zweck des Formulars festlegen. Die Kennung wird automatisch erzeugt und kann bei Bedarf angepasst werden.' }}</p>
           <div class="row g-3">
-            <div class="col-md-7"><label class="form-label" for="form-name">Name *</label><input required class="form-control" id="form-name" autocomplete="off" placeholder="z. B. Wartungsprotokoll"></div>
-            <div class="col-md-5"><label class="form-label" for="form-id">Kennung *</label><input required class="form-control font-monospace" id="form-id" pattern="[a-z][a-z0-9_-]{1,63}" autocomplete="off" placeholder="wartungsprotokoll"><div class="form-text">Kleinbuchstaben, Zahlen, _ und -. Die Kennung bleibt technisch stabil.</div></div>
-            <div class="col-12"><label class="form-label" for="form-description">Beschreibung</label><textarea class="form-control" id="form-description" rows="3" placeholder="Wofür wird das Formular verwendet?"></textarea></div>
+            <div class="col-md-7"><label class="form-label" for="form-name">Name *</label><input required class="form-control" id="form-name" autocomplete="off" placeholder="{{ 'e.g. maintenance log' if g.language == 'en' else 'z. B. Wartungsprotokoll' }}"></div>
+            <div class="col-md-5"><label class="form-label" for="form-id">{{ 'ID' if g.language == 'en' else 'Kennung' }} *</label><input required class="form-control font-monospace" id="form-id" pattern="[a-z][a-z0-9_-]{1,63}" autocomplete="off" placeholder="{{ 'maintenance-log' if g.language == 'en' else 'wartungsprotokoll' }}"><div class="form-text">{{ 'Lowercase letters, digits, _ and -. The ID stays technically stable.' if g.language == 'en' else 'Kleinbuchstaben, Zahlen, _ und -. Die Kennung bleibt technisch stabil.' }}</div></div>
+            <div class="col-12"><label class="form-label" for="form-description">{{ 'Description' if g.language == 'en' else 'Beschreibung' }}</label><textarea class="form-control" id="form-description" rows="3" placeholder="{{ 'What is the form used for?' if g.language == 'en' else 'Wofür wird das Formular verwendet?' }}"></textarea></div>
           </div>
         </section>
 
         <section data-wizard-step="2" hidden>
-          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div><h2 class="h5 mb-1">Felder</h2><p class="text-secondary mb-0">Felder hinzufügen und direkt konfigurieren: Pflichtfeld, Vorbelegung, Auswahlwerte oder Autocomplete.</p></div><button class="btn btn-outline-primary" id="add-form-field" type="button">Feld hinzufügen</button></div>
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div><h2 class="h5 mb-1">{{ 'Fields' if g.language == 'en' else 'Felder' }}</h2><p class="text-secondary mb-0">{{ 'Add fields and configure them directly: required, default, choices or autocomplete.' if g.language == 'en' else 'Felder hinzufügen und direkt konfigurieren: Pflichtfeld, Vorbelegung, Auswahlwerte oder Autocomplete.' }}</p></div><button class="btn btn-outline-primary" id="add-form-field" type="button">{{ 'Add field' if g.language == 'en' else 'Feld hinzufügen' }}</button></div>
           <div id="form-field-list" class="vstack gap-3 mt-3"></div>
-          <div class="mt-3"><label class="form-label" for="form-title-field">Titel-Feld</label><select class="form-select" id="form-title-field"></select><div class="form-text">Dieses Feld wird in Listen als Bezeichnung des Datensatzes verwendet.</div></div>
+          <div class="mt-3"><label class="form-label" for="form-title-field">{{ 'Title field' if g.language == 'en' else 'Titel-Feld' }}</label><select class="form-select" id="form-title-field" aria-label="{{ 'Title field' if g.language == 'en' else 'Titel-Feld' }}"></select><div class="form-text">{{ 'This field is used in lists as the record label.' if g.language == 'en' else 'Dieses Feld wird in Listen als Bezeichnung des Datensatzes verwendet.' }}</div></div>
         </section>
 
         <section data-wizard-step="3" hidden>
-          <h2 class="h5">Prüfen und speichern</h2>
-          <p class="text-secondary">Kontrolliere die Zusammenfassung. Danach kannst du sofort Daten erfassen.</p>
+          <h2 class="h5">{{ 'Review and save' if g.language == 'en' else 'Prüfen und speichern' }}</h2>
+          <p class="text-secondary">{{ 'Check the summary. Afterwards you can capture data right away.' if g.language == 'en' else 'Kontrolliere die Zusammenfassung. Danach kannst du sofort Daten erfassen.' }}</p>
           <div class="border rounded p-3 bg-body-tertiary" id="form-review"></div>
-          <details class="mt-3"><summary class="fw-semibold">Expertenansicht: JSON</summary><pre class="bg-body-tertiary border rounded p-3 mt-2 mb-0 small text-break" id="form-json-preview"></pre></details>
+          <details class="mt-3"><summary class="fw-semibold">{{ 'Expert view: JSON' if g.language == 'en' else 'Expertenansicht: JSON' }}</summary><pre class="bg-body-tertiary border rounded p-3 mt-2 mb-0 small text-break" id="form-json-preview"></pre></details>
         </section>
 
         <div class="d-flex flex-wrap justify-content-between gap-2 mt-4 pt-3 border-top">
-          <button class="btn btn-outline-secondary" id="wizard-back" type="button" disabled>Zurück</button>
-          <div class="d-flex gap-2 ms-auto"><button class="btn btn-primary" id="wizard-next" type="button">Weiter <i class="fas fa-arrow-right" aria-hidden="true"></i></button><button class="btn btn-success" id="wizard-save" type="submit" hidden>Formular speichern</button></div>
+          <button class="btn btn-outline-secondary" id="wizard-back" type="button" disabled>{{ 'Back' if g.language == 'en' else 'Zurück' }}</button>
+          <div class="d-flex gap-2 ms-auto"><button class="btn btn-primary" id="wizard-next" type="button">{{ 'Next' if g.language == 'en' else 'Weiter' }} <i class="fas fa-arrow-right" aria-hidden="true"></i></button><button class="btn btn-success" id="wizard-save" type="submit" hidden>{{ 'Save form' if g.language == 'en' else 'Formular speichern' }}</button></div>
         </div>
       </form>
     </div>
@@ -91,17 +91,17 @@
 
   <template id="form-field-template">
     <article class="border rounded p-3 form-field-card">
-      <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><strong class="field-number">Feld</strong><button type="button" class="btn btn-sm btn-outline-danger remove-field"><i class="fas fa-trash" aria-hidden="true"></i><span class="visually-hidden">Feld entfernen</span></button></div>
+      <div class="d-flex justify-content-between align-items-center gap-2 mb-3"><strong class="field-number">{{ 'Field' if g.language == 'en' else 'Feld' }}</strong><button type="button" class="btn btn-sm btn-outline-danger remove-field"><i class="fas fa-trash" aria-hidden="true"></i><span class="visually-hidden">{{ 'Remove field' if g.language == 'en' else 'Feld entfernen' }}</span></button></div>
       <div class="row g-3">
-        <div class="col-md-5"><label class="form-label">Bezeichnung *</label><input required class="form-control field-label" placeholder="z. B. Hersteller"></div>
-        <div class="col-md-4"><label class="form-label">Feldkennung *</label><input required class="form-control font-monospace field-key" pattern="[a-z][a-z0-9_]{0,63}" placeholder="hersteller"></div>
-        <div class="col-md-3"><label class="form-label">Typ</label><select class="form-select field-type"><option value="text">Text</option><option value="textarea">Mehrzeiliger Text</option><option value="email">E-Mail</option><option value="date">Datum</option><option value="number">Zahl</option><option value="currency">Geldbetrag</option><option value="select">Auswahlliste</option><option value="relation">Beziehung</option></select></div>
-        <div class="col-md-4"><label class="form-label">Vorbelegung</label><input class="form-control field-default" placeholder="optional"></div>
-        <div class="col-md-4"><label class="form-label">Platzhalter</label><input class="form-control field-placeholder" placeholder="Hinweis im Eingabefeld"></div>
-        <div class="col-md-4"><label class="form-label">Hilfetext</label><input class="form-control field-help" placeholder="Kurze Erklärung"></div>
-        <div class="col-12 field-options-wrap"><label class="form-label">Auswahl / Autocomplete</label><textarea class="form-control field-options" rows="2" placeholder="Ein Wert pro Zeile, z. B. Nord\nSüd\nWest"></textarea><div class="form-text">Bei Auswahllisten sind dies die erlaubten Werte. Bei Textfeldern erscheinen sie als Autocomplete-Vorschläge.</div></div>
-        <div class="col-md-6 field-relation-wrap" hidden><label class="form-label">Beziehung zu</label><select class="form-select field-relation"><option value="contact">Kontakte</option>{% for form in forms %}<option value="{{ form.form_id }}">{{ form.name }}</option>{% endfor %}</select></div>
-        <div class="col-md-6 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input field-required" type="checkbox"><label class="form-check-label">Pflichtfeld</label></div></div>
+        <div class="col-md-5"><label class="form-label">{{ 'Label' if g.language == 'en' else 'Bezeichnung' }} *</label><input required class="form-control field-label" placeholder="{{ 'e.g. manufacturer' if g.language == 'en' else 'z. B. Hersteller' }}"></div>
+        <div class="col-md-4"><label class="form-label">{{ 'Field ID' if g.language == 'en' else 'Feldkennung' }} *</label><input required class="form-control font-monospace field-key" pattern="[a-z][a-z0-9_]{0,63}" placeholder="{{ 'manufacturer' if g.language == 'en' else 'hersteller' }}"></div>
+        <div class="col-md-3"><label class="form-label">{{ 'Type' if g.language == 'en' else 'Typ' }}</label><select class="form-select field-type"><option value="text">Text</option><option value="textarea">{{ 'Multiline text' if g.language == 'en' else 'Mehrzeiliger Text' }}</option><option value="email">E-Mail</option><option value="date">{{ 'Date' if g.language == 'en' else 'Datum' }}</option><option value="number">{{ 'Number' if g.language == 'en' else 'Zahl' }}</option><option value="currency">{{ 'Amount' if g.language == 'en' else 'Geldbetrag' }}</option><option value="select">{{ 'Choice list' if g.language == 'en' else 'Auswahlliste' }}</option><option value="relation">{{ 'Relation' if g.language == 'en' else 'Beziehung' }}</option></select></div>
+        <div class="col-md-4"><label class="form-label">{{ 'Default' if g.language == 'en' else 'Vorbelegung' }}</label><input class="form-control field-default" placeholder="optional"></div>
+        <div class="col-md-4"><label class="form-label">{{ 'Placeholder' if g.language == 'en' else 'Platzhalter' }}</label><input class="form-control field-placeholder" placeholder="{{ 'Hint inside the input' if g.language == 'en' else 'Hinweis im Eingabefeld' }}"></div>
+        <div class="col-md-4"><label class="form-label">{{ 'Help text' if g.language == 'en' else 'Hilfetext' }}</label><input class="form-control field-help" placeholder="{{ 'Short explanation' if g.language == 'en' else 'Kurze Erklärung' }}"></div>
+        <div class="col-12 field-options-wrap"><label class="form-label">{{ 'Choices / autocomplete' if g.language == 'en' else 'Auswahl / Autocomplete' }}</label><textarea class="form-control field-options" rows="2" placeholder="{{ 'One value per line, e.g. North\nSouth\nWest' if g.language == 'en' else 'Ein Wert pro Zeile, z. B. Nord\nSüd\nWest' }}"></textarea><div class="form-text">{{ 'For choice lists these are the allowed values. For text fields they appear as autocomplete suggestions.' if g.language == 'en' else 'Bei Auswahllisten sind dies die erlaubten Werte. Bei Textfeldern erscheinen sie als Autocomplete-Vorschläge.' }}</div></div>
+        <div class="col-md-6 field-relation-wrap" hidden><label class="form-label">{{ 'Related to' if g.language == 'en' else 'Beziehung zu' }}</label><select class="form-select field-relation"><option value="contact">{{ 'Contacts' if g.language == 'en' else 'Kontakte' }}</option>{% for form in forms %}<option value="{{ form.form_id }}">{{ form.name }}</option>{% endfor %}</select></div>
+        <div class="col-md-6 d-flex align-items-end"><div class="form-check mb-2"><input class="form-check-input field-required" type="checkbox"><label class="form-check-label">{{ 'Required field' if g.language == 'en' else 'Pflichtfeld' }}</label></div></div>
       </div>
     </article>
   </template>

@@ -40,6 +40,10 @@ class CompanySearchBrowserTests(unittest.TestCase):
             "/auth/login",
             data={"username": "browser-user", "password": "browser-test-password"},
         )
+        # Suite asserts German UI strings: pin the session to German before
+        # the cookie is captured for the browser (app default is English).
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         self.store = ContactStore(self.root)
         cookie = self.client.get_cookie(app.config.get("SESSION_COOKIE_NAME", "session"))
         self.assertIsNotNone(cookie)

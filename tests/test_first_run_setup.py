@@ -26,6 +26,8 @@ class FirstRunSetupTest(unittest.TestCase):
         self.base_url = "https://office.example"
         self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"}, base_url=self.base_url)
         self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"}, base_url=self.base_url)
+        with self.client.session_transaction(base_url=self.base_url) as session:
+            session["simpleoffice_language"] = "de"
 
     def tearDown(self):
         app.config.update(self.previous)
