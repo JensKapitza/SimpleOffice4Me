@@ -6,7 +6,7 @@ const http = require('node:http');
 
 const HOP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
-  'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection'
+  'te', 'trailer', 'transfer-encoding', 'upgrade', 'proxy-connection', 'host'
 ]);
 
 function cleanHeaders(headers) {
@@ -27,9 +27,11 @@ function createLanProxy({host, port, backendPort, logger = console}) {
   // The proxy must never target an address supplied by the HTTP client.
   const server = http.createServer((req, res) => {
     const headers = cleanHeaders(req.headers);
-    headers.host = req.headers.host || `${host}:${port}`;
+    // Never trust the downstream Host header as an upstream routing hint.
+    headers.host = `${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
     headers['x-forwarded-proto'] = 'http';
     headers['x-forwarded-for'] = req.socket.remoteAddress || '';
+    headers['x-forwarded-host'] = headers.host;
     const upstream = http.request({
       host: '127.0.0.1', port: backendPort, method: req.method,
       path: req.url, headers, timeout: 120000
@@ -52,6 +54,8 @@ function createLanProxy({host, port, backendPort, logger = console}) {
     req.pipe(upstream);
   });
   server.on('upgrade', (_request, socket) => socket.destroy());
+  server.headersTimeout = 30000;
+  server.requestTimeout = 120000;
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, host, () => {
