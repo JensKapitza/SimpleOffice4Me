@@ -14,6 +14,8 @@ let backendUrl = null;
 let quitting = false;
 let lanProxy = null;
 let backendDocumentRoot = null;
+let proxyStatusTimer = null;
+let proxyStatusState = {state: 'disabled', message: 'LAN proxy is not configured'};
 
 function executableOnPath(name) {
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
@@ -168,6 +170,33 @@ function persistedLanProxy(documentRoot) {
   return {host, port, origin};
 }
 
+function writeProxyStatus() {
+  if (!backendDocumentRoot) return;
+  const folder = path.join(backendDocumentRoot, '.simpleoffice-meta');
+  try {
+    fs.mkdirSync(folder, {recursive: true});
+    const target = path.join(folder, 'desktop-proxy-status.json');
+    const temporary = target + '.tmp-' + process.pid;
+    const body = JSON.stringify({
+      schema: 1, owner_pid: process.pid, updated_at: new Date().toISOString(),
+      ...proxyStatusState
+    });
+    fs.writeFileSync(temporary, body, {mode: 0o600});
+    fs.renameSync(temporary, target);
+  } catch (error) {
+    console.error('Desktop proxy status could not be saved:', error.code || error.name);
+  }
+}
+
+function updateProxyStatus(state, message, origin = '') {
+  proxyStatusState = {state, message, origin};
+  writeProxyStatus();
+  if (!proxyStatusTimer) {
+    proxyStatusTimer = setInterval(writeProxyStatus, 5000);
+    proxyStatusTimer.unref?.();
+  }
+}
+
 async function startBackend() {
   const port = await freePort();
   const userData = app.getPath('userData');
@@ -176,6 +205,7 @@ async function startBackend() {
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(documentRoot, { recursive: true });
   backendDocumentRoot = documentRoot;
+  updateProxyStatus('disabled', 'LAN proxy is not configured');
 
   backendUrl = `http://127.0.0.1:${port}`;
   const launch = backendCommand();
@@ -209,6 +239,7 @@ async function startBackend() {
   backend.stderr?.on('data', (chunk) => console.error(`[python] ${chunk.toString().trimEnd()}`));
   backend.on('exit', (code, signal) => {
     if (lanProxy) { lanProxy.close(); lanProxy = null; }
+    updateProxyStatus('stopped', 'Backend process stopped');
     backend = null;
     if (!quitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadFile(path.join(__dirname, 'loading.html'), {
@@ -224,7 +255,7 @@ async function startBackend() {
 async function startConfiguredLanProxy() {
   if (!backendUrl || !backendDocumentRoot) return;
   const proxy = persistedLanProxy(backendDocumentRoot);
-  if (!proxy) return;
+  if (!proxy) { updateProxyStatus('disabled', 'Only local loopback binding configured'); return; }
   const {host, port} = proxy;
   try {
     lanProxy = await createLanProxy({
@@ -232,9 +263,11 @@ async function startConfiguredLanProxy() {
       publicHost: proxy.origin ? new URL(proxy.origin).host : ''
     });
     console.log(`SimpleOffice LAN proxy listening on ${host}:${port}`);
+    updateProxyStatus('running', `Proxy listening on ${host}:${port}`, proxy.origin);
   } catch (error) {
     console.error('LAN proxy failed to start:', error);
     lanProxy = null;
+    updateProxyStatus('error', `LAN proxy failed: ${error.code || error.name}`);
   }
 }
 
@@ -378,6 +411,8 @@ app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
   if (lanProxy) { lanProxy.close(); lanProxy = null; }
+  if (proxyStatusTimer) { clearInterval(proxyStatusTimer); proxyStatusTimer = null; }
+  updateProxyStatus('stopped', 'Desktop application exited');
   if (backend && backend.exitCode === null) {
     event.preventDefault();
     stopBackend().finally(() => app.quit());
