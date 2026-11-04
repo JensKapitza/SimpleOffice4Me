@@ -206,12 +206,12 @@ def find_analyzable_event(
 def _require_provider(
     settings: dict[str, Any], consent_meta: bool = False, root: object = None
 ) -> Any:
-    """Select the real Meta provider; refuse mock placeholders.
+    """Select the real cloud provider; refuse mock placeholders.
 
-    Local Ollama is the default. The Meta cloud backend additionally
-    needs explicit per-request consent, the server-side consent flag,
-    an API key, and a verified synthetic demo root; real data roots
-    stay excluded (PermissionError, routed as 403).
+    Local Ollama is the default. A cloud backend (Meta or OpenAI)
+    additionally needs explicit per-request consent, the server-side
+    consent flag, an API key, and a verified synthetic demo root;
+    real data roots stay excluded (PermissionError, routed as 403).
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     if choice == "local" and not str(settings.get("ollama_model", "") or "").strip():
@@ -250,7 +250,7 @@ def suggest_ot_travel_analysis(
         warnings.append(f"Der Eintragstext wurde auf {TEXT_LIMIT} Zeichen gekürzt.")
     provider = _require_provider(settings, consent_meta, root)
     prompt = build_ot_smart_prompt(clean_text)
-    if provider.name == "meta":
+    if provider.name in ("meta", "openai"):
         raw = provider.complete_text(prompt)
     else:
         raw = complete_text(provider, prompt)
