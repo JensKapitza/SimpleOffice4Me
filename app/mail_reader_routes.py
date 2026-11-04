@@ -16,6 +16,7 @@ from .auth import login_required
 from .db import get_db
 from . import federation_local_identity as _identity
 from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id, preview_eml_bytes
+from .mail_case_followups import suggest_case_followups
 from .mail_case_store import MailCaseStore
 from .mail_case_attachments import MailCaseAttachmentStore
 from .mail_attachment_download import latest_scan_for_sha256, scan_attachment_for_download
@@ -377,6 +378,7 @@ def index():
         read_only=read_only,
         compose=_compose_prefill(),
         case_rows=case_rows,
+        case_followups=suggest_case_followups(case_rows),
         case_view=case_view,
         case_timeline=case_timeline,
         case_mail_preview=case_mail_preview,

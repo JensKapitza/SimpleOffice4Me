@@ -95,10 +95,14 @@ def _enrich_group(group: dict, *, store: RentalBillingStore | None = None) -> di
 @bp.get("")
 @login_required
 def index():
+    from .tenancy_hints import suggest_tenancy_renewals
+
     store = _store()
+    groups = [_enrich_group(item, store=store) for item in store.groups()]
     return render_template(
-        "rentals/index.html", groups=[_enrich_group(item, store=store) for item in store.groups()],
+        "rentals/index.html", groups=groups,
         settlements=store.settlements(), objects=_objects(), allocation_methods=sorted(ALLOCATION_METHODS),
+        tenancy_hints=suggest_tenancy_renewals(groups),
     )
 
 

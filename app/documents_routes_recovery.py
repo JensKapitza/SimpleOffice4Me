@@ -7,8 +7,14 @@ from .documents_core import *  # noqa: F401,F403
 @bp.get("/recovery")
 @login_required
 def document_recovery():
+    from .recovery_review import suggest_recovery_review
+
     actor = str(g.user["username"])
-    return render_template("documents/recovery.html", items=_store().recovery_items(actor))
+    items = _store().recovery_items(actor)
+    return render_template(
+        "documents/recovery.html", items=items,
+        review_suggestions=suggest_recovery_review(items),
+    )
 
 
 @bp.post("/recovery/<document_id>/restore")

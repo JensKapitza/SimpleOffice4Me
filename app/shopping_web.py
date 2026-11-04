@@ -11,6 +11,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .auth import login_required
 from .shopping_store import STATUSES, ShoppingStore, normalize_barcode
+from .shopping_suggest import suggest_shopping_groups
 
 
 bp = Blueprint("shopping", __name__, url_prefix="/shopping")
@@ -122,6 +123,7 @@ def index():
         store_groups=store.items_by_store(actor),
         products=store.products(actor, limit=8),
         show_bought=show_bought,
+        merge_suggestions=suggest_shopping_groups(items),
     )
 
 

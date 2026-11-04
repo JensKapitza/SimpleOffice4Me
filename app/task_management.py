@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, flash, g, redirect, render_template, r
 
 from .auth import login_required
 from .document_store import DocumentStore
+from .tasks_suggest import suggest_task_next
 from .todo_store import TodoStore
 
 
@@ -265,6 +266,7 @@ def board():
         selected_list=request.args.get("list_id", "").strip(),
         assigned=request.args.get("assigned", "").strip(),
         task_source_documents=task_source_documents,
+        next_up=suggest_task_next(rows),
     )
 
 

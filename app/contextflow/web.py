@@ -975,3 +975,6 @@ def hint_prefs():
     except ValueError as exc:
         abort(400, description=str(exc))
     return redirect(url_for("contextflow.dashboard"))
+
+from .meta_key_routes import register_meta_key_routes as _register_meta_key_routes
+_register_meta_key_routes(bp)

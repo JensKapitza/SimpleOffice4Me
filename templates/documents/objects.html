@@ -7,6 +7,16 @@
     <form role="search" aria-label="{{ 'Search objects' if g.language == 'en' else 'Objekte suchen' }}" method="get" class="input-group" style="max-width:28rem"><input type="search" class="form-control" name="q" value="{{ query }}" placeholder="{{ 'ID, name, type, identifier or tag' if g.language == 'en' else 'ID, Name, Typ, Kennung oder Tag' }}"><button type="submit" class="btn btn-outline-primary">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button></form>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if duplicate_suggestions %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Possible duplicates' if g.language == 'en' else 'Mögliche Dubletten' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in duplicate_suggestions %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   <div class="row g-4">
     <section class="col-lg-8"><div class="row g-3">{% for item in objects %}<div class="col-md-6"><a class="card h-100 text-decoration-none" href="{{ url_for('documents.object_detail', object_id=item.object_id) }}"><div class="card-body"><div class="d-flex justify-content-between gap-2"><div><span class="badge text-bg-dark me-2">#{{ item.display_id }}</span><h2 class="h5 text-body d-inline">{{ item.name }}</h2></div><span class="badge text-bg-light border">{{ item.status }}</span></div><div class="text-secondary mt-1">{{ item.type }}{% if item.identifier %} · {{ item.identifier }}{% endif %}</div>{% if item.invoice.is_category %}<span class="badge text-bg-info me-1 mt-2">{{ 'Invoice category' if g.language == 'en' else 'Rechnungskategorie' }}</span>{% endif %}{% if item.invoice.use_in_invoice %}<span class="badge text-bg-success me-1 mt-2">{{ 'usable in invoices' if g.language == 'en' else 'in Rechnung nutzbar' }}</span>{% endif %}{% if item.invoice_effective.net_price %}<div class="small mt-2">{{ 'Net' if g.language == 'en' else 'Netto' }} {{ item.invoice_effective.net_price }} € · {{ 'VAT' if g.language == 'en' else 'MwSt.' }} {{ item.invoice_effective.vat_rate or '0' }} % · {{ 'Gross' if g.language == 'en' else 'Brutto' }} {{ item.invoice_effective.gross_price }} €</div>{% endif %}{% if item.location %}<div class="small mt-2"><i class="fas fa-location-dot me-1"></i>{{ item.location }}</div>{% endif %}{% for tag in item.tags %}<span class="badge text-bg-primary me-1 mt-2">{{ tag }}</span>{% endfor %}</div></a></div>{% else %}<div class="col-12"><div class="alert alert-secondary">{{ 'No objects found.' if g.language == 'en' else 'Keine Objekte gefunden.' }}</div></div>{% endfor %}</div></section>
     <aside class="col-lg-4"><div class="card"><div class="card-header">{{ 'Create object' if g.language == 'en' else 'Objekt anlegen' }}</div><div class="card-body"><form method="post" class="row g-3" id="new-object-form" data-object-billing-form>

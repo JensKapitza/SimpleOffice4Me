@@ -15,6 +15,16 @@
     <div class="col-6 col-lg"><div class="card card-body h-100"><span class="small text-secondary">{{ 'Surplus' if g.language == 'en' else 'Überschuss' }}</span><strong class="fs-4">{{ summary.surplus }} EUR</strong></div></div>
     <div class="col-6 col-lg"><div class="card card-body h-100"><span class="small text-secondary">{{ 'Incomplete' if g.language == 'en' else 'Unvollständig' }}</span><strong class="fs-4 {% if summary.incomplete %}text-warning{% endif %}">{{ summary.incomplete }}</strong></div></div>
   </div>
+  {% if review_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Review needed' if g.language == 'en' else 'Prüfbedarf' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in review_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <section class="card mb-4" aria-labelledby="new-receipt-heading"><div class="card-header"><strong id="new-receipt-heading">{{ 'Enter receipt' if g.language == 'en' else 'Beleg eingeben' }}</strong></div><div class="card-body">
     <form method="post" enctype="multipart/form-data" class="row g-3">

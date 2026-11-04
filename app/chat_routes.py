@@ -200,9 +200,12 @@ def _attachment_file(attachment_id: str):
 @bp.get("/")
 @login_required
 def index():
+    from .chat_stale_hints import suggest_stale_rooms
+
     store=_store(); rooms=store.rooms_for(_actor(),is_admin=_is_admin())
     for room in rooms: room["participants"]=store.participants(room["room_id"])
-    return render_template("chat/index.html",rooms=rooms,users=_active_users(),peers=_send_peers(),chat_contacts=_chat_contacts())
+    return render_template("chat/index.html",rooms=rooms,users=_active_users(),peers=_send_peers(),chat_contacts=_chat_contacts(),
+                           stale_hints=suggest_stale_rooms(rooms))
 
 
 @bp.post("/contacts/<contact_id>/start")

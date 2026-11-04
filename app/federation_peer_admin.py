@@ -361,9 +361,12 @@ def dashboard():
     except ValueError:
         own = {}
         own_qr = ""
+    from .federation_setup_hints import suggest_federation_setup
+
     return render_template(
         "admin/federation_peer_discovery.html",
         peers=peers,
+        setup_hints=suggest_federation_setup(peers),
         own=own,
         own_qr=own_qr,
         identity=federation_local_identity.status(),

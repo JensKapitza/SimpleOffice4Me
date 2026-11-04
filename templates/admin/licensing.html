@@ -15,6 +15,16 @@
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if invoice_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Open invoices' if g.language == 'en' else 'Offene Rechnungen' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in invoice_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   {% if licensing.state.bad_client %}
   <div class="alert alert-danger"><strong>BAD Client.</strong> {{ licensing.state.message or ('The license master marked this installation as blocked.' if g.language == 'en' else 'Der Lizenz-Master hat diese Installation als gesperrt markiert.') }} <span class="small">{{ licensing.state.reason }}</span></div>

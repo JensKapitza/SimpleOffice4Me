@@ -262,6 +262,14 @@ def index():
     printer_context = PrinterShareStore(
         current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"],
     ).user_printer_context(_actor())
+    from ..library_duplicates import suggest_library_duplicates
+
+    books = _books_with_assignments(
+        request.args.get("q", ""), 80,
+        author=request.args.get("author", ""),
+        genre=request.args.get("genre", ""),
+        location_id=selected_location,
+    )
     return render_template(
         "library/index.html",
         locations=locations,
@@ -270,12 +278,8 @@ def index():
         author_filter=request.args.get("author", "").strip(),
         genre_filter=request.args.get("genre", "").strip(),
         printer_context=printer_context,
-        books=_books_with_assignments(
-            request.args.get("q", ""), 80,
-            author=request.args.get("author", ""),
-            genre=request.args.get("genre", ""),
-            location_id=selected_location,
-        ),
+        books=books,
+        duplicate_suggestions=suggest_library_duplicates(books),
         events=_store().recent_events(25),
         ocr_available=bool(shutil.which("tesseract")),
         pdf_available=bool(shutil.which("pdftoppm")),

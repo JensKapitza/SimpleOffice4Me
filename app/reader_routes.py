@@ -145,6 +145,8 @@ def _catalog(query: str = "") -> list[dict[str, Any]]:
 @bp.get("")
 @login_required
 def shelf():
+    from .reading_hints import suggest_continue_reading
+
     _require_documents()
     query = request.args.get("q", "").strip()[:200].casefold()
     kind = request.args.get("format", "").strip().casefold()
@@ -173,6 +175,7 @@ def shelf():
     return render_template(
         "reader/shelf.html", books=rows, query=request.args.get("q", ""),
         format_filter=kind, status_filter=status, sort=sort,
+        continue_hints=suggest_continue_reading(rows),
     )
 
 

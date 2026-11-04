@@ -115,5 +115,23 @@
     {% endif %}
   </section>
   {% endif %}
+  {% if g.user and g.user.is_admin %}
+  <section aria-label="Meta-Schlüssel nach Start hinterlegen" class="cf-card">
+    <h2>Live-Schlüssel (nur Admin, nur Speicher)</h2>
+    <p class="cf-muted">Hinterlegt <code>MODEL_API_KEY</code> nach dem Start genau dort, wo die App ihn liest (Prozess-Umgebung + Laufzeit-Konfiguration). Nichts wird auf Platte geschrieben, nichts geloggt. Status siehe Pills oben.</p>
+    <form method="post" action="{{ url_for('contextflow.meta_key_set') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <p>
+        <label for="cf-meta-key"><strong>Meta Model API-Schlüssel</strong></label><br>
+        <input id="cf-meta-key" name="meta_api_key" type="password" autocomplete="off" placeholder="aus .env übernehmen" style="min-width:min(420px,90%)">
+      </p>
+      <p><button class="cf-btn" type="submit">Schlüssel für diesen Prozess hinterlegen</button></p>
+    </form>
+    <form method="post" action="{{ url_for('contextflow.meta_key_clear') }}">
+      <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+      <p><button class="cf-btn" type="submit">Laufzeit-Schlüssel entfernen</button></p>
+    </form>
+  </section>
+  {% endif %}
 </main>
 {% endblock %}

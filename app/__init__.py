@@ -213,6 +213,44 @@ for p in [database_dir, filebase_dir]:
     if not x.exists():
         x.mkdir()
 
+
+def _load_parent_model_key() -> None:
+    """Load MODEL_API_KEY from the parent .env into process memory.
+
+    The file lives NEXT TO the checkout (``../.env`` relative to the
+    repo root), never inside it. Only the allowlisted key is loaded,
+    only when unset in the environment, and nothing is ever printed
+    or logged, so the secret cannot leak into console output, logs,
+    or commits. Mirrors ``tools/local_env.py`` without importing it,
+    so every entrypoint (launcher, tests, direct import) behaves the
+    same: the app fetches the key from ``os.environ`` per request.
+    """
+    if os.environ.get("MODEL_API_KEY"):
+        return
+    try:
+        env_path = Path(app_dir).resolve().parent / ".env"
+        if not env_path.is_file() or env_path.stat().st_size > 64 * 1024:
+            return
+        text = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, _, value = stripped.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if key != "MODEL_API_KEY":
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if not value or "MODEL_API_KEY" in os.environ:
+            continue
+        os.environ["MODEL_API_KEY"] = value
+
+
+_load_parent_model_key()
 initlogging()
 app = Flask(__name__,template_folder=template_dir,static_folder=static_dir)
 app.jinja_env.globals["now"] = datetime.datetime.now

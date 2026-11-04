@@ -124,6 +124,8 @@ def _read_stage(token: str, actor: str) -> bytes:
 @bp.get("")
 @login_required
 def index():
+    from .finance_mapping_hints import suggest_unmapped_connections
+
     actor = _actor()
     import_limit, staging_ttl = _finance_controls()
     _cleanup_staging(actor, staging_ttl)
@@ -145,6 +147,7 @@ def index():
         bank_account_mappings=bank_account_mappings,
         selected_account_id=selected,
         transactions=transactions,
+        mapping_hints=suggest_unmapped_connections(connections, bank_account_mappings),
         bank_browser_enabled=_bank_browser_setting(),
         bank_browser_timeout_seconds=_bank_browser_timeout_seconds(),
         statement_import_limit_mib=import_limit // (1024 * 1024),

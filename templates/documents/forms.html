@@ -9,6 +9,16 @@
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if usage_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Unused templates' if g.language == 'en' else 'Ungenutzte Vorlagen' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in usage_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <div class="row g-3">
     {% for form in forms %}

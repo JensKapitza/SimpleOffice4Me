@@ -191,7 +191,9 @@ def settings():
                     audit("mcp_settings","service","mcp"); flash(translate(g.language,"mcp.saved"))
             return redirect(url_for("mcp.settings"))
         secret,_=create_token(g.user["id"],request.form.get("name",""),request.form.get("can_write")=="1",request.form.get("days",30)); audit("mcp_token_created","mcp_token",detail={"write":request.form.get("can_write")=="1"})
-    return render_template("mcp/settings.html",tokens=tokens_for_user(g.user["id"]),operations=operation_log(g.user["id"],bool(g.user["is_admin"])),secret=secret,meta_saved=meta_saved,meta_key_configured=_vision_config.public(_vision_config.settings()).get("meta_api_key_configured",False),mcp_enabled=bool(current_app.config.get("MCP_ENABLED",True)))
+    from app.mcp_token_hints import suggest_token_review
+    rows=tokens_for_user(g.user["id"])
+    return render_template("mcp/settings.html",tokens=rows,operations=operation_log(g.user["id"],bool(g.user["is_admin"])),secret=secret,meta_saved=meta_saved,meta_key_configured=_vision_config.public(_vision_config.settings()).get("meta_api_key_configured",False),mcp_enabled=bool(current_app.config.get("MCP_ENABLED",True)),token_hints=suggest_token_review(rows))
 
 
 @bp.post("/settings/mcp/<int:token_id>/revoke")

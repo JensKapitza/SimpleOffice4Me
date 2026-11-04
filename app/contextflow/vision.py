@@ -678,15 +678,28 @@ class MetaVisionProvider(VisionProvider):
 def vision_settings_from_mapping(
     config: Mapping[str, Any], environ: Mapping[str, str]
 ) -> dict[str, Any]:
-    """Vision backend settings; Meta stays doubly gated (flag + checkbox)."""
+    """Vision backend settings; Meta stays doubly gated (flag + checkbox).
+
+    The Meta key is read wherever the app fetches it after start:
+    a memory-only runtime override (``CONTEXTFLOW_META_API_KEY`` Flask
+    config, set by an admin after start, never persisted) wins over the
+    process environment (``MODEL_API_KEY`` from the parent ``.env`` or
+    the launcher). Only booleans leave this module for status output.
+    """
     get = config.get
+    runtime_key = str(get("CONTEXTFLOW_META_API_KEY", "") or "").strip()
+    env_key = ""
+    try:
+        env_key = str(environ.get("MODEL_API_KEY", "") or "").strip()
+    except (AttributeError, TypeError):
+        env_key = ""
     return {
         "provider": get("CONTEXTFLOW_VISION_PROVIDER", "local"),
         "ollama_url": get("CONTEXTFLOW_OLLAMA_URL", "http://127.0.0.1:11434"),
         "ollama_model": get("CONTEXTFLOW_OLLAMA_MODEL", ""),
         "ollama_timeout": get("CONTEXTFLOW_OLLAMA_TIMEOUT", 60),
         "meta_consent": bool(get("CONTEXTFLOW_META_CONSENT", False)),
-        "meta_api_key": environ.get("MODEL_API_KEY", ""),
+        "meta_api_key": runtime_key or env_key,
         "meta_endpoint": get("CONTEXTFLOW_META_ENDPOINT", ""),
         "meta_model": get("CONTEXTFLOW_META_MODEL", ""),
     }
