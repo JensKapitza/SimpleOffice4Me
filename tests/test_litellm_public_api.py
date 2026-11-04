@@ -160,7 +160,7 @@ elif args[0] == 'compose':
         response = self.client.post('/admin/mini-services/litellm/restore',
                                     data={'backup': (io.BytesIO(b'broken'), 'backup.json')}, follow_redirects=True)
         self.assertEqual(200, response.status_code)
-        self.assertIn('Restore fehlgeschlagen', response.get_data(as_text=True))
+        self.assertIn('Restore failed', response.get_data(as_text=True))
         self.assertEqual(original, self.client.get('/admin/mini-services/litellm/backup.json').data)
 
     def test_install_and_start_use_reviewed_immutable_image(self):

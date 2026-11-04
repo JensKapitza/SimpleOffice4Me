@@ -447,7 +447,7 @@ class ArchiveRecoveryHttpTests(unittest.TestCase):
                 response = client.post("/documents/mail/accounts/work/archive", follow_redirects=True)
             self.assertEqual(200, response.status_code)
             self.assertIn("1 offene Wiederholungen", response.text)
-            self.assertIn("UID 7: Abruf", response.text)
+            self.assertIn("UID 7: Fetch", response.text)
             self.assertNotIn("private-mail", response.text)
             mailbox.fetch_failures.clear()
             with patch.object(ImapArchive, "_connect", return_value=mailbox):
