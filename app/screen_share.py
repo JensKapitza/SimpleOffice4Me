@@ -177,6 +177,25 @@ def index():
     return render_template("screen/index.html", screen_status=platform_status())
 
 
+@bp.get("/view/<code>")
+@login_required
+def viewer(code: str):
+    """Dedicated viewer page. Reuses the authenticated WebRTC signaling API."""
+    normalized = code.strip().upper()
+    with _sessions_lock:
+        _purge_sessions()
+        if not any(value["join_code"] == normalized and not value.get("closed")
+                   for value in _sessions.values()):
+            abort(404)
+    response = Response(render_template(
+        "screen/index.html", screen_status=platform_status(),
+        viewer_mode=True, viewer_code=normalized
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
+
+
 @bp.get("/status")
 @login_required
 def status():
