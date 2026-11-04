@@ -30,6 +30,10 @@ class WebDavTestBase(unittest.TestCase):
         self.client = app.test_client()
         self.client.post("/auth/register", data={"username": "jens", "password": "browser-passwort"})
         self.client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"})
+        # Most WebDAV UI assertions below intentionally check German copy.
+        # Pin the session locale instead of inheriting the product default.
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         root.mkdir(parents=True, exist_ok=True)
         (root / "angebot.odt").write_bytes(b"first office version")
         self.store = DocumentStore(root)
