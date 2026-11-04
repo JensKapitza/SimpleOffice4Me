@@ -88,11 +88,11 @@ class MarketplaceStoreTests(unittest.TestCase):
                 },
             }), encoding="utf-8")
             store.save({"google_credentials_file": str(credentials_file)})
-        self.assertEqual(("json-client", "json-secret"), store.google_oauth_credentials())
-        self.assertEqual(
-            ("https://office.example.test/auth/google/callback",),
-            store.google_oauth_redirect_uris(),
-        )
+            self.assertEqual(("json-client", "json-secret"), store.google_oauth_credentials())
+            self.assertEqual(
+                ("https://office.example.test/auth/google/callback",),
+                store.google_oauth_redirect_uris(),
+            )
 
     def test_invalid_values_fail_bilingual(self):
         with self.assertRaises(ValueError) as german:
