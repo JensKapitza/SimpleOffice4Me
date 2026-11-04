@@ -66,12 +66,15 @@ def _source_config(kind, form):
 @bp.get("/")
 @login_required
 def index():
+    from .channel_stale_hints import suggest_stale_channels
+
     store = _store(); channels = store.channels_for(g.user["username"], is_admin())
     series = [{"id": row["channel_id"], "name": row["name"], "unit": row["unit"], "color": row["color"],
                "samples": [dict(sample) for sample in store.samples(row["channel_id"], 200)]} for row in channels]
     return render_template(
         "datalogger/index.html", channels=channels, series=series,
         can_manage_settings=is_admin(),
+        stale_hints=suggest_stale_channels(series),
     )
 
 

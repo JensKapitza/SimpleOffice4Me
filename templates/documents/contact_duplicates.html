@@ -9,6 +9,17 @@
   </div>
   <nav class="nav nav-tabs mb-4" aria-label="{{ tr('duplicates.navigation') }}"><a class="nav-link" href="{{ url_for('contact_audit.manage') }}">{{ tr('contacts') }}</a><a class="nav-link active" aria-current="page" href="{{ url_for('contact_audit.duplicates') }}">{{ tr('duplicates.tab') }} <span class="badge text-bg-warning ms-1">{{ duplicates|length }}</span></a><a class="nav-link" href="{{ url_for('contact_audit.combine_contacts') }}">{{ tr('duplicates.combine_tab') }}</a></nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if quality_suggestions %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Quality hints' if g.language == 'en' else 'Qualitätshinweise' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in quality_suggestions %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+    <span class="form-text">{{ 'Apply via contact editing or the combine page.' if g.language == 'en' else 'Über Kontaktbearbeitung oder die Kombinieren-Seite umsetzen.' }}</span>
+  </div>
+  {% endif %}
 
   {% set bulk_count = duplicates|selectattr('bulk_eligible')|list|length %}
   {% if bulk_count %}

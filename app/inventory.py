@@ -558,6 +558,7 @@ def index():
     locations = capture_locations()
     from .contextflow.demo import is_verified_demo_root
     from .contextflow.vision import vision_settings_from_mapping
+    from .inventory_photo_hints import suggest_missing_photos
 
     vision_settings = vision_settings_from_mapping(current_app.config, os.environ)
     meta_photo_consent_available = bool(
@@ -592,6 +593,7 @@ def index():
         series_locations=locations,
         meta_photo_consent_available=meta_photo_consent_available,
         angel_avatar=angel_avatar,
+        photo_hints=suggest_missing_photos(rows),
     )
 
 

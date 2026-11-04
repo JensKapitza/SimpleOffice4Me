@@ -15,6 +15,7 @@ from .site_visit_report import build_visit_report
 from .site_visit_scan import scan_authorized_private_network
 from .site_visit_store import EVIDENCE_CLASSES, FINDING_STATES, RELATIONS, SiteVisitStore
 from .todo_store import TodoStore
+from .visit_finding_hints import suggest_visit_findings
 
 bp = Blueprint("site_visits", __name__, url_prefix="/site-visits")
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp"}
@@ -70,7 +71,12 @@ def _selected_report_ids(record: dict, raw_ids: list[str], *, defaults: bool = T
 @bp.get("")
 @login_required
 def index():
-    return render_template("site_visits/index.html", visits=_store().list(_actor()), today=date.today().isoformat())
+    visits = _store().list(_actor())
+    return render_template(
+        "site_visits/index.html", visits=visits,
+        today=date.today().isoformat(),
+        finding_hints=suggest_visit_findings(visits),
+    )
 
 
 @bp.post("")

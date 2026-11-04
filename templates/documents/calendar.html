@@ -6,6 +6,16 @@
   <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4"><div><h1 class="h2 mb-1">Kalender</h1><p class="text-secondary mb-0">Termine können für andere Benutzer angelegt und gemeinsam bearbeitet werden.</p></div><div class="d-flex flex-wrap gap-2"><button class="btn btn-primary" type="button" data-calendar-open="booking"><i class="fas fa-plus me-1" aria-hidden="true"></i>Termin anlegen</button><button class="btn btn-outline-primary" type="button" data-bs-toggle="collapse" data-bs-target="#calendar-import" aria-expanded="false" aria-controls="calendar-import"><i class="fas fa-file-import me-1" aria-hidden="true"></i>ICS importieren</button><a class="btn btn-outline-primary" href="{{ url_for('documents.export_calendar') }}"><i class="fas fa-file-export me-1" aria-hidden="true"></i>ICS exportieren</a></div></div>
   <section class="collapse mb-4" id="calendar-import"><div class="card border-primary-subtle"><div class="card-body"><h2 class="h5">Kalenderdatei importieren</h2><p class="text-secondary small">Unterstützt <code>.ics</code>-Exporte aus Google Kalender, Thunderbird und anderen iCalendar-Anwendungen. Importierte Termine bleiben standardmäßig privat. Eine vorhandene UID wird aktualisiert statt dupliziert.</p><form method="post" action="{{ url_for('documents.import_calendar') }}" enctype="multipart/form-data" class="row g-2 align-items-end"><div class="col-md"><label class="form-label" for="calendar-file">ICS-Datei</label><input class="form-control" id="calendar-file" type="file" name="calendar_file" accept=".ics,text/calendar" required><div class="form-text">{% if g.language == 'en' %}“Check file” displays events and compatibility warnings without saving data.{% else %}„Datei prüfen“ zeigt Termine und Kompatibilitätswarnungen an, ohne Daten zu speichern.{% endif %}</div></div><div class="col-md-auto d-flex gap-2"><button class="btn btn-outline-secondary" type="submit" formaction="{{ url_for('documents.preview_calendar_import') }}">{% if g.language == 'en' %}Check file{% else %}Datei prüfen{% endif %}</button><button class="btn btn-primary" type="submit">Datei importieren</button></div></form></div></div></section>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if overlap_suggestions %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Overlaps found' if g.language == 'en' else 'Überschneidungen gefunden' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in overlap_suggestions %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   <nav class="calendar-workspace-nav mb-2" aria-label="Kalenderbereiche">
     <div class="nav nav-pills calendar-workspace-tabs gap-2">
       <button class="nav-link active" type="button" data-calendar-tab="calendar" aria-pressed="true"><i class="fas fa-calendar-days me-1" aria-hidden="true"></i>Kalender <span class="small opacity-75">({{ events|length }})</span></button>

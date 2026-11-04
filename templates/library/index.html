@@ -16,6 +16,16 @@
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if captured_item %}<div class="alert alert-success d-flex flex-wrap align-items-center justify-content-between gap-2" role="status" aria-live="polite"><span>Buch <strong>#{{ captured_item.display_id }} · {{ captured_item.name }}</strong> ist im Inventar gespeichert und {{ captured_item.library_location_path }} zugeordnet.</span><a class="btn btn-sm btn-success" href="{{ url_for('inventory.item_detail', object_id=captured_item.object_id) }}">Inventareintrag öffnen</a></div>{% endif %}
+  {% if duplicate_suggestions %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Possible duplicates' if g.language == 'en' else 'Mögliche Dubletten' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in duplicate_suggestions %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <section class="card shadow-sm mb-3" id="find-book">
     <div class="card-header"><strong>1 · Buch wiederfinden</strong></div>

@@ -325,6 +325,8 @@ def submit_remote_print(
 @bp.get("")
 @login_required
 def index():
+    from .print_job_hints import suggest_print_job_actions
+
     store = _store()
     settings = store.settings()
     printer_context = store.user_printer_context(str(g.user["username"]))
@@ -349,6 +351,7 @@ def index():
         retention_labels=RETENTION_LABELS,
         peers=peers,
         job_admin=job_admin,
+        job_hints=suggest_print_job_actions(jobs),
     )
 
 

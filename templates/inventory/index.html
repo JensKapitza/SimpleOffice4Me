@@ -25,6 +25,16 @@
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if photo_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Missing photos' if g.language == 'en' else 'Fehlende Fotos' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in photo_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <div class="card shadow-sm mb-3">
     <div class="card-body">

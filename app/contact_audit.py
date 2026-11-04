@@ -124,7 +124,10 @@ def manage():
 @bp.get("/documents/contacts/manage/duplicates")
 @login_required
 def duplicates():
+    from .contact_quality import suggest_contact_quality
+
     candidates = _management().duplicate_candidates(_actor())
+    quality_suggestions = suggest_contact_quality(_management().store.contacts(_actor()))
     reason_keys = {
         "gleiche E-Mail": "duplicates.reason.email",
         "gleiche Telefonnummer": "duplicates.reason.phone",
@@ -146,6 +149,7 @@ def duplicates():
         "documents/contact_duplicates.html",
         duplicates=candidates,
         localized_reasons=localized_reasons,
+        quality_suggestions=quality_suggestions,
     )
 
 

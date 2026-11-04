@@ -150,6 +150,17 @@
         </div>
         {% endif %}
 
+        {% if merge_suggestions %}
+        <div class="alert alert-info m-3" role="status" aria-live="polite">
+          <strong>Zusammenführen vorgeschlagen (nur Vorschlag, nichts geändert):</strong>
+          <ul class="mb-0">
+            {% for proposal in merge_suggestions %}
+            <li>{{ proposal.reason }}</li>
+            {% endfor %}
+          </ul>
+          <span class="form-text">Umsetzen über Menge anpassen + Duplikat als Gekauft markieren.</span>
+        </div>
+        {% endif %}
         <div class="list-group list-group-flush">
           {% for item in items %}
           <article class="list-group-item py-3" id="shopping-item-{{ item.item_id }}">

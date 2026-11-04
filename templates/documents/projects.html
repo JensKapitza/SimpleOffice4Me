@@ -18,6 +18,16 @@
   {% for message in get_flashed_messages() %}
     <div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>
   {% endfor %}
+  {% if attention_suggestions %}
+    <div class="alert alert-info" role="status" aria-live="polite">
+      <strong>{{ 'Needs attention' if g.language == 'en' else 'Braucht Aufmerksamkeit' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+      <ul class="mb-0">
+        {% for proposal in attention_suggestions %}
+        <li>{{ proposal.reason }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
 
   <section class="collapse project-card project-create-card" id="new-project">
     <div class="card-body">

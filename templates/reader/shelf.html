@@ -16,6 +16,16 @@
       <div class="col-lg-1 d-flex align-items-end"><button class="btn btn-primary w-100" type="submit">Filter</button></div>
     </div>
   </form>
+  {% if continue_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Continue reading' if g.language == 'en' else 'Weiterlesen' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in continue_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   <div class="row g-3">
     {% for book in books %}
     <div class="col-sm-6 col-xl-4">

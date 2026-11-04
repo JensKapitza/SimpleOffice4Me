@@ -17,6 +17,16 @@
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if job_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Jobs need attention' if g.language == 'en' else 'Aufträge brauchen Aufmerksamkeit' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in job_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <nav class="nav nav-tabs mb-4" aria-label="Druckerbereiche" role="tablist">
     <a class="nav-link active" id="my-printers-tab" href="#my-printers" data-bs-toggle="tab" role="tab" aria-controls="my-printers" aria-selected="true">Meine Drucker</a>

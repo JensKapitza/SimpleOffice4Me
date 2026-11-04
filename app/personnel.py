@@ -299,10 +299,13 @@ def index():
             rows.append({"employee": item, "plan": _schedule_summary(item["schedule"], shown.weekday()), "absence": absence})
         agenda.append({"date": shown.isoformat(), "weekday": WEEKDAYS[shown.weekday()], "rows": rows})
     available = [c for c in contacts.contacts(str(g.user["username"])) if c["contact_id"] not in {e["contact_id"] for e in employees}]
+    from .staffing_hints import suggest_staffing_gaps
+
     return render_template("personnel/index.html", employees=employees, employee=actor, absences=absences,
                            month_closes=month_closes, agenda=agenda, punch_state=_punch_state(int(actor["id"]), today) if actor else "clock_out",
                            contacts=available, weekdays=WEEKDAYS, can_manage=bool(g.user["is_admin"]),
-                           can_approve=bool(actor and actor["can_approve"]))
+                           can_approve=bool(actor and actor["can_approve"]),
+                           staffing_hints=suggest_staffing_gaps(employees))
 
 
 @bp.get("/hr")

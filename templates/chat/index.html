@@ -22,6 +22,16 @@
     </div>
   </div>
 
+  {% if stale_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Inactive chats' if g.language == 'en' else 'Inaktive Chats' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in stale_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   <ul class="nav nav-tabs mb-3" id="chat-index-tabs" role="tablist">
     <li class="nav-item" role="presentation">
       <button class="nav-link active" id="chats-tab" data-bs-toggle="tab" data-bs-target="#chats-pane" type="button" role="tab" aria-controls="chats-pane" aria-selected="true">

@@ -160,7 +160,9 @@ def settings():
     secret=None
     if request.method=="POST":
         secret,_=create_token(g.user["id"],request.form.get("name",""),request.form.get("can_write")=="1",request.form.get("days",30)); audit("mcp_token_created","mcp_token",detail={"write":request.form.get("can_write")=="1"})
-    return render_template("mcp/settings.html",tokens=tokens_for_user(g.user["id"]),operations=operation_log(g.user["id"],bool(g.user["is_admin"])),secret=secret)
+    from app.mcp_token_hints import suggest_token_review
+    rows=tokens_for_user(g.user["id"])
+    return render_template("mcp/settings.html",tokens=rows,operations=operation_log(g.user["id"],bool(g.user["is_admin"])),secret=secret,token_hints=suggest_token_review(rows))
 
 
 @bp.post("/settings/mcp/<int:token_id>/revoke")

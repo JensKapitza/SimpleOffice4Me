@@ -126,11 +126,15 @@ def send_pending_reports(store: LicenseStore) -> dict[str, Any]:
 @admin_bp.get("")
 @_admin_required
 def index():
+    from .license_invoice_hints import suggest_license_invoices
+
+    licensing = _store().overview()
     return render_template(
         "admin/licensing.html",
-        licensing=_store().overview(),
+        licensing=licensing,
         features=FEATURES,
         master_reports=_master_store().reports() if LICENSE_MASTER_MODE else [],
+        invoice_hints=suggest_license_invoices(licensing.get("open_invoices", [])),
     )
 
 

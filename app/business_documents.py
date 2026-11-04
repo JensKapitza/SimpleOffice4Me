@@ -61,7 +61,6 @@ def _v3_finance_sync(root: Path, row: dict[str, Any], actor: str) -> None:
     track_invoice_best_effort(root, row, actor)
 
 
-
 def _link_path(root: Path) -> Path:
     path=root/CONTROL_DIR/LINK_FILE; path.parent.mkdir(parents=True,exist_ok=True); return path
 
@@ -820,13 +819,13 @@ def invoice_overview():
         selected_related_invoice_id,
     )
     stats={"total":len(rows),"open":sum(row["payment_state"]["status"] in {"open","partial"} for row in rows),"overdue":sum(row["payment_state"]["status"]=="overdue" for row in rows),"paid":sum(row["payment_state"]["status"] in {"paid","credited"} for row in rows),"written_off":sum(row["payment_state"]["status"]=="written_off" for row in rows)}
+    from .invoice_collection import suggest_collection
     return render_template(
         "documents/invoice_overview.html", rows=rows, stats=stats, query=query,
         selected_status=selected_status, project_options=project_options,
         selected_project_id=selected_project_id, related_options=related_options,
-        selected_related_invoice_id=selected_related_invoice_id,
-        relation_error=relation_error,
-    )
+        selected_related_invoice_id=selected_related_invoice_id, relation_error=relation_error,
+        collection_suggestions=suggest_collection(rows))
 
 @bp.route("/invoices/new", methods=("GET", "POST"))
 @login_required

@@ -41,9 +41,12 @@ def _year() -> int:
 @bp.get("/receipts")
 @login_required
 def receipts():
+    from .receipt_review_hints import suggest_receipt_reviews
+
     year = _year(); store = EurReceiptStore(_root())
     rows = store.list(_actor(), is_admin=_is_admin(), year=year)
-    return render_template("documents/eur_receipts.html", rows=rows, summary=store.summary(rows), year=year, today=date.today().isoformat())
+    return render_template("documents/eur_receipts.html", rows=rows, summary=store.summary(rows), year=year, today=date.today().isoformat(),
+                           review_hints=suggest_receipt_reviews(rows))
 
 
 @bp.post("/receipts")

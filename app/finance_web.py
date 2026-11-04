@@ -93,6 +93,8 @@ def _read_stage(token: str, actor: str) -> bytes:
 @bp.get("")
 @login_required
 def index():
+    from .finance_mapping_hints import suggest_unmapped_connections
+
     actor = _actor()
     _cleanup_staging(actor)
     store = _store()
@@ -113,6 +115,7 @@ def index():
         bank_account_mappings=bank_account_mappings,
         selected_account_id=selected,
         transactions=transactions,
+        mapping_hints=suggest_unmapped_connections(connections, bank_account_mappings),
     )
 
 

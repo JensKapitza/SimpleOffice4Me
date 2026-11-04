@@ -363,7 +363,12 @@ def objects():
         except ValueError as exc:
             flash(str(exc))
     query = request.args.get("q", "").strip()
-    return render_template("documents/objects.html", objects=_objects().objects(query), query=query)
+    from .object_duplicates import suggest_object_duplicates
+
+    found = _objects().objects(query)
+    return render_template(
+        "documents/objects.html", objects=found, query=query,
+        duplicate_suggestions=suggest_object_duplicates(found))
 
 
 @bp.route("/objects/<object_id>", methods=("GET", "POST"))
@@ -450,7 +455,13 @@ def projects():
         {**project, "tasks": _todos().project_tasks(project["project_id"], actor)}
         for project in project_rows
     ]
-    return render_template("documents/projects.html", projects=project_rows)
+    from .project_attention import suggest_project_attention
+
+    return render_template(
+        "documents/projects.html",
+        projects=project_rows,
+        attention_suggestions=suggest_project_attention(project_rows),
+    )
 
 
 def _project_with_tasks(project_id: str, actor: str) -> dict[str, Any]:
@@ -612,7 +623,11 @@ def search_project_documents():
 @bp.get("/replication")
 @login_required
 def replication():
-    return render_template("documents/replication.html", status=_replication().status(), categories=CATEGORIES, restic_installed=shutil.which("restic") is not None)
+    from .replication_hints import suggest_replication_review
+
+    status = _replication().status()
+    return render_template("documents/replication.html", status=status, categories=CATEGORIES, restic_installed=shutil.which("restic") is not None,
+                           replication_hints=suggest_replication_review(status))
 
 
 @bp.post("/replication/targets")

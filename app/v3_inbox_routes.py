@@ -18,6 +18,8 @@ def inbox_capability_context():
 @bp.get("")
 @login_required
 def index():
+    from .inbox_stuck_hints import suggest_inbox_attention
+
     if not enabled("v3.inbox"):
         return render_template(
             "documents/v3_inbox.html",
@@ -29,12 +31,14 @@ def index():
     store=InboxStore(current_app.config["DOCUMENT_ROOT"])
     source=request.args.get("source","").strip()
     status=request.args.get("status","").strip()
+    items=store.list(source=source,status=status)
     return render_template(
         "documents/v3_inbox.html",
         enabled=True,
-        items=store.list(source=source,status=status),
+        items=items,
         source=source,
         status=status,
+        attention_hints=suggest_inbox_attention(items),
     )
 
 

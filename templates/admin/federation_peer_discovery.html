@@ -4,6 +4,16 @@
 <main id="main-content" class="container-xl py-3 py-md-4">
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3"><div><h1 class="h3 mb-1">Federation · Netzwerk</h1><p class="text-secondary mb-0">Geräte im lokalen Netzwerk finden, anschließend getrennt prüfen, vertrauen und für Daten freigeben.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a></div>
 {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+{% if setup_hints %}
+<div class="alert alert-info" role="status" aria-live="polite">
+  <strong>{{ 'Setup incomplete' if g.language == 'en' else 'Einrichtung unvollständig' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+  <ul class="mb-0">
+    {% for proposal in setup_hints %}
+    <li>{{ proposal.reason }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 
 <section class="card border-primary shadow-sm mb-3" id="network-scan">
   <div class="card-body">

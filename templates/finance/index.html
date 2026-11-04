@@ -7,6 +7,16 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.euer.overview') }}"><i class="fas fa-calculator me-1" aria-hidden="true"></i>EÜR</a>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if mapping_hints %}
+  <div class="alert alert-info" role="status" aria-live="polite">
+    <strong>{{ 'Missing mappings' if g.language == 'en' else 'Fehlende Zuordnungen' }} ({{ 'proposal only, nothing changed' if g.language == 'en' else 'nur Vorschlag, nichts geändert' }}):</strong>
+    <ul class="mb-0">
+      {% for proposal in mapping_hints %}
+      <li>{{ proposal.reason }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
 
   <div class="row g-4 mb-4">
     <div class="col-lg-7">

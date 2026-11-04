@@ -64,12 +64,16 @@ def ready():
 @bp.get("/admin/v3/health")
 @admin_required
 def index():
+    from .health_attention_hints import suggest_unhealthy_checks
+
     feature_enabled = enabled("v3.health")
     report = _report() if feature_enabled else None
     return render_template(
         "admin/v3_health.html",
         enabled=feature_enabled,
         report=report,
+        attention_hints=suggest_unhealthy_checks(
+            report.checks if report is not None else []),
     )
 
 
