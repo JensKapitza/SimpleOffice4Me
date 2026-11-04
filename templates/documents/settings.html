@@ -9,10 +9,10 @@
   {% if can_manage_media_settings %}
   <nav aria-label="Einstellungsbereiche" class="mb-4">
     <div class="nav nav-tabs">
-      <a class="nav-link active" href="{{ url_for('documents.settings') }}" aria-current="page">Allgemein</a>
-      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">Dokumente &amp; Medien</a>
-      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">Netzwerk &amp; Synchronisation</a>
-      <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">Integrationen &amp; Dienste</a>
+      <a class="nav-link active" href="{{ url_for('documents.settings') }}" aria-current="page">{{ 'General' if g.language == 'en' else 'Allgemein' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">{{ 'Documents &amp; media' if g.language == 'en' else 'Dokumente &amp; Medien' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">{{ 'Network &amp; synchronisation' if g.language == 'en' else 'Netzwerk &amp; Synchronisation' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">{{ 'Integrations &amp; services' if g.language == 'en' else 'Integrationen &amp; Dienste' }}</a>
     </div>
   </nav>
   {% endif %}
