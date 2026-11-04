@@ -322,6 +322,8 @@ def post_signal(session_id: str):
     payload = body.get("payload")
     if role not in {"sender", "receiver"} or kind not in {"offer", "answer", "ice", "ready", "bye"}:
         abort(400)
+    if kind == "bye" and role != "sender":
+        abort(403)
     if kind in {"offer", "answer"}:
         if role != ("sender" if kind == "offer" else "receiver"):
             abort(400)
@@ -362,12 +364,11 @@ def post_signal(session_id: str):
 @bp.delete("/api/sessions/<session_id>")
 @login_required
 def close_session(session_id: str):
-    code = request.headers.get("X-Screen-Code", "").strip().upper()
     with _sessions_lock:
         value = _sessions.get(session_id)
         if value is None:
             return jsonify({"schema": 1, "closed": True})
-        if value["owner"] != _actor_id() and code != value["join_code"]:
+        if value["owner"] != _actor_id():
             abort(403)
         value["closed"] = True
         value["updated_at"] = time.time()
