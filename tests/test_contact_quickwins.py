@@ -13,7 +13,10 @@ def test_contact_merge_has_bulk_selection_and_reset_controls():
     script = read("static/js/contact-combine.js")
     assert 'id="combine-select-all"' in template
     assert 'id="combine-clear"' in template
-    assert "Filter zurücksetzen" in template
+    assert "tr('duplicates.reset_filter')" in template
+    assert '"duplicates.reset_filter": "Filter zurücksetzen"' in read(
+        "app/translations.py"
+    )
     assert 'role="search"' in template
     assert 'enterkeyhint="search"' in template
     assert "setAll(true)" in script
