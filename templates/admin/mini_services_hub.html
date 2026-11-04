@@ -38,6 +38,17 @@
     <div id="mini-control-cards" class="row g-3"></div>
   </section>
 
+  <section class="card mb-4" aria-label="LAN proxy status">
+    <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3">
+      <div>
+        <h2 class="h5">{{ 'Desktop LAN proxy' if g.language == 'en' else 'Desktop-LAN-Proxy' }}</h2>
+        <p class="mb-1">{{ 'Status' if g.language == 'en' else 'Status' }}: <strong>{{ desktop_proxy_status.state }}</strong></p>
+        {% if desktop_proxy_status.origin %}<p class="mb-1"><a href="{{ desktop_proxy_status.origin }}" rel="noopener noreferrer">{{ desktop_proxy_status.origin }}</a></p>{% endif %}
+        <p class="small text-secondary mb-0">{{ desktop_proxy_status.message }}</p>
+      </div>
+      <a class="btn btn-outline-primary" href="{{ url_for('admin_server.server_settings') }}">{{ 'Configure host / port' if g.language == 'en' else 'Host / Port konfigurieren' }}</a>
+    </div>
+  </section>
   <div class="row g-3">
     <div class="col-sm-6 col-xl-3"><article class="card h-100"><div class="card-body d-flex flex-column"><h2 class="h5">LiteLLM / MCP</h2><p class="text-secondary small">{{ 'Optional LLM gateway: local or external operation, connection test and backed-up configuration.' if g.language == 'en' else 'Optionales LLM-Gateway: lokaler oder externer Betrieb, Verbindungstest und gesicherte Konfiguration.' }}</p><a class="btn btn-primary mt-auto" href="{{ url_for('litellm_admin.index') }}">{{ 'Configure LiteLLM' if g.language == 'en' else 'LiteLLM konfigurieren' }}</a><a class="btn btn-outline-secondary mt-2" href="{{ url_for('mcp.settings') }}">{{ 'MCP credentials' if g.language == 'en' else 'MCP-Zugänge' }}</a></div></article></div>
     <div class="col-sm-6 col-xl-3"><article class="card h-100"><div class="card-body d-flex flex-column"><h2 class="h5">{{ 'Vision / ML' if g.language == 'en' else 'Vision / ML' }}</h2><p class="text-secondary small">{{ 'OCR plus ML backend: loopback Ollama or Meta cloud key, consent and status.' if g.language == 'en' else 'OCR plus ML-Backend: Loopback-Ollama oder Meta-Cloud-Key, Einwilligung und Status.' }}</p><a class="btn btn-primary mt-auto" href="{{ url_for('vision_admin.index') }}">{{ 'Configure Vision / ML' if g.language == 'en' else 'Vision / ML konfigurieren' }}</a></div></article></div>
