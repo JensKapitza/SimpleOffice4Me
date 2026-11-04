@@ -293,13 +293,14 @@ class MlBadgeRenderingTests(unittest.TestCase):
         guard = "ollama.model_allowed !== true"
         self.assertIn(guard, self.script)
         self.assertLess(
-            self.script.index(guard), self.script.index("ML aktiv")
+            self.script.index(guard),
+            self.script.index("STR.activeLocal(ollama.model)"),
         )
-        self.assertIn("ML: Modell nicht freigegeben · ${ollama.model}", self.script)
+        self.assertIn("ML: Modell nicht freigegeben · ${model}", self.script)
 
     def test_allowed_local_model_shows_provider_and_id(self) -> None:
         self.assertIn(
-            "ML aktiv · Meta-Modell lokal via Ollama · ${ollama.model}",
+            "ML aktiv · Meta-Modell lokal via Ollama · ${model}",
             self.script,
         )
 
@@ -307,7 +308,7 @@ class MlBadgeRenderingTests(unittest.TestCase):
         self.assertIn("kein API-Schlüssel", self.script)
         self.assertIn("Modell nicht bestätigt", self.script)
         self.assertIn("Modell nicht geprüft", self.script)
-        self.assertIn("mlBadge.title = `Modell: ${meta.model", self.script)
+        self.assertIn("mlBadge.title = `${STR.modelLabel}${meta.model", self.script)
 
 
 if __name__ == "__main__":
