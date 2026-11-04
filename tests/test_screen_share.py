@@ -150,6 +150,18 @@ class ScreenShareTests(unittest.TestCase):
         template = (ROOT / "templates" / "screen" / "index.html").read_text(encoding="utf-8")
         self.assertIn("connectivity_relay_ice.ice", template)
 
+    def test_viewer_route_and_autoconnect_contract(self):
+        source = (ROOT / "app/screen_share.py").read_text(encoding="utf-8")
+        template = (ROOT / "templates/screen/index.html").read_text(encoding="utf-8")
+        javascript = (ROOT / "static/js/screen_share.js").read_text(encoding="utf-8")
+        self.assertIn('@bp.get("/view/<code>")', source)
+        self.assertIn("@login_required", source)
+        self.assertIn("viewer_mode=True", source)
+        self.assertIn("data-viewer-code", template)
+        self.assertIn("screen-proxy-link", template)
+        self.assertIn("screen-receive-start", javascript)
+        self.assertIn("root.dataset.viewerCode", javascript)
+
     def test_electron_ipc_handlers_are_present_and_validated(self):
         source = (ROOT / "desktop/electron/main.js").read_text(encoding="utf-8")
         self.assertIn("ipcMain.handle('screen:status'", source)
