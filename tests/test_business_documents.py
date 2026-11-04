@@ -368,6 +368,54 @@ class BusinessDocumentTests(unittest.TestCase):
             self.assertIn("Musterstraße 1", finalized_text)
             self.assertNotIn("Andere Straße 5", finalized_text)
 
+    def test_unstructured_free_text_finalizes_as_pdf_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            contact = ContactStore(root).upsert({"display_name": "Max Muster"}, "tester")
+            form = MultiDict([
+                ("address_mode", "free_text"),
+                ("billing_free_text", "Musterstraße 1\nBerlin"),
+                ("recipient_type", "private"),
+                ("recipient_contact", "Max Muster"),
+                ("issue_date", "2026-10-22"),
+                ("service_date", "2026-10-22"),
+                ("payment_days", "14"),
+                ("currency", "EUR"),
+            ])
+            with (
+                mock.patch("app.business_documents.business_settings", return_value={
+                    "seller_name": "Muster GmbH", "seller_street": "Hauptstraße 1",
+                    "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
+                }),
+                mock.patch("app.business_documents._build_invoice_lines", return_value=[]),
+                mock.patch("app.business_documents._invoice_totals", return_value={
+                    "net": "0.00", "tax": "0.00", "gross": "0.00", "vat_groups": {},
+                }),
+                mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-2026-0001"),
+                mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}),
+                mock.patch("app.business_documents.DocumentStore"),
+            ):
+                row = save_invoice_draft(root, contact["contact_id"], form, "tester")
+            self.assertEqual("", row["buyer"]["postal"])
+            self.assertEqual("", row["buyer"]["city"])
+            with (
+                mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"),
+                mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}),
+                mock.patch("app.business_documents._validate_project_sources"),
+                mock.patch("app.business_documents._invoice_content_pdf", return_value=b"content"),
+                mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"),
+                mock.patch("app.business_documents._pdfa3_convert_detailed") as pdfa,
+                mock.patch("app.business_documents._store_generated_pdf", return_value={"document_id": "pdf-only-1"}) as store,
+                mock.patch("app.business_documents.DocumentStore"),
+            ):
+                final, document = finalize_invoice(root, row["invoice_id"], "tester")
+            self.assertEqual("open", final["status"])
+            self.assertEqual("pdf_only", final["zugferd"]["status"])
+            self.assertEqual("pdf-only-1", document["document_id"])
+            pdfa.assert_not_called()
+            self.assertEqual(b"visual", store.call_args.args[3])
+            self.assertEqual("pdf_only", store.call_args.kwargs["metadata"]["zugferd_status"])
+
     def test_invoice_task_link_requires_visible_task_for_same_customer(self):
         task = {"id": "task-1", "contact_id": "contact-1"}
         with mock.patch("app.todo_store.TodoStore") as todo_store:
