@@ -101,7 +101,7 @@ class FederationAdminStorageTests(unittest.TestCase):
         self.assertEqual([], self.store.list_transfers())
         response = self.client.get(f'/admin/federation?view=files&document_id={self.document["document_id"]}')
         self.assertEqual(200, response.status_code)
-        self.assertIn("konnte nicht verifiziert", response.get_data(as_text=True))
+        self.assertIn("could not be verified", response.get_data(as_text=True))
 
     def test_missing_v1_creates_no_transfer(self):
         self.projection.unlink()

@@ -112,7 +112,9 @@ class MailCaseFederationIdentityTests(unittest.TestCase):
         database.init_app(app)
         app.register_blueprint(admin_bp)
         user = {"id": 1, "username": "admin", "is_admin": True, "is_disabled": False}
-        app.before_request(lambda: setattr(g, "user", user))
+        # Mirror production load_interface_preferences (default language "en").
+        # Note: must return None so Flask continues to the view.
+        app.before_request(lambda: setattr(g, "user", user) or setattr(g, "language", "en"))
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()
@@ -152,7 +154,9 @@ class MailCaseFederationIdentityTests(unittest.TestCase):
         database.init_app(app)
         app.register_blueprint(admin_bp)
         user = {"id": 1, "username": "admin", "is_admin": True, "is_disabled": False}
-        app.before_request(lambda: setattr(g, "user", user))
+        # Mirror production load_interface_preferences (default language "en").
+        # Note: must return None so Flask continues to the view.
+        app.before_request(lambda: setattr(g, "user", user) or setattr(g, "language", "en"))
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()

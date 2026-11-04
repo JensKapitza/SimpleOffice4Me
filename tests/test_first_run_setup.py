@@ -148,7 +148,7 @@ class FirstRunSetupTest(unittest.TestCase):
         client = app.test_client()
         client.post("/auth/login", data={"username": "jens", "password": "browser-passwort"}, base_url="http://office.example")
         body = client.get("/documents/setup", base_url="http://office.example").get_data(as_text=True)
-        self.assertIn("HTTPS fehlt", body)
+        self.assertIn("HTTPS missing.", body)
         self.assertIn("disabled", body)
         denied = client.post("/documents/setup/access", base_url="http://office.example")
         self.assertEqual(400, denied.status_code)

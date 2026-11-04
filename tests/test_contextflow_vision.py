@@ -903,9 +903,9 @@ class VisionWebTest(unittest.TestCase):
         )
         self.assertIn("Buchscanner (synthetisch)".encode(), body)
         self.assertIn(
-            "KI-Entwurf anfragen".encode("utf-8"), body
+            "Request AI draft – finding only after your confirmation".encode("utf-8"), body
         )
-        self.assertIn(b"Foto / Beleg", body)
+        self.assertIn(b"Photo / evidence", body)
 
     def test_visit_detail_omits_photo_form_when_disabled(self) -> None:
         app.config.update(CONTEXTFLOW_ENABLED=False)
@@ -915,7 +915,7 @@ class VisionWebTest(unittest.TestCase):
             app.config.update(CONTEXTFLOW_ENABLED=True)
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"/contextflow/suggest", response.data)
-        self.assertIn(b"Foto / Beleg", response.data)
+        self.assertIn(b"Photo / evidence", response.data)
 
     def test_inventory_suggest_mock_returns_503(self) -> None:
         response = self.admin.post(

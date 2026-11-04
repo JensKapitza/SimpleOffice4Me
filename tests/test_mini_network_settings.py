@@ -89,7 +89,9 @@ class NetworkSettingsTests(unittest.TestCase):
         self.app.register_blueprint(bp)
         self.app.add_url_rule("/login", endpoint="auth.login", view_func=lambda: "Login")
         self.user = {"id": 1, "is_admin": True, "is_disabled": False}
-        self.app.before_request(lambda: setattr(g, "user", self.user))
+        # Mirror production load_interface_preferences (default language "en").
+        # Note: must return None so Flask continues to the view.
+        self.app.before_request(lambda: setattr(g, "user", self.user) or setattr(g, "language", "en"))
         self.app.before_request(protect_browser_mutation)
         self.client = self.app.test_client()
         with self.client.session_transaction() as session:
