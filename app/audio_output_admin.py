@@ -47,14 +47,18 @@ def status():
 @bp.get("/ui")
 @admin_required
 def index():
+    from .audio_output_hints import suggest_output_review
     store = _store()
+    outputs = store.outputs()
+    service = worker.status()
     return render_template(
         "admin/audio_output.html",
-        outputs=store.outputs(),
+        outputs=outputs,
         groups=store.groups(),
         presets=DEFAULT_PRESETS,
         queue=store.history(100),
-        service=worker.status(),
+        service=service,
+        output_hints=suggest_output_review(outputs, service),
     )
 
 
