@@ -524,8 +524,7 @@ def test_printer_device(printer_id: str):
         abort(404)
     # Windows' Microsoft Print to PDF uses PORTPROMPT: and needs an
     # interactive filename. A service cannot reliably spool to that device.
-    if (str(printer.get("name", "")).casefold() == "microsoft print to pdf"
-            or str(printer.get("port", "")).upper().startswith("PORTPROMPT:")):
+    if str(printer.get("name", "")).casefold() == "microsoft print to pdf":
         payload = _printer_test_pdf(str(printer.get("label") or printer["name"]))
         return send_file(
             BytesIO(payload), mimetype="application/pdf",
