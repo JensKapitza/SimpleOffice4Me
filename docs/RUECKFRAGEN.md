@@ -44,6 +44,7 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 
 - Update No-Env-Abschluss (Lauf 04.11., Baum sauber + sync auf `4e17976d`): alle Abschnitt-3-Wellen verifiziert erledigt — Admin-Listen (keine Env-Leser mehr), ClamAV (Store), Login-QR (Store), V3-Flags (Store+Admin-DE/EN+Tests+Register), PROJECT_REPO_ROOTS (keine Leser), S3 (keine Env-Leser), Welle 7 + 8a/8b (erledigt). Keine naechste Welle definiert. Fremd-Commit `4e17976d` (imap EN-Assert) owner-seitig gepusht; lokale Suite-Verifikation unmoeglich (kein venv im Worktree, unittest owner-seitig) — CI PR #973 ist Orakel.
 - Offen an Owner: naechste Welle definieren (Kandidaten: GOOGLE_OAUTH_*/Registrierung, Error-Reporting, ZUGFERD/MUSTANG, SFTP_HOST_KEY) oder No-Env-Programm fuer beendet erklaeren (Rest = Plattform-Env PATH/SystemRoot/HOME + dokumentierte Start-Overrides).
+- Eskalation Fremd-Fails (CI PR #973, Job Python-3.15-experimental non-blocking, 5693 Tests, 3 Fails): alles stale-DE-Asserts in Fremdgebieten — invoice_icons (`Nachfolger` vs EN-Template), mail_client (`IMAP-Client` vs EN-Seite), termux sftp-guidance. Gehoeren den Gebiets-Agenten (Invoice/Mail/Termux), nicht in eigene Wellen uebernehmen (EN-Default-Konsistenz). Falls der blockierende Python-Application-Job dieselben 3 faellt, dort ebenfalls nur eskalieren.
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)
