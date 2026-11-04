@@ -3,6 +3,7 @@
 // LAN reverse proxy for the embedded desktop backend. Deliberately opt-in:
 // the persisted server bind must explicitly differ from loopback.
 const http = require('node:http');
+const net = require('node:net');
 
 const HOP_HEADERS = new Set([
   'connection', 'keep-alive', 'proxy-authenticate', 'proxy-authorization',
@@ -19,6 +20,19 @@ function cleanHeaders(headers) {
   return result;
 }
 
+function isPrivateClient(address) {
+  const text = String(address || '').replace(/^::ffff:/i, '');
+  if (text === '::1') return true;
+  if (net.isIP(text) === 6) {
+    return /^(f[cd]|fe[89ab])/i.test(text);
+  }
+  if (net.isIP(text) !== 4) return false;
+  const [first, second] = text.split('.').map(Number);
+  return first === 10 || first === 127 || (first === 192 && second === 168) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 169 && second === 254);
+}
+
 function createLanProxy({host, port, backendPort, publicHost = '', logger = console}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 ||
       !Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) {
@@ -26,6 +40,11 @@ function createLanProxy({host, port, backendPort, publicHost = '', logger = cons
   }
   // The proxy must never target an address supplied by the HTTP client.
   const server = http.createServer((req, res) => {
+    if (!isPrivateClient(req.socket.remoteAddress)) {
+      res.writeHead(403, {'content-type': 'text/plain; charset=utf-8'});
+      res.end('LAN access only');
+      return;
+    }
     const headers = cleanHeaders(req.headers);
     // Never trust the downstream Host header as an upstream routing hint.
     headers.host = publicHost || `${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
@@ -65,4 +84,4 @@ function createLanProxy({host, port, backendPort, publicHost = '', logger = cons
   });
 }
 
-module.exports = {createLanProxy, cleanHeaders};
+module.exports = {createLanProxy, cleanHeaders, isPrivateClient};
