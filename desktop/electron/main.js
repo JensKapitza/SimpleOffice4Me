@@ -4,6 +4,7 @@ const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell, session } =
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
+const os = require('node:os');
 const {createLanProxy} = require('./lan_proxy');
 const path = require('node:path');
 
@@ -142,6 +143,31 @@ function backendCommand() {
   return developmentBackend();
 }
 
+function persistedLanProxy(documentRoot) {
+  let settings;
+  try {
+    settings = JSON.parse(fs.readFileSync(path.join(
+      documentRoot, '.simpleoffice-meta', 'settings.json'
+    ), 'utf8')).server || {};
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('Cannot read server settings:', error);
+    return null;
+  }
+  const host = String(settings.host || '127.0.0.1').trim();
+  const port = Number(settings.port);
+  if (['127.0.0.1', 'localhost', '::1'].includes(host)) return null;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
+  let advertised = host;
+  if (host === '0.0.0.0') {
+    const interfaces = Object.values(os.networkInterfaces()).flat();
+    advertised = interfaces.find((item) =>
+      item && item.family === 'IPv4' && !item.internal)?.address || '';
+  }
+  const origin = advertised && !advertised.includes(':')
+    ? `http://${advertised}:${port}` : '';
+  return {host, port, origin};
+}
+
 async function startBackend() {
   const port = await freePort();
   const userData = app.getPath('userData');
@@ -166,6 +192,7 @@ async function startBackend() {
     SIMPLEOFFICE_DOCUMENT_ROOT: documentRoot,
     SIMPLEOFFICE_HOST: '127.0.0.1',
     SIMPLEOFFICE_PORT: String(port),
+    SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN: persistedLanProxy(documentRoot)?.origin || '',
     SIMPLEOFFICE_ERROR_REPORT_URL: errorReportUrl,
     SIMPLEOFFICE_BACKGROUND_INDEX: process.env.SIMPLEOFFICE_BACKGROUND_INDEX || '0',
     SIMPLEOFFICE_OSM_INDEX: process.env.SIMPLEOFFICE_OSM_INDEX || '0',
@@ -196,22 +223,9 @@ async function startBackend() {
 
 async function startConfiguredLanProxy() {
   if (!backendUrl || !backendDocumentRoot) return;
-  const settingsPath = path.join(backendDocumentRoot, '.simpleoffice-meta', 'settings.json');
-  let serverSettings;
-  try {
-    serverSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')).server || {};
-  } catch (error) {
-    if (error.code === 'ENOENT') return;
-    console.error('LAN proxy configuration could not be read:', error);
-    return;
-  }
-  const host = String(serverSettings.host || '127.0.0.1').trim();
-  const port = Number(serverSettings.port);
-  if (['127.0.0.1', 'localhost', '::1'].includes(host)) return;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error('LAN proxy port is invalid. Proxy disabled.');
-    return;
-  }
+  const proxy = persistedLanProxy(backendDocumentRoot);
+  if (!proxy) return;
+  const {host, port} = proxy;
   try {
     lanProxy = await createLanProxy({
       host, port, backendPort: Number(new URL(backendUrl).port)
