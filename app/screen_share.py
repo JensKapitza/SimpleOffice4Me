@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import platform
 import secrets
 import shutil
@@ -174,7 +175,7 @@ def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
 @bp.get("")
 @login_required
 def index():
-    return render_template("screen/index.html", screen_status=platform_status())
+    return render_template("screen/index.html", screen_status=platform_status(), proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", ""))
 
 
 @bp.get("/view/<code>")
@@ -189,7 +190,8 @@ def viewer(code: str):
             abort(404)
     response = Response(render_template(
         "screen/index.html", screen_status=platform_status(),
-        viewer_mode=True, viewer_code=normalized
+        viewer_mode=True, viewer_code=normalized,
+        proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", "")
     ))
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
