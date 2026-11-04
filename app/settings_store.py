@@ -98,6 +98,11 @@ from .integration_settings import (
     normalize_integration_settings,
     validate_integration_settings,
 )
+from simpleoffice_server_config import (
+    DEFAULT_SERVER_SETTINGS,
+    effective_server_settings,
+    validate_server_settings,
+)
 from .revision_history import RevisionHistory
 from .media_settings import (
     DEFAULT_ARCHIVE_OCR_ENABLED as DEFAULT_ARCHIVE_OCR_ENABLED,
@@ -258,6 +263,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "clamav_scanner_path": DEFAULT_CLAMAV_SCANNER_PATH,
     },
     "v3": {key: False for key in CAPABILITY_KEYS},
+    "server": dict(DEFAULT_SERVER_SETTINGS),
     "projects": {"repo_roots": list(DEFAULT_REPO_ROOTS)},
     "extensions": {"http_allowlist": list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)},
     "datalogger": {"allowed_hosts": list(DEFAULT_SENSOR_ALLOWED_HOSTS)},
@@ -443,6 +449,8 @@ class SettingsStore:
             result["integrations"]
         )
         result["v3"] = normalize_v3_settings(result.get("v3", {}))
+        stored_server = stored.get("server") if isinstance(stored, dict) else None
+        result["server"] = effective_server_settings(stored=stored_server)
         stored_projects = result.get("projects", {})
         result["projects"] = {
             "repo_roots": normalize_repo_roots(
@@ -611,12 +619,12 @@ class SettingsStore:
                 if has_app_context() and current_app.config.get("S3_OVERLAY_ENABLED") is True:
                     latest["s3"] = {"enabled": True}
             # Ordinary preferences and admin S3 changes share one atomic merge.
-            # Network, media, integration, v3 and project settings support
-            # partial writes so callers preserve the other controls in the
-            # same section.
+            # Network, media, integration, v3, server and project settings
+            # support partial writes so callers preserve the other controls
+            # in the same section.
             merged = {**latest, **settings}
             for section in (
-                "network", "media", "integrations", "v3", "projects",
+                "network", "media", "integrations", "v3", "server", "projects",
                 "extensions", "finance",
             ):
                 section_update = settings.get(section)
@@ -649,6 +657,7 @@ class SettingsStore:
         media = settings.get("media", {})
         integrations = settings.get("integrations", {})
         v3 = settings.get("v3", {})
+        server = settings.get("server", {})
         projects = settings.get("projects", {})
         extensions = settings.get("extensions", {})
         datalogger = settings.get("datalogger", {})
@@ -703,6 +712,7 @@ class SettingsStore:
         integrations = validate_integration_settings(integrations)
         media = validate_media_settings(media)
         v3 = validate_v3_settings(v3)
+        server = validate_server_settings(server)
         if not isinstance(projects, dict):
             raise ValueError("project settings must be an object")
         projects = {"repo_roots": validate_repo_roots(projects.get("repo_roots", []))}
@@ -769,6 +779,7 @@ class SettingsStore:
                 **integrations,
             },
             "v3": v3,
+            "server": server,
             "projects": projects,
             "extensions": extensions,
             "datalogger": datalogger,

@@ -28,7 +28,7 @@ from .bs4 import download_file, renderwithbs4
 from flask import Flask, send_from_directory, \
     render_template_string, render_template, \
     request, session, redirect, abort, send_file, \
-    g, url_for
+    current_app, g, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.exceptions import HTTPException
@@ -265,11 +265,14 @@ def request_too_large(_error):
         {"Content-Type": "text/plain; charset=utf-8"},
     )
 
-try:
-    trusted_proxy_hops = int(os.environ.get('SIMPLEOFFICE_TRUSTED_PROXY_HOPS', '0'))
-except ValueError:
-    trusted_proxy_hops = 0
-if trusted_proxy_hops > 0:
+from simpleoffice_server_config import effective_server_settings as _effective_server_settings
+_trusted_proxy_hops = 0
+if app.config.get("DOCUMENT_ROOT"):
+    _trusted_proxy_hops = int(_effective_server_settings(
+        app.config["DOCUMENT_ROOT"],
+    )["trusted_proxy_hops"])
+if _trusted_proxy_hops > 0:
+    trusted_proxy_hops = _trusted_proxy_hops
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxy_hops, x_proto=trusted_proxy_hops, x_host=trusted_proxy_hops, x_prefix=trusted_proxy_hops)
 
 
@@ -363,6 +366,9 @@ app.register_blueprint(admin.bp)
 from . import admin_osm_settings
 app.register_blueprint(admin_osm_settings.bp)
 
+from . import admin_server_settings
+app.register_blueprint(admin_server_settings.bp)
+
 from . import admin_error_reporting_settings
 app.register_blueprint(admin_error_reporting_settings.bp)
 
@@ -449,7 +455,9 @@ def assign_request_id():
 @app.before_request
 def restrict_error_relay_role():
     """Expose only the relay API when this image is run as the dedicated relay role."""
-    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE", "web").strip() != "error-relay":
+    from simpleoffice_server_config import effective_server_settings
+    role = effective_server_settings(current_app.config["DOCUMENT_ROOT"])["container_role"]
+    if role != "error-relay":
         return None
     if request.path.startswith("/api/error-reports/v1/"):
         return None

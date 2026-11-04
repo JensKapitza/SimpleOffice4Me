@@ -94,8 +94,21 @@ def local_lan_addresses() -> list[str]:
 
 
 def scan_ports(extra_port=None) -> list[int]:
+    from simpleoffice_server_config import effective_server_settings
+
+    try:
+        from flask import current_app, has_app_context
+
+        if has_app_context():
+            configured_port = effective_server_settings(
+                current_app.config["DOCUMENT_ROOT"],
+            )["port"]
+        else:
+            configured_port = _DEFAULT_PORT
+    except (KeyError, RuntimeError):
+        configured_port = _DEFAULT_PORT
     values = [
-        os.environ.get("SIMPLEOFFICE_PORT", ""),
+        str(configured_port),
     ]
     if extra_port not in (None, ""):
         values.append(str(extra_port))

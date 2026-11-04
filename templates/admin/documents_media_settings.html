@@ -15,6 +15,7 @@
       <a class="nav-link active" href="{{ url_for('admin.documents_media_settings') }}" aria-current="page">{{ 'Documents & media' if g.language == 'en' else 'Dokumente & Medien' }}</a>
       <a class="nav-link" href="{{ url_for('admin.network_settings') }}">{{ 'Network & synchronisation' if g.language == 'en' else 'Netzwerk & Synchronisation' }}</a>
       <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">{{ 'Integrations & services' if g.language == 'en' else 'Integrationen & Dienste' }}</a>
+      <a class="nav-link" href="{{ url_for('admin_server.server_settings') }}">{{ 'Server' if g.language == 'en' else 'Server' }}</a>
       <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a>
     </div>
   </nav>

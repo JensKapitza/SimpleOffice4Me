@@ -216,6 +216,46 @@ Webprozesses übernommen; bis zur Speicherung dient
   `SIMPLEOFFICE_GITHUB_ERROR_LABEL` das Fehler-Issue-Label. Einen Validator-Pfad
   nur auf geprüfte Artefakte richten; keine Validierung umgehen.
 
+### Server-Bindung und Hintergrunddienste (Welle 8b)
+
+Bind-Adresse, WSGI-Grenzen, Proxy-Hops, Container-Rolle und die
+Hintergrunddienst-Schalter liegen persistent in der `server`-Sektion von
+`settings.json` und werden unter **Admin → Einstellungen → Server** (DE/EN)
+gepflegt. Kanonische Defaults, Grenzen, Normalisierung und strikte Prüfung
+stehen in [server_config.py](../simpleoffice_server_config.py); der Launcher
+([launcher.py](../tools/launcher.py)) und der Desktop-Start
+([runtime_entry.py](../desktop/python-setup/runtime_entry.py)) lesen dieselbe
+Sektion ohne App-Importe.
+
+Vorrang überall: explizite Prozessumgebung (Start-Override aus CLI-Schaltern,
+Systemd-Units oder Desktop-Shell) gewinnt über gespeicherte Werte, gespeicherte
+Werte gewinnen über Defaults. Ein Start ohne jede Variable funktioniert immer;
+keine Variable ist erforderlich. Ungültige Startwerte stoppen den Start mit
+`RuntimeError`, statt mit Überraschungen zu starten.
+
+| Einstellung | Standard | Zulässig |
+|---|---|---|
+| `server.host` | `127.0.0.1` | nicht leer, keine Leerzeichen |
+| `server.port` | `8080` | `1–65535` |
+| `server.wsgi_threads` | `4` | `1–64` |
+| `server.wsgi_channel_timeout` | `120` | `10–3600` Sekunden |
+| `server.trusted_proxy_hops` | `0` | `0–16` |
+| `server.background_index_enabled` | an | boolesch |
+| `server.osm_index_enabled` | an | boolesch |
+| `server.datalogger_enabled` | an | boolesch |
+| `server.mini_services_autostart` | an | boolesch |
+| `server.container_role` | leer (Standardstart) | leer, `web`, `error-relay` |
+
+Hinweise: Die Ersteinrichtungs-Datei (`instance/simpleoffice.json`, Host/Port
+aus dem Einrichtungsdialog) wirkt nur noch als Default-Schicht unter gespeicherten
+Werten. Die Desktop-Shell erzwingt weiterhin Loopback als Härtung und hält
+ihre Hintergrunddienste aus. `start.sh`/`start.bat`-Schalter, die
+Systemd-Unit (`simpleoffice4me.service`), `packaging/simpleoffice.env` und die
+Desktop-Shell setzen nur noch explizite Start-Overrides. Ein Admin-Speichern
+übernimmt die gerade wirksamen Werte; „Auf Standard zurücksetzen“ löscht die
+gespeicherte Sektion. Alle Bind-Änderungen gelten nach einem Neustart des
+Webprozesses.
+
 ## Register der statisch sichtbaren Namen
 
 Die Quelle benennt eine Fundstelle; weitere Nutzer desselben Namens können
@@ -251,7 +291,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB` (entfernt) | [archive_settings.py](../app/archive_settings.py) | Entfernt; Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_ARCHIVE_OCR` (entfernt; war nie wirksam) | [archive_indexer.py](../app/archive_indexer.py) | Entfernt; Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_BACKGROUND_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
+| `SIMPLEOFFICE_BACKGROUND_INDEX` (Start-Override; persistent `server.background_index_enabled` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_BUILD_BRANCH` | [software_distribution_core.py](../app/software_distribution_core.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_EPOCH` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_BUILD_NUMBER` | [docker-build.yml](../.github/workflows/docker-build.yml) | Quelle und Ergänzungen oben |
@@ -259,8 +299,8 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_CHAT_ATTACHMENT_MAX_BYTES` | [settings_store.py](../app/settings_store.py) | Legacy-Migration; die persistente Einstellung wird in [chat_routes.py](../app/chat_routes.py) angewendet |
 | `SIMPLEOFFICE_CLAMAV_SCANNER` (entfernt) | [attachment_security.py](../app/attachment_security.py) | Admin → Integrationen & Dienste → ClamAV-Sicherheitsprüfung (`integrations.clamav_scanner_path`); [ANHAENGE_CLAMAV](ANHAENGE_CLAMAV.md) |
 | `SIMPLEOFFICE_CLAMAV_TIMEOUT` (entfernt) | `120`, effektiv 5–900 | Persistente Einstellung `integrations.clamav_timeout_seconds` unter `/admin/settings/integrations`; [ClamAV-Anhänge](ANHAENGE_CLAMAV.md) |
-| `SIMPLEOFFICE_CONTAINER_ROLE` | [ci.yml](../.github/workflows/ci.yml) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_DATALOGGER` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
+| `SIMPLEOFFICE_CONTAINER_ROLE` (Start-Override; persistent `server.container_role` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md) |
+| `SIMPLEOFFICE_DATALOGGER` (Start-Override; persistent `server.datalogger_enabled` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md) |
 | `SIMPLEOFFICE_DATALOGGER_TICK_SECONDS` (Legacy-Import) | [datalogger_store.py](../app/datalogger_store.py) | [DATENLOGGER_SENSOREN](DATENLOGGER_SENSOREN.md); bevorzugt über Datenlogger → Worker-Einstellungen konfigurieren |
 | `SIMPLEOFFICE_DATA_DIR` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_DESKTOP` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | Quelle und Ergänzungen oben |
@@ -309,7 +349,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE` (Starter-Transport via `start.sh --google-json`, sonst Store) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_OAUTH](GOOGLE_OAUTH.md); Admin → Integrationen → Marketplace & OAuth |
 | `SIMPLEOFFICE_GOOGLE_DRIVE_MAX_MIB` (entfernt) | [marketplace_credentials.py](../app/marketplace_credentials.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md); Admin → Integrationen → Marketplace & OAuth |
 | `SIMPLEOFFICE_GOOGLE_REDIRECT_URI` | [__init__.py](../app/__init__.py) | [GOOGLE_DRIVE_SYNC](GOOGLE_DRIVE_SYNC.md) |
-| `SIMPLEOFFICE_HOST` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [DEPLOYMENT](DEPLOYMENT.md) |
+| `SIMPLEOFFICE_HOST` (Start-Override; persistent `server.host` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_INDEX_DELAY_SECONDS` | [index_worker.py](../tools/index_worker.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_INDEX_NICE` | [index_worker.py](../tools/index_worker.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_INDEX_RECONCILE_SECONDS` | [index_worker.py](../tools/index_worker.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
@@ -323,7 +363,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_MAIL_ENV_CREDENTIAL_BINDINGS` | [mail_env_credentials.py](../app/mail_env_credentials.py) | [IMAP_SIEVE_EMAIL_ARCHIV](IMAP_SIEVE_EMAIL_ARCHIV.md) |
 | `SIMPLEOFFICE_MAX_UPLOAD_MIB` (entfernt; war nie wirksam, Startup nutzt immer die Datei) | [__init__.py](../app/__init__.py) | Persistente Einstellung `media.upload_limit_mib` unter Einstellungen → Dokumente & Medien; [DATEI_WIEDERHERSTELLUNG](DATEI_WIEDERHERSTELLUNG.md) |
 | `SIMPLEOFFICE_MCP` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [CHATGPT_MCP](CHATGPT_MCP.md) |
-| `SIMPLEOFFICE_MINI_SERVICES_AUTOSTART` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | [DEPLOYMENT](DEPLOYMENT.md) |
+| `SIMPLEOFFICE_MINI_SERVICES_AUTOSTART` (Start-Override; persistent `server.mini_services_autostart` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [DEPLOYMENT](DEPLOYMENT.md) |
 | `SIMPLEOFFICE_MINI_SERVICES_CONFIG` | [simpleoffice_mini_core.py](../simpleoffice_mini_core.py) | [MINI_SERVICES](MINI_SERVICES.md) |
 | `SIMPLEOFFICE_MINI_SERVICES_PYTHON` | [start.sh](../start.sh) | [MINI_SERVICES](MINI_SERVICES.md) |
 | `SIMPLEOFFICE_MUSTANG_JAR` | [business_document_generation.py](../app/business_document_generation.py) | Quelle und Ergänzungen oben |
@@ -334,7 +374,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT` | Legacy-Startwert bis `integrations.osm_export_idle_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM_INDEX_UND_RECHNUNGSFINALISIERUNG](OSM_INDEX_UND_RECHNUNGSFINALISIERUNG.md) |
 | `SIMPLEOFFICE_OSM_FILTER_TIMEOUT` | Legacy-Startwert bis `integrations.osm_filter_timeout_seconds` unter `/admin/settings/integrations` gespeichert wird | [OSM-Aufbau](../app/osm_address_build.py) |
 | `SIMPLEOFFICE_OSM_FORCE` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_OSM_INDEX` | [manual-browser-screenshots.yml](../.github/workflows/manual-browser-screenshots.yml) | Quelle und Ergänzungen oben |
+| `SIMPLEOFFICE_OSM_INDEX` (Start-Override; persistent `server.osm_index_enabled` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md) |
 | `SIMPLEOFFICE_OSM_MAX_DOWNLOAD_GIB` | [osm_address_storage.py](../app/osm_address_storage.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS` | [osm_address_storage.py](../app/osm_address_storage.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_OSM_REGION` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
@@ -342,7 +382,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC` | [personnel_time_analytics.py](../app/personnel_time_analytics.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PERSONNEL_TIME_AUTOSYNC_SECONDS` | [personnel_time_analytics.py](../app/personnel_time_analytics.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_PIPER_MODEL` (entfernt) | [audio_output_engine.py](../app/audio_output_engine.py) | Persistente Einstellung `media.piper_model` unter Admin → Dokumente & Medien; [AUDIO_OUTPUT](AUDIO_OUTPUT.md) |
-| `SIMPLEOFFICE_PORT` | [android_runtime.py](../android/apk/app/src/main/python/android_runtime.py) | [AUDIO_STREAMER](AUDIO_STREAMER.md) |
+| `SIMPLEOFFICE_PORT` (Start-Override; persistent `server.port` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [AUDIO_STREAMER](AUDIO_STREAMER.md) |
 | `SIMPLEOFFICE_PREVIEWS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PREVIEW_MAX_BYTES` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
 | `SIMPLEOFFICE_PREVIEW_MAX_PIXELS` | [preview_service.py](../app/preview_service.py) | [DOKUMENTVORSCHAU_INDEXDIENST](DOKUMENTVORSCHAU_INDEXDIENST.md) |
@@ -386,7 +426,7 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_SMTP_STARTTLS` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
 | `SIMPLEOFFICE_SMTP_USER` (entfernt) | [mail_smtp.py](../app/mail_smtp.py) | [KALENDER](KALENDER.md); über Mini Services → Mailversand (SMTP) konfigurieren |
 | `SIMPLEOFFICE_HTTPS` | [__init__.py](../app/__init__.py) | [PROXY_HTTPS](PROXY_HTTPS.md) |
-| `SIMPLEOFFICE_TRUSTED_PROXY_HOPS` | [__init__.py](../app/__init__.py) | [CHATGPT_MCP](CHATGPT_MCP.md) |
+| `SIMPLEOFFICE_TRUSTED_PROXY_HOPS` (Start-Override; persistent `server.trusted_proxy_hops` unter Admin → Server) | [__init__.py](../app/__init__.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [CHATGPT_MCP](CHATGPT_MCP.md) |
 | `SIMPLEOFFICE_UPDATE_REF` | [release_updater.py](../tools/release_updater.py) | Quelle und Ergänzungen oben |
 | `SIMPLEOFFICE_V2_STORAGE_PASSWORD_FILE` | [runtime_keys.py](../app/v2/runtime_keys.py) | [V2_ENCRYPTED_RUNTIME_CUTOVER](V2_ENCRYPTED_RUNTIME_CUTOVER.md) |
 | `SIMPLEOFFICE_V3_ACTIVITY_ENABLED` (entfernt) | [v3_capabilities.py](../app/v3_capabilities.py) | Admin → Capabilities 3.0 (`v3.v3.activity`); [V3_BETRIEBSLEITFADEN](V3_BETRIEBSLEITFADEN.md) |
@@ -411,6 +451,6 @@ frei wählbarer Passwortvariablennamen oder aller externen Systemvariablen.
 | `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` (entfernt) | [__init__.py](../app/__init__.py) | Persistente Einstellung `network.webdav_quarantine_mib` unter Admin → Netzwerk; [WEBDAV_UPLOADS_CLAMAV](WEBDAV_UPLOADS_CLAMAV.md) |
 | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (entfernt; war nie wirksam, Startup nutzt immer die Datei) | [__init__.py](../app/__init__.py), [settings_store.py](../app/settings_store.py) | [WEBDAV_QUOTA_UND_LOCKS](WEBDAV_QUOTA_UND_LOCKS.md) |
 | `SIMPLEOFFICE_WORKER_ROOT` | [launcher.py](../tools/launcher.py) | Quelle und Ergänzungen oben |
-| `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | [start.bat](../start.bat) | [PRODUKTIONSBETRIEB](PRODUKTIONSBETRIEB.md) |
-| `SIMPLEOFFICE_WSGI_THREADS` | [runtime_entry.py](../desktop/python-setup/runtime_entry.py) | [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
+| `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` (Start-Override; persistent `server.wsgi_channel_timeout` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [PRODUKTIONSBETRIEB](PRODUKTIONSBETRIEB.md) |
+| `SIMPLEOFFICE_WSGI_THREADS` (Start-Override; persistent `server.wsgi_threads` unter Admin → Server) | [launcher.py](../tools/launcher.py) | [Server-Bindung oben](KONFIGURATIONSREGISTER.md); [PERFORMANCE_INDEXDIENST](PERFORMANCE_INDEXDIENST.md) |
 | `SIMPLEOFFICE_ZUGFERD_VALIDATOR` | [business_document_generation.py](../app/business_document_generation.py) | [OSM_INDEX_UND_RECHNUNGSFINALISIERUNG](OSM_INDEX_UND_RECHNUNGSFINALISIERUNG.md) |
