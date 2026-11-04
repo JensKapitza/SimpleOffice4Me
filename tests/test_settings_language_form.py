@@ -30,6 +30,13 @@ class SettingsLanguageFormTests(unittest.TestCase):
         self.assertIn('form="settings-session-language-form"', self.source)
         self.assertIn('action="{{ url_for(\'documents.set_language\') }}"', self.source)
 
+    def test_settings_navigation_lets_jinja_escape_ampersands_once(self):
+        self.assertNotIn("&amp;", self.source)
+        for label in ("Documents & media", "Network & synchronisation",
+                      "Integrations & services"):
+            with self.subTest(label=label):
+                self.assertIn(label, self.source)
+
     def test_settings_navigation_has_english_and_german_labels(self):
         for label in ("General", "Allgemein", "Local folders", "Lokale Ordner"):
             with self.subTest(label=label):
