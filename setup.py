@@ -58,6 +58,7 @@ setup(
         "simpleoffice_media_renderer",
         "simpleoffice_media_upnp",
         "simpleoffice_service_lifecycle",
+        "simpleoffice_server_config",
         "simpleoffice_sip_runtime",
         "simpleoffice_sip_crypto",
     ],
