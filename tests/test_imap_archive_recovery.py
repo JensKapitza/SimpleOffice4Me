@@ -459,7 +459,7 @@ class ArchiveRecoveryHttpTests(unittest.TestCase):
             checkpoint.write_bytes(damaged)
             response = client.get("/documents/mail")
             self.assertEqual(200, response.status_code)
-            self.assertIn("Archive state could not be read safely.", response.text)
+            self.assertIn("Archive state could not be read safely", response.text)
             with patch.object(ImapArchive, "_connect", return_value=mailbox):
                 response = client.post("/documents/mail/accounts/work/archive", follow_redirects=True)
             self.assertEqual(200, response.status_code)
