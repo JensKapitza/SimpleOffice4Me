@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+from io import BytesIO
 import hmac
 import json
 import logging
@@ -12,7 +13,7 @@ import time
 import urllib.error
 from typing import Any
 
-from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from .access_control import audit, is_admin
 from .auth import login_required
@@ -521,6 +522,15 @@ def test_printer_device(printer_id: str):
     printer = next((item for item in store.printers() if item["printer_id"] == printer_id), None)
     if printer is None:
         abort(404)
+    # Windows' Microsoft Print to PDF uses PORTPROMPT: and needs an
+    # interactive filename. A service cannot reliably spool to that device.
+    if (str(printer.get("name", "")).casefold() == "microsoft print to pdf"
+            or str(printer.get("port", "")).upper().startswith("PORTPROMPT:")):
+        payload = _printer_test_pdf(str(printer.get("label") or printer["name"]))
+        return send_file(
+            BytesIO(payload), mimetype="application/pdf",
+            as_attachment=True, download_name="simpleoffice-druckertest.pdf",
+        )
     try:
         if printer.get("backend") == "brother":
             from .library.printer import print_image, render_text
