@@ -35,27 +35,13 @@ möglich.
 Administratoren konfigurieren das globale Kontingent in MiB unter
 **Einstellungen → Netzwerk & Synchronisation → WebDAV-Speicherkontingent**.
 Ein Neustart übernimmt den persistent gespeicherten Wert für alle WebDAV-Worker.
-Der frühere Umgebungswert wird als Ausgangswert migriert, wenn noch kein
-persistierter Einstellungswert existiert. Für Installationsskripte ohne
-persistente Einstellung bleibt die initiale Vorgabe per Umgebungsvariable
-verfügbar:
+Die Umgebungsvariable `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` ist entfernt und wird
+nicht mehr gelesen; das Kontingent wird ausschließlich in der
+Admin-Oberfläche gepflegt.
 
-```bash
-SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240 ./start.sh
-```
-
-Das Beispiel begrenzt den Dateibaum auf 10 GiB. Unter Windows wird vor
-`start.bat` entsprechend gesetzt:
-
-```bat
-set SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240
-start.bat
-```
-
-Zulässig sind positive Ganzzahlen bis 1 TiB oder `0` für unbegrenzt. Gespeicherte
-Werte haben Vorrang vor der alten Umgebungsvariablen. Die Seite **Dokumente auf
-dem Desktop bearbeiten** zeigt Belegung und Obergrenze. Standardkonforme Clients
-können auf einer Collection direkt abfragen:
+Zulässig sind positive Ganzzahlen bis 1 TiB oder `0` für unbegrenzt. Die Seite
+**Dokumente auf dem Desktop bearbeiten** zeigt Belegung und Obergrenze.
+Standardkonforme Clients können auf einer Collection direkt abfragen:
 
 ```xml
 <d:propfind xmlns:d="DAV:">
@@ -110,9 +96,10 @@ blind überschreiben.
 
 ## Migration und Rückwärtskompatibilität
 
-Es gibt keine Datenbank- oder Dateimigration. Ohne die neue Umgebungsvariable
-bleibt das bisherige unbegrenzte Verhalten erhalten und Quota-Eigenschaften
-antworten als nicht vorhanden. Vorhandene Dateien werden nie gelöscht oder
+Es gibt keine Datenbank- oder Dateimigration. Ohne gespeicherte
+Kontingenteinstellung bleibt das bisherige unbegrenzte Verhalten erhalten und
+Quota-Eigenschaften antworten als nicht vorhanden. Vorhandene Dateien werden
+nie gelöscht oder
 automatisch verkleinert, wenn ein Limit nachträglich unter die aktuelle
 Belegung gesetzt wird. Der Server verweigert dann nur weiteres Wachstum;
 kleinere Aktualisierungen, MOVE, Download und kontrolliertes Löschen bleiben
@@ -155,8 +142,8 @@ werden.
 
 Shared Locks und WebDAV ACL sind nicht implementiert. Rekursive
 Collection-Locks sind in [WEBDAV_COLLECTION_LOCKS_RFC4918.md](WEBDAV_COLLECTION_LOCKS_RFC4918.md)
-dokumentiert. Zur Rückkehr zum vorherigen Verhalten wird
-`SIMPLEOFFICE_WEBDAV_QUOTA_MIB=0` gesetzt und der Dienst neu gestartet. LOCK
+dokumentiert. Zur Rückkehr zum vorherigen Verhalten wird das Kontingent in
+den Einstellungen auf `0` gesetzt und der Dienst neu gestartet. LOCK
 kann nicht separat deaktiviert werden, ohne die angekündigte DAV-Klasse 2 und
 Desktop-Kompatibilität anzupassen; bestehende Locks laufen spätestens nach der
 serverseitig begrenzten Stunde ab oder werden regulär per UNLOCK entfernt.

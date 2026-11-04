@@ -384,8 +384,8 @@ class MailClientTests(unittest.TestCase):
             client.post("/auth/register", data={"username": "alice", "password": "password-123"})
             client.post("/auth/login", data={"username": "alice", "password": "password-123"})
             body = client.get("/documents/mail").get_data(as_text=True)
-            self.assertIn("IMAP-Client", body)
-            self.assertIn("Passwort gespeichert", body)
+            self.assertIn("IMAP client", body)
+            self.assertIn("Password stored", body)
             self.assertIn("checked", body)
             self.assertNotIn("secret-password", body)
         finally:

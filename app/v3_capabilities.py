@@ -1,12 +1,19 @@
-"""Server-side feature/capability registry for the additive 3.0 rollout."""
+"""Server-side feature/capability registry for the additive 3.0 rollout.
+
+Flags live in the user-home disk store (``v3`` section, default off); an
+explicit ``environ`` mapping remains as a unit-test seam only and never reads
+the process environment.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
-from typing import Mapping
+import logging
+from typing import Any, Mapping
 
 
 _TRUE = {"1", "true", "yes", "on"}
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -25,7 +32,7 @@ def register(key: str, env_var: str, description: str, *, default: bool = False)
     key = str(key).strip()
     env_var = str(env_var).strip()
     if not key or not env_var:
-        raise ValueError("capability key and environment variable are required")
+        raise ValueError("capability key and setting name are required")
     candidate = Capability(key=key, env_var=env_var, description=str(description).strip(), default=bool(default))
     existing = _CAPABILITIES.get(key)
     if existing is not None and existing != candidate:
@@ -40,16 +47,35 @@ def _bool(value: str | None, default: bool) -> bool:
     return value.strip().casefold() in _TRUE
 
 
-def enabled(key: str, environ: Mapping[str, str] | None = None) -> bool:
+def _store_flags(root=None) -> dict[str, bool]:
+    """Read persisted flags; fail closed to defaults without a resolvable store."""
+    try:
+        if root is None:
+            from flask import current_app, has_app_context
+
+            if not has_app_context():
+                return {}
+            root = current_app.config["DOCUMENT_ROOT"]
+        from .settings_store import SettingsStore
+
+        section = SettingsStore(root).settings().get("v3", {})
+        return section if isinstance(section, dict) else {}
+    except (OSError, ValueError, KeyError, RuntimeError):
+        return {}
+
+
+def enabled(key: str, environ: Mapping[str, str] | None = None, *, root=None) -> bool:
     """Return False for unknown capabilities: optional features fail closed."""
     definition = _CAPABILITIES.get(str(key))
     if definition is None:
         return False
-    source = os.environ if environ is None else environ
-    return _bool(source.get(definition.env_var), definition.default)
+    if environ is not None:
+        return _bool(environ.get(definition.env_var), definition.default)
+    stored = _store_flags(root).get(definition.key, definition.default)
+    return bool(stored) if isinstance(stored, bool) else definition.default
 
 
-def state(key: str, environ: Mapping[str, str] | None = None) -> dict[str, object]:
+def state(key: str, environ: Mapping[str, str] | None = None, *, root=None) -> dict[str, object]:
     definition = _CAPABILITIES.get(str(key))
     if definition is None:
         return {
@@ -61,19 +87,19 @@ def state(key: str, environ: Mapping[str, str] | None = None) -> dict[str, objec
     return {
         "key": definition.key,
         "known": True,
-        "enabled": enabled(definition.key, environ),
+        "enabled": enabled(definition.key, environ, root=root),
         "description": definition.description,
     }
 
 
-def snapshot(environ: Mapping[str, str] | None = None) -> list[dict[str, object]]:
-    """Return a safe admin/diagnostic view; no environment values are exposed."""
-    return [state(key, environ) for key in sorted(_CAPABILITIES)]
+def snapshot(environ: Mapping[str, str] | None = None, *, root=None) -> list[dict[str, object]]:
+    """Return a safe admin/diagnostic view; no secret values are exposed."""
+    return [state(key, environ, root=root) for key in sorted(_CAPABILITIES)]
 
 
-def run_if_enabled(key: str, operation, *, fallback=None, environ: Mapping[str, str] | None = None):
+def run_if_enabled(key: str, operation, *, fallback=None, environ: Mapping[str, str] | None = None, root=None):
     """Execute an optional capability or return a caller-provided fallback."""
-    if not enabled(key, environ):
+    if not enabled(key, environ, root=root):
         return fallback() if callable(fallback) else fallback
     return operation()
 
@@ -95,3 +121,30 @@ register("v3.extensions", "SIMPLEOFFICE_V3_EXTENSIONS_ENABLED", "Versioned exten
 register("v3.health", "SIMPLEOFFICE_V3_HEALTH_ENABLED", "System health registry and dashboard")
 register("v3.android_offline", "SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED", "Controlled Android offline cache")
 register("v3.federation", "SIMPLEOFFICE_V3_FEDERATION_ENABLED", "Versioned federation transfer contract")
+
+
+CAPABILITY_KEYS = tuple(sorted(_CAPABILITIES))
+
+
+def normalize_v3_settings(value: Any) -> dict[str, bool]:
+    """Coerce a stored v3 section to known boolean flags (default off)."""
+    stored = value if isinstance(value, dict) else {}
+    result: dict[str, bool] = {}
+    for key in CAPABILITY_KEYS:
+        flag = stored.get(key, False)
+        if not isinstance(flag, bool):
+            _LOGGER.warning("Invalid stored v3 capability %s; leaving it disabled", key)
+            flag = False
+        result[key] = flag
+    return result
+
+
+def validate_v3_settings(value: Any) -> dict[str, bool]:
+    """Validate v3 flags for saving; unknown keys are dropped, non-booleans rejected."""
+    if not isinstance(value, dict):
+        raise ValueError("v3 capabilities must be an object")
+    result = normalize_v3_settings(value)
+    for key in CAPABILITY_KEYS:
+        if key in value and not isinstance(value[key], bool):
+            raise ValueError(f"v3 capability {key} must be a boolean")
+    return result

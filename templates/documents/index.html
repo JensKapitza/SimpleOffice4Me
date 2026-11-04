@@ -10,23 +10,89 @@
   {% for document in node.documents %}
   <details class="document-tree-document" data-document-tree>
     <summary><span class="text-truncate">{{ document.last_path.rsplit('/', 1)[-1] }}</span><span class="badge text-bg-secondary ms-2">{{ document.state }}</span></summary>
-    <div class="document-tree-details"><div class="row g-2 small"><div class="col-md-7"><code>{{ document.document_id }}</code><br><span class="text-secondary">Version {{ document.version_number }} · {{ document.notes|length }} Notizen · zuletzt gesehen {{ document.last_seen_at }}</span></div><div class="col-md-5"><div class="d-flex flex-wrap justify-content-md-end gap-2"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">{{ 'Open' if g.language == 'en' else 'Öffnen' }}</a><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a><form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}"><input type="hidden" name="return_view" value="index"><input type="hidden" name="page" value="{{ page }}"><button type="submit" class="btn btn-sm btn-outline-danger">ClamAV</button></form></div></div></div></div>
+    <div class="document-tree-details"><div class="row g-2 small"><div class="col-md-7"><code>{{ document.document_id }}</code><br><span class="text-secondary">Version {{ document.version_number }} · {{ document.notes|length }} {{ 'notes' if g.language == 'en' else 'Notizen' }} · {{ 'last seen' if g.language == 'en' else 'zuletzt gesehen' }} {{ document.last_seen_at }}</span></div><div class="col-md-5"><div class="d-flex flex-wrap justify-content-md-end gap-2"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('documents.detail', document_id=document.document_id) }}">{{ 'Open' if g.language == 'en' else 'Öffnen' }}</a><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.image_preview', document_id=document.document_id) }}" target="_blank" rel="noopener noreferrer">{{ 'Open original' if g.language == 'en' else 'Original öffnen' }}</a><form method="post" action="{{ url_for('documents.security_scan_document', document_id=document.document_id) }}"><input type="hidden" name="return_view" value="index"><input type="hidden" name="page" value="{{ page }}"><button type="submit" class="btn btn-sm btn-outline-danger">ClamAV</button></form></div></div></div></div>
   </details>
   {% endfor %}
 {%- endmacro %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
-  <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-2"><div><h1 class="h2 mb-1">{{ 'Inbox' if inbox_only else 'Dokumente' }}</h1><p class="text-secondary mb-0">{% if inbox_only %}Neue Dateien ohne Bearbeitung. Verschieben oder organisatorisch bearbeiten entfernt sie aus der Inbox-Ansicht.{% else %}Ordneransicht mit schrittweise aufklappbaren Details. Die Dokument-ID bleibt bei Verschiebungen erhalten.{% endif %}</p></div>{% if documents %}<div class="btn-group"><button class="btn btn-outline-secondary" type="button" data-tree-action="open">Alle aufklappen</button><button class="btn btn-outline-secondary" type="button" data-tree-action="close">Alle schließen</button></div>{% endif %}</div>
+  <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-2"><div><h1 class="h2 mb-1">{{ 'Inbox' if inbox_only else ('Documents' if g.language == 'en' else 'Dokumente') }}</h1><p class="text-secondary mb-0">{% if inbox_only %}{{ 'New files without processing. Moving or organizationally editing removes them from the inbox view.' if g.language == 'en' else 'Neue Dateien ohne Bearbeitung. Verschieben oder organisatorisch bearbeiten entfernt sie aus der Inbox-Ansicht.' }}{% else %}{{ 'Folder view with gradually expandable details. The document ID is preserved across moves.' if g.language == 'en' else 'Ordneransicht mit schrittweise aufklappbaren Details. Die Dokument-ID bleibt bei Verschiebungen erhalten.' }}{% endif %}</p></div>{% if documents %}<div class="btn-group"><button class="btn btn-outline-secondary" type="button" data-tree-action="open">{{ 'Expand all' if g.language == 'en' else 'Alle aufklappen' }}</button><button class="btn btn-outline-secondary" type="button" data-tree-action="close">{{ 'Collapse all' if g.language == 'en' else 'Alle schließen' }}</button></div>{% endif %}</div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
-  <section class="card mb-4"><div class="card-body"><div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div><h2 class="h5 mb-1">Schnell finden</h2><p class="text-secondary small mb-0">Dateiname oder Tag im bestehenden Index suchen.</p></div><a href="{{ url_for('documents.document_search') }}">Erweiterte Suche</a></div><form method="get" class="input-group"><input class="form-control" name="quick" value="{{ quick_query }}" placeholder="Dateiname oder Tag" aria-label="Dateiname oder Tag"><button type="submit" class="btn btn-primary">Finden</button></form>{% if quick_error %}<div class="alert alert-danger mt-3 mb-0">{{ quick_error }}</div>{% endif %}{% if quick_query and not quick_error %}<div class="list-group mt-3">{% for result in quick_results %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=result.document_id) }}"><strong>{{ result.path }}</strong></a>{% else %}<div class="alert alert-secondary mb-0">Keine Treffer nach Dateiname oder Tag.</div>{% endfor %}</div>{% endif %}</div></section>
-   <section class="card mb-4" id="capture-first"><div class="card-body"><h2 class="h5">Dateien und PDFs erfassen</h2><p class="small text-secondary">Dateien können zuerst erfasst und später fachlich zugeordnet werden. Die Ordnerimport-Funktion bleibt erhalten.</p><form id="document-upload-form" method="post" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data" data-max-upload-bytes="{{ max_upload_bytes }}"><div class="d-flex flex-wrap gap-2 mb-2"><button class="btn btn-outline-primary" type="button" id="pick-document-files">Dateien auswählen</button><button class="btn btn-outline-primary" type="button" id="pick-document-folder">Ordner importieren</button></div><input class="visually-hidden" id="document-files" type="file" name="files" multiple required><input class="visually-hidden" id="document-folder" type="file" multiple aria-label="Ordner auswählen"><input type="hidden" name="folder_import" id="document-folder-import" value="0"><input type="hidden" name="relative_paths" id="document-folder-path-manifest" disabled><input type="hidden" name="source_ids" id="document-folder-source-identity-manifest" disabled><div id="document-folder-source-profile-group" class="mt-2" hidden><label class="form-label" for="document-folder-source-profile">Quelle über mehrere Importe wiedererkennen (optional)</label><input id="document-folder-source-profile" class="form-control" type="text" maxlength="80" autocomplete="off" list="document-folder-source-profiles" data-source-owner="{{ g.user.username }}" placeholder="Zum Beispiel: Telegram privat"><datalist id="document-folder-source-profiles"></datalist><p class="form-text mb-0">Der Name bleibt nur in diesem Browserprofil gespeichert und wird nicht hochgeladen. Leerlassen erzeugt eine einmalige Importquelle. Für denselben Ursprung denselben Namen verwenden; unterschiedliche Quellen mit gleichem Ordnernamen brauchen verschiedene Namen. Android verwendet stattdessen eine gehashte SAF-Ordnerkennung. Gespeicherte Profile zu löschen ändert keine vorhandenen Dokumente, aber neue Importe werden dann nicht mehr mit diesen Profilen verknüpft.</p><button id="clear-document-folder-source-profiles" class="btn btn-sm btn-link px-0" type="button">Gespeicherte Quellenprofile löschen</button></div><div id="document-selection" class="small text-secondary" role="status" aria-live="polite">Keine Dateien ausgewählt</div><button class="btn btn-sm btn-primary mt-2" type="button" id="start-folder-import" hidden>Vorgemerkte Ordner importieren</button><button class="btn btn-sm btn-outline-danger mt-2" type="button" id="cancel-folder-import" hidden>Ordnerimport abbrechen</button><p class="small text-secondary mt-2 mb-0">Beim Ordnerimport bleibt die Unterordnerstruktur unter einem eigenen Importverzeichnis erhalten. Leere Ordner werden nicht übernommen.</p><div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive" {% if defaults.documents.upload_to_archive %}checked{% endif %}><label class="form-check-label" for="archive">Direkt ins feste Archiv importieren (nach SHA-256 sortiert)</label></div><button class="btn btn-primary mt-2" type="submit">Vollständig importieren</button></form></div></section>
-  <section class="card mb-4"><div class="card-body d-flex flex-wrap justify-content-between gap-3"><div><h2 class="h5">Portable Metadaten</h2><p class="text-secondary mb-0">Tags, Beschreibung und Herkunft als JSON-Sidecars für FreeFileSync, Explorer und Nautilus aktualisieren. Originaldateien und Dateinamen bleiben unverändert.</p></div><form method="post" action="{{ url_for('documents.export_all_portable_metadata') }}"><button type="submit" class="btn btn-outline-primary">Sidecars für alle Dateien aktualisieren</button></form></div></section>
-  {% if documents %}<section class="card"><div class="card-header d-flex justify-content-between"><span>Ordner und Dokumente</span><small class="text-secondary">{{ (page - 1) * page_size + 1 }}–{{ (page - 1) * page_size + documents|length }} von {{ total }}</small></div><div class="card-body document-tree">{{ render_tree(document_tree) }}</div></section><nav class="d-flex justify-content-between mt-3" aria-label="Dokumentseiten">{% set page_endpoint = 'documents.inbox' if inbox_only else 'documents.index' %}{% if page > 1 %}<a class="btn btn-outline-secondary" href="{{ url_for(page_endpoint, page=page - 1) }}" rel="prev">← Vorherige Dateien</a>{% else %}<span></span>{% endif %}{% if has_next %}<a class="btn btn-outline-primary" href="{{ url_for(page_endpoint, page=page + 1) }}" rel="next">Weitere Dateien →</a>{% endif %}</nav>{% else %}<div class="alert alert-info" role="status" aria-live="polite">Noch keine Dokumente indexiert. Lege Dateien im Dokumentordner ab und starte den Scan.</div>{% endif %}
+  <section class="card mb-4"><div class="card-body"><div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2"><div><h2 class="h5 mb-1">{{ 'Quick find' if g.language == 'en' else 'Schnell finden' }}</h2><p class="text-secondary small mb-0">{{ 'Search filename or tag in the existing index.' if g.language == 'en' else 'Dateiname oder Tag im bestehenden Index suchen.' }}</p></div><a href="{{ url_for('documents.document_search') }}">{{ 'Advanced search' if g.language == 'en' else 'Erweiterte Suche' }}</a></div><form method="get" class="input-group"><input class="form-control" name="quick" value="{{ quick_query }}" placeholder="{{ 'Filename or tag' if g.language == 'en' else 'Dateiname oder Tag' }}" aria-label="{{ 'Filename or tag' if g.language == 'en' else 'Dateiname oder Tag' }}"><button type="submit" class="btn btn-primary">{{ 'Find' if g.language == 'en' else 'Finden' }}</button></form>{% if quick_error %}<div class="alert alert-danger mt-3 mb-0">{{ quick_error }}</div>{% endif %}{% if quick_query and not quick_error %}<div class="list-group mt-3">{% for result in quick_results %}<a class="list-group-item list-group-item-action" href="{{ url_for('documents.detail', document_id=result.document_id) }}"><strong>{{ result.path }}</strong></a>{% else %}<div class="alert alert-secondary mb-0">{{ 'No matches for filename or tag.' if g.language == 'en' else 'Keine Treffer nach Dateiname oder Tag.' }}</div>{% endfor %}</div>{% endif %}</div></section>
+   <section class="card mb-4" id="capture-first"><div class="card-body"><h2 class="h5">{{ 'Capture files and PDFs' if g.language == 'en' else 'Dateien und PDFs erfassen' }}</h2><p class="small text-secondary">{{ 'Files can be captured first and assigned later. The folder import function remains available.' if g.language == 'en' else 'Dateien können zuerst erfasst und später fachlich zugeordnet werden. Die Ordnerimport-Funktion bleibt erhalten.' }}</p><form id="document-upload-form" method="post" action="{{ url_for('documents.upload') }}" enctype="multipart/form-data" data-max-upload-bytes="{{ max_upload_bytes }}"><div class="d-flex flex-wrap gap-2 mb-2"><button class="btn btn-outline-primary" type="button" id="pick-document-files">{{ 'Select files' if g.language == 'en' else 'Dateien auswählen' }}</button><button class="btn btn-outline-primary" type="button" id="pick-document-folder">{{ 'Import folder' if g.language == 'en' else 'Ordner importieren' }}</button></div><input class="visually-hidden" id="document-files" type="file" name="files" multiple required><input class="visually-hidden" id="document-folder" type="file" multiple aria-label="{{ 'Select folder' if g.language == 'en' else 'Ordner auswählen' }}"><input type="hidden" name="folder_import" id="document-folder-import" value="0"><input type="hidden" name="relative_paths" id="document-folder-path-manifest" disabled><input type="hidden" name="source_ids" id="document-folder-source-identity-manifest" disabled><div id="document-folder-source-profile-group" class="mt-2" hidden><label class="form-label" for="document-folder-source-profile">{{ 'Recognize source across multiple imports (optional)' if g.language == 'en' else 'Quelle über mehrere Importe wiedererkennen (optional)' }}</label><input id="document-folder-source-profile" class="form-control" type="text" maxlength="80" autocomplete="off" list="document-folder-source-profiles" data-source-owner="{{ g.user.username }}" placeholder="{{ 'For example: Telegram private' if g.language == 'en' else 'Zum Beispiel: Telegram privat' }}"><datalist id="document-folder-source-profiles"></datalist><p class="form-text mb-0">{{ 'The name is stored only in this browser profile and is not uploaded. Leaving it empty creates a one-off import source. Use the same name for the same origin; different sources with the same folder name need different names. Android uses a hashed SAF folder identifier instead. Deleting stored profiles does not change existing documents, but new imports will no longer be linked to those profiles.' if g.language == 'en' else 'Der Name bleibt nur in diesem Browserprofil gespeichert und wird nicht hochgeladen. Leerlassen erzeugt eine einmalige Importquelle. Für denselben Ursprung denselben Namen verwenden; unterschiedliche Quellen mit gleichem Ordnernamen brauchen verschiedene Namen. Android verwendet stattdessen eine gehashte SAF-Ordnerkennung. Gespeicherte Profile zu löschen ändert keine vorhandenen Dokumente, aber neue Importe werden dann nicht mehr mit diesen Profilen verknüpft.' }}</p><button id="clear-document-folder-source-profiles" class="btn btn-sm btn-link px-0" type="button">{{ 'Delete stored source profiles' if g.language == 'en' else 'Gespeicherte Quellenprofile löschen' }}</button></div><div id="document-selection" class="small text-secondary" role="status" aria-live="polite">{{ 'No files selected' if g.language == 'en' else 'Keine Dateien ausgewählt' }}</div><button class="btn btn-sm btn-primary mt-2" type="button" id="start-folder-import" hidden>{{ 'Import queued folders' if g.language == 'en' else 'Vorgemerkte Ordner importieren' }}</button><button class="btn btn-sm btn-outline-danger mt-2" type="button" id="cancel-folder-import" hidden>{{ 'Cancel folder import' if g.language == 'en' else 'Ordnerimport abbrechen' }}</button><p class="small text-secondary mt-2 mb-0">{{ 'Folder import preserves the subfolder structure under its own import directory. Empty folders are not adopted.' if g.language == 'en' else 'Beim Ordnerimport bleibt die Unterordnerstruktur unter einem eigenen Importverzeichnis erhalten. Leere Ordner werden nicht übernommen.' }}</p><div class="form-check mt-2"><input class="form-check-input" type="checkbox" value="1" name="archive" id="archive" {% if defaults.documents.upload_to_archive %}checked{% endif %}><label class="form-check-label" for="archive">{{ 'Import directly into the fixed archive (sorted by SHA-256)' if g.language == 'en' else 'Direkt ins feste Archiv importieren (nach SHA-256 sortiert)' }}</label></div><button class="btn btn-primary mt-2" type="submit">{{ 'Import completely' if g.language == 'en' else 'Vollständig importieren' }}</button></form></div></section>
+  <section class="card mb-4"><div class="card-body d-flex flex-wrap justify-content-between gap-3"><div><h2 class="h5">{{ 'Portable metadata' if g.language == 'en' else 'Portable Metadaten' }}</h2><p class="text-secondary mb-0">{{ 'Update tags, description and origin as JSON sidecars for FreeFileSync, Explorer and Nautilus. Original files and filenames stay unchanged.' if g.language == 'en' else 'Tags, Beschreibung und Herkunft als JSON-Sidecars für FreeFileSync, Explorer und Nautilus aktualisieren. Originaldateien und Dateinamen bleiben unverändert.' }}</p></div><form method="post" action="{{ url_for('documents.export_all_portable_metadata') }}"><button type="submit" class="btn btn-outline-primary">{{ 'Update sidecars for all files' if g.language == 'en' else 'Sidecars für alle Dateien aktualisieren' }}</button></form></div></section>
+  {% if documents %}<section class="card"><div class="card-header d-flex justify-content-between"><span>{{ 'Folders and documents' if g.language == 'en' else 'Ordner und Dokumente' }}</span><small class="text-secondary">{{ (page - 1) * page_size + 1 }}–{{ (page - 1) * page_size + documents|length }} {{ 'of' if g.language == 'en' else 'von' }} {{ total }}</small></div><div class="card-body document-tree">{{ render_tree(document_tree) }}</div></section><nav class="d-flex justify-content-between mt-3" aria-label="{{ 'Document pages' if g.language == 'en' else 'Dokumentseiten' }}">{% set page_endpoint = 'documents.inbox' if inbox_only else 'documents.index' %}{% if page > 1 %}<a class="btn btn-outline-secondary" href="{{ url_for(page_endpoint, page=page - 1) }}" rel="prev">← {{ 'Previous files' if g.language == 'en' else 'Vorherige Dateien' }}</a>{% else %}<span></span>{% endif %}{% if has_next %}<a class="btn btn-outline-primary" href="{{ url_for(page_endpoint, page=page + 1) }}" rel="next">{{ 'More files' if g.language == 'en' else 'Weitere Dateien' }} →</a>{% endif %}</nav>{% else %}<div class="alert alert-info" role="status" aria-live="polite">{{ 'No documents indexed yet. Drop files into the document folder and start the scan.' if g.language == 'en' else 'Noch keine Dokumente indexiert. Lege Dateien im Dokumentordner ab und starte den Scan.' }}</div>{% endif %}
 </main>
 <script>
 
 // Both pickers feed the existing server-side upload pipeline; no client-side archive bypass.
 (() => {
+  // Localized UI strings (EN default, DE fallback) rendered server-side once.
+  const STR = {
+    unsupportedTitleAndroid: '{{ 'Android folder selection not connected. Reload the page.' if g.language == 'en' else 'Android-Ordnerauswahl nicht verbunden. Seite neu laden.' }}',
+    unsupportedTitleBrowser: '{{ 'Folder selection is not supported by this browser' if g.language == 'en' else 'Ordnerauswahl wird von diesem Browser nicht unterstützt' }}',
+    folderRunning: '{{ 'Folder import running …' if g.language == 'en' else 'Ordnerimport läuft …' }}',
+    importConfirm: '{{ 'Confirm import' if g.language == 'en' else 'Import bestätigen' }}',
+    importResume: '{{ 'Resume import' if g.language == 'en' else 'Import fortsetzen' }}',
+    checkQueued: '{{ 'Check queued folders' if g.language == 'en' else 'Vorgemerkte Ordner prüfen' }}',
+    folderChecked: '{{ 'Folder checked' if g.language == 'en' else 'Ordner geprüft' }}',
+    addFolder: '{{ 'Add another folder' if g.language == 'en' else 'Weiteren Ordner hinzufügen' }}',
+    importFolder: '{{ 'Import folder' if g.language == 'en' else 'Ordner importieren' }}',
+    queuedSuffix: '{{ ' folders queued. Add more folders or start the import.' if g.language == 'en' else ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.' }}',
+    dialogFailedPrefix: '{{ 'Could not start the Android folder dialog: ' if g.language == 'en' else 'Android-Ordnerdialog konnte nicht gestartet werden: ' }}',
+    androidPick: '{{ 'Select Android folder …' if g.language == 'en' else 'Android-Ordner auswählen …' }}',
+    maxFolders: '{{ 'Select at most 20 folders per import.' if g.language == 'en' else 'Höchstens 20 Ordner pro Import auswählen.' }}',
+    busyNow: '{{ 'A folder import is already running.' if g.language == 'en' else 'Es läuft bereits ein Ordnerimport.' }}',
+    filesTransferred: '{{ 'Files are transferred; the server is finishing the import.' if g.language == 'en' else 'Dateien sind übertragen; der Server schließt den Import ab.' }}',
+    sessionChanged: '{{ 'Session changed; queued folders were discarded. Please select again.' if g.language == 'en' else 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.' }}',
+    androidBlocked: '{{ 'Android blocked folder access (page or session check).' if g.language == 'en' else 'Android hat den Ordnerzugriff blockiert (Seiten- oder Sitzungsprüfung).' }}',
+    tokenInvalid: '{{ 'Security token for the folder import is missing or invalid. Please log in again.' if g.language == 'en' else 'Sicherheits-Token für den Ordnerimport fehlt oder ist ungültig. Bitte neu anmelden.' }}',
+    pickNotStartedPrefix: '{{ 'Android folder selection did not start (status: ' if g.language == 'en' else 'Android-Ordnerauswahl nicht gestartet (Status: ' }}',
+    androidNotConnected: '{{ 'Android folder selection not connected. Please restart the app. If the problem persists, report the app version and this message.' if g.language == 'en' else 'Android-Ordnerauswahl nicht verbunden. Bitte App neu starten. Falls das Problem bleibt, die App-Version und diese Meldung melden.' }}',
+    pickerFailedPrefix: '{{ 'Could not start folder selection: ' if g.language == 'en' else 'Ordnerauswahl konnte nicht gestartet werden: ' }}',
+    checkingImport: '{{ 'Queued folders are being checked and imported …' if g.language == 'en' else 'Vorgemerkte Ordner werden geprüft und importiert …' }}',
+    startFailed: '{{ 'Could not start the import: session data or upload settings are invalid. Please reload the page.' if g.language == 'en' else 'Import konnte nicht starten: Sitzungsdaten oder Upload-Einstellungen sind ungültig. Bitte Seite neu laden.' }}',
+    pageNotReleased: '{{ 'Android folder import is not enabled on this page.' if g.language == 'en' else 'Android-Ordnerimport ist auf dieser Seite nicht freigegeben.' }}',
+    startFailedRetry: '{{ 'Could not start the import. Please select the folder again.' if g.language == 'en' else 'Import konnte nicht gestartet werden. Bitte Ordner erneut auswählen.' }}',
+    cancelNoted: '{{ 'Cancellation noted; the current batch will finish safely …' if g.language == 'en' else 'Abbruch vorgemerkt; das aktuelle Teilpaket wird sicher abgeschlossen …' }}',
+    filesWait: '{{ 'Files are transferred; please wait until the server has finished the import.' if g.language == 'en' else 'Dateien sind übertragen; bitte warten, bis der Server den Import abgeschlossen hat.' }}',
+    profilesInvalid: '{{ 'Stored source profiles are invalid. Please reset the browser storage for this page.' if g.language == 'en' else 'Gespeicherte Quellenprofile sind ungültig. Bitte den Browser-Speicher für diese Seite zurücksetzen.' }}',
+    profilesMax: '{{ 'At most 100 source profiles per browser profile. Remove stored profiles or run a one-off import.' if g.language == 'en' else 'Maximal 100 Quellenprofile pro Browserprofil. Gespeicherte Profile entfernen oder einen einmaligen Import durchführen.' }}',
+    sourceCrypto: '{{ 'This browser cannot create a permanently usable source identifier. Clear the source name and import once.' if g.language == 'en' else 'Dieser Browser kann keine dauerhaft nutzbare Quellkennung erstellen. Quellenname leeren und einmalig importieren.' }}',
+    selectNone: '{{ 'No files selected' if g.language == 'en' else 'Keine Dateien ausgewählt' }}',
+    pathTooLong: '{{ 'A relative folder path is longer than 4096 bytes and cannot be imported.' if g.language == 'en' else 'Ein relativer Ordnerpfad ist länger als 4096 Byte und kann nicht importiert werden.' }}',
+    filesUnit: '{{ 'file(s)' if g.language == 'en' else 'Datei(en)' }}',
+    mibSelected: '{{ 'MiB selected' if g.language == 'en' else 'MiB ausgewählt' }}',
+    inclSubfolders: '{{ '(including subfolders)' if g.language == 'en' else '(inklusive Unterordner)' }}',
+    cryptoImportId: '{{ 'This browser cannot create a secure import identifier.' if g.language == 'en' else 'Dieser Browser kann keine sichere Importkennung erstellen.' }}',
+    uploadLimitInvalid: '{{ 'The configured upload limit is invalid. Please reload the page.' if g.language == 'en' else 'Das konfigurierte Upload-Limit ist ungültig. Bitte die Seite neu laden.' }}',
+    importIdFailed: '{{ 'Could not create import identifier.' if g.language == 'en' else 'Importkennung konnte nicht erstellt werden.' }}',
+    fileTooLarge: '{{ 'A single file exceeds the upload limit or path bounds.' if g.language == 'en' else 'Eine einzelne Datei überschreitet das Upload-Limit oder die Pfadgrenze.' }}',
+    batchEmpty: '{{ 'The next import batch contains no file.' if g.language == 'en' else 'Das nächste Import-Teilpaket enthält keine Datei.' }}',
+    sessionExpired: '{{ 'Session expired. Please log in again and restart the import.' if g.language == 'en' else 'Sitzung abgelaufen. Bitte neu anmelden und den Import neu starten.' }}',
+    batchRejectedMid: '{{ 'The server rejected the import batch with HTTP ' if g.language == 'en' else 'Der Server hat das Import-Teilpaket mit HTTP ' }}',
+    batchRejectedSuffix: '{{ '.' if g.language == 'en' else ' abgewiesen.' }}',
+    preparedMid1: '{{ ' running (' if g.language == 'en' else ' läuft (' }}',
+    preparedMid2: '{{ ' of ' if g.language == 'en' else ' von ' }}',
+    preparedSuffix: '{{ ' files prepared) …' if g.language == 'en' else ' Dateien vorbereitet) …' }}',
+    progressMid3: '{{ ' files, ' if g.language == 'en' else ' Dateien, ' }}',
+    progressMid4: '{{ ' of ' if g.language == 'en' else ' von ' }}',
+    progressSuffix: '{{ ' MiB done).' if g.language == 'en' else ' MiB abgeschlossen).' }}',
+    completedMid: '{{ ' completed: ' if g.language == 'en' else ' abgeschlossen: ' }}',
+    completedSuffix: '{{ ' MiB imported.' if g.language == 'en' else ' MiB importiert.' }}',
+    pausedMid1: '{{ 'Import paused after ' if g.language == 'en' else 'Import nach ' }}',
+    pausedSuffix: '{{ ' files. You can resume with the same selected files.' if g.language == 'en' else ' Dateien angehalten. Mit denselben ausgewählten Dateien können Sie fortsetzen.' }}',
+    failedMid1: '{{ ' failed after ' if g.language == 'en' else ' nach ' }}',
+    failedMid3: '{{ ' files: ' if g.language == 'en' else ' Dateien fehlgeschlagen: ' }}',
+    cancelFolder: '{{ 'Cancel folder import' if g.language == 'en' else 'Ordnerimport abbrechen' }}',
+    cancelFile: '{{ 'Cancel file import' if g.language == 'en' else 'Dateiimport abbrechen' }}',
+    folderImport: '{{ 'Folder import' if g.language == 'en' else 'Ordnerimport' }}',
+    fileImport: '{{ 'File import' if g.language == 'en' else 'Dateiimport' }}',
+    sourceNameInvalid: '{{ 'Source name is invalid or longer than 80 characters.' if g.language == 'en' else 'Quellenname ist ungültig oder länger als 80 Zeichen.' }}',
+    sourceSaveFailed: '{{ 'Could not save source profile.' if g.language == 'en' else 'Quellenprofil konnte nicht gespeichert werden.' }}',
+    profilesDeleted: '{{ 'Stored source profiles were deleted in this browser.' if g.language == 'en' else 'Gespeicherte Quellenprofile wurden in diesem Browser gelöscht.' }}',
+    profilesDeleteFailed: '{{ 'Could not delete source profiles. Check the browser storage.' if g.language == 'en' else 'Quellenprofile konnten nicht gelöscht werden. Browser-Speicher prüfen.' }}',
+  };
   const files = document.getElementById('document-files');
   const folder = document.getElementById('document-folder');
   const status = document.getElementById('document-selection');
@@ -62,8 +128,8 @@
       : !('webkitdirectory' in folder) && !nativeFolderImport;
     if (folderButton.disabled) {
       folderButton.title = androidWebView
-        ? 'Android-Ordnerauswahl nicht verbunden. Seite neu laden.'
-        : 'Ordnerauswahl wird von diesem Browser nicht unterstützt';
+        ? STR.unsupportedTitleAndroid
+        : STR.unsupportedTitleBrowser;
       folderButton.setAttribute('aria-describedby', 'document-selection');
     } else {
       folderButton.removeAttribute('title');
@@ -80,18 +146,18 @@
         if (running) {
           startFolderImport.disabled = true;
           folderButton.disabled = true;
-          status.textContent = queueMessage || 'Ordnerimport läuft …';
+          status.textContent = queueMessage || STR.folderRunning;
           return;
         }
         startFolderImport.textContent = prepared
-          ? 'Import bestätigen'
+          ? STR.importConfirm
           : queueMessage && queueMessage.includes('unterbrochen')
-            ? 'Import fortsetzen' : 'Vorgemerkte Ordner prüfen';
+            ? STR.importResume : STR.checkQueued;
         folderButton.disabled = prepared || folderButton.disabled;
-        folderButton.textContent = prepared ? 'Ordner geprüft' : 'Weiteren Ordner hinzufügen';
+        folderButton.textContent = prepared ? STR.folderChecked : STR.addFolder;
         status.textContent = prepared
           ? nativeFolderImport.preview()
-          : queueMessage || queuedCount + ' Ordner vorgemerkt. Weitere Ordner hinzufügen oder Import starten.';
+          : queueMessage || queuedCount + STR.queuedSuffix;
       }
     }
   };
@@ -109,33 +175,33 @@
       try {
         state = nativeFolderImport.add(csrf);
       } catch (error) {
-        status.textContent = 'Android-Ordnerdialog konnte nicht gestartet werden: ' + String(error && error.message || error);
+        status.textContent = STR.dialogFailedPrefix + String(error && error.message || error);
         status.setAttribute('role', 'alert');
         return;
       }
       if (state === 'pending') {
-        status.textContent = 'Android-Ordner auswählen …';
+        status.textContent = STR.androidPick;
         startFolderImport.disabled = true;
       } else if (state === 'limit') {
-        status.textContent = 'Höchstens 20 Ordner pro Import auswählen.';
+        status.textContent = STR.maxFolders;
       } else {
         status.textContent = state === 'busy'
-          ? 'Es läuft bereits ein Ordnerimport.'
+          ? STR.busyNow
           : state === 'finishing'
-            ? 'Dateien sind übertragen; der Server schließt den Import ab.'
+            ? STR.filesTransferred
           : state === 'session-changed'
-            ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
+            ? STR.sessionChanged
             : state === 'blocked'
-              ? 'Android hat den Ordnerzugriff blockiert (Seiten- oder Sitzungsprüfung).'
+              ? STR.androidBlocked
               : state === 'invalid'
-                ? 'Sicherheits-Token für den Ordnerimport fehlt oder ist ungültig. Bitte neu anmelden.'
-                : 'Android-Ordnerauswahl nicht gestartet (Status: ' + state + ').';
+                ? STR.tokenInvalid
+                : STR.pickNotStartedPrefix + state + ').';
       }
       status.setAttribute('role', 'alert');
       return;
     }
     if (androidWebView) {
-      status.textContent = 'Android-Ordnerauswahl nicht verbunden. Bitte App neu starten. Falls das Problem bleibt, die App-Version und diese Meldung melden.';
+      status.textContent = STR.androidNotConnected;
       status.setAttribute('role', 'alert');
       return;
     }
@@ -149,7 +215,7 @@
         folder.click();
       } catch (error) {
         clearWebkitDirectoryMode();
-        status.textContent = 'Ordnerauswahl konnte nicht gestartet werden: ' + String(error && error.message || error);
+        status.textContent = STR.pickerFailedPrefix + String(error && error.message || error);
         status.setAttribute('role', 'alert');
       }
     }
@@ -161,19 +227,19 @@
     if (state === 'pending') {
       startFolderImport.disabled = true;
       folderButton.disabled = true;
-      status.textContent = 'Vorgemerkte Ordner werden geprüft und importiert …';
+      status.textContent = STR.checkingImport;
     } else {
       status.textContent = state === 'busy'
-        ? 'Es läuft bereits ein Ordnerimport.'
+        ? STR.busyNow
         : state === 'finishing'
-          ? 'Dateien sind übertragen; der Server schließt den Import ab.'
+          ? STR.filesTransferred
         : state === 'session-changed'
-          ? 'Sitzung gewechselt; vorgemerkte Ordner wurden verworfen. Bitte erneut auswählen.'
+          ? STR.sessionChanged
           : state === 'invalid'
-            ? 'Import konnte nicht starten: Sitzungsdaten oder Upload-Einstellungen sind ungültig. Bitte Seite neu laden.'
+            ? STR.startFailed
             : state === 'blocked'
-              ? 'Android-Ordnerimport ist auf dieser Seite nicht freigegeben.'
-              : 'Import konnte nicht gestartet werden. Bitte Ordner erneut auswählen.';
+              ? STR.pageNotReleased
+              : STR.startFailedRetry;
       status.setAttribute('role', 'alert');
     }
   });
@@ -181,11 +247,11 @@
     if (browserFolderImportRunning) {
       browserFolderImportCancelRequested = true;
       cancelFolderImport.disabled = true;
-      status.textContent = 'Abbruch vorgemerkt; das aktuelle Teilpaket wird sicher abgeschlossen …';
+      status.textContent = STR.cancelNoted;
       return;
     }
     if (nativeFolderImport && nativeFolderImport.cancel() === 'finishing') {
-      status.textContent = 'Dateien sind übertragen; bitte warten, bis der Server den Import abgeschlossen hat.';
+      status.textContent = STR.filesWait;
     }
   });
   window.addEventListener('simpleoffice:folder-import', (event) => {
@@ -199,11 +265,11 @@
     startFolderImport.hidden = !queued && !preview;
     startFolderImport.disabled = active || (queued && folderButton.disabled);
     startFolderImport.textContent = retryable
-      ? 'Import fortsetzen'
-      : preview ? 'Import bestätigen' : 'Vorgemerkte Ordner prüfen';
+      ? STR.importResume
+      : preview ? STR.importConfirm : STR.checkQueued;
     folderButton.disabled = active || (!androidWebView && !('webkitdirectory' in folder) && !nativeFolderImport);
     if (preview) folderButton.disabled = true;
-    folderButton.textContent = queued ? 'Weiteren Ordner hinzufügen' : 'Ordner importieren';
+    folderButton.textContent = queued ? STR.addFolder : STR.importFolder;
     if (detail.message) status.textContent = detail.message;
   });
   const manifest = document.getElementById('document-folder-path-manifest');
@@ -221,7 +287,7 @@
     if (!raw) return [];
     const profiles = JSON.parse(raw);
     if (!Array.isArray(profiles) || profiles.length > maxSourceProfiles) {
-      throw new Error('Gespeicherte Quellenprofile sind ungültig. Bitte den Browser-Speicher für diese Seite zurücksetzen.');
+      throw new Error(STR.profilesInvalid);
     }
     const labels = new Set();
     const identities = new Set();
@@ -231,7 +297,7 @@
           item.label !== item.label.trim().normalize('NFC') ||
           typeof item.id !== 'string' || !sourceIdPattern.test(item.id) ||
           labels.has(item.label) || identities.has(item.id)) {
-        throw new Error('Gespeicherte Quellenprofile sind ungültig. Bitte den Browser-Speicher für diese Seite zurücksetzen.');
+        throw new Error(STR.profilesInvalid);
       }
       labels.add(item.label);
       identities.add(item.id);
@@ -251,10 +317,10 @@
     const existing = profiles.find((item) => item.label === label);
     if (existing) return existing.id;
     if (profiles.length >= maxSourceProfiles) {
-      throw new Error('Maximal 100 Quellenprofile pro Browserprofil. Gespeicherte Profile entfernen oder einen einmaligen Import durchführen.');
+      throw new Error(STR.profilesMax);
     }
     if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') {
-      throw new Error('Dieser Browser kann keine dauerhaft nutzbare Quellkennung erstellen. Quellenname leeren und einmalig importieren.');
+      throw new Error(STR.sourceCrypto);
     }
     const bytes = new Uint8Array(32);
     window.crypto.getRandomValues(bytes);
@@ -278,7 +344,7 @@
       submit.disabled = true;
       manifest.value = '';
       sourceIdsManifest.value = '';
-      status.textContent = 'Keine Dateien ausgewählt';
+      status.textContent = STR.selectNone;
       return;
     }
     const other = source === folder ? files : folder;
@@ -301,19 +367,19 @@
         new TextEncoder().encode(file.webkitRelativePath || file.name).length > 4096);
       if (invalidPath) {
         submit.disabled = true;
-        status.textContent = 'Ein relativer Ordnerpfad ist länger als 4096 Byte und kann nicht importiert werden.';
+        status.textContent = STR.pathTooLong;
         return;
       }
     }
     submit.disabled = false;
     const bytes = selected.reduce((sum, file) => sum + file.size, 0);
-    status.textContent = selected.length + ' Datei(en), ' +
-      (bytes / 1048576).toFixed(1) + ' MiB ausgewählt' +
-      (source === folder ? ' (inklusive Unterordner)' : '');
+    status.textContent = selected.length + ' ' + STR.filesUnit + ', ' +
+      (bytes / 1048576).toFixed(1) + ' ' + STR.mibSelected +
+      (source === folder ? ' ' + STR.inclSubfolders : '');
   };
   const newBrowserImportId = () => {
     if (!window.crypto || typeof window.crypto.getRandomValues !== 'function') {
-      throw new Error('Dieser Browser kann keine sichere Importkennung erstellen.');
+      throw new Error(STR.cryptoImportId);
     }
     const bytes = new Uint8Array(16);
     window.crypto.getRandomValues(bytes);
@@ -337,7 +403,7 @@
   const uploadBrowserSelection = async (selected, isFolder, sourceIdentity) => {
     const maxRequestBytes = Number(form.dataset.maxUploadBytes || 0);
     if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) {
-      status.textContent = 'Das konfigurierte Upload-Limit ist ungültig. Bitte die Seite neu laden.';
+      status.textContent = STR.uploadLimitInvalid;
       status.setAttribute('role', 'alert');
       return;
     }
@@ -356,7 +422,7 @@
           completedBytes: 0,
         };
       } catch (error) {
-        status.textContent = String(error && error.message || 'Importkennung konnte nicht erstellt werden.');
+        status.textContent = String(error && error.message || STR.importIdFailed);
         status.setAttribute('role', 'alert');
         return;
       }
@@ -367,11 +433,11 @@
     submit.disabled = true;
     cancelFolderImport.hidden = false;
     cancelFolderImport.disabled = false;
-    cancelFolderImport.textContent = isFolder ? 'Ordnerimport abbrechen' : 'Dateiimport abbrechen';
+    cancelFolderImport.textContent = isFolder ? STR.cancelFolder : STR.cancelFile;
     folderButton.disabled = true;
     const totalBytes = selected.reduce((sum, file) => sum + file.size, 0);
     const totalFiles = selected.length;
-    const importLabel = isFolder ? 'Ordnerimport' : 'Dateiimport';
+    const importLabel = isFolder ? STR.folderImport : STR.fileImport;
     const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
     try {
       while (checkpoint.nextIndex < totalFiles) {
@@ -397,14 +463,14 @@
           if (bodyBytes + entryBytes > maxRequestBytes ||
               candidatePathBytes > maxFolderPathManifestBytes ||
               candidateSourceBytes > maxFolderSourceManifestBytes) {
-            throw new Error('Eine einzelne Datei überschreitet das Upload-Limit oder die Pfadgrenze.');
+            throw new Error(STR.fileTooLarge);
           }
           batch.push(file);
           batchPaths.push(path);
           bodyBytes += entryBytes;
           end++;
         }
-        if (!batch.length) throw new Error('Das nächste Import-Teilpaket enthält keine Datei.');
+        if (!batch.length) throw new Error(STR.batchEmpty);
         const data = new FormData();
         for (const field of form.elements) {
           if (!field.name || field.disabled || field.type === 'file' ||
@@ -420,8 +486,8 @@
           data.set('source_ids', JSON.stringify(Array(batch.length).fill(sourceIdentity)));
         }
         batch.forEach((file) => data.append('files', file, file.name));
-        status.textContent = importLabel + ' läuft (' + checkpoint.nextIndex + ' von ' + totalFiles +
-          ' Dateien vorbereitet) …';
+        status.textContent = importLabel + STR.preparedMid1 + checkpoint.nextIndex + STR.preparedMid2 + totalFiles +
+          STR.preparedSuffix;
         const response = await fetch(form.action, {
           method: 'POST',
           credentials: 'same-origin',
@@ -436,8 +502,8 @@
           const responseHtml = new DOMParser().parseFromString(await response.text(), 'text/html');
           const message = responseHtml.querySelector('[role="alert"], [role="status"]')?.textContent?.trim();
           throw new Error(message || (response.redirected && /\/auth\//.test(response.url)
-            ? 'Sitzung abgelaufen. Bitte neu anmelden und den Import neu starten.'
-            : 'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.'));
+            ? STR.sessionExpired
+            : STR.batchRejectedMid + response.status + STR.batchRejectedSuffix));
         }
         if (!response.ok || !payload || payload.ok !== true || payload.stored !== batch.length) {
           if (payload && payload.retryable === false) {
@@ -448,34 +514,34 @@
             ? payload.errors.filter((message) => typeof message === 'string' && message).join(' · ')
             : '';
           throw new Error(payload && (payload.error || payload.message) || errorDetails ||
-            'Der Server hat das Import-Teilpaket mit HTTP ' + response.status + ' abgewiesen.');
+            STR.batchRejectedMid + response.status + STR.batchRejectedSuffix);
         }
         checkpoint.nextIndex = end;
         checkpoint.completedBytes += batch.reduce((sum, file) => sum + file.size, 0);
-        status.textContent = importLabel + ' läuft (' + checkpoint.nextIndex + ' von ' + totalFiles +
-          ' Dateien, ' + (checkpoint.completedBytes / 1048576).toFixed(1) + ' von ' +
-          (totalBytes / 1048576).toFixed(1) + ' MiB abgeschlossen).';
+        status.textContent = importLabel + STR.preparedMid1 + checkpoint.nextIndex + STR.preparedMid2 + totalFiles +
+          STR.progressMid3 + (checkpoint.completedBytes / 1048576).toFixed(1) + STR.progressMid4 +
+          (totalBytes / 1048576).toFixed(1) + STR.progressSuffix;
       }
       if (checkpoint.nextIndex >= totalFiles) {
         browserFolderImportCheckpoint = null;
         if (isFolder) sessionStorage.removeItem('simpleoffice.folder-import-resume.v1');
-        status.textContent = importLabel + ' abgeschlossen: ' + totalFiles + ' Datei(en), ' +
-          (totalBytes / 1048576).toFixed(1) + ' MiB importiert.';
+        status.textContent = importLabel + STR.completedMid + totalFiles + ' ' + STR.filesUnit + ', ' +
+          (totalBytes / 1048576).toFixed(1) + STR.completedSuffix;
       } else if (browserFolderImportCancelRequested) {
-        status.textContent = 'Import nach ' + checkpoint.nextIndex + ' von ' + totalFiles +
-          ' Dateien angehalten. Mit denselben ausgewählten Dateien können Sie fortsetzen.';
+        status.textContent = STR.pausedMid1 + checkpoint.nextIndex + STR.preparedMid2 + totalFiles +
+          STR.pausedSuffix;
       }
       status.setAttribute('role', 'status');
     } catch (error) {
       browserFolderImportCheckpoint = checkpoint;
-      status.textContent = importLabel + ' nach ' + checkpoint.nextIndex + ' von ' + totalFiles +
-        ' Dateien fehlgeschlagen: ' + String(error && error.message || error);
+      status.textContent = importLabel + STR.failedMid1 + checkpoint.nextIndex + STR.preparedMid2 + totalFiles +
+        STR.failedMid3 + String(error && error.message || error);
       status.setAttribute('role', 'alert');
     } finally {
       browserFolderImportRunning = false;
       browserFolderImportCancelRequested = false;
       cancelFolderImport.hidden = true;
-      cancelFolderImport.textContent = 'Ordnerimport abbrechen';
+      cancelFolderImport.textContent = STR.cancelFolder;
       cancelFolderImport.disabled = false;
       folderButton.disabled = false;
       submit.disabled = false;
@@ -491,7 +557,7 @@
       if (label.length > 80 || /[\u0000-\u001f\u007f]/.test(label)) {
         event.preventDefault();
         status.setAttribute('role', 'alert');
-        status.textContent = 'Quellenname ist ungültig oder länger als 80 Zeichen.';
+        status.textContent = STR.sourceNameInvalid;
         return;
       }
       try {
@@ -499,7 +565,7 @@
       } catch (error) {
         event.preventDefault();
         status.setAttribute('role', 'alert');
-        status.textContent = String(error && error.message || 'Quellenprofil konnte nicht gespeichert werden.');
+        status.textContent = String(error && error.message || STR.sourceSaveFailed);
         return;
       }
     }
@@ -513,10 +579,10 @@
       window.localStorage.removeItem(sourceProfileStorageKey);
       while (sourceProfileList.firstChild) sourceProfileList.removeChild(sourceProfileList.firstChild);
       sourceProfile.value = '';
-      status.textContent = 'Gespeicherte Quellenprofile wurden in diesem Browser gelöscht.';
+      status.textContent = STR.profilesDeleted;
       status.setAttribute('role', 'status');
     } catch (_error) {
-      status.textContent = 'Quellenprofile konnten nicht gelöscht werden. Browser-Speicher prüfen.';
+      status.textContent = STR.profilesDeleteFailed;
       status.setAttribute('role', 'alert');
     }
   });

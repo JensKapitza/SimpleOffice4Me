@@ -1,6 +1,7 @@
 """Admin and locality contracts for the finance browser setting."""
 from __future__ import annotations
 
+import io
 import json
 import os
 import tempfile
@@ -216,6 +217,21 @@ class FinanceAdminSettingsTests(unittest.TestCase):
         self.assertIn('value="25" min="1" max="25"', reset_body)
         self.assertIn('value="24" min="1" max="168"', reset_body)
 
+    def test_statement_upload_limit_message_uses_configured_limit_and_language(self):
+        self.post_setting(
+            self.admin, "1", timeout_seconds="900", import_limit_mib="3",
+        )
+        response = self.admin.post(
+            "/documents/business/bookkeeping/finances/statements/preview",
+            data={"statement": (io.BytesIO(b"x" * (3 * 1024 * 1024 + 1)), "large.csv")},
+            headers={"X-CSRF-Token": "a" * 40},
+            environ_overrides={"REMOTE_ADDR": "127.0.0.1"},
+        )
+        self.assertEqual(302, response.status_code)
+        with self.admin.session_transaction() as session:
+            messages = [message for _category, message in session.get("_flashes", [])]
+        self.assertIn("Bank statement is larger than 3 MiB.", messages)
+
     def test_non_admin_missing_csrf_and_invalid_values_are_rejected(self):
         self.assertEqual(403, self.post_setting(self.user, "0", token="u" * 40).status_code)
         self.assertEqual(403, self.admin.post(
@@ -302,6 +318,44 @@ class FinanceAdminSettingsTests(unittest.TestCase):
             SettingsStore(self.root).save(
                 {"finance": {"statement_staging_ttl_seconds": 59}}, "finance-admin",
             )
+
+    def test_finance_partial_save_preserves_browser_and_fints_settings(self):
+        store = SettingsStore(self.root)
+        store.save({"finance": {
+            "fints_product_id": "jury-demo-product",
+            "bank_browser_timeout_seconds": 900,
+        }}, "finance-admin")
+        self.assertEqual(
+            "jury-demo-product", store.settings()["finance"]["fints_product_id"],
+        )
+        store.save({"finance": {"bank_browser_enabled": False}}, "finance-admin")
+        values = store.settings()["finance"]
+        self.assertFalse(values["bank_browser_enabled"])
+        self.assertEqual("jury-demo-product", values["fints_product_id"])
+        self.assertEqual(900, values["bank_browser_timeout_seconds"])
+
+    def test_invalid_persisted_finance_field_does_not_reset_valid_values(self):
+        store = SettingsStore(self.root)
+        store.path.parent.mkdir(parents=True, exist_ok=True)
+        store.path.write_text(json.dumps({"finance": {
+            "bank_browser_enabled": False,
+            "bank_browser_timeout_seconds": 900,
+            "statement_import_limit_bytes": 0,
+            "statement_staging_ttl_seconds": 7200,
+            "fints_product_id": "existing-product",
+        }}), encoding="utf-8")
+        values = store.settings()["finance"]
+        self.assertFalse(values["bank_browser_enabled"])
+        self.assertEqual(900, values["bank_browser_timeout_seconds"])
+        self.assertEqual(25 * 1024 * 1024, values["statement_import_limit_bytes"])
+        self.assertEqual(7200, values["statement_staging_ttl_seconds"])
+        self.assertEqual("existing-product", values["fints_product_id"])
+
+        store.save({"finance": {"fints_product_id": "updated-product"}}, "finance-admin")
+        values = store.settings()["finance"]
+        self.assertEqual(900, values["bank_browser_timeout_seconds"])
+        self.assertEqual(7200, values["statement_staging_ttl_seconds"])
+        self.assertEqual("updated-product", values["fints_product_id"])
 
     def test_legacy_database_setting_is_migrated_without_losing_its_value(self):
         store = SettingsStore(self.root)

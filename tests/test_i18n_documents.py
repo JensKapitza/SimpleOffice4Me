@@ -12,6 +12,7 @@ import unittest
 from pathlib import Path
 
 from app import app
+from app.settings_store import SettingsStore
 from app.db import ensure_auth_database, get_db
 from app.password_security import hash_password
 
@@ -593,16 +594,13 @@ class ManagementPagesLanguageTest(unittest.TestCase):
         self.assertIn("Noch keine Kommentare.", de_body)
 
     def test_v3_finance_lifecycle(self) -> None:
-        import os
-        from unittest.mock import patch
-        with patch.dict(os.environ,
-                        {"SIMPLEOFFICE_V3_FINANCE_ENABLED": "1"}):
-            en_body = self._get("/documents/business/lifecycle-v3", "en")
-            self.assertIn("New business document", en_body)
-            self.assertIn("No lifecycle documents yet.", en_body)
-            de_body = self._get("/documents/business/lifecycle-v3", "de")
-            self.assertIn("Neues Geschäftsdokument", de_body)
-            self.assertIn("Noch keine Lifecycle-Dokumente.", de_body)
+        SettingsStore(self.root).save({"v3": {"v3.finance": True}}, "test")
+        en_body = self._get("/documents/business/lifecycle-v3", "en")
+        self.assertIn("New business document", en_body)
+        self.assertIn("No lifecycle documents yet.", en_body)
+        de_body = self._get("/documents/business/lifecycle-v3", "de")
+        self.assertIn("Neues Geschäftsdokument", de_body)
+        self.assertIn("Noch keine Lifecycle-Dokumente.", de_body)
 
     def test_smart_folder_merge_preview_renders_both_languages(self) -> None:
         impact = {"source": "src", "target": "dst", "documents": 3,
@@ -627,6 +625,74 @@ class ManagementPagesLanguageTest(unittest.TestCase):
             impact=impact)
         self.assertIn("Ordnerfusion prüfen", de_body)
         self.assertIn("Fusion bestätigen", de_body)
+
+    def test_index_english(self) -> None:
+        self._make_text_document(b"hello index", "index.txt")
+        body = self._get("/documents/", "en")
+        self.assertIn("Quick find", body)
+        self.assertIn("Expand all", body)
+        self.assertIn("Capture files and PDFs", body)
+        self.assertIn("Import folder", body)
+        self.assertIn("Portable metadata", body)
+        self.assertIn("Folders and documents", body)
+        self.assertIn("No files selected", body)
+        self.assertIn("Folder import running", body)
+
+    def test_index_german(self) -> None:
+        self._make_text_document(b"hello index", "index.txt")
+        body = self._get("/documents/", "de")
+        self.assertIn("Schnell finden", body)
+        self.assertIn("Alle aufklappen", body)
+        self.assertIn("Dateien und PDFs erfassen", body)
+        self.assertIn("Ordner importieren", body)
+        self.assertIn("Portable Metadaten", body)
+        self.assertIn("Ordner und Dokumente", body)
+        self.assertIn("Keine Dateien ausgewählt", body)
+        self.assertIn("Ordnerimport läuft", body)
+
+    def _make_text_document(self, payload: bytes, name: str) -> str:
+        import io
+
+        from app.document_store import DocumentStore
+        with app.app_context():
+            document = DocumentStore(self.root).import_upload(
+                io.BytesIO(payload), name, "admin")
+        return document["document_id"]
+
+    def test_detail_preview_english(self) -> None:
+        document_id = self._make_text_document(b"hello preview", "preview.txt")
+        body = self._get(f"/documents/{document_id}", "en")
+        self.assertIn("Preview", body)
+        self.assertIn("Open original", body)
+        self.assertIn("Download original", body)
+        self.assertIn("Requires this document", body)
+
+    def test_detail_preview_german(self) -> None:
+        document_id = self._make_text_document(b"hello preview", "preview.txt")
+        body = self._get(f"/documents/{document_id}", "de")
+        self.assertIn("Vorschau", body)
+        self.assertIn("Original öffnen", body)
+        self.assertIn("Original herunterladen", body)
+        self.assertIn("Benötigt dieses Dokument", body)
+
+    def test_detail_empty_text_status_both_languages(self) -> None:
+        document_id = self._make_text_document(b"", "empty.txt")
+        en_body = self._get(f"/documents/{document_id}", "en")
+        self.assertIn("The text file is empty.", en_body)
+        de_body = self._get(f"/documents/{document_id}", "de")
+        self.assertIn("Die Textdatei ist leer.", de_body)
+
+    def test_detail_unsupported_text_and_truncation_both_languages(self) -> None:
+        binary_id = self._make_text_document(b"\x00\xff\x00", "binary.txt")
+        en_binary = self._get(f"/documents/{binary_id}", "en")
+        self.assertIn("not supported UTF-8", en_binary)
+        de_binary = self._get(f"/documents/{binary_id}", "de")
+        self.assertIn("kein unterstützter UTF-8-Text", de_binary)
+        long_id = self._make_text_document(b"row\n" * 301, "long.csv")
+        en_long = self._get(f"/documents/{long_id}", "en")
+        self.assertIn("300 lines", en_long)
+        de_long = self._get(f"/documents/{long_id}", "de")
+        self.assertIn("300 Zeilen", de_long)
 
     def test_photo_snapshot_renders_both_languages(self) -> None:
         en_body = self._render("documents/_photo_snapshot.html", "en")

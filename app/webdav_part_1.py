@@ -57,15 +57,13 @@ ElementTree.register_namespace("Office", MICROSOFT_OFFICE)
 
 
 def _vfs() -> VirtualFileSystem:
-    return VirtualFileSystem.from_environment(current_app.config["DOCUMENT_ROOT"])
+    return VirtualFileSystem.from_store(current_app.config["DOCUMENT_ROOT"])
 
 
 def _document_access_context(username: str) -> tuple[VirtualFileSystem, list[str], bool]:
+    from . import admin_lists as _admin_lists
     users = [str(row[0]) for row in get_db().execute("SELECT username FROM user ORDER BY username").fetchall()]
-    configured = {
-        value.strip() for value in os.environ.get("SIMPLEOFFICE_DOCUMENT_ADMINS", "").split(",")
-        if value.strip()
-    }
+    configured = _admin_lists.document_admins()
     bootstrap_admin = len(users) == 1 and users[0] == username
     administrators = configured | ({username} if bootstrap_admin else set())
     return VirtualFileSystem(current_app.config["DOCUMENT_ROOT"], administrators), users, username in administrators

@@ -3,36 +3,36 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-    <div><h1 class="h2 mb-1">Chat-Regeln</h1><p class="text-secondary mb-0">Lege pro Federation-Partner fest, was gesendet und angenommen werden darf.</p></div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a>
+    <div><h1 class="h2 mb-1">{{ 'Chat rules' if g.language == 'en' else 'Chat-Regeln' }}</h1><p class="text-secondary mb-0">{{ 'Define per federation partner what may be sent and accepted.' if g.language == 'en' else 'Lege pro Federation-Partner fest, was gesendet und angenommen werden darf.' }}</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">{{ 'To federation' if g.language == 'en' else 'Zur Federation' }}</a>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="alert alert-secondary small">
-    Nicht aktivierte Funktionen sind verboten. Strukturierte Aktionen werden auf beiden Servern geprüft; bei Ablehnung werden keine Nutzdaten übertragen.
+    {{ 'Features not activated are forbidden. Structured actions are checked on both servers; on rejection no payload data is transferred.' if g.language == 'en' else 'Nicht aktivierte Funktionen sind verboten. Strukturierte Aktionen werden auf beiden Servern geprüft; bei Ablehnung werden keine Nutzdaten übertragen.' }}
   </div>
 
   {% for peer in peers %}
   <section class="card mb-4">
     <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
       <span><strong>{{ peer.label or peer.peer_id }}</strong> <code class="ms-1">{{ peer.peer_id }}</code></span>
-      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'deaktiviert' }}</span>
+      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ ('active' if peer.enabled else 'disabled') if g.language == 'en' else ('aktiv' if peer.enabled else 'deaktiviert') }}</span>
     </div>
     <div class="card-body">
       <form method="post" action="{{ url_for('federation_admin.save_chat_policy', peer_id=peer.peer_id) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="table-responsive">
           <table class="table align-middle mb-3">
-            <thead><tr><th scope="col">Funktion</th><th scope="col" class="text-center">Senden erlauben</th><th scope="col" class="text-center">Empfangen erlauben</th></tr></thead>
+            <thead><tr><th scope="col">{{ 'Feature' if g.language == 'en' else 'Funktion' }}</th><th scope="col" class="text-center">{{ 'Allow sending' if g.language == 'en' else 'Senden erlauben' }}</th><th scope="col" class="text-center">{{ 'Allow receiving' if g.language == 'en' else 'Empfangen erlauben' }}</th></tr></thead>
             <tbody>
               <tr>
-                <td><strong>Chat allgemein</strong><div class="small text-secondary">Textnachrichten und Voraussetzung für alle Chat-Funktionen.</div></td>
-                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_send" value="1" aria-label="Chat senden" {% if peer.chat_policy.send %}checked{% endif %}></td>
-                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_receive" value="1" aria-label="Chat empfangen" {% if peer.chat_policy.receive %}checked{% endif %}></td>
+                <td><strong>{{ 'Chat in general' if g.language == 'en' else 'Chat allgemein' }}</strong><div class="small text-secondary">{{ 'Text messages and prerequisite for all chat features.' if g.language == 'en' else 'Textnachrichten und Voraussetzung für alle Chat-Funktionen.' }}</div></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_send" value="1" aria-label="Chat {{ 'send' if g.language == 'en' else 'senden' }}" {% if peer.chat_policy.send %}checked{% endif %}></td>
+                <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_receive" value="1" aria-label="Chat {{ 'receive' if g.language == 'en' else 'empfangen' }}" {% if peer.chat_policy.receive %}checked{% endif %}></td>
               </tr>
               {% for action, label in chat_action_labels.items() %}
               <tr>
-                <td><strong>{{ label }}</strong>{% if action == 'contact' %}<div class="small text-secondary">Kontakte anbieten oder übernehmen.</div>{% elif action == 'poll' %}<div class="small text-secondary">Umfragen senden oder beantworten.</div>{% elif action == 'request' %}<div class="small text-secondary">Strukturierte Anforderungen, z. B. Kontakt ergänzen oder Datei hochladen.</div>{% endif %}</td>
+                <td><strong>{{ label }}</strong>{% if action == 'contact' %}<div class="small text-secondary">{{ 'Offer or adopt contacts.' if g.language == 'en' else 'Kontakte anbieten oder übernehmen.' }}</div>{% elif action == 'poll' %}<div class="small text-secondary">{{ 'Send or answer polls.' if g.language == 'en' else 'Umfragen senden oder beantworten.' }}</div>{% elif action == 'request' %}<div class="small text-secondary">{{ 'Structured requests, e.g. add contact or upload file.' if g.language == 'en' else 'Strukturierte Anforderungen, z. B. Kontakt ergänzen oder Datei hochladen.' }}</div>{% endif %}</td>
                 <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_{{ action }}_send" value="1" aria-label="{{ label }} senden" {% if peer.chat_policy.actions[action].send %}checked{% endif %}></td>
                 <td class="text-center"><input class="form-check-input" type="checkbox" name="chat_{{ action }}_receive" value="1" aria-label="{{ label }} empfangen" {% if peer.chat_policy.actions[action].receive %}checked{% endif %}></td>
               </tr>
@@ -40,12 +40,12 @@
             </tbody>
           </table>
         </div>
-        <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit">Regeln speichern</button></div>
+        <div class="d-flex justify-content-end"><button class="btn btn-primary" type="submit">{{ 'Save rules' if g.language == 'en' else 'Regeln speichern' }}</button></div>
       </form>
     </div>
   </section>
   {% else %}
-  <div class="alert alert-info" role="status" aria-live="polite">Noch keine Federation-Partner eingerichtet.</div>
+  <div class="alert alert-info" role="status" aria-live="polite">{{ 'No federation partners set up yet.' if g.language == 'en' else 'Noch keine Federation-Partner eingerichtet.' }}</div>
   {% endfor %}
 </main>
 {% endblock %}

@@ -1,8 +1,9 @@
-import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from app import app_config_store
 from app.inventory_marketplace import (
     parse_amazon_html,
     parse_amazon_results,
@@ -36,17 +37,18 @@ EBAY_HTML = """
 
 
 class InventoryMarketplaceTests(unittest.TestCase):
-    def cleared_marketplace_env(self):
-        return {
-            "SIMPLEOFFICE_AMAZON_ACCESS_KEY": "",
-            "SIMPLEOFFICE_AMAZON_SECRET_KEY": "",
-            "SIMPLEOFFICE_AMAZON_PARTNER_TAG": "",
-            "SIMPLEOFFICE_EBAY_CLIENT_ID": "",
-            "SIMPLEOFFICE_EBAY_CLIENT_SECRET": "",
-        }
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        patcher = mock.patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_unconfigured_amazon_uses_public_page_after_user_search(self):
-        with mock.patch.dict(os.environ, self.cleared_marketplace_env(), clear=False), mock.patch(
+        with mock.patch(
             "app.inventory_marketplace._html_request", return_value=AMAZON_HTML
         ):
             self.assertEqual({"amazon": False, "ebay": False}, provider_status())
@@ -60,7 +62,7 @@ class InventoryMarketplaceTests(unittest.TestCase):
         self.assertEqual("Amazon öffentliche Suche", result["results"][0]["metadata_source"])
 
     def test_unconfigured_ebay_uses_public_page_after_user_search(self):
-        with mock.patch.dict(os.environ, self.cleared_marketplace_env(), clear=False), mock.patch(
+        with mock.patch(
             "app.inventory_marketplace._html_request", return_value=EBAY_HTML
         ):
             result = search_marketplace("ebay", "9783499249167")
@@ -70,7 +72,7 @@ class InventoryMarketplaceTests(unittest.TestCase):
         self.assertEqual("123456789", result["results"][0]["external_id"])
 
     def test_blocked_public_page_returns_safe_normal_search_without_bypass(self):
-        with mock.patch.dict(os.environ, self.cleared_marketplace_env(), clear=False), mock.patch(
+        with mock.patch(
             "app.inventory_marketplace._html_request",
             side_effect=ValueError("Marketplace zeigt eine Schutzseite"),
         ):

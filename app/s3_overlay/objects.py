@@ -74,7 +74,7 @@ class DocumentObjects:
         self.todos = TodoStore(self.root)
         self.projects = ProjectStore(self.root)
         self.objects = ObjectStore(self.root)
-        self.vfs = VirtualFileSystem.from_environment(self.root)
+        self.vfs = VirtualFileSystem.from_store(self.root)
         self.actor = f"s3:{username}"
         secret = current_app.config["SECRET_KEY"]
         self.mail = MailStore(self.root, secret.encode("utf-8") if isinstance(secret, str) else secret)

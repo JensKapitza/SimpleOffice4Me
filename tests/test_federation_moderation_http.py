@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +6,7 @@ from unittest.mock import patch
 
 from flask import Flask, g
 
+from app import app_config_store
 from app.federation_moderation import FederationModerationStore
 from app.federation_moderation_admin import bp as admin_bp
 from app.federation_moderation_http import bp
@@ -29,13 +29,20 @@ class FederationModerationHttpTests(unittest.TestCase):
         self.app.add_url_rule("/login", endpoint="auth.login", view_func=lambda: "Login")
         self.user = {"id": 1, "username": "admin", "is_admin": True, "is_disabled": False}
         self.app.before_request(lambda: setattr(g, "user", self.user))
+        # Minimal app without the real g.language loader; this suite asserts German strings.
+        self.app.before_request(lambda: setattr(g, "language", "de"))
         self.app.before_request(protect_browser_mutation)
         context = self.app.app_context()
         context.push()
         self.addCleanup(context.pop)
-        self.env = patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "shared", "SIMPLEOFFICE_FEDERATION_PEER_ID": "local"})
-        self.env.start()
-        self.addCleanup(self.env.stop)
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", "shared")
+        app_config_store.put("federation", {"peer_id": "local"})
+        self.remote_config = self.root / "remote-app-config.json"
         self.client = self.app.test_client()
         self.store = FederationStore(self.root)
         self.store.save_peer("reporter", "Reporter", "https://reporter.example", "reporter-token")
@@ -64,15 +71,23 @@ class FederationModerationHttpTests(unittest.TestCase):
         for source_token in ("shared", ""):
             with remote_app.app_context():
                 remote_store.save_peer("local", "Local", "https://local.example", "reporter-token")
-            with self.subTest(source_token=source_token), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": source_token}):
+            with self.subTest(source_token=source_token):
+                if source_token:
+                    app_config_store.put_secret("federation", "token", source_token)
+                else:
+                    app_config_store.discard_secret("federation", "token")
                 proof = _configured_peer_proof("https://reporter.example" + endpoint, "reporter-token", "GET", b"")
-                with remote_app.test_request_context(endpoint, headers=proof), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "receiver-token"}):
-                    from flask import request
-                    self.assertEqual("local", authenticate(remote_root, request))
+                with patch.object(app_config_store, "settings_path", return_value=self.remote_config):
+                    with remote_app.app_context():
+                        app_config_store.put_secret("federation", "token", "receiver-token")
+                    with remote_app.test_request_context(endpoint, headers=proof):
+                        from flask import request
+                        self.assertEqual("local", authenticate(remote_root, request))
 
                 def receive(url, *, method, body, headers, timeout):
-                    with remote_app.test_request_context("/federation/v1/moderation/reports", method=method, data=body, headers=headers), patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "receiver-token"}):
-                        self.assertEqual("local", authenticate(remote_root, request))
+                    with patch.object(app_config_store, "settings_path", return_value=self.remote_config):
+                        with remote_app.test_request_context("/federation/v1/moderation/reports", method=method, data=body, headers=headers):
+                            self.assertEqual("local", authenticate(remote_root, request))
                     return io.BytesIO(b'{"accepted":true}')
 
                 with patch("app.federation_moderation_client._request", side_effect=receive):
@@ -108,10 +123,13 @@ class FederationModerationHttpTests(unittest.TestCase):
         self.assertEqual(401, self._report()[0].status_code)
 
     def test_shared_bearer_reused_as_peer_secret_cannot_impersonate_reporter(self):
-        for setting in ("SIMPLEOFFICE_FEDERATION_TOKEN", "SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN"):
-            with self.subTest(setting=setting), patch.dict(os.environ, {setting: "shared-control-secret"}):
+        for setting in ("token", "directory_token"):
+            with self.subTest(setting=setting):
+                app_config_store.put_secret("federation", setting, "shared-control-secret")
                 self.store.save_peer("reporter", "Reporter", "https://reporter.example", "shared-control-secret")
                 self.assertEqual(401, self._report(token="shared-control-secret")[0].status_code)
+                app_config_store.discard_secret("federation", setting)
+        app_config_store.put_secret("federation", "token", "shared")
         self.assertEqual([], self.moderation.reports())
 
     def test_shared_bearer_reused_as_peer_secret_cannot_bypass_ban(self):

@@ -66,16 +66,10 @@ verfügbar ist oder der Versand scheitert. Der Versandstatus bleibt dann
 Weitergeben bereit. Zusätzlich öffnet „E-Mail im Client vorbereiten" den
 Standard-Mailclient mit Empfänger, Betreff und dem ICS-Download-Link. Die
 E-Mail kann damit später versendet werden.
-Dafür müssen diese Variablen gesetzt sein:
-
-```bash
-SIMPLEOFFICE_SMTP_HOST=smtp.example.org
-SIMPLEOFFICE_SMTP_FROM=kalender@example.org
-SIMPLEOFFICE_SMTP_PORT=587
-SIMPLEOFFICE_SMTP_STARTTLS=true
-SIMPLEOFFICE_SMTP_USER=kalender@example.org
-SIMPLEOFFICE_SMTP_PASSWORD='...'
-```
+Dafür hinterlegt die Administration unter Mini Services → Mailversand (SMTP)
+Host, Absender, Port, STARTTLS, Benutzer und Passwort (verschlüsselt im
+App-Store, keine Umgebungsvariablen); ein Verbindungstest prüft Zugang ohne
+Mailversand.
 
 Ohne SMTP-Konfiguration bleibt die Anfrage bewusst offen. In der ICS-Antwort
 stehen nur der bestätigte Titel und die Zeit; der Grund wird nicht veröffentlicht.

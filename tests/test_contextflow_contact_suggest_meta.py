@@ -13,7 +13,6 @@ in tests/test_contextflow_contact_suggest.py and stay untouched.
 from __future__ import annotations
 
 import json
-import os
 import re
 import tempfile
 import unittest
@@ -274,11 +273,26 @@ class ContactMetaPositiveTest(unittest.TestCase):
         self.assertIn("no suggestion JSON", str(raised.exception))
 
 
+def _seed_vision_key(key: str) -> None:
+    """Store a Meta key via the admin settings file (no environment)."""
+    from app import app as flask_app
+    from app import vision_config
+
+    with flask_app.app_context():
+        vision_config.persist(vision_config.prepare({"meta_api_key": key}))
+
+
 class ContactMetaWebTest(unittest.TestCase):
     password = "contextflow-contact-meta-test-password"
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
+        self._vision_path = mock.patch(
+            "app.vision_config.default_config_path",
+            return_value=Path(self.temp.name) / "mini.json",
+        )
+        self._vision_path.start()
+        self.addCleanup(self._vision_path.stop)
         self.saved = {
             key: app.config.get(key)
             for key in (
@@ -335,21 +349,22 @@ class ContactMetaWebTest(unittest.TestCase):
         return match.group(1).decode()
 
     def test_cloud_without_consent_checkbox_is_refused(self) -> None:
-        with mock.patch.dict(os.environ, {"MODEL_API_KEY": "k"}):
-            response = self.client.post(
-                "/contextflow/contact-suggest",
-                data={
-                    "_csrf_token": self.csrf(self.client),
-                    "contact_text": "Max Muster",
-                },
-            )
+        _seed_vision_key("k")
+        response = self.client.post(
+            "/contextflow/contact-suggest",
+            data={
+                "_csrf_token": self.csrf(self.client),
+                "contact_text": "Max Muster",
+            },
+        )
         self.assertEqual(403, response.status_code)
         payload = response.get_json()
         self.assertFalse(payload["ok"])
         self.assertIn("consent", payload["error"])
 
     def test_cloud_with_consent_refused_outside_demo_root(self) -> None:
-        with mock.patch.dict(os.environ, {"MODEL_API_KEY": "k"}), mock.patch(
+        _seed_vision_key("k")
+        with mock.patch(
             "app.contextflow.vision.urllib.request.build_opener"
         ) as transport:
             response = self.client.post(
@@ -373,7 +388,8 @@ class ContactMetaWebTest(unittest.TestCase):
              "evidence": "Max Muster", "source": "text"},
         ]
         transport = _meta_transport(_completion_payload(fields))
-        with mock.patch.dict(os.environ, {"MODEL_API_KEY": "k"}), mock.patch(
+        _seed_vision_key("k")
+        with mock.patch(
             "app.contextflow.vision.urllib.request.build_opener",
             return_value=transport,
         ):

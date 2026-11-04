@@ -223,8 +223,12 @@ Do not show real office documents or contact data in a contributor-mode run.
 
 The visible model ID, response, tool/evidence list, and usage belong in the
 recording. A configured badge or Mock result alone does not establish a live
-Meta call. If no Meta key is available, use Ollama only for a clearly labeled
-local run; the mock is suitable for UI and workflow checks, not AI evidence.
+Meta call. For the isolated demo, the launcher accepts `MODEL_API_KEY` from
+the process environment or parent `.env` and injects it into one process only;
+it is not saved. For a normal installation, enter the key in Admin →
+Mini-Services → Vision/ML, where it is encrypted. If no Meta key is available,
+use Ollama only for a clearly labeled local run; the mock is suitable for UI
+and workflow checks, not AI evidence.
 
 ### Meta-Agent mit Tool-Loop (P0-G, live-verifiziert 30.10.)
 

@@ -49,6 +49,8 @@ class LiteLLMTest(unittest.TestCase):
     def login(self, user=None):
         with self.client.session_transaction() as session:
             session['user_id'] = self.admin if user is None else user
+            # EN is the app default; this suite asserts German UI strings.
+            session['simpleoffice_language'] = 'de'
 
     def enable(self, **values):
         result = config.prepare({'enabled': True, 'mode': 'external', 'base_url': 'https://gateway.example/v1',

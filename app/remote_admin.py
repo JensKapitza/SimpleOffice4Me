@@ -7,6 +7,7 @@ from .access_control import audit, is_admin
 from .auth import login_required
 from .companion_agent import install, start, status, stop
 from .remote_app_catalog import RemoteAppCatalog
+from .translations import translate
 
 bp = Blueprint("remote_admin", __name__, url_prefix="/admin/remote")
 
@@ -44,7 +45,7 @@ def index():
 def install_agent():
     result = install(_root())
     audit("remote_agent_installed", "service", "companion-agent", detail={"platform": result["platform"]})
-    flash("Remote-Agent wurde für diese Instanz vorbereitet.")
+    flash(translate(g.language, "remote.agent.prepared"))
     return _redirect()
 
 
@@ -55,10 +56,10 @@ def start_agent():
         result = start(_root())
     except Exception as exc:
         audit("remote_agent_started", "service", "companion-agent", outcome="failure", detail={"error_type": type(exc).__name__})
-        flash(f"Remote-Agent konnte nicht gestartet werden: {exc}")
+        flash(translate(g.language, "remote.agent.start.failed").format(exc=exc))
     else:
         audit("remote_agent_started", "service", "companion-agent", detail={"platform": result["platform"]})
-        flash("Remote-Agent gestartet.")
+        flash(translate(g.language, "remote.agent.started"))
     return _redirect()
 
 
@@ -67,7 +68,7 @@ def start_agent():
 def stop_agent():
     result = stop(_root())
     audit("remote_agent_stopped", "service", "companion-agent", detail={"platform": result["platform"]})
-    flash("Remote-Agent gestoppt.")
+    flash(translate(g.language, "remote.agent.stopped"))
     return _redirect()
 
 
@@ -82,10 +83,10 @@ def publish_app():
             favorite=request.form.get("favorite") == "1",
         )
     except Exception as exc:
-        flash(f"Anwendung konnte nicht veröffentlicht werden: {exc}")
+        flash(translate(g.language, "remote.app.publish.failed").format(exc=exc))
     else:
         audit("remote_app_published", "remote_app", row["app_id"], detail={"label": row["label"]})
-        flash(f"Anwendung veröffentlicht: {row['label']}")
+        flash(translate(g.language, "remote.app.published").format(label=row['label']))
     return _redirect()
 
 
@@ -95,8 +96,8 @@ def remove_app(app_id: str):
     try:
         row = _catalog().remove(app_id)
     except Exception as exc:
-        flash(f"Anwendung konnte nicht entfernt werden: {exc}")
+        flash(translate(g.language, "remote.app.remove.failed").format(exc=exc))
     else:
         audit("remote_app_removed", "remote_app", row["app_id"], detail={"label": row["label"]})
-        flash(f"Anwendung entfernt: {row['label']}")
+        flash(translate(g.language, "remote.app.removed").format(label=row['label']))
     return _redirect()

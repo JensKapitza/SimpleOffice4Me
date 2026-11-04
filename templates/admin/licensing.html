@@ -8,7 +8,7 @@
       <p class="text-secondary mb-0">{{ 'Monthly active users, used functions, prices, invoices and federation billing state.' if g.language == 'en' else 'Monatlich aktive Benutzer, genutzte Funktionen, Preise, Rechnungen und Federation-Abrechnungsstatus.' }}</p>
     </div>
     <div class="d-flex gap-2">
-      <a class="btn btn-outline-primary" href="{{ url_for('licensing_admin.cluster_settings') }}">Master-Cluster</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('licensing_admin.cluster_settings') }}">{{ 'Master cluster' if g.language == 'en' else 'Master-Cluster' }}</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</a>
       {% if licensing.master.url and not licensing.master.is_master %}<form method="post" action="{{ url_for('licensing_admin.report_now') }}"><button class="btn btn-primary" type="submit">{{ 'Send pending reports' if g.language == 'en' else 'Offene Berichte senden' }}</button></form>{% endif %}
     </div>
@@ -21,6 +21,16 @@
   {% elif licensing.state.state == 'warning' %}
   <div class="alert alert-warning">{{ licensing.state.message or licensing.state.reason }}</div>
   {% endif %}
+
+  <section class="card mb-4" id="master-token">
+    <div class="card-header"><strong>{{ 'License master token' if g.language == 'en' else 'Lizenz-Master-Token' }}</strong></div>
+    <div class="card-body">
+      <p class="small text-secondary">{{ 'Authenticates reports and master APIs. Encrypted in the app store, never shown – only whether one is stored. An empty field keeps the stored token.' if g.language == 'en' else 'Authentifiziert Berichte und Master-APIs. Verschlüsselt im App-Store, nie angezeigt – nur ob eines hinterlegt ist. Leeres Feld behält das gespeicherte Token.' }} {% if master_token_configured %}<span class="badge text-bg-success">{{ 'Stored' if g.language == 'en' else 'Hinterlegt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %}</p>
+      <form method="post" action="{{ url_for('licensing_admin.master_token') }}">
+        <div class="row g-2 align-items-end"><div class="col-md-7"><label class="form-label" for="master-token-input">{{ 'Master token' if g.language == 'en' else 'Master-Token' }}</label><input id="master-token-input" class="form-control font-monospace" name="master_token" type="password" value="" maxlength="4096" autocomplete="new-password"></div><div class="col-md-auto"><button class="btn btn-primary" type="submit">{{ 'Save token' if g.language == 'en' else 'Token speichern' }}</button></div></div>
+      </form>
+    </div>
+  </section>
 
   <div class="row g-3 mb-4">
     <div class="col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="small text-secondary">{{ 'Current month' if g.language == 'en' else 'Aktueller Monat' }}</div><div class="fs-4 fw-semibold">{{ licensing.current_month }}</div></div></div></div>
@@ -68,7 +78,7 @@
   <section class="card border-primary mb-4">
     <div class="card-header"><strong>{{ 'Master: received client reports' if g.language == 'en' else 'Master: empfangene Client-Berichte' }}</strong></div>
     <div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th scope="col">Client</th><th scope="col">{{ 'Month' if g.language == 'en' else 'Monat' }}</th><th scope="col" class="text-end">{{ 'Users' if g.language == 'en' else 'Benutzer' }}</th><th scope="col">Status</th><th scope="col">{{ 'Master control' if g.language == 'en' else 'Master-Steuerung' }}</th></tr></thead><tbody>
-      {% for report in master_reports %}<tr><td><code>{{ report.installation_id }}</code></td><td>{{ report.month }}</td><td class="text-end">{{ report.user_count }}</td><td><span class="badge {% if report.state.state == 'blocked' %}text-bg-danger{% elif report.state.state == 'warning' %}text-bg-warning{% else %}text-bg-success{% endif %}">{{ report.state.state }}</span></td><td><form method="post" action="{{ url_for('licensing_admin.master_set_client_state', installation=report.installation_id) }}" class="row g-1"><div class="col-md-3"><select name="state" class="form-select form-select-sm"><option value="ok" {% if report.state.state == 'ok' %}selected{% endif %}>ok</option><option value="warning" {% if report.state.state == 'warning' %}selected{% endif %}>warning</option><option value="blocked" {% if report.state.state == 'blocked' %}selected{% endif %}>blocked</option></select></div><div class="col-md-3"><input name="reason" class="form-control form-control-sm" maxlength="240" value="{{ report.state.reason }}" placeholder="Grund"></div><div class="col-md-4"><input name="message" class="form-control form-control-sm" maxlength="1000" value="{{ report.state.message }}" placeholder="Hinweis für Client"></div><div class="col-md-2"><button class="btn btn-sm btn-primary w-100" type="submit">Setzen</button></div></form></td></tr>
+      {% for report in master_reports %}<tr><td><code>{{ report.installation_id }}</code></td><td>{{ report.month }}</td><td class="text-end">{{ report.user_count }}</td><td><span class="badge {% if report.state.state == 'blocked' %}text-bg-danger{% elif report.state.state == 'warning' %}text-bg-warning{% else %}text-bg-success{% endif %}">{{ report.state.state }}</span></td><td><form method="post" action="{{ url_for('licensing_admin.master_set_client_state', installation=report.installation_id) }}" class="row g-1"><div class="col-md-3"><select name="state" class="form-select form-select-sm"><option value="ok" {% if report.state.state == 'ok' %}selected{% endif %}>ok</option><option value="warning" {% if report.state.state == 'warning' %}selected{% endif %}>warning</option><option value="blocked" {% if report.state.state == 'blocked' %}selected{% endif %}>blocked</option></select></div><div class="col-md-3"><input name="reason" class="form-control form-control-sm" maxlength="240" value="{{ report.state.reason }}" placeholder="{{ 'Reason' if g.language == 'en' else 'Grund' }}"></div><div class="col-md-4"><input name="message" class="form-control form-control-sm" maxlength="1000" value="{{ report.state.message }}" placeholder="{{ 'Note for client' if g.language == 'en' else 'Hinweis für Client' }}"></div><div class="col-md-2"><button class="btn btn-sm btn-primary w-100" type="submit">{{ 'Set' if g.language == 'en' else 'Setzen' }}</button></div></form></td></tr>
       {% else %}<tr><td colspan="5" class="text-secondary">{{ 'No client reports received yet.' if g.language == 'en' else 'Noch keine Client-Berichte empfangen.' }}</td></tr>{% endfor %}
     </tbody></table></div>
   </section>

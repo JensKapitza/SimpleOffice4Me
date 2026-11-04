@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import socket
 import time
 import urllib.error
@@ -16,6 +15,7 @@ from .chat_federation_auth import ChatRequestProof, headers_for, new_nonce
 from .chat_policy import action_allowed, action_for_message_type, record_policy_notice
 from .chat_store import ChatStore
 from .federation_core import sanitize_peer_id
+from . import federation_local_identity as _identity
 from .federation_store import FederationStore
 
 MAX_RESPONSE_BYTES = 256 * 1024
@@ -27,7 +27,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def _local_peer_id() -> str:
-    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    configured = _identity.peer_id()
     fallback = socket.gethostname().strip().casefold().replace(" ", "-")[:128]
     return sanitize_peer_id(configured or fallback)
 

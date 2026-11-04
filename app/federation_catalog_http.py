@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -12,6 +11,7 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore
 from .federation_core import normalize_sha256
+from . import federation_local_identity as _identity
 from .federation_inventory_index import (
     INVENTORY_INDEX_SCHEMA,
     build_inventory_rows,
@@ -45,7 +45,7 @@ def _authorized() -> bool:
         return False
     # Compatibility only. This bearer authenticates access to the legacy
     # catalog, but it must never be treated as proof of a particular peer.
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if not expected:
         return bool(current_app.testing)
     header = request.headers.get("Authorization", "")
@@ -101,27 +101,23 @@ def _catalog_rows() -> list[dict]:
 
 
 def _peer_can_receive_catalog(root: str | Path) -> bool:
-    """Apply the configured document-sharing policy to identified peers."""
+    """Default-deny gate: only an identified peer with explicit send+seed flags."""
     peer_id = authenticated_peer(root, request)
     if not peer_id:
-        # Identity-neutral legacy bearer access is retained for older peers.
-        return True
+        # Identity-neutral legacy bearer access never establishes peer scope: deny catalog.
+        return False
     peer = FederationStore(root).get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         return False
     policy = peer.get("policy")
-    if policy is None:
-        return True
     if not isinstance(policy, dict):
         return False
-    if "documents" not in policy:
-        return True
     document_policy = policy.get("documents")
     if not isinstance(document_policy, dict):
         return False
-    return all(
-        document_policy.get(permission, True) is True
-        for permission in ("send", "seed")
+    return (
+        document_policy.get("send") is True
+        and document_policy.get("seed") is True
     )
 
 

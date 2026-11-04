@@ -35,16 +35,6 @@ class FederationAutoscanSettingsTests(unittest.TestCase):
             TESTING=True,
             TEST_CSRF_PROTECTION=False,
         )
-        self.environment = patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY": "",
-                "SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS": str(
-                    DEFAULT_FEDERATION_AUTOSCAN_SECONDS
-                ),
-            },
-        )
-        self.environment.start()
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()
@@ -66,11 +56,12 @@ class FederationAutoscanSettingsTests(unittest.TestCase):
         for client, token in ((self.admin, "a" * 40), (self.user, "u" * 40)):
             with client.session_transaction() as session:
                 session["_csrf_token"] = token
+                # i18n pin: test asserts German copy; EN default renders English.
+                session["simpleoffice_language"] = "de"
         app.config["TEST_CSRF_PROTECTION"] = True
 
     def tearDown(self):
         app.config.update(self.config)
-        self.environment.stop()
         self.temp.cleanup()
 
     def post(self, client=None, **values):
@@ -170,32 +161,21 @@ class FederationAutoscanSettingsTests(unittest.TestCase):
         self.assertEqual(DEFAULT_FEDERATION_AUTOSCAN_SECONDS, values["federation_autoscan_seconds"])
         self.assertEqual(300, values["clamav_timeout_seconds"])
 
-    def test_legacy_environment_values_migrate_once_and_persisted_values_win(self):
+    def test_defaults_apply_and_persisted_values_win(self):
         root = self.root / "legacy"
         store = SettingsStore(root)
-        with patch.dict(os.environ, {
-            "SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY": " de ",
-            "SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS": "86400",
-        }):
-            self.assertEqual("DE", store.settings()["integrations"]["federation_autoscan_country"])
-            self.assertEqual(86400, store.settings()["integrations"]["federation_autoscan_seconds"])
-            store.save({"network": {"webdav_quota_mib": 0}}, "autoscan-admin")
-        with patch.dict(os.environ, {
-            "SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY": "FR",
-            "SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS": "43200",
-        }):
-            values = SettingsStore(root).settings()["integrations"]
+        self.assertEqual(DEFAULT_FEDERATION_AUTOSCAN_COUNTRY, store.settings()["integrations"]["federation_autoscan_country"])
+        self.assertEqual(DEFAULT_FEDERATION_AUTOSCAN_SECONDS, store.settings()["integrations"]["federation_autoscan_seconds"])
+        store.save({"integrations": {"federation_autoscan_country": "DE", "federation_autoscan_seconds": 86400}}, "autoscan-admin")
+        values = SettingsStore(root).settings()["integrations"]
         self.assertEqual("DE", values["federation_autoscan_country"])
         self.assertEqual(86400, values["federation_autoscan_seconds"])
 
-    def test_invalid_legacy_country_disables_scan_and_oversized_interval_is_bounded(self):
-        with tempfile.TemporaryDirectory() as root, patch.dict(os.environ, {
-            "SIMPLEOFFICE_FEDERATION_AUTOSCAN_COUNTRY": "DE-extra",
-            "SIMPLEOFFICE_FEDERATION_AUTOSCAN_SECONDS": "9" * 200,
-        }):
+    def test_fresh_store_uses_bounded_defaults(self):
+        with tempfile.TemporaryDirectory() as root:
             values = SettingsStore(root).settings()["integrations"]
         self.assertEqual(DEFAULT_FEDERATION_AUTOSCAN_COUNTRY, values["federation_autoscan_country"])
-        self.assertEqual(MAX_FEDERATION_AUTOSCAN_SECONDS, values["federation_autoscan_seconds"])
+        self.assertEqual(DEFAULT_FEDERATION_AUTOSCAN_SECONDS, values["federation_autoscan_seconds"])
 
     def test_settings_store_rejects_invalid_country_and_interval_types(self):
         store = SettingsStore(self.root)

@@ -1,0 +1,22 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">{{ 'Federation token for' if g.language == 'en' else 'Federation-Token für' }} <code>{{ peer_id }}</code></h1>
+      <p class="text-secondary mb-0">{{ 'Rotate' if g.language == 'en' else 'Rotiert' }}: {{ 'just now' if g.language == 'en' else 'gerade eben' }}</p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}#local-identity">{{ 'Back to identity' if g.language == 'en' else 'Zurück zur Identität' }}</a>
+  </div>
+
+  <section class="card border-danger shadow-sm">
+    <div class="card-body">
+      <h2 class="h5">{{ 'New token (shown once)' if g.language == 'en' else 'Neues Token (einmalige Anzeige)' }}</h2>
+      <p class="display-6 font-monospace text-break" aria-label="{{ 'New federation token' if g.language == 'en' else 'Neues Federation-Token' }}">{{ fresh_token }}</p>
+      <p class="mb-2">{{ 'Copy the token now and store it on the counterpart as its peer token. Afterwards it cannot be shown again – only rotated.' if g.language == 'en' else 'Token jetzt kopieren und auf der Gegenstelle als Peer-Token hinterlegen. Danach kann es nicht mehr angezeigt, nur rotiert werden.' }}</p>
+      <p class="small text-secondary mb-0">{{ 'The old token is already invalid. Peers that still use it fail closed until they receive the new one.' if g.language == 'en' else 'Das alte Token ist bereits ungültig. Peers mit dem alten Token scheitern geschlossen, bis sie das neue erhalten.' }}</p>
+    </div>
+  </section>
+</main>
+{% endblock %}

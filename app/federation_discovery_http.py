@@ -1,6 +1,5 @@
 """HTTP endpoints for federation discovery and rendezvous."""
 import hmac
-import os
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -8,6 +7,7 @@ from .federation_attestations import FederationAttestationStore
 from .federation_directory import directory_profiles
 from .federation_directory_store import FederationDirectoryStore
 from .federation_http import _authorized
+from . import federation_local_identity as _identity
 from .federation_local_profile import local_peer_id, local_profile
 from .federation_pairing import FederationPairingTokens
 from .federation_pairing_protocol import authenticate_pairing_request
@@ -40,7 +40,7 @@ def _directory_authorized(public=False):
     from .federation_moderation_auth import legacy_peer_allowed
     if not legacy_peer_allowed(_root(), request):
         return False
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN", "").strip()
+    expected = _identity.directory_token()
     supplied = request.headers.get("Authorization", "")
     supplied = supplied[7:].strip() if supplied.startswith("Bearer ") else ""
     if expected and supplied and hmac.compare_digest(expected, supplied):

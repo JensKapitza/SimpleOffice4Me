@@ -39,6 +39,10 @@ from page_crawl import (
     write_screenshot_gallery,
     write_tested_url_manifest,
 )
+from peer_to_peer_safety import (
+    validate_local_browser_target,
+    validate_same_origin_target,
+)
 
 
 BASE_URL = os.environ.get("BASE_URL", "http://127.0.0.1:8080").rstrip("/")
@@ -102,6 +106,7 @@ def same_origin(url: str) -> bool:
 
 
 def main() -> int:
+    validate_local_browser_target(base_url=BASE_URL)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     HTML_DIR.mkdir(parents=True, exist_ok=True)
     DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -178,9 +183,16 @@ def main() -> int:
 
             # The smoke checks below use German labels. Select that locale
             # explicitly now that English is the anonymous-session default.
-            page.goto(f"{BASE_URL}/auth/login", wait_until="domcontentloaded")
+            login_response = page.goto(
+                f"{BASE_URL}/auth/login", wait_until="domcontentloaded"
+            )
+            if login_response is None or login_response.status >= 400:
+                status = login_response.status if login_response else "no-response"
+                raise RuntimeError(f"Anmeldeseite nicht erreichbar: {status}")
+            validate_same_origin_target(base_url=BASE_URL, target_url=page.url)
             with page.expect_navigation(wait_until="domcontentloaded"):
                 page.get_by_role("button", name="German", exact=True).click()
+            validate_same_origin_target(base_url=BASE_URL, target_url=page.url)
 
             register_response = page.goto(
                 f"{BASE_URL}/auth/register", wait_until="domcontentloaded"
@@ -188,14 +200,34 @@ def main() -> int:
             if register_response is None or register_response.status >= 400:
                 status = register_response.status if register_response else "no-response"
                 raise RuntimeError(f"Registrierungsseite nicht erreichbar: {status}")
+            validate_same_origin_target(base_url=BASE_URL, target_url=page.url)
 
-            page.locator("#username").fill(USERNAME)
-            page.locator("#password").fill(PASSWORD)
+            register_form = page.locator("form").filter(
+                has=page.locator("#username")
+            ).filter(has=page.locator("#password"))
+            if register_form.count() != 1:
+                raise RuntimeError("Expected exactly one local registration form")
+            validate_same_origin_target(
+                base_url=BASE_URL,
+                target_url=register_form.evaluate("element => element.action"),
+            )
+            register_form.locator("#username").fill(USERNAME)
+            register_form.locator("#password").fill(PASSWORD)
             page.get_by_role("button", name="Lokales Konto erstellen", exact=True).click()
             page.wait_for_url("**/auth/login")
 
-            page.locator("#username").fill(USERNAME)
-            page.locator("#password").fill(PASSWORD)
+            validate_same_origin_target(base_url=BASE_URL, target_url=page.url)
+            login_form = page.locator("form").filter(
+                has=page.locator("#username")
+            ).filter(has=page.locator("#password"))
+            if login_form.count() != 1:
+                raise RuntimeError("Expected exactly one local login form")
+            validate_same_origin_target(
+                base_url=BASE_URL,
+                target_url=login_form.evaluate("element => element.action"),
+            )
+            login_form.locator("#username").fill(USERNAME)
+            login_form.locator("#password").fill(PASSWORD)
             page.get_by_role("button", name="Anmelden", exact=True).click()
             page.wait_for_load_state("domcontentloaded")
             if "/auth/login" in page.url:
@@ -428,6 +460,14 @@ def main() -> int:
                 "p2p_checks": summary["peer_to_peer"]["checks"],  # type: ignore[index]
                 "console_errors": len(console_errors),
                 "page_errors": len(page_errors),
+                "page_error_details": [
+                    {
+                        "browser": error.get("browser", ""),
+                        "path": urlparse(error.get("url", "")).path,
+                        "message": (error.get("text", "").splitlines() or [""])[0][:300],
+                    }
+                    for error in page_errors[:10]
+                ],
                 "server_errors": len(server_errors),
                 "failures": failures,
             },

@@ -1,18 +1,15 @@
 """Local public peer profile for discovery."""
-import os
-import socket
-
 from .federation_compatibility import local_application, local_features, local_protocol
 from .federation_core import sanitize_peer_id
 from .federation_discovery_endpoint import normalize_endpoint
+from . import federation_local_identity as _identity
 from .federation_identity import FederationIdentity
 from .federation_lan_receive_state import LanReceiveState
 from .build_master import LICENSE_MASTER_MODE, LICENSE_MASTER_URL
 
 
 def local_peer_id():
-    raw_id = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip() or socket.gethostname()
-    return sanitize_peer_id(raw_id)
+    return sanitize_peer_id(_identity.peer_id())
 
 
 def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
@@ -28,15 +25,15 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
     fallback_url = str(fallback_base_url or "").strip()
     base_url = fallback_url if prefer_fallback and fallback_url else configured_url or fallback_url
     if not base_url:
-        raise ValueError("SIMPLEOFFICE_FEDERATION_PUBLIC_URL is required for published discovery")
+        raise ValueError("public base URL is required for published discovery (admin identity section)")
     identity = FederationIdentity(root).public_identity() if root is not None else {
-        "public_key": os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_KEY", "").strip()[:512],
-        "fingerprint": os.environ.get("SIMPLEOFFICE_FEDERATION_FINGERPRINT", "").strip()[:256],
+        "public_key": _identity.public_key()[:512],
+        "fingerprint": _identity.fingerprint()[:256],
     }
     receive = LanReceiveState(root).status() if root is not None else {"active": False, "expires_at": 0}
     return {
         "peer_id": peer_id,
-        "label": os.environ.get("SIMPLEOFFICE_FEDERATION_LABEL", peer_id).strip()[:160],
+        "label": (_identity.label() or peer_id)[:160],
         "base_url": normalize_endpoint(base_url),
         "country": _profile_country(root),
         "fingerprint": identity["fingerprint"],
@@ -62,14 +59,14 @@ def local_profile(root=None, fallback_base_url="", *, prefer_fallback=False):
 
 def _profile_country(root):
     if root is None:
-        return os.environ.get("SIMPLEOFFICE_FEDERATION_COUNTRY", "").strip().upper()[:2]
+        return _identity.country()[:2]
     from .settings_store import SettingsStore
 
     return SettingsStore(root).settings()["integrations"]["federation_profile_country"]
 
 def _profile_public_url(root):
     if root is None:
-        return os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
+        return _identity.public_url()
     from .settings_store import SettingsStore
 
     return SettingsStore(root).settings()["integrations"]["federation_public_url"]

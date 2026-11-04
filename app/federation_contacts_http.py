@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import hmac
 import io
-import os
 import zipfile
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .contact_store import ContactStore
+from . import federation_local_identity as _identity
 
 
 bp = Blueprint("federation_contacts_http", __name__, url_prefix="/federation/v1/contacts")
@@ -26,7 +26,7 @@ def _authorized() -> bool:
     from .federation_moderation_auth import legacy_peer_allowed
     if not legacy_peer_allowed(current_app.config["DOCUMENT_ROOT"], request):
         return False
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if not expected:
         return bool(current_app.testing)
     header = request.headers.get("Authorization", "")

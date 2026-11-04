@@ -2,29 +2,29 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-3 py-md-4">
-<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3"><div><h1 class="h3 mb-1">Federation · Netzwerk</h1><p class="text-secondary mb-0">Geräte im lokalen Netzwerk finden, anschließend getrennt prüfen, vertrauen und für Daten freigeben.</p></div><a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Zur Federation</a></div>
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3"><div><h1 class="h3 mb-1">Federation · {{ 'Network' if g.language == 'en' else 'Netzwerk' }}</h1><p class="text-secondary mb-0">{{ 'Find devices in the local network, then separately check, trust and approve them for data.' if g.language == 'en' else 'Geräte im lokalen Netzwerk finden, anschließend getrennt prüfen, vertrauen und für Daten freigeben.' }}</p></div><a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">{{ 'To federation' if g.language == 'en' else 'Zur Federation' }}</a></div>
 {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
 <section class="card border-primary shadow-sm mb-3" id="network-scan">
   <div class="card-body">
     <div class="row g-3 align-items-start">
       <div class="col-12 col-xl-5">
-        <h2 class="h4 mb-1">Netzwerk scannen</h2>
-        <p class="text-secondary mb-2">Sucht SimpleOffice-Geräte im gleichen lokalen Netz – egal ob die Geräte per WLAN oder LAN verbunden sind.</p>
-        <div class="small"><span class="badge text-bg-warning me-1">Sicher</span>Gefundene Geräte werden nur als <strong>bekannt, nicht geprüft</strong> gespeichert und bleiben deaktiviert. Es werden keine Datenrechte automatisch vergeben.</div>
+        <h2 class="h4 mb-1">{{ 'Scan network' if g.language == 'en' else 'Netzwerk scannen' }}</h2>
+        <p class="text-secondary mb-2">{{ 'Searches SimpleOffice devices in the same local network – no matter whether the devices are connected via Wi-Fi or LAN.' if g.language == 'en' else 'Sucht SimpleOffice-Geräte im gleichen lokalen Netz – egal ob die Geräte per WLAN oder LAN verbunden sind.' }}</p>
+        <div class="small"><span class="badge text-bg-warning me-1">{{ 'Safe' if g.language == 'en' else 'Sicher' }}</span>{{ 'Found devices are stored only as' if g.language == 'en' else 'Gefundene Geräte werden nur als' }} <strong>{{ 'known, not checked' if g.language == 'en' else 'bekannt, nicht geprüft' }}</strong> {{ 'stored and stay deactivated. No data rights are granted automatically.' if g.language == 'en' else 'gespeichert und bleiben deaktiviert. Es werden keine Datenrechte automatisch vergeben.' }}</div>
       </div>
       <div class="col-12 col-xl-7"><form class="row g-2 align-items-end" method="post" action="{{ url_for('federation_peer_admin.lan') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-12 col-md-6">
-          <label class="form-label mb-1" for="lan-network">Scan-Basis / CIDR</label>
-          <input id="lan-network" class="form-control" name="network" type="text" placeholder="z. B. 192.168.178.0/24" aria-describedby="lan-network-help">
-          <div id="lan-network-help" class="form-text">Leer = lokale /24-Netze automatisch. Bei Docker/Podman das vom Container erreichbare LAN angeben; maximal vier private Netze und 1024 Hosts.</div>
+          <label class="form-label mb-1" for="lan-network">{{ 'Scan base / CIDR' if g.language == 'en' else 'Scan-Basis / CIDR' }}</label>
+          <input id="lan-network" class="form-control" name="network" type="text" placeholder="{{ 'e.g. 192.168.178.0/24' if g.language == 'en' else 'z. B. 192.168.178.0/24' }}" aria-describedby="lan-network-help">
+          <div id="lan-network-help" class="form-text">{{ 'Empty = local /24 networks automatically. With Docker/Podman specify the LAN reachable from the container; at most four private networks and 1024 hosts.' if g.language == 'en' else 'Leer = lokale /24-Netze automatisch. Bei Docker/Podman das vom Container erreichbare LAN angeben; maximal vier private Netze und 1024 Hosts.' }}</div>
         </div>
         <div class="col-12 col-md-6">
           <label class="form-label mb-1" for="lan-port">SimpleOffice-Port</label>
           <input id="lan-port" class="form-control" name="port" type="number" min="1" max="65535" value="8080" inputmode="numeric" style="max-width:9rem">
         </div>
-        <div class="col-12"><button class="btn btn-primary" type="submit">Netzwerk scannen</button></div>
+        <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Scan network' if g.language == 'en' else 'Netzwerk scannen' }}</button></div>
       </form></div>
     </div>
   </div>
@@ -32,8 +32,8 @@
 
 <section class="card mb-3" id="compatibility-requirements">
   <div class="card-body">
-    <h2 class="h5 mb-2">Kompatibilität / Mindestvoraussetzung</h2>
-    <p class="small text-secondary mb-2">Erreichbar bedeutet noch nicht kompatibel. Für Federation muss sich der unterstützte Protokollbereich überschneiden; jede Fachfunktion wird zusätzlich separat geprüft. Vertrauen und Datenrechte bleiben davon unabhängig.</p>
+    <h2 class="h5 mb-2">{{ 'Compatibility / minimum requirement' if g.language == 'en' else 'Kompatibilität / Mindestvoraussetzung' }}</h2>
+    <p class="small text-secondary mb-2">{{ 'Reachable does not yet mean compatible. For federation the supported protocol range must overlap; every specialist feature is additionally checked separately. Trust and data rights stay independent of that.' if g.language == 'en' else 'Erreichbar bedeutet noch nicht kompatibel. Für Federation muss sich der unterstützte Protokollbereich überschneiden; jede Fachfunktion wird zusätzlich separat geprüft. Vertrauen und Datenrechte bleiben davon unabhängig.' }}</p>
     <div class="row g-2 small">
       <div class="col-12 col-lg-4"><strong>Federation:</strong> {{ compatibility_requirements.protocol_name }} v{{ compatibility_requirements.protocol_min }}{% if compatibility_requirements.protocol_max != compatibility_requirements.protocol_min %}–{{ compatibility_requirements.protocol_max }}{% endif %}</div>
       <div class="col-12 col-lg-8">
@@ -45,33 +45,69 @@
         Aufgaben v{{ compatibility_requirements.features.tasks }}
       </div>
     </div>
-    <div class="small mt-2"><span class="badge text-bg-secondary me-1">Transport</span>Bei Eingaben ohne Schema wird für die Discovery zuerst HTTPS und danach HTTP geprüft. Explizites HTTPS wird nicht auf HTTP herabgestuft; Zertifikatsprüfung bleibt aktiv.</div>
+    <div class="small mt-2"><span class="badge text-bg-secondary me-1">Transport</span>{{ 'For inputs without scheme, discovery checks HTTPS first and then HTTP. Explicit HTTPS is not downgraded to HTTP; certificate checking stays active.' if g.language == 'en' else 'Bei Eingaben ohne Schema wird für die Discovery zuerst HTTPS und danach HTTP geprüft. Explizites HTTPS wird nicht auf HTTP herabgestuft; Zertifikatsprüfung bleibt aktiv.' }}</div>
   </div>
 </section>
+
+<div class="card card-body mb-3" id="network-settings">
+  <h2 class="h5">{{ 'Network settings (no environment variables)' if g.language == 'en' else 'Netzwerkeinstellungen (ohne Umgebungsvariablen)' }}</h2>
+  <p class="small text-secondary">{{ 'Stored in the user-home app store. Extra LAN addresses/ports extend automatic detection; the public server port stays bootstrap configuration.' if g.language == 'en' else 'Im App-Store im Benutzerverzeichnis gespeichert. Zusätzliche LAN-Adressen/Ports erweitern die automatische Erkennung; der öffentliche Server-Port bleibt Bootstrap-Konfiguration.' }}</p>
+  <form method="post" action="{{ url_for('federation_network_admin.save_settings') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label" for="network-lan-addresses">{{ 'Extra LAN addresses (comma-separated)' if g.language == 'en' else 'Zusätzliche LAN-Adressen (kommagetrennt)' }}</label><input id="network-lan-addresses" class="form-control font-monospace" name="lan_addresses" value="{{ network.lan_addresses }}" maxlength="2048" autocomplete="off" placeholder="192.168.178.44, 192.168.178.45"></div>
+      <div class="col-md-6"><label class="form-label" for="network-lan-ports">{{ 'Extra LAN ports (comma-separated)' if g.language == 'en' else 'Zusätzliche LAN-Ports (kommagetrennt)' }}</label><input id="network-lan-ports" class="form-control font-monospace" name="lan_ports" value="{{ network.lan_ports }}" maxlength="2048" autocomplete="off" placeholder="8080, 8765"></div>
+      <div class="col-12"><label class="form-label" for="network-bootstrap-urls">{{ 'Directory bootstrap URLs (comma-separated)' if g.language == 'en' else 'Directory-Bootstrap-URLs (kommagetrennt)' }}</label><input id="network-bootstrap-urls" class="form-control font-monospace" name="bootstrap_urls" value="{{ network.bootstrap_urls }}" maxlength="2048" autocomplete="url" placeholder="https://directory.example/simpleoffice"></div>
+      <div class="col-12"><label class="form-label" for="network-server-url">{{ 'Public server URL (for QR labels and web export)' if g.language == 'en' else 'Öffentliche Server-URL (für QR-Labels und Web-Export)' }}</label><input id="network-server-url" class="form-control font-monospace" name="server_public_url" value="{{ network.server_public_url }}" maxlength="2048" autocomplete="url" placeholder="https://office.example/simpleoffice"></div>
+      <div class="col-md-6"><div class="form-check"><input id="network-mail-worker" class="form-check-input" type="checkbox" name="mail_case_worker_enabled" value="1" {% if network.mail_case_worker_enabled %}checked{% endif %}><label class="form-check-label" for="network-mail-worker">{{ 'Mail-case federation worker' if g.language == 'en' else 'Mail-Case-Federation-Worker' }}</label></div><div class="form-text">{{ 'Retries failed mail-case federation events in the background. On by default.' if g.language == 'en' else 'Wiederholt fehlgeschlagene Mail-Case-Federation-Events im Hintergrund. Standardmäßig an.' }}</div></div>
+      <div class="col-md-4"><div class="form-check"><input id="network-allow-private" class="form-check-input" type="checkbox" name="allow_private_targets" value="1" {% if network.allow_private_targets %}checked{% endif %}><label class="form-check-label" for="network-allow-private">{{ 'Allow private targets' if g.language == 'en' else 'Private Ziele erlauben' }}</label></div><div class="form-text">{{ 'Lets direct discovery accept RFC1918/CG-NAT addresses.' if g.language == 'en' else 'Erlaubt der direkten Discovery RFC1918-/CG-NAT-Adressen.' }}</div></div>
+      <div class="col-md-4"><div class="form-check"><input id="network-allow-loopback" class="form-check-input" type="checkbox" name="allow_loopback" value="1" {% if network.allow_loopback %}checked{% endif %}><label class="form-check-label" for="network-allow-loopback">{{ 'Allow loopback' if g.language == 'en' else 'Loopback erlauben' }}</label></div><div class="form-text">{{ 'For local integration tests only.' if g.language == 'en' else 'Nur für lokale Integrationstests.' }}</div></div>
+      <div class="col-md-4"><div class="form-check"><input id="network-refuse-bad-client" class="form-check-input" type="checkbox" name="refuse_bad_client" value="1" {% if network.refuse_bad_client %}checked{% endif %}><label class="form-check-label" for="network-refuse-bad-client">{{ 'Refuse bad licensing clients' if g.language == 'en' else 'Schlechte Lizenz-Clients abweisen' }}</label></div><div class="form-text">{{ 'Refuses clients with bad licensing state immediately (503) instead of only delaying them.' if g.language == 'en' else 'Verweigert Clients mit schlechtem Lizenzstatus sofort (503), statt sie nur zu verzögern.' }}</div></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Save network settings' if g.language == 'en' else 'Netzwerkeinstellungen speichern' }}</button></div>
+    </div>
+  </form>
+</div>
+
+<div class="card card-body mb-3" id="resource-commander">
+  <h2 class="h5">{{ 'Resource commander credentials (no environment variables)' if g.language == 'en' else 'Resource-Commander-Zugänge (ohne Umgebungsvariablen)' }}</h2>
+  <p class="small text-secondary">{{ 'Inbound server token plus per-peer outbound tokens, encrypted in the user-home app store. Tokens are never shown – only whether one is stored. Empty fields keep the stored secrets.' if g.language == 'en' else 'Eingehendes Server-Token plus abgehende Peer-Tokens, verschlüsselt im App-Store im Benutzerverzeichnis. Tokens werden nie angezeigt – nur ob eines hinterlegt ist. Leere Felder behalten die gespeicherten Secrets.' }}</p>
+  <form method="post" action="{{ url_for('resource_commander_admin.save') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label" for="commander-token">{{ 'Inbound server token' if g.language == 'en' else 'Eingehendes Server-Token' }}</label><input id="commander-token" class="form-control font-monospace" name="commander_token" type="password" value="" maxlength="4096" autocomplete="new-password" placeholder="{% if commander.token_configured %}{{ 'Stored – empty keeps it' if g.language == 'en' else 'Hinterlegt – leer behält es' }}{% else %}{{ 'Not stored yet' if g.language == 'en' else 'Noch nicht hinterlegt' }}{% endif %}"><div class="form-text">{% if commander.token_configured %}<span class="badge text-bg-success">{{ 'Stored' if g.language == 'en' else 'Hinterlegt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %}</div></div>
+      <div class="col-md-6"><label class="form-label" for="commander-peers">{{ 'Outbound peer tokens (JSON: peer ID to token)' if g.language == 'en' else 'Abgehende Peer-Tokens (JSON: Peer-ID zu Token)' }}</label><textarea id="commander-peers" class="form-control font-monospace" name="commander_peer_tokens" rows="2" maxlength="65536" autocomplete="off" placeholder='{"peer-a": "token-..."}'></textarea><div class="form-text">{% if commander.peer_tokens_configured %}<span class="badge text-bg-success">{{ 'Stored – empty keeps it' if g.language == 'en' else 'Hinterlegt – leer behält es' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %} {{ 'Typing replaces the stored mapping.' if g.language == 'en' else 'Eingabe ersetzt das gespeicherte Mapping.' }}</div></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Save commander credentials' if g.language == 'en' else 'Commander-Zugänge speichern' }}</button></div>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('resource_commander_admin.rotate') }}" class="mt-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-danger" type="submit">{{ 'Rotate inbound token (invalidates the old one immediately)' if g.language == 'en' else 'Eingehendes Token rotieren (macht das alte sofort ungültig)' }}</button>
+  </form>
+</div>
 
 <section class="card mb-3 {{ 'border-success' if lan_receive.active else 'border-secondary' }}">
   <div class="card-body">
     <div class="d-flex flex-column flex-md-row justify-content-between gap-3 align-items-md-center">
       <div>
-        <h2 class="h4 mb-1">Auf diesem Gerät empfangen</h2>
-        <p class="text-secondary mb-2">Aktiviere den Empfang nur dann, wenn ein anderes Gerät im gleichen lokalen Netzwerk Daten an dieses SimpleOffice senden soll.</p>
+        <h2 class="h4 mb-1">{{ 'Receive on this device' if g.language == 'en' else 'Auf diesem Gerät empfangen' }}</h2>
+        <p class="text-secondary mb-2">{{ 'Enable reception only if another device in the same local network should send data to this SimpleOffice.' if g.language == 'en' else 'Aktiviere den Empfang nur dann, wenn ein anderes Gerät im gleichen lokalen Netzwerk Daten an dieses SimpleOffice senden soll.' }}</p>
         {% if lan_receive.active %}
-          <span class="badge text-bg-success">Empfang vorgemerkt</span>
-          <span class="small text-secondary ms-1">Automatisches Ende nach spätestens 15 Minuten.</span>
+          <span class="badge text-bg-success">{{ 'Reception noted' if g.language == 'en' else 'Empfang vorgemerkt' }}</span>
+          <span class="small text-secondary ms-1">{{ 'Automatic end after 15 minutes at the latest.' if g.language == 'en' else 'Automatisches Ende nach spätestens 15 Minuten.' }}</span>
         {% else %}
-          <span class="badge text-bg-secondary">Aus</span>
-          <span class="small text-secondary ms-1">Kein dauerhafter Empfangsmodus.</span>
+          <span class="badge text-bg-secondary">{{ 'Off' if g.language == 'en' else 'Aus' }}</span>
+          <span class="small text-secondary ms-1">{{ 'No permanent reception mode.' if g.language == 'en' else 'Kein dauerhafter Empfangsmodus.' }}</span>
         {% endif %}
       </div>
       {% if lan_receive.active %}
       <form method="post" action="{{ url_for('federation_peer_admin.stop_receive') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-outline-danger" type="submit">Empfang beenden</button>
+        <button class="btn btn-outline-danger" type="submit">{{ 'End reception' if g.language == 'en' else 'Empfang beenden' }}</button>
       </form>
       {% else %}
       <form method="post" action="{{ url_for('federation_peer_admin.start_receive') }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-        <button class="btn btn-success" type="submit"><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>15 Minuten empfangsbereit</button>
+        <button class="btn btn-success" type="submit"><i class="fas fa-satellite-dish me-1" aria-hidden="true"></i>{{ 'Ready to receive for 15 minutes' if g.language == 'en' else '15 Minuten empfangsbereit' }}</button>
       </form>
       {% endif %}
     </div>
@@ -79,71 +115,94 @@
 </section>
 
 <div class="row g-3 mb-3">
-<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.country') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">Land / Directory</h2><p class="small text-secondary">Peers über ein konfiguriertes regionales Verzeichnis finden.</p><input class="form-control mb-2" name="country" maxlength="2" placeholder="DE" required><button class="btn btn-outline-primary mt-auto" type="submit">Suchen</button></form></div>
-<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.direct') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">IP / URL</h2><p class="small text-secondary">Host/IP mit Port, vollständige HTTP(S)-URL oder Reverse-Proxy-Basispfad. Ohne Schema wird HTTPS und danach HTTP geprüft.</p><input class="form-control mb-1" name="endpoint" placeholder="192.168.1.23:8080 oder https://host/simpleoffice" aria-describedby="direct-endpoint-help" required><div id="direct-endpoint-help" class="form-text mb-2">Beispiele: <code>100.110.89.7:8765</code>, <code>http://192.168.1.23:8080</code>, <code>https://host/simpleoffice</code>.</div><button class="btn btn-outline-primary mt-auto" type="submit">Prüfen &amp; Kompatibilität testen</button></form></div>
-<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.email') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">E-Mail</h2><p class="small text-secondary">Rendezvous über eine bekannte E-Mail-Zuordnung.</p><input class="form-control mb-2" name="email" type="email" required><button class="btn btn-outline-primary mt-auto" type="submit">Suchen</button></form></div>
+<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.country') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">{{ 'Country / directory' if g.language == 'en' else 'Land / Directory' }}</h2><p class="small text-secondary">{{ 'Find peers via a configured regional directory.' if g.language == 'en' else 'Peers über ein konfiguriertes regionales Verzeichnis finden.' }}</p><input class="form-control mb-2" name="country" maxlength="2" placeholder="DE" required aria-label="{{ 'Country code' if g.language == 'en' else 'Ländercode' }}"><button class="btn btn-outline-primary mt-auto" type="submit">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button></form></div>
+<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.direct') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">IP / URL</h2><p class="small text-secondary">{{ 'Host/IP with port, complete HTTP(S) URL or reverse proxy base path. Without scheme HTTPS and then HTTP are checked.' if g.language == 'en' else 'Host/IP mit Port, vollständige HTTP(S)-URL oder Reverse-Proxy-Basispfad. Ohne Schema wird HTTPS und danach HTTP geprüft.' }}</p><input class="form-control mb-1" name="endpoint" placeholder="{{ '192.168.1.23:8080 or https://host/simpleoffice' if g.language == 'en' else '192.168.1.23:8080 oder https://host/simpleoffice' }}" aria-describedby="direct-endpoint-help" aria-label="IP / URL" required><div id="direct-endpoint-help" class="form-text mb-2">{{ 'Examples:' if g.language == 'en' else 'Beispiele:' }} <code>100.110.89.7:8765</code>, <code>http://192.168.1.23:8080</code>, <code>https://host/simpleoffice</code>.</div><button class="btn btn-outline-primary mt-auto" type="submit">{{ 'Check & test compatibility' if g.language == 'en' else 'Prüfen & Kompatibilität testen' }}</button></form></div>
+<div class="col-md-4"><form class="card card-body h-100" method="post" action="{{ url_for('federation_peer_admin.email') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><h2 class="h5">E-Mail</h2><p class="small text-secondary">{{ 'Rendezvous via a known email mapping.' if g.language == 'en' else 'Rendezvous über eine bekannte E-Mail-Zuordnung.' }}</p><input class="form-control mb-2" name="email" type="email" required aria-label="E-Mail"><button class="btn btn-outline-primary mt-auto" type="submit">{{ 'Search' if g.language == 'en' else 'Suchen' }}</button></form></div>
 </div>
 <div class="card card-body mb-3">
-  <h2 class="h5">Eigenes Profil veröffentlichen</h2>
+  <h2 class="h5">{{ 'Publish own profile' if g.language == 'en' else 'Eigenes Profil veröffentlichen' }}</h2>
   <form method="post" action="{{ url_for('federation_peer_admin.publish_local') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <div class="row g-2 align-items-end"><div class="col-md-7"><label class="form-label" for="rendezvous-email">Rendezvous-E-Mail <span class="text-secondary">(optional)</span></label><input id="rendezvous-email" class="form-control" name="email" type="email"></div><div class="col-md-auto"><button class="btn btn-outline-primary" type="submit">Veröffentlichen</button></div></div>
+    <div class="row g-2 align-items-end"><div class="col-md-7"><label class="form-label" for="rendezvous-email">Rendezvous-E-Mail <span class="text-secondary">(optional)</span></label><input id="rendezvous-email" class="form-control" name="email" type="email"></div><div class="col-md-auto"><button class="btn btn-outline-primary" type="submit">{{ 'Publish' if g.language == 'en' else 'Veröffentlichen' }}</button></div></div>
+  </form>
+</div>
+
+<div class="card card-body mb-3" id="local-identity">
+  <h2 class="h5">{{ 'Own identity (no environment variables)' if g.language == 'en' else 'Eigene Identität (ohne Umgebungsvariablen)' }}</h2>
+  <p class="small text-secondary">{{ 'Stored encrypted in the user-home app store. Tokens are never shown – only whether one is stored. Empty token fields keep the stored secret.' if g.language == 'en' else 'Verschlüsselt im App-Store im Benutzerverzeichnis gespeichert. Tokens werden nie angezeigt – nur ob eines hinterlegt ist. Leere Token-Felder behalten das gespeicherte Secret.' }}</p>
+  <form method="post" action="{{ url_for('federation_peer_admin.save_identity') }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-2">
+      <div class="col-md-6"><label class="form-label" for="identity-peer-id">Peer-ID</label><input id="identity-peer-id" class="form-control font-monospace" name="peer_id" value="{{ identity.peer_id }}" maxlength="128" autocomplete="off"><div class="form-text">{{ 'Empty = machine hostname.' if g.language == 'en' else 'Leer = Rechner-Hostname.' }}</div></div>
+      <div class="col-md-6"><label class="form-label" for="identity-label">{{ 'Label' if g.language == 'en' else 'Anzeigename' }}</label><input id="identity-label" class="form-control" name="label" value="{{ identity.label }}" maxlength="160" autocomplete="off"><div class="form-text">{{ 'Empty = peer ID.' if g.language == 'en' else 'Leer = Peer-ID.' }}</div></div>
+      <div class="col-md-3"><label class="form-label" for="identity-country">{{ 'Country' if g.language == 'en' else 'Land' }}</label><input id="identity-country" class="form-control font-monospace" name="country" value="{{ identity.country }}" maxlength="2" pattern="[A-Za-z]{2}" autocomplete="off" placeholder="DE"></div>
+      <div class="col-md-9"><label class="form-label" for="identity-public-url">{{ 'Public base URL' if g.language == 'en' else 'Öffentliche Basis-URL' }}</label><input id="identity-public-url" class="form-control font-monospace" name="public_url" value="{{ identity.public_url }}" maxlength="512" autocomplete="url" placeholder="https://office.example/simpleoffice"></div>
+      <div class="col-md-6"><label class="form-label" for="identity-public-key">{{ 'Public key' if g.language == 'en' else 'Öffentlicher Schlüssel' }}</label><input id="identity-public-key" class="form-control font-monospace" name="public_key" value="{{ identity.public_key }}" maxlength="512" autocomplete="off"></div>
+      <div class="col-md-6"><label class="form-label" for="identity-fingerprint">Fingerprint</label><input id="identity-fingerprint" class="form-control font-monospace" name="fingerprint" value="{{ identity.fingerprint }}" maxlength="256" autocomplete="off"></div>
+      <div class="col-md-6"><label class="form-label" for="identity-token">{{ 'Server token' if g.language == 'en' else 'Server-Token' }}</label><input id="identity-token" class="form-control font-monospace" name="token" type="password" value="" maxlength="4096" autocomplete="new-password" placeholder="{% if identity.token_configured %}{{ 'Stored – empty keeps it' if g.language == 'en' else 'Hinterlegt – leer behält es' }}{% else %}{{ 'Not stored yet' if g.language == 'en' else 'Noch nicht hinterlegt' }}{% endif %}"><div class="form-text">{% if identity.token_configured %}<span class="badge text-bg-success">{{ 'Stored' if g.language == 'en' else 'Hinterlegt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %}</div></div>
+      <div class="col-md-6"><label class="form-label" for="identity-directory-token">{{ 'Directory token' if g.language == 'en' else 'Directory-Token' }}</label><input id="identity-directory-token" class="form-control font-monospace" name="directory_token" type="password" value="" maxlength="4096" autocomplete="new-password" placeholder="{% if identity.directory_token_configured %}{{ 'Stored – empty keeps it' if g.language == 'en' else 'Hinterlegt – leer behält es' }}{% else %}{{ 'Not stored yet' if g.language == 'en' else 'Noch nicht hinterlegt' }}{% endif %}"><div class="form-text">{% if identity.directory_token_configured %}<span class="badge text-bg-success">{{ 'Stored' if g.language == 'en' else 'Hinterlegt' }}</span>{% else %}<span class="badge text-bg-secondary">{{ 'Empty' if g.language == 'en' else 'Leer' }}</span>{% endif %}</div></div>
+      <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Save identity' if g.language == 'en' else 'Identität speichern' }}</button></div>
+    </div>
+  </form>
+  <form method="post" action="{{ url_for('federation_peer_admin.rotate_identity_token') }}" class="mt-3">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-outline-danger" type="submit">{{ 'Rotate server token (invalidates the old one immediately)' if g.language == 'en' else 'Server-Token rotieren (macht das alte sofort ungültig)' }}</button>
   </form>
 </div>
 
 <div class="card card-body mb-3">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-2">
-    <div><h2 class="h5 mb-1">Connect QR-Codes</h2><p class="small text-secondary mb-0">Auf dem anderen Gerät scannen. Für jede aktuell erkannte IPv4-Adresse dieses Geräts wird ein eigener Connect-Code erzeugt – auch bei Hotspot/Tethering.</p></div>
-    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">Aktualisieren</a>
+    <div><h2 class="h5 mb-1">Connect QR-Codes</h2><p class="small text-secondary mb-0">{{ 'Scan on the other device. A separate connect code is generated for each currently detected IPv4 address of this device – including hotspot/tethering.' if g.language == 'en' else 'Auf dem anderen Gerät scannen. Für jede aktuell erkannte IPv4-Adresse dieses Geräts wird ein eigener Connect-Code erzeugt – auch bei Hotspot/Tethering.' }}</p></div>
+    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">{{ 'Refresh' if g.language == 'en' else 'Aktualisieren' }}</a>
   </div>
   {% if lan_connect_profiles %}
   <div class="row g-3">
     {% for connect in lan_connect_profiles %}
     <div class="col-12 col-sm-6 col-lg-4">
       <div class="border rounded p-2 h-100 text-center bg-white">
-        <img class="img-fluid" style="max-width:220px" src="{{ url_for('federation_peer_admin.lan_qr_svg', index=loop.index0) }}" alt="Connect QR-Code für {{ connect.address }}" loading="lazy" decoding="async">
+        <img class="img-fluid" style="max-width:220px" src="{{ url_for('federation_peer_admin.lan_qr_svg', index=loop.index0) }}" alt="Connect QR-{{ 'code for' if g.language == 'en' else 'Code für' }} {{ connect.address }}" loading="lazy" decoding="async">
         <div class="fw-semibold"><code>{{ connect.address }}:{{ connect.port }}</code></div>
-        <div class="small text-secondary">Geräte-IP</div>
+        <div class="small text-secondary">{{ 'Device IP' if g.language == 'en' else 'Geräte-IP' }}</div>
       </div>
     </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="alert alert-secondary mb-0">Keine nutzbare Geräte-IPv4 erkannt. Netzwerkverbindung oder Hotspot prüfen und anschließend aktualisieren.</div>
+  <div class="alert alert-secondary mb-0">{{ 'No usable device IPv4 detected. Check network connection or hotspot and then refresh.' if g.language == 'en' else 'Keine nutzbare Geräte-IPv4 erkannt. Netzwerkverbindung oder Hotspot prüfen und anschließend aktualisieren.' }}</div>
   {% endif %}
   {% if own_qr %}
-  <details class="mt-3"><summary>Öffentliches Profil / QR-Payload anzeigen</summary><div class="row g-3 mt-1"><div class="col-md-7"><textarea class="form-control font-monospace" rows="3" readonly>{{ own_qr }}</textarea></div><div class="col-md-5"><img class="img-fluid border rounded p-2 bg-white" src="{{ url_for('federation_peer_admin.qr_svg') }}" alt="Federation Peer QR-Code" loading="lazy" decoding="async"></div></div></details>
+  <details class="mt-3"><summary>{{ 'Show public profile / QR payload' if g.language == 'en' else 'Öffentliches Profil / QR-Payload anzeigen' }}</summary><div class="row g-3 mt-1"><div class="col-md-7"><textarea class="form-control font-monospace" rows="3" readonly>{{ own_qr }}</textarea></div><div class="col-md-5"><img class="img-fluid border rounded p-2 bg-white" src="{{ url_for('federation_peer_admin.qr_svg') }}" alt="Federation Peer QR-Code" loading="lazy" decoding="async"></div></div></details>
   {% endif %}
 </div>
 
 <div class="card card-body mb-3">
-  <h2 class="h5">QR importieren</h2>
-  <p class="small text-secondary">Connect-Code direkt mit der Kamera scannen, ein Bild auswählen oder den Payload manuell einfügen.</p>
+  <h2 class="h5">{{ 'Import QR' if g.language == 'en' else 'QR importieren' }}</h2>
+  <p class="small text-secondary">{{ 'Scan the connect code directly with the camera, select an image or paste the payload manually.' if g.language == 'en' else 'Connect-Code direkt mit der Kamera scannen, ein Bild auswählen oder den Payload manuell einfügen.' }}</p>
   <form method="post" action="{{ url_for('federation_peer_admin.import_qr') }}">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <div class="d-flex flex-wrap gap-2 mb-2">
-      <button id="qr-camera-button" class="btn btn-success" type="button">Kamera öffnen</button>
-      <label class="btn btn-outline-secondary mb-0" for="qr-image">Bild auswählen</label>
+      <button id="qr-camera-button" class="btn btn-success" type="button">{{ 'Open camera' if g.language == 'en' else 'Kamera öffnen' }}</button>
+      <label class="btn btn-outline-secondary mb-0" for="qr-image">{{ 'Select image' if g.language == 'en' else 'Bild auswählen' }}</label>
       <input id="qr-image" class="visually-hidden" type="file" accept="image/*">
       <div id="qr-camera-panel" class="w-100 border rounded p-2" hidden>
-        <video id="qr-camera-preview" autoplay muted playsinline class="w-100 rounded" style="max-height:360px;object-fit:contain" aria-label="Live-Kamerabild zum Scannen des Peer-QR-Codes"></video>
-        <button id="qr-camera-close" class="btn btn-outline-secondary btn-sm mt-2" type="button">Kamera schließen</button>
+        <video id="qr-camera-preview" autoplay muted playsinline class="w-100 rounded" style="max-height:360px;object-fit:contain" aria-label="{{ 'Live camera image for scanning the peer QR code' if g.language == 'en' else 'Live-Kamerabild zum Scannen des Peer-QR-Codes' }}"></video>
+        <button id="qr-camera-close" class="btn btn-outline-secondary btn-sm mt-2" type="button">{{ 'Close camera' if g.language == 'en' else 'Kamera schließen' }}</button>
       </div>
     </div>
-    <textarea id="qr-payload" class="form-control mb-2 font-monospace" name="payload" rows="3" placeholder="QR-Payload (alternativ manuell einfügen)" required></textarea>
-    <div class="form-check mb-2"><input class="form-check-input" id="verify-in-person" type="checkbox" name="verify_in_person" value="1"><label class="form-check-label" for="verify-in-person">Peer ist persönlich/live gesehen und Fingerprint wurde gemeinsam geprüft. Nur Prüfung setzen, Vertrauen bleibt NONE.</label></div>
-    <button class="btn btn-primary" type="submit">Peer übernehmen</button>
+    <textarea id="qr-payload" class="form-control mb-2 font-monospace" name="payload" rows="3" placeholder="{{ 'QR payload (alternatively paste manually)' if g.language == 'en' else 'QR-Payload (alternativ manuell einfügen)' }}" required aria-label="{{ 'QR payload' if g.language == 'en' else 'QR-Payload' }}"></textarea>
+    <div class="form-check mb-2"><input class="form-check-input" id="verify-in-person" type="checkbox" name="verify_in_person" value="1"><label class="form-check-label" for="verify-in-person">{{ 'Peer seen personally/live and fingerprint checked together. Sets only verification, trust stays NONE.' if g.language == 'en' else 'Peer ist persönlich/live gesehen und Fingerprint wurde gemeinsam geprüft. Nur Prüfung setzen, Vertrauen bleibt NONE.' }}</label></div>
+    <button class="btn btn-primary" type="submit">{{ 'Adopt peer' if g.language == 'en' else 'Peer übernehmen' }}</button>
   </form>
   <div id="qr-status" class="small text-secondary mt-2" aria-live="polite"></div>
 </div>
 <div class="card">
-  <div class="card-header"><strong>Gefundene / bekannte Peers</strong></div>
+  <div class="card-header"><strong>{{ 'Found / known peers' if g.language == 'en' else 'Gefundene / bekannte Peers' }}</strong></div>
   <div class="card-body border-bottom">
-    <p class="small text-secondary mb-0">Discovery und QR-Import speichern zunächst nur die Peer-Identität. Sie aktivieren weder eine Verbindung noch Trust oder Datenrechte. Bei vorhandenen Peers wird eine abweichende gefundene Adresse nicht automatisch übernommen; sie wird als Vorschlag angezeigt und muss nach Prüfung im Verbindungseditor manuell eingetragen werden. Hinterlege dasselbe peer-spezifische Token auf beiden Geräten und bestätige Trust jeweils lokal erst nach dem Identitätsabgleich.</p>
+    <p class="small text-secondary mb-0">{{ 'Discovery and QR import first store only the peer identity. They activate neither a connection nor trust or data rights. For existing peers a differing found address is not adopted automatically; it is shown as a suggestion and must be entered manually in the connection editor after checking. Store the same peer-specific token on both devices and confirm trust locally only after the identity comparison.' if g.language == 'en' else 'Discovery und QR-Import speichern zunächst nur die Peer-Identität. Sie aktivieren weder eine Verbindung noch Trust oder Datenrechte. Bei vorhandenen Peers wird eine abweichende gefundene Adresse nicht automatisch übernommen; sie wird als Vorschlag angezeigt und muss nach Prüfung im Verbindungseditor manuell eingetragen werden. Hinterlege dasselbe peer-spezifische Token auf beiden Geräten und bestätige Trust jeweils lokal erst nach dem Identitätsabgleich.' }}</p>
   </div>
   <div class="table-responsive">
     <table class="table table-sm align-middle mb-0">
-      <thead><tr><th scope="col">Peer</th><th scope="col">Kompatibilität</th><th scope="col">Prüfung</th><th scope="col">Trust</th><th scope="col">Weitergabe</th><th scope="col">Aktion</th></tr></thead>
+      <thead><tr><th scope="col">Peer</th><th scope="col">{{ 'Compatibility' if g.language == 'en' else 'Kompatibilität' }}</th><th scope="col">{{ 'Verification' if g.language == 'en' else 'Prüfung' }}</th><th scope="col">Trust</th><th scope="col">{{ 'Propagation' if g.language == 'en' else 'Weitergabe' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
       <tbody>
       {% for peer in peers %}
         {% set compat = peer.compatibility or {} %}
@@ -153,25 +212,25 @@
             <strong>{{ peer.label }}</strong>
             <div class="small text-secondary">{{ peer.peer_id }} · {{ peer.country }}</div>
             {% if peer.base_url %}<div class="small text-break"><code>{{ peer.base_url }}</code></div>{% endif %}
-            <div class="small"><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'aktiv' if peer.enabled else 'noch nicht aktiviert' }}</span> Empfehlungen: {{ peer.recommendations|length }}</div>
+            <div class="small"><span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ ('active' if peer.enabled else 'not activated yet') if g.language == 'en' else ('aktiv' if peer.enabled else 'noch nicht aktiviert') }}</span> {{ 'Recommendations:' if g.language == 'en' else 'Empfehlungen:' }} {{ peer.recommendations|length }}</div>
           </td>
           <td class="small">
             {% if compat.protocol == 'compatible' %}
               <span class="badge text-bg-success">Federation v{{ compat.protocol_version }}</span>
             {% elif compat.protocol == 'incompatible' %}
-              <span class="badge text-bg-danger">nicht kompatibel</span>
+              <span class="badge text-bg-danger">{{ 'incompatible' if g.language == 'en' else 'nicht kompatibel' }}</span>
             {% else %}
-              <span class="badge text-bg-secondary">nicht geprüft / Altversion</span>
+              <span class="badge text-bg-secondary">{{ 'not checked / legacy version' if g.language == 'en' else 'nicht geprüft / Altversion' }}</span>
             {% endif %}
             {% if compat.transport %}<div class="mt-1">Transport: {{ compat.transport }}</div>{% endif %}
             <div class="mt-1">
               Chat: {{ '✓' if features.chat is sameas true else ('✗' if features.chat is sameas false else '?') }} ·
-              Daten: {{ '✓' if features.documents is sameas true else ('✗' if features.documents is sameas false else '?') }} ·
-              Kontakte: {{ '✓' if features.contacts is sameas true else ('✗' if features.contacts is sameas false else '?') }} ·
-              Kalender: {{ '✓' if features.calendar is sameas true else ('✗' if features.calendar is sameas false else '?') }} ·
-              Aufgaben: {{ '✓' if features.tasks is sameas true else ('✗' if features.tasks is sameas false else '?') }}
+              {{ 'Data' if g.language == 'en' else 'Daten' }}: {{ '✓' if features.documents is sameas true else ('✗' if features.documents is sameas false else '?') }} ·
+              {{ 'Contacts' if g.language == 'en' else 'Kontakte' }}: {{ '✓' if features.contacts is sameas true else ('✗' if features.contacts is sameas false else '?') }} ·
+              {{ 'Calendar' if g.language == 'en' else 'Kalender' }}: {{ '✓' if features.calendar is sameas true else ('✗' if features.calendar is sameas false else '?') }} ·
+              {{ 'Tasks' if g.language == 'en' else 'Aufgaben' }}: {{ '✓' if features.tasks is sameas true else ('✗' if features.tasks is sameas false else '?') }}
             </div>
-            {% if compat.checked_at_label %}<div class="text-secondary">zuletzt geprüft: {{ compat.checked_at_label }}</div>{% endif %}
+            {% if compat.checked_at_label %}<div class="text-secondary">{{ 'last checked:' if g.language == 'en' else 'zuletzt geprüft:' }} {{ compat.checked_at_label }}</div>{% endif %}
           </td>
           <td>{{ (peer.trust or {}).verification_state or 'KNOWN_UNVERIFIED' }}</td>
           <td>{{ (peer.trust or {}).trust_level or 'NONE' }}</td>
@@ -180,61 +239,61 @@
             <div class="small mb-1">
               Pairing-Code:
               {% if peer.pairing.status == 'pending' %}
-                <span class="badge text-bg-warning">wartet</span>
+                <span class="badge text-bg-warning">{{ 'waiting' if g.language == 'en' else 'wartet' }}</span>
               {% elif peer.pairing.status == 'claimed' %}
-                <span class="badge text-bg-info">beansprucht</span>
+                <span class="badge text-bg-info">{{ 'claimed' if g.language == 'en' else 'beansprucht' }}</span>
               {% elif peer.pairing.status == 'expired' %}
-                <span class="badge text-bg-secondary">abgelaufen</span>
+                <span class="badge text-bg-secondary">{{ 'expired' if g.language == 'en' else 'abgelaufen' }}</span>
               {% else %}
-                <span class="badge text-bg-secondary">nicht vorhanden</span>
+                <span class="badge text-bg-secondary">{{ 'missing' if g.language == 'en' else 'nicht vorhanden' }}</span>
               {% endif %}
             </div>
             {% if peer.pairing_ready %}
               <form class="d-inline" method="post" action="{{ url_for('federation_peer_admin.issue_pairing_code', peer_id=peer.peer_id) }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-primary mb-1" type="submit">{{ 'Neuen Code erzeugen' if peer.pairing.status != 'missing' else 'Pairing-Code erzeugen' }}</button>
+                <button class="btn btn-sm btn-outline-primary mb-1" type="submit">{{ ('Generate new code' if peer.pairing.status != 'missing' else 'Generate pairing code') if g.language == 'en' else ('Neuen Code erzeugen' if peer.pairing.status != 'missing' else 'Pairing-Code erzeugen') }}</button>
               </form>
             {% else %}
-              <div class="small text-secondary mb-1">Zuerst öffentlichen Schlüssel per Discovery/QR übernehmen.</div>
+              <div class="small text-secondary mb-1">{{ 'First adopt the public key via discovery/QR.' if g.language == 'en' else 'Zuerst öffentlichen Schlüssel per Discovery/QR übernehmen.' }}</div>
             {% endif %}
             {% if peer.pairing.status != 'missing' %}
               <form class="d-inline" method="post" action="{{ url_for('federation_peer_admin.revoke_pairing_code', peer_id=peer.peer_id) }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-danger mb-1" type="submit">Code widerrufen</button>
+                <button class="btn btn-sm btn-outline-danger mb-1" type="submit">{{ 'Revoke code' if g.language == 'en' else 'Code widerrufen' }}</button>
               </form>
             {% endif %}
             {% if peer.pairing_claim_ready %}
               <form class="border rounded p-2 mb-1" method="post" action="{{ url_for('federation_peer_admin.claim_remote_pairing_code', peer_id=peer.peer_id) }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <label class="form-label small fw-semibold" for="pairing-code-{{ loop.index }}">Code von {{ peer.label }}</label>
+                <label class="form-label small fw-semibold" for="pairing-code-{{ loop.index }}">{{ 'Code from' if g.language == 'en' else 'Code von' }} {{ peer.label }}</label>
                 <input class="form-control form-control-sm mb-1 font-monospace" id="pairing-code-{{ loop.index }}" name="code" maxlength="64" autocomplete="one-time-code" aria-describedby="pairing-help-{{ loop.index }}" required>
                 <div class="form-check small mb-1">
                   <input class="form-check-input" id="pairing-confirm-{{ loop.index }}" type="checkbox" name="confirm_identity" value="1" required>
-                  <label class="form-check-label" for="pairing-confirm-{{ loop.index }}">Fingerprint und Zieladresse wurden mit der Gegenstelle abgeglichen.</label>
+                  <label class="form-check-label" for="pairing-confirm-{{ loop.index }}">{{ 'Fingerprint and target address were compared with the counterpart.' if g.language == 'en' else 'Fingerprint und Zieladresse wurden mit der Gegenstelle abgeglichen.' }}</label>
                 </div>
-                <div class="form-text mb-1" id="pairing-help-{{ loop.index }}">Der Code bestätigt nur den Pairing-Schritt. Trust, Aktivierung und Datenrechte bleiben aus.</div>
-                <button class="btn btn-sm btn-outline-primary" type="submit">Code sicher beanspruchen</button>
+                <div class="form-text mb-1" id="pairing-help-{{ loop.index }}">{{ 'The code confirms only the pairing step. Trust, activation and data rights stay off.' if g.language == 'en' else 'Der Code bestätigt nur den Pairing-Schritt. Trust, Aktivierung und Datenrechte bleiben aus.' }}</div>
+                <button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Claim code securely' if g.language == 'en' else 'Code sicher beanspruchen' }}</button>
               </form>
               <form class="d-inline" method="post" action="{{ url_for('federation_peer_admin.check_remote_pairing_status', peer_id=peer.peer_id) }}">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <button class="btn btn-sm btn-outline-secondary mb-1" type="submit">Remote-Status prüfen</button>
+                <button class="btn btn-sm btn-outline-secondary mb-1" type="submit">{{ 'Check remote status' if g.language == 'en' else 'Remote-Status prüfen' }}</button>
               </form>
             {% endif %}
-            <a class="btn btn-sm btn-outline-primary mb-1" href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id) }}">Verbindung einrichten</a>
+            <a class="btn btn-sm btn-outline-primary mb-1" href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id) }}">{{ 'Set up connection' if g.language == 'en' else 'Verbindung einrichten' }}</a>
             <form class="d-flex gap-1 flex-wrap mb-1" method="post" action="{{ url_for('federation_peer_admin.set_trust', peer_id=peer.peer_id) }}">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <select class="form-select form-select-sm" name="verification"><option>KNOWN_UNVERIFIED</option><option>VERIFIED_ONE_WAY</option><option>VERIFIED_MUTUAL</option><option>VERIFIED_IN_PERSON</option><option>VERIFIED_ADMIN</option></select>
               <select class="form-select form-select-sm" name="trust_level"><option>NONE</option><option>LOW</option><option>NORMAL</option><option>HIGH</option></select>
               <select class="form-select form-select-sm" name="propagation"><option>DIRECT_ONLY</option><option>RECOMMENDATION_ONLY</option><option>TRANSITIVE</option></select>
               <input class="form-control form-control-sm" style="width:4rem" name="max_hops" type="number" min="0" max="2" value="0">
-              <button class="btn btn-sm btn-primary" type="submit">Speichern</button>
+              <button class="btn btn-sm btn-primary" type="submit">{{ 'Save' if g.language == 'en' else 'Speichern' }}</button>
             </form>
-            <form method="post" action="{{ url_for('federation_peer_admin.sync_trust', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Trust-Hinweise laden</button></form>
-            <a class="btn btn-sm btn-outline-danger mt-1" href="{{ url_for('federation_peer_admin.policy', peer_id=peer.peer_id) }}">Sperren / Policy</a>
+            <form method="post" action="{{ url_for('federation_peer_admin.sync_trust', peer_id=peer.peer_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-secondary" type="submit">{{ 'Load trust hints' if g.language == 'en' else 'Trust-Hinweise laden' }}</button></form>
+            <a class="btn btn-sm btn-outline-danger mt-1" href="{{ url_for('federation_peer_admin.policy', peer_id=peer.peer_id) }}">{{ 'Bans / policy' if g.language == 'en' else 'Sperren / Policy' }}</a>
           </td>
         </tr>
       {% else %}
-        <tr><td colspan="6">Keine Peers bekannt. Im lokalen Netzwerk zuerst „Netzwerk scannen“ verwenden.</td></tr>
+        <tr><td colspan="6">{{ 'No peers known. In the local network first use “Scan network”.' if g.language == 'en' else 'Keine Peers bekannt. Im lokalen Netzwerk zuerst „Netzwerk scannen“ verwenden.' }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -242,46 +301,44 @@
 </div>
 
 <section class="card mt-3" id="mail-case-identities">
-  <div class="card-header"><strong>Mail-Vorgänge · Benutzerzuordnung</strong></div>
+  <div class="card-header"><strong>{{ 'Mail cases · user mapping' if g.language == 'en' else 'Mail-Vorgänge · Benutzerzuordnung' }}</strong></div>
   <div class="card-body border-bottom">
     <p class="small text-secondary">
-      Ordne die Benutzer-ID der Gegenstelle explizit einem aktiven lokalen Benutzer zu.
-      Die Zuordnung ist peergebunden und erteilt allein noch keinen Zugriff:
-      Trust, <code>mail_cases</code>-Policy und die Vorgangs-ACL werden zusätzlich geprüft.
+      {{ 'Explicitly map the counterpart user ID to an active local user. The mapping is peer-bound and alone grants no access yet: trust,' if g.language == 'en' else 'Ordne die Benutzer-ID der Gegenstelle explizit einem aktiven lokalen Benutzer zu. Die Zuordnung ist peergebunden und erteilt allein noch keinen Zugriff: Trust,' }} <code>mail_cases</code>-{{ 'policy and the case ACL are additionally checked.' if g.language == 'en' else 'Policy und die Vorgangs-ACL werden zusätzlich geprüft.' }}
     </p>
     <form method="post" action="{{ url_for('federation_peer_admin.set_mail_case_identity') }}" class="row g-2 align-items-end">
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <div class="col-md-4">
         <label class="form-label" for="mail-case-peer">Peer</label>
         <select class="form-select" id="mail-case-peer" name="peer_id" required>
-          <option value="">Bitte wählen</option>
+          <option value="">{{ 'Please select' if g.language == 'en' else 'Bitte wählen' }}</option>
           {% for peer in peers if peer.enabled %}
           <option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="col-md-4">
-        <label class="form-label" for="mail-case-remote-user">Remote-Benutzer-ID</label>
+        <label class="form-label" for="mail-case-remote-user">{{ 'Remote user ID' if g.language == 'en' else 'Remote-Benutzer-ID' }}</label>
         <input class="form-control" id="mail-case-remote-user" name="remote_user_id" maxlength="160" required>
       </div>
       <div class="col-md-3">
-        <label class="form-label" for="mail-case-local-user">Lokaler Benutzer</label>
+        <label class="form-label" for="mail-case-local-user">{{ 'Local user' if g.language == 'en' else 'Lokaler Benutzer' }}</label>
         <select class="form-select" id="mail-case-local-user" name="local_user_id" required>
-          <option value="">Bitte wählen</option>
+          <option value="">{{ 'Please select' if g.language == 'en' else 'Bitte wählen' }}</option>
           {% for user in mail_case_local_users %}
           <option value="{{ user.username }}">{{ user.display_name or user.username }} · {{ user.username }}</option>
           {% endfor %}
         </select>
       </div>
       <div class="col-md-1">
-        <button class="btn btn-primary w-100" type="submit" aria-label="Benutzerzuordnung speichern">+</button>
+        <button class="btn btn-primary w-100" type="submit" aria-label="{{ 'Save user mapping' if g.language == 'en' else 'Benutzerzuordnung speichern' }}">+</button>
       </div>
     </form>
   </div>
   <div class="table-responsive">
     <table class="table table-sm align-middle mb-0">
       <thead>
-        <tr><th scope="col">Peer</th><th scope="col">Remote-ID</th><th scope="col">Lokal</th><th scope="col">Geändert von</th><th scope="col">Aktion</th></tr>
+        <tr><th scope="col">Peer</th><th scope="col">{{ 'Remote ID' if g.language == 'en' else 'Remote-ID' }}</th><th scope="col">{{ 'Local' if g.language == 'en' else 'Lokal' }}</th><th scope="col">{{ 'Changed by' if g.language == 'en' else 'Geändert von' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr>
       </thead>
       <tbody>
         {% for mapping in mail_case_mappings %}
@@ -295,12 +352,12 @@
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="peer_id" value="{{ mapping.peer_id }}">
               <input type="hidden" name="remote_user_id" value="{{ mapping.remote_user_id }}">
-              <button class="btn btn-sm btn-outline-danger" type="submit">Widerrufen</button>
+              <button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Revoke' if g.language == 'en' else 'Widerrufen' }}</button>
             </form>
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-secondary text-center py-3">Noch keine Mail-Vorgang-Benutzerzuordnung vorhanden.</td></tr>
+        <tr><td colspan="5" class="text-secondary text-center py-3">{{ 'No mail case user mapping present yet.' if g.language == 'en' else 'Noch keine Mail-Vorgang-Benutzerzuordnung vorhanden.' }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

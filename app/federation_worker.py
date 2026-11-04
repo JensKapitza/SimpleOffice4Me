@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import socket
 import urllib.error
 import urllib.parse
@@ -23,6 +22,8 @@ from .federation_core import (
     verify_file,
 )
 from .federation_store import FederationStore
+from . import federation_local_identity as _identity
+from . import federation_network as _network
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
 from .v2.encrypted_recovery_descriptor import validate_encrypted_recovery_descriptor
@@ -58,7 +59,7 @@ def _request(
         raise ValueError("Ungültige Federation-Zieladresse")
     request_headers = {"User-Agent": USER_AGENT, "Accept": "application/json", **(headers or {})}
     if token:
-        bearer = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
+        bearer = _identity.shared_token() or token
         request_headers["Authorization"] = f"Bearer {bearer}"
         # Keep the shared bearer separate from the per-peer identity proof.
         # Never replace a protocol signature already bound to a request.
@@ -117,9 +118,7 @@ def validate_transient_target(base_url: str) -> str:
     if parsed.path not in {"", "/"}:
         raise ValueError("Delegiertes Ziel muss eine Server-Basis-URL sein")
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    allow_loopback = os.environ.get("SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK", "0").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+    allow_loopback = _network.allow_loopback()
     try:
         addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
     except socket.gaierror as exc:
@@ -237,7 +236,7 @@ def remote_encrypted_recovery_availability(
     peer = store.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         raise ValueError("Recovery-Peer ist nicht aktiv")
-    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    source_token = _identity.shared_token()
     if not source_token:
         raise ValueError("Lokaler Federation-Token fehlt für peer-signierte Recovery-Abfrage")
     auth_ref = str(authorization_ref or "").strip()
@@ -336,7 +335,7 @@ def remote_encrypted_recovery_chunk(
     peer = store.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         raise ValueError("Recovery-Peer ist nicht aktiv")
-    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    source_token = _identity.shared_token()
     if not source_token:
         raise ValueError("Lokaler Federation-Token fehlt für peer-signierten Recovery-Transfer")
     auth_ref = str(authorization_ref or "").strip()
@@ -407,7 +406,7 @@ def remote_store_encrypted_recovery_chunk(
     peer = store.get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         raise ValueError("Recovery-Peer ist nicht aktiv")
-    source_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    source_token = _identity.shared_token()
     if not source_token:
         raise ValueError("Lokaler Federation-Token fehlt für peer-signierten Recovery-Transfer")
     auth_ref = str(authorization_ref or "").strip()

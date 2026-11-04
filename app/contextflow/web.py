@@ -9,7 +9,6 @@ Meta agent route on verified synthetic demo roots.
 
 from __future__ import annotations
 
-import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -73,18 +72,14 @@ from .vision import (
     prepare_draft,
     suggest_inventory_object,
     validate_image,
-    vision_settings_from_mapping,
 )
 
 bp = Blueprint("contextflow", __name__, url_prefix="/contextflow")
 
 
 def _enabled() -> bool:
-    """ContextFlow is off unless explicitly enabled via config or env."""
-    return bool(
-        current_app.config.get("CONTEXTFLOW_ENABLED", False)
-        or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
-    )
+    """ContextFlow is off unless explicitly enabled via Flask config."""
+    return bool(current_app.config.get("CONTEXTFLOW_ENABLED", False))
 
 
 @bp.app_context_processor
@@ -554,8 +549,13 @@ def agent_run():
 
 
 def _vision_settings() -> dict[str, Any]:
-    """Vision backend settings; Meta stays doubly gated (flag + checkbox)."""
-    return vision_settings_from_mapping(current_app.config, os.environ)
+    """Vision backend settings from the admin settings file (no environment).
+
+    Meta stays doubly gated (stored flag + per-photo checkbox).
+    """
+    from .. import vision_config as _vision_config
+
+    return _vision_config.effective_settings(current_app.config)
 
 
 @bp.get("/ml-status")

@@ -1,5 +1,8 @@
 "use strict";
 
+const ATTACHMENT_SELECTION_EN = typeof document !== "undefined"
+  && (document.documentElement.lang || "").toLowerCase().startsWith("en");
+
 document.addEventListener("DOMContentLoaded", () => {
   const boxes = Array.from(document.querySelectorAll(".attachment-select"));
   const count = document.getElementById("attachment-selection-count");
@@ -9,7 +12,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const update = () => {
     const selected = boxes.filter((box) => box.checked).length;
-    if (count) count.textContent = `${selected} ausgewählt`;
+    if (count) count.textContent = ATTACHMENT_SELECTION_EN ? `${selected} selected` : `${selected} ausgewählt`;
     if (submit) submit.disabled = selected === 0;
     boxes.forEach((box) => box.closest(".attachment-option")?.classList.toggle("list-group-item-primary", box.checked));
   };

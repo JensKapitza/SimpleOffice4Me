@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socket
 import urllib.error
 import urllib.parse
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .federation_core import sanitize_peer_id
+from . import federation_local_identity as _identity
 from .federation_store import FederationStore
 from .federation_worker import _request, validate_transient_target
 from .gamification_federation import json_body, peer_allows, signed_headers
@@ -18,7 +18,7 @@ MAX_RESPONSE_BYTES = 256 * 1024
 
 
 def _local_peer_id() -> str:
-    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    configured = _identity.peer_id()
     fallback = socket.gethostname().strip().casefold().replace(" ", "-")[:128]
     return sanitize_peer_id(configured or fallback)
 

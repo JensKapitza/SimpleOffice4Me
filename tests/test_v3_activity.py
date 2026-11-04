@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from app.contact_store import ContactStore
 from app.document_store import DocumentStore
 from app.project_store import ProjectStore
+from app.settings_store import SettingsStore
 from app.v3_activity import ActivityStore, EventBus
 
 
@@ -44,15 +43,17 @@ class ActivityStoreTests(unittest.TestCase):
         self.assertEqual([event.event_id], seen)
 
     def test_existing_contact_project_and_document_modules_emit_through_adapter(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_V3_ACTIVITY_ENABLED": "1"}):
-            contact = ContactStore(self.root).upsert({"display_name": "Alice"}, "alice")
-            project = ProjectStore(self.root).create_project({"title": "P"}, "alice")
-            source = self.root.parent / (self.root.name + "-activity-source.txt")
-            try:
-                source.write_text("document", encoding="utf-8")
-                DocumentStore(self.root).import_file(source, "alice")
-            finally:
-                source.unlink(missing_ok=True)
+        SettingsStore(self.root).save(
+            {"v3": {"v3.activity": True}}, "v3-activity-test",
+        )
+        contact = ContactStore(self.root).upsert({"display_name": "Alice"}, "alice")
+        project = ProjectStore(self.root).create_project({"title": "P"}, "alice")
+        source = self.root.parent / (self.root.name + "-activity-source.txt")
+        try:
+            source.write_text("document", encoding="utf-8")
+            DocumentStore(self.root).import_file(source, "alice")
+        finally:
+            source.unlink(missing_ok=True)
 
         rows = ActivityStore(self.root).list(limit=20)
         types = {row.event_type for row in rows}

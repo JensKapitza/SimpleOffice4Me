@@ -13,10 +13,12 @@ from simpleoffice_version import build_info
 
 from .access_control import is_admin
 from .auth import login_required
+from . import federation_local_identity as _identity
 from .federation_store import FederationStore
 from .federation_worker import _json_request
 from .software_artifact_config import ConfiguredSoftwareArtifactStore, SoftwareArtifactConfiguration
 from .software_distribution import SoftwareDistributionStore, local_release_info
+from .translations import translate
 
 bp = Blueprint("software_admin", __name__, url_prefix="/admin/software")
 _APP_BUILD = build_info()
@@ -65,7 +67,7 @@ def _redirect():
 
 
 def _local_peer_id() -> str:
-    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    configured = _identity.peer_id()
     return configured or socket.gethostname().strip().casefold().replace(" ", "-")[:128]
 
 
@@ -97,9 +99,9 @@ def build_release():
             "software_release_built",
             detail={"sha256": result["archive_sha256"], "release": result["release"], "actor": str(g.user["username"])},
         )
-        flash(f"Self-Deploy-Paket gebaut: {result['archive_sha256'][:12]}…")
+        flash(translate(g.language, "sw.build.done").format(digest=result['archive_sha256'][:12]))
     except Exception as exc:
-        flash(f"Release konnte nicht gebaut werden: {exc}")
+        flash(translate(g.language, "sw.build.failed").format(exc=exc))
     return _redirect()
 
 
@@ -133,9 +135,9 @@ def save_github_artifact_config():
                 "actor": str(g.user["username"]),
             },
         )
-        flash("GitHub-Artefaktquelle gespeichert.")
+        flash(translate(g.language, "sw.source.saved"))
     except Exception as exc:
-        flash(f"GitHub-Artefaktquelle konnte nicht gespeichert werden: {exc}")
+        flash(translate(g.language, "sw.source.failed").format(exc=exc))
     return _redirect()
 
 
@@ -144,7 +146,7 @@ def save_github_artifact_config():
 def upload_artifact():
     upload = request.files.get("artifact")
     if upload is None or not upload.filename:
-        flash("Keine Installationsdatei ausgewählt.")
+        flash(translate(g.language, "sw.nofile"))
         return _redirect()
     try:
         entry = _artifacts().cache_stream(upload.stream, upload.filename, source="admin-upload")
@@ -152,9 +154,9 @@ def upload_artifact():
             "software_artifact_cached",
             detail={"sha256": entry["sha256"], "name": entry["name"], "actor": str(g.user["username"])},
         )
-        flash(f"Installations-Artefakt offline gespeichert: {entry['name']}")
+        flash(translate(g.language, "sw.artifact.cached").format(name=entry['name']))
     except Exception as exc:
-        flash(f"Installations-Artefakt konnte nicht gespeichert werden: {exc}")
+        flash(translate(g.language, "sw.artifact.cache.failed").format(exc=exc))
     return _redirect()
 
 
@@ -171,9 +173,9 @@ def github_sync_artifacts():
                 "actor": str(g.user["username"]),
             },
         )
-        flash(f"GitHub-Artefakte synchronisiert: {len(result['artifacts'])} Installationsdateien im Offline-Cache.")
+        flash(translate(g.language, "sw.sync.done").format(count=len(result['artifacts'])))
     except Exception as exc:
-        flash(f"GitHub-Artefakt-Sync fehlgeschlagen: {exc}")
+        flash(translate(g.language, "sw.sync.failed").format(exc=exc))
     return _redirect()
 
 
@@ -198,9 +200,9 @@ def delete_artifact(digest: str):
             "software_artifact_deleted",
             detail={"sha256": entry["sha256"], "name": entry["name"], "actor": str(g.user["username"])},
         )
-        flash(f"Installations-Artefakt aus Offline-Cache gelöscht: {entry['name']}")
+        flash(translate(g.language, "sw.artifact.deleted").format(name=entry['name']))
     except Exception as exc:
-        flash(f"Installations-Artefakt konnte nicht gelöscht werden: {exc}")
+        flash(translate(g.language, "sw.artifact.delete.failed").format(exc=exc))
     return _redirect()
 
 
@@ -221,10 +223,10 @@ def check_peer_artifacts(peer_id: str):
         )
         entries = _artifacts().record_offer(peer_id, data.get("artifacts") or [])
         federation.set_peer_health(peer_id, seen=True)
-        flash(f"Installer-Katalog von {peer['label']} geladen: {len(entries)} Artefakte.")
+        flash(translate(g.language, "sw.catalog.loaded").format(label=peer['label'], count=len(entries)))
     except Exception as exc:
         federation.set_peer_health(peer_id, error=str(exc))
-        flash(f"Installer-Katalog konnte nicht geladen werden: {exc}")
+        flash(translate(g.language, "sw.catalog.failed").format(exc=exc))
     return _redirect()
 
 
@@ -238,9 +240,9 @@ def cache_peer_artifact(peer_id: str, digest: str):
             peer_id=peer_id,
             detail={"sha256": entry["sha256"], "name": entry["name"], "actor": str(g.user["username"])},
         )
-        flash(f"Installations-Artefakt vollständig geladen und geprüft: {entry['name']}")
+        flash(translate(g.language, "sw.artifact.verified").format(name=entry['name']))
     except Exception as exc:
-        flash(f"Installations-Artefakt konnte nicht geladen werden: {exc}")
+        flash(translate(g.language, "sw.artifact.load.failed").format(exc=exc))
     return _redirect()
 
 
@@ -262,20 +264,20 @@ def check_peer(peer_id: str):
             _artifacts().record_offer(peer_id, installer_entries)
         if not release or not bundle:
             if installer_entries:
-                flash(f"Peer hat kein Self-Deploy-Release, aber {len(installer_entries)} Installations-Artefakte angeboten.")
+                flash(translate(g.language, "sw.peer.no_release").format(count=len(installer_entries)))
                 _federation().set_peer_health(peer_id, seen=True)
                 return _redirect()
             raise ValueError("Peer hat noch kein Software-Release gebaut")
         offer = _distribution().record_offer(peer_id, {"release": release, "bundle": bundle})
         if offer["status"] == "available":
-            flash(f"Neuere Version gefunden: {release.get('version')} / {str(release.get('revision', ''))[:12]}")
+            flash(translate(g.language, "sw.version.newer").format(version=release.get('version'), revision=str(release.get('revision', ''))[:12]))
         else:
-            suffix = f" · {len(installer_entries)} Installer angeboten" if installer_entries else ""
-            flash("Peer ist nicht neuer als diese Instanz." + suffix)
+            suffix = translate(g.language, "sw.peer.current.suffix").format(count=len(installer_entries)) if installer_entries else ""
+            flash(translate(g.language, "sw.peer.current") + suffix)
         _federation().set_peer_health(peer_id, seen=True)
     except Exception as exc:
         _federation().set_peer_health(peer_id, error=str(exc))
-        flash(f"Versionsprüfung fehlgeschlagen: {exc}")
+        flash(translate(g.language, "sw.check.failed").format(exc=exc))
     return _redirect()
 
 
@@ -318,9 +320,9 @@ def offer_peer(peer_id: str):
                 "artifacts": len(artifacts),
             },
         )
-        flash(f"Software an {peer['label']} angeboten: Release {'ja' if latest else 'nein'}, Installer {len(artifacts)}.")
+        flash(translate(g.language, "sw.offered").format(label=peer['label'], has_release=("yes" if latest else "no") if g.language == "en" else ("ja" if latest else "nein"), count=len(artifacts)))
     except Exception as exc:
-        flash(f"Update-Angebot fehlgeschlagen: {exc}")
+        flash(translate(g.language, "sw.offer.failed").format(exc=exc))
     return _redirect()
 
 
@@ -334,9 +336,9 @@ def stage_peer_release(peer_id: str):
             peer_id=peer_id,
             detail={"sha256": result["sha256"], "release": result["release"], "actor": str(g.user["username"])},
         )
-        flash(f"Update vollständig geladen und geprüft: {result['sha256'][:12]}…")
+        flash(translate(g.language, "sw.update.staged").format(digest=result['sha256'][:12]))
     except Exception as exc:
-        flash(f"Update konnte nicht geladen werden: {exc}")
+        flash(translate(g.language, "sw.update.load.failed").format(exc=exc))
     return _redirect()
 
 
@@ -344,7 +346,7 @@ def stage_peer_release(peer_id: str):
 @admin_required
 def apply_staged_release(digest: str):
     if request.form.get("confirmation", "").strip().upper() != "UPDATE":
-        flash("Zum Einspielen muss UPDATE als Bestätigung eingegeben werden.")
+        flash(translate(g.language, "sw.confirm.update"))
         return _redirect()
     try:
         archive = _distribution().staged_path(digest)
@@ -358,7 +360,7 @@ def apply_staged_release(digest: str):
             kwargs["start_new_session"] = True
         subprocess.Popen(command, **kwargs)
         _federation().record_event("software_update_scheduled", detail={"sha256": digest, "actor": str(g.user["username"]), "restart": True})
-        flash("Offline-Update ist eingeplant. Die Instanz startet nach dem Einspielen neu.")
+        flash(translate(g.language, "sw.update.scheduled"))
     except Exception as exc:
-        flash(f"Update konnte nicht eingeplant werden: {exc}")
+        flash(translate(g.language, "sw.schedule.failed").format(exc=exc))
     return _redirect()

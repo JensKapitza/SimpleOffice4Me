@@ -1,10 +1,11 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.document_store import DocumentStore
 from app.federation_catalog_http import bp
 from app.federation_peer_auth import headers as peer_headers
@@ -20,8 +21,18 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.app.register_blueprint(bp)
         self.context = self.app.app_context()
         self.context.push()
-        self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "catalog-token"
+        # Settings live outside DOCUMENT_ROOT in production (user-home
+        # config dir); keep the fixture the same so store.scan() does not
+        # index the settings file as a document.
+        self.settings_temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.settings_temp.cleanup)
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.settings_temp.name) / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", "catalog-token")
         store = DocumentStore(self.root)
         first = self.root / "Alpha.txt"
         first.write_text("alpha", encoding="utf-8")
@@ -38,15 +49,15 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.client = self.app.test_client()
         self.auth = {"Authorization": "Bearer catalog-token"}
         FederationStore(self.root).save_peer(
-            "remote-peer", "Remote", "https://remote.example.test", "remote-peer-token",
+            "remote-peer",
+            "Remote",
+            "https://remote.example.test",
+            "remote-peer-token",
+            {"documents": {"send": True, "receive": True, "seed": True}},
         )
 
     def tearDown(self):
         self.context.pop()
-        if self.previous is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
         self.temp.cleanup()
 
     def test_catalog_requires_authentication(self):
@@ -93,12 +104,65 @@ class FederationCatalogHttpTest(unittest.TestCase):
                 self.assertEqual({"error": "catalog_policy_denied"}, response.json)
                 self.assertEqual("no-store", response.headers["Cache-Control"])
 
-    def test_catalog_keeps_global_bearer_as_identity_neutral_legacy_compatibility(self):
+    def test_catalog_denies_identity_neutral_legacy_bearer_without_peer_scope(self):
+        # Regression: a shared Bearer [REDACTED] proves no peer identity, so it must
+        # never expose the document catalog, even with an explicit policy stored.
         response = self.client.get("/federation/v1/catalog/documents", headers=self.auth)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json, {"error": "catalog_policy_denied"})
+
+    def test_catalog_denied_by_default_without_explicit_scoped_permission(self):
+        # Denied by default: missing policy, missing documents section, or a
+        # missing send/seed flag must not expose the catalog over peer HMAC.
+        path = "/federation/v1/catalog/documents"
+        denied_policies = [
+            None,
+            {},
+            {"documents": {"send": True, "receive": True}},
+            {"documents": {"seed": True, "receive": True}},
+            {"chat": {"send": True, "receive": True}},
+        ]
+        for policy in denied_policies:
+            with self.subTest(policy=policy):
+                FederationStore(self.root).save_peer(
+                    "remote-peer",
+                    "Remote",
+                    "https://remote.example.test",
+                    "remote-peer-token",
+                    policy,
+                )
+                response = self.client.get(
+                    path,
+                    headers=peer_headers("remote-peer", "remote-peer-token", "GET", path, b""),
+                )
+                self.assertEqual(403, response.status_code)
+                self.assertEqual({"error": "catalog_policy_denied"}, response.json)
+
+    def test_catalog_allows_only_explicit_scoped_document_permission(self):
+        # Allowed only after explicit, scoped permission: identified peer HMAC
+        # plus documents.send and documents.seed flags.
+        path = "/federation/v1/catalog/documents"
+        FederationStore(self.root).save_peer(
+            "remote-peer",
+            "Remote",
+            "https://remote.example.test",
+            "remote-peer-token",
+            {"documents": {"send": True, "receive": True, "seed": True}},
+        )
+        response = self.client.get(
+            path,
+            headers=peer_headers("remote-peer", "remote-peer-token", "GET", path, b""),
+        )
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["schema"], "sofp-document-index/v1")
+
+    def _scoped_peer_headers(self, path="/federation/v1/catalog/documents"):
+        return peer_headers("remote-peer", "remote-peer-token", "GET", path, b"")
 
     def test_catalog_exports_documents_and_origin_tags(self):
-        response = self.client.get("/federation/v1/catalog/documents", headers=self.auth)
+        response = self.client.get(
+            "/federation/v1/catalog/documents", headers=self._scoped_peer_headers()
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["schema"], "sofp-document-index/v1")
         self.assertEqual(response.json["total"], 2)
@@ -109,13 +173,15 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.assertEqual(len(row["blob_hash"]), 64)
 
     def test_catalog_pagination_is_stable_within_generation(self):
-        first = self.client.get("/federation/v1/catalog/documents?limit=1", headers=self.auth)
+        first = self.client.get(
+            "/federation/v1/catalog/documents?limit=1", headers=self._scoped_peer_headers()
+        )
         self.assertEqual(first.status_code, 200)
         self.assertEqual(first.json["count"], 1)
         self.assertIsNotNone(first.json["next_cursor"])
         second = self.client.get(
             f"/federation/v1/catalog/documents?limit=1&cursor={first.json['next_cursor']}",
-            headers=self.auth,
+            headers=self._scoped_peer_headers(),
         )
         self.assertEqual(second.status_code, 200)
         self.assertEqual(first.json["generation"], second.json["generation"])
@@ -123,7 +189,10 @@ class FederationCatalogHttpTest(unittest.TestCase):
         self.assertEqual(len(ids), 2)
 
     def test_page_size_is_bounded(self):
-        response = self.client.get("/federation/v1/catalog/documents?limit=999999", headers=self.auth)
+        response = self.client.get(
+            "/federation/v1/catalog/documents?limit=999999",
+            headers=self._scoped_peer_headers(),
+        )
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(response.json["count"], 1000)
 

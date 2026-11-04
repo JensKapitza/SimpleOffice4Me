@@ -5,53 +5,52 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
       <h1 class="h2 mb-1">Master-Cluster</h1>
-      <p class="text-secondary mb-0">Betriebsmodus und DNS-Autorität für diesen Knoten.</p>
+      <p class="text-secondary mb-0">{{ 'Operating mode and DNS authority for this node.' if g.language == 'en' else 'Betriebsmodus und DNS-Autorität für diesen Knoten.' }}</p>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('licensing_admin.index') }}">Zur Lizenzierung</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('licensing_admin.index') }}">{{ 'To licensing' if g.language == 'en' else 'Zur Lizenzierung' }}</a>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
-  {% if not master_mode %}<div class="alert alert-warning">Dieser Build ist nicht als Master gebaut. Die Clusteroptionen ändern seine Build-Rolle nicht.</div>{% endif %}
+  {% if not master_mode %}<div class="alert alert-warning">{{ 'This build is not built as master. The cluster options do not change its build role.' if g.language == 'en' else 'Dieser Build ist nicht als Master gebaut. Die Clusteroptionen ändern seine Build-Rolle nicht.' }}</div>{% endif %}
 
   <section class="card mb-4" aria-labelledby="cluster-status-title">
-    <div class="card-header"><strong id="cluster-status-title">Laufzeitstatus</strong></div>
+    <div class="card-header"><strong id="cluster-status-title">{{ 'Runtime status' if g.language == 'en' else 'Laufzeitstatus' }}</strong></div>
     <div class="card-body">
       <dl class="row mb-0">
-        <dt class="col-sm-4">Lokale Knoten-ID</dt><dd class="col-sm-8"><code>{{ node_id }}</code></dd>
-        <dt class="col-sm-4">Betriebsmodus</dt><dd class="col-sm-8">{{ status.mode or settings.mode }}</dd>
-        <dt class="col-sm-4">Knotenstatus</dt><dd class="col-sm-8"><code>{{ status.operating_state or 'not_checked' }}</code></dd>
-        <dt class="col-sm-4">Master-Adresse erreichbar</dt><dd class="col-sm-8"><code>{{ status.reachability or 'not_checked' }}</code></dd>
-        <dt class="col-sm-4">DNS-Autoritäts-ID</dt><dd class="col-sm-8"><code>{{ status.authority_node_id or 'nicht bestätigt' }}</code></dd>
-        {% if status.checked_at %}<dt class="col-sm-4">Letzte Prüfung</dt><dd class="col-sm-8">{{ status.checked_at }}</dd>{% endif %}
+        <dt class="col-sm-4">{{ 'Local node ID' if g.language == 'en' else 'Lokale Knoten-ID' }}</dt><dd class="col-sm-8"><code>{{ node_id }}</code></dd>
+        <dt class="col-sm-4">{{ 'Operating mode' if g.language == 'en' else 'Betriebsmodus' }}</dt><dd class="col-sm-8">{{ status.mode or settings.mode }}</dd>
+        <dt class="col-sm-4">{{ 'Node status' if g.language == 'en' else 'Knotenstatus' }}</dt><dd class="col-sm-8"><code>{{ status.operating_state or 'not_checked' }}</code></dd>
+        <dt class="col-sm-4">{{ 'Master address reachable' if g.language == 'en' else 'Master-Adresse erreichbar' }}</dt><dd class="col-sm-8"><code>{{ status.reachability or 'not_checked' }}</code></dd>
+        <dt class="col-sm-4">{{ 'DNS authority ID' if g.language == 'en' else 'DNS-Autoritäts-ID' }}</dt><dd class="col-sm-8"><code>{{ status.authority_node_id or ('not confirmed' if g.language == 'en' else 'nicht bestätigt') }}</code></dd>
+        {% if status.checked_at %}<dt class="col-sm-4">{{ 'Last check' if g.language == 'en' else 'Letzte Prüfung' }}</dt><dd class="col-sm-8">{{ status.checked_at }}</dd>{% endif %}
       </dl>
     </div>
   </section>
 
   <form method="post" class="card" aria-labelledby="cluster-settings-title">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-    <div class="card-header"><strong id="cluster-settings-title">Cluster-Einstellungen</strong></div>
+    <div class="card-header"><strong id="cluster-settings-title">{{ 'Cluster settings' if g.language == 'en' else 'Cluster-Einstellungen' }}</strong></div>
     <div class="card-body">
       <div class="mb-3">
-        <label for="cluster-mode" class="form-label">Betriebsmodus</label>
+        <label for="cluster-mode" class="form-label">{{ 'Operating mode' if g.language == 'en' else 'Betriebsmodus' }}</label>
         <select class="form-select" id="cluster-mode" name="mode" required>
-          <option value="" disabled>Bitte Betriebsmodus wählen</option>
+          <option value="" disabled>{{ 'Please select operating mode' if g.language == 'en' else 'Bitte Betriebsmodus wählen' }}</option>
           <option value="active-active" {% if settings.mode == 'active-active' %}selected{% endif %}>Active-Active</option>
           <option value="backup-active" {% if settings.mode == 'backup-active' %}selected{% endif %}>Backup-Active</option>
-          <option value="permanent-master" {% if settings.mode == 'permanent-master' %}selected{% endif %}>Dauerhaft aktiver Master</option>
+          <option value="permanent-master" {% if settings.mode == 'permanent-master' %}selected{% endif %}>{{ 'Permanently active master' if g.language == 'en' else 'Dauerhaft aktiver Master' }}</option>
         </select>
         <div class="form-text">
-          Active-Active hält beide Knoten aktiv, auch bei einer Netztrennung. Backup-Active aktiviert nur den durch DNS bestimmten Knoten.
-          Dauerhaft aktiver Master bleibt unabhängig von DNS aktiv. Der Modus konfiguriert die Aktivitätsrolle; der Datenabgleich bleibt den Federation-Peer- und Datenklassenrichtlinien unterstellt.
+          {{ 'Active-Active keeps both nodes active, even during a network partition. Backup-Active activates only the node determined by DNS. Permanently active master stays active regardless of DNS. The mode configures the activity role; data reconciliation remains subject to the federation peer and data class policies.' if g.language == 'en' else 'Active-Active hält beide Knoten aktiv, auch bei einer Netztrennung. Backup-Active aktiviert nur den durch DNS bestimmten Knoten. Dauerhaft aktiver Master bleibt unabhängig von DNS aktiv. Der Modus konfiguriert die Aktivitätsrolle; der Datenabgleich bleibt den Federation-Peer- und Datenklassenrichtlinien unterstellt.' }}
         </div>
       </div>
       <div class="mb-3">
-        <label for="cluster-txt-name" class="form-label">DNS-TXT-Recordname</label>
+        <label for="cluster-txt-name" class="form-label">{{ 'DNS TXT record name' if g.language == 'en' else 'DNS-TXT-Recordname' }}</label>
         <input class="form-control" id="cluster-txt-name" name="txt_record_name" value="{{ settings.txt_record_name }}" maxlength="253" required autocomplete="off" spellcheck="false">
-        <div class="form-text">Der TXT-Wert muss genau <code>simpleoffice-master-id=&lt;64-stelliger SHA-256-Fingerprint&gt;</code> mit dem Fingerprint des Knotens enthalten, der laut DNS die Autorität sein soll. Beispiel: <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
+        <div class="form-text">{{ 'The TXT value must contain exactly' if g.language == 'en' else 'Der TXT-Wert muss genau' }} <code>simpleoffice-master-id=&lt;{{ '64-char SHA-256 fingerprint' if g.language == 'en' else '64-stelliger SHA-256-Fingerprint' }}&gt;</code> {{ 'with the fingerprint of the node that should be the authority per DNS. Example:' if g.language == 'en' else 'mit dem Fingerprint des Knotens enthalten, der laut DNS die Autorität sein soll. Beispiel:' }} <code>_simpleoffice-master.simpleoffice4me.back2heaven.de</code>.</div>
       </div>
     </div>
-    <div class="card-footer d-flex justify-content-end"><button class="btn btn-primary" type="submit">Einstellungen speichern</button></div>
+    <div class="card-footer d-flex justify-content-end"><button class="btn btn-primary" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button></div>
   </form>
 </main>
 {% endblock %}

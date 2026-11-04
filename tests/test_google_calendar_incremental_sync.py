@@ -1,11 +1,13 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
+from flask import Flask
+
+from app import app_config_store
 from app.calendar_store import CalendarStore
 from app.calendar_collections import CalendarCollections
 from app.google_calendar_sync import GoogleCalendarError, GoogleCalendarSync, GoogleGone, MAX_PAGES
@@ -59,11 +61,20 @@ class GoogleCalendarIncrementalSyncTest(unittest.TestCase):
             "refresh_token": "refresh-token", "calendar_id": "primary",
             "target_calendar_id": "default",
         }})
-        self.env = patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON": self.config}, clear=False)
-        self.env.start()
+        self.flask = Flask(__name__)
+        self.flask.config.update(SECRET_KEY="google-calendar-test-secret")
+        self.context = self.flask.app_context()
+        self.context.push()
+        self.addCleanup(self.context.pop)
+        patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        app_config_store.put_secret("marketplace", "google_calendar_accounts_json", self.config)
 
     def tearDown(self):
-        self.env.stop()
         self.temp.cleanup()
 
     def test_mapping_preserves_timezone_recurrence_attendees_and_conference(self):
@@ -190,8 +201,8 @@ class GoogleCalendarIncrementalSyncTest(unittest.TestCase):
         self.assertEqual(before["start"], after["start"])
 
     def test_invalid_configuration_is_safe_for_calendar_page(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON": "{"}, clear=False):
-            status = GoogleCalendarSync(self.root).status("alice")
+        app_config_store.put_secret("marketplace", "google_calendar_accounts_json", "{")
+        status = GoogleCalendarSync(self.root).status("alice")
         self.assertFalse(status["configured"])
         self.assertIn("invalid JSON", status["configuration_error"])
 
@@ -207,8 +218,8 @@ class GoogleCalendarIncrementalSyncTest(unittest.TestCase):
         calendars.update_sharing("team", {"alice": "edit"}, "bob")
         config = json.loads(self.config); config["alice"]["target_calendar_id"] = "team"
         transport = ScriptedTransport([{"items": [google_event()], "nextSyncToken": "sync-1"}])
-        with patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON": json.dumps(config)}, clear=False):
-            GoogleCalendarSync(self.root, transport).synchronize("alice", apply=True)
+        app_config_store.put_secret("marketplace", "google_calendar_accounts_json", json.dumps(config))
+        GoogleCalendarSync(self.root, transport).synchronize("alice", apply=True)
         event = CalendarStore(self.root).events("alice")[0]
         self.assertEqual("bob", event["owner"])
         self.assertEqual("edit", event["access"]["alice"])
@@ -220,9 +231,9 @@ class GoogleCalendarIncrementalSyncTest(unittest.TestCase):
         calendars.update_sharing("team", {"alice": "read"}, "bob")
         config = json.loads(self.config); config["alice"]["target_calendar_id"] = "team"
         transport = ScriptedTransport([])
-        with patch.dict(os.environ, {"SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON": json.dumps(config)}, clear=False):
-            with self.assertRaisesRegex(ValueError, "not permitted"):
-                GoogleCalendarSync(self.root, transport).synchronize("alice", apply=True)
+        app_config_store.put_secret("marketplace", "google_calendar_accounts_json", json.dumps(config))
+        with self.assertRaisesRegex(ValueError, "not permitted"):
+            GoogleCalendarSync(self.root, transport).synchronize("alice", apply=True)
         self.assertEqual([], transport.calls)
 
 

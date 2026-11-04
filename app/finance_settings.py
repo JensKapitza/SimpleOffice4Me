@@ -67,3 +67,51 @@ def validate_finance_settings(finance: Any) -> dict[str, Any]:
         "statement_import_limit_bytes": import_limit,
         "statement_staging_ttl_seconds": staging_ttl,
     }
+
+
+def normalize_finance_settings(finance: Any) -> dict[str, Any]:
+    """Normalize legacy persisted values independently without data loss.
+
+    One invalid stored field must not reset unrelated valid controls when a
+    later partial update writes the normalized settings back.
+    """
+    source = finance if isinstance(finance, dict) else {}
+    normalized = {
+        "bank_browser_enabled": source.get("bank_browser_enabled", True),
+        "bank_browser_timeout_seconds": source.get(
+            "bank_browser_timeout_seconds", DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+        ),
+        "statement_import_limit_bytes": source.get(
+            "statement_import_limit_bytes", DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+        ),
+        "statement_staging_ttl_seconds": source.get(
+            "statement_staging_ttl_seconds", DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+        ),
+    }
+    if not isinstance(normalized["bank_browser_enabled"], bool):
+        normalized["bank_browser_enabled"] = True
+    ranges = {
+        "bank_browser_timeout_seconds": (
+            MIN_BANK_BROWSER_TIMEOUT_SECONDS, MAX_BANK_BROWSER_TIMEOUT_SECONDS,
+        ),
+        "statement_import_limit_bytes": (
+            MIN_FINANCE_IMPORT_LIMIT_BYTES, MAX_FINANCE_IMPORT_LIMIT_BYTES,
+        ),
+        "statement_staging_ttl_seconds": (
+            MIN_FINANCE_STAGING_TTL_SECONDS, MAX_FINANCE_STAGING_TTL_SECONDS,
+        ),
+    }
+    defaults = {
+        "bank_browser_timeout_seconds": DEFAULT_BANK_BROWSER_TIMEOUT_SECONDS,
+        "statement_import_limit_bytes": DEFAULT_FINANCE_IMPORT_LIMIT_BYTES,
+        "statement_staging_ttl_seconds": DEFAULT_FINANCE_STAGING_TTL_SECONDS,
+    }
+    for key, (minimum, maximum) in ranges.items():
+        value = normalized[key]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int)
+            or not minimum <= value <= maximum
+        ):
+            normalized[key] = defaults[key]
+    return normalized

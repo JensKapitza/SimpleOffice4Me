@@ -15,9 +15,11 @@ from app import (
     configured_webdav_upload_scan,
     google_oauth_credentials,
 )
+from app import app_config_store
 from app import auth
 from app import db as database
 from app.secret_key import load_or_create_secret_key
+from app.settings_store import SettingsStore
 
 
 class _Response:
@@ -83,57 +85,78 @@ class AuthTest(unittest.TestCase):
                 load_or_create_secret_key(key_file)
             self.assertEqual("too-short\n", key_file.read_text(encoding="utf-8"))
 
-    def test_upload_limit_configuration_is_bounded(self):
-        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "1024"}, clear=True):
-            self.assertEqual(1024 * MIB, configured_upload_limit_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "invalid"}, clear=True):
+    def test_upload_limit_comes_from_settings_file_not_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            self.assertEqual(512 * MIB, configured_upload_limit_bytes(root))
+            store.save({"media": {"upload_limit_mib": 1024}}, "auth-test")
+            self.assertEqual(1024 * MIB, configured_upload_limit_bytes(root))
+            with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "2048"}, clear=True):
+                self.assertEqual(1024 * MIB, configured_upload_limit_bytes(root))
             self.assertEqual(512 * MIB, configured_upload_limit_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_MAX_UPLOAD_MIB": "99999"}, clear=True):
-            self.assertEqual(4096 * MIB, configured_upload_limit_bytes())
 
-    def test_webdav_quota_is_optional_bounded_and_invalid_values_disable_it(self):
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "2048"}, clear=True):
-            self.assertEqual(2048 * MIB, configured_webdav_quota_bytes())
-        for value in ("", "invalid", "-1", "0"):
-            with self.subTest(value=value), patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": value}, clear=True):
-                self.assertEqual(0, configured_webdav_quota_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "999999999"}, clear=True):
-            self.assertEqual(1024 * 1024 * MIB, configured_webdav_quota_bytes())
+    def test_webdav_quota_comes_from_settings_file_not_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            self.assertEqual(0, configured_webdav_quota_bytes(root))
+            store.save({"network": {"webdav_quota_mib": 2048}}, "auth-test")
+            self.assertEqual(2048 * MIB, configured_webdav_quota_bytes(root))
+            with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUOTA_MIB": "1024"}, clear=True):
+                self.assertEqual(2048 * MIB, configured_webdav_quota_bytes(root))
+            self.assertEqual(0, configured_webdav_quota_bytes())
 
-    def test_webdav_clamav_is_opt_in_and_quarantine_capacity_is_bounded(self):
-        for value in ("1", "true", "YES", "on"):
-            with self.subTest(value=value), patch.dict(
-                "os.environ", {"SIMPLEOFFICE_WEBDAV_CLAMAV": value}, clear=True
-            ):
-                self.assertTrue(configured_webdav_upload_scan())
-        for value in ("", "0", "false", "disabled"):
-            with self.subTest(value=value), patch.dict(
-                "os.environ", {"SIMPLEOFFICE_WEBDAV_CLAMAV": value}, clear=True
-            ):
-                self.assertFalse(configured_webdav_upload_scan())
+    def test_webdav_clamav_is_opt_in_from_settings_file_not_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            self.assertFalse(configured_webdav_upload_scan(root))
+            store.save({"network": {"webdav_clamav_enabled": True}}, "auth-test")
+            self.assertTrue(configured_webdav_upload_scan(root))
+            with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_CLAMAV": "0"}, clear=True):
+                self.assertTrue(configured_webdav_upload_scan(root))
+            self.assertFalse(configured_webdav_upload_scan())
 
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "2048"}, clear=True):
-            self.assertEqual(2048 * MIB, configured_webdav_quarantine_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "invalid"}, clear=True):
-            self.assertEqual(1024 * MIB, configured_webdav_quarantine_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "0"}, clear=True):
-            self.assertEqual(MIB, configured_webdav_quarantine_bytes())
-        with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "999999999"}, clear=True):
-            self.assertEqual(64 * 1024 * MIB, configured_webdav_quarantine_bytes())
+    def test_webdav_quarantine_capacity_is_bounded_from_settings_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            store = SettingsStore(root)
+            store.save({"network": {"webdav_quarantine_mib": 2048}}, "auth-test")
+            self.assertEqual(2048 * MIB, configured_webdav_quarantine_bytes(root))
+            with patch.dict("os.environ", {"SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB": "1"}, clear=True):
+                self.assertEqual(2048 * MIB, configured_webdav_quarantine_bytes(root))
+            for raw in ("invalid", 0, 999999999):
+                path = root / ".simpleoffice-meta" / "settings.json"
+                path.write_text(json.dumps({"network": {"webdav_quarantine_mib": raw}}), encoding="utf-8")
+                with self.subTest(raw=raw):
+                    self.assertEqual(1024 * MIB, configured_webdav_quarantine_bytes(root))
 
     def test_google_web_oauth_json_is_loaded_from_protected_file(self):
         with tempfile.TemporaryDirectory() as temp:
             credentials_file = Path(temp) / "google-client.json"
             credentials_file.write_text(json.dumps({"web": {"client_id": "json-client", "client_secret": "json-secret", "redirect_uris": ["https://office.example.test/auth/google/callback"]}}), encoding="utf-8")
-            with patch.dict("os.environ", {"SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE": str(credentials_file)}, clear=True):
+            with patch.object(
+                app_config_store, "settings_path",
+                return_value=Path(temp) / "app-config.json",
+            ):
+                app_config_store.put("marketplace", {"google_credentials_file": str(credentials_file)})
                 self.assertEqual(("json-client", "json-secret"), google_oauth_credentials())
 
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
-        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URIS", "MAX_CONTENT_LENGTH", "TESTING")}
-        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"), DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"), GOOGLE_OAUTH_CLIENT_ID="test.apps.googleusercontent.com", GOOGLE_OAUTH_CLIENT_SECRET="secret", GOOGLE_OAUTH_REDIRECT_URI="https://example.test/auth/google/callback", GOOGLE_OAUTH_REDIRECT_URIS=())
+        self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "GOOGLE_OAUTH_REDIRECT_URI", "GOOGLE_OAUTH_REDIRECT_URIS", "MAX_CONTENT_LENGTH", "TESTING")}
+        app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"), DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"), GOOGLE_OAUTH_REDIRECT_URI="https://example.test/auth/google/callback", GOOGLE_OAUTH_REDIRECT_URIS=())
+        patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with app.app_context():
             database.ensure_auth_database()
+            app_config_store.put("marketplace", {"google_client_id": "test.apps.googleusercontent.com"})
+            app_config_store.put_secret("marketplace", "google_client_secret", "secret")
         self.client = app.test_client()
 
     def tearDown(self):
@@ -212,10 +235,10 @@ class AuthTest(unittest.TestCase):
             self.assertNotIn("plain-access-secret", oauth["access_token"])
             self.assertNotIn("plain-refresh-secret", oauth["refresh_token"])
 
-    # This security check temporarily uses production flags. A mail retry worker
+    # This security check temporarily uses production flags. The mail retry worker
     # must not outlive the disposable auth fixture or race its directory cleanup.
-    @patch.dict(os.environ, {"SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER": "0"})
-    def test_public_registration_requires_approval_after_bootstrap(self):
+    @patch("app.mail_case_federation_runtime._enabled", return_value=False)
+    def test_public_registration_requires_approval_after_bootstrap(self, _worker_enabled):
         self.client.post("/auth/register", data={"username": "owner", "password": "sicheres-passwort"})
         previous = {key: app.config.get(key) for key in ("TESTING", "TEST_CSRF_PROTECTION", "ALLOW_PUBLIC_REGISTRATION")}
         app.config.update(TESTING=False, TEST_CSRF_PROTECTION=False, ALLOW_PUBLIC_REGISTRATION=False)

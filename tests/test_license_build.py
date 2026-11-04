@@ -66,7 +66,8 @@ class LicenseBuildTests(unittest.TestCase):
         routes = (ROOT / "app" / "license_routes.py").read_text(encoding="utf-8")
         self.assertNotIn("os.environ", source)
         self.assertNotIn("SIMPLEOFFICE_LICENSE_MASTER_URL", routes)
-        self.assertIn("SIMPLEOFFICE_LICENSE_MASTER_TOKEN", routes)
+        self.assertNotIn("SIMPLEOFFICE_LICENSE_MASTER_TOKEN", routes)
+        self.assertIn("license_secrets", routes)
 
     def test_master_identity_is_reported_on_install_start_and_status(self):
         launcher = (ROOT / "tools" / "launcher.py").read_text(encoding="utf-8")
@@ -89,7 +90,8 @@ class LicenseBuildTests(unittest.TestCase):
         routes = (ROOT / "app" / "license_routes.py").read_text(encoding="utf-8")
         self.assertIn("license-blocked-banner", layout)
         self.assertIn("licenseBlockedModal", layout)
-        self.assertIn("SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT", routes)
+        self.assertIn("refuse_bad_client", routes)
+        self.assertNotIn("SIMPLEOFFICE_FEDERATION_REFUSE_BAD_CLIENT", routes)
         self.assertIn("X-SimpleOffice-Client-State", routes)
         self.assertIn("bad_client_refused", routes)
 

@@ -147,9 +147,9 @@ def create_booking():
         booking = EuerStore(_root()).add(values, _actor())
     except ValueError as exc:
         document = _document_or_404(document_id) if document_id else None
-        flash(f"Buchung nicht gespeichert: {exc}")
+        flash(translate(g.language, "euer.booking.failed").format(exc=exc))
         return render_template("documents/euer_booking_form.html", values=values, document=document, categories=EUER_CATEGORIES), 400
-    flash("Beleg wurde gebucht und im Änderungsprotokoll festgehalten.")
+    flash(translate(g.language, "euer.receipt.booked"))
     if request.form.get("return_to") == "document" and booking.get("document_id"):
         return redirect(url_for("documents.detail", document_id=booking["document_id"]))
     return redirect(url_for(".overview", year=booking["booking_date"][:4]))
@@ -177,10 +177,10 @@ def book_invoice_payment(invoice_id: str, payment_key: str):
         abort(404)
     try:
         booking = EuerStore(root).add_invoice_payment(invoice_row, payment, actor)
-        flash(f"Zahlung zu Rechnung {invoice_row.get('invoice_number', invoice_id)} wurde gebucht.")
+        flash(translate(g.language, "euer.payment.booked").format(number=invoice_row.get('invoice_number', invoice_id)))
         return redirect(url_for(".overview", year=booking["booking_date"][:4]))
     except ValueError as exc:
-        flash(f"Zahlung nicht gebucht: {exc}")
+        flash(translate(g.language, "euer.payment.failed").format(exc=exc))
         return redirect(url_for(".overview", year=str(payment.get("paid_at", date.today().isoformat()))[:4]))
 
 
@@ -194,12 +194,12 @@ def reverse_booking(booking_id: str):
             _actor(),
             is_admin=_is_admin(),
         )
-        flash("Buchung wurde storniert; der ursprüngliche Eintrag bleibt nachvollziehbar.")
+        flash(translate(g.language, "euer.booking.reversed"))
         return redirect(url_for(".overview", year=booking["booking_date"][:4]))
     except PermissionError:
         abort(403)
     except ValueError as exc:
-        flash(f"Stornierung nicht möglich: {exc}")
+        flash(translate(g.language, "euer.reverse.failed").format(exc=exc))
         return redirect(url_for(".overview", year=_year()))
 
 
@@ -210,9 +210,9 @@ def update_settings():
         abort(403)
     try:
         EuerStore(_root()).save_settings(request.form.to_dict(), _actor())
-        flash("Umsatzsteuer-Einstellung gespeichert.")
+        flash(translate(g.language, "euer.vat.saved"))
     except ValueError as exc:
-        flash(f"Einstellung nicht gespeichert: {exc}")
+        flash(translate(g.language, "euer.setting.failed").format(exc=exc))
     return redirect(url_for(".overview", year=request.form.get("year", date.today().year)))
 
 
@@ -230,4 +230,5 @@ def export_csv():
 # bookkeeping blueprint. This avoids a second application bootstrap path while
 # exposing /documents/business/bookkeeping/finances and all import actions.
 from .finance_web import bp as finance_bp
+from .translations import translate
 bp.register_blueprint(finance_bp)

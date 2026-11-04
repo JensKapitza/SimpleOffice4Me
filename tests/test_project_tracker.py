@@ -6,7 +6,6 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from app.project_git import ProjectGitError, ProjectGitService
 from app.project_markdown import render_markdown
@@ -117,11 +116,10 @@ class ProjectTrackerTests(unittest.TestCase):
         self.assertEqual("Refs #1", service.commits_for_issue(1)[0]["subject"])
 
         outside = Path(self.temp.name).parent
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PROJECT_REPO_ROOTS": ""}, clear=False):
-            denied = ProjectGitService(self.root, {**self.project, "repository_path": str(outside)})
-            self.assertFalse(denied.available())
-            with self.assertRaises(ProjectGitError):
-                denied.repository_path()
+        denied = ProjectGitService(self.root, {**self.project, "repository_path": str(outside)})
+        self.assertFalse(denied.available())
+        with self.assertRaises(ProjectGitError):
+            denied.repository_path()
 
     @unittest.skipUnless(shutil.which("git"), "git is required")
     def test_empty_git_repository_stays_browsable_and_untracked_files_are_dirty(self):

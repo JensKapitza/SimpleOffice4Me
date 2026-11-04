@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import shutil
 import time
 from pathlib import Path
@@ -34,6 +33,7 @@ from .federation_core import (
     write_chunk,
     choose_replication_targets,
 )
+from . import federation_local_identity as _identity
 from .federation_store import FederationStore
 from .federation_worker import (
     _find_blob,
@@ -50,7 +50,7 @@ MAX_RESOURCE_BYTES = 16 * 1024 * 1024
 
 
 def _authorized() -> bool:
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if not expected:
         return bool(current_app.testing)
     header = request.headers.get("Authorization", "")

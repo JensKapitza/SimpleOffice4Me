@@ -193,10 +193,16 @@ def analyze_photo(
                 "provider_label", "model",
             )
         } | {
+            # Coded backend errors carry stable, localizable texts (kept for
+            # request-language rendering). Uncoded backend errors never leak
+            # raw text; they fall back to the generic message.
             "error": (
-                "ML-Analyse ist vorübergehend nicht verfügbar."
-                if ml_result.get("error") else ""
+                ml_result.get("error", "")
+                if ml_result.get("error_code")
+                else ("ML-Analyse ist vorübergehend nicht verfügbar."
+                      if ml_result.get("error") else "")
             ),
+            "error_code": str(ml_result.get("error_code", "") or ""),
         },
         "duplicates": duplicates,
         "missing_fields": missing,

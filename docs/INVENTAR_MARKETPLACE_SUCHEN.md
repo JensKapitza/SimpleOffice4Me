@@ -80,26 +80,19 @@ Soweit die jeweilige Quelle sie liefert, können übernommen werden:
 
 ## Optionale Amazon-API-Konfiguration
 
-```text
-SIMPLEOFFICE_AMAZON_ACCESS_KEY
-SIMPLEOFFICE_AMAZON_SECRET_KEY
-SIMPLEOFFICE_AMAZON_PARTNER_TAG
-```
+Access Key, Secret Key und Partner Tag werden unter Admin → Einstellungen →
+Integrationen → Marketplace & OAuth hinterlegt (verschlüsselt im App-Store,
+keine Umgebungsvariablen).
 
 Verwendet wird der deutsche Marketplace. API-Zugangsdaten bleiben ausschließlich serverseitig.
 
 ## Optionale eBay-API-Konfiguration
 
-```text
-SIMPLEOFFICE_EBAY_CLIENT_ID
-SIMPLEOFFICE_EBAY_CLIENT_SECRET
-```
+Client ID und Client Secret werden unter Admin → Einstellungen → Integrationen →
+Marketplace & OAuth hinterlegt (verschlüsselt im App-Store, keine
+Umgebungsvariablen).
 
-Optional:
-
-```text
-SIMPLEOFFICE_EBAY_MARKETPLACE_ID=EBAY_DE
-```
+Optional (Marktplatz-Kennung, leer = `EBAY_DE`): eBay Marketplace ID ebendort.
 
 Der OAuth-App-Token verbleibt serverseitig und wird nur kurzzeitig im Arbeitsspeicher gehalten.
 

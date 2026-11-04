@@ -170,13 +170,14 @@ dokumentiert.
   nicht sicher verfügbar; eine vorhandene Revision bleibt unverändert.
 - `502`: `Destination` verweist auf einen anderen Host oder Benutzerbaum.
 
-Uploads unterliegen `SIMPLEOFFICE_MAX_UPLOAD_MIB`. Temporärdateien werden nach
+Uploads unterliegen dem gespeicherten Uploadlimit. Temporärdateien werden nach
 Fehlern entfernt. Ein Prozessabbruch vor dem atomaren Austausch lässt das
 bisherige Dokument unverändert; ein nicht mehr verwendeter Lock läuft nach
 höchstens einer Stunde ab.
 
-Mit `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` kann zusätzlich ein standardmäßig
-deaktiviertes Kontingent für den sichtbaren Dateibaum gesetzt werden. Clients
+In den Einstellungen (Netzwerk & Synchronisation) kann zusätzlich ein
+standardmäßig deaktiviertes Kontingent für den sichtbaren Dateibaum gesetzt
+werden (`SIMPLEOFFICE_WEBDAV_QUOTA_MIB` ist entfernt). Clients
 lesen Belegung und Rest über die geschützten Live Properties
 `DAV:quota-used-bytes` und `DAV:quota-available-bytes`. Berechnung, Lock-Refresh,
 Lock-Discovery und 507-Verhalten sind in
@@ -193,8 +194,9 @@ Aktuelle Clients und Integrationsskripte können Uploads und vollständige oder
 fortgesetzte Downloads zusätzlich nach
 [RFC 9530 kryptografisch prüfen](WEBDAV_INTEGRITAET_RFC9530.md), ohne dass
 LibreOffice oder Dateimanager diese Erweiterung unterstützen müssen.
-Mit `SIMPLEOFFICE_WEBDAV_CLAMAV=1` kann außerdem jeder Datei-`PUT` vor der
-atomaren Veröffentlichung in einer privaten Quarantäne mit ClamAV geprüft
+Mit der eingeschalteten WebDAV-Upload-Prüfung (Admin → Einstellungen →
+Netzwerk, `network.webdav_clamav_enabled`) kann außerdem jeder Datei-`PUT` vor
+der atomaren Veröffentlichung in einer privaten Quarantäne mit ClamAV geprüft
 werden. Installation, Signaturupdates, Kapazitätsgrenze, Audit und bewusstes
 Fail-closed-Verhalten stehen in
 [ClamAV-Prüfung vor WebDAV-Uploads](WEBDAV_UPLOADS_CLAMAV.md).

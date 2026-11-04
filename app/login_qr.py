@@ -1,14 +1,18 @@
-"""QR login addresses; a code is a URL shortcut, never an authentication token."""
+"""QR login addresses; a code is a URL shortcut, never an authentication token.
+
+Display switches, extra ports and explicit URLs live in the settings file
+(Admin → Integrations & services → Login QR codes); no environment.
+"""
 from __future__ import annotations
 
 import base64
 import ipaddress
-import os
 import socket
 import re
+from typing import Any
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from flask import request, url_for
+from flask import current_app, request, url_for
 
 from .federation_qr_image import render_qr_svg
 
@@ -52,8 +56,9 @@ def _addresses() -> list[str]:
     )
 
 
-def _enabled(name):
-    return os.getenv(name, "1").strip().casefold() in {"1", "true", "yes", "on"}
+def _config() -> dict[str, Any]:
+    from .settings_store import SettingsStore
+    return SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["integrations"]
 
 
 def _target_url(value, *, base=False):
@@ -95,7 +100,8 @@ def _target_url(value, *, base=False):
 
 def login_qr_targets() -> list[dict[str, str]]:
     """Bounded URL shortcuts, with private candidates only for direct local clients."""
-    if not _enabled("SIMPLEOFFICE_LOGIN_QR"):
+    config = _config()
+    if not config.get("login_qr_enabled", True):
         return []
     try:
         current = _target_url(url_for("auth.login", _external=True))
@@ -112,9 +118,9 @@ def login_qr_targets() -> list[dict[str, str]]:
             seen.add(value)
             candidates.append((label, value))
 
-    if _enabled("SIMPLEOFFICE_LOGIN_QR_LAN") and _local_client(parsed.hostname):
+    if config.get("login_qr_lan_enabled", True) and _local_client(parsed.hostname):
         allowed_ports = [parsed.port or (443 if parsed.scheme == "https" else 80)]
-        for entry in os.getenv("SIMPLEOFFICE_LOGIN_QR_PORTS", "")[:2048].split(","):
+        for entry in str(config.get("login_qr_ports") or "")[:2048].split(","):
             try:
                 port = int(entry.strip())
                 if 1 <= port <= 65535 and port not in allowed_ports and len(allowed_ports) < 20:
@@ -125,7 +131,7 @@ def login_qr_targets() -> list[dict[str, str]]:
             for port in allowed_ports:
                 add(f"LAN {ip}:{port}", _target_url(
                     urlunsplit((parsed.scheme, f"{ip}:{port}", parsed.path, "", ""))))
-        for value in os.getenv("SIMPLEOFFICE_LOGIN_QR_URLS", "")[:8192].split(","):
+        for value in str(config.get("login_qr_urls") or "")[:8192].split(","):
             add("Konfigurierte Adresse", _target_url(value.strip(), base=True))
     result = []
     for label, url in candidates:

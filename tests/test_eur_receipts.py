@@ -50,7 +50,7 @@ class EurReceiptsTest(unittest.TestCase):
         row = EurReceiptStore(self.root).list("jens", year=2026)[0]
         response = self.client.post(f"/documents/accounting/receipts/{row['receipt_id']}/review", data={"year": "2026", "reviewed": "1"}, follow_redirects=True)
 
-        self.assertIn("Unvollständig", response.get_data(as_text=True))
+        self.assertIn("Incomplete", response.get_data(as_text=True))
         self.assertEqual("incomplete", EurReceiptStore(self.root).get(row["receipt_id"], "jens")["status"])
 
     def test_review_is_audited_and_can_be_reopened(self):
@@ -67,7 +67,7 @@ class EurReceiptsTest(unittest.TestCase):
             "payment_method": "bank", "party": "Bürohandel GmbH", "receipt_number": "B-42", "category": "Bürobedarf",
             "business_purpose": "Büromaterial", "gross": "119,00", "vat_rate": "19", "note": "ergänzt",
         }, follow_redirects=True)
-        self.assertIn("Prüfbereit", response.get_data(as_text=True))
+        self.assertIn("Ready to check", response.get_data(as_text=True))
         self.assertEqual("ready", EurReceiptStore(self.root).get(row["receipt_id"], "jens")["status"])
 
     def test_exports_csv_and_original_receipts(self):

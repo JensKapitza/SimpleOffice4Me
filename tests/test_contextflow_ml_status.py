@@ -32,6 +32,21 @@ class FakeTagsResponse:
         return self._stream.read(size)
 
 
+def _seed_vision_key(key: str) -> None:
+    """Store a Meta key via the admin settings file (no environment)."""
+    from app import app as flask_app
+    from app import vision_config
+
+    with flask_app.app_context():
+        vision_config.persist(vision_config.prepare({"meta_api_key": key}))
+
+
+def _clear_vision_key() -> None:
+    from app import vision_config
+
+    vision_config.settings_path().unlink(missing_ok=True)
+
+
 class MlStatusTests(unittest.TestCase):
     password = "contextflow-ml-status-password"
     keys = (
@@ -48,6 +63,12 @@ class MlStatusTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory()
+        self._vision_path = mock.patch(
+            "app.vision_config.default_config_path",
+            return_value=Path(self.temp.name) / "mini.json",
+        )
+        self._vision_path.start()
+        self.addCleanup(self._vision_path.stop)
         self.saved = {key: app.config.get(key) for key in self.keys}
         app.config.update(
             DATABASE=str(Path(self.temp.name) / "auth.sqlite"),
@@ -177,27 +198,22 @@ class MlStatusTests(unittest.TestCase):
 
     def test_meta_key_presence_never_leaks_value(self) -> None:
         secret = "test-only-dummy-meta-key-never-real-02"
-        with mock.patch.dict("os.environ", {"MODEL_API_KEY": secret}):
-            response = self.client.get("/contextflow/ml-status")
+        _seed_vision_key(secret)
+        response = self.client.get("/contextflow/ml-status")
         payload = response.get_json()
         self.assertTrue(payload["meta"]["key_present"])
         self.assertEqual(payload["meta"]["model"], "muse-spark-1.3-contributor")
         self.assertNotIn(secret, response.get_data(as_text=True))
-        with mock.patch.dict("os.environ", {}, clear=False):
-            import os
-
-            os.environ.pop("MODEL_API_KEY", None)
-            response = self.client.get("/contextflow/ml-status")
+        _clear_vision_key()
+        response = self.client.get("/contextflow/ml-status")
         self.assertFalse(response.get_json()["meta"]["key_present"])
 
     def test_meta_probe_needs_server_consent(self) -> None:
         app.config.update(CONTEXTFLOW_VISION_PROVIDER="meta")
-        with (
-            mock.patch.dict("os.environ", {"MODEL_API_KEY": "k"}),
-            mock.patch(
-                "app.contextflow.vision.check_meta_model"
-            ) as check,
-        ):
+        _seed_vision_key("k")
+        with mock.patch(
+            "app.contextflow.vision.check_meta_model"
+        ) as check:
             response = self.client.get("/contextflow/ml-status")
         check.assert_not_called()
         payload = response.get_json()
@@ -211,12 +227,10 @@ class MlStatusTests(unittest.TestCase):
             CONTEXTFLOW_VISION_PROVIDER="meta",
             CONTEXTFLOW_META_CONSENT=True,
         )
-        with (
-            mock.patch.dict("os.environ", {"MODEL_API_KEY": "k"}),
-            mock.patch(
-                "app.contextflow.vision.check_meta_model"
-            ) as check,
-        ):
+        _seed_vision_key("k")
+        with mock.patch(
+            "app.contextflow.vision.check_meta_model"
+        ) as check:
             response = self.client.get("/contextflow/ml-status")
         check.assert_not_called()
         payload = response.get_json()
@@ -235,13 +249,11 @@ class MlStatusTests(unittest.TestCase):
             CONTEXTFLOW_VISION_PROVIDER="meta",
             CONTEXTFLOW_META_CONSENT=True,
         )
-        with (
-            mock.patch.dict("os.environ", {"MODEL_API_KEY": "k"}),
-            mock.patch(
-                "app.contextflow.vision.check_meta_model",
-                return_value=(True, ""),
-            ) as check,
-        ):
+        _seed_vision_key("k")
+        with mock.patch(
+            "app.contextflow.vision.check_meta_model",
+            return_value=(True, ""),
+        ) as check:
             response = self.client.get("/contextflow/ml-status")
         check.assert_called_once_with("k")
         payload = response.get_json()
@@ -281,13 +293,14 @@ class MlBadgeRenderingTests(unittest.TestCase):
         guard = "ollama.model_allowed !== true"
         self.assertIn(guard, self.script)
         self.assertLess(
-            self.script.index(guard), self.script.index("ML aktiv")
+            self.script.index(guard),
+            self.script.index("STR.activeLocal(ollama.model)"),
         )
-        self.assertIn("ML: Modell nicht freigegeben · ${ollama.model}", self.script)
+        self.assertIn("ML: Modell nicht freigegeben · ${model}", self.script)
 
     def test_allowed_local_model_shows_provider_and_id(self) -> None:
         self.assertIn(
-            "ML aktiv · Meta-Modell lokal via Ollama · ${ollama.model}",
+            "ML aktiv · Meta-Modell lokal via Ollama · ${model}",
             self.script,
         )
 
@@ -295,7 +308,7 @@ class MlBadgeRenderingTests(unittest.TestCase):
         self.assertIn("kein API-Schlüssel", self.script)
         self.assertIn("Modell nicht bestätigt", self.script)
         self.assertIn("Modell nicht geprüft", self.script)
-        self.assertIn("mlBadge.title = `Modell: ${meta.model", self.script)
+        self.assertIn("mlBadge.title = `${STR.modelLabel}${meta.model", self.script)
 
 
 if __name__ == "__main__":

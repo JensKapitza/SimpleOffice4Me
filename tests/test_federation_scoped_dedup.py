@@ -1,10 +1,12 @@
 import hashlib
-import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from flask import Flask
+
+from app import app_config_store
 from app.federation_blocks import FederationBlockStore
 from app.federation_scoped_dedup import scoped_deduplicated_download
 from app.federation_store import FederationStore
@@ -71,18 +73,20 @@ class FederationScopedDedupTest(unittest.TestCase):
                 "blocks": [{"index": 0, "offset": 0, "length": len(self.first), "sha512": self.first_hash}],
             },
         )
-        self.environment = patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": self.shared_bearer,
-                "SIMPLEOFFICE_FEDERATION_PEER_ID": "local-peer",
-            },
-            clear=False,
+        self.app = Flask(__name__)
+        self.app.config.update(SECRET_KEY="scoped-dedup-test-secret")
+        self.context = self.app.app_context()
+        self.context.push()
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
         )
-        self.environment.start()
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", self.shared_bearer)
+        app_config_store.put("federation", {"peer_id": "local-peer"})
 
     def tearDown(self):
-        self.environment.stop()
+        self.context.pop()
         self.temp.cleanup()
 
     def test_local_block_is_reused_without_revealing_its_hash_to_peer(self):

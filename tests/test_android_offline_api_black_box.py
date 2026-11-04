@@ -6,19 +6,19 @@ and IDs are opaque values received from the API, not calculated by test code.
 """
 from __future__ import annotations
 
-import os
-from unittest.mock import patch
+from pathlib import Path
 
 from app import app
+from app.settings_store import SettingsStore
 from http_api_fixture import PublicHttpTestCase
 
 
 class AndroidOfflineApiBlackBoxTests(PublicHttpTestCase):
     def setUp(self):
         super().setUp()
-        environment = patch.dict(os.environ, {"SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED": "1"})
-        environment.start()
-        self.addCleanup(environment.stop)
+        SettingsStore(Path(app.config["DOCUMENT_ROOT"])).save(
+            {"v3": {"v3.android_offline": True}}, "v3-android-blackbox",
+        )
         response = self.client.post(
             "/tasks/",
             data={

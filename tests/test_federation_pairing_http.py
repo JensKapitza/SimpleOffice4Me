@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -9,6 +8,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_discovery_http import bp
 from app.federation_identity import FederationIdentity
 from app.federation_pairing import FederationPairingTokens
@@ -33,15 +33,20 @@ class FederationPairingHttpTest(unittest.TestCase):
         self.context.push()
         self.addCleanup(self.context.pop)
         self.client = self.app.test_client()
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
-            identity = FederationIdentity(self.peer_root).public_identity()
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put("federation", {"peer_id": "peer-a"})
+        identity = FederationIdentity(self.peer_root).public_identity()
         FederationTrustStore(self.root).remember(
             "peer-a", "DE", identity["fingerprint"], "test", identity["public_key"]
         )
 
     def request(self, operation, *, code=""):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
-            return build_pairing_request(self.peer_root, operation, code=code)
+        app_config_store.put("federation", {"peer_id": "peer-a"})
+        return build_pairing_request(self.peer_root, operation, code=code)
 
     def post(self, path, body):
         return self.client.post(
@@ -91,8 +96,8 @@ class FederationPairingHttpTest(unittest.TestCase):
         self.assertEqual(response.json, {"error": "pairing_authentication_failed"})
 
     def test_stale_and_noncanonical_identity_requests_are_rejected(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
-            stale = build_pairing_request(self.peer_root, "status", timestamp=1)
+        app_config_store.put("federation", {"peer_id": "peer-a"})
+        stale = build_pairing_request(self.peer_root, "status", timestamp=1)
         response = self.post("/federation/v1/pairing/status", stale)
         self.assertEqual(response.status_code, 401)
 
@@ -103,8 +108,8 @@ class FederationPairingHttpTest(unittest.TestCase):
 
     def test_request_signed_by_a_replacement_key_is_rejected(self):
         other_root = Path(self.temp.name) / "other-peer"
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PEER_ID": "peer-a"}):
-            request_body = build_pairing_request(other_root, "status")
+        app_config_store.put("federation", {"peer_id": "peer-a"})
+        request_body = build_pairing_request(other_root, "status")
         response = self.post("/federation/v1/pairing/status", request_body)
         self.assertEqual(response.status_code, 401)
 

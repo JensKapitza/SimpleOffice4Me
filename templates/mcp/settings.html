@@ -5,7 +5,19 @@
   <h1 class="h2">ChatGPT- und MCP-Zugang</h1>
   <p class="text-secondary">MCP bedient SimpleOffice im Namen deines Kontos. Funktionssperren und Dateiordner-Rechte gelten unverändert.</p>
   {% if secret %}<div class="alert alert-warning"><strong>Zugang jetzt kopieren – er wird nicht erneut angezeigt.</strong><pre class="mt-2 mb-0 user-select-all">{{ secret }}</pre></div>{% endif %}
-  {% if g.user.is_admin %}<p><a href="{{ url_for('litellm_admin.index') }}">LiteLLM-Gateway administrieren</a></p>{% endif %}
+  {% if g.user.is_admin %}<p><a href="{{ url_for('litellm_admin.index') }}">{{ 'Administer LiteLLM gateway' if g.language == 'en' else 'LiteLLM-Gateway administrieren' }}</a> · <a href="{{ url_for('vision_admin.index') }}">{{ 'Vision / ML backend' if g.language == 'en' else 'Vision-/ML-Backend' }}</a></p>{% endif %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if g.user.is_admin %}<div class="row g-4 mb-4">
+    <section class="col-lg-6"><div class="card"><div class="card-header">{{ 'MCP service' if g.language == 'en' else 'MCP-Dienst' }}</div><div class="card-body"><form method="post"><input type="hidden" name="mcp_form" value="1">
+      <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="mcp_enabled" value="1" id="mcp-enabled" {{ 'checked' if mcp_enabled else '' }}><label class="form-check-label" for="mcp-enabled">{{ 'Enable MCP endpoint' if g.language == 'en' else 'MCP-Endpunkt aktivieren' }}</label></div>
+      <button type="submit" class="btn btn-primary">{{ 'Save' if g.language == 'en' else 'Speichern' }}</button>
+    </form></div></div></section>
+    <section class="col-lg-6"><div class="card"><div class="card-header">{{ 'Meta Model API key (admins only)' if g.language == 'en' else 'Meta Model API-Key (nur Admins)' }}</div><div class="card-body"><form method="post"><input type="hidden" name="meta_form" value="1">
+      <label class="form-label" for="meta_api_key">{{ 'Key (present)' if meta_key_configured else 'Key' if g.language == 'en' else ('Key (vorhanden)' if meta_key_configured else 'Key') }}</label><input class="form-control mb-3" id="meta_api_key" type="password" name="meta_api_key" autocomplete="new-password">
+      <div class="form-text mb-3">{{ 'Leave empty to keep the stored key. Stored encrypted, never displayed; also editable under Vision / ML.' if g.language == 'en' else 'Leer lassen, um den gespeicherten Key zu behalten. Wird verschlüsselt gespeichert, nie angezeigt; auch unter Vision / ML änderbar.' }}</div>
+      <button type="submit" class="btn btn-primary">{{ 'Save key' if g.language == 'en' else 'Key speichern' }}</button>
+    </form></div></div></section>
+  </div>{% endif %}
   <div class="row g-4">
     <section class="col-lg-5"><div class="card"><div class="card-header">Neuen Zugang anlegen</div><div class="card-body"><form method="post">
       <label class="form-label">Name</label><input class="form-control mb-3" required maxlength="80" name="name" placeholder="Mein ChatGPT">

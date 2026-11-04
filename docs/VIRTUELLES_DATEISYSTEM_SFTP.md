@@ -33,8 +33,9 @@ Ordner für jeden bekannten Benutzer eine Rolle gewählt werden:
 
 Regeln liegen in der bestehenden `.simpleoffice-folder.json`. Ein Ordner kann
 Rechte des Elternordners übernehmen und eigene Einträge überschreiben oder die
-Vererbung abschalten. Administratoren werden kommagetrennt über
-`SIMPLEOFFICE_DOCUMENT_ADMINS` konfiguriert. Bei genau einem Benutzer darf
+Vererbung abschalten. Administratoren werden kommagetrennt unter
+**Admin → Benutzer → Admin-Listen** konfiguriert
+(`SIMPLEOFFICE_DOCUMENT_ADMINS` ist entfernt). Bei genau einem Benutzer darf
 dieser die erste Regel selbst setzen; bei mehreren Benutzern ist aus
 Sicherheitsgründen ein expliziter Administrator erforderlich.
 
@@ -95,29 +96,28 @@ Die Passwortauthentifizierung ist aus Kompatibilitätsgründen standardmäßig a
 und kann dort deaktiviert werden. Dann
 werden nur registrierte SSH-Public-Keys akzeptiert; vorher sicherstellen, dass
 benötigte Schlüssel vorhanden sind. Das betrifft nicht den OpenSSH-Systemdienst
-und ist über die SimpleOffice-Adminoberfläche rückgängig zu machen. Bestehende
-`SIMPLEOFFICE_SFTP_PASSWORD_AUTH`-Werte werden bis zum ersten Speichern als
-Übergang übernommen. Der Erststart-Assistent weist auf den jeweils benötigten
+und ist über die SimpleOffice-Adminoberfläche rückgängig zu machen.
+Umgebungsvariablen werden dafür nicht mehr gelesen; maßgeblich ist allein die
+gespeicherte Einstellung. Der Erststart-Assistent weist auf den jeweils benötigten
 Anmeldemodus hin.
-Direkte Starts über `simpleoffice-sftp` können weiterhin die geschützte
-Umgebung verwenden:
+Nur direkte Starts über `simpleoffice-sftp` (ohne Mini-Service) verwenden
+weiterhin die geschützte Umgebung:
 
 ```bash
 export SIMPLEOFFICE_DOCUMENT_ROOT=/srv/simpleoffice/documents
-export SIMPLEOFFICE_DOCUMENT_ADMINS=jens
 export SIMPLEOFFICE_SFTP_HOST_KEY=/etc/simpleoffice/sftp_host_ed25519_key
 export SIMPLEOFFICE_SFTP_BIND=127.0.0.1
 export SIMPLEOFFICE_SFTP_PORT=2222
 export SIMPLEOFFICE_SFTP_MAX_BYTES=536870912
 export SIMPLEOFFICE_SFTP_MAX_CLIENTS=32
 export SIMPLEOFFICE_SFTP_PASSWORD_AUTH=false
+export SIMPLEOFFICE_RSYNC_ENABLED=false
 simpleoffice-sftp
 ```
 
 `SIMPLEOFFICE_SFTP_MAX_BYTES` begrenzt jeden Upload. Beim Mini-Service wird
-dieser Wert aus der persistenten SFTP-Einstellung gesetzt; bestehende
-Umgebungswerte werden übernommen, bis die Einstellungen erstmals gespeichert
-werden. Der Dienst prüft
+dieser Wert aus der persistenten SFTP-Einstellung gesetzt; Umgebungsvariablen
+werden dafür nicht gelesen. Der Dienst prüft
 Schreiboffset und Paketgröße vor dem Vergrößern des Speicherpuffers; auch Lücken
 zwischen Schreibpositionen zählen zur Dateigröße. Die Grenze bleibt für ein
 offenes Schreibhandle unverändert. Nach einer Grenzüberschreitung oder einem
@@ -127,8 +127,8 @@ Teildateien werden nicht angelegt. Ein neuer Upload benötigt ein neues Handle.
 
 `SIMPLEOFFICE_SFTP_MAX_CLIENTS` begrenzt die gleichzeitig bedienten Verbindungen
 des integrierten Servers. Der Standard ist 32; zulässig sind 1–512. Beim
-Mini-Service gilt die persistente Einstellung; vorhandene Umgebungswerte werden
-bis zum ersten Speichern übernommen. OpenSSH-Systembetrieb wird damit nicht
+Mini-Service gilt die persistente Einstellung; Umgebungsvariablen werden dafür
+nicht gelesen. OpenSSH-Systembetrieb wird damit nicht
 konfiguriert.
 
 Im Append-Modus (`O_APPEND`, etwa `a` oder `a+` im Client) schreibt jedes Paket
@@ -163,7 +163,9 @@ Standardmäßig lauscht der Dienst nur auf `127.0.0.1:2222`. Für externen
 Zugriff sollte die Freigabe gezielt über Firewall oder VPN erfolgen. Ein
 Unter **Einstellungen → WebDAV, SSHFS und Ordnerrechte** wird der Inhalt von
 `~/.ssh/id_ed25519.pub` hinterlegt. Der private Schlüssel verlässt das Gerät
-nicht. Optional kann `SIMPLEOFFICE_SFTP_PASSWORD_AUTH=true` weiterhin ein
+nicht. Beim Mini-Service entscheidet allein die gespeicherte Einstellung;
+Umgebungsvariablen werden dafür nicht gelesen. Nur bei direktem Start über
+`simpleoffice-sftp` kann `SIMPLEOFFICE_SFTP_PASSWORD_AUTH=true` weiterhin ein
 App-Passwort aus den WebDAV-Einstellungen zulassen; das normale Browser-
 Passwort wird nie verwendet. Für automatisierte Mounts wird Public Key
 empfohlen.
@@ -183,30 +185,31 @@ den Zugang in **Mini Services → SFTP**; der Dienst muss dafür gestoppt sein u
 nach dem Speichern neu gestartet werden. Im OpenSSH-Systemmodus steuert diese
 SimpleOffice-Einstellung rsync nicht. Die Freigabe ist standardmäßig aus.
 
-Bei bestehenden Installationen wird `SIMPLEOFFICE_RSYNC_ENABLED` als
-Übergangswert übernommen, bis die SFTP-Einstellungen erstmals gespeichert
-werden. Das Rsync-Größenlimit (Standard 2 GiB, zulässig 1 MiB–2 GiB), das
+Die Rsync-Freigabe wird in **Mini Services → SFTP** konfiguriert; `SIMPLEOFFICE_RSYNC_ENABLED`
+wird als Umgebungsvariable nicht gelesen. Das Rsync-Größenlimit (Standard 2 GiB, zulässig 1 MiB–2 GiB), das
 Dateianzahl-Limit (Standard/Obergrenze 100.000, zulässig 0–100.000) und das
 Prozesszeitlimit (Standard 3600 Sekunden, zulässig 30–86400 Sekunden) können
 unter **Admin → Einstellungen → Netzwerk & Synchronisation** persistiert
 konfiguriert werden. Null Dateianzahl bedeutet, dass keine Dateien übertragen
-werden; Verzeichnisoperationen bleiben möglich. Die bisherigen Environment-Werte
-werden als Startwerte übernommen, bis Netzwerk-Einstellungen gespeichert werden.
+werden; Verzeichnisoperationen bleiben möglich.
 Änderungen gelten für neu gestartete Rsync-Sitzungen.
 
 ```bash
 sudo apt install rsync
-export SIMPLEOFFICE_RSYNC_MAX_FILES=100000
-export SIMPLEOFFICE_RSYNC_TIMEOUT=3600
 ```
 
-`SIMPLEOFFICE_RSYNC_MAX_BYTES` und `SIMPLEOFFICE_RSYNC_MAX_FILES` sind
-Legacy-Startwerte. Das persistente Größenlimit zählt die zusammengefassten
+Die Limits kommen aus den gespeicherten Einstellungen
+(**Admin → Einstellungen → Netzwerk & Synchronisation**); Umgebungsvariablen
+`SIMPLEOFFICE_RSYNC_MAX_FILES` und `SIMPLEOFFICE_RSYNC_TIMEOUT` werden nicht
+gelesen.
+
+`SIMPLEOFFICE_RSYNC_MAX_BYTES` und `SIMPLEOFFICE_RSYNC_MAX_FILES` werden
+nicht gelesen; maßgeblich sind allein die gespeicherten Werte. Das persistente Größenlimit zählt die zusammengefassten
 Dateidaten einer Rsync-Sitzung; bestehende Dateien werden bei einer kleineren
 Grenze nicht verändert. Das Dateianzahl-Limit begrenzt Dateien je Sitzung.
 
-`SIMPLEOFFICE_RSYNC_TIMEOUT` ist ein Legacy-Startwert (Standard 3600 Sekunden,
-zulässig 30–86400 Sekunden). Der Timeout beendet nur den lokalen rsync-Prozess;
+`SIMPLEOFFICE_RSYNC_TIMEOUT` wird nicht gelesen; es gilt der gespeicherte Wert
+(Standard 3600 Sekunden, zulässig 30–86400 Sekunden). Der Timeout beendet nur den lokalen rsync-Prozess;
 das vorherige Materialisieren und die VFS-Übernahme sind davon nicht begrenzt.
 
 Beispiele für Download und Upload eines freigegebenen Ordners:
@@ -334,7 +337,8 @@ Shell-/Exec-/Forwarding-Ablehnung sowie versioniertes Kürzen und Erweitern.
 ## Bekannte Grenzen und Deaktivierung
 
 - rsync muss auf Client und Server installiert sein. Die optionale Brücke wird
-  mit `SIMPLEOFFICE_RSYNC_ENABLED=false` vollständig deaktiviert.
+  in **Mini Services → SFTP** deaktiviert (rsync-Freigabe ausschalten und Dienst
+  neu starten).
 - rsync arbeitet aus Sicherheitsgründen über ein temporäres Abbild. Dafür muss
   temporär Speicher bis zur Größe des freigegebenen Teilbaums verfügbar sein.
 - SFTP-Locks sind optimistische SHA-256-Prüfungen, keine WebDAV-Locks.

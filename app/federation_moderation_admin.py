@@ -10,6 +10,7 @@ from .federation_identity import FederationIdentity, public_key_fingerprint
 from .federation_local_profile import local_peer_id
 from .federation_moderation import FederationModerationStore, LOCAL_SOURCE
 from .federation_moderation_client import send_report, sync_blacklist
+from .translations import translate
 
 bp = Blueprint("federation_moderation_admin", __name__, url_prefix="/admin/federation/moderation")
 
@@ -61,32 +62,32 @@ def action():
             store.ban(target, request.form.get("reason", ""), actor=_actor(),
                       expires_at=int(time.time()) + int(hours) * 3600 if hours else None,
                       published=request.form.get("published") == "1")
-            flash("Peer gesperrt. Laufende Transfers und V2-Freigaben wurden gestoppt.")
+            flash(translate(g.language, "fedmod.banned"))
         elif operation == "unban":
             store.unban(target, actor=_actor())
-            flash("Eigene Sperre aufgehoben. Sperren anderer Quellen und lokale V2-Sperren bleiben wirksam.")
+            flash(translate(g.language, "fedmod.unbanned"))
         elif operation == "subscribe":
             store.subscribe(target, request.form.get("public_key", "").strip(), actor=_actor())
-            flash("Blacklist-Quelle mit festem Schlüssel gespeichert. Jetzt synchronisieren.")
+            flash(translate(g.language, "fedmod.source.saved"))
         elif operation == "unsubscribe":
             store.unsubscribe(target, actor=_actor())
-            flash("Quelle und ihre übernommenen Sperren entfernt. Eigene Sperren bleiben erhalten.")
+            flash(translate(g.language, "fedmod.source.removed"))
         elif operation == "sync":
             count = sync_blacklist(store.root, target)
-            flash(f"Blacklist geprüft und übernommen: {count} Einträge.")
+            flash(translate(g.language, "fedmod.list.imported").format(count=count))
         elif operation == "report":
             send_report(store.root, request.form.get("receiver", ""), target, request.form.get("reason", ""))
-            flash("Meldung übermittelt. Die empfangende Verwaltung entscheidet über die Sperre.")
+            flash(translate(g.language, "fedmod.report.sent"))
         elif operation == "review":
             store.review(request.form.get("report_id", ""), request.form.get("decision", ""),
                          actor=_actor(), published=request.form.get("published") == "1")
-            flash("Meldung geprüft und Entscheidung gespeichert.")
+            flash(translate(g.language, "fedmod.report.decided"))
         elif operation == "delete-report":
             store.delete_report(request.form.get("report_id", ""), actor=_actor())
-            flash("Erledigte Meldung entfernt.")
+            flash(translate(g.language, "fedmod.report.removed"))
         else:
             raise ValueError("unknown moderation action")
     except (OSError, RuntimeError, TypeError, ValueError):
         current_app.logger.warning("Federation moderation action failed: %s", operation[:32])
-        flash("Aktion fehlgeschlagen. Eingaben, Bestätigung, Peer-Zugang und festgelegten Schlüssel prüfen.")
+        flash(translate(g.language, "fedmod.action.failed"))
     return redirect(url_for("federation_moderation_admin.dashboard"))

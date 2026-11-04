@@ -5,6 +5,14 @@
 // the form, saving stays manual.
 (() => {
   'use strict';
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    subtitle: EN ? 'Subtitle: ' : 'Untertitel: ',
+    noSuggestion: EN ? 'No suggestion available. Please analyze first.' : 'Kein Vorschlag vorhanden. Bitte zuerst analysieren.',
+    nothingSelected: EN ? 'Nothing selected – please check at least one part.' : 'Nichts ausgewählt – bitte mindestens einen Teil anhaken.',
+    partsApplied: EN ? 'Selected parts applied. Please check the fields, then save.' : 'Ausgewählte Teile übernommen. Bitte Felder prüfen, dann speichern.',
+    rejected: EN ? 'Suggestion rejected.' : 'Vorschlag abgelehnt.',
+  };
 
   // Dashboard: each avatar button opens its per-card native dialog.
   document.querySelectorAll('[data-engel-dialog]').forEach((button) => {
@@ -36,7 +44,7 @@
     if (key === 'type') return cleanText(suggestion.item_type);
     if (key === 'note') {
       const bits = [suggestion.note];
-      if (suggestion.subtitle) bits.push(`Untertitel: ${suggestion.subtitle}`);
+      if (suggestion.subtitle) bits.push(`${STR.subtitle}${suggestion.subtitle}`);
       return bits.map(cleanText).filter(Boolean).join(' · ');
     }
     if (key === 'tags') return helpers ? cleanText(helpers.formatSuggestionTags(suggestion.tags)) : '';
@@ -45,7 +53,7 @@
   const openDialog = () => {
     const suggestion = suggest.pending();
     if (!suggestion) {
-      setStatus('Kein Vorschlag vorhanden. Bitte zuerst analysieren.', 'warning');
+      setStatus(STR.noSuggestion, 'warning');
       return;
     }
     Object.keys(parts).forEach((key) => {
@@ -70,7 +78,7 @@
       return Boolean(box && box.checked && !box.disabled);
     };
     if (!selected('name') && !selected('type') && !selected('note') && !selected('tags')) {
-      setStatus('Nichts ausgewählt \u2013 bitte mindestens einen Teil anhaken.', 'warning');
+      setStatus(STR.nothingSelected, 'warning');
       return;
     }
     // Granular writes mirror applySuggestionToForm field by field, so only
@@ -93,7 +101,7 @@
     }
     dialog.close();
     suggest.dismiss();
-    setStatus('Ausgewählte Teile übernommen. Bitte Felder prüfen, dann speichern.', 'success');
+    setStatus(STR.partsApplied, 'success');
     if (ui.title) ui.title.focus();
   };
 
@@ -104,7 +112,7 @@
   $('engel-reject')?.addEventListener('click', () => {
     dialog.close();
     suggest.dismiss();
-    setStatus('Vorschlag abgelehnt.', 'info');
+    setStatus(STR.rejected, 'info');
   });
   if (typeof window !== 'undefined') window.SimpleOfficeAngel = {openDialog, adoptParts};
 })();

@@ -1,4 +1,11 @@
 (() => {
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    replyTo: (sender) => EN ? `Reply to ${sender}` : `Antwort an ${sender}`,
+    messageFallback: EN ? 'message' : 'Nachricht',
+    filesChosen: (count) => EN ? `${count} file${count === 1 ? '' : 's'} selected` : `${count} Datei${count === 1 ? '' : 'en'} gewählt`,
+    noFile: EN ? 'No file selected' : 'Keine Datei gewählt',
+  };
   const root = document.getElementById('main-content');
   const target = document.getElementById('chat-messages');
   const scroll = document.getElementById('chat-scroll');
@@ -29,8 +36,8 @@
       if (replyText) replyText.textContent = '';
       return;
     }
-    if (replySender) replySender.textContent = `Antwort an ${sender || 'Nachricht'}`;
-    if (replyText) replyText.textContent = text || 'Nachricht';
+    if (replySender) replySender.textContent = STR.replyTo(sender || STR.messageFallback);
+    if (replyText) replyText.textContent = text || STR.messageFallback;
     replyPreview.classList.remove('d-none');
     if (body) body.focus();
   }
@@ -66,7 +73,7 @@
   if (files && fileStatus) {
     files.addEventListener('change', () => {
       const count = files.files.length;
-      fileStatus.textContent = count ? `${count} Datei${count === 1 ? '' : 'en'} gewählt` : 'Keine Datei gewählt';
+      fileStatus.textContent = count ? STR.filesChosen(count) : STR.noFile;
     });
   }
 

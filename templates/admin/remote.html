@@ -6,26 +6,26 @@
   <div class="card shadow-sm mb-4">
     <div class="card-header"><strong>Agent</strong></div>
     <div class="card-body">
-      <p class="mb-2">Plattform: {{ agent.platform }}</p>
-      <p class="mb-3">Status: {{ 'Aktiv' if agent.running else ('Installiert' if agent.installed else 'Nicht installiert') }}</p>
+      <p class="mb-2">{{ 'Platform' if g.language == 'en' else 'Plattform' }}: {{ agent.platform }}</p>
+      <p class="mb-3">Status: {{ ('Active' if agent.running else ('Installed' if agent.installed else 'Not installed')) if g.language == 'en' else ('Aktiv' if agent.running else ('Installiert' if agent.installed else 'Nicht installiert')) }}</p>
       {% if not agent.installed %}
-      <form method="post" action="{{ url_for('remote_admin.install_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">Installieren</button></form>
+      <form method="post" action="{{ url_for('remote_admin.install_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary" type="submit">{{ 'Install' if g.language == 'en' else 'Installieren' }}</button></form>
       {% elif agent.running %}
-      <form method="post" action="{{ url_for('remote_admin.stop_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit">Stoppen</button></form>
+      <form method="post" action="{{ url_for('remote_admin.stop_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-danger" type="submit">{{ 'Stop' if g.language == 'en' else 'Stoppen' }}</button></form>
       {% else %}
-      <form method="post" action="{{ url_for('remote_admin.start_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-success" type="submit">Starten</button></form>
+      <form method="post" action="{{ url_for('remote_admin.start_agent') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-success" type="submit">{{ 'Start' if g.language == 'en' else 'Starten' }}</button></form>
       {% endif %}
     </div>
   </div>
 
   <div class="card shadow-sm">
-    <div class="card-header"><strong>Veröffentlichte Anwendungen</strong></div>
+    <div class="card-header"><strong>{{ 'Published applications' if g.language == 'en' else 'Veröffentlichte Anwendungen' }}</strong></div>
     <div class="card-body">
       {% if apps %}
-      <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">Aktionen</span></th></tr></thead><tbody>
-      {% for app in apps %}<tr><td>{{ app.label }}</td><td>{{ 'Aktiv' if app.enabled else 'Deaktiviert' }}</td><td class="text-end"><form method="post" action="{{ url_for('remote_admin.remove_app', app_id=app.app_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button></form></td></tr>{% endfor %}
+      <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Name</th><th scope="col">Status</th><th scope="col"><span class="visually-hidden">{{ 'Actions' if g.language == 'en' else 'Aktionen' }}</span></th></tr></thead><tbody>
+      {% for app in apps %}<tr><td>{{ app.label }}</td><td>{{ ('Active' if app.enabled else 'Disabled') if g.language == 'en' else ('Aktiv' if app.enabled else 'Deaktiviert') }}</td><td class="text-end"><form method="post" action="{{ url_for('remote_admin.remove_app', app_id=app.app_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Remove' if g.language == 'en' else 'Entfernen' }}</button></form></td></tr>{% endfor %}
       </tbody></table></div>
-      {% else %}<p class="text-secondary mb-0">Noch keine Anwendungen veröffentlicht.</p>{% endif %}
+      {% else %}<p class="text-secondary mb-0">{{ 'No applications published yet.' if g.language == 'en' else 'Noch keine Anwendungen veröffentlicht.' }}</p>{% endif %}
     </div>
   </div>
 </div>

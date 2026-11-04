@@ -3,19 +3,19 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start mb-4">
-    <div><h1 class="h2">Background Jobs</h1><p class="text-secondary mb-0">Persistente 3.0-Queue; der Webserver bleibt auch ohne Worker nutzbar.</p></div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">Systeminventar</a>
+    <div><h1 class="h2">Background Jobs</h1><p class="text-secondary mb-0">{{ 'Persistent 3.0 queue; the web server stays usable even without a worker.' if g.language == 'en' else 'Persistente 3.0-Queue; der Webserver bleibt auch ohne Worker nutzbar.' }}</p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.inventory') }}">{{ 'System inventory' if g.language == 'en' else 'Systeminventar' }}</a>
   </div>
-  {% if not enabled %}<div class="alert alert-secondary">Die Capability <code>v3.jobs</code> ist deaktiviert.</div>
+  {% if not enabled %}<div class="alert alert-secondary">{{ 'The capability' if g.language == 'en' else 'Die Capability' }} <code>v3.jobs</code> {{ 'is disabled.' if g.language == 'en' else 'ist deaktiviert.' }}</div>
   {% else %}
   <div class="row g-3 mb-4">
-    <div class="col"><div class="card card-body"><strong>Wartend</strong><span>{{ metrics.queued }}</span></div></div>
-    <div class="col"><div class="card card-body"><strong>Laufend</strong><span>{{ metrics.running }}</span></div></div>
-    <div class="col"><div class="card card-body"><strong>Fehler</strong><span>{{ metrics.failed }}</span></div></div>
-    <div class="col"><div class="card card-body"><strong>Ältester Job</strong><span>{{ metrics.oldest_age_seconds }} s</span></div></div>
+    <div class="col"><div class="card card-body"><strong>{{ 'Waiting' if g.language == 'en' else 'Wartend' }}</strong><span>{{ metrics.queued }}</span></div></div>
+    <div class="col"><div class="card card-body"><strong>{{ 'Running' if g.language == 'en' else 'Laufend' }}</strong><span>{{ metrics.running }}</span></div></div>
+    <div class="col"><div class="card card-body"><strong>{{ 'Failed' if g.language == 'en' else 'Fehler' }}</strong><span>{{ metrics.failed }}</span></div></div>
+    <div class="col"><div class="card card-body"><strong>{{ 'Oldest job' if g.language == 'en' else 'Ältester Job' }}</strong><span>{{ metrics.oldest_age_seconds }} s</span></div></div>
   </div>
-  <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">Typ</th><th scope="col">Status</th><th scope="col">Versuch</th><th scope="col">Principal</th><th scope="col">Fehler</th><th scope="col">Aktion</th></tr></thead><tbody>
-  {% for job in jobs %}<tr><td><code>{{ job.kind }}</code></td><td>{{ job.state }}</td><td>{{ job.attempt }}/{{ job.max_attempts }}</td><td>{{ job.principal }}</td><td>{{ job.last_error }}</td><td>{% if job.state == 'failed' %}<form method="post" action="{{ url_for('v3_jobs_admin.retry',job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-primary">Erneut starten</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">Keine Jobs.</td></tr>{% endfor %}
+  <div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th scope="col">{{ 'Type' if g.language == 'en' else 'Typ' }}</th><th scope="col">Status</th><th scope="col">{{ 'Attempt' if g.language == 'en' else 'Versuch' }}</th><th scope="col">Principal</th><th scope="col">{{ 'Error' if g.language == 'en' else 'Fehler' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead><tbody>
+  {% for job in jobs %}<tr><td><code>{{ job.kind }}</code></td><td>{{ job.state }}</td><td>{{ job.attempt }}/{{ job.max_attempts }}</td><td>{{ job.principal }}</td><td>{{ job.last_error }}</td><td>{% if job.state == 'failed' %}<form method="post" action="{{ url_for('v3_jobs_admin.retry',job_id=job.job_id) }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-sm btn-outline-primary">{{ 'Restart' if g.language == 'en' else 'Erneut starten' }}</button></form>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="text-secondary">{{ 'No jobs.' if g.language == 'en' else 'Keine Jobs.' }}</td></tr>{% endfor %}
   </tbody></table></div>
   {% endif %}
 </main>

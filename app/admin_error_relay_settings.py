@@ -8,6 +8,7 @@ from .access_control import audit
 from .admin import admin_required
 from .error_relay import master_mode
 from .settings_store import DEFAULT_ERROR_RELAY_MODE, SettingsStore
+from .translations import translate
 
 
 bp = Blueprint("admin_error_relay_settings", __name__, url_prefix="/admin")
@@ -49,14 +50,12 @@ def save_error_relay_mode():
             "integrations.error_relay_mode",
             detail={"mode": mode, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Error-Relay-Modus auf den Build-Standard zurückgesetzt."
-            if reset_defaults else "Error-Relay-Einstellung gespeichert."
-        )
+        flash(translate(g.language, "errrelay.mode.reset")
+            if reset_defaults else translate(g.language, "errrelay.saved"))
     except ValueError as exc:
         current_app.logger.info("Error-relay mode rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("Error-relay mode save failed: %s", type(exc).__name__)
-        flash("Error-Relay-Einstellung konnte nicht gespeichert werden.")
+        flash(translate(g.language, "errrelay.error"))
     return redirect(url_for("admin.integration_settings"))

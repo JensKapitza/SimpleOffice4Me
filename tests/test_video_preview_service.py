@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +11,7 @@ from app.document_store import CONTROL_DIR
 from app.settings_store import (
     DEFAULT_CHAT_ATTACHMENT_MAX_BYTES,
     DEFAULT_UPLOAD_LIMIT_MIB,
+    DEFAULT_VIDEO_PREVIEW_FRAMES,
     SettingsStore,
 )
 from app.video_settings import save_video_preview_frame_count, video_preview_frame_count
@@ -37,21 +37,22 @@ class VideoPreviewServiceTest(unittest.TestCase):
         self.assertEqual(95.0, positions[-1])
         self.assertEqual([10.0] * 9, [positions[index + 1] - positions[index] for index in range(9)])
 
-    def test_configurable_frame_count_is_bounded(self):
-        with tempfile.TemporaryDirectory() as temp:
-            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "18"}):
-                self.assertEqual(18, PreviewService(temp, self._tools()).video_frame_count)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "999"}):
-                self.assertEqual(30, PreviewService(temp, self._tools()).video_frame_count)
-
-    def test_saved_frame_count_overrides_deployment_default(self):
+    def test_configured_frame_count_uses_default_and_persisted_value(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "18"}):
-                self.assertEqual(18, video_preview_frame_count(root))
-                self.assertEqual(7, save_video_preview_frame_count(root, 7, "tester"))
-                self.assertEqual(7, video_preview_frame_count(root))
-                self.assertEqual(7, PreviewService(root, self._tools()).video_frame_count)
+            self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, video_preview_frame_count(root))
+            self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, PreviewService(root, self._tools()).video_frame_count)
+            self.assertEqual(18, save_video_preview_frame_count(root, 18, "tester"))
+            self.assertEqual(18, video_preview_frame_count(root))
+            self.assertEqual(18, PreviewService(root, self._tools()).video_frame_count)
+
+    def test_saved_frame_count_overrides_default(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, video_preview_frame_count(root))
+            self.assertEqual(7, save_video_preview_frame_count(root, 7, "tester"))
+            self.assertEqual(7, video_preview_frame_count(root))
+            self.assertEqual(7, PreviewService(root, self._tools()).video_frame_count)
 
     def test_saving_video_frame_count_preserves_other_central_media_settings(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -75,6 +76,7 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_max_member_mb": 128,
                     "archive_max_content_files": 20,
                     "archive_max_compression_ratio": 320,
+                    "piper_model": "",
                 }},
                 "tester",
             )
@@ -102,17 +104,22 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     "archive_max_member_mb": 128,
                     "archive_max_content_files": 20,
                     "archive_max_compression_ratio": 320,
+                    "piper_model": "",
                 },
                 store.settings()["media"],
             )
 
-    def test_legacy_environment_value_is_preserved_when_other_settings_are_saved(self):
+    def test_default_frame_count_is_used_until_persisted_value_exists(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "18"}):
-                SettingsStore(root).save({"interface": {"timezone": "UTC"}}, "tester")
-                self.assertEqual(18, SettingsStore(root).settings()["media"]["video_preview_frames"])
-                self.assertEqual(18, video_preview_frame_count(root))
+            SettingsStore(root).save({"interface": {"timezone": "UTC"}}, "tester")
+            self.assertEqual(
+                DEFAULT_VIDEO_PREVIEW_FRAMES,
+                SettingsStore(root).settings()["media"]["video_preview_frames"],
+            )
+            self.assertEqual(DEFAULT_VIDEO_PREVIEW_FRAMES, video_preview_frame_count(root))
+            self.assertEqual(18, save_video_preview_frame_count(root, 18, "tester"))
+            self.assertEqual(18, video_preview_frame_count(root))
 
     def test_legacy_video_settings_file_is_preserved_and_copied_on_next_settings_save(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -197,10 +204,10 @@ class VideoPreviewServiceTest(unittest.TestCase):
                     },
                 },
             }
-            with patch.dict(os.environ, {"SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "12"}):
-                service = PreviewService(root, self._tools())
-                self.assertFalse(service.is_current(metadata))
-                self.assertIsNone(service.cached_path(metadata))
+            save_video_preview_frame_count(root, 12, "tester")
+            service = PreviewService(root, self._tools())
+            self.assertFalse(service.is_current(metadata))
+            self.assertIsNone(service.cached_path(metadata))
 
     def test_transcode_is_a_cache_variant_not_a_new_document_file(self):
         with tempfile.TemporaryDirectory() as temp:

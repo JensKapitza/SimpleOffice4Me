@@ -25,7 +25,6 @@ MAX_MAX_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024
 DEFAULT_MAX_CLIENTS = 32
 MIN_MAX_CLIENTS = 1
 MAX_MAX_CLIENTS = 512
-_TRUE_VALUES = {"1", "true", "yes", "on"}
 DEFAULTS = {"mode": "integrated", "enabled": False, "autostart": False,
             "bind": "127.0.0.1", "port": 2222, "system_port": 22,
             "rsync_enabled": False, "max_bytes": DEFAULT_MAX_UPLOAD_BYTES,
@@ -34,20 +33,6 @@ DEFAULTS = {"mode": "integrated", "enabled": False, "autostart": False,
 
 def settings_path():
     return default_config_path().parent / "sftp-service.json"
-
-
-def _legacy_environment_integer(name: str, default: int, minimum: int, maximum: int) -> int:
-    """Match the direct SFTP server's bounded legacy environment behavior."""
-    try:
-        value = int(os.environ.get(name, str(default)))
-    except (TypeError, ValueError, OverflowError):
-        return default
-    return max(minimum, min(value, maximum))
-
-
-def _legacy_password_auth_enabled() -> bool:
-    value = os.environ.get("SIMPLEOFFICE_SFTP_PASSWORD_AUTH", "true")
-    return value.strip().lower() in _TRUE_VALUES
 
 
 def validate(value):
@@ -80,36 +65,19 @@ def validate(value):
 
 
 def settings():
+    """Settings file is the single source of truth; missing files/keys fall back to DEFAULTS (no environment)."""
     path = settings_path()
     if not path.exists():
-        legacy_rsync = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
-        return validate({**DEFAULTS, "bind": os.environ.get("SIMPLEOFFICE_SFTP_BIND", DEFAULTS["bind"]),
-                         "port": os.environ.get("SIMPLEOFFICE_SFTP_PORT", DEFAULTS["port"]),
-                         "rsync_enabled": legacy_rsync,
-                         "password_auth_enabled": _legacy_password_auth_enabled(),
-                         "max_bytes": _legacy_environment_integer(
-                             "SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULT_MAX_UPLOAD_BYTES,
-                             MIN_MAX_UPLOAD_BYTES, MAX_MAX_UPLOAD_BYTES,
-                         ),
-                         "max_clients": _legacy_environment_integer(
-                             "SIMPLEOFFICE_SFTP_MAX_CLIENTS", DEFAULT_MAX_CLIENTS,
-                             MIN_MAX_CLIENTS, MAX_MAX_CLIENTS,
-                         )})
+        return validate(dict(DEFAULTS))
     value = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(value, dict) and "rsync_enabled" not in value:
-        value["rsync_enabled"] = os.environ.get("SIMPLEOFFICE_RSYNC_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
+        value["rsync_enabled"] = DEFAULTS["rsync_enabled"]
     if isinstance(value, dict) and "max_bytes" not in value:
-        value["max_bytes"] = _legacy_environment_integer(
-            "SIMPLEOFFICE_SFTP_MAX_BYTES", DEFAULT_MAX_UPLOAD_BYTES,
-            MIN_MAX_UPLOAD_BYTES, MAX_MAX_UPLOAD_BYTES,
-        )
+        value["max_bytes"] = DEFAULTS["max_bytes"]
     if isinstance(value, dict) and "max_clients" not in value:
-        value["max_clients"] = _legacy_environment_integer(
-            "SIMPLEOFFICE_SFTP_MAX_CLIENTS", DEFAULT_MAX_CLIENTS,
-            MIN_MAX_CLIENTS, MAX_MAX_CLIENTS,
-        )
+        value["max_clients"] = DEFAULTS["max_clients"]
     if isinstance(value, dict) and "password_auth_enabled" not in value:
-        value["password_auth_enabled"] = _legacy_password_auth_enabled()
+        value["password_auth_enabled"] = DEFAULTS["password_auth_enabled"]
     return validate(value)
 
 

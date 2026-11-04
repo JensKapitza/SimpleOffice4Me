@@ -32,27 +32,29 @@ sudo freshclam
 sudo systemctl enable --now clamav-daemon
 ```
 
-Danach in der geschützten Dienstkonfiguration, nicht im Repository:
+Danach in der Administration unter **Admin → Einstellungen → Netzwerk**:
 
-```bash
-SIMPLEOFFICE_WEBDAV_CLAMAV=1
-SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB=1024
-SIMPLEOFFICE_CLAMAV_SCANNER=/usr/bin/clamdscan
-SIMPLEOFFICE_CLAMAV_TIMEOUT=120
-```
+- WebDAV-Upload-Prüfung per ClamAV einschalten (`network.webdav_clamav_enabled`,
+  Standard: aus),
+- Quarantänegröße prüfen (`network.webdav_quarantine_mib`, Standard: 1024 MiB).
 
-Nach einer Änderung der Umgebung muss der SimpleOffice-Dienst neu gestartet
-werden. `SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB` ist die maximale Größe der
+Es sind keine Umgebungsvariablen nötig; nach einer Änderung muss der
+SimpleOffice-Dienst neu gestartet werden.
+
+Scanner-Auswahl, Scannerpfad und Zeitlimit werden stattdessen persistent unter
+**Admin → Einstellungen → Integrationen & Dienste → ClamAV-Sicherheitsprüfung**
+gepflegt (`SIMPLEOFFICE_CLAMAV_SCANNER` und `SIMPLEOFFICE_CLAMAV_TIMEOUT` sind
+entfernt).
+
+`network.webdav_quarantine_mib` ist die maximale Größe der
 privaten WebDAV-Quarantäne. Der Wert wird auf 1 bis 65.536 MiB begrenzt; der
-Standard ist 1.024 MiB. Die normale Upload-Grenze
-`SIMPLEOFFICE_MAX_UPLOAD_MIB` gilt zusätzlich.
+Standard ist 1.024 MiB. Die normale gespeicherte Upload-Grenze
+gilt zusätzlich.
 
 Das ClamAV-Zeitlimit lässt sich persistent unter **Admin → Einstellungen →
-Integrationen & Dienste → ClamAV-Sicherheitsprüfung** verwalten. Der hier
-angegebene `SIMPLEOFFICE_CLAMAV_TIMEOUT`-Wert wird als Legacy-Startwert
-übernommen, bis ein Administrator einen persistenten Wert speichert.
+Integrationen & Dienste → ClamAV-Sicherheitsprüfung** verwalten.
 
-`SIMPLEOFFICE_CLAMAV_SCANNER` darf ausschließlich auf einen absoluten Pfad zu
+Der explizite Scannerpfad darf ausschließlich auf einen absoluten Pfad zu
 `clamdscan` oder `clamscan` zeigen. Ohne Vorgabe wird zuerst `clamdscan`, dann
 `clamscan` im `PATH` gesucht. `clamdscan` ist für wiederholte Desktop-Speicher-
 vorgänge schneller; `clamscan` funktioniert ohne laufenden Daemon. Unter Unix
@@ -75,16 +77,12 @@ sudo systemctl restart clamav-daemon
 ```
 
 Über **Dokumente → Sicherheit** (`/documents/security`) sehen Benutzer aus
-`SIMPLEOFFICE_SECURITY_ADMINS` Scannerstatus und Version. Dort stehen außerdem
+der Sicherheits-Admin-Liste (**Admin → Benutzer → Admin-Listen**)
+Scannerstatus und Version. Dort stehen außerdem
 **Signaturen aktualisieren** und **Bestand jetzt prüfen** zur Verfügung. Ohne
-diese Umgebungsvariable gibt es bewusst keinen Web-Administrator. Der
+Listeneintrag gibt es bewusst keinen Web-Administrator
+(`SIMPLEOFFICE_SECURITY_ADMINS` ist entfernt). Der
 Bestandsscan ändert keine Dokumentrechte und löscht Funde nicht automatisch.
-
-Beispiel:
-
-```bash
-SIMPLEOFFICE_SECURITY_ADMINS=alice,bob
-```
 
 Die offizielle ClamAV-Dokumentation verlangt für `clamd` eine vorhandene und
 aktuelle Signaturdatenbank. `freshclam` verwaltet die offiziellen Datenbanken
@@ -231,7 +229,8 @@ aktivierten Upload entstehen ausschließlich
 `.simpleoffice-meta/webdav-upload-quarantine` und zusätzliche Scan-/Audit-
 Einträge. Vorhandene Dokumente werden nicht verändert.
 
-Zum sofortigen Rückkehrverhalten `SIMPLEOFFICE_WEBDAV_CLAMAV=0` setzen und den
+Zum sofortigen Rückkehrverhalten die WebDAV-Upload-Prüfung in der Administration
+(Admin → Einstellungen → Netzwerk) ausschalten und den
 Dienst neu starten. WebDAV schreibt dann wie zuvor mit ETag-, Lock-, Digest-,
 Quota-, Versions- und Audit-Schutz, aber ohne vorgeschalteten Scan. Bereits
 isolierte Quarantänedateien bleiben erhalten und müssen kontrolliert behandelt

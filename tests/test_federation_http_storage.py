@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.document_store import DocumentStore
 from app.federation_core import DEFAULT_CHUNK_SIZE
 from app.federation_http import BLOCK_SIZE, bp
@@ -34,12 +35,15 @@ class FederationHttpStorageTests(unittest.TestCase):
         self.app.register_blueprint(bp)
         self.client = self.app.test_client()
         self.auth = {"Authorization": "Bearer synthetic-http-peer"}
-        environment = patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_TOKEN": "synthetic-http-peer"})
-        environment.start()
-        self.addCleanup(environment.stop)
+        store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.base / "app-config.json",
+        )
+        store_patcher.start()
+        self.addCleanup(store_patcher.stop)
         self.addCleanup(lambda: clear_runtime_storage_master_key(self.root))
         self.content = b"0123456789abcdef" * (BLOCK_SIZE // 16 + 10)
         with self.app.app_context():
+            app_config_store.put_secret("federation", "token", "synthetic-http-peer")
             self.store = DocumentStore(self.root)
             self.document = self.store.import_upload(io.BytesIO(self.content), "source.bin", "tester")
         self.projection = self.root / self.document["last_path"]

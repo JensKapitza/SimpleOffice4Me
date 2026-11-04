@@ -106,7 +106,11 @@ the separate local opt-in and finally revokes the opt-in on both peers and
 proves the denial again. The compatibility bearer cannot authenticate a peer
 identity. The seed command writes only to disposable test volumes; its optional
 trust flag is a local approval on that instance, not a network pairing
-protocol.
+protocol. Each seed run first persists the container's own disposable local
+identity (peer id, public URL, shared token from the isolated testnet
+environment) into the container-local disk store, because the application
+reads no identity environment variables at runtime. Only the three isolated
+testnet identities are accepted; anything else fails closed.
 
 The Ubuntu Docker-host CI job runs this same two-container sequence from a
 fresh set of volumes. It waits for health before each phase, restarts `peer-b`

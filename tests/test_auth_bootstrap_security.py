@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
 
-from app import app, auth
+from app import app, app_config_store, auth
 from app.db import ensure_auth_database, get_db
 
 
@@ -18,8 +18,8 @@ class BootstrapSecurityTests(unittest.TestCase):
             key: app.config.get(key)
             for key in (
                 "DATABASE", "DOCUMENT_ROOT", "TESTING", "ALLOW_PUBLIC_REGISTRATION",
-                "GOOGLE_OAUTH_AUTO_PROVISION", "GOOGLE_OAUTH_CLIENT_ID",
-                "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REDIRECT_URI",
+                "GOOGLE_OAUTH_AUTO_PROVISION",
+                "GOOGLE_OAUTH_REDIRECT_URI",
             )
         }
         app.config.update(
@@ -28,12 +28,18 @@ class BootstrapSecurityTests(unittest.TestCase):
             DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
             ALLOW_PUBLIC_REGISTRATION=False,
             GOOGLE_OAUTH_AUTO_PROVISION=False,
-            GOOGLE_OAUTH_CLIENT_ID="test-client",
-            GOOGLE_OAUTH_CLIENT_SECRET="test-client-secret",
             GOOGLE_OAUTH_REDIRECT_URI="https://office.example.test/auth/google/callback",
         )
+        patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
         with app.app_context():
             ensure_auth_database()
+            app_config_store.put("marketplace", {"google_client_id": "test-client"})
+            app_config_store.put_secret("marketplace", "google_client_secret", "test-client-secret")
 
     def tearDown(self):
         app.config.update(self.previous)

@@ -76,7 +76,10 @@ class ReplicationStoreTests(unittest.TestCase):
         readable = self.target / "ok.txt"; unreadable = self.target / "locked.bin"
         readable.write_text("ok", encoding="utf-8"); unreadable.write_bytes(b"locked")
         original_hash = __import__("app.document_store", fromlist=["sha256_file"]).sha256_file
-        with patch("app.document_store.sha256_file", side_effect=lambda path: (_ for _ in ()).throw(PermissionError("denied")) if Path(path) == unreadable else original_hash(path)):
+        # import_directory lives in document_store_part_1 and resolves its
+        # module-level hash helper there; patching the package facade would
+        # leave the actual import path untouched.
+        with patch("app.document_store_part_1.sha256_file", side_effect=lambda path: (_ for _ in ()).throw(PermissionError("denied")) if Path(path).name == unreadable.name else original_hash(path)):
             target = ReplicationStore(self.root).add_target({"label": "USB", "path": str(self.target)}, "tester")
 
         self.assertEqual(1, target["initial_import"]["copied"])

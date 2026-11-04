@@ -73,7 +73,7 @@ def vision_config_from_env(
     if provider == "meta" and not str(source.get("MODEL_API_KEY", "") or "").strip():
         _fail(
             "Meta Muse Spark 1.3 Contributor was selected but MODEL_API_KEY is missing. "
-            "Set it in the process environment; it is never written to the demo config."
+            "Set it in the process environment or parent .env; it is kept in memory only for the synthetic demo."
         )
     raw_timeout = str(source.get("CONTEXTFLOW_OLLAMA_TIMEOUT", "") or "").strip()
     try:
@@ -88,6 +88,12 @@ def vision_config_from_env(
         "CONTEXTFLOW_OLLAMA_MODEL": model,
         "CONTEXTFLOW_OLLAMA_TIMEOUT": timeout,
         "CONTEXTFLOW_META_CONSENT": provider == "meta",
+        # One-process bootstrap only. effective_settings consumes this
+        # explicit config override in memory; it is never persisted or logged.
+        "CONTEXTFLOW_DEMO_META_API_KEY": (
+            str(source.get("MODEL_API_KEY", "") or "").strip()
+            if provider == "meta" else ""
+        ),
         "CONTEXTFLOW_META_ENDPOINT": META_MODEL_API_ENDPOINT,
         "CONTEXTFLOW_META_MODEL": META_MODEL_API_MODEL,
     }
@@ -159,6 +165,52 @@ def serve(flask_app, port: int) -> None:
     flask_app.run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
 
 
+def print_demo_banner(*, port: int, root: Path, summary: dict, vision: dict) -> None:
+    """Print the startup banner without secrets.
+
+    The fixed local-only demo password and the ephemeral Meta API key must
+    never reach stdout, stderr, logs, or tracebacks. Only non-sensitive
+    diagnostics (URLs, username, root, case, vision mode) are shown.
+    """
+
+    print("ContextFlow Demo bereit (alle Daten synthetisch).")
+    print("  URL im Browser oeffnen:")
+    print(f"    http://127.0.0.1:{port}/contextflow/")
+    print("  Meta-Demo-Analyse (nur mit Einwilligung, synthetisch):")
+    print(f"    http://127.0.0.1:{port}/contextflow/agent")
+    print("  Benutzername (genau so, nicht admin):")
+    print(f"    {DEMO_USERNAME}")
+    # The demo password is intentionally never printed: CodeQL
+    # "clear-text logging of sensitive information" and local-console
+    # hygiene require that secrets stay out of stdout/stderr/logs.
+    print("  Passwort: (wird nicht angezeigt; nur lokaler Demo-Zugang)")
+    print(f"  Root:     {root}")
+    print(f"  Fall:     {summary['link_id']} (abgeschlossen {summary['completed_on']})")
+    for entry in summary["demo_documents"]["documents"]:
+        print(
+            f"  Demo-Datei: {entry['name']} "
+            f"-> http://127.0.0.1:{port}/documents/{entry['document_id']} "
+            f"(Vorschau: {entry['preview']}/{entry['converter']})"
+        )
+    if vision["CONTEXTFLOW_VISION_PROVIDER"] == "local":
+        print(
+            "  Vision:   Meta-Modell lokal via Ollama, Modell "
+            f"{vision['CONTEXTFLOW_OLLAMA_MODEL']}"
+        )
+        print(f"  Ollama:   {vision['CONTEXTFLOW_OLLAMA_URL']}")
+        print(f"  Timeout:  {vision['CONTEXTFLOW_OLLAMA_TIMEOUT']}s (Kaltstart)")
+    elif vision["CONTEXTFLOW_VISION_PROVIDER"] == "meta":
+        print("  Vision:   Meta Muse Spark 1.3 Contributor (Meta Model API)")
+        print("  Daten:    ausschließlich synthetischer Demo-Root + Einwilligung")
+    else:
+        print("  Vision:   Mock (Befunddemo; Inventar braucht lokales Modell)")
+    if vision["CONTEXTFLOW_VISION_PROVIDER"] != "meta":
+        print("Kein Cloud-Versand, keine Worker, keine externen Nachrichten.")
+    else:
+        print("Keine Worker oder externen Nachrichten.")
+    print("Bei 'Zu viele Versuche': kurz warten oder mit --fresh neu starten.")
+
+
 def main() -> None:
     from tools.local_env import load_parent_env_file
     load_parent_env_file()
@@ -187,50 +239,16 @@ def main() -> None:
     with flask_app.app_context():
         ensure_auth_database()
         db = get_db()
-        password = DEMO_PASSWORD
         db.execute("DELETE FROM user WHERE username = ?", (DEMO_USERNAME,))
         db.execute(
             "INSERT INTO user(username,password,display_name,is_admin,is_disabled,auth_version,"
             "created_at,updated_at) VALUES (?,?,?,0,0,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)",
-            (DEMO_USERNAME, hash_password(password), "Demo (synthetisch)"),
+            (DEMO_USERNAME, hash_password(DEMO_PASSWORD), "Demo (synthetisch)"),
         )
         db.commit()
         summary = seed_demo(root, actor="demo")
 
-    print("ContextFlow Demo bereit (alle Daten synthetisch).")
-    print("  URL im Browser oeffnen:")
-    print(f"    http://127.0.0.1:{args.port}/contextflow/")
-    print("  Meta-Demo-Analyse (nur mit Einwilligung, synthetisch):")
-    print(f"    http://127.0.0.1:{args.port}/contextflow/agent")
-    print("  Benutzername (genau so, nicht admin):")
-    print(f"    {DEMO_USERNAME}")
-    print("  Passwort (genau so, nur Demo-Zugang, nur lokal):")
-    print(f"    {password}")
-    print(f"  Root:     {root}")
-    print(f"  Fall:     {summary['link_id']} (abgeschlossen {summary['completed_on']})")
-    for entry in summary["demo_documents"]["documents"]:
-        print(
-            f"  Demo-Datei: {entry['name']} "
-            f"-> http://127.0.0.1:{args.port}/documents/{entry['document_id']} "
-            f"(Vorschau: {entry['preview']}/{entry['converter']})"
-        )
-    if vision["CONTEXTFLOW_VISION_PROVIDER"] == "local":
-        print(
-            "  Vision:   Meta-Modell lokal via Ollama, Modell "
-            f"{vision['CONTEXTFLOW_OLLAMA_MODEL']}"
-        )
-        print(f"  Ollama:   {vision['CONTEXTFLOW_OLLAMA_URL']}")
-        print(f"  Timeout:  {vision['CONTEXTFLOW_OLLAMA_TIMEOUT']}s (Kaltstart)")
-    elif vision["CONTEXTFLOW_VISION_PROVIDER"] == "meta":
-        print("  Vision:   Meta Muse Spark 1.3 Contributor (Meta Model API)")
-        print("  Daten:    ausschließlich synthetischer Demo-Root + Einwilligung")
-    else:
-        print("  Vision:   Mock (Befunddemo; Inventar braucht lokales Modell)")
-    if vision["CONTEXTFLOW_VISION_PROVIDER"] != "meta":
-        print("Kein Cloud-Versand, keine Worker, keine externen Nachrichten.")
-    else:
-        print("Keine Worker oder externen Nachrichten.")
-    print("Bei 'Zu viele Versuche': kurz warten oder mit --fresh neu starten.")
+    print_demo_banner(port=args.port, root=root, summary=summary, vision=vision)
     serve(flask_app, args.port)
 
 

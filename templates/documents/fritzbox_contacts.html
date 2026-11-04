@@ -4,51 +4,51 @@
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
     <div>
-      <a class="small text-decoration-none" href="{{ url_for('documents.contacts') }}">← Kontakte</a>
+      <a class="small text-decoration-none" href="{{ url_for('documents.contacts') }}">← {{ 'Contacts' if g.language == 'en' else 'Kontakte' }}</a>
       <h1 class="h2 mt-2 mb-1">FRITZ!Box</h1>
-      <p class="text-secondary mb-0">TR-064-Verbindung prüfen, Internetstatus anzeigen und Kontakte in ein lokales FRITZ!Box-Telefonbuch synchronisieren.</p>
+      <p class="text-secondary mb-0">{{ 'Check the TR-064 connection, show the internet status and sync contacts into a local FRITZ!Box phone book.' if g.language == 'en' else 'TR-064-Verbindung prüfen, Internetstatus anzeigen und Kontakte in ein lokales FRITZ!Box-Telefonbuch synchronisieren.' }}</p>
     </div>
-    <span class="badge text-bg-secondary fs-6">{{ syncable_count }} mit Telefonnummer</span>
+    <span class="badge text-bg-secondary fs-6">{{ syncable_count }} {{ 'with phone number' if g.language == 'en' else 'mit Telefonnummer' }}</span>
   </div>
 
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   <div class="alert alert-secondary">
-    <strong>Voraussetzung:</strong> In der FRITZ!Box muss <strong>Zugriff für Anwendungen im Heimnetz</strong> aktiviert sein. Für den Telefonbuch-Sync benötigt der Benutzer die Berechtigung <strong>Telefonie</strong>.
+    <strong>{{ 'Requirement:' if g.language == 'en' else 'Voraussetzung:' }}</strong> {{ 'In the FRITZ!Box, <strong>access for applications in the home network</strong> must be enabled. For phone-book sync the user needs the <strong>telephony</strong> permission.' if g.language == 'en' else 'In der FRITZ!Box muss <strong>Zugriff für Anwendungen im Heimnetz</strong> aktiviert sein. Für den Telefonbuch-Sync benötigt der Benutzer die Berechtigung <strong>Telefonie</strong>.' }}
   </div>
 
   <section class="card mb-4">
-    <div class="card-header"><strong>1. Verbindung</strong></div>
+    <div class="card-header"><strong>{{ '1. Connection' if g.language == 'en' else '1. Verbindung' }}</strong></div>
     <div class="card-body">
       <form method="post" action="{{ url_for('fritzbox_contacts.discover') }}" class="row g-3">
         <div class="col-lg-5">
-          <label class="form-label" for="fritz-url">FRITZ!Box-Adresse</label>
+          <label class="form-label" for="fritz-url">{{ 'FRITZ!Box address' if g.language == 'en' else 'FRITZ!Box-Adresse' }}</label>
           <input id="fritz-url" required class="form-control font-monospace" name="url" value="{{ config.url }}" placeholder="http://fritz.box:49000" autocomplete="url">
-          <div class="form-text">Empfohlen im Heimnetz: <code>http://fritz.box:49000</code>. HTTPS bleibt vollständig zertifikatsgeprüft; die Prüfung wird nicht deaktiviert.</div>
+          <div class="form-text">{{ 'Recommended in the home network: <code>http://fritz.box:49000</code>. HTTPS stays fully certificate-checked; the check is not disabled.' if g.language == 'en' else 'Empfohlen im Heimnetz: <code>http://fritz.box:49000</code>. HTTPS bleibt vollständig zertifikatsgeprüft; die Prüfung wird nicht deaktiviert.' }}</div>
         </div>
         <div class="col-lg-3">
-          <label class="form-label" for="fritz-user">Benutzername</label>
+          <label class="form-label" for="fritz-user">{{ 'Username' if g.language == 'en' else 'Benutzername' }}</label>
           <input id="fritz-user" required class="form-control" name="username" value="{{ config.username }}" autocomplete="username">
         </div>
         <div class="col-lg-4">
-          <label class="form-label" for="fritz-password">Passwort</label>
-          <input id="fritz-password" class="form-control" type="password" name="password" autocomplete="current-password" placeholder="{% if config.password_saved %}Gespeichertes Passwort verwenden{% else %}FRITZ!Box-Passwort{% endif %}">
-          {% if config.password_saved %}<div class="form-text">Ein Passwort ist verschlüsselt gespeichert. Leer lassen, um es zu verwenden.</div>{% endif %}
+          <label class="form-label" for="fritz-password">{{ 'Password' if g.language == 'en' else 'Passwort' }}</label>
+          <input id="fritz-password" class="form-control" type="password" name="password" autocomplete="current-password" placeholder="{% if config.password_saved %}{{ 'Use stored password' if g.language == 'en' else 'Gespeichertes Passwort verwenden' }}{% else %}FRITZ!Box-Passwort{% endif %}">
+          {% if config.password_saved %}<div class="form-text">{{ 'A password is stored encrypted. Leave empty to use it.' if g.language == 'en' else 'Ein Passwort ist verschlüsselt gespeichert. Leer lassen, um es zu verwenden.' }}</div>{% endif %}
         </div>
         <div class="col-md-6">
           <div class="form-check">
             <input class="form-check-input" type="checkbox" name="remember" value="1" id="fritz-remember" {% if config.password_saved %}checked{% endif %}>
-            <label class="form-check-label" for="fritz-remember">Passwort verschlüsselt speichern</label>
+            <label class="form-check-label" for="fritz-remember">{{ 'Store password encrypted' if g.language == 'en' else 'Passwort verschlüsselt speichern' }}</label>
           </div>
         </div>
         <div class="col-12">
           <div class="alert alert-light border py-2 mb-0">
-            Lokales HTTP wird nur für <code>fritz.box</code> und private/lokale IP-Adressen akzeptiert. Für öffentliche oder entfernte Hosts ist ausschließlich HTTPS erlaubt.
+            {{ 'Local HTTP is only accepted for <code>fritz.box</code> and private/local IP addresses. For public or remote hosts only HTTPS is allowed.' if g.language == 'en' else 'Lokales HTTP wird nur für <code>fritz.box</code> und private/lokale IP-Adressen akzeptiert. Für öffentliche oder entfernte Hosts ist ausschließlich HTTPS erlaubt.' }}
           </div>
         </div>
         <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
-          <button type="submit" class="btn btn-primary"><i class="fas fa-plug me-1" aria-hidden="true"></i>Verbindung testen &amp; Daten laden</button>
-          {% if config.updated_at %}<span class="small text-secondary">Konfiguration zuletzt geändert: {{ config.updated_at }}</span>{% endif %}
+          <button type="submit" class="btn btn-primary"><i class="fas fa-plug me-1" aria-hidden="true"></i>{{ 'Test connection &amp; load data' if g.language == 'en' else 'Verbindung testen &amp; Daten laden' }}</button>
+          {% if config.updated_at %}<span class="small text-secondary">{{ 'Configuration last changed:' if g.language == 'en' else 'Konfiguration zuletzt geändert:' }} {{ config.updated_at }}</span>{% endif %}
         </div>
       </form>
     </div>
@@ -56,7 +56,7 @@
 
   {% if fritz_status %}
   <section class="card mb-4">
-    <div class="card-header"><strong>Internet &amp; Remote-Status</strong></div>
+    <div class="card-header"><strong>{{ 'Internet &amp; remote status' if g.language == 'en' else 'Internet &amp; Remote-Status' }}</strong></div>
     <div class="card-body">
       <div class="row g-3">
         <div class="col-md-6 col-xl-3">
@@ -69,19 +69,19 @@
         </div>
         <div class="col-md-6 col-xl-3">
           <div class="small text-secondary">DynDNS</div>
-          <div>{% if fritz_status.dyndns_enabled is sameas true %}aktiv{% elif fritz_status.dyndns_enabled is sameas false %}inaktiv{% else %}unbekannt{% endif %}</div>
+          <div>{% if fritz_status.dyndns_enabled is sameas true %}{{ 'active' if g.language == 'en' else 'aktiv' }}{% elif fritz_status.dyndns_enabled is sameas false %}{{ 'inactive' if g.language == 'en' else 'inaktiv' }}{% else %}{{ 'unknown' if g.language == 'en' else 'unbekannt' }}{% endif %}</div>
           {% if fritz_status.dyndns_domain %}<div class="small font-monospace text-break">{{ fritz_status.dyndns_domain }}</div>{% endif %}
           {% if fritz_status.dyndns_provider %}<div class="small text-secondary">{{ fritz_status.dyndns_provider }}</div>{% endif %}
         </div>
         <div class="col-md-6 col-xl-3">
           <div class="small text-secondary">MyFRITZ!</div>
-          <div>{% if fritz_status.myfritz_enabled is sameas true %}aktiv{% elif fritz_status.myfritz_enabled is sameas false %}inaktiv{% else %}unbekannt{% endif %}</div>
+          <div>{% if fritz_status.myfritz_enabled is sameas true %}{{ 'active' if g.language == 'en' else 'aktiv' }}{% elif fritz_status.myfritz_enabled is sameas false %}{{ 'inactive' if g.language == 'en' else 'inaktiv' }}{% else %}{{ 'unknown' if g.language == 'en' else 'unbekannt' }}{% endif %}</div>
           {% if fritz_status.myfritz_domain %}<div class="small font-monospace text-break">{{ fritz_status.myfritz_domain }}</div>{% endif %}
           {% if fritz_status.myfritz_state %}<div class="small text-secondary">{{ fritz_status.myfritz_state }}</div>{% endif %}
         </div>
       </div>
       {% if fritz_status.errors %}
-      <div class="form-text mt-3">Einzelne Statusabfragen waren wegen FRITZ!OS-Version oder Benutzerrechten nicht verfügbar. Der Telefonbuch-Sync bleibt davon unabhängig.</div>
+      <div class="form-text mt-3">{{ 'Individual status queries were unavailable due to FRITZ!OS version or user rights. Phone-book sync is unaffected.' if g.language == 'en' else 'Einzelne Statusabfragen waren wegen FRITZ!OS-Version oder Benutzerrechten nicht verfügbar. Der Telefonbuch-Sync bleibt davon unabhängig.' }}</div>
       {% endif %}
     </div>
   </section>
@@ -89,56 +89,56 @@
 
   {% if phonebooks %}
   <section class="card mb-4">
-    <div class="card-header"><strong>2. Ziel auswählen &amp; Kontakte übertragen</strong></div>
+    <div class="card-header"><strong>{{ '2. Select target &amp; transfer contacts' if g.language == 'en' else '2. Ziel auswählen &amp; Kontakte übertragen' }}</strong></div>
     <div class="card-body">
       <form method="post" action="{{ url_for('fritzbox_contacts.sync') }}">
         <div class="row g-3 align-items-end mb-3">
           <div class="col-lg-6">
-            <label class="form-label" for="phonebook-id">FRITZ!Box-Telefonbuch</label>
+            <label class="form-label" for="phonebook-id">{{ 'FRITZ!Box phone book' if g.language == 'en' else 'FRITZ!Box-Telefonbuch' }}</label>
             <select required class="form-select" id="phonebook-id" name="phonebook_id">
-              <option value="">Telefonbuch wählen</option>
+              <option value="">{{ 'Select phone book' if g.language == 'en' else 'Telefonbuch wählen' }}</option>
               {% for book in phonebooks %}<option value="{{ book.id }}" {% if config.phonebook_id|string == book.id|string %}selected{% endif %}>{{ book.name }} (ID {{ book.id }})</option>{% endfor %}
             </select>
           </div>
           <div class="col-lg-6">
             {% if not config.password_saved %}
-            <label class="form-label" for="sync-password">Passwort für diesen Sync</label>
+            <label class="form-label" for="sync-password">{{ 'Password for this sync' if g.language == 'en' else 'Passwort für diesen Sync' }}</label>
             <input id="sync-password" required class="form-control" type="password" name="password" autocomplete="current-password">
             {% else %}
-            <div class="form-text pb-2">Für den Sync wird das verschlüsselt gespeicherte Passwort verwendet.</div>
+            <div class="form-text pb-2">{{ 'The encrypted stored password is used for the sync.' if g.language == 'en' else 'Für den Sync wird das verschlüsselt gespeicherte Passwort verwendet.' }}</div>
             {% endif %}
           </div>
         </div>
 
         <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
           <div class="btn-group btn-group-sm">
-            <button class="btn btn-outline-secondary" type="button" id="select-all">Alle mit Telefonnummer</button>
-            <button class="btn btn-outline-secondary" type="button" id="select-none">Keine</button>
+            <button class="btn btn-outline-secondary" type="button" id="select-all">{{ 'All with phone number' if g.language == 'en' else 'Alle mit Telefonnummer' }}</button>
+            <button class="btn btn-outline-secondary" type="button" id="select-none">{{ 'None' if g.language == 'en' else 'Keine' }}</button>
           </div>
-          <button class="btn btn-success" type="submit"><i class="fas fa-address-book me-1" aria-hidden="true"></i>Ausgewählte speichern / aktualisieren</button>
+          <button class="btn btn-success" type="submit"><i class="fas fa-address-book me-1" aria-hidden="true"></i>{{ 'Save / update selected' if g.language == 'en' else 'Ausgewählte speichern / aktualisieren' }}</button>
         </div>
 
         <div class="table-responsive border rounded">
           <table class="table table-hover align-middle mb-0">
-            <thead><tr><th scope="col" class="text-center">Sync</th><th scope="col">Kontakt</th><th scope="col">Telefon</th><th scope="col">E-Mail</th></tr></thead>
+            <thead><tr><th scope="col" class="text-center">Sync</th><th scope="col">{{ 'Contact' if g.language == 'en' else 'Kontakt' }}</th><th scope="col">{{ 'Phone' if g.language == 'en' else 'Telefon' }}</th><th scope="col">E-Mail</th></tr></thead>
             <tbody>
             {% for contact in contacts %}
               <tr class="{% if not contact.syncable %}text-secondary{% endif %}">
-                <td class="text-center"><input class="form-check-input fritz-contact" type="checkbox" name="contact_id" value="{{ contact.contact_id }}" {% if not contact.syncable %}disabled{% endif %} aria-label="{{ contact.fields.display_name }} synchronisieren"></td>
+                <td class="text-center"><input class="form-check-input fritz-contact" type="checkbox" name="contact_id" value="{{ contact.contact_id }}" {% if not contact.syncable %}disabled{% endif %} aria-label="{{ contact.fields.display_name }} {{ 'sync' if g.language == 'en' else 'synchronisieren' }}"></td>
                 <td><strong>{{ contact.fields.display_name }}</strong>{% if contact.fields.company %}<div class="small text-secondary">{{ contact.fields.company }}</div>{% endif %}</td>
                 <td>{{ contact.fields.mobile or contact.fields.phone_private or contact.fields.phone_business or contact.fields.phone or '–' }}</td>
                 <td>{{ contact.fields.email or '–' }}</td>
               </tr>
-            {% else %}<tr><td colspan="4" class="text-secondary">Noch keine Kontakte vorhanden.</td></tr>{% endfor %}
+            {% else %}<tr><td colspan="4" class="text-secondary">{{ 'No contacts yet.' if g.language == 'en' else 'Noch keine Kontakte vorhanden.' }}</td></tr>{% endfor %}
             </tbody>
           </table>
         </div>
-        <p class="form-text mt-2 mb-0">Beim ersten Export wird ein neuer FRITZ!Box-Eintrag angelegt. Die zurückgelieferte UID wird lokal gespeichert; spätere Exporte desselben Kontakts aktualisieren genau diesen Eintrag. Es werden keine FRITZ!Box-Kontakte automatisch gelöscht.</p>
+        <p class="form-text mt-2 mb-0">{{ 'The first export creates a new FRITZ!Box entry. The returned UID is stored locally; later exports of the same contact update exactly that entry. No FRITZ!Box contacts are deleted automatically.' if g.language == 'en' else 'Beim ersten Export wird ein neuer FRITZ!Box-Eintrag angelegt. Die zurückgelieferte UID wird lokal gespeichert; spätere Exporte desselben Kontakts aktualisieren genau diesen Eintrag. Es werden keine FRITZ!Box-Kontakte automatisch gelöscht.' }}</p>
       </form>
     </div>
   </section>
   {% else %}
-  <div class="alert alert-light border">Nach einem erfolgreichen Verbindungstest werden hier die von der FRITZ!Box gemeldeten Telefonbücher angezeigt.</div>
+  <div class="alert alert-light border">{{ 'After a successful connection test, the phone books reported by the FRITZ!Box appear here.' if g.language == 'en' else 'Nach einem erfolgreichen Verbindungstest werden hier die von der FRITZ!Box gemeldeten Telefonbücher angezeigt.' }}</div>
   {% endif %}
 </main>
 <script>

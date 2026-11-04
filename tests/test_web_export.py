@@ -1,5 +1,4 @@
 import hashlib
-import os
 import threading
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -8,6 +7,9 @@ from unittest.mock import patch
 
 from app import app
 from app.db import ensure_auth_database, get_db
+from pathlib import Path
+
+from app import app_config_store
 from app.web_export import _configured_base_url, _consume_token
 
 
@@ -25,6 +27,12 @@ class WebExportTests(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def _isolated_store(self):
+        return patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.tmp.name) / "app-config.json",
+        )
 
     def insert_token(self, secret, *, uses=1, minutes=5, revoked=False, auth_version=7, disabled=False):
         now = datetime.now(timezone.utc).replace(microsecond=0)
@@ -71,7 +79,7 @@ class WebExportTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_local_loopback_export_does_not_require_public_url(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SERVER_PUBLIC_URL": ""}):
+        with self._isolated_store():
             with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
                 with app.test_request_context("/", base_url="http://127.0.0.1:8080"):
                     self.assertEqual(_configured_base_url(), "http://127.0.0.1:8080")
@@ -79,10 +87,10 @@ class WebExportTests(unittest.TestCase):
                     self.assertEqual(_configured_base_url(), "http://localhost:8080")
 
     def test_non_loopback_export_still_requires_explicit_public_url(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SERVER_PUBLIC_URL": ""}):
+        with self._isolated_store():
             with patch.dict(app.config, {"WEB_EXPORT_BASE_URL": ""}):
                 with app.test_request_context("/", base_url="http://office.example.test:8080"):
-                    with self.assertRaisesRegex(RuntimeError, "SIMPLEOFFICE_SERVER_PUBLIC_URL"):
+                    with self.assertRaisesRegex(RuntimeError, "öffentliche Server-URL"):
                         _configured_base_url()
 
     def test_missing_playwright_returns_install_instructions(self):

@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from app.settings_store import SettingsStore
 from app.v3_extensions import (
     API_VERSION,
     CircuitBreaker,
@@ -74,6 +75,9 @@ class V3ExtensionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.manifests = ExtensionManifestStore(self.root)
         self.states = ExtensionStateStore(self.root)
+        SettingsStore(self.root).save(
+            {"v3": {"v3.extensions": True}}, "v3-extensions-test",
+        )
 
     def tearDown(self):
         self.temp.cleanup()
@@ -114,17 +118,13 @@ class V3ExtensionTests(unittest.TestCase):
             self.root,
             transport=FakeTransport(),
         )
-        with patch.dict(
-            "os.environ",
-            {"SIMPLEOFFICE_V3_EXTENSIONS_ENABLED": "1"},
-        ):
-            with self.assertRaises(ExtensionDenied):
-                registry.invoke(
-                    parsed.extension_id,
-                    "search_provider",
-                    "search",
-                    {"query": "x"},
-                )
+        with self.assertRaises(ExtensionDenied):
+            registry.invoke(
+                parsed.extension_id,
+                "search_provider",
+                "search",
+                {"query": "x"},
+            )
 
     def test_approved_extension_can_be_enabled_and_disabled_without_core_patch(self):
         parsed = self.manifests.save(manifest())
@@ -135,31 +135,23 @@ class V3ExtensionTests(unittest.TestCase):
             enabled=True,
             approved_capabilities=["search.read"],
         )
-        with patch.dict(
-            "os.environ",
-            {"SIMPLEOFFICE_V3_EXTENSIONS_ENABLED": "1"},
-        ):
-            result = registry.invoke(
+        result = registry.invoke(
+            parsed.extension_id,
+            "search_provider",
+            "search",
+            {"query": "x"},
+        )
+        self.assertEqual("Result", result["results"][0]["title"])
+        self.assertEqual(1, len(transport.calls))
+
+        self.states.set(parsed.extension_id, enabled=False)
+        with self.assertRaises(ExtensionUnavailable):
+            registry.invoke(
                 parsed.extension_id,
                 "search_provider",
                 "search",
                 {"query": "x"},
             )
-        self.assertEqual("Result", result["results"][0]["title"])
-        self.assertEqual(1, len(transport.calls))
-
-        self.states.set(parsed.extension_id, enabled=False)
-        with patch.dict(
-            "os.environ",
-            {"SIMPLEOFFICE_V3_EXTENSIONS_ENABLED": "1"},
-        ):
-            with self.assertRaises(ExtensionUnavailable):
-                registry.invoke(
-                    parsed.extension_id,
-                    "search_provider",
-                    "search",
-                    {"query": "x"},
-                )
 
     def test_failure_of_one_extension_does_not_block_another(self):
         first = self.manifests.save(manifest("example.first"))
@@ -173,15 +165,11 @@ class V3ExtensionTests(unittest.TestCase):
         transport = FakeTransport()
         transport.fail.add(first.extension_id)
         registry = ExtensionRegistry(self.root, transport=transport)
-        with patch.dict(
-            "os.environ",
-            {"SIMPLEOFFICE_V3_EXTENSIONS_ENABLED": "1"},
-        ):
-            rows, failures = registry.invoke_all(
-                "search_provider",
-                "search",
-                {"query": "x"},
-            )
+        rows, failures = registry.invoke_all(
+            "search_provider",
+            "search",
+            {"query": "x"},
+        )
         self.assertEqual(["example.first"], failures)
         self.assertEqual(
             ["example.second"],
@@ -202,16 +190,12 @@ class V3ExtensionTests(unittest.TestCase):
             {"health_check": lambda operation, payload: {"status": "ok"}},
             approved_capabilities={"health.read"},
         )
-        with patch.dict(
-            "os.environ",
-            {"SIMPLEOFFICE_V3_EXTENSIONS_ENABLED": "1"},
-        ):
-            result = registry.invoke(
-                "builtin.example",
-                "health_check",
-                "check",
-                {},
-            )
+        result = registry.invoke(
+            "builtin.example",
+            "health_check",
+            "check",
+            {},
+        )
         self.assertEqual("ok", result["status"])
 
     def test_circuit_breaker_opens_after_bounded_failures(self):
@@ -249,9 +233,6 @@ class V3ExtensionTests(unittest.TestCase):
         with patch(
             "app.v3_extensions.ExtensionRegistry",
             lambda root: ExtensionRegistry(root, transport=transport),
-        ), patch.dict(
-            "os.environ",
-            {"SIMPLEOFFICE_V3_EXTENSIONS_ENABLED": "1"},
         ):
             rows, failures = external_search_hits(
                 self.root,
@@ -265,6 +246,44 @@ class V3ExtensionTests(unittest.TestCase):
         self.assertNotIn("actor", sent)
         self.assertNotIn("private-username", json.dumps(sent))
         self.assertTrue(sent["authenticated"])
+
+
+    def test_default_transport_uses_stored_allowlist_not_environment(self):
+        import os as _os
+        from unittest.mock import patch as _patch
+
+        from app.v3_extensions import DEFAULT_EXTENSION_HTTP_ALLOWLIST
+
+        with _patch.dict(_os.environ, {"SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST": "evil.example"}):
+            transport = HttpExtensionTransport()
+        self.assertEqual(frozenset(DEFAULT_EXTENSION_HTTP_ALLOWLIST), transport.allow_hosts)
+        external = ExtensionManifest.from_dict(
+            manifest(endpoint="https://example.test/plugin"), external=True,
+        )
+        with self.assertRaises(ExtensionDenied):
+            transport._authorize_endpoint(external)
+        local = ExtensionManifest.from_dict(manifest(), external=True)
+        with self.assertRaises(ExtensionDenied):
+            transport._authorize_endpoint(local)
+        local_transport = HttpExtensionTransport(allow_hosts={"127.0.0.1"})
+        local_transport._authorize_endpoint(local)
+
+    def test_extension_allowlist_is_exact_and_denies_wildcards(self):
+        from app.v3_extensions import normalize_extension_http_allowlist, validate_extension_http_allowlist
+
+        self.assertEqual([], normalize_extension_http_allowlist(["*"]))
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["*"])
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["example.test:443"])
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["bad host"])
+        with self.assertRaisesRegex(ValueError, "exakte Hostnamen"):
+            validate_extension_http_allowlist(["example.test/path"])
+        self.assertEqual(["example.test"], validate_extension_http_allowlist(["Example.Test"]))
+        self.assertEqual([], validate_extension_http_allowlist([]))
+        self.assertEqual(["127.0.0.1"], validate_extension_http_allowlist(["127.0.0.1"]))
+        self.assertEqual(["::1"], validate_extension_http_allowlist(["::1"]))
 
 
 if __name__ == "__main__":

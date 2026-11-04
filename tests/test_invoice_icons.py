@@ -33,7 +33,7 @@ class InvoiceIconTests(unittest.TestCase):
         icons = Path("static/vendor/fontawesome-7.3.1/css/all.min.css").read_text(encoding="utf-8")
 
         self.assertIn("vendor/fontawesome-7.3.1/css/all.min.css", layout)
-        self.assertIn('fa-copy me-1" aria-hidden="true"></i>Nachfolger', finance)
+        self.assertIn('fa-copy me-1" aria-hidden="true"></i>{{ \'Successors\' if g.language', finance)
         self.assertIn('fa-link me-1" aria-hidden="true"></i>{{ item.predecessor_id }}', finance)
         self.assertIn('fa-code-branch me-1" aria-hidden="true"></i>', finance)
         for name in ("file-circle-plus", "file-pen", "copy", "link", "file-invoice", "file-pdf", "code-branch", "folder-open", "chart-column"):

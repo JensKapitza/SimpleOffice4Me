@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 
 from flask import current_app
 
+from . import marketplace_credentials as _marketplace
 from .db import get_db
 from .document_store import DocumentStore
 from .document_store_core import CONTROL_DIR, HISTORY_DIR, POLICY_FILE, PREVIEW_CACHE_DIR
@@ -75,12 +76,7 @@ def sync_decision(
 
 
 def drive_max_bytes() -> int:
-    requested = os.environ.get("SIMPLEOFFICE_GOOGLE_DRIVE_MAX_MIB", "128").strip()
-    try:
-        mib = int(requested)
-    except ValueError:
-        mib = 128
-    mib = max(1, min(mib, 512))
+    mib = _marketplace.google_drive_max_mib()
     app_limit = int(current_app.config.get("MAX_CONTENT_LENGTH", mib * 1024 * 1024))
     return min(mib * 1024 * 1024, app_limit)
 

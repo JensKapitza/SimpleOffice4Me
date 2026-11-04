@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.document_store import DocumentStore
 from app.federation_core import bitmap_encode, build_manifest
 from app.federation_peer_auth import sign as peer_auth_sign
@@ -39,6 +40,13 @@ class FederationWorkerStorageTests(unittest.TestCase):
         context.push()
         self.addCleanup(context.pop)
         self.addCleanup(lambda: clear_runtime_storage_master_key(self.root))
+        store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.base / "app-config.json",
+        )
+        store_patcher.start()
+        self.addCleanup(store_patcher.stop)
+        app_config_store.put_secret("federation", "token", "local-shared-bearer")
+        app_config_store.put("federation", {"peer_id": "source-peer"})
         self.content = b"authoritative-federation-transfer"
         self.documents = DocumentStore(self.root)
         self.document = self.documents.import_upload(io.BytesIO(self.content), "sample.bin", "tester")
@@ -144,16 +152,9 @@ class FederationWorkerStorageTests(unittest.TestCase):
     def test_peer_proof_uses_peer_secret_not_shared_bearer(self):
         url = "https://peer.example.test/federation/v1/capabilities"
         path = "/federation/v1/capabilities"
-        with patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-shared-bearer",
-                "SIMPLEOFFICE_FEDERATION_PEER_ID": "source-peer",
-            },
-        ):
-            headers = _configured_peer_proof(
-                url, "synthetic-peer-token", "GET", b""
-            )
+        headers = _configured_peer_proof(
+            url, "synthetic-peer-token", "GET", b""
+        )
 
         self.assertEqual("source-peer", headers["X-SimpleOffice-Peer-ID"])
         timestamp = int(headers["X-SimpleOffice-Peer-Timestamp"])
@@ -174,13 +175,7 @@ class FederationWorkerStorageTests(unittest.TestCase):
     def test_request_keeps_shared_bearer_separate_from_peer_proof(self):
         url = "https://peer.example.test/federation/v1/capabilities"
         path = "/federation/v1/capabilities"
-        with patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_TOKEN": "local-shared-bearer",
-                "SIMPLEOFFICE_FEDERATION_PEER_ID": "source-peer",
-            },
-        ), patch("app.federation_worker._OPENER.open", return_value=io.BytesIO(b"{}")) as opened:
+        with patch("app.federation_worker._OPENER.open", return_value=io.BytesIO(b"{}")) as opened:
             _request(url, token="synthetic-peer-token")
 
         request = opened.call_args.args[0]

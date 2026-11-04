@@ -1,4 +1,3 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -60,30 +59,32 @@ class PreviewServiceTest(unittest.TestCase):
                 self.assertEqual(30, service.timeout)
                 self.assertEqual(8, service.video_frame_count)
 
-    def test_legacy_preview_environment_is_preserved_until_settings_migration(self):
-        environment = {
-            "SIMPLEOFFICE_PREVIEWS": "off",
-            "SIMPLEOFFICE_PREVIEW_TIMEOUT_SECONDS": "75",
-            "SIMPLEOFFICE_PREVIEW_MAX_BYTES": "2048",
-            "SIMPLEOFFICE_PREVIEW_MAX_PIXELS": "2000000",
-            "SIMPLEOFFICE_VIDEO_PREVIEW_FRAMES": "6",
-        }
-        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, environment):
+    def test_preview_defaults_are_used_until_settings_are_persisted(self):
+        with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            legacy = PreviewService(root, {"paths": {"ffmpeg": None}})
-            self.assertFalse(legacy.preview_enabled)
-            self.assertEqual(75, legacy.timeout)
-            self.assertEqual(2048, legacy.max_bytes)
-            self.assertEqual(2_000_000, legacy.max_pixels)
-            self.assertEqual(6, legacy.video_frame_count)
+            default = PreviewService(root, {"paths": {"ffmpeg": None}})
+            self.assertTrue(default.preview_enabled)
+            self.assertEqual(45, default.timeout)
+            self.assertEqual(256 * 1024 * 1024, default.max_bytes)
+            self.assertEqual(80_000_000, default.max_pixels)
+            self.assertEqual(10, default.video_frame_count)
 
-            SettingsStore(root).save({"interface": {"timezone": "UTC"}}, "media-admin")
-            migrated = PreviewService(root, {"paths": {"ffmpeg": None}})
-            self.assertFalse(migrated.preview_enabled)
-            self.assertEqual(75, migrated.timeout)
-            self.assertEqual(2048, migrated.max_bytes)
-            self.assertEqual(2_000_000, migrated.max_pixels)
-            self.assertEqual(6, migrated.video_frame_count)
+            SettingsStore(root).save(
+                {"media": {
+                    "preview_enabled": False,
+                    "preview_timeout_seconds": 75,
+                    "preview_max_bytes": 2048,
+                    "preview_max_pixels": 2_000_000,
+                    "video_preview_frames": 6,
+                }},
+                "media-admin",
+            )
+            configured = PreviewService(root, {"paths": {"ffmpeg": None}})
+            self.assertFalse(configured.preview_enabled)
+            self.assertEqual(75, configured.timeout)
+            self.assertEqual(2048, configured.max_bytes)
+            self.assertEqual(2_000_000, configured.max_pixels)
+            self.assertEqual(6, configured.video_frame_count)
 
     def test_detects_optional_commands_without_executing_them(self):
         found = {"magick": "/usr/bin/magick", "pdftoppm": "/usr/bin/pdftoppm"}

@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import socket
 import subprocess
 import threading
@@ -17,6 +16,7 @@ from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, re
 
 from .access_control import audit, is_admin
 from .auth import login_required
+from . import federation_local_identity as _identity
 from .federation_print_auth import PrintRequestProof, new_nonce, sign_request
 from .federation_store import FederationStore
 from .federation_worker import _json_request, _request
@@ -43,15 +43,15 @@ def _federation() -> FederationStore:
 
 
 def _local_peer_id() -> str:
-    configured = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
-    return configured or socket.gethostname().strip().casefold().replace(" ", "-")[:128]
+    return _identity.peer_id().strip().casefold().replace(" ", "-")[:128]
 
 
 def _local_identity_token() -> str:
-    token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    token = _identity.shared_token()
     if not token:
         raise ValueError(
-            "SIMPLEOFFICE_FEDERATION_TOKEN fehlt; die lokale Instanz kann ihre Peer-Identität nicht kryptographisch nachweisen"
+            "Föderations-Token ist nicht konfiguriert (Admin → Föderation → Identität); "
+            "die lokale Instanz kann ihre Peer-Identität nicht kryptographisch nachweisen"
         )
     return token
 

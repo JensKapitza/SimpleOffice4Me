@@ -1,4 +1,31 @@
 (() => {
+  const EN = typeof document !== "undefined"
+    && (document.documentElement.lang || "").toLowerCase().startsWith("en");
+  const STR = {
+    textTooLong: EN ? "The pasted text is too long." : "Der eingefügte Text ist zu lang.",
+    tooManyLines: EN ? "The pasted text contains too many lines." : "Der eingefügte Text enthält zu viele Zeilen.",
+    valueTooLong: (target) => EN ? `The value for ${target} is too long.` : `Der Wert für ${target} ist zu lang.`,
+    multipleValues: (target) => EN ? `Multiple different values for ${target}.` : `Mehrere unterschiedliche Werte für ${target}.`,
+    needTwoChars: EN ? "Please enter at least two characters for the local duplicate check." : "Bitte mindestens zwei Zeichen für die lokale Dublettenprüfung eingeben.",
+    checkingLocal: EN ? "Checking local contacts …" : "Lokale Kontakte werden geprüft …",
+    noLocalMatches: EN ? "No matching local company contacts found." : "Keine passenden lokalen Firmenkontakte gefunden.",
+    possibleDuplicates: EN ? "Possible local duplicates — check the existing contact first:" : "Mögliche lokale Dubletten — vorhandenen Kontakt zuerst prüfen:",
+    openContact: EN ? "Open contact" : "Kontakt öffnen",
+    dupUnavailable: EN ? "Local duplicate check unavailable; please check contacts manually." : "Lokale Dublettenprüfung nicht verfügbar; bitte Kontakte manuell prüfen.",
+    needCompanyName: EN ? "Please enter a company name for the search first." : "Bitte zuerst einen Firmennamen für die Suche eingeben.",
+    fieldsRecognized: (n) => EN ? `${n} labeled fields recognized. Please check the mapping.` : `${n} beschriftete Felder erkannt. Bitte Zuordnung prüfen.`,
+    noLabels: EN ? "No known field labels recognized; details can be entered into the fields manually." : "Keine bekannten Feldbezeichnungen erkannt; Angaben können manuell in die Felder eingetragen werden.",
+    textNotEvaluated: EN ? "The text could not be evaluated." : "Der Text konnte nicht ausgewertet werden.",
+    existingAddresses: (n) => EN ? `${n} existing address(es); suggestion will be appended` : `${n} vorhandene Adresse(n); Vorschlag wird angefügt`,
+    newAddress: EN ? "New address" : "Neue Adresse",
+    adoptLabel: (label) => EN ? `Adopt ${label}` : `${label} übernehmen`,
+    checkMapping: EN ? "Check the field mapping. Existing values stay unchanged; marked addresses are added." : "Prüfe Feldzuordnung. Bestehende Werte bleiben unverändert; markierte Adressen werden ergänzt.",
+    noNewFields: EN ? "There are no new fields to adopt. Existing values were protected." : "Es gibt keine neuen Felder zum Übernehmen. Bestehende Werte wurden geschützt.",
+    needHttps: EN ? "Please provide an HTTPS source before adopting." : "Bitte vor der Übernahme eine HTTPS-Quelle angeben.",
+    httpsInvalid: EN ? "The data source must be a valid HTTPS address." : "Die Datenquelle muss eine gültige HTTPS-Adresse sein.",
+    nothingMarked: EN ? "No new field was marked; existing contact data stays unchanged." : "Es wurde kein neues Feld markiert; bestehende Kontaktdaten bleiben unverändert.",
+    fieldsAdopted: EN ? "Fields adopted. Source and time are logged on save; changes stay local in the form until saving." : "Felder übernommen. Quelle und Zeitpunkt werden beim Speichern protokolliert; Änderungen bleiben bis zum Speichern lokal im Formular.",
+  };
   const MAX_PASTE_CHARS = 20000;
   const MAX_FIELD_CHARS = 2000;
   const LABELS = new Map([
@@ -24,9 +51,9 @@
 
   function parseCompanyDetails(text) {
     const source = String(text || "");
-    if (source.length > MAX_PASTE_CHARS) throw new RangeError("Der eingefügte Text ist zu lang.");
+    if (source.length > MAX_PASTE_CHARS) throw new RangeError(STR.textTooLong);
     const lines = source.split(/\r?\n/);
-    if (lines.length > 100) throw new RangeError("Der eingefügte Text enthält zu viele Zeilen.");
+    if (lines.length > 100) throw new RangeError(STR.tooManyLines);
     const result = {};
     for (const line of lines) {
       const separator = line.indexOf(":");
@@ -34,9 +61,9 @@
       const target = LABELS.get(normalizeLabel(line.slice(0, separator)));
       const value = line.slice(separator + 1).trim();
       if (!target || !value) continue;
-      if (value.length > MAX_FIELD_CHARS) throw new RangeError(`Der Wert für ${target} ist zu lang.`);
+      if (value.length > MAX_FIELD_CHARS) throw new RangeError(STR.valueTooLong(target));
       if (result[target] && result[target] !== value) {
-        throw new Error(`Mehrere unterschiedliche Werte für ${target}.`);
+        throw new Error(STR.multipleValues(target));
       }
       result[target] = value;
     }
@@ -115,10 +142,10 @@
       const controller = duplicateController;
       duplicateResults.replaceChildren();
       if (!companyName || companyName.trim().length < 2) {
-        duplicateResults.textContent = "Bitte mindestens zwei Zeichen für die lokale Dublettenprüfung eingeben.";
+        duplicateResults.textContent = STR.needTwoChars;
         return;
       }
-      duplicateResults.textContent = "Lokale Kontakte werden geprüft …";
+      duplicateResults.textContent = STR.checkingLocal;
       try {
         const url = new URL(endpoint, window.location.origin);
         url.searchParams.set("q", companyName.trim());
@@ -134,19 +161,19 @@
         duplicateResults.replaceChildren();
         const items = Array.isArray(payload.items) ? payload.items : [];
         if (!items.length) {
-          duplicateResults.textContent = "Keine passenden lokalen Firmenkontakte gefunden.";
+          duplicateResults.textContent = STR.noLocalMatches;
           return;
         }
         const heading = document.createElement("p");
         heading.className = "mb-1";
-        heading.textContent = "Mögliche lokale Dubletten — vorhandenen Kontakt zuerst prüfen:";
+        heading.textContent = STR.possibleDuplicates;
         const list = document.createElement("ul");
         list.className = "mb-0";
         for (const item of items) {
           const row = document.createElement("li");
           const link = document.createElement("a");
           link.href = contactUrl.replace("__CONTACT_ID__", encodeURIComponent(item.contact_id));
-          link.textContent = item.company_name || item.display_name || "Kontakt öffnen";
+          link.textContent = item.company_name || item.display_name || STR.openContact;
           row.append(link);
           if (item.email) {
             const detail = document.createElement("span");
@@ -159,7 +186,7 @@
         duplicateResults.append(heading, list);
       } catch (error) {
         if (error.name === "AbortError") return;
-        duplicateResults.textContent = "Lokale Dublettenprüfung nicht verfügbar; bitte Kontakte manuell prüfen.";
+        duplicateResults.textContent = STR.dupUnavailable;
       }
     }
 
@@ -167,7 +194,7 @@
       link.addEventListener("click", (event) => {
         if (link.matches("[data-company-provider]") && !queryName.value.trim()) {
           event.preventDefault();
-          status.textContent = "Bitte zuerst einen Firmennamen für die Suche eingeben.";
+          status.textContent = STR.needCompanyName;
           queryName.focus();
           return;
         }
@@ -211,10 +238,10 @@
         const parsed = parseCompanyDetails(paste.value);
         for (const [key, value] of Object.entries(parsed)) values.get(key).value = value;
         status.textContent = Object.keys(parsed).length
-          ? `${Object.keys(parsed).length} beschriftete Felder erkannt. Bitte Zuordnung prüfen.`
-          : "Keine bekannten Feldbezeichnungen erkannt; Angaben können manuell in die Felder eingetragen werden.";
+          ? STR.fieldsRecognized(Object.keys(parsed).length)
+          : STR.noLabels;
       } catch (error) {
-        status.textContent = error instanceof Error ? error.message : "Der Text konnte nicht ausgewertet werden.";
+        status.textContent = error instanceof Error ? error.message : STR.textNotEvaluated;
       }
     });
 
@@ -249,7 +276,7 @@
           : null;
         const currentValue = target ? target.value.trim() : "";
         oldValue.textContent = key === "street" || key === "city" || key === "postal" || key === "state" || key === "country"
-          ? (existingAddresses ? `${existingAddresses} vorhandene Adresse(n); Vorschlag wird angefügt` : "Neue Adresse")
+          ? (existingAddresses ? STR.existingAddresses(existingAddresses) : STR.newAddress)
           : (currentValue || "—");
         const proposedValue = document.createElement("td");
         proposedValue.textContent = value;
@@ -263,16 +290,14 @@
         const protectedValue = !addressField && currentValue && !fillable[key];
         checkbox.checked = !unchanged && !protectedValue;
         checkbox.disabled = Boolean(unchanged || protectedValue);
-        checkbox.setAttribute("aria-label", `${values.get(key).dataset.companyLabel} übernehmen`);
+        checkbox.setAttribute("aria-label", STR.adoptLabel(values.get(key).dataset.companyLabel));
         if (!checkbox.disabled) additions += 1;
         action.append(checkbox);
         row.append(fieldName, oldValue, proposedValue, action);
         previewRows.append(row);
       }
       preview.hidden = false;
-      status.textContent = additions
-        ? "Prüfe Feldzuordnung. Bestehende Werte bleiben unverändert; markierte Adressen werden ergänzt."
-        : "Es gibt keine neuen Felder zum Übernehmen. Bestehende Werte wurden geschützt.";
+      status.textContent = additions ? STR.checkMapping : STR.noNewFields;
     });
 
     root.querySelector("[data-company-apply]").addEventListener("click", () => {
@@ -280,12 +305,12 @@
       try {
         source = new URL(sourceUrl.value.trim());
       } catch {
-        status.textContent = "Bitte vor der Übernahme eine HTTPS-Quelle angeben.";
+        status.textContent = STR.needHttps;
         sourceUrl.focus();
         return;
       }
       if (source.protocol !== "https:" || !source.hostname) {
-        status.textContent = "Die Datenquelle muss eine gültige HTTPS-Adresse sein.";
+        status.textContent = STR.httpsInvalid;
         sourceUrl.focus();
         return;
       }
@@ -304,12 +329,12 @@
         selected.push(key);
       }
       if (!selected.length) {
-        status.textContent = "Es wurde kein neues Feld markiert; bestehende Kontaktdaten bleiben unverändert.";
+        status.textContent = STR.nothingMarked;
         return;
       }
       sourceHidden.value = source.href;
       fieldsHidden.value = selected.join(",");
-      status.textContent = "Felder übernommen. Quelle und Zeitpunkt werden beim Speichern protokolliert; Änderungen bleiben bis zum Speichern lokal im Formular.";
+      status.textContent = STR.fieldsAdopted;
     });
 
     updateLinks();

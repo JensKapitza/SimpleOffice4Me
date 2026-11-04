@@ -53,6 +53,8 @@ class FinanceMatchingHTTPTests(unittest.TestCase):
         )
         with self.client.session_transaction() as session:
             session["_csrf_token"] = "m" * 40
+            # i18n pin: test asserts German copy; EN default renders English.
+            session["simpleoffice_language"] = "de"
         app.config["TEST_CSRF_PROTECTION"] = True
         self.url = (
             "/documents/business/bookkeeping/finances/transactions/"

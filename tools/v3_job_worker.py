@@ -15,7 +15,7 @@ def main() -> int:
     parser.add_argument("--once",action="store_true")
     parser.add_argument("--poll-seconds",type=float,default=2.0)
     args=parser.parse_args()
-    if not enabled("v3.jobs"):
+    if not enabled("v3.jobs", root=args.root):
         print("v3.jobs is disabled; worker exits without changing jobs")
         return 0
     worker_id=f"{socket.gethostname()}:{os.getpid()}"

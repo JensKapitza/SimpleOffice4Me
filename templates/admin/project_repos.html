@@ -1,0 +1,28 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <h1 class="h2 mb-1">{{ 'Project repository roots' if g.language == 'en' else 'Projekt-Repository-Roots' }}</h1>
+      <p class="text-secondary mb-0">{{ 'Additional directories whose Git working trees projects may open read-only. One absolute path per line; empty means only the document root is allowed. Missing directories stay inactive until they exist.' if g.language == 'en' else 'Zusätzliche Verzeichnisse, deren Git-Working-Trees Projekte read-only öffnen dürfen. Ein absoluter Pfad pro Zeile; leer bedeutet, dass nur der Dokument-Root erlaubt ist. Fehlende Verzeichnisse bleiben inaktiv, bis sie existieren.' }}</p>
+    </div>
+  </div>
+  <section class="card">
+    <div class="card-body">
+      <form method="post" action="{{ url_for('project_repo_admin.save') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="repo-roots">{{ 'Allowed roots (one per line)' if g.language == 'en' else 'Freigegebene Roots (einer pro Zeile)' }}</label>
+          <textarea class="form-control" id="repo-roots" name="repo_roots" rows="5" maxlength="65536" autocomplete="off" spellcheck="false">{{ repo_roots | join('\n') }}</textarea>
+          <div class="form-text">{{ 'Default: empty. At most 64 absolute paths.' if g.language == 'en' else 'Standard: leer. Höchstens 64 absolute Pfade.' }}</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

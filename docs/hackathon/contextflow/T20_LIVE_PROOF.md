@@ -18,8 +18,10 @@ darum verweigert der Server jede reale Wurzel).
 
 ## Voraussetzungen
 
-- `MODEL_API_KEY` in `../.env` gefüllt (Stand 31.10.: gefüllt;
-  Wert nie ausgeben, loggen oder committen).
+- `MODEL_API_KEY` im Prozess oder in `../.env` gesetzt. Der isolierte
+  Demo-Starter übernimmt den Wert nur in den Arbeitsspeicher des
+  Demo-Prozesses; er wird nicht in der allgemeinen Einstellungsdatei
+  oder im Repository gespeichert. Wert nie ausgeben, loggen oder committen.
 - Branch `hackathon/contextflow-mvp` aktuell (enthält
   `tools/t20_live_probe.py` + Antwort-Modell-Erfassung).
 - Freier Loopback-Port (unten: 5101), Internet-Zugang.
@@ -40,8 +42,8 @@ Erwartete Banner-Zeilen:
 - `Fall:     <link_id> (abgeschlossen ...)`
 
 Abbruch: Fehlt die Vision-Zeile oder bricht der Start mit
-`MODEL_API_KEY is missing` ab, `.env`-Pfad prüfen (direkt neben
-dem Repo-Ordner, Key `MODEL_API_KEY=...`) und neu starten.
+`MODEL_API_KEY is missing` ab, Prozessvariable bzw. `.env`-Pfad prüfen
+(Elternordner des Repo-Ordners, Key `MODEL_API_KEY=...`) und neu starten.
 Kein Meta-Aufruf ist bis hierhin passiert.
 
 ## Schritt 2 — Probe starten (genau einmal klicken/laufen lassen)

@@ -39,8 +39,8 @@ die FinTS-Bibliothek ihn separat liefert.
 
 Die optionale FinTS-Bibliothek wird über das Extra `banking` installiert. python-fints
 ab Version 4 verlangt eine bei der Deutschen Kreditwirtschaft registrierte Produkt-ID;
-diese muss als `SIMPLEOFFICE_FINTS_PRODUCT_ID` in der vertrauenswürdigen
-Laufzeitkonfiguration des Dienstes hinterlegt werden. Sie ist eine Produktkennung,
+diese wird in der Administration unter FinTS hinterlegt (persistente Einstellung
+`finance.fints_product_id`, keine Umgebungsvariable). Sie ist eine Produktkennung,
 keine Benutzer-PIN oder TAN. Ohne gültige Produkt-ID starten FinTS-Abrufe nicht und
 zeigen eine entsprechende Konfigurationsmeldung.
 

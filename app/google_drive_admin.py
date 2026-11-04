@@ -11,6 +11,7 @@ from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, re
 
 from .access_control import audit, has_feature
 from .auth import GOOGLE_AUTH_URL, GOOGLE_TOKEN_URL, _google_config, _google_json_request, login_required
+from . import marketplace_credentials as _marketplace
 from .db import get_db
 from .google_drive_schema import ensure_google_drive_schema
 from .google_drive_sync import (
@@ -180,6 +181,7 @@ def index():
     android_result = str(request.args.get("android", "")).strip().casefold()
     if android_result not in ANDROID_RESULTS:
         android_result = ""
+    oauth_client_id, oauth_client_secret = _marketplace.google_oauth_credentials()
     return render_template(
         "google_drive/index.html",
         drive_state=state,
@@ -188,10 +190,7 @@ def index():
         google_connected=connected,
         drive_allowed=drive_allowed,
         google_scopes=sorted(scopes),
-        google_configured=bool(
-            current_app.config.get("GOOGLE_OAUTH_CLIENT_ID")
-            and current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET")
-        ),
+        google_configured=bool(oauth_client_id and oauth_client_secret),
         local_sync_folder=LOCAL_SYNC_FOLDER,
         android_result=android_result,
         android_client=_is_android_request(),

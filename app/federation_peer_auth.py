@@ -1,7 +1,6 @@
 """Peer-bound HMAC authentication for lightweight federation control calls."""
 import hashlib
 import hmac
-import os
 import secrets
 import time
 from pathlib import Path
@@ -70,9 +69,10 @@ def authenticate(root, request):
     token = store.peer_token(peer_id)
     if not token:
         raise ValueError("peer-specific token required")
-    for setting in ("SIMPLEOFFICE_FEDERATION_TOKEN", "SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN"):
-        shared = os.environ.get(setting, "").strip()
-        if shared and hmac.compare_digest(token, shared):
+    from . import federation_local_identity as _identity
+
+    for known in (_identity.shared_token(), _identity.directory_token()):
+        if known and hmac.compare_digest(token, known):
             raise ValueError("shared bearer token cannot establish peer identity")
     for configured in store.list_peers():
         if configured["peer_id"] != peer_id and store.peer_token(configured["peer_id"]) == token:

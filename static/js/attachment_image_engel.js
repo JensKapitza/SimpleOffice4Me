@@ -1,5 +1,17 @@
 (() => {
   'use strict';
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    analyzing: EN ? 'The angel is looking at the released attachment …' : 'Der Engel schaut sich den freigegebenen Anhang an …',
+    failed: (code) => EN ? `Image analysis failed (${code}).` : `Bildanalyse fehlgeschlagen (${code}).`,
+    timeoutHint: EN ? 'The model may still be loading — please try again later.' : 'Das Modell lädt möglicherweise noch — bitte später erneut versuchen.',
+    ollamaHint: EN ? 'Please set up Ollama with a vision model on this machine.' : 'Bitte Ollama mit Bildmodell auf diesem Rechner einrichten.',
+    noImage: EN ? 'Not an image document — nothing to analyze.' : 'Kein Bilddokument — nichts zu analysieren.',
+    localModel: EN ? 'local model' : 'lokales Modell',
+    unknownModel: EN ? 'unknown' : 'unbekannt',
+    objectsFound: (names) => EN ? ` · Object(s): ${names}` : ` · Objekt: ${names}`,
+    network: EN ? 'Image analysis failed (network).' : 'Bildanalyse fehlgeschlagen (Netzwerk).',
+  };
   const cleanText = (value) => String(value || '').trim();
   const safeJson = async (response) => { try { return await response.json(); } catch (_error) { return {}; } };
   const renderResult = (slot, text, kind) => {
@@ -19,7 +31,7 @@
       const slot = button.parentElement?.querySelector('.attachment-image-result');
       if (!suggestUrl || !documentId || !button) return;
       button.disabled = true;
-      renderResult(slot, 'Der Engel schaut sich den freigegebenen Anhang an …', 'info');
+      renderResult(slot, STR.analyzing, 'info');
       try {
         const data = new FormData();
         data.append('document_id', documentId);
@@ -27,27 +39,27 @@
         const response = await fetch(suggestUrl, { method: 'POST', body: data, cache: 'no-store' });
         const payload = await safeJson(response);
         if (!response.ok || !payload || payload.ok !== true) {
-          const message = cleanText(payload && payload.error) || `Bildanalyse fehlgeschlagen (${response.status}).`;
+          const message = cleanText(payload && payload.error) || STR.failed(response.status);
           const hinted = response.status === 503
             ? (payload && payload.timeout === true
-              ? `${message} Das Modell lädt möglicherweise noch — bitte später erneut versuchen.`
-              : `${message} Bitte Ollama mit Bildmodell auf diesem Rechner einrichten.`)
+              ? `${message} ${STR.timeoutHint}`
+              : `${message} ${STR.ollamaHint}`)
             : message;
           renderResult(slot, hinted, response.status === 503 ? 'warning' : 'danger');
           return;
         }
         if (!payload.image) {
-          renderResult(slot, 'Kein Bilddokument — nichts zu analysieren.', 'warning');
+          renderResult(slot, STR.noImage, 'warning');
           return;
         }
         const objects = Array.isArray(payload.image.objects) ? payload.image.objects.map(cleanText).filter(Boolean) : [];
         renderResult(
           slot,
-          `${cleanText(payload.image.description)} — ${cleanText(payload.provider_label) || 'lokales Modell'} · ${cleanText(payload.model) || 'unbekannt'}${objects.length ? ` · Objekt: ${objects.join(', ')}` : ''}`,
+          `${cleanText(payload.image.description)} — ${cleanText(payload.provider_label) || STR.localModel} · ${cleanText(payload.model) || STR.unknownModel}${objects.length ? STR.objectsFound(objects.join(', ')) : ''}`,
           'success',
         );
       } catch (_error) {
-        renderResult(slot, 'Bildanalyse fehlgeschlagen (Netzwerk).', 'danger');
+        renderResult(slot, STR.network, 'danger');
       } finally {
         button.disabled = false;
       }

@@ -20,8 +20,26 @@ class CaptureUiWiringTests(unittest.TestCase):
     def test_multi_upload_continues_after_single_failure(self) -> None:
         script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
         self.assertIn("failures.push", script)
-        self.assertIn("von ${list.length} Fotos gespeichert", script)
+        self.assertIn(
+            "queuePartial: (stored, total, failures) => EN ? `${stored} of ${total} photos saved.",
+            script)
+        self.assertIn("von ${total} Fotos gespeichert. Fehler:", script)
+        self.assertIn("setGlobal(STR.queuePartial(stored, list.length", script)
         self.assertIn("renderEntry(payload.entry)", script)
+
+    def test_upload_status_keys_are_defined_in_both_locales(self) -> None:
+        # Regression: the queue/batch status STR keys were used but missing,
+        # which crashed photo uploads with a TypeError at runtime.
+        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        for key in (
+            "queueSaving: (n) => EN ? `${n} photo(s) being saved and analyzed",
+            "photoFallback: EN ? 'Photo' : 'Foto'",
+            "queueDup: EN ? 'This photo is already in the inbox",
+            "batchStarted: EN ? 'New book started",
+            "Dieses Foto ist bereits im Eingangskorb",
+            "Neues Buch begonnen",
+        ):
+            self.assertIn(key, script)
 
     def test_library_links_to_photo_inbox(self) -> None:
         library = (ROOT / "templates/library/index.html").read_text(encoding="utf-8")
@@ -38,30 +56,36 @@ class CaptureUiWiringTests(unittest.TestCase):
         self.assertIn("Buchrücken", script)
 
     def test_batch_review_assigns_group_to_existing_book(self) -> None:
-        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
-        self.assertIn("Vorhandene Buch-ID", script)
-        self.assertIn("Ganze Gruppe vorhandenem Buch zuordnen", script)
-        self.assertIn("payload.assign_url", script)
-        self.assertIn("Fotos, ", script)
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
+        self.assertIn("existingBookId: EN ? 'Existing book ID' : 'Vorhandene Buch-ID'", batch)
+        self.assertIn("Ganze Gruppe vorhandenem Buch zuordnen", batch)
+        self.assertIn("payload.assign_url", batch)
+        self.assertIn("Fotos, ", batch)
 
     def test_batch_review_shows_duplicates_with_group_assign(self) -> None:
-        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
-        self.assertIn("combined.duplicates", script)
-        self.assertIn("Gruppe diesem Buch zuordnen", script)
-        self.assertIn("assignIdInput", script)
-        self.assertIn("assignExistingBtn", script)
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
+        self.assertIn("combined.duplicates", batch)
+        self.assertIn("groupAssign: EN ? 'Assign group to this book' : 'Gruppe diesem Buch zuordnen'", batch)
+        self.assertIn("assignIdInput", batch)
+        self.assertIn("assignExistingBtn", batch)
 
     def test_batch_cards_offer_resume_for_existing_groups(self) -> None:
-        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
-        self.assertIn("Fortsetzen", script)
-        self.assertIn("currentBatch = batchId", script)
+        # Batch review lives in the split batch module; the inbox delegates.
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
+        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        self.assertIn("groupResume: EN ? 'Resume (more photos)' : 'Fortsetzen (weitere Fotos)'", batch)
+        self.assertIn("resume.textContent = STR.groupResume", batch)
+        self.assertIn("setCurrentBatch(batchId)", batch)
+        self.assertIn("batchApi().renderBatches(batchCtx())", inbox)
 
     def test_single_capture_sends_meta_consent_when_checked(self) -> None:
-        script = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
-        self.assertGreaterEqual(script.count("consent_meta', '1'"), 3)
+        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
+        self.assertGreaterEqual(
+            inbox.count("consent_meta', '1'") + batch.count("consent_meta', '1'"), 3)
 
     def test_batch_review_has_click_only_marketplace_search(self) -> None:
-        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
         script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
         for snippet in (
             "nur auf Klick suchen, kein Automatismus",
@@ -77,22 +101,25 @@ class CaptureUiWiringTests(unittest.TestCase):
         ):
             self.assertIn(snippet, script)
         for snippet in (
-            "'Preis (EUR-Richtwert)', 'market_price'",
-            "'Währung', 'currency'",
-            "'Preisquelle', 'price_source'",
+            "fieldPrice: EN ? 'Price (EUR guide)' : 'Preis (EUR-Richtwert)'",
+            "fieldCurrency: EN ? 'Currency' : 'Währung'",
+            "fieldPriceSource: EN ? 'Price source' : 'Preisquelle'",
+            "addField(STR.fieldPrice, 'market_price', '')",
+            "addField(STR.fieldCurrency, 'currency', 'EUR')",
+            "addField(STR.fieldPriceSource, 'price_source', '')",
         ):
-            self.assertIn(snippet, inbox)
+            self.assertIn(snippet, batch)
         self.assertEqual(
             1, script.count("searchMarketplace(provider)"))
         self.assertIn(
             "addEventListener('click', () => searchMarketplace(provider))",
             script)
-        self.assertIn("data.append('market_price'", inbox)
-        self.assertIn("data.append('currency'", inbox)
-        self.assertIn("data.append('price_source'", inbox)
+        self.assertIn("data.append('market_price'", batch)
+        self.assertIn("data.append('currency'", batch)
+        self.assertIn("data.append('price_source'", batch)
         self.assertIn(
             "window.SimpleOfficeCaptureMarketplace.renderMarketplaceSection",
-            inbox)
+            batch)
 
     def test_marketplace_review_link_uses_shared_allowlist(self) -> None:
         script = (ROOT / "static/js/capture_marketplace.js").read_text(encoding="utf-8")
@@ -143,11 +170,11 @@ class CaptureUiWiringTests(unittest.TestCase):
         self.assertIn("if (!cleanText(dataset.peerStockUrl)) return;", script)
 
     def test_batch_review_has_click_only_peer_inventory_check(self) -> None:
-        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
         script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
         self.assertIn(
             "window.SimpleOfficeCapturePeerStock.renderPeerInventorySection",
-            inbox)
+            batch)
         for snippet in (
             "renderPeerInventorySection",
             "Freundesbestand (Inventarabgleich): nur auf Klick suchen",
@@ -189,11 +216,11 @@ class CaptureUiWiringTests(unittest.TestCase):
         self.assertIn('data-peer-inventory-url="{{ peer_inventory_url }}"', template)
 
     def test_batch_review_has_click_only_peer_stock_check(self) -> None:
-        inbox = (ROOT / "static/js/capture_inbox.js").read_text(encoding="utf-8")
+        batch = (ROOT / "static/js/capture_inbox_batch.js").read_text(encoding="utf-8")
         script = (ROOT / "static/js/capture_peer_stock.js").read_text(encoding="utf-8")
         self.assertIn(
             "window.SimpleOfficeCapturePeerStock.renderPeerStockSection",
-            inbox)
+            batch)
         for snippet in (
             "SimpleOfficeCapturePeerStock",
             "renderPeerStockSection",

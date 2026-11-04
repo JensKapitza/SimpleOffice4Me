@@ -12,8 +12,9 @@ Die herunterladbare Geräteanleitung enthält absichtlich keine Geheimnisse.
 
 1. SimpleOffice zunächst nur lokal starten und das erste Benutzerkonto
    anlegen. In einer Einbenutzerinstallation ist dieses Konto
-   Bootstrap-Administrator. Bei mehreren Benutzern werden Administratoren mit
-   `SIMPLEOFFICE_DOCUMENT_ADMINS` ausdrücklich benannt.
+   Bootstrap-Administrator. Bei mehreren Benutzern werden Administratoren
+   unter **Admin → Benutzer → Admin-Listen** ausdrücklich benannt
+   (`SIMPLEOFFICE_DOCUMENT_ADMINS` ist entfernt).
 2. Vor Zugriff aus dem Netz HTTPS gemäß [Proxy-Anleitung](PROXY_HTTPS.md)
    aktivieren. Der Assistent sperrt das Erzeugen von App-Passwörtern bei einer
    unverschlüsselten, nicht lokalen HTTP-Verbindung.

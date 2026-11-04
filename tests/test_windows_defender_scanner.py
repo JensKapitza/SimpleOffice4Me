@@ -15,8 +15,11 @@ from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
+from app import admin_lists
 from app import app
+from app import app_config_store
 from app import db as database
+from app.settings_store import SettingsStore
 from app.attachment_security import (
     AttachmentSecurity,
     ClamAV,
@@ -36,8 +39,7 @@ class _Completed:
 
 
 def _defender_env(**overrides):
-    env = {"SIMPLEOFFICE_SCANNER": "", "SIMPLEOFFICE_CLAMAV_SCANNER": "",
-           "SystemRoot": "", "ProgramFiles": "", "ProgramFiles(x86)": ""}
+    env = {"SystemRoot": "", "ProgramFiles": "", "ProgramFiles(x86)": ""}
     env.update(overrides)
     return patch.dict(os.environ, env, clear=False)
 
@@ -283,30 +285,28 @@ class ErrorCodeTests(unittest.TestCase):
         self.assertEqual("scanner_permission", codes(RuntimeError("scan failed: permission denied (x)")))
         self.assertEqual("scanner_unknown", codes(RuntimeError("scan started but the result is unknown")))
         self.assertEqual("scanner_error", codes(RuntimeError("ClamAV scan failed (exit 3)")))
-        self.assertEqual("scanner_error", codes(RuntimeError("SIMPLEOFFICE_SCANNER must be one of: auto")))
+        self.assertEqual("scanner_error", codes(RuntimeError("scanner_choice must be one of: auto")))
 
 
 class DefaultScannerTests(unittest.TestCase):
     def test_explicit_choice_wins(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "clamav"}, clear=False):
-            self.assertIsInstance(default_scanner(timeout=9), ClamAV)
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "defender"}, clear=False):
-            scanner = default_scanner(timeout=9)
-            self.assertIsInstance(scanner, WindowsDefender)
-            self.assertEqual(9, scanner.timeout)
+        self.assertIsInstance(default_scanner(timeout=9, choice="clamav"), ClamAV)
+        scanner = default_scanner(timeout=9, choice="defender")
+        self.assertIsInstance(scanner, WindowsDefender)
+        self.assertEqual(9, scanner.timeout)
 
     def test_invalid_choice_fails_closed_without_raising(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "nonsense"}, clear=False):
-            scanner = default_scanner()
+        scanner = default_scanner(choice="nonsense")
         self.assertEqual("unavailable", scanner.status()["state"])
-        self.assertIn("SIMPLEOFFICE_SCANNER", scanner.status()["version"])
-        with self.assertRaisesRegex(RuntimeError, "SIMPLEOFFICE_SCANNER"):
+        self.assertIn("scanner_choice", scanner.status()["version"])
+        with self.assertRaisesRegex(RuntimeError, "scanner_choice"):
             scanner.scan(Path("sample.bin"))
 
     def test_auto_keeps_explicit_clamav_configuration(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "", "SIMPLEOFFICE_CLAMAV_SCANNER": "/usr/bin/clamscan"}, clear=False), \
-             patch("os.name", "nt"):
-            self.assertIsInstance(default_scanner(), ClamAV)
+        with patch("os.name", "nt"):
+            self.assertIsInstance(
+                default_scanner(scanner_path="/usr/bin/clamscan"), ClamAV,
+            )
 
     def test_auto_prefers_installed_clamav(self):
         with _defender_env(), patch("os.name", "nt"), \
@@ -330,9 +330,12 @@ class DefaultScannerTests(unittest.TestCase):
                 scanner.executable()
 
     def test_attachment_security_uses_explicit_defender_selection(self):
-        with tempfile.TemporaryDirectory() as temp, _defender_env(
-            SIMPLEOFFICE_SCANNER="defender",
-        ):
+        from app.settings_store import SettingsStore
+
+        with tempfile.TemporaryDirectory() as temp:
+            SettingsStore(Path(temp)).save(
+                {"integrations": {"scanner_choice": "defender"}}, "defender-test",
+            )
             security = AttachmentSecurity(Path(temp))
         self.assertIsInstance(security.scanner, WindowsDefender)
         self.assertEqual(120, security.scanner.timeout)
@@ -342,6 +345,12 @@ class SecurityPageTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
+        store_patcher = patch.object(
+            app_config_store, "settings_path",
+            return_value=Path(self.temp.name) / "app-config.json",
+        )
+        store_patcher.start()
+        self.addCleanup(store_patcher.stop)
         self.saved = {key: app.config.get(key) for key in ("DATABASE", "DOCUMENT_ROOT", "TESTING")}
         app.config.update(
             TESTING=True, DATABASE=str(Path(self.temp.name) / "auth.sqlite"),
@@ -361,10 +370,15 @@ class SecurityPageTests(unittest.TestCase):
             session["simpleoffice_language"] = "de"
         self.client.post("/auth/login", data={"username": "owner", "password": "owner-password"})
 
+    def _seed_scanner_choice(self, choice):
+        SettingsStore(Path(app.config["DOCUMENT_ROOT"])).save(
+            {"integrations": {"scanner_choice": choice}}, "defender-test",
+        )
+
     def test_security_center_shows_defender_name_and_host_note(self):
         status = {"state": "available", "engine": "Start-MpScan", "version": "Signaturen 1.2.3"}
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "defender"}, clear=False), \
-             patch("app.attachment_security.WindowsDefender.status", return_value=status):
+        self._seed_scanner_choice("defender")
+        with patch("app.attachment_security.WindowsDefender.status", return_value=status):
             page = self.client.get("/documents/security")
         self.assertEqual(200, page.status_code)
         body = page.get_data(as_text=True)
@@ -375,8 +389,7 @@ class SecurityPageTests(unittest.TestCase):
 
     def test_security_center_keeps_clamav_name_by_default(self):
         status = {"state": "unavailable", "engine": "", "version": "missing"}
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "", "SIMPLEOFFICE_CLAMAV_SCANNER": ""}, clear=False), \
-             patch("app.attachment_security.ClamAV.status", return_value=status), \
+        with patch("app.attachment_security.ClamAV.status", return_value=status), \
              patch("app.attachment_security.shutil.which", return_value="/usr/bin/clamscan"):
             page = self.client.get("/documents/security")
         self.assertEqual(200, page.status_code)
@@ -385,31 +398,30 @@ class SecurityPageTests(unittest.TestCase):
         self.assertIn("ClamAV-Ereignisse", body)
 
     def test_scan_now_button_needs_runnable_provider(self):
-        env = {"SIMPLEOFFICE_SCANNER": "defender", "SIMPLEOFFICE_SECURITY_ADMINS": "owner"}
+        admin_lists.save({"security_admins": "owner"})
+        self._seed_scanner_choice("defender")
         available = {"state": "available", "engine": "Start-MpScan", "version": "x"}
-        with patch.dict(os.environ, env, clear=False), \
-             patch("app.attachment_security.WindowsDefender.status", return_value=available):
+        with patch("app.attachment_security.WindowsDefender.status", return_value=available):
             page = self.client.get("/documents/security")
         self.assertIn("Verwaltete Dateien jetzt scannen", page.get_data(as_text=True))
         missing = {"state": "unavailable", "engine": "", "version": "gone"}
-        with patch.dict(os.environ, env, clear=False), \
-             patch("app.attachment_security.WindowsDefender.status", return_value=missing):
+        with patch("app.attachment_security.WindowsDefender.status", return_value=missing):
             page = self.client.get("/documents/security")
         self.assertNotIn("Verwaltete Dateien jetzt scannen", page.get_data(as_text=True))
 
     def test_signature_update_uses_active_scanner(self):
-        env = {"SIMPLEOFFICE_SCANNER": "defender", "SIMPLEOFFICE_SECURITY_ADMINS": "owner"}
-        with patch.dict(os.environ, env, clear=False), \
-             patch("app.attachment_security.WindowsDefender.update", return_value="aktuell") as update:
+        admin_lists.save({"security_admins": "owner"})
+        self._seed_scanner_choice("defender")
+        with patch("app.attachment_security.WindowsDefender.update", return_value="aktuell") as update:
             response = self.client.post("/documents/security/update", follow_redirects=True)
         update.assert_called_once_with()
         self.assertEqual(200, response.status_code)
         self.assertIn("Windows Defender-Signaturen wurden aktualisiert.", response.get_data(as_text=True))
 
     def test_signature_update_stays_admin_gated(self):
-        env = {"SIMPLEOFFICE_SCANNER": "defender", "SIMPLEOFFICE_SECURITY_ADMINS": ""}
-        with patch.dict(os.environ, env, clear=False), \
-             patch("app.attachment_security.WindowsDefender.update") as update:
+        admin_lists.save({"security_admins": ""})
+        self._seed_scanner_choice("defender")
+        with patch("app.attachment_security.WindowsDefender.update") as update:
             response = self.client.post("/documents/security/update")
         self.assertEqual(403, response.status_code)
         update.assert_not_called()
@@ -417,8 +429,8 @@ class SecurityPageTests(unittest.TestCase):
     def test_document_scan_flash_uses_engine_name(self):
         store = DocumentStore(Path(self.temp.name) / "documents")
         document = store.import_upload(io.BytesIO(b"note"), "note.txt", "owner")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "defender"}, clear=False), \
-             patch("app.attachment_security.WindowsDefender.scan",
+        self._seed_scanner_choice("defender")
+        with patch("app.attachment_security.WindowsDefender.scan",
                    return_value=ScanResult("clean", "OK", "Start-MpScan")):
             response = self.client.post(
                 f"/documents/{document['document_id']}/security/scan", follow_redirects=True
@@ -430,12 +442,11 @@ class SecurityPageTests(unittest.TestCase):
         store = DocumentStore(Path(self.temp.name) / "documents")
         document = store.import_upload(io.BytesIO(b"note"), "note.txt", "owner")
         url = f"/documents/{document['document_id']}"
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "defender"}, clear=False), \
-             patch("app.attachment_security.WindowsDefender.executable", return_value="powershell.exe"):
+        self._seed_scanner_choice("defender")
+        with patch("app.attachment_security.WindowsDefender.executable", return_value="powershell.exe"):
             page = self.client.get(url)
         self.assertIn("Mit Windows Defender prüfen", page.get_data(as_text=True))
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SCANNER": "defender"}, clear=False), \
-             patch("app.attachment_security.WindowsDefender.executable",
+        with patch("app.attachment_security.WindowsDefender.executable",
                    side_effect=RuntimeError("gone")):
             page = self.client.get(url)
         self.assertNotIn("Mit Windows Defender prüfen", page.get_data(as_text=True))

@@ -5,11 +5,11 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 
 from flask import Blueprint, Response, current_app, jsonify, request
 
 from .federation_http import _authorized
+from . import federation_local_identity as _identity
 from .federation_print_auth import claim_nonce, identify_source_peer, parse_proof_headers
 from .federation_store import FederationStore
 from .printershare_store import PrinterShareStore, RETENTION_ORDER, normalize_retention
@@ -39,7 +39,7 @@ def authenticate():
 
 
 def _receipt_hmac(receipt: dict) -> str:
-    token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    token = _identity.shared_token()
     if not token and current_app.testing:
         token = str(current_app.config.get("SECRET_KEY", ""))
     if not token:

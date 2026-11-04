@@ -42,6 +42,7 @@ from .finance_fints_sync import FinTSSyncService
 from .finance_browser_download import capture_santander_statement
 from .finance_match_adapters import proposals_for_transaction
 from .safe_paths import safe_filename
+from .translations import translate
 
 bp = Blueprint("finance", __name__, url_prefix="/finances")
 
@@ -159,9 +160,9 @@ def create_account():
     try:
         account = _store().create_account(request.form.to_dict(), _actor())
     except ValueError as exc:
-        flash(f"Konto nicht angelegt: {exc}")
+        flash(translate(g.language, "finweb.account.create.failed").format(exc=exc))
         return redirect(url_for(".index"))
-    flash(f"Konto „{account['name']}“ wurde angelegt.")
+    flash(translate(g.language, "finweb.account.created").format(name=account['name']))
     return redirect(url_for(".index", account_id=account["account_id"]))
 
 
@@ -372,12 +373,13 @@ def santander_browser_download():
 def statement_preview():
     upload = request.files.get("statement")
     if upload is None or not upload.filename:
-        flash("Bitte einen Kontoauszug auswählen.")
+        flash(translate(g.language, "finweb.statement.select"))
         return redirect(url_for(".index"))
     max_upload_bytes = _finance_controls()[0]
     data = upload.stream.read(max_upload_bytes + 1)
     if len(data) > max_upload_bytes:
-        flash(f"Kontoauszug ist größer als {max_upload_bytes // (1024 * 1024)} MiB.")
+        flash(translate(g.language, "finweb.statement.too.large").format(
+            limit_mib=max_upload_bytes // (1024 * 1024)))
         return redirect(url_for(".index"))
     actor = _actor()
     filename = safe_filename(upload.filename, fallback="kontoauszug", max_length=240)
@@ -390,7 +392,7 @@ def statement_preview():
             account_id=request.form.get("account_id", "").strip(),
         )
     except ValueError as exc:
-        flash(f"Kontoauszug konnte nicht gelesen werden: {exc}")
+        flash(translate(g.language, "finweb.statement.read.failed").format(exc=exc))
         return redirect(url_for(".index"))
     return render_template(
         "finance/statement_preview.html",
@@ -417,15 +419,16 @@ def statement_commit():
             statement_index=int(request.form.get("statement_index", "0")),
         )
     except (ValueError, TypeError) as exc:
-        flash(f"Kontoauszug nicht importiert: {exc}")
+        flash(translate(g.language, "finweb.statement.import.failed").format(exc=exc))
         return redirect(url_for(".index"))
     account = result.get("account") or {}
     if result["status"] == "already_imported":
-        flash("Dieser Kontoauszug wurde für das Konto bereits importiert. Es wurden keine Buchungen verändert.")
+        flash(translate(g.language, "finweb.statement.already.imported"))
     else:
         flash(
-            f"Import abgeschlossen: {result['created']} neu, {result['existing']} bereits vorhanden, "
-            f"{result['possible_duplicates']} mögliche Dubletten."
+            translate(g.language, "finweb.statement.imported").format(
+                created=result['created'], existing=result['existing'],
+                dups=result['possible_duplicates'])
         )
     return redirect(url_for(".index", account_id=account.get("account_id", request.form.get("account_id", ""))))
 
@@ -438,10 +441,10 @@ def create_bank_connection():
         values.pop(key, None)
     try:
         connection = _store().save_bank_connection(values, _actor())
-        flash("Bankverbindung gespeichert. Die PIN wurde nicht gespeichert.")
+        flash(translate(g.language, "finweb.bank.saved"))
         return redirect(url_for(".index", connection_id=connection["connection_id"]))
     except ValueError as exc:
-        flash(f"Bankverbindung nicht gespeichert: {exc}")
+        flash(translate(g.language, "finweb.bank.save.failed").format(exc=exc))
         return redirect(url_for(".index"))
 
 
@@ -475,10 +478,10 @@ def discover_bank_accounts(connection_id: str):
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
     except FinTSAuthenticationRequired:
-        flash("Die Bank verlangt bei der Kontenermittlung eine TAN/App-Freigabe. Dieser Vorgang kann hier nicht fortgesetzt werden.")
+        flash(translate(g.language, "finweb.tan.discovery.required"))
         return redirect(url_for(".index"))
     except (ValueError, FinTSUnavailable) as exc:
-        flash(f"Konten konnten nicht abgerufen werden: {exc}")
+        flash(translate(g.language, "finweb.accounts.fetch.failed").format(exc=exc))
         return redirect(url_for(".index"))
     finally:
         pin = ""
@@ -490,10 +493,10 @@ def map_bank_account(connection_id: str):
     actor = _actor()
     try:
         mapping = _store().map_remote_account(connection_id, request.form.get("remote_account_id", ""), request.form.get("account_id", ""), request.form.get("remote_iban", ""), actor)
-        flash("Bankkonto wurde dem vorhandenen SimpleOffice-Konto zugeordnet.")
+        flash(translate(g.language, "finweb.account.mapped"))
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     except ValueError as exc:
-        flash(f"Kontozuordnung nicht gespeichert: {exc}")
+        flash(translate(g.language, "finweb.mapping.save.failed").format(exc=exc))
         return redirect(url_for(".index"))
 
 
@@ -526,10 +529,10 @@ def read_bank_connection_balance(connection_id: str):
             try:
                 token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
             except ValueError:
-                flash("Die TAN-Freigabe konnte nicht sicher vorbereitet werden. Bitte den Saldoabruf erneut starten.")
+                flash(translate(g.language, "finweb.tan.prepare.balance.failed"))
                 return redirect(url_for(".index", account_id=mapping["account_id"]))
             return _balance_challenge_response(mapping, connection_id, token, exc.challenge_state)
-        flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte den Bankabruf erneut starten.")
+        flash(translate(g.language, "finweb.tan.unsupported.statement"))
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     except FinTSUnavailable as exc:
         flash(str(exc))
@@ -538,11 +541,11 @@ def read_bank_connection_balance(connection_id: str):
         flash(str(exc))
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     except ValueError:
-        flash("Kontostand konnte nicht abgerufen werden. Bitte Bankverbindung, PIN und Kontozuordnung prüfen.")
+        flash(translate(g.language, "finweb.balance.fetch.failed"))
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     except Exception as exc:
         current_app.logger.warning("FinTS balance read failed: %s", type(exc).__name__)
-        flash("Kontostand konnte nicht sicher abgerufen werden.")
+        flash(translate(g.language, "finweb.balance.fetch.insecure"))
         return redirect(url_for(".index", account_id=mapping["account_id"]))
     finally:
         pin = ""
@@ -587,20 +590,20 @@ def continue_bank_connection_balance(connection_id: str):
             try:
                 next_token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
             except ValueError:
-                flash("Die TAN-Freigabe ist abgelaufen. Bitte den Saldoabruf neu starten.")
+                flash(translate(g.language, "finweb.tan.expired.balance"))
                 return redirect(url_for(".index"))
             return _balance_challenge_response(mapping, connection_id, next_token, exc.challenge_state)
-        flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte erneut starten.")
+        flash(translate(g.language, "finweb.tan.unsupported.retry"))
         return redirect(url_for(".index"))
     except FinTSFeatureUnavailable as exc:
         flash(str(exc))
         return redirect(url_for(".index"))
     except (ValueError, FinTSUnavailable):
-        flash("TAN-Freigabe fehlgeschlagen oder abgelaufen. Bitte den Saldoabruf neu starten.")
+        flash(translate(g.language, "finweb.tan.balance.retry"))
         return redirect(url_for(".index"))
     except Exception as exc:
         current_app.logger.warning("FinTS SCA continuation failed: %s", type(exc).__name__)
-        flash("TAN-Freigabe konnte nicht sicher fortgesetzt werden. Bitte erneut starten.")
+        flash(translate(g.language, "finweb.tan.resume.balance.failed"))
         return redirect(url_for(".index"))
     finally:
         pin = ""
@@ -644,7 +647,7 @@ def sync_bank_connection(connection_id: str):
             try:
                 token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
             except ValueError:
-                flash("Die TAN-Freigabe konnte nicht sicher vorbereitet werden. Bereits abgeschlossene Konten bleiben importiert.")
+                flash(translate(g.language, "finweb.tan.prepare.sync.failed"))
                 return redirect(url_for(".index"))
             return _transaction_sync_challenge_response(connection_id, token, exc.challenge_state)
         flash(str(exc))
@@ -652,11 +655,11 @@ def sync_bank_connection(connection_id: str):
         flash(str(exc))
         return redirect(url_for(".index"))
     except (FinTSUnavailable, ValueError) as exc:
-        flash(f"Bankabruf nicht möglich: {exc}")
+        flash(translate(g.language, "finweb.sync.impossible").format(exc=exc))
     except Exception:
         # Never surface library exception details here: a provider could include
         # sensitive dialog material. The store contains a bounded diagnostic.
-        flash("Bankabruf fehlgeschlagen. Details stehen im Bankverbindungsstatus.")
+        flash(translate(g.language, "finweb.sync.failed"))
     finally:
         pin = ""
     return redirect(url_for(".index"))
@@ -684,20 +687,20 @@ def continue_bank_connection_sync(connection_id: str):
             try:
                 token = store.create_fints_challenge(connection_id, exc.challenge_state, actor)
             except ValueError:
-                flash("Die TAN-Freigabe ist abgelaufen oder konnte nicht sicher erneuert werden. Bitte den Abruf neu starten.")
+                flash(translate(g.language, "finweb.tan.expired.sync"))
                 return redirect(url_for(".index"))
             return _transaction_sync_challenge_response(connection_id, token, exc.challenge_state)
-        flash("Die Bank verlangt eine nicht unterstützte TAN/App-Freigabe. Bitte den Bankabruf neu starten.")
+        flash(translate(g.language, "finweb.tan.unsupported.sync"))
         return redirect(url_for(".index"))
     except FinTSFeatureUnavailable as exc:
         flash(str(exc))
         return redirect(url_for(".index"))
     except (ValueError, FinTSUnavailable):
-        flash("TAN-Freigabe fehlgeschlagen oder abgelaufen. Bitte den Bankabruf neu starten.")
+        flash(translate(g.language, "finweb.tan.sync.retry"))
         return redirect(url_for(".index"))
     except Exception as exc:
         current_app.logger.warning("FinTS transaction continuation failed: %s", type(exc).__name__)
-        flash("TAN-Freigabe konnte nicht sicher fortgesetzt werden. Bereits importierte Umsätze bleiben erhalten.")
+        flash(translate(g.language, "finweb.tan.resume.sync.failed"))
         return redirect(url_for(".index"))
     finally:
         pin = ""
@@ -756,7 +759,7 @@ def transaction_matches(transaction_id: str):
             allocation=allocation,
         )))
     except ValueError as exc:
-        flash(f"Zuordnung nicht möglich: {exc}")
+        flash(translate(g.language, "finweb.assign.impossible").format(exc=exc))
         return redirect(url_for(".index"))
 
 
@@ -788,10 +791,10 @@ def confirm_transaction_match(transaction_id: str):
             allocated_cents=allocated_cents,
             note=request.form.get("note", ""),
         )
-        flash("Bankumsatz wurde bestätigt zugeordnet. Die Rohbuchung blieb unverändert.")
+        flash(translate(g.language, "finweb.assign.confirmed"))
         return redirect(url_for(".transaction_matches", transaction_id=match["transaction_id"]))
     except (ValueError, TypeError) as exc:
-        flash(f"Zuordnung nicht gespeichert: {exc}")
+        flash(translate(g.language, "finweb.assign.save.failed").format(exc=exc))
         return redirect(url_for(".transaction_matches", transaction_id=transaction_id))
 
 

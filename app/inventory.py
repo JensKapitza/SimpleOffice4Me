@@ -10,7 +10,6 @@ import hashlib
 import http.client
 import json
 import math
-import os
 import re
 import time
 import uuid
@@ -557,9 +556,9 @@ def index():
     capture = capture_context_from_query(request.args)
     locations = capture_locations()
     from .contextflow.demo import is_verified_demo_root
-    from .contextflow.vision import vision_settings_from_mapping
+    from .vision_config import effective_settings
 
-    vision_settings = vision_settings_from_mapping(current_app.config, os.environ)
+    vision_settings = effective_settings(current_app.config)
     meta_photo_consent_available = bool(
         str(vision_settings.get("provider", "")).strip().lower() == "meta"
         and vision_settings.get("meta_consent") is True
@@ -710,7 +709,7 @@ def add_photo(object_id: str):
         photo = _inventory().save_photo(item["object_id"], request.files.get("photo"), str(g.user["username"]))
         if photo is None:
             raise ValueError("Kein Foto ausgewählt")
-        flash("Inventarfoto wurde gespeichert.")
+        flash(translate(g.language, "inv.photo.saved"))
         return redirect(url_for("inventory.item_detail", object_id=item["object_id"]))
     except (OSError, ValueError):
         abort(400)
@@ -731,7 +730,7 @@ def add_inspection(object_id: str):
         except Exception:
             _todos().soft_delete(task["id"], actor)
             raise
-        flash("Prüftermin wurde angelegt und als Aufgabe verknüpft.")
+        flash(translate(g.language, "inv.check.linked"))
     except (OSError, ValueError) as exc:
         flash(str(exc))
     return redirect(url_for("inventory.item_detail", object_id=object_id))
@@ -765,7 +764,7 @@ def complete_inspection(object_id: str, rule_id: str):
             completed_at=str(request.form.get("completed_at", "")),
             next_due=next_due,
         )
-        flash("Prüfung dokumentiert." + (f" Nächster Termin: {next_due}." if next_due else ""))
+        flash(translate(g.language, "inv.documented") + (translate(g.language, "inv.documented.due").format(next_due=next_due) if next_due else ""))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("inventory.item_detail", object_id=object_id))
@@ -789,3 +788,4 @@ def inventory_media(object_id: str, filename: str):
 # `bp`, and a name import here would break if the routes module is
 # imported first (partial circular import).
 from . import inventory_capture_routes as _capture_routes  # noqa: E402,F401
+from .translations import translate

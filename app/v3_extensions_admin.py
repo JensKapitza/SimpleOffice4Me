@@ -5,8 +5,9 @@ import json
 
 from flask import Blueprint, abort, current_app, flash, g, redirect, render_template, request, url_for
 
-from .access_control import is_admin
+from .access_control import audit, is_admin
 from .auth import login_required
+from .settings_store import SettingsStore
 from .v3_capabilities import enabled
 from .v3_extensions import (
     ExtensionDenied,
@@ -16,7 +17,9 @@ from .v3_extensions import (
     ExtensionStateStore,
     KNOWN_CAPABILITIES,
     POINT_CAPABILITY,
+    validate_extension_http_allowlist,
 )
+from .translations import translate
 
 
 bp = Blueprint("v3_extensions_admin", __name__, url_prefix="/admin/extensions-v3")
@@ -56,7 +59,36 @@ def index():
         errors=errors,
         known_capabilities=sorted(KNOWN_CAPABILITIES),
         point_capability=POINT_CAPABILITY,
+        allowlist=SettingsStore(root).settings()["extensions"]["http_allowlist"],
     )
+
+
+@bp.post("/allowlist")
+@admin_required
+def save_allowlist():
+    root = current_app.config["DOCUMENT_ROOT"]
+    try:
+        raw = request.form.get("allow_hosts", "")
+        entries = [
+            line.strip()
+            for line in raw.replace(",", "\n").splitlines()
+            if line.strip()
+        ]
+        allowlist = validate_extension_http_allowlist(entries)
+        SettingsStore(root).save(
+            {"extensions": {"http_allowlist": allowlist}}, str(g.user["username"]),
+        )
+        audit(
+            "v3_extension_allowlist_updated",
+            "settings",
+            "extensions.http_allowlist",
+            detail={"http_allowlist": allowlist},
+        )
+        flash(translate(g.language, "v3ext.allowlist.saved"))
+    except (OSError, ValueError) as exc:
+        current_app.logger.info("Extension allowlist rejected: %s", type(exc).__name__)
+        flash(str(exc))
+    return redirect(url_for("v3_extensions_admin.index"))
 
 
 @bp.post("/register")
@@ -72,12 +104,9 @@ def register():
             enabled=False,
             approved_capabilities=[],
         )
-        flash(
-            f"Extension {manifest.extension_id} registriert. "
-            "Sie bleibt deaktiviert, bis Capabilities lokal freigegeben werden."
-        )
+        flash(translate(g.language, "v3ext.registered").format(extension_id=manifest.extension_id))
     except (json.JSONDecodeError, OSError, ValueError) as exc:
-        flash(f"Manifest nicht registriert: {exc}")
+        flash(translate(g.language, "v3ext.register.failed").format(exc=exc))
     return redirect(url_for("v3_extensions_admin.index"))
 
 
@@ -97,9 +126,9 @@ def state(extension_id: str):
             enabled=request.form.get("enabled") == "1",
             approved_capabilities=requested,
         )
-        flash(f"Extension {extension_id} aktualisiert.")
+        flash(translate(g.language, "v3ext.updated").format(extension_id=extension_id))
     except (ExtensionError, LookupError, OSError, ValueError) as exc:
-        flash(f"Extension nicht aktualisiert: {exc}")
+        flash(translate(g.language, "v3ext.update.failed").format(exc=exc))
     return redirect(url_for("v3_extensions_admin.index"))
 
 
@@ -116,9 +145,9 @@ def health(extension_id: str):
             {"requested_by": str(g.user["username"])[:200]},
         )
         status = str(result.get("status", "ok"))[:80]
-        flash(f"Health-Check {extension_id}: {status}")
+        flash(translate(g.language, "v3ext.health").format(extension_id=extension_id, status=status))
     except ExtensionError as exc:
-        flash(f"Health-Check {extension_id} fehlgeschlagen: {exc}")
+        flash(translate(g.language, "v3ext.health.failed").format(extension_id=extension_id, exc=exc))
     return redirect(url_for("v3_extensions_admin.index"))
 
 
@@ -137,7 +166,7 @@ def delete(extension_id: str):
             enabled=False,
             approved_capabilities=[],
         )
-        flash(f"Manifest {extension_id} entfernt.")
+        flash(translate(g.language, "v3ext.removed").format(extension_id=extension_id))
     except (OSError, ValueError) as exc:
-        flash(f"Manifest nicht entfernt: {exc}")
+        flash(translate(g.language, "v3ext.remove.failed").format(exc=exc))
     return redirect(url_for("v3_extensions_admin.index"))

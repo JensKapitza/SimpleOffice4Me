@@ -69,10 +69,8 @@ def _configure_lan_addresses(lan_addresses: str = "") -> None:
         value = item.strip()
         if value and value not in values:
             values.append(value)
-    if values:
-        os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"] = ",".join(values)
-    else:
-        os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
+    from app import federation_network
+    federation_network.set_lan_addresses(",".join(values))
 
 
 def _configure_environment(

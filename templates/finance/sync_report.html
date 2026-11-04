@@ -3,38 +3,37 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <h1 class="h3 mb-0">Ergebnis des Bankabrufs</h1>
-    <a class="btn btn-outline-secondary" href="{{ url_for('.index') }}">Zurück zu Finanzen</a>
+    <h1 class="h3 mb-0">{{ 'Bank retrieval result' if g.language == 'en' else 'Ergebnis des Bankabrufs' }}</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('.index') }}">{{ 'Back to finances' if g.language == 'en' else 'Zurück zu Finanzen' }}</a>
   </div>
   <div class="alert alert-warning" role="status">
-    <strong>Vollständigkeit nicht verifiziert.</strong> Die Bank kann den abrufbaren Zeitraum begrenzen oder Buchungen verzögert bereitstellen.
-    Der Bericht enthält nur die tatsächlich in diesem Abruf zurückgegebenen Umsätze.
+    <strong>{{ 'Completeness not verified.' if g.language == 'en' else 'Vollständigkeit nicht verifiziert.' }}</strong> {{ 'The bank may limit the retrievable period or provide bookings with delay. The report contains only the transactions actually returned in this retrieval.' if g.language == 'en' else 'Die Bank kann den abrufbaren Zeitraum begrenzen oder Buchungen verzögert bereitstellen. Der Bericht enthält nur die tatsächlich in diesem Abruf zurückgegebenen Umsätze.' }}
   </div>
   {% if result.previously_synced_accounts %}
   <div class="alert alert-info" role="status" aria-live="polite">
-    Bereits vor der TAN-Freigabe synchronisierte Konten wurden nicht erneut abgerufen:
+    {{ 'Accounts already synchronised before the TAN approval were not retrieved again:' if g.language == 'en' else 'Bereits vor der TAN-Freigabe synchronisierte Konten wurden nicht erneut abgerufen:' }}
     {{ result.previously_synced_accounts|join(", ") }}.
   </div>
   {% endif %}
-  <p>Abgerufen: <strong>{{ result.fetched }}</strong> · Neu: <strong>{{ result.created }}</strong> · Bereits vorhanden: <strong>{{ result.existing }}</strong> · Mögliche Dubletten: <strong>{{ result.possible_duplicates }}</strong></p>
+  <p>{{ 'Retrieved:' if g.language == 'en' else 'Abgerufen:' }} <strong>{{ result.fetched }}</strong> · {{ 'New:' if g.language == 'en' else 'Neu:' }} <strong>{{ result.created }}</strong> · {{ 'Already present:' if g.language == 'en' else 'Bereits vorhanden:' }} <strong>{{ result.existing }}</strong> · {{ 'Possible duplicates:' if g.language == 'en' else 'Mögliche Dubletten:' }} <strong>{{ result.possible_duplicates }}</strong></p>
   {% for account in result.accounts %}
   <section class="card mb-4">
-    <div class="card-header"><strong>Konto {{ account.account_id }}</strong> · Zeitraum {{ account.start_date }} bis {{ account.end_date }}</div>
+    <div class="card-header"><strong>{{ 'Account' if g.language == 'en' else 'Konto' }} {{ account.account_id }}</strong> · {{ 'Period' if g.language == 'en' else 'Zeitraum' }} {{ account.start_date }} {{ 'to' if g.language == 'en' else 'bis' }} {{ account.end_date }}</div>
     <div class="card-body">
-      <p>Von der Bank geliefert: {{ account.fetched }} Buchungen. <strong>Vollständigkeit: nicht verifiziert.</strong></p>
+      <p>{{ 'Delivered by the bank:' if g.language == 'en' else 'Von der Bank geliefert:' }} {{ account.fetched }} {{ 'bookings.' if g.language == 'en' else 'Buchungen.' }} <strong>{{ 'Completeness: not verified.' if g.language == 'en' else 'Vollständigkeit: nicht verifiziert.' }}</strong></p>
       <div class="table-responsive">
         <table class="table table-striped align-middle">
-          <thead><tr><th scope="col">Datum</th><th scope="col">Gegenpartei / Zweck</th><th scope="col" class="text-end">Betrag</th><th scope="col">Abgleich</th></tr></thead>
+          <thead><tr><th scope="col">{{ 'Date' if g.language == 'en' else 'Datum' }}</th><th scope="col">{{ 'Counterparty / purpose' if g.language == 'en' else 'Gegenpartei / Zweck' }}</th><th scope="col" class="text-end">{{ 'Amount' if g.language == 'en' else 'Betrag' }}</th><th scope="col">{{ 'Matching' if g.language == 'en' else 'Abgleich' }}</th></tr></thead>
           <tbody>
           {% for tx in account.transactions %}
             <tr>
               <td>{{ tx.booking_date }}</td>
               <td>{{ tx.counterparty_name or '—' }}<div class="small text-secondary">{{ tx.purpose or '' }}</div></td>
               <td class="text-end">{{ '%.2f'|format(tx.amount_cents / 100) }} {{ tx.currency }}</td>
-              <td>{% if tx.state == 'created' %}Neu{% elif tx.state in ('existing', 'already_imported') %}Bereits vorhanden{% else %}Mögliche Dublette{% endif %}</td>
+              <td>{% if tx.state == 'created' %}{{ 'New' if g.language == 'en' else 'Neu' }}{% elif tx.state in ('existing', 'already_imported') %}{{ 'Already present' if g.language == 'en' else 'Bereits vorhanden' }}{% else %}{{ 'Possible duplicate' if g.language == 'en' else 'Mögliche Dublette' }}{% endif %}</td>
             </tr>
           {% else %}
-            <tr><td colspan="4">Keine Umsätze von der Bank geliefert.</td></tr>
+            <tr><td colspan="4">{{ 'No transactions delivered by the bank.' if g.language == 'en' else 'Keine Umsätze von der Bank geliefert.' }}</td></tr>
           {% endfor %}
           </tbody>
         </table>

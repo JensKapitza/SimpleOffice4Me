@@ -3,12 +3,12 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex justify-content-between align-items-start gap-3 mb-4">
-    <div><h1 class="h3 mb-1">Aktivität</h1><p class="text-secondary mb-0"><code>{{ target_type }}</code> · <code>{{ target_id }}</code></p></div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">Gesamtprotokoll</a>
+    <div><h1 class="h3 mb-1">{{ 'Activity' if g.language == 'en' else 'Aktivität' }}</h1><p class="text-secondary mb-0"><code>{{ target_type }}</code> · <code>{{ target_id }}</code></p></div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin.logs') }}">{{ 'Full log' if g.language == 'en' else 'Gesamtprotokoll' }}</a>
   </div>
   <div class="card"><div class="table-responsive"><table class="table table-sm align-middle mb-0">
-    <thead><tr><th scope="col">Zeit</th><th scope="col">Benutzer</th><th scope="col">Aktion</th><th scope="col">Ergebnis</th><th scope="col">Details</th></tr></thead>
-    <tbody>{% for event in events %}<tr><td class="text-nowrap">{{ event.occurred_at }}</td><td>{{ event.actor_name or 'System' }}</td><td><code>{{ event.action }}</code></td><td>{{ event.outcome }}</td><td>{% if event.detail and event.detail != '{}' %}<details><summary class="small">anzeigen</summary><code class="small text-break">{{ event.detail }}</code></details>{% else %}–{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">Keine Ereignisse für dieses Ziel.</td></tr>{% endfor %}</tbody>
+    <thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">{{ 'User' if g.language == 'en' else 'Benutzer' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th><th scope="col">{{ 'Result' if g.language == 'en' else 'Ergebnis' }}</th><th scope="col">Details</th></tr></thead>
+    <tbody>{% for event in events %}<tr><td class="text-nowrap">{{ event.occurred_at }}</td><td>{{ event.actor_name or 'System' }}</td><td><code>{{ event.action }}</code></td><td>{{ event.outcome }}</td><td>{% if event.detail and event.detail != '{}' %}<details><summary class="small">{{ 'show' if g.language == 'en' else 'anzeigen' }}</summary><code class="small text-break">{{ event.detail }}</code></details>{% else %}–{% endif %}</td></tr>{% else %}<tr><td colspan="5" class="text-secondary">{{ 'No events for this target.' if g.language == 'en' else 'Keine Ereignisse für dieses Ziel.' }}</td></tr>{% endfor %}</tbody>
   </table></div></div>
 </main>
 {% endblock %}

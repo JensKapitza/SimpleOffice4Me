@@ -44,15 +44,13 @@ Das ist bewusst enger als `drive` oder `drive.readonly` und reduziert sowohl Dat
 
 Die normale Browser-Version verwendet weiterhin den vorhandenen Google-Web-OAuth-Client und `/auth/google/callback`. Dieser Weg kann einen Refresh-Token erhalten und eignet sich damit für länger laufende serverseitige Nutzung.
 
-Konfiguration:
+Konfiguration (Admin → Einstellungen → Integrationen → Marketplace & OAuth;
+verschlüsselt im App-Store, keine Umgebungsvariablen):
 
-```text
-SIMPLEOFFICE_GOOGLE_CLIENT_ID=...
-SIMPLEOFFICE_GOOGLE_CLIENT_SECRET=...
-SIMPLEOFFICE_GOOGLE_REDIRECT_URI=https://<simpleoffice-host>/auth/google/callback
-```
-
-Alternativ kann eine geschützte Google-OAuth-JSON-Datei über `SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE` verwendet werden.
+- Google Client ID und Client Secret, oder alternativ der Pfad zu einer
+  geschützten Google-OAuth-JSON-Datei (füllt leere Felder).
+- Redirect-URI des Servers: `SIMPLEOFFICE_GOOGLE_REDIRECT_URI=https://<simpleoffice-host>/auth/google/callback`
+  (Server-Bootstrap, bleibt Umgebungsvariable).
 
 ### Android-APK
 
@@ -179,11 +177,9 @@ Die Verschachtelung ist zum Schutz vor fehlerhaften oder bösartigen Baumstruktu
 
 ## Dateigrößen
 
-Der Standard für einen einzelnen Drive-Sync-Transfer beträgt 128 MiB und kann konfiguriert werden:
-
-```text
-SIMPLEOFFICE_GOOGLE_DRIVE_MAX_MIB=128
-```
+Der Standard für einen einzelnen Drive-Sync-Transfer beträgt 128 MiB und wird
+unter Admin → Einstellungen → Integrationen → Marketplace & OAuth konfiguriert
+(Drive-Limit 1–512 MiB; keine Umgebungsvariable).
 
 Der Wert ist auf maximal 512 MiB begrenzt und kann das globale SimpleOffice-Uploadlimit nicht überschreiten.
 

@@ -341,6 +341,12 @@ def _source() -> str:
         encoding="utf-8")
 
 
+def _batch_source() -> str:
+    root = Path(__file__).resolve().parents[1]
+    return (root / "static" / "js" / "capture_inbox_batch.js").read_text(
+        encoding="utf-8")
+
+
 def _region(source: str, start: str, end: str) -> str:
     head = source.index(start)
     tail = source.index(end, head + len(start))
@@ -354,8 +360,10 @@ class CapturePrefillStaticTests(unittest.TestCase):
             "if (analysis.kind === 'book') {",
             "const missing = (analysis.missing_fields || []).join(', ');",
         )
-        self.assertIn("addField('Beschreibung', 'description', prefill.description)", body)
-        self.assertIn("addField('Tags (Komma-getrennt)', 'tags'", body)
+        self.assertIn("addField(STR.fieldDescription, 'description', prefill.description)", body)
+        self.assertIn("fieldDescription: EN ? 'Description' : 'Beschreibung'", _source())
+        self.assertIn("addField(STR.fieldTags, 'tags'", body)
+        self.assertIn("fieldTags: EN ? 'Tags (comma-separated)' : 'Tags (Komma-getrennt)'", _source())
         self.assertIn("prefill.tags.join(', ')", body)
 
     def test_single_adopt_sends_reviewed_fields(self) -> None:
@@ -371,18 +379,18 @@ class CapturePrefillStaticTests(unittest.TestCase):
 
     def test_batch_review_has_editable_prefill_fields(self) -> None:
         body = _region(
-            _source(),
+            _batch_source(),
             "if (combined.kind === 'book') {",
             "const missing = (combined.missing_fields || []).join(', ');",
         )
-        self.assertIn("addField('Beschreibung', 'description', prefill.description)", body)
-        self.assertIn("addField('Tags (Komma-getrennt)', 'tags'", body)
+        self.assertIn("addField(STR.fieldDescription, 'description', prefill.description)", body)
+        self.assertIn("addField(STR.fieldTags, 'tags'", body)
 
     def test_batch_adopt_sends_reviewed_fields(self) -> None:
         body = _region(
-            _source(),
+            _batch_source(),
             "adopt.addEventListener('click', async () => {",
-            "actions.appendChild(adopt);",
+            "renderShelfState(result);",
         )
         self.assertIn("data.append('description', get('description'));", body)
         self.assertIn("data.append('tags', get('tags'));", body)
@@ -391,9 +399,10 @@ class CapturePrefillStaticTests(unittest.TestCase):
         self.assertNotIn("requestSubmit", body)
 
     def test_batch_photo_lines_show_note_and_tags(self) -> None:
-        source = _source()
+        source = _batch_source()
         self.assertIn("photo.ml_note", source)
         self.assertIn("photo.ml_tags", source)
+        self.assertIn("mlNote: (note) => EN ? ` · Note:", source)
         self.assertIn("Notiz:", source)
 
     def test_no_autosave_wiring(self) -> None:
