@@ -4,12 +4,15 @@ const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell, session } =
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
+const {createLanProxy} = require('./lan_proxy');
 const path = require('node:path');
 
 let mainWindow = null;
 let backend = null;
 let backendUrl = null;
 let quitting = false;
+let lanProxy = null;
+let backendDocumentRoot = null;
 
 function executableOnPath(name) {
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
@@ -146,6 +149,7 @@ async function startBackend() {
   const documentRoot = path.join(app.getPath('documents'), 'SimpleOffice4Me');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(documentRoot, { recursive: true });
+  backendDocumentRoot = documentRoot;
 
   backendUrl = `http://127.0.0.1:${port}`;
   const launch = backendCommand();
@@ -177,6 +181,7 @@ async function startBackend() {
   backend.stdout?.on('data', (chunk) => console.log(`[python] ${chunk.toString().trimEnd()}`));
   backend.stderr?.on('data', (chunk) => console.error(`[python] ${chunk.toString().trimEnd()}`));
   backend.on('exit', (code, signal) => {
+    if (lanProxy) { lanProxy.close(); lanProxy = null; }
     backend = null;
     if (!quitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadFile(path.join(__dirname, 'loading.html'), {
@@ -187,6 +192,35 @@ async function startBackend() {
   backend.on('error', (error) => {
     console.error('Python backend start failed:', error);
   });
+}
+
+async function startConfiguredLanProxy() {
+  if (!backendUrl || !backendDocumentRoot) return;
+  const settingsPath = path.join(backendDocumentRoot, '.simpleoffice-meta', 'settings.json');
+  let serverSettings;
+  try {
+    serverSettings = JSON.parse(fs.readFileSync(settingsPath, 'utf8')).server || {};
+  } catch (error) {
+    if (error.code === 'ENOENT') return;
+    console.error('LAN proxy configuration could not be read:', error);
+    return;
+  }
+  const host = String(serverSettings.host || '127.0.0.1').trim();
+  const port = Number(serverSettings.port);
+  if (['127.0.0.1', 'localhost', '::1'].includes(host)) return;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    console.error('LAN proxy port is invalid. Proxy disabled.');
+    return;
+  }
+  try {
+    lanProxy = await createLanProxy({
+      host, port, backendPort: Number(new URL(backendUrl).port)
+    });
+    console.log(`SimpleOffice LAN proxy listening on ${host}:${port}`);
+  } catch (error) {
+    console.error('LAN proxy failed to start:', error);
+    lanProxy = null;
+  }
 }
 
 async function waitForBackend(timeoutMs = 30000) {
@@ -304,6 +338,7 @@ app.whenReady().then(async () => {
   try {
     await startBackend();
     await waitForBackend();
+    await startConfiguredLanProxy();
     await window.loadURL(backendUrl);
   } catch (error) {
     console.error(error);
@@ -327,6 +362,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
+  if (lanProxy) { lanProxy.close(); lanProxy = null; }
   if (backend && backend.exitCode === null) {
     event.preventDefault();
     stopBackend().finally(() => app.quit());
