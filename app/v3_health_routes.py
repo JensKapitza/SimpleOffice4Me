@@ -73,7 +73,7 @@ def index():
         enabled=feature_enabled,
         report=report,
         attention_hints=suggest_unhealthy_checks(
-            report.checks if report is not None else []),
+            report.get("checks", []) if report is not None else []),
     )
 
 
