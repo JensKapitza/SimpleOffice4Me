@@ -490,7 +490,7 @@ class AdminSecurityTest(unittest.TestCase):
             "label": "PDF export", "federation_shared": False,
         }
         target = f"/printershare/admin/printers/{printer['printer_id']}/test"
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \\
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
              patch("app.printershare.spool_payload") as spool:
             response = self.admin.post(target)
         self.assertEqual(200, response.status_code)
@@ -508,7 +508,7 @@ class AdminSecurityTest(unittest.TestCase):
             "label": "Office", "federation_shared": False,
         }
         target = f"/printershare/admin/printers/{printer['printer_id']}/test"
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \\
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
              patch("app.printershare.spool_payload") as spool:
             response = self.admin.post(target)
         self.assertEqual(302, response.status_code)
