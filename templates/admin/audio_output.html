@@ -9,6 +9,7 @@
     </div>
     <a class="btn btn-outline-secondary" href="{{ url_for('mini_services_admin.index') }}">Mini Services</a>
   </div>
+  {% if output_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in output_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
 
   <section class="card mb-4" id="audio-announcements" data-api="{{ url_for('audio_output_admin.status') }}">
     <div class="card-body">
