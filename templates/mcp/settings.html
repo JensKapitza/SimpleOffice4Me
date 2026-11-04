@@ -5,7 +5,7 @@
   <h1 class="h2">ChatGPT- und MCP-Zugang</h1>
   <p class="text-secondary">MCP bedient SimpleOffice im Namen deines Kontos. Funktionssperren und Dateiordner-Rechte gelten unverändert.</p>
   {% if secret %}<div class="alert alert-warning"><strong>Zugang jetzt kopieren – er wird nicht erneut angezeigt.</strong><pre class="mt-2 mb-0 user-select-all">{{ secret }}</pre></div>{% endif %}
-  {% if token_hints %}<div class="alert alert-info"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in token_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
+  {% if token_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in token_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
   {% if g.user.is_admin %}<p><a href="{{ url_for('litellm_admin.index') }}">{{ 'Administer LiteLLM gateway' if g.language == 'en' else 'LiteLLM-Gateway administrieren' }}</a> · <a href="{{ url_for('vision_admin.index') }}">{{ 'Vision / ML backend' if g.language == 'en' else 'Vision-/ML-Backend' }}</a></p>{% endif %}
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if g.user.is_admin %}<div class="row g-4 mb-4">
