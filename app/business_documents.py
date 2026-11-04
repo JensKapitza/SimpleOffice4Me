@@ -14,6 +14,7 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
+from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
 from .invoice_relations import (
@@ -303,26 +304,6 @@ def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dic
     """Inspect verified authoritative bytes without trusting the legacy projection."""
     with materialize_verified_object(root, actor, document_id, suffix=".pdf") as path:
         return inspect_zugferd_pdf(path)
-
-
-def _parse_free_text_invoice_address(value: object, default_country: str = "DE") -> dict[str, str]:
-    """Preserve the user's invoice address literally; structured fields are best-effort."""
-    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    lines = [line.strip() for line in raw.split("\n") if line.strip()]
-    if len(raw) > 1000 or len(lines) < 2:
-        raise ValueError("Freitextadresse benötigt mindestens zwei Zeilen (maximal 1000 Zeichen).")
-    result = {"id": "", "label": raw, "street": "", "postal": "", "city": "",
-              "country": str(default_country or "DE").upper()}
-    has_country = len(lines) >= 3 and bool(re.fullmatch(r"[A-Za-z]{2}", lines[-1]))
-    postal_city = lines[-2] if has_country else lines[-1]
-    parts = postal_city.split(maxsplit=1)
-    if has_country:
-        result["country"] = lines[-1].upper()
-    if len(parts) == 2 and parts[0].rstrip(",").isdigit() and lines[:-2 if has_country else -1]:
-        result["street"] = " ".join(lines[:-2] if has_country else lines[:-1])
-        result["postal"] = parts[0].rstrip(",")
-        result["city"] = parts[1]
-    return result
 
 
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
