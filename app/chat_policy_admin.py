@@ -20,8 +20,10 @@ def index():
     peers = FederationStore(current_app.config["DOCUMENT_ROOT"]).list_peers()
     for peer in peers:
         peer["chat_policy"] = chat_policy_state(peer.get("policy"))
+    from .chat_policy_hints import suggest_policy_review
     return render_template(
         "admin/federation_chat_policies.html",
         peers=peers,
         chat_action_labels=ACTION_LABELS,
+        policy_hints=suggest_policy_review(peers),
     )

@@ -88,9 +88,11 @@ def document_attachments(document_id: str):
 @login_required
 def security_center():
     actor = str(g.user["username"])
+    from .scan_review_hints import suggest_scan_review
     security = _attachment_security()
     status = security.scanner.status()
-    return render_template("documents/security.html", status=status, scans=security.recent_scans(), is_admin=_security_admin(actor), scanner_name=getattr(security.scanner, "display_name", "ClamAV"), can_scan=status.get("state") == "available")
+    scans = security.recent_scans()
+    return render_template("documents/security.html", status=status, scans=scans, scan_hints=suggest_scan_review(status, scans), is_admin=_security_admin(actor), scanner_name=getattr(security.scanner, "display_name", "ClamAV"), can_scan=status.get("state") == "available")
 
 @bp.post("/security/scan-now")
 @login_required
@@ -208,15 +210,19 @@ def retention_overview():
         for document_id, status in statuses.items()
         if status["cleanup_eligible"]
     ]
+    from .retention_hints import suggest_retention_gaps
+    folder_rules = store.folder_retention_rules()
+    archive_folders = sorted(
+        {".", *(str(Path(item.get("last_path", "")).parent) for item in documents.values())},
+        key=str.casefold,
+    )
     return render_template(
         "documents/retention.html",
         candidates=sorted(candidates, key=lambda item: (item["retention_until"], item["path"])),
         missing=sorted(missing, key=lambda item: item["document"].get("last_path", "")),
-        folder_rules=store.folder_retention_rules(),
-        folders=sorted(
-            {".", *(str(Path(item.get("last_path", "")).parent) for item in documents.values())},
-            key=str.casefold,
-        ),
+        folder_rules=folder_rules,
+        folders=archive_folders,
+        retention_hints=suggest_retention_gaps(statuses, folder_rules, archive_folders),
     )
 
 @bp.post("/retention/rules")

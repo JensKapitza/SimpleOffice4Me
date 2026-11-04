@@ -201,6 +201,7 @@ def index():
 @bp.get("/search")
 @login_required
 def document_search():
+    from .search_index_hints import suggest_index_review
     query = request.args.get("q", "").strip()
     try:
         page = max(1, int(request.args.get("page", "1")))
@@ -218,9 +219,11 @@ def document_search():
                 _store().record_access(item["document_id"], str(g.user["username"]), "found")
         except ValueError as exc:
             error = str(exc)
+    scan_status = _store().scan_status()
     return render_template(
         "documents/search.html", query=query, error=error,
-        scan_status=_store().scan_status(), **result
+        scan_status=scan_status,
+        index_hints=suggest_index_review(scan_status), **result
     )
 
 

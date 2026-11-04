@@ -10,6 +10,7 @@
     <a class="btn btn-outline-secondary" href="{{ url_for('federation_admin.dashboard') }}">Federation</a>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if update_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in update_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
 
   <div class="row g-4 mb-4">
     <section class="col-lg-6"><div class="card h-100"><div class="card-header"><strong>{{ 'Local build' if g.language == 'en' else 'Lokaler Build' }}</strong></div><div class="card-body">
