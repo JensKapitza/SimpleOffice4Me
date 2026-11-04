@@ -228,7 +228,8 @@ async function startConfiguredLanProxy() {
   const {host, port} = proxy;
   try {
     lanProxy = await createLanProxy({
-      host, port, backendPort: Number(new URL(backendUrl).port)
+      host, port, backendPort: Number(new URL(backendUrl).port),
+      publicHost: proxy.origin ? new URL(proxy.origin).host : ''
     });
     console.log(`SimpleOffice LAN proxy listening on ${host}:${port}`);
   } catch (error) {
