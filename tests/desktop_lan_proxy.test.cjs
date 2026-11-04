@@ -22,7 +22,7 @@ test('LAN proxy forwards method, path and body to fixed loopback backend', async
     assert.equal(req.method, 'POST');
     assert.equal(req.url, '/screen/api/join?foo=1');
     assert.equal(req.headers['x-forwarded-proto'], 'http');
-    assert.equal(req.headers['x-forwarded-host'], undefined);
+    assert.equal(req.headers['x-forwarded-host'], `127.0.0.1:${proxyPort}`);
     let body = '';
     req.setEncoding('utf8');
     req.on('data', (chunk) => { body += chunk; });
