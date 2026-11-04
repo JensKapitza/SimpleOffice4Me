@@ -4,6 +4,7 @@
 <main id="main-content" class="container-xl py-4">
   <h1 class="h2">LiteLLM Gateway</h1>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if gateway_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in gateway_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
   <p><a href="{{ url_for('mini_services_admin.index') }}">Mini Services</a> · <a href="{{ url_for('mcp.settings') }}">{{ 'MCP credentials' if g.language == 'en' else 'MCP-Zugänge' }}</a></p>
   <p class="text-secondary">{{ 'Optional OpenAI-compatible service. MCP is' if g.language == 'en' else 'Optionaler OpenAI-kompatibler Dienst. MCP ist' }} {{ 'enabled' if mcp_enabled else 'disabled' if g.language == 'en' else ('aktiviert' if mcp_enabled else 'deaktiviert') }} {{ 'and uses separate user rights and credentials.' if g.language == 'en' else 'und verwendet separate Benutzerrechte und Zugänge.' }}</p>
   <div class="alert {{ 'alert-success' if service.health.ok else 'alert-secondary' }}" role="status">{{ service.health.message }}</div>
