@@ -346,8 +346,9 @@ def _uploaded_csv() -> str:
 @login_required
 def import_preview():
     try:
+        from .import_preview_hints import suggest_import_fixes
         preview = _tools().preview_csv(_uploaded_csv(), _actor())
-        return render_template("documents/contact_import_preview.html", preview=preview, filename=request.files["contacts_file"].filename or "Import")
+        return render_template("documents/contact_import_preview.html", preview=preview, filename=request.files["contacts_file"].filename or "Import", import_hints=suggest_import_fixes(preview))
     except ValueError as exc:
         flash(f"Importvorschau fehlgeschlagen: {exc}")
         return redirect(url_for("contact_audit.manage"))

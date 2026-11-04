@@ -54,12 +54,15 @@ def smart_folders():
     move_document = _assignment_document(request.args.get("move_document_id", ""))
     if assignment_document and move_document:
         abort(400)
+    from .smart_folder_hints import suggest_folder_review
+    folders = views.folders()
     return _private_html(
         "documents/smart_folders.html",
-        folders=views.folders(),
+        folders=folders,
         selected=None,
         assignment_document=assignment_document,
         move_document=move_document,
+        folder_hints=suggest_folder_review(folders),
     )
 
 

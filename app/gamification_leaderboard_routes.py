@@ -48,10 +48,13 @@ def _owned_proposal(store: GamificationStore, proposal_id: str, actor: str):
 def index():
     actor = str(g.user["username"])
     store = GamificationStore(current_app.config["DOCUMENT_ROOT"])
+    from .rank_motivation_hints import suggest_rank_moves
+    rows = leaderboard(store, 50, _visible_participants(store, actor))
     return render_template(
         "gamification/leaderboard.html",
-        rows=leaderboard(store, 50, _visible_participants(store, actor)),
+        rows=rows,
         reward_profile=profile(store, actor),
+        rank_hints=suggest_rank_moves(rows, actor),
     )
 
 

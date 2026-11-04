@@ -5,6 +5,7 @@
   <h1 class="h3">{{ 'File security' if g.language == 'en' else 'Dateisicherheit' }} / {{ scanner_name or 'ClamAV' }}</h1>
   <p class="text-muted small">{{ 'Scanning runs on the application server.' if g.language == 'en' else 'Die Prüfung läuft auf dem Anwendungsserver.' }}</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if scan_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in scan_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
   <div class="card mb-4"><div class="card-body">
     <p>Status: <span class="badge {% if status.state == 'available' %}text-bg-success{% else %}text-bg-danger{% endif %}">{{ status.state }}</span></p>
     <p class="text-break">{{ status.engine }} {{ status.version }}</p>

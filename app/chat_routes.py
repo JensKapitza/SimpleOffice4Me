@@ -320,8 +320,9 @@ def create_room():
 @login_required
 def room(room_id: str):
     room_data=_require_room(room_id); store=_store(); messages=_display_messages(room_id); _mark_room_read(room_id,messages)
+    from .chat_question_hints import suggest_open_questions
     return render_template(
-        "chat/room.html",room=room_data,participants=store.participants(room_id),messages=messages,
+        "chat/room.html",room=room_data,participants=store.participants(room_id),messages=messages,question_hints=suggest_open_questions(messages),
         may_send=store.is_participant(room_id,_actor()),share_choices=share_choices(_root(),_actor()),
         reactions=sorted(ALLOWED_REACTIONS),call_settings=call_settings(_root()),call_targets=_call_targets(room_id),
         forward_rooms=_forward_rooms(room_id),

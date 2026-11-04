@@ -309,9 +309,11 @@ def play_session(session_id: str):
 @bp.get("/manage")
 @login_required
 def manage():
+    from .session_care_hints import suggest_session_care
     actor = str(g.user["username"])
+    sessions = _sessions(actor)
     return render_template(
-        "gamification/manage.html", sessions=_sessions(actor), proposals=_review_proposals(actor),
+        "gamification/manage.html", sessions=sessions, session_hints=suggest_session_care(sessions), proposals=_review_proposals(actor),
         peers=FederationStore(current_app.config["DOCUMENT_ROOT"]).list_peers(),
         organizations=organizations_for_user(get_db(), actor), reward_profile=profile(_store(), actor),
         message=request.args.get("message", "")[:240], is_admin=bool(g.user["is_admin"]),

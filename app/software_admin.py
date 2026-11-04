@@ -74,14 +74,18 @@ def _local_peer_id() -> str:
 @bp.get("")
 @admin_required
 def index():
+    from .update_offer_hints import suggest_update_review
     distribution = _distribution()
     artifacts = _artifacts()
+    offers = distribution.offers()
+    staged = distribution.staged()
     return render_template(
         "admin/software_updates.html",
         local_release=local_release_info(),
         built_release=distribution.latest(),
-        offers=distribution.offers(),
-        staged=distribution.staged(),
+        offers=offers,
+        staged=staged,
+        update_hints=suggest_update_review(offers, staged),
         installer_artifacts=artifacts.catalog(),
         installer_offers=artifacts.offers(),
         github_artifacts=artifacts.github_sync_info(),
