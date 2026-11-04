@@ -36,5 +36,24 @@ class SettingsLanguageFormTests(unittest.TestCase):
                 self.assertIn(label, self.source)
 
 
+    def test_settings_sections_render_language_specific_labels(self):
+        expected = (
+            ("Documents and import", "Dokumente und Import"),
+            ("Status for web uploads", "Zustand für Web-Uploads"),
+            ("Additional default tags", "Zusätzliche Standard-Tags"),
+            ("Default visibility", "Standardsichtbarkeit"),
+            ("Default duration in minutes", "Standarddauer in Minuten"),
+            ("Sharing links", "Freigaben"),
+            ("WebDAV for desktop applications", "WebDAV für Desktop-Programme"),
+        )
+        for english, german in expected:
+            with self.subTest(label=german):
+                self.assertIn(
+                    f"'{english}' if g.language == 'en' else '{german}'",
+                    self.source,
+                )
+                self.assertNotIn(f">{german}<", self.source)
+
+
 if __name__ == "__main__":
     unittest.main()
