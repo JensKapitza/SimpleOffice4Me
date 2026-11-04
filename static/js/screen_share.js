@@ -122,7 +122,7 @@
     stopping = true;
     if (pollTimer) window.clearTimeout(pollTimer); pollTimer = null;
     // Start notification while identifiers still exist, but release capture immediately.
-    const notification = notify && session ? sendSignal('bye', null).catch(() => {}) : Promise.resolve();
+    const notification = notify && session && role === 'sender' ? sendSignal('bye', null).catch(() => {}) : Promise.resolve();
     if (pc) pc.close(); pc = null;
     if (stream) stream.getTracks().forEach((track) => track.stop()); stream = null;
     try { window.SimpleOfficeNativeScreen?.stopShare?.(); } catch (_) { /* optional bridge */ }
