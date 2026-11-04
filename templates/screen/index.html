@@ -4,7 +4,7 @@
 <main id="main-content" class="container-xl py-3 py-md-4" data-screen-root data-viewer-code="{{ viewer_code|default('') }}" data-proxy-origin="{{ proxy_origin|default('') }}" data-ice-url="{{ url_for('connectivity_relay_ice.ice') }}">
   <div class="mb-3">
     <h1 class="h2 mb-1">{{ "Bildschirm ansehen" if viewer_mode|default(false) else "Bildschirm" }}</h1>
-    <p class="text-secondary mb-0">Bildschirm sicher zwischen SimpleOffice-Geräten teilen oder empfangen.</p>
+    <p class="text-secondary mb-0">{{ "Freigegebenen Bildschirm in einer eigenen Ansicht empfangen." if viewer_mode|default(false) else "Bildschirm sicher zwischen SimpleOffice-Geräten teilen oder empfangen." }}</p>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div id="screen-message" class="alert alert-secondary py-2" role="status" aria-live="polite">Bereit.</div>
@@ -35,7 +35,7 @@
         <button class="btn btn-primary btn-lg" id="screen-share-start" type="button"><i class="fas fa-display me-1" aria-hidden="true"></i>Teilen starten</button>
         <button class="btn btn-outline-danger btn-lg" id="screen-share-stop" type="button" disabled>Beenden</button>
       </div>
-      <div id="screen-share-link-box" class="d-none mt-3"><label for="screen-share-link">Zuschauer-Link (Anmeldung erforderlich)</label><div class="input-group"><input id="screen-share-link" class="form-control" readonly><input id="screen-proxy-link" class="form-control mt-2" readonly aria-label="LAN-Proxy-Link" placeholder="LAN-Proxy deaktiviert"><button id="screen-copy-link" type="button" class="btn btn-outline-secondary">Link kopieren</button></div></div><video id="screen-local-preview" class="w-100 bg-dark rounded mt-3 d-none" autoplay muted playsinline></video>
+      <div id="screen-share-link-box" class="d-none mt-3"><label for="screen-share-link">Zuschauer-Link (Anmeldung erforderlich)</label><div class="input-group"><input id="screen-share-link" class="form-control" readonly><input id="screen-proxy-link" class="form-control mt-2" readonly aria-label="LAN-Proxy-Link" placeholder="LAN-Proxy deaktiviert"><button id="screen-copy-proxy-link" type="button" class="btn btn-outline-secondary mt-2">LAN-Link kopieren</button><button id="screen-copy-link" type="button" class="btn btn-outline-secondary">Link kopieren</button></div></div><video id="screen-local-preview" class="w-100 bg-dark rounded mt-3 d-none" autoplay muted playsinline></video>
     </div>
   </section>
 
@@ -54,7 +54,7 @@
     </div>
   </section>
 
-  <section class="card mt-4"><div class="card-header"><strong>Miracast / Wi-Fi Display</strong></div><div class="card-body">
+  <section class="card mt-4{{ ' d-none' if viewer_mode|default(false) else '' }}"><div class="card-header"><strong>Miracast / Wi-Fi Display</strong></div><div class="card-body">
   {% if screen_status.windows.available %}<p>Windows Wireless Display: {{ screen_status.windows.wireless_display }}</p><form class="d-inline" method="post" action="{{ url_for('screen.action', action='windows-send') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary" type="submit" data-desktop-screen-action="windows-send">Drahtlose Anzeige suchen</button></form> <form class="d-inline" method="post" action="{{ url_for('screen.action', action='windows-receive') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary" type="submit" data-desktop-screen-action="windows-receive">Auf diesen PC projizieren</button></form>
   {% elif screen_status.linux.available %}<p>Linux: GNOME Network Displays als Sender, MiracleCast als Empfänger.</p><form class="d-inline" method="post" action="{{ url_for('screen.action', action='linux-send') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary" type="submit" data-desktop-screen-action="linux-send" {% if not (screen_status.linux.gnome_network_displays or screen_status.linux.gnome_network_displays_flatpak) %}disabled{% endif %}>GNOME Network Displays</button></form> <form class="d-inline" method="post" action="{{ url_for('screen.action', action='linux-receive') }}"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-outline-primary" type="submit" data-desktop-screen-action="linux-receive" {% if not screen_status.linux.miracle_sinkctl %}disabled{% endif %}>MiracleCast Receiver</button></form>
   {% elif screen_status.android_native %}<p>Android nutzt die System-Cast-Auswahl; SimpleOffice Screen Share steht als unabhängiger Weg bereit.</p><button class="btn btn-outline-primary" id="screen-android-cast" type="button">Cast / Smart View öffnen</button>
