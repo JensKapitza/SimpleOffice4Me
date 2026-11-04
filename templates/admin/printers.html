@@ -17,6 +17,7 @@
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if setup_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in setup_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
 
   <nav class="nav nav-tabs mb-4" aria-label="{{ 'Printer management' if g.language == 'en' else 'Druckerverwaltung' }}" role="tablist">
     <a class="nav-link active" id="devices-tab" href="#devices" data-bs-toggle="tab" role="tab" aria-controls="devices" aria-selected="true">{{ 'Printers & devices' if g.language == 'en' else 'Drucker & Geräte' }}</a>
