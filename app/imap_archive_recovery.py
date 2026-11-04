@@ -13,6 +13,7 @@ from .attachment_security import AttachmentSecurity
 from .document_store import DocumentStore, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_client import MAX_MESSAGE_BYTES, _owner_key
+from .safe_paths import resolve_for_write_under
 from .v2.storage_runtime import create_or_verify_document
 
 
@@ -37,6 +38,19 @@ class ArchiveRecovery:
             self.store.update_archive_state(self.actor, self.account_id, self.state)
         except OSError as exc:
             raise CheckpointUnavailable("Archivfortschritt konnte nicht sicher gespeichert werden.") from exc
+
+    def prepare_archive_parent(self, relative_path):
+        """Create the owned year collection for a fresh inbound archive path."""
+        relative = Path(relative_path)
+        parts = relative.parts
+        if (len(parts) != 5
+                or parts[:3] != ("email", _owner_key(self.actor), self.account_id)
+                or not parts[3].isdigit()
+                or relative.suffix.casefold() != ".eml"):
+            raise ValueError("invalid IMAP archive path")
+        target = resolve_for_write_under(self.store.root, relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        DocumentStore(self.store.root).ensure_folder_policy(target.parent, self.actor)
 
     def prepare(self, connection):
         status, _ = connection.select(self.account["folder"], readonly=True)
@@ -111,6 +125,7 @@ class ArchiveRecovery:
             )
         row.update(stage="storage", sha512=digest)
         self.save()
+        self.prepare_archive_parent(row["path"])
         document, created = create_or_verify_document(
             self.store.root, self.actor, row["path"], raw, max_bytes=MAX_MESSAGE_BYTES,
         )
