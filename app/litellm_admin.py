@@ -44,13 +44,18 @@ def index():
             flash(result["error"])
             value.pop("api_key", None)
             value.pop("provider_key", None)
-            return render_template("admin/litellm_service.html", service=service.status(), config=value,
-                                   mcp_enabled=current_app.config.get("MCP_ENABLED", True)), code
+            from .gateway_care_hints import suggest_gateway_review
+            failed = service.status()
+            return render_template("admin/litellm_service.html", service=failed, config=value,
+                                   mcp_enabled=current_app.config.get("MCP_ENABLED", True),
+                                   gateway_hints=suggest_gateway_review(failed)), code
         flash(translate(g.language, "llm.saved"))
         return redirect(url_for("litellm_admin.index"))
+    from .gateway_care_hints import suggest_gateway_review
     row = service.status()
     return render_template("admin/litellm_service.html", service=row, config=row.get("settings") or DEFAULTS,
-                           mcp_enabled=current_app.config.get("MCP_ENABLED", True))
+                           mcp_enabled=current_app.config.get("MCP_ENABLED", True),
+                           gateway_hints=suggest_gateway_review(row))
 
 
 @bp.post("/action/<name>")
