@@ -169,3 +169,13 @@ class ErrorRelaySettingsTests(unittest.TestCase):
         self.assertEqual("enabled", store.settings()["integrations"]["error_relay_mode"])
         store.save({"integrations": {"error_relay_mode": "auto"}}, "relay-admin")
         self.assertEqual("auto", store.settings()["integrations"]["error_relay_mode"])
+
+    def test_legacy_env_override_enables_relay_on_fresh_store(self):
+        store = SettingsStore(self.root)
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "1"}):
+            self.assertEqual("enabled", store.settings()["integrations"]["error_relay_mode"])
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "0"}):
+            self.assertEqual("disabled", store.settings()["integrations"]["error_relay_mode"])
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ERROR_RELAY_ENABLED": "yes"}):
+            with app.app_context():
+                self.assertTrue(relay_enabled())
