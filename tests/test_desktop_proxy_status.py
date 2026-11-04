@@ -5,7 +5,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from app.admin_server_settings import _desktop_proxy_status
+from app.desktop_proxy_status import _desktop_proxy_status
 
 
 class DesktopProxyStatusTests(unittest.TestCase):
