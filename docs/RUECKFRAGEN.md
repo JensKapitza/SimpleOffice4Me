@@ -46,7 +46,7 @@ Verbleibende Request-Pfad-Leser, alle im Register dokumentiert. Reihenfolge-Vors
 - Offen an Owner: naechste Welle definieren (Kandidaten: GOOGLE_OAUTH_*/Registrierung, Error-Reporting, ZUGFERD/MUSTANG, SFTP_HOST_KEY) oder No-Env-Programm fuer beendet erklaeren (Rest = Plattform-Env PATH/SystemRoot/HOME + dokumentierte Start-Overrides).
 - Eskalation Fremd-Fails (CI PR #973, Job Python-3.15-experimental non-blocking, 5693 Tests, 3 Fails): alles stale-DE-Asserts in Fremdgebieten — invoice_icons (`Nachfolger` vs EN-Template), mail_client (`IMAP-Client` vs EN-Seite), termux sftp-guidance. Gehoeren den Gebiets-Agenten (Invoice/Mail/Termux), nicht in eigene Wellen uebernehmen (EN-Default-Konsistenz). Falls der blockierende Python-Application-Job dieselben 3 faellt, dort ebenfalls nur eskalieren.
 - Update (Lauf 04.11., Owner hat PR #978 gemergt `4de00716`, per FF uebernommen): Python-Application-Job auf d5fd90f3 hat exakt 1 Fail — invoice_icons (Fremdgebiet, bereits eskaliert). Mail-/Termux-/IMAP-Zieltests in CI gruen. Merge behaelt Owner-imap-462 ohne Punkt (c227757c-Skip bestaetigt, kein `safely.` im Merge-Head); alle 3 Zieltests auf Merge-Head lokal 3/3 OK.
-- Blockiert (Lauf 04.11.): Push von `482ed13b` 2x mit GitHub `Internal Server Error` rejected (kein FF-Problem, kein Force-Push versucht). Commit liegt lokal vor, naechster Lauf pusht erneut.
+- Blockiert (Lauf 04.11.): Push von `482ed13b` 3x mit GitHub `Internal Server Error` rejected (kein FF-Problem, kein Force-Push versucht; auch `gh`-Lesesicht auf Remote ok, nur Push-Pfad 500). Commits liegen lokal vor (`482ed13b`, `ccd26315`), naechster Lauf pusht erneut.
 
 ## 4. Merge-Policy
 - `git pull --rebase` vs Merge-Commits bei divergentem Branch? (Bisher: Merge, kein Rewrite.)
