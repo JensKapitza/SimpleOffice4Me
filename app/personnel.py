@@ -323,9 +323,11 @@ def hr():
         absence["deputy_name"] = names.get(int(absence["deputy_employee_id"]), "—") if absence.get("deputy_employee_id") else "—"
         absence["tags"] = json.loads(absence["tags_json"] or "[]")
         absence["workdays"] = _absence_days(absence["starts_on"], absence["ends_on"])
+    from .staff_plan_hints import suggest_plan_gaps
     return render_template("personnel/hr.html", employees=employees, absences=absences,
                            pending=sum(item["status"] == "requested" for item in absences),
-                           can_decide=bool(actor and actor["can_approve"]), actor_employee_id=int(actor["id"]) if actor else 0)
+                           can_decide=bool(actor and actor["can_approve"]), actor_employee_id=int(actor["id"]) if actor else 0,
+                           plan_hints=suggest_plan_gaps(employees))
 
 
 @bp.get("/team-calendar")
@@ -340,7 +342,8 @@ def team_calendar():
         row["employee_name"] = names.get(int(row["employee_id"]), "—")
         row["deputy_name"] = names.get(int(row["deputy_employee_id"]), "Nicht festgelegt") if row.get("deputy_employee_id") else "Nicht festgelegt"
         row["workdays"] = _absence_days(row["starts_on"], row["ends_on"])
-    return render_template("personnel/team_calendar.html", absences=rows)
+    from .team_absence_hints import suggest_absence_review
+    return render_template("personnel/team_calendar.html", absences=rows, absence_hints=suggest_absence_review(rows))
 
 
 @bp.post("/employees")
