@@ -22,7 +22,7 @@ from .mini_services import (
     save_config,
     tail_dns_log,
 )
-from .admin_server_settings import _desktop_proxy_status
+from .desktop_proxy_status import _desktop_proxy_status
 from .network_system_status import dhcp_network_candidates, ipv4_routing_status, network_interfaces
 from simpleoffice_network_gateway import DEFAULT_GATEWAY_SETTINGS
 from simpleoffice_network_gateway_runtime import load_gateway_settings, save_gateway_settings
