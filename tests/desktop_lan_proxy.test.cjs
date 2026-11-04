@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const net = require('node:net');
-const {createLanProxy, cleanHeaders} = require('../desktop/electron/lan_proxy');
+const {createLanProxy, cleanHeaders, isPrivateClient} = require('../desktop/electron/lan_proxy');
 
 async function freePort() {
   const socket = net.createServer();
@@ -52,4 +52,15 @@ test('proxy removes hop-by-hop headers and untrusted forwarded headers', () => {
     authorization: 'token', cookie: 'session=abc'
   });
   assert.deepEqual(result, {authorization: 'token', cookie: 'session=abc'});
+});
+
+test('LAN restriction rejects public addresses and allows private client networks', () => {
+  for (const value of ['127.0.0.1', '192.168.1.2', '10.0.0.5', '172.16.0.1',
+    '172.31.255.254', '169.254.2.3', '::1', '::ffff:192.168.1.3']) {
+    assert.equal(isPrivateClient(value), true, value);
+  }
+  for (const value of ['8.8.8.8', '1.1.1.1', '172.32.0.1', '192.167.0.1',
+    '0.0.0.0', '', 'example.org', '2001:4860:4860::8888']) {
+    assert.equal(isPrivateClient(value), false, value);
+  }
 });
