@@ -53,3 +53,23 @@ TLS-Integration, Gastlinks und mehrere Zuschauer sind noch separat umzusetzen.
 5. Portkonflikt, mehrere Netzwerkschnittstellen, Firewall und Neustart.
 6. Node-Tests: `node --test tests/desktop_lan_proxy.test.cjs`.
 7. Python- und Browser-Screen-Share-Tests / CI.
+
+## Mini-Services-Status (Desktop-Variante)
+
+Der Electron-Prozess schreibt alle fünf Sekunden einen atomar erneuerten
+Laufzeitstatus in `.simpleoffice-meta/desktop-proxy-status.json`.
+Die Servereinstellungen und die Mini-Services-Übersicht zeigen diesen an.
+Ein Status älter als 20 Sekunden wird als `stale` gekennzeichnet, nicht als
+laufender Proxy. Zustände: `running`, `disabled`, `error`, `stopped`,
+`stale`, `unknown`.
+
+Der Listener akzeptiert nur Loopback und private LAN-Quelladressen.
+Er ersetzt **keine** Verschlüsselung. Die Windows-Firewall muss den
+konfigurierten Port freigeben; keine pauschalen Portfreigaben im Router.
+Mini-Services bietet derzeit die Statusanzeige und verweist zur
+Host-/Port-Konfiguration; Live-Start/-Stop erfolgt ausschließlich über den
+EXE-Prozess, um parallele Listener zu vermeiden.
+
+Weitere Prüfung: Desktop-Neustart, Statusalterung nach hartem Prozessabbruch,
+Zugriff über einen zweiten Client, ausschließlich lokal gebundene Standardeinstellung
+und WebRTC-Browserkompatibilität.
