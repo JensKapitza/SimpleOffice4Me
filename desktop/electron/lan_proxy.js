@@ -19,7 +19,7 @@ function cleanHeaders(headers) {
   return result;
 }
 
-function createLanProxy({host, port, backendPort, logger = console}) {
+function createLanProxy({host, port, backendPort, publicHost = '', logger = console}) {
   if (!Number.isInteger(port) || port < 1 || port > 65535 ||
       !Number.isInteger(backendPort) || backendPort < 1 || backendPort > 65535) {
     throw new Error('Ungültiger Proxy-Port');
@@ -28,7 +28,7 @@ function createLanProxy({host, port, backendPort, logger = console}) {
   const server = http.createServer((req, res) => {
     const headers = cleanHeaders(req.headers);
     // Never trust the downstream Host header as an upstream routing hint.
-    headers.host = `${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
+    headers.host = publicHost || `${host === '0.0.0.0' ? 'localhost' : host}:${port}`;
     headers['x-forwarded-proto'] = 'http';
     headers['x-forwarded-for'] = req.socket.remoteAddress || '';
     headers['x-forwarded-host'] = headers.host;
