@@ -70,7 +70,10 @@ class ScreenSignalingTests(unittest.TestCase):
         self.user["id"] = "receiver"
         close_url = self.url.removesuffix("/signals")
         self.assertEqual(403, self.client.delete(close_url, query_string={"code": code}, headers=self.headers).status_code)
-        self.assertEqual(200, self.client.delete(close_url, headers={**self.headers, "X-Screen-Code": code}).status_code)
+        self.assertEqual(403, self.client.delete(close_url, headers={**self.headers, "X-Screen-Code": code}).status_code)
+        self.assertEqual(403, self.signal("bye", None, "receiver", code).status_code)
+        self.user["id"] = "owner"
+        self.assertEqual(200, self.client.delete(close_url, headers=self.headers).status_code)
 
     def test_session_quotas_and_closed_or_expired_slots_are_reclaimed(self):
         with mock.patch.object(screen_share, "_MAX_SESSIONS_PER_USER", 1):
