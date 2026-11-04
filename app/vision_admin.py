@@ -28,6 +28,10 @@ def _form_value() -> dict:
         "meta_endpoint": request.form.get("meta_endpoint", ""),
         "meta_model": request.form.get("meta_model", ""),
         "meta_api_key": request.form.get("meta_api_key", ""),
+        "openai_consent": request.form.get("openai_consent") == "1",
+        "openai_endpoint": request.form.get("openai_endpoint", ""),
+        "openai_model": request.form.get("openai_model", ""),
+        "openai_api_key": request.form.get("openai_api_key", ""),
     }
 
 
@@ -44,6 +48,7 @@ def index():
                   detail={"error_type": type(exc).__name__})
             flash(translate(g.language, "vision.invalid").format(exc=exc))
             value.pop("meta_api_key", None)
+            value.pop("openai_api_key", None)
             return render_template("admin/vision_service.html",
                                    config=config.public({**config.settings(), **value}),
                                    status=_status()), 400
