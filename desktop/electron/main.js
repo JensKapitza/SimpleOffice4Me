@@ -188,10 +188,10 @@ function writeProxyStatus() {
   }
 }
 
-function updateProxyStatus(state, message, origin = '') {
+function updateProxyStatus(state, message, origin = '', heartbeat = true) {
   proxyStatusState = {state, message, origin};
   writeProxyStatus();
-  if (!proxyStatusTimer) {
+  if (heartbeat && !proxyStatusTimer) {
     proxyStatusTimer = setInterval(writeProxyStatus, 5000);
     proxyStatusTimer.unref?.();
   }
@@ -412,7 +412,7 @@ app.on('before-quit', (event) => {
   quitting = true;
   if (lanProxy) { lanProxy.close(); lanProxy = null; }
   if (proxyStatusTimer) { clearInterval(proxyStatusTimer); proxyStatusTimer = null; }
-  updateProxyStatus('stopped', 'Desktop application exited');
+  updateProxyStatus('stopped', 'Desktop application exited', '', false);
   if (backend && backend.exitCode === null) {
     event.preventDefault();
     stopBackend().finally(() => app.quit());
