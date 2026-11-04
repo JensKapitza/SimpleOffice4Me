@@ -1,7 +1,7 @@
 {% extends "layout.html" %}
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
-<main id="main-content" class="container-xl py-3 py-md-4" data-screen-root data-viewer-code="{{ viewer_code|default('') }}" data-ice-url="{{ url_for('connectivity_relay_ice.ice') }}">
+<main id="main-content" class="container-xl py-3 py-md-4" data-screen-root data-viewer-code="{{ viewer_code|default('') }}" data-proxy-origin="{{ proxy_origin|default('') }}" data-ice-url="{{ url_for('connectivity_relay_ice.ice') }}">
   <div class="mb-3">
     <h1 class="h2 mb-1">{{ "Bildschirm ansehen" if viewer_mode|default(false) else "Bildschirm" }}</h1>
     <p class="text-secondary mb-0">Bildschirm sicher zwischen SimpleOffice-Geräten teilen oder empfangen.</p>
