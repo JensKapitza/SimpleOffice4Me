@@ -17,6 +17,17 @@
     </div>
   </nav>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card mb-3" aria-label="Desktop LAN proxy status">
+    <div class="card-header"><strong>{{ 'Desktop LAN proxy (Mini-Services)' if g.language == 'en' else 'Desktop-LAN-Proxy (Mini-Services)' }}</strong></div>
+    <div class="card-body">
+      <p class="mb-1">{{ 'Current desktop status' if g.language == 'en' else 'Aktueller Desktop-Status' }}: <strong>{{ desktop_proxy_status.state }}</strong></p>
+      {% if desktop_proxy_status.origin %}
+        <p class="mb-1"><a href="{{ desktop_proxy_status.origin }}" rel="noopener noreferrer">{{ desktop_proxy_status.origin }}</a></p>
+      {% endif %}
+      <p class="small text-secondary mb-1">{{ desktop_proxy_status.message }}</p>
+      <p class="small text-secondary mb-0">{{ 'The Electron Desktop hosts the proxy. It uses the saved host/port after a full EXE restart. The internal Python server stays on loopback. This status reports the listening socket, not reachability from a second LAN device.' if g.language == 'en' else 'Die Desktop-EXE betreibt den Proxy. Gespeicherte Host-/Port-Werte gelten nach vollständigem EXE-Neustart. Der interne Python-Server bleibt auf Loopback. Dieser Status bestätigt nur die lokale Bindung, nicht die Erreichbarkeit von einem zweiten LAN-Gerät.' }}</p>
+    </div>
+  </section>
   <section class="card">
     <div class="card-header"><strong>{{ 'HTTP bind & WSGI' if g.language == 'en' else 'HTTP-Bindung & WSGI' }}</strong></div>
     <div class="card-body">
