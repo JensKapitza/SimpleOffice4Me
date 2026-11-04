@@ -1,10 +1,9 @@
-"""Persistent archive-indexing setting defaults and legacy environment migration."""
+"""Persistent archive-indexing setting defaults, bounds and validators (no environment)."""
 
 from __future__ import annotations
 
 import logging
 import math
-import os
 from typing import Any
 
 
@@ -41,138 +40,6 @@ MAX_ARCHIVE_MAX_CONTENT_FILES = 10000
 DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO = 200
 MIN_ARCHIVE_MAX_COMPRESSION_RATIO = 10
 MAX_ARCHIVE_MAX_COMPRESSION_RATIO = 10000
-
-
-def legacy_archive_deep_index_enabled() -> bool:
-    raw = os.environ.get("SIMPLEOFFICE_ARCHIVE_DEEP_INDEX", "auto").strip().casefold()
-    valid_values = {"", "auto", "0", "false", "no", "off", "1", "true", "yes", "on"}
-    if raw not in valid_values:
-        _LOGGER.warning(
-            "Invalid legacy archive deep-index setting; using automatic resource checks",
-        )
-    return raw not in {"0", "false", "no", "off"}
-
-
-def legacy_archive_max_load_per_cpu() -> float:
-    raw = os.environ.get(
-        "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU",
-        str(DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU),
-    ).strip()
-    if len(raw) > 32:
-        _LOGGER.warning("Oversized legacy archive load threshold; using default")
-        return DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU
-    try:
-        value = float(raw)
-    except ValueError:
-        _LOGGER.warning("Invalid legacy archive load threshold; using default")
-        return DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU
-    if not math.isfinite(value):
-        _LOGGER.warning("Non-finite legacy archive load threshold; using default")
-        return DEFAULT_ARCHIVE_MAX_LOAD_PER_CPU
-    bounded = max(
-        MIN_ARCHIVE_MAX_LOAD_PER_CPU,
-        min(MAX_ARCHIVE_MAX_LOAD_PER_CPU, value),
-    )
-    if bounded != value:
-        _LOGGER.warning("Legacy archive load threshold outside range; clamping")
-    return bounded
-
-
-def _legacy_archive_integer(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = os.environ.get(name, str(default)).strip()
-    if len(raw) > 20 or not raw.isascii():
-        _LOGGER.warning("Invalid legacy archive resource limit; using default")
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        _LOGGER.warning("Invalid legacy archive resource limit; using default")
-        return default
-    bounded = max(minimum, min(maximum, value))
-    if bounded != value:
-        _LOGGER.warning("Legacy archive resource limit outside range; clamping")
-    return bounded
-
-
-def legacy_archive_min_free_memory_mb() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB",
-        DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
-        MIN_ARCHIVE_MIN_FREE_MEMORY_MB,
-        MAX_ARCHIVE_MIN_FREE_MEMORY_MB,
-    )
-
-
-def legacy_archive_disk_reserve_mb() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB",
-        DEFAULT_ARCHIVE_DISK_RESERVE_MB,
-        MIN_ARCHIVE_DISK_RESERVE_MB,
-        MAX_ARCHIVE_DISK_RESERVE_MB,
-    )
-
-
-def legacy_archive_member_yield_ms() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS",
-        DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
-        MIN_ARCHIVE_MEMBER_YIELD_MS,
-        MAX_ARCHIVE_MEMBER_YIELD_MS,
-    )
-
-
-def legacy_archive_max_members() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS",
-        DEFAULT_ARCHIVE_MAX_MEMBERS,
-        MIN_ARCHIVE_MAX_MEMBERS,
-        MAX_ARCHIVE_MAX_MEMBERS,
-    )
-
-
-def legacy_archive_max_text_mb() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB",
-        DEFAULT_ARCHIVE_MAX_TEXT_MB,
-        MIN_ARCHIVE_MAX_TEXT_MB,
-        MAX_ARCHIVE_MAX_TEXT_MB,
-    )
-
-
-def legacy_archive_max_text_per_member_mb() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB",
-        DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
-        MIN_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
-        MAX_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
-    )
-
-
-def legacy_archive_max_member_mb() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB",
-        DEFAULT_ARCHIVE_MAX_MEMBER_MB,
-        MIN_ARCHIVE_MAX_MEMBER_MB,
-        MAX_ARCHIVE_MAX_MEMBER_MB,
-    )
-
-
-def legacy_archive_max_content_files() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES",
-        DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
-        MIN_ARCHIVE_MAX_CONTENT_FILES,
-        MAX_ARCHIVE_MAX_CONTENT_FILES,
-    )
-
-
-def legacy_archive_max_compression_ratio() -> int:
-    return _legacy_archive_integer(
-        "SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO",
-        DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
-        MIN_ARCHIVE_MAX_COMPRESSION_RATIO,
-        MAX_ARCHIVE_MAX_COMPRESSION_RATIO,
-    )
 
 
 def normalize_archive_resource_settings(media: dict[str, Any]) -> tuple[int, int]:

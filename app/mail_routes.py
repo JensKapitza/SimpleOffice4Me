@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import smtplib
-import os
 import uuid
 
 from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .auth import login_required
 from .db import get_db
+from . import federation_local_identity as _identity
 from .mail_autoconfig import discover_mail_settings
 from .mail_case_store import MailCaseStore
 from .mail_case_federation import send_mail_case_event
@@ -86,7 +86,7 @@ def send_federated_case_event(case_id: str, peer_id: str):
         try:
             result = send_mail_case_event(
                 current_app.config["DOCUMENT_ROOT"],
-                os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "simpleoffice-local"),
+                _identity.peer_id(),
                 peer_id, message_id, payload,
             )
         except ConnectionError:

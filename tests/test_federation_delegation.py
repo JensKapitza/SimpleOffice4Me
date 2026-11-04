@@ -1,10 +1,11 @@
-import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_core import build_manifest
 from app.federation_http import bp
 
@@ -16,16 +17,17 @@ class FederationDelegationTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="delegation-test-secret")
         self.app.register_blueprint(bp)
-        self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "permanent-peer-token"
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        with self.app.app_context():
+            app_config_store.put_secret("federation", "token", "permanent-peer-token")
         self.client = self.app.test_client()
         self.auth = {"Authorization": "Bearer permanent-peer-token"}
 
     def tearDown(self):
-        if self.previous is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
         self.temp.cleanup()
 
     def _manifest(self):

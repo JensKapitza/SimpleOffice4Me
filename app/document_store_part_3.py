@@ -290,7 +290,10 @@ class _DocumentStorePart3:
         with exclusive_file_lock(self.control / ".document-content.lock"):
             if destination.exists():
                 raise FileExistsError("destination resource already exists")
-            temporary = destination.with_name(f".{destination.name}.{uuid.uuid4().hex}.partial")
+            # Keep the temporary basename short. Appending a UUID to a long
+            # managed filename can exceed Windows' path limit even when the
+            # final destination itself is still valid.
+            temporary = destination.with_name(f".{uuid.uuid4().hex}.partial")
             written = 0
             source = getattr(stream, "stream", stream)
             try:

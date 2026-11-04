@@ -315,7 +315,7 @@ if paramiko is not None:
 
         def _accept(self, username, identity):
             self.username, self.identity = username, identity
-            self.vfs = VirtualFileSystem.from_environment(self.app.config["DOCUMENT_ROOT"])
+            self.vfs = VirtualFileSystem.from_store(self.app.config["DOCUMENT_ROOT"])
             return paramiko.AUTH_SUCCESSFUL
 
         def check_auth_password(self, username, password):

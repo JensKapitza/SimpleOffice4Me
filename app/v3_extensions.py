@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ipaddress
 import json
-import os
+import logging
 from pathlib import Path
 import re
 import socket
@@ -25,6 +26,7 @@ RESPONSE_MAX_BYTES = 1024 * 1024
 _ID = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
 _VERSION = re.compile(r"^[0-9]+(?:\.[0-9]+){1,3}(?:[-+][A-Za-z0-9._-]+)?$")
 _CAPABILITY = re.compile(r"^[a-z][a-z0-9_.:-]{1,79}$")
+_HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
 POINT_CAPABILITY = {
     "search_provider": "search.read",
@@ -369,6 +371,69 @@ SecretResolver = Callable[[str], str]
 BuiltinHandler = Callable[[str, Mapping[str, Any]], Mapping[str, Any]]
 
 
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_EXTENSION_HTTP_ALLOWLIST: tuple[str, ...] = ()
+MAX_EXTENSION_HTTP_ALLOWLIST_ENTRIES = 128
+MAX_EXTENSION_HTTP_ALLOWLIST_CHARS = 253
+
+
+def normalize_extension_http_allowlist(value: Any) -> list[str]:
+    """Coerce a stored allowlist to a bounded list of host entries."""
+    items = value if isinstance(value, list) else list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)
+    result: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            _LOGGER.warning("Invalid stored extension allowlist entry; ignoring it")
+            continue
+        text = item.strip().casefold()
+        if not text or text == "*" or len(text) > MAX_EXTENSION_HTTP_ALLOWLIST_CHARS or text in result:
+            _LOGGER.warning("Invalid stored extension allowlist entry; ignoring it")
+            continue
+        if not _is_valid_allowlist_host(text):
+            _LOGGER.warning("Invalid stored extension allowlist entry; ignoring it")
+            continue
+        result.append(text)
+        if len(result) >= MAX_EXTENSION_HTTP_ALLOWLIST_ENTRIES:
+            break
+    return result
+
+
+def validate_extension_http_allowlist(value: Any) -> list[str]:
+    """Validate an allowlist for saving; every entry must parse as a host."""
+    if not isinstance(value, list):
+        raise ValueError("Die Extension-Allowlist muss eine Liste von Hostnamen sein.")
+    if len(value) > MAX_EXTENSION_HTTP_ALLOWLIST_ENTRIES:
+        raise ValueError("Die Extension-Allowlist darf höchstens 128 Einträge haben.")
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("Die Extension-Allowlist darf nur nicht-leere Einträge haben.")
+        if len(item.strip()) > MAX_EXTENSION_HTTP_ALLOWLIST_CHARS:
+            raise ValueError("Ein Allowlist-Eintrag ist zu lang.")
+        text = item.strip().casefold()
+        if not _is_valid_allowlist_host(text):
+            raise ValueError("Erlaubt sind nur exakte Hostnamen ohne Port oder Wildcard.")
+    try:
+        HttpExtensionTransport(allow_hosts=value)
+    except RuntimeError as exc:
+        raise ValueError(f"Ungültiger Allowlist-Eintrag: {exc}") from exc
+    return normalize_extension_http_allowlist(value)
+
+
+def _is_valid_allowlist_host(host: str) -> bool:
+    if not host or host == "*" or "%" in host:
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        pass
+    dns_name = host[:-1] if host.endswith(".") else host
+    if not dns_name or len(dns_name) > 253:
+        return False
+    return all(_HOST_LABEL.fullmatch(label) for label in dns_name.split("."))
+
+
 class HttpExtensionTransport:
     def __init__(
         self,
@@ -379,14 +444,7 @@ class HttpExtensionTransport:
     ):
         configured = allow_hosts
         if configured is None:
-            configured = {
-                item.strip().casefold()
-                for item in os.environ.get(
-                    "SIMPLEOFFICE_EXTENSION_HTTP_ALLOWLIST",
-                    "",
-                ).split(",")
-                if item.strip()
-            }
+            configured = set(DEFAULT_EXTENSION_HTTP_ALLOWLIST)
         self.allow_hosts = frozenset(configured)
         self.secret_resolver = secret_resolver
         self.breaker = breaker or CircuitBreaker()
@@ -395,8 +453,6 @@ class HttpExtensionTransport:
     def _authorize_endpoint(self, manifest: ExtensionManifest) -> None:
         parsed = urlparse(manifest.endpoint)
         host = (parsed.hostname or "").casefold()
-        if host in {"localhost", "127.0.0.1", "::1"}:
-            return
         if host not in self.allow_hosts:
             raise ExtensionDenied("extension endpoint host is not locally allowlisted")
 
@@ -492,7 +548,19 @@ class ExtensionRegistry:
         self.root = Path(root).expanduser().resolve()
         self.manifests = ExtensionManifestStore(self.root)
         self.states = ExtensionStateStore(self.root)
-        self.transport = transport or HttpExtensionTransport()
+        if transport is None:
+            try:
+                from .settings_store import SettingsStore
+
+                allow_hosts: Any = SettingsStore(self.root).settings().get(
+                    "extensions", {}
+                ).get("http_allowlist", list(DEFAULT_EXTENSION_HTTP_ALLOWLIST))
+            except (OSError, ValueError):
+                allow_hosts = list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)
+            transport = HttpExtensionTransport(
+                allow_hosts=normalize_extension_http_allowlist(allow_hosts),
+            )
+        self.transport = transport
         self._builtins: dict[str, tuple[ExtensionManifest, dict[str, BuiltinHandler], frozenset[str], bool]] = {}
 
     def register_builtin(
@@ -577,7 +645,7 @@ class ExtensionRegistry:
         operation: str,
         payload: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if not capability_enabled("v3.extensions"):
+        if not capability_enabled("v3.extensions", root=self.root):
             raise ExtensionUnavailable("extension subsystem is disabled")
         if point not in POINT_CAPABILITY:
             raise ExtensionDenied("unknown extension point")
@@ -648,7 +716,7 @@ class ExtensionRegistry:
         return results, sorted(failures)
 
     def ui_items(self) -> list[dict[str, str]]:
-        if not capability_enabled("v3.extensions"):
+        if not capability_enabled("v3.extensions", root=self.root):
             return []
         rows, _errors = self.list_status()
         result = []
@@ -673,7 +741,7 @@ def external_search_hits(
     actor: str,
     limit: int = 30,
 ) -> tuple[list[dict[str, str]], list[str]]:
-    if not capability_enabled("v3.extensions"):
+    if not capability_enabled("v3.extensions", root=root):
         return [], []
     registry = ExtensionRegistry(root)
     results, failures = registry.invoke_all(

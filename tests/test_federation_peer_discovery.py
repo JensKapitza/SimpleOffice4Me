@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from app import app_config_store
+from app import federation_network
 from app.federation_discovery_email import email_hash
 from app.federation_discovery_endpoint import (
     fetch_discovery_profile,
@@ -27,6 +29,7 @@ from app.federation_peer_admin import _connect_addresses
 from app.federation_local_profile import local_profile
 from app.federation_rendezvous_store import FederationRendezvousStore
 from app.federation_store import FederationStore
+from app.settings_store import SettingsStore
 
 
 PROFILE = {
@@ -55,6 +58,11 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
+        patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def tearDown(self):
         self.temp.cleanup()
@@ -84,17 +92,15 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
     def test_direct_discovery_blocks_loopback_and_link_local(self):
         with self.assertRaises(ValueError):
             validate_discovery_endpoint("http://127.0.0.1:8080")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS": "1"}, clear=False):
-            with self.assertRaises(ValueError):
-                validate_discovery_endpoint("http://169.254.169.254")
+        federation_network.save({"allow_private_targets": "1"})
+        with self.assertRaises(ValueError):
+            validate_discovery_endpoint("http://169.254.169.254")
 
     def test_direct_discovery_private_target_requires_opt_in(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS", None)
-            with self.assertRaises(ValueError):
-                validate_discovery_endpoint("https://10.20.30.40")
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS": "1"}, clear=False):
-            self.assertEqual(validate_discovery_endpoint("https://10.20.30.40"), "https://10.20.30.40")
+        with self.assertRaises(ValueError):
+            validate_discovery_endpoint("https://10.20.30.40")
+        federation_network.save({"allow_private_targets": "1"})
+        self.assertEqual(validate_discovery_endpoint("https://10.20.30.40"), "https://10.20.30.40")
 
     def test_direct_discovery_rejects_dns_resolution_to_link_local(self):
         resolved = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("169.254.169.254", 443))]
@@ -241,14 +247,10 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             self.assertFalse(is_private_lan_ipv4(value), value)
 
     def test_lan_addresses_use_valid_native_override_and_ignore_non_rfc1918(self):
-        with patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS":
-                    "192.168.42.7,8.8.8.8,127.0.0.1,169.254.1.2,10.0.0.9,192.168.42.7"
-            },
-            clear=False,
-        ), patch("app.federation_discovery_lan.socket.getaddrinfo", side_effect=socket.gaierror), patch(
+        federation_network.save({
+            "lan_addresses": "192.168.42.7,8.8.8.8,127.0.0.1,169.254.1.2,10.0.0.9,192.168.42.7",
+        })
+        with patch("app.federation_discovery_lan.socket.getaddrinfo", side_effect=socket.gaierror), patch(
             "app.federation_discovery_lan.socket.socket"
         ) as socket_factory:
             probe = socket_factory.return_value
@@ -256,24 +258,16 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
             self.assertEqual(["192.168.42.7", "10.0.0.9"], local_lan_addresses())
 
     def test_lan_address_discovery_keeps_configured_addresses_when_socket_is_denied(self):
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_LAN_ADDRESS": "192.168.42.7"},
-            clear=False,
-        ), patch("app.federation_discovery_lan.socket.getaddrinfo", side_effect=socket.gaierror), patch(
+        federation_network.save({"lan_addresses": "192.168.42.7"})
+        with patch("app.federation_discovery_lan.socket.getaddrinfo", side_effect=socket.gaierror), patch(
             "app.federation_discovery_lan.socket.socket", side_effect=PermissionError
         ):
             self.assertEqual(["192.168.42.7"], local_lan_addresses())
 
     def test_android_without_native_wifi_or_ethernet_address_does_not_use_socket_fallback(self):
-        with patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_ANDROID": "1",
-                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS": "",
-            },
-            clear=False,
-        ), patch("app.federation_discovery_lan.socket.getaddrinfo") as getaddrinfo, patch(
+        with patch.dict(os.environ, {"SIMPLEOFFICE_ANDROID": "1"}, clear=False), patch(
+            "app.federation_discovery_lan.socket.getaddrinfo"
+        ) as getaddrinfo, patch(
             "app.federation_discovery_lan.socket.socket"
         ) as socket_factory:
             self.assertEqual([], local_lan_addresses())
@@ -281,26 +275,17 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         socket_factory.assert_not_called()
 
     def test_connect_qr_uses_all_native_ipv4_classes(self):
-        with patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_FEDERATION_LAN_ADDRESS":
-                    "192.168.43.1,100.64.0.2,169.254.8.9,8.8.8.8,127.0.0.1,0.0.0.0,192.168.43.1"
-            },
-            clear=False,
-        ):
-            self.assertEqual(
-                ["192.168.43.1", "100.64.0.2", "169.254.8.9", "8.8.8.8"],
-                _connect_addresses(),
-            )
+        federation_network.save({
+            "lan_addresses": "192.168.43.1,100.64.0.2,169.254.8.9,8.8.8.8,127.0.0.1,0.0.0.0,192.168.43.1",
+        })
+        self.assertEqual(
+            ["192.168.43.1", "100.64.0.2", "169.254.8.9", "8.8.8.8"],
+            _connect_addresses(),
+        )
 
     def test_lan_ports_are_bounded(self):
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_LAN_PORTS": "9090,9091,9092,9093,9094"},
-            clear=False,
-        ):
-            ports = scan_ports()
+        federation_network.save({"lan_ports": "9090,9091,9092,9093,9094"})
+        ports = scan_ports()
         self.assertLessEqual(len(ports), 4)
         self.assertTrue(all(1 <= port <= 65535 for port in ports))
 
@@ -331,22 +316,21 @@ class FederationPeerDiscoveryTest(unittest.TestCase):
         self.assertEqual(decoded["fingerprint"], "sha256:test")
 
     def test_lan_connect_profile_works_without_public_url(self):
-        with patch.dict(os.environ, {}, clear=False), patch(
+        with patch(
             "app.federation_local_profile.FederationIdentity.public_identity",
             return_value={"public_key": "test-key", "fingerprint": "sha256:test"},
         ):
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", None)
             profile = local_profile(
                 self.root, "http://192.168.50.23:8080", prefer_fallback=True
             )
-        self.assertEqual(profile["base_url"], "http://192.168.50.23:8080")
+            self.assertEqual(profile["base_url"], "http://192.168.50.23:8080")
 
     def test_lan_connect_profile_overrides_public_url_only_when_explicit(self):
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "https://public.example"},
-            clear=False,
-        ), patch(
+        store = SettingsStore(self.root)
+        settings = store.settings()
+        settings["integrations"]["federation_public_url"] = "https://public.example"
+        store.save(settings, "peer-discovery-test")
+        with patch(
             "app.federation_local_profile.FederationIdentity.public_identity",
             return_value={"public_key": "test-key", "fingerprint": "sha256:test"},
         ):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import logging
 import math
 import os
 import shutil
@@ -14,6 +15,59 @@ from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 MAX_HTTP_BYTES = 1024 * 1024
+
+_LOGGER = logging.getLogger(__name__)
+
+DEFAULT_SENSOR_ALLOWED_HOSTS: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
+MAX_SENSOR_ALLOWED_HOSTS = 128
+MAX_SENSOR_ALLOWED_HOST_CHARS = 253
+MAX_SENSOR_SECRET_CHARS = 2000
+
+
+def normalize_sensor_allowed_hosts(value: object) -> list[str]:
+    """Coerce stored allowed hosts to a bounded list (default loopback set)."""
+    items = value if isinstance(value, list) else list(DEFAULT_SENSOR_ALLOWED_HOSTS)
+    result: list[str] = []
+    for item in items:
+        if not isinstance(item, str):
+            _LOGGER.warning("Invalid stored sensor host; ignoring it")
+            continue
+        text = item.strip().casefold()
+        if not text or len(text) > MAX_SENSOR_ALLOWED_HOST_CHARS or text in result:
+            _LOGGER.warning("Invalid stored sensor host; ignoring it")
+            continue
+        result.append(text)
+        if len(result) >= MAX_SENSOR_ALLOWED_HOSTS:
+            break
+    return result or ["localhost"]
+
+
+def validate_sensor_allowed_hosts(value: object) -> list[str]:
+    """Validate allowed hosts for saving; entries must be non-empty strings."""
+    if not isinstance(value, list) or not value:
+        raise ValueError("Die Sensor-Hostliste darf nicht leer sein.")
+    if len(value) > MAX_SENSOR_ALLOWED_HOSTS:
+        raise ValueError("Die Sensor-Hostliste darf höchstens 128 Einträge haben.")
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError("Die Sensor-Hostliste darf nur nicht-leere Einträge haben.")
+        if len(item.strip()) > MAX_SENSOR_ALLOWED_HOST_CHARS:
+            raise ValueError("Ein Sensor-Host ist zu lang.")
+    return normalize_sensor_allowed_hosts(value)
+
+
+def _stored_allowed_hosts(document_root: object) -> list[str]:
+    """Read persisted allowed hosts; fail closed to the loopback default."""
+    if document_root is None:
+        return list(DEFAULT_SENSOR_ALLOWED_HOSTS)
+    try:
+        from .settings_store import SettingsStore
+
+        section = SettingsStore(document_root).settings().get("datalogger", {})
+        hosts = section.get("allowed_hosts", list(DEFAULT_SENSOR_ALLOWED_HOSTS))
+        return normalize_sensor_allowed_hosts(hosts)
+    except (OSError, ValueError):
+        return list(DEFAULT_SENSOR_ALLOWED_HOSTS)
 
 
 class CollectionError(RuntimeError):
@@ -162,11 +216,6 @@ class _NoRedirect(HTTPRedirectHandler):
         raise CollectionError("redirect_denied")
 
 
-def _allowed_http_host(host):
-    allowed = {x.strip().casefold() for x in os.environ.get("SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS", "localhost,127.0.0.1,::1").split(",") if x.strip()}
-    return host.casefold() in allowed
-
-
 def _safe_header_name(value: object) -> str:
     name = str(value or "Authorization").strip()[:80]
     if not name or any(char in name for char in "\r\n:"):
@@ -174,12 +223,12 @@ def _safe_header_name(value: object) -> str:
     return name
 
 
-def collect_http(config):
+def collect_http(config, document_root=None):
     url = str(config.get("url", ""))
     parsed = urlsplit(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username is not None or parsed.password is not None:
         raise CollectionError("url_invalid")
-    if not _allowed_http_host(parsed.hostname):
+    if parsed.hostname.casefold() not in _stored_allowed_hosts(document_root):
         raise CollectionError("host_denied")
     try:
         addresses = socket.getaddrinfo(parsed.hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
@@ -190,14 +239,13 @@ def collect_http(config):
     except (OSError, ValueError) as exc:
         raise CollectionError("dns_failed") from exc
     headers = {"Accept": "application/json", "User-Agent": "SimpleOffice4Me-Datalogger/1"}
-    env_name = str(config.get("header_env", "")).strip()
-    if env_name:
-        if not env_name.startswith("SIMPLEOFFICE_SENSOR_"):
-            raise CollectionError("secret_reference_invalid")
-        secret = os.environ.get(env_name)
-        if not secret:
-            raise CollectionError("secret_missing")
+    secret = str(config.get("header_secret", ""))
+    if secret:
+        if len(secret) > MAX_SENSOR_SECRET_CHARS:
+            raise CollectionError("secret_invalid")
         headers[_safe_header_name(config.get("header_name", "Authorization"))] = secret
+    elif str(config.get("header_env", "")).strip():
+        _LOGGER.warning("Ignoring legacy header_env reference; store the secret as header_secret")
     timeout = _bounded_int(config.get("timeout", 5), 5, 1, 15, "timeout_invalid")
     response = None
     try:
@@ -251,7 +299,7 @@ def collect(kind, config, document_root):
     if kind == "file":
         return collect_file(document_root, config)
     if kind == "http_json":
-        return collect_http(config)
+        return collect_http(config, document_root)
     if kind == "lm_sensors":
         return collect_lm_sensors(config)
     raise CollectionError("kind_unknown")

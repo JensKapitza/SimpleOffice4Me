@@ -5,15 +5,14 @@ import os
 from pathlib import Path
 
 
-def _bounded_port() -> int:
-    raw = os.environ.get("SIMPLEOFFICE_PORT", "8080").strip()
+def _desktop_server(document_root: str | None) -> dict:
+    """Effective server settings; the embedded service stays on loopback."""
+    from simpleoffice_server_config import strict_server_settings
+
     try:
-        port = int(raw)
+        return strict_server_settings(document_root)
     except ValueError as exc:
-        raise RuntimeError("SIMPLEOFFICE_PORT must be an integer") from exc
-    if not 1 <= port <= 65535:
-        raise RuntimeError("SIMPLEOFFICE_PORT is outside the valid range")
-    return port
+        raise RuntimeError(f"Invalid server setting: {exc}") from exc
 
 
 def _persistent_runtime(app) -> Path:
@@ -64,12 +63,13 @@ def main() -> None:
     with app.app_context():
         db.ensure_auth_database()
 
+    server = _desktop_server(app.config["DOCUMENT_ROOT"])
     from waitress import serve
     serve(
         app,
         host="127.0.0.1",
-        port=_bounded_port(),
-        threads=max(2, min(int(os.environ.get("SIMPLEOFFICE_WSGI_THREADS", "4")), 16)),
+        port=int(server["port"]),
+        threads=max(2, min(int(server["wsgi_threads"]), 16)),
         channel_timeout=120,
         max_request_body_size=int(app.config["MAX_CONTENT_LENGTH"]),
         expose_tracebacks=False,

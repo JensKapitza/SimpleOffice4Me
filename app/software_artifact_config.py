@@ -7,7 +7,6 @@ returned to templates or audit payloads.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 import urllib.parse
@@ -69,41 +68,23 @@ class SoftwareArtifactConfiguration:
             pass
         return {}
 
-    @staticmethod
-    def _legacy_repository() -> str:
-        return normalize_github_repository(
-            os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY", DEFAULT_GITHUB_REPOSITORY)
-        )
-
-    @staticmethod
-    def _legacy_token() -> str:
-        token_file = os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN_FILE", "").strip()
-        if token_file:
-            path = Path(token_file).expanduser()
-            try:
-                if path.is_file() and not path.is_symlink():
-                    token = path.read_text(encoding="utf-8").strip()
-                    if token:
-                        return token
-            except OSError:
-                pass
-        return os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_TOKEN", "").strip()
-
     def is_managed(self) -> bool:
         return bool(self._read().get("managed") is True)
 
     def repository(self) -> str:
+        """Admin-managed repository; unmanaged means the default (no environment)."""
         state = self._read()
         if state.get("managed") is True:
             return normalize_github_repository(str(state.get("repository") or DEFAULT_GITHUB_REPOSITORY))
-        return self._legacy_repository()
+        return DEFAULT_GITHUB_REPOSITORY
 
     def token(self) -> str:
+        """Admin-managed token; unmanaged means empty (no environment)."""
         state = self._read()
         if state.get("managed") is True:
             protected = str(state.get("token") or "")
             return unprotect_value(protected, _TOKEN_PURPOSE).strip() if protected else ""
-        return self._legacy_token()
+        return ""
 
     def info(self) -> dict[str, Any]:
         state = self._read()
@@ -112,8 +93,6 @@ class SoftwareArtifactConfiguration:
         configured = bool(self.token())
         if managed:
             source = "admin"
-        elif self._legacy_token() or os.environ.get("SIMPLEOFFICE_GITHUB_ARTIFACT_REPOSITORY", "").strip():
-            source = "environment"
         else:
             source = "default"
         return {
@@ -140,8 +119,7 @@ class SoftwareArtifactConfiguration:
         elif previous_managed:
             protected_token = str(previous.get("token") or "")
         else:
-            legacy = self._legacy_token()
-            protected_token = protect_value(legacy, _TOKEN_PURPOSE) if legacy else ""
+            protected_token = ""
 
         state = {
             "schema": CONFIG_SCHEMA,

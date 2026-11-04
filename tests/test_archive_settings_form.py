@@ -1,8 +1,7 @@
-import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from app.archive_settings import (
     DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
@@ -42,21 +41,21 @@ class ArchiveSettingsFormTests(unittest.TestCase):
             "video_preview_frames": "10",
         }
 
-    def test_legacy_yield_migrates_once_and_persisted_setting_wins(self):
+    def test_yield_uses_default_and_persisted_setting_wins(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = SettingsStore(temporary)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "25"}):
-                self.assertEqual(25, store.settings()["media"]["archive_member_yield_ms"])
-                store.save({"media": {"preview_enabled": False}}, "archive-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0"}):
-                self.assertEqual(25, store.settings()["media"]["archive_member_yield_ms"])
-        for raw, expected in (("0", 0), ("101", 100), ("invalid", 2), ("-1", 0)):
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as temporary:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": raw}):
-                    self.assertEqual(
-                        expected,
-                        SettingsStore(temporary).settings()["media"]["archive_member_yield_ms"],
-                    )
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MEMBER_YIELD_MS,
+                store.settings()["media"]["archive_member_yield_ms"],
+            )
+            store.save({"media": {"archive_member_yield_ms": 25}}, "archive-admin")
+            self.assertEqual(
+                25, SettingsStore(temporary).settings()["media"]["archive_member_yield_ms"],
+            )
+            store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            self.assertEqual(
+                25, SettingsStore(temporary).settings()["media"]["archive_member_yield_ms"],
+            )
 
     def test_form_accepts_bounded_yield_rejects_invalid_and_preserves_older_forms(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -90,14 +89,19 @@ class ArchiveSettingsFormTests(unittest.TestCase):
             reset = media_settings_from_form(store, {}, reset_defaults=True)
             self.assertEqual(DEFAULT_ARCHIVE_MEMBER_YIELD_MS, reset["archive_member_yield_ms"])
 
-    def test_archive_member_limit_migrates_persists_and_preserves_old_forms(self):
+    def test_archive_member_limit_persists_and_preserves_old_forms(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = SettingsStore(temporary)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS": "15000"}):
-                self.assertEqual(15000, store.settings()["media"]["archive_max_members"])
-                store.save({"media": {"preview_enabled": False}}, "archive-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS": "100"}):
-                self.assertEqual(15000, store.settings()["media"]["archive_max_members"])
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_MEMBERS,
+                store.settings()["media"]["archive_max_members"],
+            )
+            store.save({"media": {"archive_max_members": 15000}}, "archive-admin")
+            self.assertEqual(15000, store.settings()["media"]["archive_max_members"])
+            store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            self.assertEqual(
+                15000, SettingsStore(temporary).settings()["media"]["archive_max_members"],
+            )
 
             form = self._valid_form()
             form["archive_max_members"] = "100"
@@ -131,14 +135,19 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         self.assertIn('name="archive_max_members"', html)
         self.assertIn('min="100" max="200000" step="1"', html)
 
-    def test_total_text_budget_migrates_validates_and_preserves_old_forms(self):
+    def test_total_text_budget_validates_and_preserves_old_forms(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = SettingsStore(temporary)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB": "12"}):
-                self.assertEqual(12, store.settings()["media"]["archive_max_text_mb"])
-                store.save({"media": {"preview_enabled": False}}, "archive-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB": "1"}):
-                self.assertEqual(12, store.settings()["media"]["archive_max_text_mb"])
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_TEXT_MB,
+                store.settings()["media"]["archive_max_text_mb"],
+            )
+            store.save({"media": {"archive_max_text_mb": 12}}, "archive-admin")
+            self.assertEqual(12, store.settings()["media"]["archive_max_text_mb"])
+            store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            self.assertEqual(
+                12, SettingsStore(temporary).settings()["media"]["archive_max_text_mb"],
+            )
 
             form = self._valid_form()
             form["archive_max_text_mb"] = "1"
@@ -172,24 +181,22 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         self.assertIn('name="archive_max_text_mb"', html)
         self.assertIn('min="1" max="64" step="1"', html)
 
-    def test_per_member_text_budget_migrates_validates_and_preserves_old_forms(self):
+    def test_per_member_text_budget_validates_and_preserves_old_forms(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = SettingsStore(temporary)
-            with patch.dict(
-                os.environ,
-                {"SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB": "8"},
-            ):
-                self.assertEqual(
-                    8, store.settings()["media"]["archive_max_text_per_member_mb"],
-                )
-                store.save({"media": {"preview_enabled": False}}, "archive-admin")
-            with patch.dict(
-                os.environ,
-                {"SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB": "1"},
-            ):
-                self.assertEqual(
-                    8, store.settings()["media"]["archive_max_text_per_member_mb"],
-                )
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
+                store.settings()["media"]["archive_max_text_per_member_mb"],
+            )
+            store.save({"media": {"archive_max_text_per_member_mb": 8}}, "archive-admin")
+            self.assertEqual(
+                8, store.settings()["media"]["archive_max_text_per_member_mb"],
+            )
+            store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            self.assertEqual(
+                8,
+                SettingsStore(temporary).settings()["media"]["archive_max_text_per_member_mb"],
+            )
 
             form = self._valid_form()
             form["archive_max_text_per_member_mb"] = "1"
@@ -229,25 +236,24 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         self.assertIn('name="archive_max_text_per_member_mb"', html)
         self.assertIn('min="1" max="32" step="1"', html)
 
-    def test_extraction_limits_migrate_validate_and_preserve_old_forms(self):
+    def test_extraction_limits_validate_and_preserve_old_forms(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = SettingsStore(temporary)
-            legacy = {
-                "SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB": "2048",
-                "SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES": "2500",
-            }
-            with patch.dict(os.environ, legacy):
-                media = store.settings()["media"]
-                self.assertEqual(2048, media["archive_max_member_mb"])
-                self.assertEqual(2500, media["archive_max_content_files"])
-                store.save({"media": {"preview_enabled": False}}, "archive-admin")
-            with patch.dict(os.environ, {
-                "SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB": "512",
-                "SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES": "500",
-            }):
-                media = store.settings()["media"]
-                self.assertEqual(2048, media["archive_max_member_mb"])
-                self.assertEqual(2500, media["archive_max_content_files"])
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_MEMBER_MB,
+                store.settings()["media"]["archive_max_member_mb"],
+            )
+            store.save(
+                {"media": {"archive_max_member_mb": 2048, "archive_max_content_files": 2500}},
+                "archive-admin",
+            )
+            media = SettingsStore(temporary).settings()["media"]
+            self.assertEqual(2048, media["archive_max_member_mb"])
+            self.assertEqual(2500, media["archive_max_content_files"])
+            store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            media = SettingsStore(temporary).settings()["media"]
+            self.assertEqual(2048, media["archive_max_member_mb"])
+            self.assertEqual(2500, media["archive_max_content_files"])
             store.save(
                 {"media": {"archive_max_member_mb": 2, "archive_max_content_files": 2000}},
                 "archive-admin",
@@ -291,18 +297,22 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         self.assertIn('name="archive_max_content_files"', html)
         self.assertIn('min="1" max="10000" step="1"', html)
 
-    def test_compression_ratio_migrates_validates_and_preserves_old_forms(self):
+    def test_compression_ratio_validates_and_preserves_old_forms(self):
         with tempfile.TemporaryDirectory() as temporary:
             store = SettingsStore(temporary)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "250"}):
-                self.assertEqual(
-                    250, store.settings()["media"]["archive_max_compression_ratio"],
-                )
-                store.save({"media": {"preview_enabled": False}}, "archive-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "500"}):
-                self.assertEqual(
-                    250, store.settings()["media"]["archive_max_compression_ratio"],
-                )
+            self.assertEqual(
+                DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+                store.settings()["media"]["archive_max_compression_ratio"],
+            )
+            store.save({"media": {"archive_max_compression_ratio": 250}}, "archive-admin")
+            self.assertEqual(
+                250, store.settings()["media"]["archive_max_compression_ratio"],
+            )
+            store.save({"media": {"preview_enabled": False}}, "archive-admin")
+            self.assertEqual(
+                250,
+                SettingsStore(temporary).settings()["media"]["archive_max_compression_ratio"],
+            )
 
             form = self._valid_form()
             form["archive_max_compression_ratio"] = "10000"
@@ -345,19 +355,21 @@ class ArchiveSettingsFormTests(unittest.TestCase):
         self.assertIn('name="archive_max_compression_ratio"', html)
         self.assertIn('min="10" max="10000" step="1"', html)
 
-    def test_invalid_legacy_compression_ratio_is_bounded_or_defaults(self):
-        for raw, expected in (("9", 10), ("10001", 10000), ("invalid", 200), ("9" * 21, 200)):
+    def test_invalid_stored_compression_ratio_falls_back_to_default(self):
+        for raw in (9, 10001, "invalid", "9" * 21):
             with self.subTest(raw=raw), tempfile.TemporaryDirectory() as temporary:
-                with patch.dict(
-                    os.environ,
-                    {"SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": raw},
-                ):
-                    self.assertEqual(
-                        expected,
-                        SettingsStore(temporary).settings()["media"][
-                            "archive_max_compression_ratio"
-                        ],
-                    )
+                path = Path(temporary) / ".simpleoffice-meta" / "settings.json"
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps({"media": {"archive_max_compression_ratio": raw}}),
+                    encoding="utf-8",
+                )
+                self.assertEqual(
+                    DEFAULT_ARCHIVE_MAX_COMPRESSION_RATIO,
+                    SettingsStore(temporary).settings()["media"][
+                        "archive_max_compression_ratio"
+                    ],
+                )
 
 
 if __name__ == "__main__":

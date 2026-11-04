@@ -78,13 +78,16 @@ class ProjectWideQuickWinsTest(unittest.TestCase):
             self.assertEqual("entry_limit_invalid", caught.exception.code)
 
     def test_datalogger_rejects_header_injection_before_network_io(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS": "localhost", "SIMPLEOFFICE_SENSOR_TEST": "secret"}, clear=False):
+        with tempfile.TemporaryDirectory() as root:
+            from app.settings_store import SettingsStore
+
+            SettingsStore(root).save({"datalogger": {"allowed_hosts": ["localhost"]}}, "test")
             with self.assertRaises(CollectionError) as caught:
                 collect_http({
                     "url": "http://localhost/value",
-                    "header_env": "SIMPLEOFFICE_SENSOR_TEST",
+                    "header_secret": "secret",
                     "header_name": "Authorization\r\nX-Evil",
-                })
+                }, root)
             self.assertEqual("header_name_invalid", caught.exception.code)
 
     def test_ics_preview_rejects_pathological_unfolded_line(self):

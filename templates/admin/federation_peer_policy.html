@@ -10,7 +10,7 @@
         <span class="font-monospace">{{ peer.peer_id }}</span>
       </p>
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">Zur Peer-Übersicht</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('federation_peer_admin.dashboard') }}">{{ 'To peer overview' if g.language == 'en' else 'Zur Peer-Übersicht' }}</a>
   </div>
 
   {% for message in get_flashed_messages() %}
@@ -18,30 +18,29 @@
   {% endfor %}
 
   <div class="alert alert-secondary">
-    Lokale Sperren haben Vorrang vor Trust, Bestätigungen und positiven Capabilities.
-    Unbekannte oder nicht verifizierbare Zustände werden bei strikten Regeln abgelehnt.
+    {{ 'Local bans take precedence over trust, confirmations and positive capabilities. Unknown or unverifiable states are rejected under strict rules.' if g.language == 'en' else 'Lokale Sperren haben Vorrang vor Trust, Bestätigungen und positiven Capabilities. Unbekannte oder nicht verifizierbare Zustände werden bei strikten Regeln abgelehnt.' }}
   </div>
 
   <section class="card mb-3" aria-labelledby="peer-block-heading">
-    <div class="card-header"><h2 id="peer-block-heading" class="h5 mb-0">Peer sperren</h2></div>
+    <div class="card-header"><h2 id="peer-block-heading" class="h5 mb-0">{{ 'Ban peer' if g.language == 'en' else 'Peer sperren' }}</h2></div>
     <div class="card-body">
       {% if blocks %}
       <div class="table-responsive mb-3">
         <table class="table table-sm align-middle">
-          <thead><tr><th scope="col">Scope</th><th scope="col">Objekt</th><th scope="col">Grund</th><th scope="col">Ablauf</th><th scope="col">Aktion</th></tr></thead>
+          <thead><tr><th scope="col">Scope</th><th scope="col">{{ 'Object' if g.language == 'en' else 'Objekt' }}</th><th scope="col">{{ 'Reason' if g.language == 'en' else 'Grund' }}</th><th scope="col">{{ 'Expiry' if g.language == 'en' else 'Ablauf' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
           <tbody>
           {% for block in blocks %}
             <tr>
               <td><code>{{ block.scope }}</code></td>
-              <td>{% if block.object_ref %}<code>{{ block.object_ref }}</code>{% else %}alle Objekte{% endif %}</td>
+              <td>{% if block.object_ref %}<code>{{ block.object_ref }}</code>{% else %}{{ 'all objects' if g.language == 'en' else 'alle Objekte' }}{% endif %}</td>
               <td>{{ block.reason or '—' }}</td>
-              <td>{{ block.expires_at or 'dauerhaft' }}</td>
+              <td>{{ block.expires_at or ('permanent' if g.language == 'en' else 'dauerhaft') }}</td>
               <td>
                 <form method="post" action="{{ url_for('federation_peer_admin.unblock_peer', peer_id=peer.peer_id) }}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="scope" value="{{ block.scope }}">
                   {% if block.object_ref %}<input type="hidden" name="object_ref" value="{{ block.object_ref }}">{% endif %}
-                  <button class="btn btn-sm btn-outline-success" type="submit">Sperre aufheben</button>
+                  <button class="btn btn-sm btn-outline-success" type="submit">{{ 'Lift ban' if g.language == 'en' else 'Sperre aufheben' }}</button>
                 </form>
               </td>
             </tr>
@@ -50,7 +49,7 @@
         </table>
       </div>
       {% else %}
-      <p class="text-secondary">Für diesen Peer ist keine aktive lokale Sperre gesetzt.</p>
+      <p class="text-secondary">{{ 'No active local ban is set for this peer.' if g.language == 'en' else 'Für diesen Peer ist keine aktive lokale Sperre gesetzt.' }}</p>
       {% endif %}
 
       <form method="post" action="{{ url_for('federation_peer_admin.block_peer', peer_id=peer.peer_id) }}">
@@ -63,41 +62,40 @@
             </select>
           </div>
           <div class="col-md-3">
-            <label class="form-label" for="block-objects">Objekt-IDs (optional)</label>
+            <label class="form-label" for="block-objects">{{ 'Object IDs (optional)' if g.language == 'en' else 'Objekt-IDs (optional)' }}</label>
             <input id="block-objects" class="form-control" name="object_refs" placeholder="object-1, object-2">
           </div>
           <div class="col-md-3">
-            <label class="form-label" for="block-reason">Grund</label>
+            <label class="form-label" for="block-reason">{{ 'Reason' if g.language == 'en' else 'Grund' }}</label>
             <input id="block-reason" class="form-control" name="reason" maxlength="500" placeholder="optional">
           </div>
           <div class="col-md-2">
-            <label class="form-label" for="block-expiry">Ablauf in Stunden</label>
-            <input id="block-expiry" class="form-control" name="expiry_hours" type="number" min="1" max="8760" placeholder="dauerhaft">
+            <label class="form-label" for="block-expiry">{{ 'Expiry in hours' if g.language == 'en' else 'Ablauf in Stunden' }}</label>
+            <input id="block-expiry" class="form-control" name="expiry_hours" type="number" min="1" max="8760" placeholder="{{ 'permanent' if g.language == 'en' else 'dauerhaft' }}">
           </div>
           <div class="col-md-2">
-            <button class="btn btn-danger w-100" type="submit">Peer sperren</button>
+            <button class="btn btn-danger w-100" type="submit">{{ 'Ban peer' if g.language == 'en' else 'Peer sperren' }}</button>
           </div>
         </div>
         <p class="small text-secondary mt-2 mb-0">
-          Ohne Objekt-ID gilt die Sperre für den ganzen Peer im gewählten Scope. Mit Objekt-IDs werden nur diese Objekte gesperrt.
-          Globale Peer-Sperren widerrufen alle lokalen Capabilities mit diesem Peer; Objekt-Sperren widerrufen nur Grants mit überlappender Objektmenge.
+          {{ 'Without an object ID the ban applies to the whole peer in the chosen scope. With object IDs only those objects are banned. Global peer bans revoke all local capabilities with this peer; object bans revoke only grants with overlapping object sets.' if g.language == 'en' else 'Ohne Objekt-ID gilt die Sperre für den ganzen Peer im gewählten Scope. Mit Objekt-IDs werden nur diese Objekte gesperrt. Globale Peer-Sperren widerrufen alle lokalen Capabilities mit diesem Peer; Objekt-Sperren widerrufen nur Grants mit überlappender Objektmenge.' }}
         </p>
       </form>
     </div>
   </section>
 
   <section class="card mb-3" aria-labelledby="route-heading">
-    <div class="card-header"><h2 id="route-heading" class="h5 mb-0">Routenregeln</h2></div>
+    <div class="card-header"><h2 id="route-heading" class="h5 mb-0">{{ 'Route rules' if g.language == 'en' else 'Routenregeln' }}</h2></div>
     <div class="card-body">
       {% if route_constraints %}
       <div class="table-responsive mb-3">
         <table class="table table-sm align-middle">
-          <thead><tr><th scope="col">Scope</th><th scope="col">Direkt</th><th scope="col">Max. Hops</th><th scope="col">Erlaubte Relays</th><th scope="col">Nie über</th><th scope="col">Aktion</th></tr></thead>
+          <thead><tr><th scope="col">Scope</th><th scope="col">{{ 'Direct' if g.language == 'en' else 'Direkt' }}</th><th scope="col">{{ 'Max. hops' if g.language == 'en' else 'Max. Hops' }}</th><th scope="col">{{ 'Allowed relays' if g.language == 'en' else 'Erlaubte Relays' }}</th><th scope="col">{{ 'Never via' if g.language == 'en' else 'Nie über' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
           <tbody>
           {% for rule in route_constraints %}
             <tr>
               <td><code>{{ rule.scope }}</code></td>
-              <td>{{ 'ja' if rule.direct_only else 'nein' }}</td>
+              <td>{{ ('yes' if rule.direct_only else 'no') if g.language == 'en' else ('ja' if rule.direct_only else 'nein') }}</td>
               <td>{{ rule.max_hops if rule.max_hops is not none else '—' }}</td>
               <td>{{ (rule.allowed_relays or ())|join(', ') or '—' }}</td>
               <td>{{ (rule.denied_relays or ())|join(', ') or '—' }}</td>
@@ -105,7 +103,7 @@
                 <form method="post" action="{{ url_for('federation_peer_admin.clear_route_policy', peer_id=peer.peer_id) }}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="scope" value="{{ rule.scope }}">
-                  <button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button>
+                  <button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Remove' if g.language == 'en' else 'Entfernen' }}</button>
                 </form>
               </td>
             </tr>
@@ -125,25 +123,25 @@
             </select>
           </div>
           <div class="col-md-2">
-            <label class="form-label" for="route-max-hops">Max. Hops</label>
+            <label class="form-label" for="route-max-hops">{{ 'Max. hops' if g.language == 'en' else 'Max. Hops' }}</label>
             <input id="route-max-hops" class="form-control" type="number" name="max_hops" min="1" max="32" placeholder="—">
           </div>
           <div class="col-md-4">
-            <label class="form-label" for="route-relays">Nur über diese Relays</label>
+            <label class="form-label" for="route-relays">{{ 'Only via these relays' if g.language == 'en' else 'Nur über diese Relays' }}</label>
             <input id="route-relays" class="form-control" name="allowed_relays" placeholder="peer-b, peer-c">
           </div>
           <div class="col-md-3">
-            <label class="form-label" for="route-denied-relays">Nie über diese Peers</label>
+            <label class="form-label" for="route-denied-relays">{{ 'Never via these peers' if g.language == 'en' else 'Nie über diese Peers' }}</label>
             <input id="route-denied-relays" class="form-control" name="denied_relays" placeholder="peer-x, peer-y">
           </div>
           <div class="col-12">
             <div class="form-check">
               <input id="route-direct-only" class="form-check-input" type="checkbox" name="direct_only" value="1">
-              <label class="form-check-label" for="route-direct-only">Nur direkte Zustellung an diesen Peer</label>
+              <label class="form-check-label" for="route-direct-only">{{ 'Only direct delivery to this peer' if g.language == 'en' else 'Nur direkte Zustellung an diesen Peer' }}</label>
             </div>
           </div>
           <div class="col-12">
-            <button class="btn btn-primary" type="submit">Routenregel speichern</button>
+            <button class="btn btn-primary" type="submit">{{ 'Save route rule' if g.language == 'en' else 'Routenregel speichern' }}</button>
           </div>
         </div>
       </form>
@@ -151,23 +149,23 @@
   </section>
 
   <section class="card mb-3" aria-labelledby="confirm-heading">
-    <div class="card-header"><h2 id="confirm-heading" class="h5 mb-0">Signierte Bestätiger</h2></div>
+    <div class="card-header"><h2 id="confirm-heading" class="h5 mb-0">{{ 'Signed confirmers' if g.language == 'en' else 'Signierte Bestätiger' }}</h2></div>
     <div class="card-body">
       {% if trust_requirements %}
       <div class="table-responsive mb-3">
         <table class="table table-sm align-middle">
-          <thead><tr><th scope="col">Scope</th><th scope="col">Bestätiger</th><th scope="col">Quorum</th><th scope="col">Aktion</th></tr></thead>
+          <thead><tr><th scope="col">Scope</th><th scope="col">{{ 'Confirmers' if g.language == 'en' else 'Bestätiger' }}</th><th scope="col">Quorum</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
           <tbody>
           {% for rule in trust_requirements %}
             <tr>
               <td><code>{{ rule.scope }}</code></td>
               <td>{{ rule.verifier_peers|join(', ') }}</td>
-              <td>{{ rule.quorum }} von {{ rule.verifier_peers|length }}</td>
+              <td>{{ rule.quorum }} {{ 'of' if g.language == 'en' else 'von' }} {{ rule.verifier_peers|length }}</td>
               <td>
                 <form method="post" action="{{ url_for('federation_peer_admin.clear_confirmation_policy', peer_id=peer.peer_id) }}">
                   <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="scope" value="{{ rule.scope }}">
-                  <button class="btn btn-sm btn-outline-danger" type="submit">Entfernen</button>
+                  <button class="btn btn-sm btn-outline-danger" type="submit">{{ 'Remove' if g.language == 'en' else 'Entfernen' }}</button>
                 </form>
               </td>
             </tr>
@@ -187,27 +185,26 @@
             </select>
           </div>
           <div class="col-md-6">
-            <label class="form-label" for="confirm-peers">Zugelassene Bestätiger</label>
+            <label class="form-label" for="confirm-peers">{{ 'Approved confirmers' if g.language == 'en' else 'Zugelassene Bestätiger' }}</label>
             <input id="confirm-peers" class="form-control" name="verifier_peers" placeholder="peer-x, peer-y, peer-z" required>
           </div>
           <div class="col-md-3">
-            <label class="form-label" for="confirm-quorum">Mindestens N</label>
+            <label class="form-label" for="confirm-quorum">{{ 'At least N' if g.language == 'en' else 'Mindestens N' }}</label>
             <input id="confirm-quorum" class="form-control" name="quorum" type="number" min="1" max="32" value="1" required>
           </div>
-          <div class="col-12"><button class="btn btn-primary" type="submit">Bestätiger-Regel speichern</button></div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">{{ 'Save confirmer rule' if g.language == 'en' else 'Bestätiger-Regel speichern' }}</button></div>
         </div>
         <p class="small text-secondary mt-2 mb-0">
-          Es zählen nur gültige, nicht abgelaufene und erneut kryptografisch geprüfte Attestierungen.
-          Lokal gesperrte Bestätiger zählen nicht zum Quorum.
+          {{ 'Only valid, unexpired and re-cryptographically-checked attestations count. Locally banned confirmers do not count towards the quorum.' if g.language == 'en' else 'Es zählen nur gültige, nicht abgelaufene und erneut kryptografisch geprüfte Attestierungen. Lokal gesperrte Bestätiger zählen nicht zum Quorum.' }}
         </p>
       </form>
     </div>
   </section>
 
   <section class="card mb-3" aria-labelledby="preview-heading">
-    <div class="card-header"><h2 id="preview-heading" class="h5 mb-0">Policy-Vorschau</h2></div>
+    <div class="card-header"><h2 id="preview-heading" class="h5 mb-0">{{ 'Policy preview' if g.language == 'en' else 'Policy-Vorschau' }}</h2></div>
     <div class="card-body">
-      <p class="text-secondary">Prüft die aktuell bekannte Route und lokale Capability-Beziehungen ohne einen Transfer anzulegen.</p>
+      <p class="text-secondary">{{ 'Checks the currently known route and local capability relations without creating a transfer.' if g.language == 'en' else 'Prüft die aktuell bekannte Route und lokale Capability-Beziehungen ohne einen Transfer anzulegen.' }}</p>
       <form method="post" action="{{ url_for('federation_peer_admin.preview_policy', peer_id=peer.peer_id) }}">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="row g-2 align-items-end">
@@ -218,15 +215,15 @@
             </select>
           </div>
           <div class="col-md-5">
-            <label class="form-label" for="preview-route">Bekannte Route</label>
+            <label class="form-label" for="preview-route">{{ 'Known route' if g.language == 'en' else 'Bekannte Route' }}</label>
             <input id="preview-route" class="form-control" name="route" value="{{ default_route }}" required>
-            <div class="form-text">Kommagetrennt, vom Absender bis zu allen bekannten nachgelagerten Peers.</div>
+            <div class="form-text">{{ 'Comma-separated, from sender to all known downstream peers.' if g.language == 'en' else 'Kommagetrennt, vom Absender bis zu allen bekannten nachgelagerten Peers.' }}</div>
           </div>
           <div class="col-md-4">
-            <label class="form-label" for="preview-objects">Objekt-IDs</label>
+            <label class="form-label" for="preview-objects">{{ 'Object IDs' if g.language == 'en' else 'Objekt-IDs' }}</label>
             <input id="preview-objects" class="form-control" name="object_refs" placeholder="object-1, object-2">
           </div>
-          <div class="col-12"><button class="btn btn-outline-primary" type="submit">Entscheidung prüfen</button></div>
+          <div class="col-12"><button class="btn btn-outline-primary" type="submit">{{ 'Check decision' if g.language == 'en' else 'Entscheidung prüfen' }}</button></div>
         </div>
       </form>
     </div>
@@ -234,7 +231,7 @@
 
   {% if known_peers %}
   <details class="card card-body">
-    <summary class="fw-semibold">Bekannte Peer-IDs als Eingabehilfe</summary>
+    <summary class="fw-semibold">{{ 'Known peer IDs as input help' if g.language == 'en' else 'Bekannte Peer-IDs als Eingabehilfe' }}</summary>
     <ul class="mt-2 mb-0">
       {% for known in known_peers %}
       <li><code>{{ known.peer_id }}</code>{% if known.country %} · {{ known.country }}{% endif %}</li>

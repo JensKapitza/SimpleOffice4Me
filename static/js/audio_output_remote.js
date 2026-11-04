@@ -1,5 +1,14 @@
 (() => {
   'use strict';
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    actionFailed: EN ? 'Action failed.' : 'Aktion fehlgeschlagen.',
+    timeout: EN ? 'Timeout. Check the status and try again.' : 'Zeitüberschreitung. Status prüfen und erneut versuchen.',
+    scanning: EN ? '↻ Searching for recipients …' : '↻ Empfänger werden gesucht …',
+    pickRecipient: EN ? 'Select recipient' : 'Empfänger auswählen',
+    activeRecipients: (n, time) => EN ? `${n} active recipients · ${time}` : `${n} aktive Empfänger · ${time}`,
+    savedUnconfirmed: (name) => EN ? `✓ ${name} saved. Reception is not confirmed; send a test tone to verify.` : `✓ ${name} gespeichert. Empfang ist nicht bestätigt; zum Test einen Signalton senden.`,
+  };
   const get = id => document.getElementById(id);
   const root = get('announcement-remote');
   if (!root) return;
@@ -14,7 +23,7 @@
         signal: controller.signal, headers: {'Content-Type': 'application/json', 'X-CSRF-Token': token ? token.content : ''},
         body: JSON.stringify(data)});
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error || 'Aktion fehlgeschlagen.');
+      if (!response.ok) throw new Error(result.error || STR.actionFailed);
       return result;
     } finally { clearTimeout(timer); }
   };
@@ -23,16 +32,16 @@
     busy = true; root.setAttribute('aria-busy', 'true');
     scan.disabled = true; form.querySelector('button').disabled = true;
     try { await callback(); }
-    catch (error) { status.textContent = error.name === 'AbortError' ? 'Zeitüberschreitung. Status prüfen und erneut versuchen.' : error.message; }
+    catch (error) { status.textContent = error.name === 'AbortError' ? STR.timeout : error.message; }
     finally { busy = false; scan.disabled = false; form.querySelector('button').disabled = false; root.removeAttribute('aria-busy'); }
   };
   scan.addEventListener('click', () => action(async () => {
-    status.textContent = '↻ Empfänger werden gesucht …';
-    targets = []; select.replaceChildren(new Option('Empfänger auswählen', ''));
+    status.textContent = STR.scanning;
+    targets = []; select.replaceChildren(new Option(STR.pickRecipient, ''));
     const data = await post(root.dataset.scanUrl, {}, 60000);
     targets = data.targets || [];
     targets.forEach((target, index) => select.add(new Option(target.label + ' · ' + target.id, String(index))));
-    status.textContent = targets.length + ' aktive Empfänger · ' + new Date(data.updated_at * 1000).toLocaleTimeString();
+    status.textContent = STR.activeRecipients(targets.length, new Date(data.updated_at * 1000).toLocaleTimeString());
   }));
   select.addEventListener('change', () => {
     if (select.value === '') return;
@@ -51,7 +60,7 @@
         name: get('announcement-remote-name').value.trim(), volume: Number(get('announcement-remote-volume').value),
         transport: {kind: 'rtp-udp', host, port}
       }, 15000);
-      status.textContent = '✓ ' + result.name + ' gespeichert. Empfang ist nicht bestätigt; zum Test einen Signalton senden.';
+      status.textContent = STR.savedUnconfirmed(result.name);
       window.dispatchEvent(new Event('simpleoffice:audio-output-saved'));
     });
   });

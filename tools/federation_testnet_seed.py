@@ -1,8 +1,73 @@
-"""Seed one disposable Compose peer with its remote test identity and optional local approval."""
+"""Seed one disposable Compose peer with its testnet identities.
+
+Besides the remote test peers this also writes the container's own local
+identity (peer id, public URL, shared token) into the disposable disk store.
+The application deliberately reads no ``SIMPLEOFFICE_FEDERATION_*`` identity
+environment variables at runtime (No-Env rule); the isolated Compose network
+in ``deploy/docker/compose.federation-test.yaml`` is the only place whose
+test-only values this tool accepts, and it writes them to the container-local
+disk store on the disposable test volume. Production master identity stays in
+``app/build_master.py`` (build time) and is never touched here.
+"""
 from __future__ import annotations
 
 import argparse
 import os
+
+
+# The only local identities this tool may write. Keys are the exact
+# SIMPLEOFFICE_FEDERATION_PEER_ID values from the isolated testnet Compose
+# file, values the matching SIMPLEOFFICE_FEDERATION_PUBLIC_URL.
+TESTNET_LOCAL_IDENTITIES = {
+    "federation-test-peer-a": "http://peer-a:8080",
+    "federation-test-peer-b": "http://peer-b:8080",
+    "federation-test-relay": "http://relay:8080",
+}
+
+
+def _seed_local_testnet_identity(root) -> None:
+    """Persist this container's disposable local identity (testnet only).
+
+    Reads the isolated testnet values from the environment and writes them
+    to the local disk store (app config store plus SettingsStore). Refuses
+    any non-testnet identity fail-closed so this tool can never provision a
+    production identity. Existing profile fields and the directory token are
+    preserved.
+    """
+    from app import federation_local_identity as local_identity
+    from app.settings_store import SettingsStore
+
+    peer_id = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "").strip()
+    base_url = os.environ.get("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", "").strip()
+    token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "")
+    expected_url = TESTNET_LOCAL_IDENTITIES.get(peer_id)
+    if not peer_id or not base_url or not token:
+        raise SystemExit("local testnet identity is incomplete")
+    if expected_url is None or base_url.rstrip("/") != expected_url:
+        raise SystemExit("local testnet identity is not an isolated testnet identity")
+    current = local_identity.status()
+    local_identity.save({
+        "peer_id": peer_id,
+        "label": current.get("label", ""),
+        "country": current.get("country", ""),
+        "public_url": base_url,
+        "public_key": current.get("public_key", ""),
+        "fingerprint": current.get("fingerprint", ""),
+        "token": token,
+        "directory_token": local_identity.directory_token(),
+    })
+    SettingsStore(root).save(
+        {"integrations": {"federation_public_url": base_url}},
+        actor="federation-testnet-seed",
+    )
+    # The isolated Compose network documents the V3 intent via
+    # SIMPLEOFFICE_V3_FEDERATION_ENABLED, but the runtime reads only the disk
+    # store (No-Env rule), so the seed translates it into the persisted flag.
+    SettingsStore(root).save(
+        {"v3": {"v3.federation": True}},
+        actor="federation-testnet-seed",
+    )
+    print("PASS: disposable local identity configured")
 
 
 def main() -> None:
@@ -28,6 +93,9 @@ def main() -> None:
         help="configure both disposable peers on the dedicated relay node",
     )
     args = parser.parse_args()
+
+    with app.app_context():
+        _seed_local_testnet_identity(app.config["DOCUMENT_ROOT"])
 
     if args.configure_relay_node:
         clients = (

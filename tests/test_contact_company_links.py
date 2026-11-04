@@ -17,6 +17,9 @@ class ContactCompanyLinksTest(unittest.TestCase):
         app.config.update(TESTING=True, DATABASE=str(Path(self.temp.name) / "users.sqlite"), DOCUMENT_ROOT=str(self.root))
         with app.app_context(): database.ensure_auth_database()
         self.client = app.test_client(); self.client.post("/auth/register", data={"username": "jens", "password": "sicheres-passwort"}); self.client.post("/auth/login", data={"username": "jens", "password": "sicheres-passwort"})
+        # EN is the app default; this suite asserts German UI strings.
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         self.store = ContactStore(self.root)
         self.company = self.store.upsert({"display_name": "Musterwerke GmbH", "email": "rechnung@muster.test"}, "jens")
 

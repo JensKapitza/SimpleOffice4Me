@@ -2,60 +2,60 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-lg py-4">
-  <a class="text-decoration-none" href="{{ url_for('documents.detail', document_id=document.document_id) }}">← Dokument</a>
-  <h1 class="h3 mt-2">Dokumente auf dem Desktop bearbeiten</h1>
+  <a class="text-decoration-none" href="{{ url_for('documents.detail', document_id=document.document_id) }}">← {{ 'Document' if g.language == 'en' else 'Dokument' }}</a>
+  <h1 class="h3 mt-2">{{ 'Edit documents on the desktop' if g.language == 'en' else 'Dokumente auf dem Desktop bearbeiten' }}</h1>
   <p class="text-secondary text-break">{{ document.last_path }}</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   {% if generated_password %}
   <div class="alert alert-warning">
-    <strong>App-Passwort jetzt kopieren.</strong> Es wird nur einmal angezeigt, gehört nicht in den Link und ersetzt keinen anderen Gerätezugang.
-    <div class="input-group mt-2"><input id="app-password" class="form-control font-monospace" readonly value="{{ generated_password }}"><button class="btn btn-outline-dark" type="button" data-copy="app-password">Kopieren</button></div>
+    <strong>{{ 'Copy the app password now.' if g.language == 'en' else 'App-Passwort jetzt kopieren.' }}</strong> {{ 'It is shown only once, does not belong in the link and replaces no other device access.' if g.language == 'en' else 'Es wird nur einmal angezeigt, gehört nicht in den Link und ersetzt keinen anderen Gerätezugang.' }}
+    <div class="input-group mt-2"><input id="app-password" class="form-control font-monospace" readonly value="{{ generated_password }}"><button class="btn btn-outline-dark" type="button" data-copy="app-password">{{ 'Copy' if g.language == 'en' else 'Kopieren' }}</button></div>
   </div>
   {% endif %}
   <div class="card mb-4"><div class="card-body">
     {% if configured %}
-      <label class="form-label" for="webdav-url">WebDAV-Adresse</label>
-      <div class="input-group"><input id="webdav-url" class="form-control" readonly value="{{ webdav_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-url">Adresse kopieren</button></div>
+      <label class="form-label" for="webdav-url">{{ 'WebDAV address' if g.language == 'en' else 'WebDAV-Adresse' }}</label>
+      <div class="input-group"><input id="webdav-url" class="form-control" readonly value="{{ webdav_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-url">{{ 'Copy address' if g.language == 'en' else 'Adresse kopieren' }}</button></div>
       <ol class="mt-3 mb-3">
-        <li>LibreOffice öffnen und <strong>Datei → Öffnen</strong> wählen.</li>
-        <li>Die WebDAV-Adresse in „Dateiname“ einfügen.</li>
-        <li>SimpleOffice-Benutzername und das oben erzeugte App-Passwort eingeben.</li>
-        <li>Mit <strong>Strg+S</strong> speichern. Die Änderung wird sofort versioniert zurückgeschrieben.</li>
+        <li>{{ 'Open LibreOffice and choose <strong>File → Open</strong>.' if g.language == 'en' else 'LibreOffice öffnen und <strong>Datei → Öffnen</strong> wählen.' }}</li>
+        <li>{{ 'Paste the WebDAV address into “File name”.' if g.language == 'en' else 'Die WebDAV-Adresse in „Dateiname“ einfügen.' }}</li>
+        <li>{{ 'Enter the SimpleOffice username and the app password created above.' if g.language == 'en' else 'SimpleOffice-Benutzername und das oben erzeugte App-Passwort eingeben.' }}</li>
+        <li>{{ 'Save with <strong>Ctrl+S</strong>. The change is written back versioned immediately.' if g.language == 'en' else 'Mit <strong>Strg+S</strong> speichern. Die Änderung wird sofort versioniert zurückgeschrieben.' }}</li>
       </ol>
-      <label class="form-label mt-3" for="webdav-root-url">Dateiverwaltung und Synchronisation</label>
-      <div class="input-group"><input id="webdav-root-url" class="form-control" readonly value="{{ webdav_root_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-root-url">Wurzeladresse kopieren</button></div>
-      <p class="small text-secondary mt-2">Diese Adresse gehört zum zuletzt angelegten aktiven Zugang. Die gerätespezifische Adresse steht zusätzlich in der Tabelle. Sie kann in Nautilus, Finder, Windows Explorer oder FreeFileSync verwendet werden. Dort können Dateien mit einem Schreibzugang angelegt, gespeichert, kopiert, umbenannt, verschoben und kontrolliert gelöscht werden. Alternativ in LibreOffice: Datei → Remote öffnen → Dienste verwalten → WebDAV. HTTPS ist außerhalb des lokalen Rechners zwingend.</p>
+      <label class="form-label mt-3" for="webdav-root-url">{{ 'File management and sync' if g.language == 'en' else 'Dateiverwaltung und Synchronisation' }}</label>
+      <div class="input-group"><input id="webdav-root-url" class="form-control" readonly value="{{ webdav_root_url }}"><button class="btn btn-outline-primary" type="button" data-copy="webdav-root-url">{{ 'Copy root address' if g.language == 'en' else 'Wurzeladresse kopieren' }}</button></div>
+      <p class="small text-secondary mt-2">{{ 'This address belongs to the most recently created active access. The device-specific address is additionally listed in the table. It can be used in Nautilus, Finder, Windows Explorer or FreeFileSync. There, files with write access can be created, saved, copied, renamed, moved and deleted in a controlled way. Alternatively in LibreOffice: File → Open Remote → Manage Services → WebDAV. HTTPS is mandatory outside the local machine.' if g.language == 'en' else 'Diese Adresse gehört zum zuletzt angelegten aktiven Zugang. Die gerätespezifische Adresse steht zusätzlich in der Tabelle. Sie kann in Nautilus, Finder, Windows Explorer oder FreeFileSync verwendet werden. Dort können Dateien mit einem Schreibzugang angelegt, gespeichert, kopiert, umbenannt, verschoben und kontrolliert gelöscht werden. Alternativ in LibreOffice: Datei → Remote öffnen → Dienste verwalten → WebDAV. HTTPS ist außerhalb des lokalen Rechners zwingend.' }}</p>
       {% if quota %}
       <div class="border rounded p-3 mt-3">
-        <div class="d-flex justify-content-between gap-3"><strong>WebDAV-Speicher</strong><span>{{ (quota.used / 1048576)|round(1) }} von {{ (quota.limit / 1048576)|round(1) }} MiB belegt</span></div>
-        <div class="progress mt-2" role="progressbar" aria-label="WebDAV-Speicherbelegung" aria-valuenow="{{ quota.used }}" aria-valuemin="0" aria-valuemax="{{ quota.limit }}"><div class="progress-bar {% if quota.available == 0 %}bg-danger{% endif %}" style="width: {{ ([100, (quota.used * 100 / quota.limit)]|min)|round(1) }}%"></div></div>
-        <p class="small text-secondary mb-0 mt-2">Desktop-Clients können dieselben Werte über <code>DAV:quota-used-bytes</code> und <code>DAV:quota-available-bytes</code> lesen. Bei ausgeschöpftem Speicher bleiben gleich große oder kleinere Aktualisierungen möglich.</p>
+        <div class="d-flex justify-content-between gap-3"><strong>{{ 'WebDAV storage' if g.language == 'en' else 'WebDAV-Speicher' }}</strong><span>{{ (quota.used / 1048576)|round(1) }} {{ 'of' if g.language == 'en' else 'von' }} {{ (quota.limit / 1048576)|round(1) }} MiB {{ 'used' if g.language == 'en' else 'belegt' }}</span></div>
+        <div class="progress mt-2" role="progressbar" aria-label="{{ 'WebDAV storage usage' if g.language == 'en' else 'WebDAV-Speicherbelegung' }}" aria-valuenow="{{ quota.used }}" aria-valuemin="0" aria-valuemax="{{ quota.limit }}"><div class="progress-bar {% if quota.available == 0 %}bg-danger{% endif %}" style="width: {{ ([100, (quota.used * 100 / quota.limit)]|min)|round(1) }}%"></div></div>
+        <p class="small text-secondary mb-0 mt-2">{{ 'Desktop clients can read the same values via <code>DAV:quota-used-bytes</code> and <code>DAV:quota-available-bytes</code>. When storage is exhausted, same-size or smaller updates stay possible.' if g.language == 'en' else 'Desktop-Clients können dieselben Werte über <code>DAV:quota-used-bytes</code> und <code>DAV:quota-available-bytes</code> lesen. Bei ausgeschöpftem Speicher bleiben gleich große oder kleinere Aktualisierungen möglich.' }}</p>
       </div>
       {% endif %}
     {% else %}
-      <p>Es gibt keinen aktiven WebDAV-Zugang. Lege unten ein separates App-Passwort für LibreOffice, Dateimanager oder Synchronisation an.</p>
+      <p>{{ 'There is no active WebDAV access. Create a separate app password below for LibreOffice, file managers or sync.' if g.language == 'en' else 'Es gibt keinen aktiven WebDAV-Zugang. Lege unten ein separates App-Passwort für LibreOffice, Dateimanager oder Synchronisation an.' }}</p>
     {% endif %}
 
-    <h2 class="h5 mt-4">Neuen Gerätezugang anlegen</h2>
+    <h2 class="h5 mt-4">{{ 'Create new device access' if g.language == 'en' else 'Neuen Gerätezugang anlegen' }}</h2>
     <form method="post" class="row g-2 align-items-end">
       <input type="hidden" name="action" value="activate">
-      <div class="col-md-4"><label class="form-label" for="credential-label">Gerät oder Anwendung</label><input required maxlength="80" class="form-control" id="credential-label" name="label" placeholder="z. B. LibreOffice Laptop"></div>
-      <div class="col-md-3"><label class="form-label" for="credential-path">Freigegebener Ordner</label><input maxlength="500" class="form-control" id="credential-path" name="path_prefix" value="{{ default_path_prefix }}" placeholder="Leer = alle Dokumente"><div class="form-text">Relativer vorhandener Ordner; Unterordner sind eingeschlossen.</div></div>
-      <div class="col-md-2"><label class="form-label" for="credential-scope">Berechtigung</label><select class="form-select" id="credential-scope" name="scope"><option value="write">Lesen und schreiben</option><option value="read">Nur lesen</option></select></div>
-      <div class="col-md-1"><label class="form-label" for="credential-expiry">Gültigkeit</label><select class="form-select" id="credential-expiry" name="expires_days"><option value="30">30 Tage</option><option value="90" selected>90 Tage</option><option value="365">1 Jahr</option></select></div>
-      <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">App-Passwort erzeugen</button></div>
+      <div class="col-md-4"><label class="form-label" for="credential-label">{{ 'Device or application' if g.language == 'en' else 'Gerät oder Anwendung' }}</label><input required maxlength="80" class="form-control" id="credential-label" name="label" placeholder="{{ 'e.g. LibreOffice laptop' if g.language == 'en' else 'z. B. LibreOffice Laptop' }}"></div>
+      <div class="col-md-3"><label class="form-label" for="credential-path">{{ 'Shared folder' if g.language == 'en' else 'Freigegebener Ordner' }}</label><input maxlength="500" class="form-control" id="credential-path" name="path_prefix" value="{{ default_path_prefix }}" placeholder="{{ 'Empty = all documents' if g.language == 'en' else 'Leer = alle Dokumente' }}"><div class="form-text">{{ 'Relative existing folder; subfolders are included.' if g.language == 'en' else 'Relativer vorhandener Ordner; Unterordner sind eingeschlossen.' }}</div></div>
+      <div class="col-md-2"><label class="form-label" for="credential-scope">{{ 'Permission' if g.language == 'en' else 'Berechtigung' }}</label><select class="form-select" id="credential-scope" name="scope"><option value="write">{{ 'Read and write' if g.language == 'en' else 'Lesen und schreiben' }}</option><option value="read">{{ 'Read only' if g.language == 'en' else 'Nur lesen' }}</option></select></div>
+      <div class="col-md-1"><label class="form-label" for="credential-expiry">{{ 'Validity' if g.language == 'en' else 'Gültigkeit' }}</label><select class="form-select" id="credential-expiry" name="expires_days"><option value="30">{{ '30 days' if g.language == 'en' else '30 Tage' }}</option><option value="90" selected>{{ '90 days' if g.language == 'en' else '90 Tage' }}</option><option value="365">{{ '1 year' if g.language == 'en' else '1 Jahr' }}</option></select></div>
+      <div class="col-md-2"><button type="submit" class="btn btn-primary w-100">{{ 'Create app password' if g.language == 'en' else 'App-Passwort erzeugen' }}</button></div>
     </form>
-    <p class="small text-secondary mt-2">Für jedes Gerät einen eigenen Zugang und möglichst nur den tatsächlich benötigten Ordner verwenden. „Nur lesen“ eignet sich für Backup- und Prüfzwecke; LibreOffice und bidirektionale Synchronisation benötigen „Lesen und schreiben“.</p>
+    <p class="small text-secondary mt-2">{{ 'Use a separate access per device and only the actually needed folder. “Read only” suits backup and audit purposes; LibreOffice and bidirectional sync need “read and write”.' if g.language == 'en' else 'Für jedes Gerät einen eigenen Zugang und möglichst nur den tatsächlich benötigten Ordner verwenden. „Nur lesen“ eignet sich für Backup- und Prüfzwecke; LibreOffice und bidirektionale Synchronisation benötigen „Lesen und schreiben“.' }}</p>
 
     {% if credentials %}
-    <h2 class="h5 mt-4">Gerätezugänge</h2>
-    <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">Bezeichnung</th><th scope="col">Ordner und Adresse</th><th scope="col">Rechte</th><th scope="col">Ablauf</th><th scope="col"></th></tr></thead><tbody>
-      {% for credential in credentials %}<tr class="{% if credential.expired %}text-secondary{% endif %}"><td>{{ credential.label }}{% if credential.credential_id == 'legacy' %} <span class="badge text-bg-secondary">Bestand</span>{% endif %}</td><td><div>{% if credential.path_prefix %}<code>{{ credential.path_prefix }}</code>{% else %}Alle Dokumente{% endif %}</div><small class="text-break">{{ credential.webdav_url }}</small></td><td>{% if credential.scope == 'read' %}Nur lesen{% else %}Lesen und schreiben{% endif %}</td><td>{% if credential.expired %}<span class="badge text-bg-secondary">Abgelaufen</span>{% elif credential.expires_at %}{{ credential.expires_at[:10] }}{% else %}Ohne Ablauf (Bestand){% endif %}</td><td class="text-end"><form method="post"><input type="hidden" name="credential_id" value="{{ credential.credential_id }}"><button type="submit" class="btn btn-sm btn-outline-danger" name="action" value="revoke">Widerrufen</button></form></td></tr>{% endfor %}
+    <h2 class="h5 mt-4">{{ 'Device access entries' if g.language == 'en' else 'Gerätezugänge' }}</h2>
+    <div class="table-responsive"><table class="table align-middle"><thead><tr><th scope="col">{{ 'Label' if g.language == 'en' else 'Bezeichnung' }}</th><th scope="col">{{ 'Folder and address' if g.language == 'en' else 'Ordner und Adresse' }}</th><th scope="col">{{ 'Rights' if g.language == 'en' else 'Rechte' }}</th><th scope="col">{{ 'Expiry' if g.language == 'en' else 'Ablauf' }}</th><th scope="col"></th></tr></thead><tbody>
+      {% for credential in credentials %}<tr class="{% if credential.expired %}text-secondary{% endif %}"><td>{{ credential.label }}{% if credential.credential_id == 'legacy' %} <span class="badge text-bg-secondary">{{ 'legacy' if g.language == 'en' else 'Bestand' }}</span>{% endif %}</td><td><div>{% if credential.path_prefix %}<code>{{ credential.path_prefix }}</code>{% else %}{{ 'All documents' if g.language == 'en' else 'Alle Dokumente' }}{% endif %}</div><small class="text-break">{{ credential.webdav_url }}</small></td><td>{{ ('Read only' if credential.scope == 'read' else 'Read and write') if g.language == 'en' else ('Nur lesen' if credential.scope == 'read' else 'Lesen und schreiben') }}</td><td>{% if credential.expired %}<span class="badge text-bg-secondary">{{ 'Expired' if g.language == 'en' else 'Abgelaufen' }}</span>{% elif credential.expires_at %}{{ credential.expires_at[:10] }}{% else %}{{ 'No expiry (legacy)' if g.language == 'en' else 'Ohne Ablauf (Bestand)' }}{% endif %}</td><td class="text-end"><form method="post"><input type="hidden" name="credential_id" value="{{ credential.credential_id }}"><button type="submit" class="btn btn-sm btn-outline-danger" name="action" value="revoke">{{ 'Revoke' if g.language == 'en' else 'Widerrufen' }}</button></form></td></tr>{% endfor %}
     </tbody></table></div>
-    <form method="post"><button type="submit" class="btn btn-outline-danger" name="action" value="revoke_all">Alle Zugänge widerrufen</button></form>
+    <form method="post"><button type="submit" class="btn btn-outline-danger" name="action" value="revoke_all">{{ 'Revoke all access' if g.language == 'en' else 'Alle Zugänge widerrufen' }}</button></form>
     {% endif %}
   </div></div>
-  <div class="alert alert-secondary small">Bei paralleler Bearbeitung verhindern WebDAV-Sperre und ETag-Prüfung ein unbemerktes Überschreiben. Bearbeitungs- und Aufbewahrungssperren gelten unverändert.</div>
+  <div class="alert alert-secondary small">{{ 'During parallel editing, the WebDAV lock and ETag check prevent unnoticed overwrites. Editing and retention locks apply unchanged.' if g.language == 'en' else 'Bei paralleler Bearbeitung verhindern WebDAV-Sperre und ETag-Prüfung ein unbemerktes Überschreiben. Bearbeitungs- und Aufbewahrungssperren gelten unverändert.' }}</div>
 </main>
 {% endblock %}
-{% block script %}<script>document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const field=document.getElementById(button.dataset.copy);await navigator.clipboard.writeText(field.value);button.textContent='Kopiert'}))</script>{% endblock %}
+{% block script %}<script>document.querySelectorAll('[data-copy]').forEach(button=>button.addEventListener('click',async()=>{const field=document.getElementById(button.dataset.copy);await navigator.clipboard.writeText(field.value);button.textContent={{ ('Copied' if g.language == 'en' else 'Kopiert')|tojson }}}}))</script>{% endblock %}

@@ -5,31 +5,31 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
       <h1 class="h2 mb-1">Federation</h1>
-      <p class="text-secondary mb-0">SimpleOffice-Instanzen verbinden, Dateien austauschen und Transfers überwachen.</p>
+      <p class="text-secondary mb-0">{{ 'Connect SimpleOffice instances, exchange files and monitor transfers.' if g.language == 'en' else 'SimpleOffice-Instanzen verbinden, Dateien austauschen und Transfers überwachen.' }}</p>
     </div>
     <div class="d-flex flex-wrap gap-2">
-      <a class="btn btn-outline-danger" href="{{ url_for('federation_moderation_admin.dashboard') }}">Peer-Verwaltung</a>
+      <a class="btn btn-outline-danger" href="{{ url_for('federation_moderation_admin.dashboard') }}">{{ 'Peer management' if g.language == 'en' else 'Peer-Verwaltung' }}</a>
       <a class="btn btn-outline-primary" href="{{ url_for('resource_commander.page') }}">
         <i class="fas fa-columns me-1" aria-hidden="true"></i>Resource Commander
       </a>
       <a class="btn btn-primary" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan">
-        <i class="fas fa-network-wired me-1" aria-hidden="true"></i>Netzwerk scannen
+        <i class="fas fa-network-wired me-1" aria-hidden="true"></i>{{ 'Scan network' if g.language == 'en' else 'Netzwerk scannen' }}
       </a>
     </div>
   </div>
 
-  <nav class="nav nav-pills flex-nowrap overflow-auto gap-1 mb-4" aria-label="Federation-Bereiche">
+  <nav class="nav nav-pills flex-nowrap overflow-auto gap-1 mb-4" aria-label="{{ 'Federation sections' if g.language == 'en' else 'Federation-Bereiche' }}">
     <a class="nav-link text-nowrap {% if active_view == 'overview' %}active{% endif %}" href="{{ url_for('federation_admin.dashboard', view='overview') }}">
-      <i class="fas fa-gauge-high me-1" aria-hidden="true"></i>Übersicht
+      <i class="fas fa-gauge-high me-1" aria-hidden="true"></i>{{ 'Overview' if g.language == 'en' else 'Übersicht' }}
     </a>
     <a class="nav-link text-nowrap {% if active_view == 'files' %}active{% endif %}" href="{{ url_for('federation_admin.dashboard', view='files') }}">
-      <i class="fas fa-file-arrow-up me-1" aria-hidden="true"></i>Dateien
+      <i class="fas fa-file-arrow-up me-1" aria-hidden="true"></i>{{ 'Files' if g.language == 'en' else 'Dateien' }}
     </a>
     <a class="nav-link text-nowrap {% if active_view == 'peers' %}active{% endif %}" href="{{ url_for('federation_admin.dashboard', view='peers') }}">
       <i class="fas fa-server me-1" aria-hidden="true"></i>Peers
     </a>
     <a class="nav-link text-nowrap {% if active_view == 'transfers' %}active{% endif %}" href="{{ url_for('federation_admin.dashboard', view='transfers') }}">
-      <i class="fas fa-arrow-right-arrow-left me-1" aria-hidden="true"></i>Transfers &amp; Protokoll
+      <i class="fas fa-arrow-right-arrow-left me-1" aria-hidden="true"></i>{{ 'Transfers & log' if g.language == 'en' else 'Transfers & Protokoll' }}
     </a>
   </nav>
 
@@ -44,34 +44,34 @@
           <div class="card-body">
             <div class="text-secondary small">Peers</div>
             <div class="fs-3 fw-semibold">{{ stats.peers }}</div>
-            <small>{{ stats.enabled_peers }} aktiv</small>
+            <small>{{ stats.enabled_peers }} {{ 'active' if g.language == 'en' else 'aktiv' }}</small>
           </div>
         </div>
       </div>
       <div class="col-6 col-lg-3">
         <div class="card h-100 shadow-sm">
           <div class="card-body">
-            <div class="text-secondary small">Aktive Transfers</div>
+            <div class="text-secondary small">{{ 'Active transfers' if g.language == 'en' else 'Aktive Transfers' }}</div>
             <div class="fs-3 fw-semibold">{{ stats.active_transfers }}</div>
-            <small>laufen gerade</small>
+            <small>{{ 'running right now' if g.language == 'en' else 'laufen gerade' }}</small>
           </div>
         </div>
       </div>
       <div class="col-6 col-lg-3">
         <div class="card h-100 shadow-sm">
           <div class="card-body">
-            <div class="text-secondary small">Warteschlange</div>
+            <div class="text-secondary small">{{ 'Queue' if g.language == 'en' else 'Warteschlange' }}</div>
             <div class="fs-3 fw-semibold">{{ download_queue|selectattr('status', 'ne', 'complete')|list|length }}</div>
-            <small>vorgemerkte Downloads</small>
+            <small>{{ 'noted downloads' if g.language == 'en' else 'vorgemerkte Downloads' }}</small>
           </div>
         </div>
       </div>
       <div class="col-6 col-lg-3">
         <div class="card h-100 shadow-sm {% if stats.failed_transfers %}border-danger{% endif %}">
           <div class="card-body">
-            <div class="text-secondary small">Fehler</div>
+            <div class="text-secondary small">{{ 'Errors' if g.language == 'en' else 'Fehler' }}</div>
             <div class="fs-3 fw-semibold">{{ stats.failed_transfers }}</div>
-            <small>fehlgeschlagene Transfers</small>
+            <small>{{ 'failed transfers' if g.language == 'en' else 'fehlgeschlagene Transfers' }}</small>
           </div>
         </div>
       </div>
@@ -79,26 +79,26 @@
 
     <section class="card shadow-sm mb-4">
       <div class="card-body">
-        <h2 class="h5 mb-3">Was möchtest du tun?</h2>
+        <h2 class="h5 mb-3">{{ 'What do you want to do?' if g.language == 'en' else 'Was möchtest du tun?' }}</h2>
         <div class="row g-2">
           <div class="col-sm-6 col-xl-3">
             <a class="btn btn-primary w-100 py-3" href="{{ url_for('federation_admin.dashboard', view='files') }}">
-              <i class="fas fa-paper-plane d-block mb-2" aria-hidden="true"></i>Datei senden
+              <i class="fas fa-paper-plane d-block mb-2" aria-hidden="true"></i>{{ 'Send file' if g.language == 'en' else 'Datei senden' }}
             </a>
           </div>
           <div class="col-sm-6 col-xl-3">
             <a class="btn btn-outline-primary w-100 py-3" href="{{ url_for('federation_admin.dashboard', view='files') }}#remote-files">
-              <i class="fas fa-cloud-arrow-down d-block mb-2" aria-hidden="true"></i>Datei holen
+              <i class="fas fa-cloud-arrow-down d-block mb-2" aria-hidden="true"></i>{{ 'Fetch file' if g.language == 'en' else 'Datei holen' }}
             </a>
           </div>
           <div class="col-sm-6 col-xl-3">
             <a class="btn btn-outline-primary w-100 py-3" href="{{ url_for('federation_admin.dashboard', view='peers') }}#peer-form">
-              <i class="fas fa-server d-block mb-2" aria-hidden="true"></i>Peer hinzufügen
+              <i class="fas fa-server d-block mb-2" aria-hidden="true"></i>{{ 'Add peer' if g.language == 'en' else 'Peer hinzufügen' }}
             </a>
           </div>
           <div class="col-sm-6 col-xl-3">
             <a class="btn btn-outline-secondary w-100 py-3" href="{{ url_for('federation_peer_admin.dashboard') }}#network-scan">
-              <i class="fas fa-magnifying-glass d-block mb-2" aria-hidden="true"></i>Netzwerk scannen
+              <i class="fas fa-magnifying-glass d-block mb-2" aria-hidden="true"></i>{{ 'Scan network' if g.language == 'en' else 'Netzwerk scannen' }}
             </a>
           </div>
         </div>
@@ -107,23 +107,23 @@
 
     <section class="card shadow-sm">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <strong>Letzte Transfers</strong>
-        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='transfers') }}">Alle anzeigen</a>
+        <strong>{{ 'Recent transfers' if g.language == 'en' else 'Letzte Transfers' }}</strong>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='transfers') }}">{{ 'Show all' if g.language == 'en' else 'Alle anzeigen' }}</a>
       </div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
           <thead>
             <tr>
-              <th scope="col">Quelle → Ziel</th>
-              <th scope="col">Richtung</th>
+              <th scope="col">{{ 'Source → target' if g.language == 'en' else 'Quelle → Ziel' }}</th>
+              <th scope="col">{{ 'Direction' if g.language == 'en' else 'Richtung' }}</th>
               <th scope="col">Status</th>
-              <th scope="col">Fortschritt</th>
+              <th scope="col">{{ 'Progress' if g.language == 'en' else 'Fortschritt' }}</th>
             </tr>
           </thead>
           <tbody>
             {% for item in transfers[:5] %}
               <tr>
-                <td>{{ item.source_peer or 'lokal' }} → {{ item.target_peer or item.target_url or 'lokal' }}</td>
+                <td>{{ item.source_peer or ('local' if g.language == 'en' else 'lokal') }} → {{ item.target_peer or item.target_url or ('local' if g.language == 'en' else 'lokal') }}</td>
                 <td>{{ item.direction }}</td>
                 <td>
                   <span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-danger' if item.status == 'failed' else 'text-bg-warning' }}">
@@ -133,7 +133,7 @@
                 <td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td>
               </tr>
             {% else %}
-              <tr><td colspan="4" class="text-secondary py-4 text-center">Noch keine Transfers.</td></tr>
+              <tr><td colspan="4" class="text-secondary py-4 text-center">{{ 'No transfers yet.' if g.language == 'en' else 'Noch keine Transfers.' }}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -143,14 +143,14 @@
   {% elif active_view == 'files' %}
     <section class="card shadow-sm mb-4">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <strong>Lokale Dateien</strong>
-        <span class="text-secondary small">Datei auswählen und anschließend senden</span>
+        <strong>{{ 'Local files' if g.language == 'en' else 'Lokale Dateien' }}</strong>
+        <span class="text-secondary small">{{ 'Select file and then send' if g.language == 'en' else 'Datei auswählen und anschließend senden' }}</span>
       </div>
       <div class="card-body">
         <form method="get" action="{{ url_for('federation_admin.dashboard') }}" class="input-group mb-3">
           <input type="hidden" name="view" value="files">
-          <input class="form-control" type="search" name="q" value="{{ document_query }}" placeholder="Dateiname, Dokument-ID oder Tag" aria-label="Lokale Dateien durchsuchen">
-          <button class="btn btn-outline-primary" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>Suchen</button>
+          <input class="form-control" type="search" name="q" value="{{ document_query }}" placeholder="{{ 'File name, document ID or tag' if g.language == 'en' else 'Dateiname, Dokument-ID oder Tag' }}" aria-label="{{ 'Search local files' if g.language == 'en' else 'Lokale Dateien durchsuchen' }}">
+          <button class="btn btn-outline-primary" type="submit"><i class="fas fa-magnifying-glass me-1" aria-hidden="true"></i>{{ 'Search' if g.language == 'en' else 'Suchen' }}</button>
         </form>
         <div class="list-group">
           {% for document in documents %}
@@ -164,7 +164,7 @@
               <code class="small text-nowrap {% if selected_document and selected_document.document_id == document.document_id %}text-white{% endif %}">{{ document.document_id[:8] }}…</code>
             </a>
           {% else %}
-            <div class="text-secondary text-center py-4">Keine passenden Dokumente.</div>
+            <div class="text-secondary text-center py-4">{{ 'No matching documents.' if g.language == 'en' else 'Keine passenden Dokumente.' }}</div>
           {% endfor %}
         </div>
       </div>
@@ -174,40 +174,40 @@
       <section class="card border-primary shadow-sm mb-4">
         <div class="card-header d-flex flex-wrap justify-content-between gap-2">
           <strong class="text-break">{{ selected_document.last_path.rsplit('/', 1)[-1] }}</strong>
-          <span class="badge text-bg-primary">Ausgewählt</span>
+          <span class="badge text-bg-primary">{{ 'Selected' if g.language == 'en' else 'Ausgewählt' }}</span>
         </div>
         <div class="card-body">
           <div class="row g-4">
             <div class="col-xl-7">
-              <h2 class="h5">Datei senden</h2>
-              <p class="text-secondary small">Ziel auswählen und Übertragung starten. Bereits vorhandene Chunks werden übersprungen.</p>
+              <h2 class="h5">{{ 'Send file' if g.language == 'en' else 'Datei senden' }}</h2>
+              <p class="text-secondary small">{{ 'Select target and start transfer. Already existing chunks are skipped.' if g.language == 'en' else 'Ziel auswählen und Übertragung starten. Bereits vorhandene Chunks werden übersprungen.' }}</p>
               <form method="post" action="{{ url_for('federation_admin.send_document', document_id=selected_document.document_id) }}" class="row g-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="_return_view" value="files">
                 <div class="col-md-7">
-                  <label class="form-label" for="target-peer">Ziel</label>
+                  <label class="form-label" for="target-peer">{{ 'Target' if g.language == 'en' else 'Ziel' }}</label>
                   <select class="form-select" id="target-peer" name="target_peer" required>
                     {% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }} · {{ peer.peer_id }}</option>{% endfor %}
                   </select>
                 </div>
                 <div class="col-md-5">
-                  <label class="form-label" for="send-operation">Aktion</label>
-                  <select class="form-select" id="send-operation" name="operation">
-                    <option value="COPY">Kopieren</option>
-                    <option value="REPLICATE">Replizieren</option>
-                    <option value="VERIFY">Prüfen</option>
-                    <option value="REPAIR">Reparieren</option>
+                  <label class="form-label" for="send-operation">{{ 'Action' if g.language == 'en' else 'Aktion' }}</label>
+                  <select class="form-select" id="send-operation" name="operation" aria-label="{{ 'Action' if g.language == 'en' else 'Aktion' }}">
+                    <option value="COPY">{{ 'Copy' if g.language == 'en' else 'Kopieren' }}</option>
+                    <option value="REPLICATE">{{ 'Replicate' if g.language == 'en' else 'Replizieren' }}</option>
+                    <option value="VERIFY">{{ 'Verify' if g.language == 'en' else 'Prüfen' }}</option>
+                    <option value="REPAIR">{{ 'Repair' if g.language == 'en' else 'Reparieren' }}</option>
                   </select>
                 </div>
                 <div class="col-12 d-flex flex-wrap gap-2 mt-3">
-                  <button class="btn btn-primary" type="submit" name="start_now" value="1">Jetzt übertragen</button>
-                  <button class="btn btn-outline-primary" type="submit" name="start_now" value="0">Nur vormerken</button>
+                  <button class="btn btn-primary" type="submit" name="start_now" value="1">{{ 'Transfer now' if g.language == 'en' else 'Jetzt übertragen' }}</button>
+                  <button class="btn btn-outline-primary" type="submit" name="start_now" value="0">{{ 'Only note' if g.language == 'en' else 'Nur vormerken' }}</button>
                 </div>
               </form>
             </div>
             <div class="col-xl-5">
               <dl class="row small mb-0">
-                <dt class="col-4">Größe</dt><dd class="col-8">{{ selected_document.federation_size }} Byte</dd>
+                <dt class="col-4">{{ 'Size' if g.language == 'en' else 'Größe' }}</dt><dd class="col-8">{{ selected_document.federation_size }} Byte</dd>
                 <dt class="col-4">Dokument-ID</dt><dd class="col-8 text-break"><code>{{ selected_document.document_id }}</code></dd>
                 <dt class="col-4">SHA-256</dt><dd class="col-8 text-break"><code>{{ selected_document.federation_sha256 }}</code></dd>
                 <dt class="col-4">Tags</dt><dd class="col-8">{% for tag in selected_document.visible_tags %}<span class="badge text-bg-light border me-1 mb-1">{{ tag }}</span>{% endfor %}</dd>
@@ -216,25 +216,25 @@
           </div>
 
           <details class="mt-4">
-            <summary class="fw-semibold">Erweiterte Übertragung zwischen zwei Peers</summary>
+            <summary class="fw-semibold">{{ 'Advanced transfer between two peers' if g.language == 'en' else 'Erweiterte Übertragung zwischen zwei Peers' }}</summary>
             <div class="pt-3">
-              <p class="text-secondary small">Diese Instanz koordiniert die Übertragung von Quelle B direkt zu Ziel C.</p>
+              <p class="text-secondary small">{{ 'This instance coordinates the transfer from source B directly to target C.' if g.language == 'en' else 'Diese Instanz koordiniert die Übertragung von Quelle B direkt zu Ziel C.' }}</p>
               <form method="post" action="{{ url_for('federation_admin.orchestrate_document', document_id=selected_document.document_id) }}" class="row g-2">
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="_return_view" value="files">
                 <div class="col-md-5">
-                  <label class="form-label">Quelle</label>
+                  <label class="form-label">{{ 'Source' if g.language == 'en' else 'Quelle' }}</label>
                   <select class="form-select" name="source_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select>
                 </div>
                 <div class="col-md-5">
-                  <label class="form-label">Ziel</label>
+                  <label class="form-label">{{ 'Target' if g.language == 'en' else 'Ziel' }}</label>
                   <select class="form-select" name="target_peer" required>{% for peer in peers if peer.enabled %}<option value="{{ peer.peer_id }}">{{ peer.label }}</option>{% endfor %}</select>
                 </div>
                 <div class="col-md-2">
-                  <label class="form-label">Typ</label>
-                  <select class="form-select" name="operation"><option value="COPY">Kopieren</option><option value="REPLICATE">Replizieren</option></select>
+                  <label class="form-label">{{ 'Type' if g.language == 'en' else 'Typ' }}</label>
+                  <select class="form-select" name="operation" aria-label="{{ 'Type' if g.language == 'en' else 'Typ' }}"><option value="COPY">{{ 'Copy' if g.language == 'en' else 'Kopieren' }}</option><option value="REPLICATE">{{ 'Replicate' if g.language == 'en' else 'Replizieren' }}</option></select>
                 </div>
-                <div class="col-12"><button class="btn btn-outline-primary" type="submit">Übertragung koordinieren</button></div>
+                <div class="col-12"><button class="btn btn-outline-primary" type="submit">{{ 'Coordinate transfer' if g.language == 'en' else 'Übertragung koordinieren' }}</button></div>
               </form>
             </div>
           </details>
@@ -244,8 +244,8 @@
 
     <section class="card shadow-sm" id="remote-files">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <strong>Dateien auf anderen Servern</strong>
-        <span class="small text-secondary">Offline-Index bleibt auch bei nicht erreichbaren Peers sichtbar</span>
+        <strong>{{ 'Files on other servers' if g.language == 'en' else 'Dateien auf anderen Servern' }}</strong>
+        <span class="small text-secondary">{{ 'Offline index stays visible even for unreachable peers' if g.language == 'en' else 'Offline-Index bleibt auch bei nicht erreichbaren Peers sichtbar' }}</span>
       </div>
       <div class="card-body border-bottom">
         <form method="get" action="{{ url_for('federation_admin.dashboard') }}" class="row g-2">
@@ -253,20 +253,20 @@
           <div class="col-md-4">
             <label class="visually-hidden" for="remote-peer-filter">Peer</label>
             <select class="form-select" id="remote-peer-filter" name="remote_peer">
-              <option value="">Alle Peers</option>
+              <option value="">{{ 'All peers' if g.language == 'en' else 'Alle Peers' }}</option>
               {% for peer in peers %}<option value="{{ peer.peer_id }}" {% if remote_peer == peer.peer_id %}selected{% endif %}>{{ peer.label }}</option>{% endfor %}
             </select>
           </div>
           <div class="col-md-6">
-            <label class="visually-hidden" for="remote-file-filter">Datei suchen</label>
-            <input class="form-control" id="remote-file-filter" type="search" name="remote_q" value="{{ remote_query }}" placeholder="Dateiname, ID oder Tag">
+            <label class="visually-hidden" for="remote-file-filter">{{ 'Search file' if g.language == 'en' else 'Datei suchen' }}</label>
+            <input class="form-control" id="remote-file-filter" type="search" name="remote_q" value="{{ remote_query }}" placeholder="{{ 'File name, ID or tag' if g.language == 'en' else 'Dateiname, ID oder Tag' }}">
           </div>
-          <div class="col-md-2"><button class="btn btn-outline-primary w-100" type="submit">Filtern</button></div>
+          <div class="col-md-2"><button class="btn btn-outline-primary w-100" type="submit">{{ 'Filter' if g.language == 'en' else 'Filtern' }}</button></div>
         </form>
       </div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
-          <thead><tr><th scope="col">Peer / Datei</th><th scope="col">Tags</th><th scope="col">Priorität</th><th scope="col">Aktion</th></tr></thead>
+          <thead><tr><th scope="col">{{ 'Peer / file' if g.language == 'en' else 'Peer / Datei' }}</th><th scope="col">Tags</th><th scope="col">{{ 'Priority' if g.language == 'en' else 'Priorität' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th></tr></thead>
           <tbody>
             {% for item in remote_files %}
               <tr>
@@ -287,8 +287,8 @@
                     <input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}">
                     <input type="hidden" name="remote_q" value="{{ remote_query }}">
                     <input type="hidden" name="action" value="priority">
-                    <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.file_priority }}" aria-label="Datei-Priorität">
-                    <button class="btn btn-outline-secondary" type="submit">Setzen</button>
+                    <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.file_priority }}" aria-label="{{ 'File priority' if g.language == 'en' else 'Datei-Priorität' }}">
+                    <button class="btn btn-outline-secondary" type="submit">{{ 'Set' if g.language == 'en' else 'Setzen' }}</button>
                   </form>
                 </td>
                 <td>
@@ -299,13 +299,13 @@
                     <input type="hidden" name="remote_document_id" value="{{ item.remote_document_id }}">
                     <input type="hidden" name="remote_q" value="{{ remote_query }}">
                     <input type="hidden" name="action" value="download">
-                    <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="0" aria-label="Transfer-Priorität">
-                    <button class="btn btn-primary" type="submit">Vormerken</button>
+                    <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="0" aria-label="{{ 'Transfer priority' if g.language == 'en' else 'Transfer-Priorität' }}">
+                    <button class="btn btn-primary" type="submit">{{ 'Note' if g.language == 'en' else 'Vormerken' }}</button>
                   </form>
                 </td>
               </tr>
             {% else %}
-              <tr><td colspan="4" class="text-secondary text-center py-4">Noch kein Remote-Index vorhanden. Unter „Peers“ zuerst einen Dateiindex synchronisieren.</td></tr>
+              <tr><td colspan="4" class="text-secondary text-center py-4">{{ 'No remote index present yet. Under “Peers” first synchronise a file index.' if g.language == 'en' else 'Noch kein Remote-Index vorhanden. Unter „Peers“ zuerst einen Dateiindex synchronisieren.' }}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -315,6 +315,7 @@
   {% elif active_view == 'peers' %}
     {% set peer_policy = edit_peer.get('policy', {}) if edit_peer else {} %}
     {% set document_policy = peer_policy.get('documents', {}) if peer_policy else {} %}
+    {% set inventory_policy = peer_policy.get('inventory', {}) if peer_policy else {} %}
     {% set data_class_policy = peer_policy.get('data_classes', {}) if peer_policy else {} %}
     {% set mail_case_policy = data_class_policy.get('mail_cases', {}) if data_class_policy else {} %}
     {% set rendezvous_relay_policy = peer_policy.get('rendezvous_relay', {}) if peer_policy else {} %}
@@ -323,11 +324,11 @@
       <section class="col-xl-5" id="peer-form">
         <div class="card shadow-sm">
           <div class="card-header d-flex justify-content-between align-items-center gap-2">
-            <strong>{{ 'Peer bearbeiten' if edit_peer else 'Peer hinzufügen' }}</strong>
-            {% if edit_peer %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers') }}">Abbrechen</a>{% endif %}
+            <strong>{{ ('Edit peer' if edit_peer else 'Add peer') if g.language == 'en' else ('Peer bearbeiten' if edit_peer else 'Peer hinzufügen') }}</strong>
+            {% if edit_peer %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers') }}">{{ 'Cancel' if g.language == 'en' else 'Abbrechen' }}</a>{% endif %}
           </div>
           <div class="card-body">
-            {% if edit_peer %}<div class="alert alert-info small" role="status" aria-live="polite">Discovery hat nur Peer-Identität und Fähigkeiten gespeichert. Eine abweichende Adresse wird bei einem bereits konfigurierten Peer nicht automatisch übernommen; trage sie erst nach Prüfung hier manuell ein. Für die Verbindung muss das peer-spezifische Token mit dem Gegenüber sicher abgeglichen und dort ebenfalls gespeichert werden. Verwende nicht das globale Federation-Server-Token. Trust muss jede Seite lokal bestätigen; Datenrechte werden separat darunter konfiguriert.</div>{% endif %}
+            {% if edit_peer %}<div class="alert alert-info small" role="status" aria-live="polite">{{ 'Discovery stored only peer identity and capabilities. A differing address is not adopted automatically for an already configured peer; enter it here manually only after checking. For the connection the peer-specific token must be securely compared with the counterpart and stored there as well. Do not use the global federation server token. Trust must be confirmed locally by each side; data rights are configured separately below.' if g.language == 'en' else 'Discovery hat nur Peer-Identität und Fähigkeiten gespeichert. Eine abweichende Adresse wird bei einem bereits konfigurierten Peer nicht automatisch übernommen; trage sie erst nach Prüfung hier manuell ein. Für die Verbindung muss das peer-spezifische Token mit dem Gegenüber sicher abgeglichen und dort ebenfalls gespeichert werden. Verwende nicht das globale Federation-Server-Token. Trust muss jede Seite lokal bestätigen; Datenrechte werden separat darunter konfiguriert.' }}</div>{% endif %}
             <form method="post" action="{{ url_for('federation_admin.save_peer') }}" class="row g-3">
               <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="_return_view" value="peers">
@@ -335,103 +336,115 @@
               <input type="hidden" name="_mail_cases_policy_form" value="1">
               <input type="hidden" name="_rendezvous_relay_policy_form" value="1">
               <input type="hidden" name="_network_diagnostics_policy_form" value="1">
+              <input type="hidden" name="_inventory_policy_form" value="1">
               <div class="col-md-6">
                 <label class="form-label" for="peer-id">Peer-ID</label>
                 <input class="form-control" id="peer-id" name="peer_id" value="{{ edit_peer.peer_id if edit_peer else '' }}" {% if edit_peer %}readonly{% endif %} required>
               </div>
               <div class="col-md-6">
                 <label class="form-label" for="peer-name">Name</label>
-                <input class="form-control" id="peer-name" name="label" value="{{ edit_peer.label if edit_peer else '' }}" placeholder="z. B. Büro Berlin">
+                <input class="form-control" id="peer-name" name="label" value="{{ edit_peer.label if edit_peer else '' }}" placeholder="{{ 'e.g. Berlin office' if g.language == 'en' else 'z. B. Büro Berlin' }}">
               </div>
               <div class="col-12">
-                <label class="form-label" for="peer-url">Server-Adresse</label>
+                <label class="form-label" for="peer-url">{{ 'Server address' if g.language == 'en' else 'Server-Adresse' }}</label>
                 <input class="form-control" id="peer-url" name="base_url" value="{{ edit_peer.base_url if edit_peer else '' }}" placeholder="http://10.0.0.2:8080" required>
               </div>
               <div class="col-12">
                 <label class="form-label" for="peer-token">Peer-Token</label>
                 <input class="form-control" id="peer-token" type="password" name="token" autocomplete="new-password">
-                <div class="form-text">{{ 'Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Auf beiden Geräten für genau diesen Peer identisch konfigurieren; wird verschlüsselt gespeichert.' }} Nicht das globale Server-Token verwenden.</div>
+                <div class="form-text">{{ ('Leave empty to keep the existing token.' if edit_peer else 'Configure identically on both devices for exactly this peer; stored encrypted.') if g.language == 'en' else ('Leer lassen, um das vorhandene Token zu behalten.' if edit_peer else 'Auf beiden Geräten für genau diesen Peer identisch konfigurieren; wird verschlüsselt gespeichert.') }} {{ 'Do not use the global server token.' if g.language == 'en' else 'Nicht das globale Server-Token verwenden.' }}</div>
               </div>
 
               <fieldset class="col-12">
-                <legend class="h6 mb-2">Dokument-Berechtigungen</legend>
+                <legend class="h6 mb-2">{{ 'Inventory sync (ID + display name only)' if g.language == 'en' else 'Inventarabgleich (nur Kennung + Anzeigename)' }}</legend>
                 <div class="vstack gap-2 border rounded p-3">
                   <label class="form-check">
-                    <input class="form-check-input" type="checkbox" name="documents_send" value="1" {% if document_policy.get('send', true) %}checked{% endif %}>
-                    <span class="form-check-label">Dokumente an diesen Peer senden</span>
+                    <input class="form-check-input" type="checkbox" name="inventory_send" value="1" {% if inventory_policy.get('send', false) %}checked{% endif %}>
+                    <span class="form-check-label">{{ 'Send inventory index to this peer (ISBN/GTIN + display name only, default off)' if g.language == 'en' else 'Inventarindex an diesen Peer senden (nur ISBN/GTIN + Anzeigename, Standard aus)' }}</span>
                   </label>
                   <label class="form-check">
-                    <input class="form-check-input" type="checkbox" name="documents_receive" value="1" {% if document_policy.get('receive', true) %}checked{% endif %}>
-                    <span class="form-check-label">Dokumente von diesem Peer empfangen</span>
-                  </label>
-                  <label class="form-check">
-                    <input class="form-check-input" type="checkbox" name="documents_seed" value="1" {% if document_policy.get('seed', true) %}checked{% endif %}>
-                    <span class="form-check-label">Dateien für diesen Peer bereitstellen</span>
+                    <input class="form-check-input" type="checkbox" name="inventory_receive" value="1" {% if inventory_policy.get('receive', false) %}checked{% endif %}>
+                    <span class="form-check-label">{{ 'Receive inventory index from this peer (synced locally only, default off)' if g.language == 'en' else 'Inventarindex von diesem Peer empfangen (nur lokal synchronisiert, Standard aus)' }}</span>
                   </label>
                 </div>
               </fieldset>
 
               <fieldset class="col-12">
-                <legend class="h6 mb-2">Mail-Vorgang-Federation</legend>
+                <legend class="h6 mb-2">{{ 'Document permissions' if g.language == 'en' else 'Dokument-Berechtigungen' }}</legend>
+                <div class="vstack gap-2 border rounded p-3">
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="documents_send" value="1" {% if document_policy.get('send', true) %}checked{% endif %}>
+                    <span class="form-check-label">{{ 'Send documents to this peer' if g.language == 'en' else 'Dokumente an diesen Peer senden' }}</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="documents_receive" value="1" {% if document_policy.get('receive', true) %}checked{% endif %}>
+                    <span class="form-check-label">{{ 'Receive documents from this peer' if g.language == 'en' else 'Dokumente von diesem Peer empfangen' }}</span>
+                  </label>
+                  <label class="form-check">
+                    <input class="form-check-input" type="checkbox" name="documents_seed" value="1" {% if document_policy.get('seed', true) %}checked{% endif %}>
+                    <span class="form-check-label">{{ 'Provide files for this peer' if g.language == 'en' else 'Dateien für diesen Peer bereitstellen' }}</span>
+                  </label>
+                </div>
+              </fieldset>
+
+              <fieldset class="col-12">
+                <legend class="h6 mb-2">{{ 'Mail case federation' if g.language == 'en' else 'Mail-Vorgang-Federation' }}</legend>
                 <div class="vstack gap-2 border rounded p-3">
                   <label class="form-check">
                     <input class="form-check-input" type="checkbox" name="mail_cases_send" value="1" {% if mail_case_policy.get('send', false) %}checked{% endif %}>
-                    <span class="form-check-label">Mail-Vorgänge an diesen Peer senden</span>
+                    <span class="form-check-label">{{ 'Send mail cases to this peer' if g.language == 'en' else 'Mail-Vorgänge an diesen Peer senden' }}</span>
                   </label>
                   <label class="form-check">
                     <input class="form-check-input" type="checkbox" name="mail_cases_receive" value="1" {% if mail_case_policy.get('receive', false) %}checked{% endif %}>
-                    <span class="form-check-label">Mail-Vorgänge von diesem Peer empfangen</span>
+                    <span class="form-check-label">{{ 'Receive mail cases from this peer' if g.language == 'en' else 'Mail-Vorgänge von diesem Peer empfangen' }}</span>
                   </label>
                   <label class="form-check">
                     <input class="form-check-input" type="checkbox" name="mail_cases_auto_accept" value="1" {% if mail_case_policy.get('auto_accept', false) %}checked{% endif %}>
-                    <span class="form-check-label">Nach Trust-, Capability-, Policy- und Benutzerprüfung automatisch anwenden</span>
+                    <span class="form-check-label">{{ 'Apply automatically after trust, capability, policy and user check' if g.language == 'en' else 'Nach Trust-, Capability-, Policy- und Benutzerprüfung automatisch anwenden' }}</span>
                   </label>
                   <div class="form-text">
-                    Standard ist aus. Für den Versand von Mail-Vorgängen benötigt der Peer zusätzlich eine HTTPS-Adresse,
-                    direkten Trust, ausgehandelte v3-<code>mail_cases</code>-Capability und eine explizite Benutzerzuordnung.
-                    IMAP-/SMTP-Zugangsdaten werden nicht übertragen.
+                    {{ 'Default is off. Sending mail cases additionally requires the peer to have an HTTPS address, direct trust, a negotiated v3' if g.language == 'en' else 'Standard ist aus. Für den Versand von Mail-Vorgängen benötigt der Peer zusätzlich eine HTTPS-Adresse, direkten Trust, ausgehandelte v3-' }}<code>mail_cases</code>-{{ 'capability and an explicit user mapping. IMAP/SMTP credentials are not transferred.' if g.language == 'en' else 'Capability und eine explizite Benutzerzuordnung. IMAP-/SMTP-Zugangsdaten werden nicht übertragen.' }}
                   </div>
                 </div>
               </fieldset>
 
               <fieldset class="col-12">
-                <legend class="h6 mb-2">Rendezvous-Vermittlung</legend>
+                <legend class="h6 mb-2">{{ 'Rendezvous relaying' if g.language == 'en' else 'Rendezvous-Vermittlung' }}</legend>
                 <div class="vstack gap-2 border rounded p-3">
                   <label class="form-check">
                     <input class="form-check-input" type="checkbox" name="rendezvous_relay_enabled" value="1" {% if rendezvous_relay_policy.get('enabled', false) is sameas true %}checked{% endif %}>
-                    <span class="form-check-label">Diesen Peer ausdrücklich als Rendezvous-Relay verwenden</span>
+                    <span class="form-check-label">{{ 'Explicitly use this peer as rendezvous relay' if g.language == 'en' else 'Diesen Peer ausdrücklich als Rendezvous-Relay verwenden' }}</span>
                   </label>
                   <div class="form-text">
-                    Standard ist aus. Der Relay übermittelt nur kurzlebige Verbindungsnachrichten an dort aktiv konfigurierte Peers.
-                    Er erteilt weder Trust noch Aktivierung oder Datenrechte und ist kein Datei- oder TLS-Relay.
+                    {{ 'Default is off. The relay forwards only short-lived connection messages to peers actively configured there. It grants neither trust nor activation or data rights and is no file or TLS relay.' if g.language == 'en' else 'Standard ist aus. Der Relay übermittelt nur kurzlebige Verbindungsnachrichten an dort aktiv konfigurierte Peers. Er erteilt weder Trust noch Aktivierung oder Datenrechte und ist kein Datei- oder TLS-Relay.' }}
                   </div>
                 </div>
               </fieldset>
 
               <div class="col-12 form-check ms-2">
                 <input class="form-check-input" type="checkbox" name="enabled" value="1" id="fed-enabled" {% if not edit_peer or edit_peer.configured_enabled %}checked{% endif %}>
-                <label class="form-check-label" for="fed-enabled">Peer aktiv</label>
+                <label class="form-check-label" for="fed-enabled">{{ 'Peer active' if g.language == 'en' else 'Peer aktiv' }}</label>
               </div>
 
               <div class="col-12 form-check ms-2">
                 <input class="form-check-input" type="checkbox" name="network_diagnostics_share_status" value="1" id="fed-diagnostic-share" {% if network_diagnostics_policy.get('share_status_with_users', false) is sameas true %}checked{% endif %}>
-                <label class="form-check-label" for="fed-diagnostic-share">Aggregierten Diagnosestatus für angemeldete Nutzer freigeben</label>
-                <div class="form-text">Teilt nur Peer-Name, Richtung und Erreichbarkeitsstatus; keine Adresse, Fehlerdetails, Latenz oder Netzwerkroute. Standardmäßig nur für Administratoren sichtbar.</div>
+                <label class="form-check-label" for="fed-diagnostic-share">{{ 'Share aggregated diagnostic status with signed-in users' if g.language == 'en' else 'Aggregierten Diagnosestatus für angemeldete Nutzer freigeben' }}</label>
+                <div class="form-text">{{ 'Shares only peer name, direction and reachability status; no address, error details, latency or network route. Visible to administrators only by default.' if g.language == 'en' else 'Teilt nur Peer-Name, Richtung und Erreichbarkeitsstatus; keine Adresse, Fehlerdetails, Latenz oder Netzwerkroute. Standardmäßig nur für Administratoren sichtbar.' }}</div>
               </div>
 
               <div class="col-12">
                 <details>
-                  <summary class="fw-semibold">Erweiterte Policy</summary>
+                  <summary class="fw-semibold">{{ 'Advanced policy' if g.language == 'en' else 'Erweiterte Policy' }}</summary>
                   <div class="pt-2">
                     <label class="form-label" for="policy-json">Policy JSON</label>
                     <textarea class="form-control font-monospace" id="policy-json" name="policy_json" rows="5">{{ peer_policy|tojson if edit_peer else '{}' }}</textarea>
-                    <div class="form-text">Die sichtbaren Dokument- und Mail-Vorgang-Berechtigungen oben werden beim Speichern in die zugehörigen Policy-Bereiche übernommen.</div>
+                    <div class="form-text">{{ 'The visible document and mail case permissions above are adopted into the associated policy sections on save.' if g.language == 'en' else 'Die sichtbaren Dokument- und Mail-Vorgang-Berechtigungen oben werden beim Speichern in die zugehörigen Policy-Bereiche übernommen.' }}</div>
                   </div>
                 </details>
               </div>
 
               <div class="col-12">
-                <button class="btn btn-primary" type="submit">{{ 'Änderungen speichern' if edit_peer else 'Peer speichern' }}</button>
+                <button class="btn btn-primary" type="submit">{{ ('Save changes' if edit_peer else 'Save peer') if g.language == 'en' else ('Änderungen speichern' if edit_peer else 'Peer speichern') }}</button>
               </div>
             </form>
           </div>
@@ -441,12 +454,12 @@
       <section class="col-xl-7">
         <div class="card shadow-sm">
           <div class="card-header d-flex justify-content-between align-items-center gap-2">
-            <strong>Verbundene Peers</strong>
+            <strong>{{ 'Connected peers' if g.language == 'en' else 'Verbundene Peers' }}</strong>
             <span class="badge text-bg-secondary">{{ peers|length }}</span>
           </div>
           <div class="table-responsive">
             <table class="table align-middle mb-0">
-              <thead><tr><th scope="col">Peer</th><th scope="col">Status</th><th scope="col">Priorität</th><th scope="col">Aktionen</th></tr></thead>
+              <thead><tr><th scope="col">Peer</th><th scope="col">Status</th><th scope="col">{{ 'Priority' if g.language == 'en' else 'Priorität' }}</th><th scope="col">{{ 'Actions' if g.language == 'en' else 'Aktionen' }}</th></tr></thead>
               <tbody>
                 {% for peer in peers %}
                   {% set state = catalog_peer_states.get(peer.peer_id, {}) %}
@@ -462,68 +475,73 @@
                       <br><small class="text-secondary text-break">{{ peer.base_url }}</small>
                     </td>
                     <td>
-                      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ 'gesperrt' if peer.banned else ('aktiv' if peer.enabled else 'deaktiviert') }}</span>
-                      <span class="badge {{ 'text-bg-info' if peer_relay_policy.get('enabled', false) is sameas true else 'text-bg-secondary' }}">Relay {{ 'freigegeben' if peer_relay_policy.get('enabled', false) is sameas true else 'aus' }}</span>
-                      <br><small>Index: {{ state.last_index_at or 'noch nie' }}</small>
+                      <span class="badge {{ 'text-bg-success' if peer.enabled else 'text-bg-secondary' }}">{{ ('blocked' if peer.banned else ('active' if peer.enabled else 'deactivated')) if g.language == 'en' else ('gesperrt' if peer.banned else ('aktiv' if peer.enabled else 'deaktiviert')) }}</span>
+                      <span class="badge {{ 'text-bg-info' if peer_relay_policy.get('enabled', false) is sameas true else 'text-bg-secondary' }}">Relay {{ ('allowed' if peer_relay_policy.get('enabled', false) is sameas true else 'off') if g.language == 'en' else ('freigegeben' if peer_relay_policy.get('enabled', false) is sameas true else 'aus') }}</span>
+                      <br><small>Index: {{ state.last_index_at or ('never' if g.language == 'en' else 'noch nie') }}</small>
                       {% if state.last_index_error %}<div class="text-danger small text-break">{{ state.last_index_error }}</div>{% endif %}
-                      <br><small>Server → konfigurierte Peer-Adresse: {{ outbound.get('status_label', 'unbekannt') }} · letzter Versuch {{ outbound.get('checked_at_label', 'noch nie') }} · zuletzt erfolgreich {{ outbound.get('last_success_label', 'noch nie') }}{% if outbound.get('latency_ms') %} · {{ outbound.latency_ms }} ms{% endif %}</small>
+                      <br><small>{{ 'Server → configured peer address:' if g.language == 'en' else 'Server → konfigurierte Peer-Adresse:' }} {{ outbound.get('status_label', 'unbekannt') }} · {{ 'last attempt' if g.language == 'en' else 'letzter Versuch' }} {{ outbound.get('checked_at_label', 'noch nie') }} · {{ 'last successful' if g.language == 'en' else 'zuletzt erfolgreich' }} {{ outbound.get('last_success_label', 'noch nie') }}{% if outbound.get('latency_ms') %} · {{ outbound.latency_ms }} ms{% endif %}</small>
                       {% if outbound.get('stages_label') %}<br><small class="text-secondary">{{ outbound.stages_label|e }}</small>{% endif %}
-                      {% if outbound.get('category') %}<br><small class="text-secondary">Fehlerkategorie: {{ outbound.category|e }}</small>{% endif %}
-                      {% if outbound.get('history') %}<details class="small"><summary>Letzte Serverprüfungen</summary><ul class="mb-0">{% for attempt in outbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
-                      <br><small>Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest): {{ inbound.get('status_label', 'unbekannt') }} · letzter Versuch {{ inbound.get('checked_at_label', 'noch nie') }} · zuletzt erfolgreich {{ inbound.get('last_success_label', 'noch nie') }}</small>
+                      {% if outbound.get('category') %}<br><small class="text-secondary">{{ 'Error category:' if g.language == 'en' else 'Fehlerkategorie:' }} {{ outbound.category|e }}</small>{% endif %}
+                      {% if outbound.get('history') %}<details class="small"><summary>{{ 'Recent server checks' if g.language == 'en' else 'Letzte Serverprüfungen' }}</summary><ul class="mb-0">{% for attempt in outbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+                      <br><small>{{ 'Incoming authenticated request from peer → server (no active back test):' if g.language == 'en' else 'Eingehende authentifizierte Anfrage von Peer → Server (kein aktiver Rücktest):' }} {{ inbound.get('status_label', 'unbekannt') }} · {{ 'last attempt' if g.language == 'en' else 'letzter Versuch' }} {{ inbound.get('checked_at_label', 'noch nie') }} · {{ 'last successful' if g.language == 'en' else 'zuletzt erfolgreich' }} {{ inbound.get('last_success_label', 'noch nie') }}</small>
                       {% if inbound.get('stages_label') %}<br><small class="text-secondary">{{ inbound.stages_label|e }}</small>{% endif %}
-                      {% if inbound.get('history') %}<details class="small"><summary>Letzte eingehende Prüfungen</summary><ul class="mb-0">{% for attempt in inbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
-                      {% if manual_confirmation %}<br><small>Benutzerbestätigung ({{ manual_confirmation.status_label }}): {{ 'Seite geöffnet' if manual_confirmation.outcome == 'reachable' else 'nicht erreichbar' }} · {{ manual_confirmation.confirmed_at_label }} · {{ manual_confirmation.actor|e }} · nicht technisch verifiziert</small>{% endif %}
+                      {% if inbound.get('history') %}<details class="small"><summary>{{ 'Recent incoming checks' if g.language == 'en' else 'Letzte eingehende Prüfungen' }}</summary><ul class="mb-0">{% for attempt in inbound.history %}<li>{{ attempt.checked_at_label }} · {{ attempt.status_label }}{% if attempt.category %} · {{ attempt.category|e }}{% endif %}</li>{% endfor %}</ul></details>{% endif %}
+                      {% if manual_confirmation %}<br><small>{{ 'User confirmation' if g.language == 'en' else 'Benutzerbestätigung' }} ({{ manual_confirmation.status_label }}): {{ ('Page opened' if manual_confirmation.outcome == 'reachable' else 'unreachable') if g.language == 'en' else ('Seite geöffnet' if manual_confirmation.outcome == 'reachable' else 'nicht erreichbar') }} · {{ manual_confirmation.confirmed_at_label }} · {{ manual_confirmation.actor|e }} · {{ 'not technically verified' if g.language == 'en' else 'nicht technisch verifiziert' }}</small>{% endif %}
                     </td>
                     <td>
                       <form method="post" action="{{ url_for('federation_admin.set_server_priority', peer_id=peer.peer_id) }}" class="input-group input-group-sm">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <input type="hidden" name="_return_view" value="peers">
-                        <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ state.server_priority or 0 }}" aria-label="Server-Priorität">
-                        <button class="btn btn-outline-secondary" type="submit">Setzen</button>
+                        <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ state.server_priority or 0 }}" aria-label="{{ 'Server priority' if g.language == 'en' else 'Server-Priorität' }}">
+                        <button class="btn btn-outline-secondary" type="submit">{{ 'Set' if g.language == 'en' else 'Setzen' }}</button>
                       </form>
                     </td>
                     <td>
                       <div class="d-flex flex-wrap gap-1">
-                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id) }}">Bearbeiten</a>
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('federation_admin.dashboard', view='peers', edit_peer=peer.peer_id) }}">{{ 'Edit' if g.language == 'en' else 'Bearbeiten' }}</a>
                         <form method="post" action="{{ url_for('federation_admin.sync_peer_index', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
-                          <button class="btn btn-sm btn-outline-success" type="submit">Dateiindex holen</button>
+                          <button class="btn btn-sm btn-outline-success" type="submit">{{ 'Fetch file index' if g.language == 'en' else 'Dateiindex holen' }}</button>
+                        </form>
+                        <form method="post" action="{{ url_for('federation_admin.sync_peer_inventory_index', peer_id=peer.peer_id) }}">
+                          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                          <input type="hidden" name="_return_view" value="peers">
+                          <button class="btn btn-sm btn-outline-success" type="submit">{{ 'Fetch inventory index' if g.language == 'en' else 'Inventarindex holen' }}</button>
                         </form>
                         <form method="post" action="{{ url_for('federation_admin.network_diagnostic_peer', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
-                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>Gegenseitig prüfen</button>
+                          <button class="btn btn-sm btn-outline-primary" type="submit" {% if not peer.enabled %}disabled{% endif %}>{{ 'Check mutually' if g.language == 'en' else 'Gegenseitig prüfen' }}</button>
                         </form>
                         {% if peer.base_url.startswith('https://') or peer.base_url.startswith('http://') %}
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-open="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}" aria-label="Peer-Seite von {{ peer.label }} im neuen Tab öffnen">Peer-Seite öffnen</button>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-browser-check="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}">Browser prüfen</button>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}" data-peer-manual-outcome="reachable" data-peer-confirm-url="{{ url_for('federation_admin.manual_network_diagnostic_confirmation', peer_id=peer.peer_id) }}" data-peer-confirm-csrf="{{ csrf_token() }}">Seite erfolgreich geöffnet</button>
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}" data-peer-manual-outcome="unreachable" data-peer-confirm-url="{{ url_for('federation_admin.manual_network_diagnostic_confirmation', peer_id=peer.peer_id) }}" data-peer-confirm-csrf="{{ csrf_token() }}">Nicht erreichbar (manuell)</button>
-                        <span class="small text-secondary" role="status" aria-live="polite" data-peer-browser-status="{{ peer.peer_id|e }}">Client: ungeprüft</span>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-open="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}" aria-label="{{ ('Open peer page of ' ~ peer.label ~ ' in new tab') if g.language == 'en' else ('Peer-Seite von ' ~ peer.label ~ ' im neuen Tab öffnen') }}">{{ 'Open peer page' if g.language == 'en' else 'Peer-Seite öffnen' }}</button>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-browser-check="{{ peer.peer_id|e }}" data-peer-url="{{ peer.base_url|e }}">{{ 'Check browser' if g.language == 'en' else 'Browser prüfen' }}</button>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}" data-peer-manual-outcome="reachable" data-peer-confirm-url="{{ url_for('federation_admin.manual_network_diagnostic_confirmation', peer_id=peer.peer_id) }}" data-peer-confirm-csrf="{{ csrf_token() }}">{{ 'Page opened successfully' if g.language == 'en' else 'Seite erfolgreich geöffnet' }}</button>
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-peer-manual-confirm="{{ peer.peer_id|e }}" data-peer-manual-outcome="unreachable" data-peer-confirm-url="{{ url_for('federation_admin.manual_network_diagnostic_confirmation', peer_id=peer.peer_id) }}" data-peer-confirm-csrf="{{ csrf_token() }}">{{ 'Unreachable (manual)' if g.language == 'en' else 'Nicht erreichbar (manuell)' }}</button>
+                        <span class="small text-secondary" role="status" aria-live="polite" data-peer-browser-status="{{ peer.peer_id|e }}">Client: {{ 'unchecked' if g.language == 'en' else 'ungeprüft' }}</span>
                         {% endif %}
                         <form method="post" action="{{ url_for('federation_admin.probe_peer', peer_id=peer.peer_id) }}">
                           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                           <input type="hidden" name="_return_view" value="peers">
-                          <button class="btn btn-sm btn-outline-primary" type="submit">Verbindung testen</button>
+                          <button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Test connection' if g.language == 'en' else 'Verbindung testen' }}</button>
                         </form>
                       </div>
                     </td>
                   </tr>
                 {% else %}
-                  <tr><td colspan="4" class="text-secondary text-center py-4">Noch keine Peers konfiguriert.</td></tr>
+                  <tr><td colspan="4" class="text-secondary text-center py-4">{{ 'No peers configured yet.' if g.language == 'en' else 'Noch keine Peers konfiguriert.' }}</td></tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
         </div>
         <details class="card shadow-sm mt-3">
-          <summary class="card-header">Netzwerkdiagnose verstehen</summary>
+          <summary class="card-header">{{ 'Understanding network diagnostics' if g.language == 'en' else 'Netzwerkdiagnose verstehen' }}</summary>
           <div class="card-body small">
-            <p class="mb-2"><strong>DNS</strong> prüft die Auflösung des konfigurierten Peer-Hosts; <strong>TCP</strong> den Socket-Aufbau; <strong>TLS</strong> Zertifikat und verschlüsselte Verbindung; <strong>HTTP</strong> die Antwort; <strong>Auth</strong> Peer-Identität und signierte Probeantwort.</p>
-            <p class="mb-2">„Server → konfigurierte Peer-Adresse“ misst nur den ausgehenden Weg von dieser Instanz. „Eingehende authentifizierte Anfrage“ erscheint erst, wenn der Peer selbst eine signierte Diagnoseanfrage an diesen Server sendet. Das ist ein Nachweis für genau diesen eingehenden Netzwerkweg zum Prüfzeitpunkt, aber keine aktiv vom Server angeforderte Gegenprüfung. Beides beweist keine öffentliche Erreichbarkeit und leitet keinen NAT-, Tunnel- oder Relay-Pfad ab.</p>
-            <p class="mb-0">Browserprüfung ist eine getrennte Best-effort-Client-Sicht. CORS, CSP, Mixed Content, TLS und Browserrichtlinien können sie unauswertbar machen; daraus wird kein Offline-Status abgeleitet. Veraltete Ergebnisse sind älter als fünf Minuten.</p>
+            <p class="mb-2"><strong>DNS</strong> {{ 'checks resolution of the configured peer host;' if g.language == 'en' else 'prüft die Auflösung des konfigurierten Peer-Hosts;' }} <strong>TCP</strong> {{ 'socket setup;' if g.language == 'en' else 'den Socket-Aufbau;' }} <strong>TLS</strong> {{ 'certificate and encrypted connection;' if g.language == 'en' else 'Zertifikat und verschlüsselte Verbindung;' }} <strong>HTTP</strong> {{ 'the response;' if g.language == 'en' else 'die Antwort;' }} <strong>Auth</strong> {{ 'peer identity and signed probe response.' if g.language == 'en' else 'Peer-Identität und signierte Probeantwort.' }}</p>
+            <p class="mb-2">{{ '“Server → configured peer address” measures only the outgoing path from this instance. “Incoming authenticated request” appears only when the peer itself sends a signed diagnostic request to this server. That proves exactly this incoming network path at check time, but no actively requested counter-check by the server. Neither proves public reachability nor derives any NAT, tunnel or relay path.' if g.language == 'en' else '„Server → konfigurierte Peer-Adresse“ misst nur den ausgehenden Weg von dieser Instanz. „Eingehende authentifizierte Anfrage“ erscheint erst, wenn der Peer selbst eine signierte Diagnoseanfrage an diesen Server sendet. Das ist ein Nachweis für genau diesen eingehenden Netzwerkweg zum Prüfzeitpunkt, aber keine aktiv vom Server angeforderte Gegenprüfung. Beides beweist keine öffentliche Erreichbarkeit und leitet keinen NAT-, Tunnel- oder Relay-Pfad ab.' }}</p>
+            <p class="mb-0">{{ 'Browser check is a separate best-effort client view. CORS, CSP, mixed content, TLS and browser policies can make it unevaluable; no offline status is derived from it. Stale results are older than five minutes.' if g.language == 'en' else 'Browserprüfung ist eine getrennte Best-effort-Client-Sicht. CORS, CSP, Mixed Content, TLS und Browserrichtlinien können sie unauswertbar machen; daraus wird kein Offline-Status abgeleitet. Veraltete Ergebnisse sind älter als fünf Minuten.' }}</p>
           </div>
         </details>
       </section>
@@ -534,24 +552,24 @@
   {% elif active_view == 'transfers' %}
     <section class="card shadow-sm mb-4">
       <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-        <strong>Download-Warteschlange</strong>
+        <strong>{{ 'Download queue' if g.language == 'en' else 'Download-Warteschlange' }}</strong>
         <form method="post" action="{{ url_for('federation_admin.run_download_queue') }}" class="d-flex gap-2">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="_return_view" value="transfers">
-          <label class="visually-hidden" for="queue-limit">Maximale Anzahl</label>
+          <label class="visually-hidden" for="queue-limit">{{ 'Maximum count' if g.language == 'en' else 'Maximale Anzahl' }}</label>
           <input class="form-control form-control-sm" id="queue-limit" type="number" name="limit" min="1" max="25" value="5" style="width:5rem">
-          <button class="btn btn-sm btn-success text-nowrap" type="submit">Queue abarbeiten</button>
+          <button class="btn btn-sm btn-success text-nowrap" type="submit">{{ 'Process queue' if g.language == 'en' else 'Queue abarbeiten' }}</button>
         </form>
       </div>
       <div class="card-body py-2">
         <details class="small text-secondary">
-          <summary>Wie wird priorisiert?</summary>
-          <div class="pt-2">Effektive Priorität = Server + Datei + Transfer. Wartende Peers bleiben gespeichert und werden später erneut versucht.</div>
+          <summary>{{ 'How is prioritised?' if g.language == 'en' else 'Wie wird priorisiert?' }}</summary>
+          <div class="pt-2">{{ 'Effective priority = server + file + transfer. Waiting peers stay stored and are retried later.' if g.language == 'en' else 'Effektive Priorität = Server + Datei + Transfer. Wartende Peers bleiben gespeichert und werden später erneut versucht.' }}</div>
         </details>
       </div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
-          <thead><tr><th scope="col">Status</th><th scope="col">Peer / Datei</th><th scope="col">Server</th><th scope="col">Datei</th><th scope="col">Transfer</th><th scope="col">Effektiv</th><th scope="col">Fehler</th></tr></thead>
+          <thead><tr><th scope="col">Status</th><th scope="col">{{ 'Peer / file' if g.language == 'en' else 'Peer / Datei' }}</th><th scope="col">Server</th><th scope="col">{{ 'File' if g.language == 'en' else 'Datei' }}</th><th scope="col">Transfer</th><th scope="col">{{ 'Effective' if g.language == 'en' else 'Effektiv' }}</th><th scope="col">{{ 'Error' if g.language == 'en' else 'Fehler' }}</th></tr></thead>
           <tbody>
             {% for item in download_queue %}
               <tr>
@@ -563,15 +581,15 @@
                   <form method="post" action="{{ url_for('federation_admin.set_queue_priority', request_id=item.request_id) }}" class="input-group input-group-sm">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="_return_view" value="transfers">
-                    <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.transfer_priority }}" aria-label="Transfer-Priorität">
-                    <button class="btn btn-outline-secondary" type="submit">Setzen</button>
+                    <input class="form-control" type="number" name="priority" min="-1000" max="1000" value="{{ item.transfer_priority }}" aria-label="{{ 'Transfer priority' if g.language == 'en' else 'Transfer-Priorität' }}">
+                    <button class="btn btn-outline-secondary" type="submit">{{ 'Set' if g.language == 'en' else 'Setzen' }}</button>
                   </form>
                 </td>
                 <td><strong>{{ item.effective_priority }}</strong></td>
                 <td class="small text-danger text-break">{{ item.last_error }}</td>
               </tr>
             {% else %}
-              <tr><td colspan="7" class="text-secondary text-center py-4">Keine vorgemerkten Downloads.</td></tr>
+              <tr><td colspan="7" class="text-secondary text-center py-4">{{ 'No noted downloads.' if g.language == 'en' else 'Keine vorgemerkten Downloads.' }}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -579,15 +597,15 @@
     </section>
 
     <section class="card shadow-sm mb-4">
-      <div class="card-header"><strong>Transfers{% if selected_document %} dieses Dokuments{% endif %}</strong></div>
+      <div class="card-header"><strong>Transfers{% if selected_document %}{{ ' of this document' if g.language == 'en' else ' dieses Dokuments' }}{% endif %}</strong></div>
       <div class="table-responsive">
         <table class="table align-middle mb-0">
-          <thead><tr><th scope="col">Richtung</th><th scope="col">Quelle → Ziel</th><th scope="col">Status</th><th scope="col">Fortschritt</th><th scope="col">Fehler</th><th scope="col"></th></tr></thead>
+          <thead><tr><th scope="col">{{ 'Direction' if g.language == 'en' else 'Richtung' }}</th><th scope="col">{{ 'Source → target' if g.language == 'en' else 'Quelle → Ziel' }}</th><th scope="col">Status</th><th scope="col">{{ 'Progress' if g.language == 'en' else 'Fortschritt' }}</th><th scope="col">{{ 'Error' if g.language == 'en' else 'Fehler' }}</th><th scope="col"></th></tr></thead>
           <tbody>
             {% for item in transfers %}
               <tr>
                 <td>{{ item.direction }}</td>
-                <td>{{ item.source_peer or 'lokal' }} → {{ item.target_peer or item.target_url or 'lokal' }}<br><small><code>{{ item.blob_hash[:12] }}…</code></small></td>
+                <td>{{ item.source_peer or ('local' if g.language == 'en' else 'lokal') }} → {{ item.target_peer or item.target_url or ('local' if g.language == 'en' else 'lokal') }}<br><small><code>{{ item.blob_hash[:12] }}…</code></small></td>
                 <td><span class="badge {{ 'text-bg-success' if item.status == 'complete' else 'text-bg-danger' if item.status == 'failed' else 'text-bg-warning' }}">{{ item.status }}</span></td>
                 <td>{{ item.transferred_bytes }} / {{ item.total_bytes }}</td>
                 <td class="text-danger small text-break">{{ item.error }}</td>
@@ -596,13 +614,13 @@
                     <form method="post" action="{{ url_for('federation_admin.run_transfer', job_id=item.transfer_id) }}">
                       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                       <input type="hidden" name="_return_view" value="transfers">
-                      <button class="btn btn-sm btn-outline-primary" type="submit">Start / Fortsetzen</button>
+                      <button class="btn btn-sm btn-outline-primary" type="submit">{{ 'Start / resume' if g.language == 'en' else 'Start / Fortsetzen' }}</button>
                     </form>
                   {% endif %}
                 </td>
               </tr>
             {% else %}
-              <tr><td colspan="6" class="text-secondary text-center py-4">Keine Transfers.</td></tr>
+              <tr><td colspan="6" class="text-secondary text-center py-4">{{ 'No transfers.' if g.language == 'en' else 'Keine Transfers.' }}</td></tr>
             {% endfor %}
           </tbody>
         </table>
@@ -612,10 +630,10 @@
     <div class="row g-3">
       <div class="col-xl-6">
         <details class="card shadow-sm">
-          <summary class="card-header fw-semibold">Federation-Ereignisse</summary>
+          <summary class="card-header fw-semibold">{{ 'Federation events' if g.language == 'en' else 'Federation-Ereignisse' }}</summary>
           <div class="table-responsive">
             <table class="table table-sm mb-0">
-              <thead><tr><th scope="col">Zeit</th><th scope="col">Aktion</th><th scope="col">Peer</th><th scope="col">Details</th></tr></thead>
+              <thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th><th scope="col">Peer</th><th scope="col">Details</th></tr></thead>
               <tbody>{% for event in events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td class="small text-break"><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody>
             </table>
           </div>
@@ -623,10 +641,10 @@
       </div>
       <div class="col-xl-6">
         <details class="card shadow-sm">
-          <summary class="card-header fw-semibold">Katalog- und Queue-Ereignisse</summary>
+          <summary class="card-header fw-semibold">{{ 'Catalogue and queue events' if g.language == 'en' else 'Katalog- und Queue-Ereignisse' }}</summary>
           <div class="table-responsive">
             <table class="table table-sm mb-0">
-              <thead><tr><th scope="col">Zeit</th><th scope="col">Aktion</th><th scope="col">Peer</th><th scope="col">Details</th></tr></thead>
+              <thead><tr><th scope="col">{{ 'Time' if g.language == 'en' else 'Zeit' }}</th><th scope="col">{{ 'Action' if g.language == 'en' else 'Aktion' }}</th><th scope="col">Peer</th><th scope="col">Details</th></tr></thead>
               <tbody>{% for event in catalog_events %}<tr><td>{{ event.created_at }}</td><td>{{ event.action }}</td><td>{{ event.peer_id }}</td><td class="small text-break"><code>{{ event.detail }}</code></td></tr>{% endfor %}</tbody>
             </table>
           </div>

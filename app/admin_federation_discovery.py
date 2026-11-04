@@ -16,6 +16,7 @@ from .settings_store import (
     MIN_FEDERATION_AUTOSCAN_SECONDS,
     SettingsStore,
 )
+from .translations import translate
 
 
 bp = Blueprint("admin_federation_discovery", __name__, url_prefix="/admin")
@@ -79,17 +80,15 @@ def save_federation_discovery_settings():
             "integrations.federation_autoscan",
             detail={**integrations, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Federation-Autoscan-Einstellungen auf Standard zurückgesetzt."
-            if reset_defaults else "Federation-Autoscan-Einstellungen gespeichert."
-        )
-        flash("Änderungen am Autoscan-Land gelten nach einem Neustart des Webprozesses.")
+        flash(translate(g.language, "feddisc.autoscan.reset")
+            if reset_defaults else translate(g.language, "feddisc.autoscan.saved"))
+        flash(translate(g.language, "feddisc.autoscan.restart"))
     except ValueError as exc:
         current_app.logger.info("Federation autoscan setting rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("Federation autoscan settings save failed: %s", type(exc).__name__)
-        flash("Federation-Autoscan-Einstellungen konnten nicht gespeichert werden.")
+        flash(translate(g.language, "feddisc.autoscan.error"))
     return redirect(url_for("admin.integration_settings"))
 
 
@@ -122,10 +121,8 @@ def save_federation_public_directory_settings():
             "integrations.federation_public_directory_enabled",
             detail={"enabled": enabled, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Öffentliches Federation-Verzeichnis auf Standard zurückgesetzt."
-            if reset_defaults else "Einstellung für das öffentliche Federation-Verzeichnis gespeichert."
-        )
+        flash(translate(g.language, "feddisc.directory.reset")
+            if reset_defaults else translate(g.language, "feddisc.directory.saved"))
     except ValueError as exc:
         current_app.logger.info("Federation public-directory preference rejected: %s", type(exc).__name__)
         flash(str(exc))
@@ -133,7 +130,7 @@ def save_federation_public_directory_settings():
         current_app.logger.warning(
             "Federation public-directory preference save failed: %s", type(exc).__name__,
         )
-        flash("Federation-Verzeichniseinstellung konnte nicht gespeichert werden.")
+        flash(translate(g.language, "feddisc.directory.error"))
     return redirect(url_for("admin.integration_settings"))
 
 
@@ -170,10 +167,8 @@ def save_federation_profile_country_settings():
             "integrations.federation_profile_country",
             detail={"country": country, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Federation-Profilland auf Standard zurückgesetzt."
-            if reset_defaults else "Federation-Profilland gespeichert."
-        )
+        flash(translate(g.language, "feddisc.country.reset")
+            if reset_defaults else translate(g.language, "feddisc.country.saved"))
     except ValueError as exc:
         current_app.logger.info("Federation profile country rejected: %s", type(exc).__name__)
         flash(str(exc))
@@ -181,7 +176,7 @@ def save_federation_profile_country_settings():
         current_app.logger.warning(
             "Federation profile country save failed: %s", type(exc).__name__,
         )
-        flash("Federation-Profilland konnte nicht gespeichert werden.")
+        flash(translate(g.language, "feddisc.country.error"))
     return redirect(url_for("admin.integration_settings"))
 
 
@@ -218,14 +213,12 @@ def save_federation_public_url_settings():
                 "reset_to_defaults": reset_defaults,
             },
         )
-        flash(
-            "Federation-Profil-URL auf Standard zurückgesetzt."
-            if reset_defaults else "Federation-Profil-URL gespeichert."
-        )
+        flash(translate(g.language, "feddisc.url.reset")
+            if reset_defaults else translate(g.language, "feddisc.url.saved"))
     except ValueError as exc:
         current_app.logger.info("Federation public URL rejected: %s", type(exc).__name__)
         flash(str(exc))
     except OSError as exc:
         current_app.logger.warning("Federation public URL save failed: %s", type(exc).__name__)
-        flash("Federation-Profil-URL konnte nicht gespeichert werden.")
+        flash(translate(g.language, "feddisc.url.error"))
     return redirect(url_for("admin.integration_settings"))

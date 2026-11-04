@@ -1,5 +1,4 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,6 +6,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_discovery_http import bp
 from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
@@ -32,25 +32,23 @@ class FederationDiscoveryHttpTest(unittest.TestCase):
         self.context = self.app.app_context()
         self.context.push()
         self.client = self.app.test_client()
-        self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "discovery-test-token"
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put_secret("federation", "token", "discovery-test-token")
         self.auth = {"Authorization": "Bearer discovery-test-token"}
 
     def tearDown(self):
-        if self.previous is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
         self.context.pop()
         self.temp.cleanup()
 
     def test_well_known_uses_requested_address_without_public_url(self):
-        with patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_PUBLIC_URL", None)
-            response = self.client.get(
-                "/.well-known/simpleoffice-federation",
-                base_url="http://192.168.44.20:8080",
-            )
+        response = self.client.get(
+            "/.well-known/simpleoffice-federation",
+            base_url="http://192.168.44.20:8080",
+        )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["base_url"], "http://192.168.44.20:8080")
         self.assertTrue(response.json["capabilities"]["lan_discovery"])

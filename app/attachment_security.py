@@ -22,6 +22,13 @@ from werkzeug.security import safe_join
 
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, sha256_file, utc_now
 from .file_lock import exclusive_file_lock
+from .integration_settings import (
+    DEFAULT_CLAMAV_SCANNER_PATH,
+    DEFAULT_CLAMAV_TIMEOUT_SECONDS,
+    DEFAULT_SCANNER_CHOICE,
+    SCANNER_CHOICES,
+    normalize_clamav_scanner_path,
+)
 from .safe_paths import resolve_under, safe_filename
 from .v2.contracts import LogicalObjectId
 from .v2.storage_runtime import create_or_verify_document, import_document, storage_for
@@ -62,17 +69,19 @@ class ClamAV:
 
     display_name = "ClamAV"
 
-    def __init__(self, timeout: int | None = None):
-        configured = timeout if timeout is not None else int(os.environ.get("SIMPLEOFFICE_CLAMAV_TIMEOUT", "120"))
+    def __init__(self, timeout: int | None = None, scanner_path: str = DEFAULT_CLAMAV_SCANNER_PATH):
+        configured = timeout if timeout is not None else DEFAULT_CLAMAV_TIMEOUT_SECONDS
         self.timeout = max(5, min(configured, 900))
+        self.scanner_path = (scanner_path or "").strip()
 
     def executable(self) -> str:
-        requested = os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip()
+        requested = (self.scanner_path or "").strip()
         if requested:
-            candidate = Path(requested)
-            scanner_name = candidate.name.casefold()
-            if not candidate.is_absolute() or scanner_name not in {"clamdscan", "clamscan", "clamdscan.exe", "clamscan.exe"}:
-                raise RuntimeError("SIMPLEOFFICE_CLAMAV_SCANNER must be an absolute clamdscan or clamscan path")
+            try:
+                normalized = normalize_clamav_scanner_path(requested)
+            except ValueError as exc:
+                raise RuntimeError("clamav_scanner_path must be an absolute clamdscan or clamscan path") from exc
+            candidate = Path(normalized)
             if not candidate.is_file():
                 raise RuntimeError("configured ClamAV scanner is unavailable")
             return str(candidate)
@@ -110,7 +119,7 @@ class ClamAV:
         try:
             return self._run_scan(executable, path)
         except RuntimeError:
-            if os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip():
+            if (self.scanner_path or "").strip():
                 raise
             if Path(executable).name.casefold() not in {"clamdscan", "clamdscan.exe"}:
                 raise
@@ -306,11 +315,8 @@ class WindowsDefender:
         raise RuntimeError(self._classified_error(values, "signature update"))
 
 
-SCANNER_CHOICES = ("auto", "clamav", "defender")
-
-
 class _MisconfiguredScanner:
-    """Fail-closed placeholder that surfaces an invalid SIMPLEOFFICE_SCANNER choice."""
+    """Fail-closed placeholder that surfaces an invalid scanner_choice setting."""
 
     display_name = "Virenscanner"
 
@@ -331,22 +337,26 @@ class _MisconfiguredScanner:
         raise RuntimeError(self._message)
 
 
-def default_scanner(timeout: int | None = None) -> Scanner:
+def default_scanner(
+    timeout: int | None = None,
+    choice: str = DEFAULT_SCANNER_CHOICE,
+    scanner_path: str = DEFAULT_CLAMAV_SCANNER_PATH,
+) -> Scanner:
     """Select the malware scanner: an explicit choice wins, auto keeps ClamAV first."""
-    choice = (os.environ.get("SIMPLEOFFICE_SCANNER", "auto") or "auto").strip().casefold()
-    if choice not in SCANNER_CHOICES:
-        return _MisconfiguredScanner("SIMPLEOFFICE_SCANNER must be one of: auto, clamav, defender")
-    if choice == "clamav":
-        return ClamAV(timeout=timeout)
-    if choice == "defender":
+    normalized_choice = (choice or DEFAULT_SCANNER_CHOICE).strip().casefold()
+    if normalized_choice not in SCANNER_CHOICES:
+        return _MisconfiguredScanner("scanner_choice must be one of: auto, clamav, defender")
+    if normalized_choice == "clamav":
+        return ClamAV(timeout=timeout, scanner_path=scanner_path)
+    if normalized_choice == "defender":
         return WindowsDefender(timeout=timeout)
-    if os.environ.get("SIMPLEOFFICE_CLAMAV_SCANNER", "").strip():
-        return ClamAV(timeout=timeout)
+    if (scanner_path or "").strip():
+        return ClamAV(timeout=timeout, scanner_path=scanner_path)
     if shutil.which("clamdscan") or shutil.which("clamscan"):
-        return ClamAV(timeout=timeout)
+        return ClamAV(timeout=timeout, scanner_path=scanner_path)
     if os.name == "nt":
         return WindowsDefender(timeout=timeout)
-    return ClamAV(timeout=timeout)
+    return ClamAV(timeout=timeout, scanner_path=scanner_path)
 
 
 class AttachmentSecurity:
@@ -360,10 +370,12 @@ class AttachmentSecurity:
         if scanner is None:
             from .settings_store import SettingsStore
 
-            timeout = SettingsStore(self.root).settings()["integrations"][
-                "clamav_timeout_seconds"
-            ]
-            scanner = default_scanner(timeout=timeout)
+            section = SettingsStore(self.root).settings()["integrations"]
+            scanner = default_scanner(
+                timeout=section["clamav_timeout_seconds"],
+                choice=section["scanner_choice"],
+                scanner_path=section["clamav_scanner_path"],
+            )
         self.scanner = scanner
 
     def scan_webdav_upload(self, payload: bytes | BinaryIO, actor: str, target_path: str,

@@ -1,4 +1,5 @@
 import io
+import json
 import os
 import tarfile
 import tempfile
@@ -32,16 +33,12 @@ from app.settings_store import SettingsStore
 
 
 class ArchiveIndexerTest(unittest.TestCase):
-    def test_archive_ocr_is_opt_in_and_persisted_setting_overrides_legacy_environment(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
-                "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
-                "SIMPLEOFFICE_ARCHIVE_OCR": "0",
-            },
-            clear=False,
-        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
+    def test_archive_ocr_is_opt_in_and_persisted_setting_wins(self):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "app.archive_indexer.system_busy", return_value=(False, "test resources"),
+        ), patch(
+            "app.archive_indexer._disk_budget", return_value=(10 * 1024**3, 5 * 1024**3),
+        ):
             root = Path(temp)
             store = DocumentStore(root)
             first_archive = root / "ocr-disabled.zip"
@@ -56,21 +53,15 @@ class ArchiveIndexerTest(unittest.TestCase):
             SettingsStore(root).save(
                 {"media": {"archive_ocr_enabled": True}}, "archive-admin",
             )
-            second_archive = root / "ocr-enabled.zip"
-            with zipfile.ZipFile(second_archive, "w") as archive:
-                archive.writestr("scan.png", b"synthetic image bytes")
-            store.scan()
             with patch.object(store, "_image_ocr", return_value="archive OCR marker") as ocr:
-                result = index_archive(store, second_archive)
+                result = index_archive(store, first_archive)
             ocr.assert_called_once()
             self.assertIn("archive OCR marker", result["search_text"])
 
     def test_zip_catalog_and_plain_text_become_searchable_without_bulk_extraction(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1", "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0"},
-            clear=False,
-        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "app.archive_indexer.system_busy", return_value=(False, "test resources"),
+        ):
             root = Path(temp)
             archive_path = root / "kundenunterlagen.zip"
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -96,11 +87,9 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual(document["sha256"], document["attributes"]["archive_index"]["source_sha256"])
 
     def test_tar_member_text_is_indexed_one_member_at_a_time(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1", "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0"},
-            clear=False,
-        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "app.archive_indexer.system_busy", return_value=(False, "test resources"),
+        ):
             root = Path(temp)
             archive_path = root / "export.tar.gz"
             payload = b"Interner Suchbegriff Albatros-987"
@@ -140,10 +129,8 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual("complete", result["status"])
             self.assertTrue(store.search("Mondsichel-123"))
 
-    def test_persisted_setting_disables_deep_index_even_with_legacy_environment_enabled(self):
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(
-            os.environ, {"SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1"}, clear=False,
-        ):
+    def test_persisted_setting_disables_deep_index(self):
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive_path = root / "vertrag.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
@@ -185,7 +172,7 @@ class ArchiveIndexerTest(unittest.TestCase):
 
     def test_admin_load_threshold_is_applied_and_bounded(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
-            "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0),
+            "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0), create=True,
         ), patch("app.archive_indexer._free_memory_bytes", return_value=1024 * 1024 * 1024):
             busy, reason = system_busy(True, 0.75)
             self.assertTrue(busy)
@@ -198,17 +185,11 @@ class ArchiveIndexerTest(unittest.TestCase):
                         system_busy(True, invalid),
                     )
 
-    def test_legacy_enable_maps_to_resource_aware_indexing(self):
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
-                "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "0.75",
-            },
-        ):
+    def test_store_defaults_enable_resource_aware_indexing(self):
+        with tempfile.TemporaryDirectory() as temporary:
             media = SettingsStore(temporary).settings()["media"]
             with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
-                "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0),
+                "app.archive_indexer.os.getloadavg", return_value=(2.0, 0.0, 0.0), create=True,
             ), patch("app.archive_indexer._free_memory_bytes", return_value=1024 * 1024 * 1024):
                 busy, reason = system_busy(
                     media["archive_deep_index_enabled"],
@@ -220,69 +201,33 @@ class ArchiveIndexerTest(unittest.TestCase):
         self.assertTrue(busy)
         self.assertIn("system load", reason)
 
-    def test_memory_and_disk_limits_migrate_persist_and_bound_legacy_values(self):
+    def test_memory_and_disk_limits_persist_and_corrupt_values_fall_back_to_defaults(self):
         cases = (
-            (
-                "SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB",
-                "archive_min_free_memory_mb", 1024, 64, 65536,
-                DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB",
-                "archive_disk_reserve_mb", 8192, 128, 1048576,
-                DEFAULT_ARCHIVE_DISK_RESERVE_MB,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_MAX_MEMBERS",
-                "archive_max_members", 25000, 100, 200000,
-                DEFAULT_ARCHIVE_MAX_MEMBERS,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_MAX_MEMBER_MB",
-                "archive_max_member_mb", 1024, 1, 8192,
-                DEFAULT_ARCHIVE_MAX_MEMBER_MB,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_MAX_CONTENT_FILES",
-                "archive_max_content_files", 300, 1, 10000,
-                DEFAULT_ARCHIVE_MAX_CONTENT_FILES,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_MB",
-                "archive_max_text_mb", 12, 1, 64,
-                DEFAULT_ARCHIVE_MAX_TEXT_MB,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB",
-                "archive_max_text_per_member_mb", 12, 1, 32,
-                DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
-            ),
-            (
-                "SIMPLEOFFICE_ARCHIVE_MAX_TEXT_PER_MEMBER_MB",
-                "archive_max_text_per_member_mb", 12, 1, 32,
-                DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB,
-            ),
+            ("archive_min_free_memory_mb", 1024, DEFAULT_ARCHIVE_MIN_FREE_MEMORY_MB),
+            ("archive_disk_reserve_mb", 8192, DEFAULT_ARCHIVE_DISK_RESERVE_MB),
+            ("archive_max_members", 25000, DEFAULT_ARCHIVE_MAX_MEMBERS),
+            ("archive_max_member_mb", 1024, DEFAULT_ARCHIVE_MAX_MEMBER_MB),
+            ("archive_max_content_files", 300, DEFAULT_ARCHIVE_MAX_CONTENT_FILES),
+            ("archive_max_text_mb", 12, DEFAULT_ARCHIVE_MAX_TEXT_MB),
+            ("archive_max_text_per_member_mb", 12, DEFAULT_ARCHIVE_MAX_TEXT_PER_MEMBER_MB),
         )
-        for env_name, key, configured, minimum, maximum, default in cases:
+        for key, configured, default in cases:
             with self.subTest(key=key), tempfile.TemporaryDirectory() as temporary:
                 store = SettingsStore(temporary)
-                with patch.dict(os.environ, {env_name: str(configured)}):
-                    self.assertEqual(configured, store.settings()["media"][key])
-                    store.save({"media": {"preview_enabled": False}}, "archive-admin")
-                with patch.dict(os.environ, {env_name: str(default)}):
-                    self.assertEqual(configured, store.settings()["media"][key])
+                self.assertEqual(default, store.settings()["media"][key])
+                store.save({"media": {key: configured}}, "archive-admin")
+                self.assertEqual(configured, SettingsStore(temporary).settings()["media"][key])
+                store.save({"media": {"preview_enabled": False}}, "archive-admin")
+                self.assertEqual(configured, SettingsStore(temporary).settings()["media"][key])
 
-            for raw, expected in (
-                (str(minimum - 1), minimum),
-                (str(maximum + 1), maximum),
-                ("invalid", default),
-                ("9" * 30, default),
-            ):
+            for raw in ("invalid", 0, 999999999):
                 with self.subTest(key=key, raw=raw), tempfile.TemporaryDirectory() as temporary:
-                    with patch.dict(os.environ, {env_name: raw}):
-                        self.assertEqual(
-                            expected, SettingsStore(temporary).settings()["media"][key],
-                        )
+                    path = Path(temporary) / ".simpleoffice-meta" / "settings.json"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(json.dumps({"media": {key: raw}}), encoding="utf-8")
+                    self.assertEqual(
+                        default, SettingsStore(temporary).settings()["media"][key],
+                    )
 
     def test_resource_settings_are_used_and_changes_reindex_existing_archives(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -446,13 +391,7 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertEqual(2, expanded["resource_policy"]["max_text_per_member_mb"])
 
     def test_member_size_and_content_count_limits_control_extraction_and_reindex(self):
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
-                "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
-            },
-        ):
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive_path = root / "extraction-limits.zip"
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_STORED) as archive:
@@ -506,7 +445,7 @@ class ArchiveIndexerTest(unittest.TestCase):
 
     def test_memory_threshold_and_disk_reserve_fail_closed_at_configured_limits(self):
         with patch("app.archive_indexer.os.cpu_count", return_value=1), patch(
-            "app.archive_indexer.os.getloadavg", return_value=(0.0, 0.0, 0.0),
+            "app.archive_indexer.os.getloadavg", return_value=(0.0, 0.0, 0.0), create=True,
         ), patch("app.archive_indexer._free_memory_bytes", return_value=128 * 1024 * 1024):
             self.assertEqual((False, "resources available"), system_busy(True, 0.75, 64))
             busy, reason = system_busy(True, 0.75, 256)
@@ -554,15 +493,9 @@ class ArchiveIndexerTest(unittest.TestCase):
         self.assertIsNone(_windows_free_memory_bytes(MemoryStatusApi(0, result=False)))
 
     def test_suspicious_compression_ratio_is_catalogued_but_not_inflated_for_text(self):
-        with tempfile.TemporaryDirectory() as temp, patch.dict(
-            os.environ,
-            {
-                "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
-                "SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "10",
-                "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
-            },
-            clear=False,
-        ), patch("app.archive_indexer.system_busy", return_value=(False, "test resources")):
+        with tempfile.TemporaryDirectory() as temp, patch(
+            "app.archive_indexer.system_busy", return_value=(False, "test resources"),
+        ):
             root = Path(temp)
             archive_path = root / "bomb-like.zip"
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -570,6 +503,9 @@ class ArchiveIndexerTest(unittest.TestCase):
 
             store = DocumentStore(root)
             store.scan()
+            SettingsStore(root).save(
+                {"media": {"archive_max_compression_ratio": 10}}, "archive-admin",
+            )
             result = index_archive(store, archive_path)
 
             self.assertGreaterEqual(result["skipped_suspicious_compression"], 1)
@@ -577,12 +513,7 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertTrue(store.search("huge.txt"))
 
     def test_persisted_compression_ratio_controls_extraction_and_reindexing(self):
-        environment = {
-            "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
-            "SIMPLEOFFICE_ARCHIVE_MAX_COMPRESSION_RATIO": "200",
-            "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
-        }
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, environment):
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive_path = root / "ratio.zip"
             with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -610,14 +541,7 @@ class ArchiveIndexerTest(unittest.TestCase):
             self.assertIn("compression-ratio-marker", indexed["search_text"])
 
     def test_persisted_member_yield_controls_archive_index_pause(self):
-        environment = {
-            "SIMPLEOFFICE_ARCHIVE_DEEP_INDEX": "1",
-            "SIMPLEOFFICE_ARCHIVE_MAX_LOAD_PER_CPU": "0.75",
-            "SIMPLEOFFICE_ARCHIVE_MIN_FREE_MEMORY_MB": "384",
-            "SIMPLEOFFICE_ARCHIVE_DISK_RESERVE_MB": "2048",
-            "SIMPLEOFFICE_ARCHIVE_MEMBER_YIELD_MS": "0",
-        }
-        with tempfile.TemporaryDirectory() as temporary, patch.dict(os.environ, environment):
+        with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             archive_path = root / "yield.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:

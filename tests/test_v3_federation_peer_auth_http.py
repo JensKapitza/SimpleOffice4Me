@@ -1,14 +1,17 @@
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
+from app import federation_local_identity as local_identity
 from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
+from app.settings_store import SettingsStore
 from app.v3_federation import FederationContract
 from app.v3_federation_routes import bp as v3_bp
 
@@ -17,19 +20,19 @@ class V3FederationPeerAuthHttpTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name)
-        self.saved = {key: os.environ.get(key) for key in (
-            "SIMPLEOFFICE_V3_FEDERATION_ENABLED",
-            "SIMPLEOFFICE_FEDERATION_TOKEN",
-            "SIMPLEOFFICE_FEDERATION_PEER_ID",
-        )}
-        os.environ["SIMPLEOFFICE_V3_FEDERATION_ENABLED"] = "true"
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "legacy-global-token"
-        os.environ["SIMPLEOFFICE_FEDERATION_PEER_ID"] = "local-peer"
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
         self.app.register_blueprint(v3_bp)
         self.context = self.app.app_context()
         self.context.push()
+        self.addCleanup(self.context.pop)
+        patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        SettingsStore(self.root).save({"v3": {"v3.federation": True}}, "test")
+        local_identity.save({"peer_id": "local-peer", "token": "legacy-global-token"})
         self.store = FederationStore(self.root)
         self.store.save_peer(
             "remote-peer", "Remote", "https://remote.example.test", "remote-peer-token",
@@ -44,12 +47,6 @@ class V3FederationPeerAuthHttpTest(unittest.TestCase):
         self.client = self.app.test_client()
 
     def tearDown(self):
-        self.context.pop()
-        for key, value in self.saved.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
         self.temp.cleanup()
 
     def envelope(self, sender="remote-peer", message_id="message-auth-1"):

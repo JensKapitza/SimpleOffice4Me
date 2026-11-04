@@ -8,6 +8,23 @@
   const suggestUrl = root.dataset.suggestUrl || '';
   const documentId = root.dataset.documentId || '';
   const csrf = root.dataset.csrf || '';
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    analyzing: EN ? 'The angel is looking at the stored image …' : 'Der Engel schaut sich das gespeicherte Bild an …',
+    failed: (code) => EN ? `Image analysis failed (${code}).` : `Bildanalyse fehlgeschlagen (${code}).`,
+    timeoutHint: EN ? 'The model may still be loading — please try again later.' : 'Das Modell lädt möglicherweise noch — bitte später erneut versuchen.',
+    ollamaHint: EN ? 'Please set up Ollama with a vision model on this machine.' : 'Bitte Ollama mit Bildmodell auf diesem Rechner einrichten.',
+    noImage: EN ? 'Not an image document — nothing to analyze.' : 'Kein Bilddokument — nichts zu analysieren.',
+    localModel: EN ? 'local model' : 'lokales Modell',
+    unknownModel: EN ? 'unknown' : 'unbekannt',
+    head: (provider, model) => EN
+      ? `Analysis by ${provider} · Model ${model} · nothing stored`
+      : `Analyse durch ${provider} · Modell ${model} · nichts gespeichert`,
+    objectsFound: (names) => EN ? `Recognized object(s): ${names}` : `Erkanntes Objekt: ${names}`,
+    objectsNone: EN ? 'No distinct object recognized.' : 'Kein eindeutiges Objekt erkannt.',
+    ready: EN ? 'Image analysis ready.' : 'Bildanalyse bereit.',
+    network: EN ? 'Image analysis failed (network).' : 'Bildanalyse fehlgeschlagen (Netzwerk).',
+  };
   const cleanText = (value) => String(value || '').trim();
   const setStatus = (text, kind) => {
     if (!status) return;
@@ -22,7 +39,7 @@
   const analyze = async () => {
     if (!suggestUrl || !documentId || !button) return;
     button.disabled = true;
-    setStatus('Der Engel schaut sich das gespeicherte Bild an …', 'info');
+    setStatus(STR.analyzing, 'info');
     if (result) { result.hidden = true; result.textContent = ''; }
     try {
       const data = new FormData();
@@ -31,23 +48,23 @@
       const response = await fetch(suggestUrl, { method: 'POST', body: data, cache: 'no-store' });
       const payload = await safeJson(response);
       if (!response.ok || !payload || payload.ok !== true) {
-        const message = cleanText(payload && payload.error) || `Bildanalyse fehlgeschlagen (${response.status}).`;
+        const message = cleanText(payload && payload.error) || STR.failed(response.status);
         const hinted = response.status === 503
           ? (payload && payload.timeout === true
-            ? `${message} Das Modell lädt möglicherweise noch — bitte später erneut versuchen.`
-            : `${message} Bitte Ollama mit Bildmodell auf diesem Rechner einrichten.`)
+            ? `${message} ${STR.timeoutHint}`
+            : `${message} ${STR.ollamaHint}`)
           : message;
         setStatus(hinted, response.status === 503 ? 'warning' : 'danger');
         return;
       }
       if (!payload.image) {
-        setStatus('Kein Bilddokument — nichts zu analysieren.', 'warning');
+        setStatus(STR.noImage, 'warning');
         return;
       }
       const image = payload.image;
       const head = document.createElement('div');
       head.className = 'small text-secondary mb-1';
-      head.textContent = `Analyse durch ${cleanText(payload.provider_label) || 'lokales Modell'} · Modell ${cleanText(payload.model) || 'unbekannt'} · nichts gespeichert`;
+      head.textContent = STR.head(cleanText(payload.provider_label) || STR.localModel, cleanText(payload.model) || STR.unknownModel);
       result.appendChild(head);
       const desc = document.createElement('p');
       desc.className = 'mb-2';
@@ -56,12 +73,12 @@
       const objects = Array.isArray(image.objects) ? image.objects.map(cleanText).filter(Boolean) : [];
       const objs = document.createElement('p');
       objs.className = 'small mb-0';
-      objs.textContent = objects.length ? `Erkanntes Objekt: ${objects.join(', ')}` : 'Kein eindeutiges Objekt erkannt.';
+      objs.textContent = objects.length ? STR.objectsFound(objects.join(', ')) : STR.objectsNone;
       result.appendChild(objs);
       result.hidden = false;
-      setStatus('Bildanalyse bereit.', 'success');
+      setStatus(STR.ready, 'success');
     } catch (_error) {
-      setStatus('Bildanalyse fehlgeschlagen (Netzwerk).', 'danger');
+      setStatus(STR.network, 'danger');
     } finally {
       button.disabled = false;
     }

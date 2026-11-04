@@ -8,6 +8,7 @@ from urllib.parse import urlencode
 from flask import current_app
 
 from .auth import GOOGLE_TOKEN_URL, _google_json_request
+from . import marketplace_credentials as _marketplace
 from .db import get_db
 from .security_controls import protect_value, unprotect_value
 
@@ -74,8 +75,7 @@ def google_access_token(
     ):
         return access_token
 
-    client_id = str(current_app.config.get("GOOGLE_OAUTH_CLIENT_ID", "")).strip()
-    client_secret = str(current_app.config.get("GOOGLE_OAUTH_CLIENT_SECRET", "")).strip()
+    client_id, client_secret = _marketplace.google_oauth_credentials()
     if not client_id or not client_secret or not refresh_token:
         raise PermissionError("Google account must be connected again")
 

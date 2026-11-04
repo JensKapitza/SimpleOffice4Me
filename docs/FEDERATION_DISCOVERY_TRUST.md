@@ -167,7 +167,7 @@ Der zweigeteilte **Resource Commander** unter `/resource-commander` übernimmt d
 - die Aktionsleiste berücksichtigt die effektiven Provider-Capabilities. Lesen, Schreiben, Ordneranlage und Löschen werden nicht nur optisch, sondern weiterhin serverseitig geprüft;
 - providerübergreifendes „Verschieben“ bleibt absichtlich eine sichere Kopie. Die Quelle wird dabei nicht automatisch gelöscht;
 - Federation-Rechte ergeben sich weiterhin aus der lokalen Dokument-Policy. Der angezeigte Trust-Status ersetzt keine Berechtigung;
-- Remote-Zugriff auf die Commander-API verwendet weiterhin den separaten `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN` bzw. peer-spezifische Commander-Credentials und nicht den allgemeinen Federation-Transport-Token.
+- Remote-Zugriff auf die Commander-API verwendet weiterhin das separate, in der Admin-Oberfläche gepflegte Commander-Inbound-Token bzw. peer-spezifische Commander-Credentials und nicht den allgemeinen Federation-Transport-Token. Die Umgebungsvariablen `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN`, `SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS` und der dynamische Präfix `SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN_<PEER>` sind entfernt.
 
 Damit bleibt Discovery/Trust von konkreten Datei-Rechten getrennt, während der Bedienweg für lokale und föderierte Dateien einheitlich ist.
 

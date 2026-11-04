@@ -133,7 +133,7 @@ vereinheitlicht, nicht die Protokollimplementierungen ersetzt.
 - SIP: `SIMPLEOFFICE_SIP_BIND`, `telephony/telephony-profiles.sqlite3` neben der Konfiguration;
   Registrar-Adresse, Port, Transport, Realm und STUN über TelephonyProfileStore.
   Secret-Verifier, nicht Klartextpasswörter, gehen an den Registrar.
-- TTS: `SIMPLEOFFICE_PIPER_MODEL`; Modelle werden nicht automatisch geladen.
+- TTS: `media.piper_model` aus den Medien-Einstellungen; Modelle werden nicht automatisch geladen.
 - Federation: `SIMPLEOFFICE_FEDERATION_PEER_ID`; vorhandene Peer-Rollen und
   Authentifizierung bleiben maßgeblich.
 - Starter: `PYTHON`, `SIMPLEOFFICE_MINI_SERVICES_PYTHON` (start2-Kompatibilität),

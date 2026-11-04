@@ -28,9 +28,10 @@ Werte aus mehreren Sensoren unterscheidbar.
   verwenden ausschließlich GET, folgen keinen Umleitungen und senden keinen
   Request-Body.
 - Zugangsdaten in HTTP-URIs sind nach [RFC 9110 Abschnitt 4.2.4](https://www.rfc-editor.org/rfc/rfc9110.html#section-4.2.4)
-  abzulehnen. Geheimnisse werden daher nicht in Kanal- oder Quellenkonfiguration
-  gespeichert. Eine Quelle darf nur den Namen einer mit
-  `SIMPLEOFFICE_SENSOR_` beginnenden Umgebungsvariablen referenzieren.
+  abzulehnen. Das optionale HTTP-Header-Token wird daher direkt in der
+  Quellenkonfiguration gespeichert (nie in Umgebungsvariablen) und beim Anlegen
+  nie wieder angezeigt. Ältere `header_env`-Verweise werden ignoriert; das Token
+  muss erneut eingetragen werden.
 - HTTP-Anmeldedaten benötigen einen geschützten Transport; siehe
   [RFC 9110 Abschnitt 11](https://www.rfc-editor.org/rfc/rfc9110.html#section-11).
   Für entfernte Sensoren ist HTTPS erforderlich; bewusstes HTTP ist nur für
@@ -52,17 +53,12 @@ Bearbeitende dürfen Werte und Quellen ändern; Lesende sehen Verlauf und Export
   oder `mtime`; Symlinks werden nicht verfolgt und der Lauf endet nach dem
   konfigurierten Eintragslimit.
 - HTTP/JSON: URL und Pfad wie `room.temperature` oder `sensors[0].value`.
-  Zulässige Ziele stehen kommasepariert in
-  `SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS`; sicherer Standard ist
-  `localhost,127.0.0.1,::1`. Beispiel:
-
-  ```sh
-  export SIMPLEOFFICE_SENSOR_ALLOWED_HOSTS="sensor-keller.lan,192.168.10.42"
-  export SIMPLEOFFICE_SENSOR_KELLER_TOKEN="Bearer …"
-  ```
-
-  Im Formular wird nur `SIMPLEOFFICE_SENSOR_KELLER_TOKEN` angegeben, nie sein
-  Wert. Antworten sind auf 1 MiB und Abfragen auf fünf Sekunden begrenzt.
+  Zulässige Ziele stehen in den Worker-Einstellungen des Datenloggers
+  (Datenlogger → Worker-Einstellungen → erlaubte Sensor-Hosts, einer pro Zeile
+  oder Komma-getrennt); sicherer Standard ist `localhost,127.0.0.1,::1`.
+  Beispiel: `sensor-keller.lan` eintragen und im Quellenformular das
+  HTTP-Header-Token hinterlegen. Antworten sind auf 1 MiB und Abfragen auf fünf
+  Sekunden begrenzt.
 - `lm-sensors`: auf Debian/Ubuntu etwa `sudo apt install lm-sensors`, danach
   administrativ `sudo sensors-detect`; `sensors -j` zeigt die verwendbaren
   JSON-Pfade. SimpleOffice führt ausschließlich `sensors -j` ohne Shell aus.

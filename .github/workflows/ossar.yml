@@ -30,7 +30,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Run Microsoft Security DevOps
-        uses: microsoft/security-devops-action@241d09d34a00dc03aad8b1e8cf988a6f66ecd3f5
+        uses: microsoft/security-devops-action@9fe580e3cbc6c40cc75ffa96061ea94fcdbcf0d8
         id: msdo
         with:
           # Bandit is intentionally omitted here. The MSDO Windows package can

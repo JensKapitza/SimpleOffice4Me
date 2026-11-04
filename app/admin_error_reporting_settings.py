@@ -7,6 +7,7 @@ from flask import Blueprint, current_app, flash, g, redirect, request, url_for
 from .access_control import audit
 from .admin import admin_required
 from .settings_store import DEFAULT_ERROR_REPORTING_ENABLED, SettingsStore
+from .translations import translate
 
 
 bp = Blueprint("admin_error_reporting_settings", __name__, url_prefix="/admin")
@@ -40,10 +41,8 @@ def save_error_reporting_settings():
             "integrations.error_reporting_enabled",
             detail={"enabled": enabled, "reset_to_defaults": reset_defaults},
         )
-        flash(
-            "Fehlerbericht-Einstellung auf Standard zurückgesetzt."
-            if reset_defaults else "Fehlerbericht-Einstellung gespeichert."
-        )
+        flash(translate(g.language, "errrep.reset")
+            if reset_defaults else translate(g.language, "errrep.saved"))
     except ValueError as exc:
         current_app.logger.info("Error-reporting preference rejected: %s", type(exc).__name__)
         flash(str(exc))
@@ -51,5 +50,5 @@ def save_error_reporting_settings():
         current_app.logger.warning(
             "Error-reporting preference save failed: %s", type(exc).__name__,
         )
-        flash("Fehlerbericht-Einstellung konnte nicht gespeichert werden.")
+        flash(translate(g.language, "errrep.error"))
     return redirect(url_for("admin.integration_settings"))

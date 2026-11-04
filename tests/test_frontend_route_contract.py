@@ -11,6 +11,7 @@ from werkzeug.security import generate_password_hash
 
 from app import app
 from app import db as database
+from app.settings_store import SettingsStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -179,13 +180,10 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
             DATABASE=str(Path(self.temp.name) / "frontend-smoke.sqlite"),
             DOCUMENT_ROOT=str(Path(self.temp.name) / "documents"),
         )
-        self.feature_env = patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED": "1"},
-            clear=False,
-        )
-        self.feature_env.start()
         Path(app.config["DOCUMENT_ROOT"]).mkdir(parents=True, exist_ok=True)
+        SettingsStore(Path(app.config["DOCUMENT_ROOT"])).save(
+            {"v3": {"v3.android_offline": True}}, "v3-frontend-contract",
+        )
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()
@@ -203,7 +201,6 @@ class FrontendNavigationSmokeTests(unittest.TestCase):
         self.assertLess(response.status_code, 400)
 
     def tearDown(self):
-        self.feature_env.stop()
         app.config.update(self.saved)
         self.temp.cleanup()
 

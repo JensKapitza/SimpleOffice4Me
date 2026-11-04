@@ -8,31 +8,31 @@ additiven Erweiterungen; die Release-Freigabe ist noch offen.
 ## Aktivieren und Berechtigungen
 
 Die zentrale [Capability-Registry](../app/v3_capabilities.py) enthält die
-folgenden 16 Schalter. Alle haben den Standard **aus**. Aktivierung erfolgt in
-der Prozessumgebung der Installation, nicht durch einen hier vorausgesetzten
-neuen Administrationsdialog. `1`, `true`, `yes` und `on` aktivieren;
-Groß-/Kleinschreibung und umgebende Leerzeichen werden normalisiert.
-Nicht gesetzte Schalter bleiben aus, andere Werte deaktivieren. Unbekannte
-Capability-Schlüssel sind nicht verfügbar.
+folgenden 16 Schalter. Alle haben den Standard **aus**. Aktivierung erfolgt
+unter **Administration → Capabilities 3.0** (persistente `v3`-Sektion der
+Einstellungsdatei, ein Schalter je Capability). Nicht gesetzte Schalter bleiben
+aus; unbekannte Capability-Schlüssel sind nicht verfügbar. Die früheren
+`SIMPLEOFFICE_V3_*_ENABLED`-Umgebungsvariablen sind entfernt; der Job-Worker
+liest dieselbe Datei über sein `--root`-Verzeichnis.
 
-| Capability | Umgebungsvariable | Funktion / Anleitung |
+| Capability | Einstellung (`v3`-Sektion) | Funktion / Anleitung |
 |---|---|---|
-| `v3.sample` | `SIMPLEOFFICE_V3_SAMPLE_ENABLED` | Architektur-Smoke-Capability, kein eigenes Fachmodul; [Vertrag](V3_EVOLUTION_CONTRACT.md) |
-| `v3.relations` | `SIMPLEOFFICE_V3_RELATIONS_ENABLED` | Modulübergreifende Referenzen und Beziehungen; [Relations](V3_RELATIONS.md) |
-| `v3.activity` | `SIMPLEOFFICE_V3_ACTIVITY_ENABLED` | Domain Events und Activity Stream; [Activity](V3_ACTIVITY.md) |
-| `v3.jobs` | `SIMPLEOFFICE_V3_JOBS_ENABLED` | Persistente Jobs, Leases, Wiederholungen; [Jobs](V3_JOBS.md) |
-| `v3.policy` | `SIMPLEOFFICE_V3_POLICY_ENABLED` | Fassade über bestehende Berechtigungen; [Policy](V3_POLICY.md) |
-| `v3.search` | `SIMPLEOFFICE_V3_SEARCH_ENABLED` | Globale Suche und Command Palette; [Suche](V3_SEARCH.md) |
-| `v3.entity_context` | `SIMPLEOFFICE_V3_ENTITY_CONTEXT_ENABLED` | Gemeinsamer Kontext für bestehende Objekte; [Entity-Kontext](V3_ENTITY_CONTEXT.md) |
-| `v3.inbox` | `SIMPLEOFFICE_V3_INBOX_ENABLED` | Dokumenteingang mit nachvollziehbarem Import; [Inbox](V3_INBOX.md) |
-| `v3.automation` | `SIMPLEOFFICE_V3_AUTOMATION_ENABLED` | Deklarative Regeln und kontrollierte Aktionen; [Automation](V3_AUTOMATION.md) |
-| `v3.workboard` | `SIMPLEOFFICE_V3_WORKBOARD_ENABLED` | Gemeinsame Aufgaben-/Kalenderansicht; [Workboard](V3_WORKBOARD.md) |
-| `v3.crm` | `SIMPLEOFFICE_V3_CRM_ENABLED` | Kundenarbeitsfläche auf bestehenden Kontakten; [CRM](V3_CRM.md) |
-| `v3.finance` | `SIMPLEOFFICE_V3_FINANCE_ENABLED` | Geschäftsdokument-Lifecycle; [Finance](V3_FINANCE.md) |
-| `v3.extensions` | `SIMPLEOFFICE_V3_EXTENSIONS_ENABLED` | Versionierte Integrationsschnittstelle; [Extensions](V3_EXTENSIONS.md) |
-| `v3.health` | `SIMPLEOFFICE_V3_HEALTH_ENABLED` | Health-Dashboard und begrenzte Diagnose; [Health](V3_HEALTH.md) |
-| `v3.android_offline` | `SIMPLEOFFICE_V3_ANDROID_OFFLINE_ENABLED` | Kontrollierter APK-Offline-Arbeitsbereich; [Android](ANDROID.md) |
-| `v3.federation` | `SIMPLEOFFICE_V3_FEDERATION_ENABLED` | Versionierter Transfer auf bestehendem Trust; [Federation](V3_FEDERATION.md) |
+| `v3.sample` | `v3.sample` | Architektur-Smoke-Capability, kein eigenes Fachmodul; [Vertrag](V3_EVOLUTION_CONTRACT.md) |
+| `v3.relations` | `v3.relations` | Modulübergreifende Referenzen und Beziehungen; [Relations](V3_RELATIONS.md) |
+| `v3.activity` | `v3.activity` | Domain Events und Activity Stream; [Activity](V3_ACTIVITY.md) |
+| `v3.jobs` | `v3.jobs` | Persistente Jobs, Leases, Wiederholungen; [Jobs](V3_JOBS.md) |
+| `v3.policy` | `v3.policy` | Fassade über bestehende Berechtigungen; [Policy](V3_POLICY.md) |
+| `v3.search` | `v3.search` | Globale Suche und Command Palette; [Suche](V3_SEARCH.md) |
+| `v3.entity_context` | `v3.entity_context` | Gemeinsamer Kontext für bestehende Objekte; [Entity-Kontext](V3_ENTITY_CONTEXT.md) |
+| `v3.inbox` | `v3.inbox` | Dokumenteingang mit nachvollziehbarem Import; [Inbox](V3_INBOX.md) |
+| `v3.automation` | `v3.automation` | Deklarative Regeln und kontrollierte Aktionen; [Automation](V3_AUTOMATION.md) |
+| `v3.workboard` | `v3.workboard` | Gemeinsame Aufgaben-/Kalenderansicht; [Workboard](V3_WORKBOARD.md) |
+| `v3.crm` | `v3.crm` | Kundenarbeitsfläche auf bestehenden Kontakten; [CRM](V3_CRM.md) |
+| `v3.finance` | `v3.finance` | Geschäftsdokument-Lifecycle; [Finance](V3_FINANCE.md) |
+| `v3.extensions` | `v3.extensions` | Versionierte Integrationsschnittstelle; [Extensions](V3_EXTENSIONS.md) |
+| `v3.health` | `v3.health` | Health-Dashboard und begrenzte Diagnose; [Health](V3_HEALTH.md) |
+| `v3.android_offline` | `v3.android_offline` | Kontrollierter APK-Offline-Arbeitsbereich; [Android](ANDROID.md) |
+| `v3.federation` | `v3.federation` | Versionierter Transfer auf bestehendem Trust; [Federation](V3_FEDERATION.md) |
 
 Eine aktivierte Capability erteilt keine Benutzer-, Rollen-, Objekt- oder
 Peer-Rechte. Die vorhandenen serverseitigen Fachberechtigungen bleiben
@@ -68,14 +68,16 @@ Den Worker mit dem installierten Projektinterpreter aus dem Projektverzeichnis
 als eigenem Prozess starten. Der Datenpfad muss zur Webinstallation passen:
 
 ```bash
-SIMPLEOFFICE_V3_JOBS_ENABLED=1 .venv/bin/python -m tools.v3_job_worker --root /pfad/zum/dokumentbestand --once
+.venv/bin/python -m tools.v3_job_worker --root /pfad/zum/dokumentbestand --once
 ```
 
 `--once` führt einen Worker-Durchlauf aus, nicht die gesamte Warteschlange.
 Ohne `--once` läuft der Worker mit konfigurierbarem `--poll-seconds` dauerhaft.
 Das Beispiel ist für Linux/macOS; den Pfad durch den bestehenden Dokumentbestand
-ersetzen. Die Variable enthält keinen geheimen Wert. Dienste müssen dieselbe
-Konfiguration erhalten und nach Änderungen kontrolliert neu gestartet werden.
+ersetzen. Der Worker liest den `v3.jobs`-Schalter aus derselben
+Einstellungsdatei (zuvor unter Administration → Capabilities 3.0 einschalten).
+Dienste müssen dieselbe Konfiguration erhalten und nach Änderungen kontrolliert
+neu gestartet werden.
 
 ## Upgrade, Deaktivieren und Release-Nachweise
 

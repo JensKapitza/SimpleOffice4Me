@@ -60,12 +60,12 @@ def _network_context():
         config = load_config(path)
     except (ValueError, OSError):
         config = DEFAULT_CONFIG
-        flash("Die Konfigurationsdatei ist nicht lesbar oder ungültig. Angezeigt werden Standardwerte; Speichern ersetzt die fehlerhafte Datei.")
+        flash(translate(g.language, "minisvc.config.unreadable"))
     try:
         gateway = load_gateway_settings(path)
     except (ValueError, OSError):
         gateway = DEFAULT_GATEWAY_SETTINGS
-        flash("Gateway-Einstellungen sind nicht lesbar. Standardwerte werden angezeigt; erneut speichern, um die Datei zu reparieren.")
+        flash(translate(g.language, "minisvc.gateway.unreadable"))
     interfaces = network_interfaces()
     return {
         "config": config,
@@ -93,7 +93,7 @@ def index():
         config = load_config(default_config_path())
     except (ValueError, OSError):
         config = DEFAULT_CONFIG
-        flash("Mini-Service-Konfiguration ist ungültig. Netzwerkeinstellungen prüfen.")
+        flash(translate(g.language, "minisvc.config.invalid"))
     return render_template(
         "admin/mini_services_hub.html",
         config=config,
@@ -141,11 +141,11 @@ def sftp_save():
     try:
         save_settings(candidate)
     except (ValueError, TypeError, RuntimeError, OSError, subprocess.TimeoutExpired) as exc:
-        flash("SFTP nicht gespeichert. Laufenden Mini-Service stoppen, Eingaben und Dateirechte prüfen; Systembetrieb benötigt einen vorhandenen SSH-Dienst.")
+        flash(translate(g.language, "minisvc.sftp.failed"))
         return render_template("admin/sftp_service.html", service={"settings": candidate,
                                "health": {"message": "Eingaben bleiben erhalten; gespeicherte Konfiguration wurde nicht geändert."}}), 503 if isinstance(exc, (OSError, subprocess.TimeoutExpired)) else 400
     audit("mini_service_settings", "service", "sftp")
-    flash("SFTP gespeichert. In der Dienstübersicht kannst du den Dienst starten.")
+    flash(translate(g.language, "minisvc.sftp.saved"))
     return redirect(url_for("mini_services_admin.index"))
 
 
@@ -223,7 +223,7 @@ def save():
             if storage_error else
             "Die Konfiguration ist ungültig. IP-Adressen, Netz und Pool, Ports, Zeitwerte sowie JSON-Felder prüfen."
         )
-        flash(message + " Deine Eingaben bleiben erhalten; die gespeicherte Konfiguration wurde nicht geändert.")
+        flash(message + " " + translate(g.language, "minisvc.input.kept"))
         audit("mini_services_config_rejected", "service", "dhcp-dns", detail={"error_type": type(exc).__name__})
         return render_template(
             "admin/mini_services.html", **{**_network_context(), "config": candidate},
@@ -235,7 +235,7 @@ def save():
         "dhcp-dns",
         detail={"dhcp_enabled": clean["dhcp"]["enabled"], "dns_enabled": clean["dns"]["enabled"]},
     )
-    flash("Mini Services gespeichert. Der Netzwerk-Worker übernimmt die Änderung automatisch.")
+    flash(translate(g.language, "minisvc.saved"))
     return redirect(url_for("mini_services_admin.network"))
 
 
@@ -251,10 +251,10 @@ def gateway_settings():
             candidate = DEFAULT_GATEWAY_SETTINGS
         clean = save_gateway_settings(candidate, default_config_path())
     except (OSError, ValueError, TypeError):
-        flash("Gateway-Einstellungen nicht gespeichert. Modus, Schnittstellen, IPv4-Netz und Dateirechte prüfen.")
+        flash(translate(g.language, "minisvc.gateway.failed"))
         return render_template("admin/mini_services.html", **{**_network_context(), "gateway": candidate}), 400
     audit("mini_gateway_settings_updated", "service", "gateway", detail={"enabled": clean["enabled"], "mode": clean["mode"]})
-    flash("Gateway-Einstellungen gespeichert. Der Worker übernimmt die Änderung; Status in der Dienstübersicht prüfen.")
+    flash(translate(g.language, "minisvc.gateway.saved"))
     return redirect(url_for("mini_services_admin.network"))
 
 
@@ -268,10 +268,10 @@ def reset_network(service):
         config[service] = DEFAULT_CONFIG[service]
         save_config(config, default_config_path())
     except (OSError, ValueError):
-        flash("Standardwerte konnten nicht gespeichert werden. Gesamtkonfiguration und Dateirechte prüfen.")
+        flash(translate(g.language, "minisvc.defaults.failed"))
         return redirect(url_for("mini_services_admin.network"))
     audit("mini_service_defaults_restored", "service", service)
-    flash(f"{service.upper()}: deaktivierte Standardwerte wiederhergestellt. Andere Dienste bleiben unverändert.")
+    flash(translate(g.language, "minisvc.defaults.restored").format(service=service.upper()))
     return redirect(url_for("mini_services_admin.network"))
 
 
@@ -283,10 +283,10 @@ def refresh_lists():
         meta = refresh_blocklists(load_config(path), path)
     except Exception as exc:
         audit("mini_dns_blocklist_refresh", "service", "dns", outcome="failure", detail={"error_type": type(exc).__name__})
-        flash("Blocklisten konnten nicht aktualisiert werden. Netzwerk und Blocklisten-Adressen prüfen; Details im Audit.")
+        flash(translate(g.language, "minisvc.blocklist.failed"))
     else:
         audit("mini_dns_blocklist_refresh", "service", "dns", detail={"domains": meta.get("domains", 0)})
-        flash(f"Blocklisten aktualisiert: {meta.get('domains', 0)} Domains.")
+        flash(translate(g.language, "minisvc.blocklist.done").format(domains=meta.get('domains', 0)))
     return redirect(url_for("mini_services_admin.network"))
 
 
@@ -295,7 +295,7 @@ def refresh_lists():
 def clear_query_log():
     clear_dns_log(default_config_path())
     audit("mini_dns_log_cleared", "service", "dns")
-    flash("DNS-Anfragelog wurde geleert.")
+    flash(translate(g.language, "minisvc.querylog.cleared"))
     return redirect(url_for("mini_services_admin.network"))
 
 
@@ -304,7 +304,7 @@ def clear_query_log():
 def clear_dhcp_leases():
     clear_leases(default_config_path())
     audit("mini_dhcp_leases_cleared", "service", "dhcp")
-    flash("DHCP-Leases wurden geleert. Aktive Clients können anschließend neue Leases anfordern.")
+    flash(translate(g.language, "minisvc.leases.cleared"))
     return redirect(url_for("mini_services_admin.network"))
 
 
@@ -318,11 +318,14 @@ from .network_boot_admin import bp as _network_boot_admin_bp
 from .network_boot_http import bp as _network_boot_http_bp, federation_bp as _network_boot_federation_bp
 from .telephony_admin import bp as _telephony_admin_bp
 from .litellm_admin import bp as _litellm_admin_bp
+from .vision_admin import bp as _vision_admin_bp
 from .mini_services_api import bp as _mini_services_api_bp
 from .connectivity_relay_admin import bp as _connectivity_relay_admin_bp, ice_bp as _connectivity_relay_ice_bp
 from .firewall_admin import bp as _firewall_admin_bp, api_bp as _firewall_api_bp
+from .translations import translate
 for _service_bp in (
     _litellm_admin_bp,
+    _vision_admin_bp,
     _network_boot_admin_bp,
     _network_boot_http_bp,
     _network_boot_federation_bp,

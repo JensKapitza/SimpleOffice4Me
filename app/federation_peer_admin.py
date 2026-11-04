@@ -1,6 +1,5 @@
 """Admin routes for federation discovery and directed trust."""
 import ipaddress
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -13,6 +12,13 @@ from .federation_discovery_lan import discover_lan, local_lan_addresses, scan_po
 from .federation_discovery_publish import publish
 from .federation_discovery_service import discover_country, discover_direct, discover_email
 from .federation_lan_receive_state import LanReceiveState
+from . import federation_local_identity
+from . import federation_network
+from . import resource_commander_credentials
+from .federation_identity_admin import (
+    rotate_identity_token as _rotate_identity_token_view,
+    save_identity as _save_identity_view,
+)
 from .federation_local_profile import local_profile
 from .federation_pairing import FederationPairingTokens
 from .federation_pairing_client import PairingClientError, claim_pairing_code, remote_pairing_status
@@ -29,6 +35,7 @@ from .v2.federation_policy import FederationPolicyStore, SCOPES
 from .v2.jobs import FederationJobService, PersistentJobStore
 from .mail_case_federation import MailCaseFederationIdentityStore
 from .db import get_db
+from .translations import translate
 
 bp = Blueprint("federation_peer_admin", __name__, url_prefix="/admin/federation/peer-discovery")
 
@@ -55,7 +62,7 @@ def set_mail_case_identity():
     if not user:
         if json_request:
             return jsonify({"error": "unknown_or_disabled_local_user"}), 400
-        flash("Lokaler Benutzer ist nicht aktiv oder nicht vorhanden.")
+        flash(translate(g.language, "fedpeer.user.inactive"))
         return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
     try:
         mapping = MailCaseFederationIdentityStore(_root()).set(
@@ -67,7 +74,7 @@ def set_mail_case_identity():
     except ValueError:
         if json_request:
             return jsonify({"error": "invalid_mapping_or_peer"}), 400
-        flash("Mail-Vorgang-Zuordnung ist ungültig oder der Peer ist nicht aktiv.")
+        flash(translate(g.language, "fedpeer.mapping.invalid"))
         return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
     FederationStore(_root()).record_event(
         "mail_case_federation_identity_mapped", peer_id=peer_id,
@@ -75,7 +82,7 @@ def set_mail_case_identity():
     )
     if json_request:
         return jsonify({"mapping": mapping}), 200
-    flash("Federation-Benutzerzuordnung gespeichert.")
+    flash(translate(g.language, "fedpeer.mapping.saved"))
     return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
 
 
@@ -87,14 +94,14 @@ def remove_mail_case_identity_form():
     try:
         removed = MailCaseFederationIdentityStore(_root()).remove(peer_id, remote_user_id)
     except ValueError:
-        flash("Mail-Vorgang-Zuordnung ist ungültig.")
+        flash(translate(g.language, "fedpeer.mailmapping.invalid"))
         return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
     if removed:
         FederationStore(_root()).record_event(
             "mail_case_federation_identity_removed", peer_id=peer_id,
             detail={"remote_user_id": remote_user_id, "updated_by": _actor()},
         )
-    flash("Federation-Benutzerzuordnung widerrufen." if removed else "Federation-Benutzerzuordnung war nicht vorhanden.")
+    flash(translate(g.language, "fedpeer.mapping.revoked") if removed else translate(g.language, "fedpeer.mapping.absent"))
     return redirect(url_for("federation_peer_admin.dashboard") + "#mail-case-identities")
 
 
@@ -268,8 +275,7 @@ def _discovery_address_suggestions(peers):
 def _connect_addresses():
     """Return device IPv4 addresses for QR connect, without RFC1918 filtering."""
     values = []
-    raw = os.environ.get("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", "")
-    for item in raw.split(","):
+    for item in federation_network.lan_addresses():
         text = item.strip().split("%", 1)[0]
         if not text:
             continue
@@ -363,6 +369,9 @@ def dashboard():
         setup_hints=suggest_federation_setup(peers),
         own=own,
         own_qr=own_qr,
+        identity=federation_local_identity.status(),
+        network=federation_network.status(),
+        commander=resource_commander_credentials.status(),
         lan_connect_profiles=_lan_connect_profiles(),
         lan_receive=_receive_state().status(),
         compatibility_requirements=requirements(),
@@ -402,7 +411,7 @@ def issue_pairing_code(peer_id):
         response.headers["Referrer-Policy"] = "no-referrer"
         return response
     except (TypeError, ValueError) as exc:
-        flash(f"Pairing-Code konnte nicht erzeugt werden: {exc}")
+        flash(translate(g.language, "fedpeer.pairing.create.failed").format(exc=exc))
         return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -418,9 +427,9 @@ def revoke_pairing_code(peer_id):
                 peer_id=peer_id,
                 detail={"actor": _actor()},
             )
-        flash("Pairing-Code widerrufen." if revoked else "Kein Pairing-Code vorhanden.")
+        flash(translate(g.language, "fedpeer.pairing.revoked") if revoked else translate(g.language, "fedpeer.pairing.absent"))
     except (TypeError, ValueError) as exc:
-        flash(f"Pairing-Code konnte nicht widerrufen werden: {exc}")
+        flash(translate(g.language, "fedpeer.pairing.revoke.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -439,17 +448,11 @@ def claim_remote_pairing_code(peer_id):
             )
         except Exception as exc:
             current_app.logger.error("Remote pairing audit failed (%s)", type(exc).__name__)
-            flash(
-                "Pairing-Code wurde beansprucht, aber das lokale Audit konnte nicht "
-                "gespeichert werden. Remote-Status prüfen."
-            )
+            flash(translate(g.language, "fedpeer.pairing.claim.audit"))
         else:
-            flash(
-                "Pairing-Code auf der Gegenstelle beansprucht. "
-                "Trust, Aktivierung und Datenrechte bleiben unverändert."
-            )
+            flash(translate(g.language, "fedpeer.pairing.claimed"))
     except (PairingClientError, TypeError, ValueError) as exc:
-        flash(f"Pairing-Code konnte nicht beansprucht werden: {exc}")
+        flash(translate(g.language, "fedpeer.pairing.claim.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -465,9 +468,9 @@ def check_remote_pairing_status(peer_id):
             "claimed": "beansprucht",
             "expired": "abgelaufen",
         }
-        flash(f"Pairing-Status auf der Gegenstelle: {labels[result['status']]}.")
+        flash(translate(g.language, "fedpeer.pairing.status").format(status=labels[result['status']]))
     except (PairingClientError, TypeError, ValueError) as exc:
-        flash(f"Remote-Pairing-Status konnte nicht geprüft werden: {exc}")
+        flash(translate(g.language, "fedpeer.pairing.status.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -476,9 +479,9 @@ def check_remote_pairing_status(peer_id):
 def start_receive():
     try:
         state = _receive_state().start()
-        flash(f"WLAN-Empfang für 15 Minuten vorgemerkt. Ablauf: {state['expires_at']}.")
+        flash(translate(g.language, "fedpeer.wlan.noted").format(expires=state['expires_at']))
     except Exception:
-        flash("WLAN-Empfang konnte nicht aktiviert werden. Lokalen Speicher und App-Daten prüfen.")
+        flash(translate(g.language, "fedpeer.wlan.failed"))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -487,9 +490,9 @@ def start_receive():
 def stop_receive():
     try:
         _receive_state().stop()
-        flash("WLAN-Empfang beendet.")
+        flash(translate(g.language, "fedpeer.wlan.stopped"))
     except Exception:
-        flash("WLAN-Empfang konnte nicht beendet werden. Lokalen Speicher und App-Daten prüfen.")
+        flash(translate(g.language, "fedpeer.wlan.stop.failed"))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -528,18 +531,13 @@ def lan():
             (peer.get("compatibility") or {}).get("protocol", "unknown")
             for peer in result["peers"]
         ]
-        flash(
-            f"Netzwerk-Scan abgeschlossen: {len(result['peers'])} SimpleOffice-Gerät(e) gefunden. "
-            f"Federation kompatibel: {protocol_states.count('compatible')}, "
-            f"inkompatibel: {protocol_states.count('incompatible')}, "
-            f"unbekannt: {protocol_states.count('unknown')}. "
-            f"Netz: {networks}; Ports: {', '.join(str(port) for port in result['ports'])}. "
-            "Gefundene Geräte bleiben bekannt/nicht geprüft und deaktiviert. "
-            f"Erkannte Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}; "
-            "bestehende Verbindungsziele werden nicht automatisch geändert."
-        )
+        flash(translate(g.language, "fedpeer.scan.done").format(
+            found=len(result['peers']), compatible=protocol_states.count('compatible'),
+            incompatible=protocol_states.count('incompatible'), unknown=protocol_states.count('unknown'),
+            networks=networks, ports=', '.join(str(port) for port in result['ports']),
+            suggestions=_discovery_address_suggestions(result['peers'])))
     except Exception as exc:
-        flash(f"Netzwerk-Scan fehlgeschlagen: {_safe_discovery_error(exc)}")
+        flash(translate(g.language, "fedpeer.scan.failed").format(exc=_safe_discovery_error(exc)))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -548,14 +546,11 @@ def lan():
 def direct():
     try:
         peer = discover_direct(_root(), request.form.get("endpoint", ""))
-        flash(
-            f"Peer {peer['peer_id']} gefunden und als bekannt/nicht geprüft gespeichert. "
-            f"Erkannte Adresse (Vorschlag): {str(peer['base_url'])[:240]}. "
-            "Bestehende Verbindungsziele werden nicht automatisch geändert. "
-            + _compatibility_summary(peer)
-        )
+        flash(translate(g.language, "fedpeer.peer.found").format(
+            peer=peer['peer_id'], url=str(peer['base_url'])[:240])
+            + _compatibility_summary(peer))
     except Exception as exc:
-        flash(f"Direkte Peer-Suche fehlgeschlagen: {_safe_discovery_error(exc)}")
+        flash(translate(g.language, "fedpeer.direct.failed").format(exc=_safe_discovery_error(exc)))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -564,13 +559,11 @@ def direct():
 def country():
     try:
         result = discover_country(_root(), request.form.get("country", ""))
-        flash(
-            f"Land-Discovery: {len(result['peers'])} Peer(s) gefunden, {len(result['errors'])} Fehler. "
-            f"Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}. "
-            "Bestehende Verbindungsziele werden nicht automatisch geändert."
-        )
+        flash(translate(g.language, "fedpeer.country.done").format(
+            found=len(result['peers']), errors=len(result['errors']),
+            suggestions=_discovery_address_suggestions(result['peers'])))
     except Exception as exc:
-        flash(f"Land-Discovery fehlgeschlagen: {exc}")
+        flash(translate(g.language, "fedpeer.country.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -579,13 +572,11 @@ def country():
 def email():
     try:
         result = discover_email(_root(), request.form.get("email", ""))
-        flash(
-            f"E-Mail-Rendezvous: {len(result['peers'])} Peer(s) gefunden. "
-            f"Adressen (Vorschläge): {_discovery_address_suggestions(result['peers'])}. "
-            "Bestehende Verbindungsziele werden nicht automatisch geändert."
-        )
+        flash(translate(g.language, "fedpeer.rendezvous.done").format(
+            found=len(result['peers']),
+            suggestions=_discovery_address_suggestions(result['peers'])))
     except Exception as exc:
-        flash(f"E-Mail-Rendezvous fehlgeschlagen: {exc}")
+        flash(translate(g.language, "fedpeer.rendezvous.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -594,10 +585,22 @@ def email():
 def publish_local():
     try:
         result = publish(_root(), request.form.get("email", ""))
-        flash(f"Peer-Profil an {len(result['published'])} Directory-Knoten veröffentlicht.")
+        flash(translate(g.language, "fedpeer.profile.published").format(count=len(result['published'])))
     except Exception as exc:
-        flash(f"Peer-Profil konnte nicht veröffentlicht werden: {exc}")
+        flash(translate(g.language, "fedpeer.profile.publish.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
+
+
+@bp.post("/identity")
+@admin_required
+def save_identity():
+    return _save_identity_view()
+
+
+@bp.post("/identity/rotate-token")
+@admin_required
+def rotate_identity_token():
+    return _rotate_identity_token_view()
 
 
 @bp.post("/qr/import")
@@ -628,17 +631,15 @@ def import_qr():
             FederationAttestationStore(_root()).replace_signed(
                 profile["peer_id"], "VERIFIED_IN_PERSON", profile["fingerprint"], "DIRECT_ONLY", 0,
             )
-            flash(f"Peer {profile['peer_id']} per QR persönlich geprüft; Vertrauen bleibt NONE.")
+            flash(translate(g.language, "fedpeer.qr.verified").format(peer=profile['peer_id']))
         else:
             if existing:
-                flash(
-                    f"Identität für Peer {profile['peer_id']} aktualisiert; Verbindungseinstellungen blieben unverändert. "
-                    f"QR-Adresse (Vorschlag): {profile['base_url'][:240]}"
-                )
+                flash(translate(g.language, "fedpeer.qr.identity").format(
+                    peer=profile['peer_id'], url=profile['base_url'][:240]))
             else:
-                flash(f"Peer {profile['peer_id']} per QR als bekannt/nicht geprüft gespeichert.")
+                flash(translate(g.language, "fedpeer.qr.stored").format(peer=profile['peer_id']))
     except Exception as exc:
-        flash(f"QR-Peer konnte nicht übernommen werden: {exc}")
+        flash(translate(g.language, "fedpeer.qr.failed").format(exc=exc))
     if imported_peer_id:
         return redirect(url_for(
             "federation_admin.dashboard",
@@ -668,9 +669,9 @@ def set_trust(peer_id):
         FederationAttestationStore(_root()).replace_signed(
             peer_id, verification, identity.get("fingerprint", ""), propagation, max_hops,
         )
-        flash("Vertrauensbeziehung und Verifikationsnachweis gespeichert.")
+        flash(translate(g.language, "fedpeer.trust.saved"))
     except Exception as exc:
-        flash(f"Vertrauen konnte nicht gespeichert werden: {exc}")
+        flash(translate(g.language, "fedpeer.trust.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -679,12 +680,10 @@ def set_trust(peer_id):
 def sync_trust(peer_id):
     try:
         result = sync_claims(_root(), peer_id)
-        flash(
-            f"{result['imported']} Trust-Hinweis(e), {result['verified_attestations']} signierte Nachweise übernommen; "
-            f"lokales Vertrauen blieb unverändert."
-        )
+        flash(translate(g.language, "fedpeer.trust.imported").format(
+            imported=result['imported'], attestations=result['verified_attestations']))
     except Exception as exc:
-        flash(f"Trust-Hinweise konnten nicht geladen werden: {exc}")
+        flash(translate(g.language, "fedpeer.trust.load.failed").format(exc=exc))
     return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -729,7 +728,7 @@ def policy(peer_id):
             default_route=", ".join(item for item in (source_peer, peer_id) if item),
         )
     except (RuntimeError, ValueError):
-        flash("Peer-Policy konnte nicht geladen werden.")
+        flash(translate(g.language, "fedpeer.policy.unreadable"))
         return redirect(url_for("federation_peer_admin.dashboard"))
 
 
@@ -805,11 +804,11 @@ def block_peer(peer_id):
             message = f"Peer gesperrt ({scope}). {stopped} aktive Job(s) gestoppt"
         flash(
             message
-            + (f", {revoked} Capability(s) widerrufen." if revoked else ".")
-            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+            + (translate(g.language, "fedpeer.policy.revoked").format(revoked=revoked) if revoked else ".")
+            + ("" if audited else translate(g.language, "fedpeer.audit.failed"))
         )
     except (RuntimeError, TypeError, ValueError):
-        flash("Peer-Sperre konnte nicht gespeichert werden. Eingaben prüfen.")
+        flash(translate(g.language, "fedpeer.ban.save.failed"))
     return _policy_redirect(peer_id)
 
 
@@ -836,11 +835,11 @@ def unblock_peer(peer_id):
         )
         label = f"Objektsperre {object_ref}" if object_ref else f"Peer-Sperre für {scope}"
         flash(
-            f"{label} aufgehoben."
-            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+            translate(g.language, "fedpeer.ban.lifted").format(label=label)
+            + ("" if audited else translate(g.language, "fedpeer.audit.failed"))
         )
     except (RuntimeError, ValueError):
-        flash("Peer-Sperre konnte nicht aufgehoben werden.")
+        flash(translate(g.language, "fedpeer.ban.lift.failed"))
     return _policy_redirect(peer_id)
 
 
@@ -876,11 +875,11 @@ def set_route_policy(peer_id):
             },
         )
         flash(
-            "Routenregel gespeichert."
-            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+            translate(g.language, "fedpeer.route.saved")
+            + ("" if audited else translate(g.language, "fedpeer.audit.failed"))
         )
     except (RuntimeError, TypeError, ValueError):
-        flash("Routenregel konnte nicht gespeichert werden. Mindestens eine Einschränkung angeben.")
+        flash(translate(g.language, "fedpeer.route.save.failed"))
     return _policy_redirect(peer_id)
 
 
@@ -896,9 +895,9 @@ def clear_route_policy(peer_id):
             peer_id,
             {"scope": scope},
         )
-        flash("Routenregel entfernt." + ("" if audited else " Audit konnte nicht gespeichert werden."))
+        flash(translate(g.language, "fedpeer.route.removed") + ("" if audited else translate(g.language, "fedpeer.audit.failed")))
     except (RuntimeError, ValueError):
-        flash("Routenregel konnte nicht entfernt werden.")
+        flash(translate(g.language, "fedpeer.route.remove.failed"))
     return _policy_redirect(peer_id)
 
 
@@ -936,11 +935,11 @@ def set_confirmation_policy(peer_id):
             else 0
         )
         flash(
-            f"Bestätiger-Regel gespeichert; {stopped} aktive Job(s) neu bewertet."
-            + ("" if audited else " Audit konnte nicht gespeichert werden.")
+            translate(g.language, "fedpeer.approver.saved").format(stopped=stopped)
+            + ("" if audited else translate(g.language, "fedpeer.audit.failed"))
         )
     except (RuntimeError, TypeError, ValueError):
-        flash("Bestätiger-Regel konnte nicht gespeichert werden. Peers und Quorum prüfen.")
+        flash(translate(g.language, "fedpeer.approver.save.failed"))
     return _policy_redirect(peer_id)
 
 
@@ -956,9 +955,9 @@ def clear_confirmation_policy(peer_id):
             peer_id,
             {"scope": scope},
         )
-        flash("Bestätiger-Regel entfernt." + ("" if audited else " Audit konnte nicht gespeichert werden."))
+        flash(translate(g.language, "fedpeer.approver.removed") + ("" if audited else translate(g.language, "fedpeer.audit.failed")))
     except (RuntimeError, ValueError):
-        flash("Bestätiger-Regel konnte nicht entfernt werden.")
+        flash(translate(g.language, "fedpeer.approver.remove.failed"))
     return _policy_redirect(peer_id)
 
 
@@ -990,10 +989,10 @@ def preview_policy(peer_id):
             },
         )
         if decision.allowed:
-            flash(f"Policy-Vorschau: erlaubt ({decision.reason}).")
+            flash(translate(g.language, "fedpeer.preview.allowed").format(reason=decision.reason))
         else:
             detail = f", Peer {decision.blocked_peer}" if decision.blocked_peer else ""
-            flash(f"Policy-Vorschau: abgelehnt ({decision.reason}{detail}).")
+            flash(translate(g.language, "fedpeer.preview.denied").format(reason=decision.reason, detail=detail))
     except (RuntimeError, TypeError, ValueError):
-        flash("Policy-Vorschau konnte nicht sicher ausgewertet werden; Ergebnis ist fail-closed.")
+        flash(translate(g.language, "fedpeer.preview.failed"))
     return _policy_redirect(peer_id)

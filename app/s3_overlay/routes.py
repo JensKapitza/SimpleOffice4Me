@@ -732,6 +732,59 @@ def manage():
                 store.set_s3_enabled(enabled, str(g.user["username"]))
                 audit("s3_overlay_toggled", "s3-overlay", "global", detail={"enabled": enabled})
                 flash("S3-Overlay aktiviert." if enabled else "S3-Overlay deaktiviert.")
+            elif action == "settings":
+                from app.s3_settings import (
+                    MAX_S3_CLOCK_SKEW_SECONDS,
+                    MAX_S3_MAX_STAGING_MIB,
+                    MAX_S3_MAX_UPLOAD_MIB,
+                    MIN_S3_CLOCK_SKEW_SECONDS,
+                    MIN_S3_MAX_STAGING_MIB,
+                    MIN_S3_MAX_UPLOAD_MIB,
+                    validate_s3_settings,
+                )
+
+                store = _s3_settings_store()
+                current = store.settings()["s3"]
+                region = (request.form.get("region", "") or "").strip().lower()
+                if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", region):
+                    raise ValueError("Bitte eine gültige S3-Region angeben (z. B. us-east-1).")
+                raw_skew = (request.form.get("clock_skew_seconds", "") or "").strip()
+                raw_staging = (request.form.get("max_staging_mib", "") or "").strip()
+                raw_cap = (request.form.get("max_upload_mib", "") or "").strip()
+                if not raw_skew.isdigit() or not raw_staging.isdigit() or (
+                    raw_cap and not raw_cap.isdigit()
+                ):
+                    raise ValueError("Bitte ganzzahlige S3-Grenzwerte eingeben (Upload-Cap darf leer bleiben).")
+                clock_skew = int(raw_skew)
+                staging = int(raw_staging)
+                max_upload = int(raw_cap) if raw_cap else None
+                if not MIN_S3_CLOCK_SKEW_SECONDS <= clock_skew <= MAX_S3_CLOCK_SKEW_SECONDS:
+                    raise ValueError("Die S3-Uhrentoleranz muss zwischen 0 und 3600 Sekunden liegen.")
+                if not MIN_S3_MAX_STAGING_MIB <= staging <= MAX_S3_MAX_STAGING_MIB:
+                    raise ValueError("Das S3-Staging-Kontingent muss zwischen 64 und 65536 MiB liegen.")
+                if max_upload is not None and not MIN_S3_MAX_UPLOAD_MIB <= max_upload <= MAX_S3_MAX_UPLOAD_MIB:
+                    raise ValueError("Das S3-Upload-Cap muss leer oder zwischen 1 und 65536 MiB liegen.")
+                values = validate_s3_settings(
+                    {
+                        "enabled": current["enabled"],
+                        "region": region,
+                        "clock_skew_seconds": clock_skew,
+                        "max_staging_mib": staging,
+                        "max_upload_mib": max_upload,
+                    }
+                )
+                store.save({"s3": values}, str(g.user["username"]))
+                current_app.config["S3_OVERLAY_REGION"] = values["region"]
+                current_app.config["S3_OVERLAY_CLOCK_SKEW_SECONDS"] = values["clock_skew_seconds"]
+                current_app.config["S3_OVERLAY_MAX_STAGING_BYTES"] = values["max_staging_mib"] * 1024 * 1024
+                current_app.config["S3_OVERLAY_MAX_UPLOAD_BYTES"] = min(
+                    values["max_upload_mib"] * 1024 * 1024
+                    if values["max_upload_mib"] is not None
+                    else current_app.config["MAX_CONTENT_LENGTH"],
+                    current_app.config["MAX_CONTENT_LENGTH"],
+                )
+                audit("s3_overlay_settings_updated", "s3-overlay", "global", detail={**values})
+                flash("S3-Einstellungen gespeichert.")
             elif action == "revoke":
                 if not credentials.revoke(str(g.user["username"]), request.form.get("access_key", "")):
                     raise ValueError("S3-Zugang nicht gefunden.")
@@ -745,6 +798,11 @@ def manage():
                 flash("S3-Zugang erstellt. Secret jetzt sicher kopieren; es wird nicht erneut angezeigt.")
         except (OSError, ValueError, TypeError) as exc:
             flash(str(exc))
+    s3_settings = _s3_settings_store().settings()["s3"]
     return render_template("admin/s3_overlay.html", credentials=credentials.list_for(str(g.user["username"])), generated=generated,
                            enabled=_s3_is_enabled(), endpoint=request.url_root.rstrip("/") + S3_PREFIX,
-                           region=current_app.config.get("S3_OVERLAY_REGION", "us-east-1"), bucket=BUCKET)
+                           region=current_app.config.get("S3_OVERLAY_REGION", "us-east-1"), bucket=BUCKET,
+                           s3_region=s3_settings["region"],
+                           s3_clock_skew_seconds=s3_settings["clock_skew_seconds"],
+                           s3_max_staging_mib=s3_settings["max_staging_mib"],
+                           s3_max_upload_mib="" if s3_settings["max_upload_mib"] is None else s3_settings["max_upload_mib"])

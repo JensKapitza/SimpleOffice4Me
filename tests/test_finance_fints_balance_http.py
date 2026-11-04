@@ -102,9 +102,9 @@ class FinTSBalanceHttpTests(unittest.TestCase):
 
         body = response.get_data(as_text=True)
         self.assertEqual(200, response.status_code)
-        self.assertIn("Von der Bank gemeldete Lese- und TAN-Fähigkeiten", body)
+        self.assertIn("Read and TAN capabilities reported by the bank", body)
         self.assertIn("pushTAN", body)
-        self.assertIn("nicht unterstützt", body)
+        self.assertIn("not supported", body)
         self.assertNotIn("request-pin", body)
         self.assertEqual("no-store", response.headers["Cache-Control"])
         discover.assert_called_once()
@@ -114,7 +114,7 @@ class FinTSBalanceHttpTests(unittest.TestCase):
         body = response.get_data(as_text=True)
 
         self.assertEqual(200, response.status_code)
-        self.assertIn("Kontostand lesen", body)
+        self.assertIn("Read balance", body)
         self.assertIn(f'value="{self.mapping["remote_account_id"]}"', body)
         self.assertNotIn("temporary-pin", body)
 
@@ -290,7 +290,7 @@ class FinTSBalanceHttpTests(unittest.TestCase):
     def test_missing_fints_product_registration_is_explained_instead_of_swallowed(self):
         with patch(
             "app.finance_web.fetch_balance",
-            side_effect=FinTSUnavailable("FinTS-Produkt-ID fehlt; SIMPLEOFFICE_FINTS_PRODUCT_ID prüfen."),
+            side_effect=FinTSUnavailable("FinTS-Produkt-ID fehlt; FinTS-Einstellungen prüfen."),
         ):
             response = self.client.post(
                 self.url,
@@ -300,7 +300,7 @@ class FinTSBalanceHttpTests(unittest.TestCase):
             )
 
         self.assertEqual(200, response.status_code)
-        self.assertIn("SIMPLEOFFICE_FINTS_PRODUCT_ID prüfen", response.get_data(as_text=True))
+        self.assertIn("FinTS-Einstellungen prüfen", response.get_data(as_text=True))
         self.assertNotIn("temporary-pin", response.get_data(as_text=True))
 
     def test_sca_challenge_state_is_encrypted_owner_bound_and_single_use(self):

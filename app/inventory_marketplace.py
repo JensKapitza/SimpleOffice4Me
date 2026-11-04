@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup
 from flask import Blueprint, g, jsonify, request
 
 from .auth import login_required
+from . import marketplace_credentials as _marketplace
 from .inventory import InventoryEnrichmentStore
 
 bp = Blueprint("inventory_marketplace", __name__, url_prefix="/inventory/marketplace")
@@ -88,18 +89,15 @@ def _ebay_fallback(query: str) -> str:
 
 
 def provider_status() -> dict[str, bool]:
+    """Configured flags from presence markers (works without Flask context)."""
     return {
-        "amazon": all(
-            os.environ.get(name, "").strip()
-            for name in (
-                "SIMPLEOFFICE_AMAZON_ACCESS_KEY",
-                "SIMPLEOFFICE_AMAZON_SECRET_KEY",
-                "SIMPLEOFFICE_AMAZON_PARTNER_TAG",
-            )
+        "amazon": bool(
+            _marketplace.amazon_access_key()
+            and _marketplace.amazon_secret_configured()
+            and _marketplace.amazon_partner_tag()
         ),
-        "ebay": all(
-            os.environ.get(name, "").strip()
-            for name in ("SIMPLEOFFICE_EBAY_CLIENT_ID", "SIMPLEOFFICE_EBAY_CLIENT_SECRET")
+        "ebay": bool(
+            _marketplace.ebay_client_id() and _marketplace.ebay_secret_configured()
         ),
     }
 
@@ -285,9 +283,7 @@ def _amazon_signing_key(secret: str, day: str, region: str, service: str) -> byt
 
 
 def _amazon_request(query: str) -> dict[str, Any]:
-    access_key = os.environ.get("SIMPLEOFFICE_AMAZON_ACCESS_KEY", "").strip()
-    secret_key = os.environ.get("SIMPLEOFFICE_AMAZON_SECRET_KEY", "").strip()
-    partner_tag = os.environ.get("SIMPLEOFFICE_AMAZON_PARTNER_TAG", "").strip()
+    access_key, secret_key, partner_tag = _marketplace.amazon_credentials()
     if not access_key or not secret_key or not partner_tag:
         raise ValueError("Amazon Product Advertising API ist nicht konfiguriert")
 
@@ -432,8 +428,7 @@ def _ebay_token() -> str:
     cached = str(_EBAY_TOKEN_CACHE.get("token") or "")
     if cached and float(_EBAY_TOKEN_CACHE.get("expires_at") or 0) > now + EBAY_TOKEN_SKEW_SECONDS:
         return cached
-    client_id = os.environ.get("SIMPLEOFFICE_EBAY_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("SIMPLEOFFICE_EBAY_CLIENT_SECRET", "").strip()
+    client_id, client_secret = _marketplace.ebay_credentials()
     if not client_id or not client_secret:
         raise ValueError("eBay Browse API ist nicht konfiguriert")
     credentials = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode("ascii")
@@ -463,7 +458,7 @@ def _ebay_token() -> str:
 
 
 def _ebay_request(query: str) -> dict[str, Any]:
-    marketplace = os.environ.get("SIMPLEOFFICE_EBAY_MARKETPLACE_ID", "EBAY_DE").strip() or "EBAY_DE"
+    marketplace = _marketplace.ebay_marketplace_id()
     params = urlencode({"q": query, "limit": str(MAX_RESULTS)})
     return _json_request(
         "api.ebay.com",

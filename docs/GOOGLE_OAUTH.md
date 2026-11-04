@@ -11,14 +11,13 @@
 sudo install -m 600 -o simpleoffice -g simpleoffice google-client-secret.json /etc/simpleoffice/google-oauth.json
 ```
 
-4. Vor dem Start von SimpleOffice mindestens diese Variablen setzen:
+4. Client ID und Client Secret unter Admin → Einstellungen → Integrationen → Marketplace & OAuth
+hinterlegen (verschlüsselt im App-Store, keine Umgebungsvariablen). Alternativ genügt der Pfad zu
+`/etc/simpleoffice/google-oauth.json` dort oder beim Start via `./start.sh --google-json ...` (reiner
+Starter-Transport für den Dateipfad; Secrets kommen nie aus Umgebungsvariablen).
 
-```bash
-export SIMPLEOFFICE_SECRET_KEY='langer-zufaelliger-serverwert'
-export SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE='/etc/simpleoffice/google-oauth.json'
-```
-
-Die JSON-Datei muss den Google-Block `web` enthalten. `SIMPLEOFFICE_GOOGLE_CLIENT_ID` und `SIMPLEOFFICE_GOOGLE_CLIENT_SECRET` bleiben als explizite Alternative verfügbar und haben Vorrang gegenüber den Werten aus der Datei. Eine URI aus `web.redirect_uris` wird automatisch benutzt, wenn sie mit `/auth/google/callback` endet. `SIMPLEOFFICE_GOOGLE_REDIRECT_URI` ist nur nötig, wenn du eine URI ausdrücklich überschreiben willst.
+Die JSON-Datei muss den Google-Block `web` enthalten. Gespeicherte Client ID und Client Secret haben
+Vorrang gegenüber den Werten aus der Datei. Eine URI aus `web.redirect_uris` wird automatisch benutzt, wenn sie mit `/auth/google/callback` endet. `SIMPLEOFFICE_GOOGLE_REDIRECT_URI` ist nur nötig, wenn du eine URI ausdrücklich überschreiben willst.
 
 Der Server muss über HTTPS erreichbar sein. Für einen Reverse Proxy ist bereits `SIMPLEOFFICE_TRUSTED_PROXY_HOPS=1` vorgesehen. Nach dem Neustart erscheint die Schaltfläche **Mit Google anmelden** bei Anmeldung und Registrierung. Beim ersten Google-Login wird ein lokales SimpleOffice-Konto angelegt und dauerhaft über die Google-Subject-ID zugeordnet.
 

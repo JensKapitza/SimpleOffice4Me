@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require('node:path').join(__dirname, '../static/js/audio_output_remote.js'), 'utf8');
-function fixture(responses) {
+function fixture(responses, lang = 'de') {
   const nodes = new Map(), calls = [], events = [];
   const get = id => {
     if (!nodes.has(id)) nodes.set(id, {value: '', dataset: {}, listeners: {}, options: [],
@@ -14,7 +14,7 @@ function fixture(responses) {
   };
   get('announcement-remote').dataset.scanUrl = '/scan';
   get('audio-announcements').dataset.api = '/audio';
-  vm.runInNewContext(source, {document: {getElementById: get, querySelector: () => ({content: 'csrf'})},
+  vm.runInNewContext(source, {document: {documentElement: {lang}, getElementById: get, querySelector: () => ({content: 'csrf'})},
     window: {dispatchEvent: event => events.push(event.type)}, Event: class {constructor(type) {this.type = type;}},
     Option: class {constructor(text, value) {this.text = text; this.value = value;}},
     AbortController, setTimeout, clearTimeout, Date,
@@ -38,6 +38,14 @@ test('discovery fills manual fields without sending; save binds explicit target 
   assert.equal(payload.volume, 40);
   assert.deepEqual(f.events, ['simpleoffice:audio-output-saved']);
   assert.match(f.get('announcement-remote-status').textContent, /nicht bestätigt/);
+});
+test('english page renders English status strings', async () => {
+  const f = fixture([{ok: true, json: async () => ({targets: [{id: '192.168.1.2:5004', host: '192.168.1.2', port: 5004, label: 'Speaker'}], updated_at: 1})},
+    {ok: true, json: async () => ({name: 'Speaker'})}], 'en');
+  f.get('announcement-remote-scan').listeners.click(); await f.settle();
+  assert.match(f.get('announcement-remote-status').textContent, /1 active recipients/);
+  f.get('announcement-remote-form').listeners.submit({preventDefault() {}}); await f.settle();
+  assert.match(f.get('announcement-remote-status').textContent, /not confirmed/);
 });
 test('failed scan restores controls and shows error instead of successful empty result', async () => {
   const f = fixture([{ok: false, json: async () => ({error: 'Netzwerk nicht verfügbar'})}]);

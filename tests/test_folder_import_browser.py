@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import re
 import tempfile
 import threading
 import unittest
@@ -12,6 +13,23 @@ from werkzeug.serving import make_server
 
 from app import app
 from app.db import ensure_auth_database
+
+
+# Product UI renders English by default and German when the session pins
+# ``simpleoffice_language`` to ``de``. Browser CI runs with a fresh session
+# (English), so status assertions must accept both locales while still
+# pinning the functional payload (file counts, units).
+_PAUSED_STATUS_RE = re.compile(
+    r"Import (paused after 100 of 1001 files|nach 100 von 1001 Dateien angehalten)"
+)
+_FOLDER_COMPLETED_RE = re.compile(
+    r"(Folder import completed|Ordnerimport abgeschlossen)"
+)
+_FILE_COMPLETED_RE = re.compile(
+    r"(File import completed|Dateiimport abgeschlossen)"
+)
+_SELECTION_COUNT_RE = re.compile(r"2 (file\(s\)|Datei\(en\))")
+_UNSUPPORTED_TITLE_RE = re.compile(r"(nicht unterstützt|not supported)")
 
 
 @unittest.skipUnless(importlib.util.find_spec("playwright"), "install the web-export extra")
@@ -125,10 +143,13 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertEqual("files", page.locator("#document-folder").get_attribute("name"))
                 self.assertTrue(page.locator("#document-files").get_attribute("name") is None)
                 self.assertTrue(page.locator("#archive").is_disabled())
-                self.assertIn("2 Datei(en)", page.locator("#document-selection").inner_text())
+                self.assertRegex(
+                    page.locator("#document-selection").inner_text(),
+                    _SELECTION_COUNT_RE,
+                )
 
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text(_FOLDER_COMPLETED_RE)
                 imported = Path(app.config["DOCUMENT_ROOT"]) / "imports"
                 imported_roots = list(imported.glob("*/root/a.txt"))
                 self.assertEqual(1, len(imported_roots))
@@ -150,7 +171,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self.assertTrue(page.locator("#archive").is_enabled())
                 self.assertEqual("files", page.locator("#document-files").get_attribute("name"))
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Dateiimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text(_FILE_COMPLETED_RE)
             finally:
                 context.close()
                 browser.close()
@@ -219,7 +240,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                       };
                     }""")
                     page.locator("#document-upload-form button[type=submit]").click()
-                    expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                    expect(page.locator("#document-selection")).to_contain_text(_FOLDER_COMPLETED_RE)
                     return page.evaluate("""() => ({
                       ids: window.capturedSourceIds,
                       keys: window.capturedFormKeys,
@@ -338,9 +359,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self._select_folder_files(page, [f"root/file-{index}.txt" for index in range(1001)])
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text(
-                    "Import nach 100 von 1001 Dateien angehalten"
-                )
+                expect(page.locator("#document-selection")).to_contain_text(_PAUSED_STATUS_RE)
                 self.assertEqual(1, len(page.evaluate("window.uploadBatches")))
                 import_id = page.evaluate("window.uploadBatches[0].importId")
                 page.reload()
@@ -366,7 +385,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 }""")
                 self._select_folder_files(page, [f"root/file-{index}.txt" for index in range(1001)])
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text(_FOLDER_COMPLETED_RE)
                 large_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(11, len(large_import))
                 self.assertEqual(1001, sum(batch["count"] for batch in large_import))
@@ -378,7 +397,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 self._select_folder_files(page, [deep + f"file-{index}.txt" for index in range(210)])
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Ordnerimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text(_FOLDER_COMPLETED_RE)
                 long_path_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(3, len(long_path_import))
                 self.assertEqual(210, sum(batch["count"] for batch in long_path_import))
@@ -399,7 +418,7 @@ class FolderImportBrowserTests(unittest.TestCase):
                 )
                 self.assertTrue(page.locator("#document-upload-form button[type=submit]").is_enabled())
                 page.locator("#document-upload-form button[type=submit]").click()
-                expect(page.locator("#document-selection")).to_contain_text("Dateiimport abgeschlossen")
+                expect(page.locator("#document-selection")).to_contain_text(_FILE_COMPLETED_RE)
                 file_import = page.evaluate("window.uploadBatches")
                 self.assertEqual(11, len(file_import))
                 self.assertEqual(1001, sum(batch["count"] for batch in file_import))
@@ -426,10 +445,39 @@ class FolderImportBrowserTests(unittest.TestCase):
                 supported = page.locator("#document-folder").evaluate("input => 'webkitdirectory' in input")
                 self.assertEqual(not supported, page.locator("#pick-document-folder").is_disabled())
                 if not supported:
-                    self.assertIn("nicht unterstützt", page.locator("#pick-document-folder").get_attribute("title"))
+                    self.assertRegex(
+                        page.locator("#pick-document-folder").get_attribute("title") or "",
+                        _UNSUPPORTED_TITLE_RE,
+                    )
             finally:
                 context.close()
                 browser.close()
+
+    def test_import_status_strings_render_in_english_and_german(self):
+        """Server-rendered import strings exist in both locales (no browser)."""
+        client = app.test_client()
+        # A second registration would land in the account-approval flow, so
+        # this check reuses the user created in setUp.
+        client.post(
+            "/auth/login",
+            data={"username": "folder-import-browser", "password": "browser-test-password"},
+        )
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "en"
+        english = client.get("/documents/")
+        self.assertEqual(200, english.status_code)
+        english_body = english.get_data(as_text=True)
+        self.assertIn("Import paused after ", english_body)
+        self.assertIn("Folder import", english_body)
+        self.assertIn("File import", english_body)
+        with client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
+        german = client.get("/documents/")
+        self.assertEqual(200, german.status_code)
+        german_body = german.get_data(as_text=True)
+        self.assertIn("Import nach ", german_body)
+        self.assertIn("Ordnerimport", german_body)
+        self.assertIn("Dateiimport", german_body)
 
 
 if __name__ == "__main__":

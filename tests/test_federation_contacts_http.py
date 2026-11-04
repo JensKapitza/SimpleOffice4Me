@@ -1,12 +1,13 @@
 import io
-import os
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.contact_store import ContactStore
 from app.federation_contacts_http import bp
 
@@ -18,8 +19,13 @@ class FederationContactsHttpTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="test-secret")
         self.app.register_blueprint(bp)
-        self.previous = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "fed-token"
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        with self.app.app_context():
+            app_config_store.put_secret("federation", "token", "fed-token")
         with self.app.app_context():
             self.contacts = ContactStore(self.root)
             self.contact = self.contacts.upsert(
@@ -30,10 +36,6 @@ class FederationContactsHttpTest(unittest.TestCase):
         self.auth = {"Authorization": "Bearer fed-token"}
 
     def tearDown(self):
-        if self.previous is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous
         self.temp.cleanup()
 
     def test_export_plain_text_contains_vcard(self):

@@ -9,25 +9,20 @@ validation and connect.
 import http.client
 import ipaddress
 import json
-import os
 import re
 import socket
 import ssl
 import threading
 from urllib.parse import urlsplit, urlunsplit
 
+from . import federation_network as _network
 
-_TRUE_VALUES = {"1", "true", "yes", "on"}
 _DISCOVERY_PATH = "/.well-known/simpleoffice-federation"
 _MAX_DISCOVERY_RESPONSE = 1024 * 1024
 _USER_AGENT = "SimpleOffice4Me-Federation-Discovery/1"
 _SHARED_IPV4 = ipaddress.ip_network("100.64.0.0/10")
 _BASE_PATH_SEGMENT = re.compile(r"^[A-Za-z0-9._~-]{1,80}$")
 _DNS_LOOKUP_SLOTS = threading.BoundedSemaphore(16)
-
-
-def _env_flag(name):
-    return os.environ.get(name, "0").strip().casefold() in _TRUE_VALUES
 
 
 def _hostname(value):
@@ -169,7 +164,7 @@ def _validate_address(address, allow_private, allow_loopback):
             return
         raise ValueError("shared/private federation discovery requires explicit local-target permission")
     if address.is_private and not allow_private:
-        raise ValueError("private federation discovery requires SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS=1")
+        raise ValueError("private federation discovery requires the admin opt-in (peer discovery, network settings)")
     if not address.is_global and not address.is_private:
         raise ValueError("peer endpoint resolves to a non-public network address")
 
@@ -179,9 +174,9 @@ def _validated_target(value, *, allow_private=None, allow_loopback=None, dns_tim
     parsed = urlsplit(base_url)
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
     if allow_private is None:
-        allow_private = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_PRIVATE_TARGETS")
+        allow_private = _network.allow_private_targets()
     if allow_loopback is None:
-        allow_loopback = _env_flag("SIMPLEOFFICE_FEDERATION_ALLOW_LOOPBACK")
+        allow_loopback = _network.allow_loopback()
     addresses = _resolve_addresses(parsed.hostname, port, timeout=dns_timeout)
     for address in addresses:
         _validate_address(address, bool(allow_private), bool(allow_loopback))

@@ -49,13 +49,13 @@ def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, acti
         return False
     return True
 
-def _v3_finance_enabled() -> bool:
+def _v3_finance_enabled(root: Path) -> bool:
     from .v3_capabilities import enabled
-    return enabled("v3.finance")
+    return enabled("v3.finance", root=root)
 
 
 def _v3_finance_sync(root: Path, row: dict[str, Any], actor: str) -> None:
-    if not _v3_finance_enabled():
+    if not _v3_finance_enabled(root):
         return
     from .v3_finance import track_invoice_best_effort
     track_invoice_best_effort(root, row, actor)
@@ -627,7 +627,7 @@ def contact_invoice(contact_id:str):
             row=save_invoice_draft(root,contact_id,request.form,actor,draft_id)
             _v3_finance_sync(root,row,actor)
             if request.form.get("action")=="finalize":
-                if _v3_finance_enabled():
+                if _v3_finance_enabled(root):
                     from .v3_finance import finalize_invoice_tracked
                     row,document=finalize_invoice_tracked(root,row["invoice_id"],actor)
                 else:

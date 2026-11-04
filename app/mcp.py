@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import FEATURES, audit, has_feature, permissions_for
 from .auth import login_required
@@ -13,7 +13,10 @@ from .db import get_db
 from .mcp_arguments import validate_arguments
 from .mcp_auth import authenticate_token, create_token, operation_log, revoke_token, tokens_for_user
 from .project_store import ProjectStore
+from .translations import translate
 from .virtual_filesystem import VirtualFileSystem
+from . import vision_config as _vision_config
+from . import mcp_config as _mcp_config
 
 bp = Blueprint("mcp", __name__)
 PROTOCOL = "2025-06-18"
@@ -66,7 +69,7 @@ def _result(value):
 def _visible_document(document_id):
     store = DocumentStore(_root()); item = store.get_document(document_id)
     path = item.get("last_path", "")
-    if not path or not VirtualFileSystem.from_environment(_root()).allows(_actor(), path, "read"):
+    if not path or not VirtualFileSystem.from_store(_root()).allows(_actor(), path, "read"):
         raise PermissionError("document access denied")
     return item
 
@@ -87,7 +90,7 @@ def _call(name, args):
     if name == "fetch":
         item=_visible_document(str(args["document_id"])); allowed={k:item.get(k) for k in ("document_id","title","original_name","last_path","mime_type","size","state","tags","created_at","last_seen_at","text_extraction")}; return allowed
     if name in {"tag_document","mark_document_deletion_candidate"}:
-        item=_visible_document(str(args["document_id"])); vfs=VirtualFileSystem.from_environment(_root())
+        item=_visible_document(str(args["document_id"])); vfs=VirtualFileSystem.from_store(_root())
         if not vfs.allows(_actor(),item["last_path"],"write"): raise PermissionError("document write access denied")
         store=DocumentStore(_root()); tags=[str(value).strip() for value in item.get("tags",[]) if str(value).strip()]
         if name=="tag_document": additions=[str(value).strip() for value in args["tags"] if str(value).strip()]
@@ -158,11 +161,39 @@ def endpoint_capabilities():
 @login_required
 def settings():
     secret=None
+    meta_saved=False
     if request.method=="POST":
+        if request.form.get("meta_form")=="1":
+            # Meta Model API key: admins only, stored encrypted in the
+            # Vision settings (single source of truth, never displayed).
+            if g.user["is_admin"]:
+                try:
+                    _vision_config.persist(_vision_config.prepare(
+                        {"meta_api_key":request.form.get("meta_api_key","")}, g.language))
+                except (ValueError,TypeError,OSError) as exc:
+                    current_app.logger.info("mcp_meta_key_rejected exception_type=%s",type(exc).__name__)
+                    flash(translate(g.language,"mcp.invalid").format(exc=exc))
+                else:
+                    audit("vision_settings","service","vision"); meta_saved=True
+                    flash(translate(g.language,"mcp.saved"))
+            return redirect(url_for("mcp.settings"))
+        if request.form.get("mcp_form")=="1":
+            # MCP on/off switch: admins only, persisted (no environment).
+            if g.user["is_admin"]:
+                try:
+                    clean=_mcp_config.prepare({"enabled":request.form.get("mcp_enabled")=="1"}, g.language)
+                    _mcp_config.persist(clean)
+                except (ValueError,TypeError,OSError) as exc:
+                    current_app.logger.info("mcp_switch_rejected exception_type=%s",type(exc).__name__)
+                    flash(translate(g.language,"mcp.invalid").format(exc=exc))
+                else:
+                    current_app.config["MCP_ENABLED"]=clean["enabled"]
+                    audit("mcp_settings","service","mcp"); flash(translate(g.language,"mcp.saved"))
+            return redirect(url_for("mcp.settings"))
         secret,_=create_token(g.user["id"],request.form.get("name",""),request.form.get("can_write")=="1",request.form.get("days",30)); audit("mcp_token_created","mcp_token",detail={"write":request.form.get("can_write")=="1"})
     from app.mcp_token_hints import suggest_token_review
     rows=tokens_for_user(g.user["id"])
-    return render_template("mcp/settings.html",tokens=rows,operations=operation_log(g.user["id"],bool(g.user["is_admin"])),secret=secret,token_hints=suggest_token_review(rows))
+    return render_template("mcp/settings.html",tokens=rows,operations=operation_log(g.user["id"],bool(g.user["is_admin"])),secret=secret,meta_saved=meta_saved,meta_key_configured=_vision_config.public(_vision_config.settings()).get("meta_api_key_configured",False),mcp_enabled=bool(current_app.config.get("MCP_ENABLED",True)),token_hints=suggest_token_review(rows))
 
 
 @bp.post("/settings/mcp/<int:token_id>/revoke")

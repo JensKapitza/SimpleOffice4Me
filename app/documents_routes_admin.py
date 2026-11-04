@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from .documents_core import *  # noqa: F401,F403
 from .chat_store import ChatStore
+from .translations import translate
 
 @bp.post("/calendar/<event_id>/invite-email")
 @login_required
@@ -22,12 +23,12 @@ def send_calendar_invitation(event_id: str):
             request.form.get("body", "Bitte den beigefügten Termin prüfen."), calendar_data,
             account_id=account_id,
         )
-        flash(f"Einladung an {result['recipients']} Empfänger versandt und als EML archiviert.")
+        flash(translate(g.language, "docadmin.invite.sent").format(recipients=result['recipients']))
     except StopIteration:
-        flash("Termin wurde nicht gefunden.")
+        flash(translate(g.language, "docadmin.appointment.missing"))
     except Exception as exc:
         current_app.logger.warning("Calendar invitation submission failed for %s: %s", actor, type(exc).__name__)
-        flash(f"Einladung konnte nicht versandt werden: {exc}")
+        flash(translate(g.language, "docadmin.invite.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#scheduling")
 
 
@@ -39,9 +40,9 @@ def preview_google_calendar_sync():
         status = _google_calendar().status(actor)
         _calendars().get(status["target_calendar_id"], actor, write=True)
         result = _google_calendar().synchronize(actor, apply=False)
-        flash(f"Google-Vorschau: {result['received']} Änderungen empfangen, {result['applicable']} anwendbar, {len(result['conflicts'])} Konflikte. Kalenderdaten und Sync-Token blieben unverändert.")
+        flash(translate(g.language, "docadmin.google.preview").format(received=result['received'], applicable=result['applicable'], conflicts=len(result['conflicts'])))
     except (GoogleCalendarError, ValueError) as exc:
-        flash(f"Google-Kalender konnte nicht geprüft werden: {exc}")
+        flash(translate(g.language, "docadmin.google.check.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
@@ -54,11 +55,11 @@ def apply_google_calendar_sync():
         _calendars().get(status["target_calendar_id"], actor, write=True)
         result = _google_calendar().synchronize(actor, apply=True)
         if result["conflicts"]:
-            flash(f"Google-Abgleich: {result['applied']} Änderungen gespeichert; {len(result['conflicts'])} lokale Konflikte blieben unverändert. Bitte zuerst manuell auflösen.")
+            flash(translate(g.language, "docadmin.google.sync.conflicts").format(applied=result['applied'], conflicts=len(result['conflicts'])))
         else:
-            flash(f"Google-Abgleich abgeschlossen: {result['applied']} Änderungen gespeichert, keine Konflikte.")
+            flash(translate(g.language, "docadmin.google.sync.clean").format(applied=result['applied']))
     except (GoogleCalendarError, ValueError) as exc:
-        flash(f"Google-Kalender wurde nicht geändert: {exc}")
+        flash(translate(g.language, "docadmin.google.unchanged").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
@@ -70,9 +71,9 @@ def resolve_google_calendar_conflicts(strategy: str):
         status = _google_calendar().status(actor)
         _calendars().get(status["target_calendar_id"], actor, write=True)
         result = _google_calendar().synchronize(actor, apply=True, conflict_policy=strategy)
-        flash(f"Google-Konflikte aufgelöst: {result['applied']} Google-Versionen übernommen, {result['kept_local']} lokale Versionen beibehalten.")
+        flash(translate(g.language, "docadmin.google.resolved").format(applied=result['applied'], kept=result['kept_local']))
     except (GoogleCalendarError, ValueError) as exc:
-        flash(f"Google-Konflikte wurden nicht aufgelöst: {exc}")
+        flash(translate(g.language, "docadmin.google.resolve.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
@@ -80,7 +81,7 @@ def resolve_google_calendar_conflicts(strategy: str):
 @login_required
 def reset_google_calendar_sync():
     _google_calendar().disable(str(g.user["username"]))
-    flash("Google-Sync-Zustand entfernt. Importierte Termine bleiben erhalten; der nächste Abgleich prüft den Kalender vollständig.")
+    flash(translate(g.language, "docadmin.google.state.removed"))
     return redirect(url_for("documents.calendar") + "#google-calendar-sync")
 
 
@@ -95,9 +96,9 @@ def import_itip_message():
         if len(payload) > MAX_MESSAGE_BYTES:
             raise ValueError("iTIP message exceeds 1 MiB")
         message = _itip().receive(payload.decode("utf-8-sig"), str(g.user["username"]), "file-import")
-        flash(f"{message['method']}-Nachricht geprüft und zur Bestätigung vorgemerkt.")
+        flash(translate(g.language, "docadmin.msg.held").format(method=message['method']))
     except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Termin-Nachricht abgewiesen: {exc}")
+        flash(translate(g.language, "docadmin.msg.rejected").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#scheduling")
 
 
@@ -106,9 +107,9 @@ def import_itip_message():
 def apply_itip_message(message_id: str):
     try:
         _itip().apply(message_id, str(g.user["username"]), request.form.get("calendar_id", "default"))
-        flash("Termin-Nachricht angewendet und revisionssicher protokolliert.")
+        flash(translate(g.language, "docadmin.msg.applied"))
     except (ItipConflict, ValueError) as exc:
-        flash(f"Termin-Nachricht konnte nicht angewendet werden: {exc}")
+        flash(translate(g.language, "docadmin.msg.apply.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#scheduling")
 
 
@@ -117,7 +118,7 @@ def apply_itip_message(message_id: str):
 def reject_itip_message(message_id: str):
     try:
         _itip().reject(message_id, str(g.user["username"]), request.form.get("reason", ""))
-        flash("Termin-Nachricht abgelehnt; Kalenderdaten blieben unverändert.")
+        flash(translate(g.language, "docadmin.msg.declined"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + "#scheduling")
@@ -147,7 +148,7 @@ def update_caldav_scheduling_access():
             [username for username in users if request.form.get(f"freebusy_{username}") == "1"],
             users,
         )
-        flash("CalDAV-Terminplanung und Freigaben wurden gespeichert.")
+        flash(translate(g.language, "docadmin.caldav.saved"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + "#scheduling-access")
@@ -159,7 +160,7 @@ def activate_caldav():
     actor = str(g.user["username"])
     try:
         _calendars().activate(actor, request.form.get("password", ""), actor)
-        flash(f"CalDAV aktiviert. Thunderbird-URL: {url_for('caldav.endpoint', path='', _external=True)}")
+        flash(translate(g.language, "docadmin.caldav.enabled").format(url=url_for('caldav.endpoint', path='', _external=True)))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + "#caldav")
@@ -171,7 +172,7 @@ def create_calendar_collection():
     actor = str(g.user["username"])
     try:
         _calendars().create(request.form.get("name", ""), actor, request.form.get("color", "#2563eb"), request.form.get("timezone", "Europe/Berlin"), request.form.get("description", ""))
-        flash("Kalender angelegt.")
+        flash(translate(g.language, "docadmin.calendar.created"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + "#caldav")
@@ -183,7 +184,7 @@ def share_calendar_collection(calendar_id: str):
     actor = str(g.user["username"]); valid_users = {row["username"] for row in get_db().execute("SELECT username FROM user").fetchall()}
     try:
         _calendars().update_sharing(calendar_id, {user: request.form.get(f"access_{user}", "") for user in valid_users}, actor)
-        flash("Kalenderfreigaben gespeichert.")
+        flash(translate(g.language, "docadmin.calendar.shares.saved"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + "#caldav")
@@ -201,13 +202,13 @@ def export_calendar():
 def import_calendar():
     uploaded = request.files.get("calendar_file")
     if uploaded is None or not uploaded.filename:
-        flash("Bitte eine .ics-Datei auswählen.")
+        flash(translate(g.language, "docadmin.ics.select"))
         return redirect(url_for("documents.calendar"))
     try:
         imported = _calendar().import_ics(uploaded.read().decode("utf-8-sig"), str(g.user["username"]))
-        flash(f"{imported} Kalendertermin(e) importiert.")
+        flash(translate(g.language, "docadmin.ics.imported").format(imported=imported))
     except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Kalenderimport fehlgeschlagen: {exc}")
+        flash(translate(g.language, "docadmin.ics.import.failed").format(exc=exc))
     return redirect(url_for("documents.calendar"))
 
 
@@ -216,7 +217,7 @@ def import_calendar():
 def preview_calendar_import():
     uploaded = request.files.get("calendar_file")
     if uploaded is None or not uploaded.filename:
-        flash("Bitte eine .ics-Datei auswählen.")
+        flash(translate(g.language, "docadmin.ics.select"))
         return redirect(url_for("documents.calendar") + "#calendar-import")
     try:
         payload = uploaded.stream.read(MAX_PREVIEW_BYTES + 1)
@@ -224,7 +225,7 @@ def preview_calendar_import():
             raise ValueError(f"iCalendar preview is limited to {MAX_PREVIEW_BYTES // 1024} KiB")
         preview = preview_ics(payload.decode("utf-8-sig"))
     except (UnicodeDecodeError, ValueError) as exc:
-        flash(f"Kalendervorschau fehlgeschlagen: {exc}")
+        flash(translate(g.language, "docadmin.ics.preview.failed").format(exc=exc))
         return redirect(url_for("documents.calendar") + "#calendar-import")
     return render_template(
         "documents/calendar_import_preview.html",
@@ -323,7 +324,7 @@ def add_calendar_event():
         if create_video_chat:
             event = _attach_simpleoffice_video_chat(event, actor, video_chat_users)
         _calendars().record_event_move(event, calendar_id, actor)
-        flash("Kalendertermin gespeichert und SimpleOffice-Videochat erstellt." if create_video_chat else "Kalendertermin gespeichert.")
+        flash(translate(g.language, "docadmin.event.saved.video") if create_video_chat else translate(g.language, "docadmin.event.saved"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
@@ -346,7 +347,7 @@ def update_calendar_event(event_id: str):
         if create_video_chat:
             event = _attach_simpleoffice_video_chat(event, actor, video_chat_users)
         _calendars().record_event_move(event, source_calendar_id, actor)
-        flash("Kalendertermin geändert und SimpleOffice-Videochat erstellt." if create_video_chat else "Kalendertermin geändert.")
+        flash(translate(g.language, "docadmin.event.changed.video") if create_video_chat else translate(g.language, "docadmin.event.changed"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
@@ -362,7 +363,7 @@ def update_calendar_participants(event_id: str):
             email, name, role, status, rsvp = (line.split("|") + ["", "", "", "", ""])[:5]
             participants.append({"email": email.strip(), "name": name.strip(), "role": role.strip() or "required", "status": status.strip() or "needs-action", "rsvp": rsvp.strip().lower() in {"1", "true", "ja", "yes"}})
         _calendar().set_participants(event_id, participants, str(g.user["username"]))
-        flash("Teilnehmer gespeichert.")
+        flash(translate(g.language, "docadmin.attendees.saved"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + f"#event-{event_id}")
@@ -376,9 +377,9 @@ def update_calendar_recurrence(event_id: str):
         previous = _calendar().get(event_id, actor); calendar_id = previous.get("calendar_id") or "default"
         event = _calendar().set_recurrence(event_id, {"rrule": request.form.get("rrule", ""), "rdates": request.form.get("rdates", "").splitlines(), "exdates": request.form.get("exdates", "").splitlines(), "timezone": request.form.get("recurrence_timezone", "")}, actor, request.form.get("expected_updated_at", ""))
         _calendars().record_event_move(event, calendar_id, actor)
-        flash("Serienregel gespeichert und für CalDAV synchronisiert.")
+        flash(translate(g.language, "docadmin.series.saved"))
     except ValueError as exc:
-        flash(f"Serienregel nicht gespeichert: {exc}")
+        flash(translate(g.language, "docadmin.series.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + f"#event-{event_id}")
 
 
@@ -390,9 +391,9 @@ def update_calendar_occurrence(event_id: str):
         previous = _calendar().get(event_id, actor); calendar_id = previous.get("calendar_id") or "default"
         event = _calendar().set_occurrence_exception(event_id, request.form.get("recurrence_id", ""), actor, status=request.form.get("occurrence_status", "active"), start=request.form.get("occurrence_start", ""), end=request.form.get("occurrence_end", ""), title=request.form.get("occurrence_title", ""), reason=request.form.get("occurrence_reason", ""), expected_updated_at=request.form.get("expected_updated_at", ""))
         _calendars().record_event_move(event, calendar_id, actor)
-        flash("Einzelne Serieninstanz revisionssicher geändert.")
+        flash(translate(g.language, "docadmin.instance.changed"))
     except ValueError as exc:
-        flash(f"Serieninstanz nicht geändert: {exc}")
+        flash(translate(g.language, "docadmin.instance.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + f"#event-{event_id}")
 
 
@@ -413,9 +414,9 @@ def add_calendar_alarm(event_id: str):
         alarms.append({"action": "DISPLAY", "description": request.form.get("description", "").strip() or previous.get("title", "Erinnerung"), "trigger": {"kind": "relative", "seconds": minutes * 60 * (-1 if direction == "before" else 1), "related": related}})
         event = _calendar().set_alarms(event_id, alarms, actor, request.form.get("expected_updated_at", ""))
         _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Lokale Kalendererinnerung gespeichert und für CalDAV synchronisiert.")
+        flash(translate(g.language, "docadmin.reminder.saved"))
     except (TypeError, ValueError) as exc:
-        flash(f"Erinnerung nicht gespeichert: {exc}")
+        flash(translate(g.language, "docadmin.reminder.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#reminders")
 
 
@@ -430,9 +431,9 @@ def delete_calendar_alarm(event_id: str):
             raise ValueError("Unbekannte Kalendererinnerung.")
         event = _calendar().set_alarms(event_id, alarms, actor, request.form.get("expected_updated_at", ""))
         _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Kalendererinnerung entfernt.")
+        flash(translate(g.language, "docadmin.reminder.removed"))
     except ValueError as exc:
-        flash(f"Erinnerung nicht entfernt: {exc}")
+        flash(translate(g.language, "docadmin.reminder.remove.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#reminders")
 
 
@@ -444,9 +445,9 @@ def acknowledge_calendar_alarm(event_id: str):
         previous = _calendar().get(event_id, actor)
         event = _calendar().acknowledge_alarm(event_id, request.form.get("alarm_uid", ""), actor)
         _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Erinnerung bestätigt.")
+        flash(translate(g.language, "docadmin.reminder.confirmed"))
     except ValueError as exc:
-        flash(f"Erinnerung nicht bestätigt: {exc}")
+        flash(translate(g.language, "docadmin.reminder.confirm.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#reminders")
 
 
@@ -458,9 +459,9 @@ def snooze_calendar_alarm(event_id: str):
         previous = _calendar().get(event_id, actor)
         event = _calendar().snooze_alarm(event_id, request.form.get("alarm_uid", ""), actor, int(request.form.get("minutes", "10")))
         _calendars().record_event_move(event, previous.get("calendar_id") or "default", actor)
-        flash("Erinnerung wurde verschoben.")
+        flash(translate(g.language, "docadmin.reminder.moved"))
     except (TypeError, ValueError) as exc:
-        flash(f"Erinnerung nicht verschoben: {exc}")
+        flash(translate(g.language, "docadmin.reminder.move.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#reminders")
 
 
@@ -491,7 +492,7 @@ def delete_calendar_event(event_id: str):
             _calendars().record_event_delete(event, actor)
         else:
             _calendars().record_event_move(event, calendar_id, actor)
-        flash("Terminserie ab heute gelöscht; vergangene Termine bleiben erhalten." if result == "series_truncated" else "Kalendertermin gelöscht.")
+        flash(translate(g.language, "docadmin.series.truncated") if result == "series_truncated" else translate(g.language, "docadmin.event.deleted"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
@@ -507,9 +508,9 @@ def restore_calendar_event(event_id: str):
         _calendars().get(calendar_id, actor, write=True)
         event = _calendar().restore_deleted(event_id, actor)
         _calendars().record_event_move(event, calendar_id, actor)
-        flash("Kalendertermin wiederhergestellt; Änderung für CalDAV vorgemerkt.")
+        flash(translate(g.language, "docadmin.event.restored"))
     except ValueError as exc:
-        flash(f"Kalendertermin nicht wiederhergestellt: {exc}")
+        flash(translate(g.language, "docadmin.event.restore.failed").format(exc=exc))
     return redirect(url_for("documents.calendar") + "#deleted-calendar-events")
 
 
@@ -524,7 +525,7 @@ def share_calendar_event(event_id: str):
         if unknown:
             raise ValueError(f"unknown users: {', '.join(unknown)}")
         _calendar().share(event_id, permissions, actor)
-        flash("Lesen- und Bearbeitungsrechte für den Termin gespeichert.")
+        flash(translate(g.language, "docadmin.rights.saved"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar") + f"#event-{event_id}")
@@ -543,7 +544,7 @@ def published_calendar(audience: str):
 def save_booking_settings():
     try:
         _calendar().save_booking_settings(request.form.get("enabled") == "1", int(request.form.get("duration_minutes", "60")), request.form.get("start_time", "09:00"), request.form.get("end_time", "17:00"), str(g.user["username"]), request.form.get("timezone", "Europe/Berlin"))
-        flash("Externe Buchungseinstellungen gespeichert.")
+        flash(translate(g.language, "docadmin.booking.settings.saved"))
     except (TypeError, ValueError) as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))
@@ -555,9 +556,9 @@ def confirm_booking(event_id: str):
     try:
         event = _calendar().confirm_booking(event_id, str(g.user["username"]))
         if event.get("confirmation_delivery", {}).get("status") == "sent":
-            flash("Buchung bestätigt und ICS-E-Mail versendet.")
+            flash(translate(g.language, "docadmin.booking.confirmed.mail"))
         else:
-            flash("Buchung bestätigt und verbindlich blockiert. E-Mail-Versand ist ausstehend; die ICS-Datei kann im Termin heruntergeladen werden.")
+            flash(translate(g.language, "docadmin.booking.confirmed.blocked"))
     except ValueError as exc:
         flash(str(exc))
     return redirect(url_for("documents.calendar"))

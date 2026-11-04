@@ -84,7 +84,8 @@ sehen, Aufbewahrung umgehen oder einen neueren Inhalt unbemerkt ersetzen.
 
 Es ist keine neue Umgebungsvariable und keine Datenbankmigration erforderlich.
 Die Funktion verwendet den vorhandenen Dokumentenstamm und die bestehenden
-Grenzen aus `SIMPLEOFFICE_MAX_UPLOAD_MIB`. Wiederherstellbare Inhalte liegen
+Grenzen aus dem gespeicherten Uploadlimit (`media.upload_limit_mib`).
+Wiederherstellbare Inhalte liegen
 unter `.simpleoffice-meta/webdav-trash/` und
 `.simpleoffice-meta/content-versions/`; beide Verzeichnisse müssen im Backup
 enthalten sein und dürfen nicht durch einen Webserver veröffentlicht werden.

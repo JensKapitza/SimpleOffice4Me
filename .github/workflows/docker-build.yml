@@ -115,7 +115,7 @@ jobs:
           docker create --name "$container" "$image" > /dev/null
           trap 'docker rm -f "$container" > /dev/null 2>&1 || true' EXIT
           docker cp \
-            "$container:/opt/simpleoffice4me/.venv/lib/python3.12/site-packages" \
+            "$container:/opt/simpleoffice4me/.venv/lib/python3.14/site-packages" \
             "artifacts/container/${{ matrix.arch }}/"
           docker rm "$container" > /dev/null
           trap - EXIT
@@ -204,7 +204,11 @@ jobs:
 
   publish:
     name: Publish multi-arch image
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/hackathon/contextflow-mvp' ||
+       startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -255,9 +259,10 @@ jobs:
         with:
           images: ${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=${{ steps.version.outputs.release_version }}
+            type=raw,value=${{ steps.version.outputs.version }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ steps.version.outputs.release_version }},enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=hackathon-contextflow-mvp,enable=${{ github.ref == 'refs/heads/hackathon/contextflow-mvp' }}
             type=ref,event=tag
             type=sha,prefix=sha-
           labels: |

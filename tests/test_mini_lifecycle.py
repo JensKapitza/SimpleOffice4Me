@@ -82,7 +82,7 @@ class SocketLifecycleTests(unittest.TestCase):
             tftp = TftpService(DEFAULT_BOOT_SETTINGS, path)
             tftp.settings["tftp_port"] = 0
             with patch("simpleoffice_sip_runtime.auto_sip_bind_host", return_value="127.0.0.1"):
-                sip = SipRegistrarService(path)
+                sip = SipRegistrarService(path, master_key="test-installation-key-that-is-long-enough")
             sip.settings["registrar_port"] = 0
             for service in (dhcp, tftp, sip):
                 with self.subTest(service=type(service).__name__):

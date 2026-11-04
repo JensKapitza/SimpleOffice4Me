@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 from pathlib import Path
 
 from flask import Blueprint, Response, current_app, jsonify, request
@@ -12,6 +11,12 @@ from flask import Blueprint, Response, current_app, jsonify, request
 from .document_origin import document_origin_tags
 from .document_store import DocumentStore
 from .federation_core import normalize_sha256
+from . import federation_local_identity as _identity
+from .federation_inventory_index import (
+    INVENTORY_INDEX_SCHEMA,
+    build_inventory_rows,
+    inventory_generation,
+)
 from .federation_peer_auth import (
     authenticate as authenticate_peer,
     authenticated_peer,
@@ -40,7 +45,7 @@ def _authorized() -> bool:
         return False
     # Compatibility only. This bearer authenticates access to the legacy
     # catalog, but it must never be treated as proof of a particular peer.
-    expected = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    expected = _identity.shared_token()
     if not expected:
         return bool(current_app.testing)
     header = request.headers.get("Authorization", "")
@@ -96,28 +101,41 @@ def _catalog_rows() -> list[dict]:
 
 
 def _peer_can_receive_catalog(root: str | Path) -> bool:
-    """Apply the configured document-sharing policy to identified peers."""
+    """Default-deny gate: only an identified peer with explicit send+seed flags."""
     peer_id = authenticated_peer(root, request)
     if not peer_id:
-        # Identity-neutral legacy bearer access is retained for older peers.
-        return True
+        # Identity-neutral legacy bearer access never establishes peer scope: deny catalog.
+        return False
     peer = FederationStore(root).get_peer(peer_id)
     if not peer or not peer.get("enabled"):
         return False
     policy = peer.get("policy")
-    if policy is None:
-        return True
     if not isinstance(policy, dict):
         return False
-    if "documents" not in policy:
-        return True
     document_policy = policy.get("documents")
     if not isinstance(document_policy, dict):
         return False
-    return all(
-        document_policy.get(permission, True) is True
-        for permission in ("send", "seed")
+    return (
+        document_policy.get("send") is True
+        and document_policy.get("seed") is True
     )
+
+
+def _peer_can_share_inventory(root: str | Path) -> bool:
+    """Default-deny gate: only an identified peer with an explicit send flag."""
+    peer_id = authenticated_peer(root, request)
+    if not peer_id:
+        return False
+    peer = FederationStore(root).get_peer(peer_id)
+    if not peer or not peer.get("enabled"):
+        return False
+    policy = peer.get("policy")
+    if not isinstance(policy, dict):
+        return False
+    inventory = policy.get("inventory")
+    if not isinstance(inventory, dict):
+        return False
+    return inventory.get("send") is True
 
 
 def _generation(rows: list[dict]) -> str:
@@ -154,4 +172,29 @@ def document_index():
         "count": len(page),
         "total": len(rows),
         "documents": page,
+    })
+
+
+@bp.get("/inventory")
+def inventory_index():
+    root = current_app.config["DOCUMENT_ROOT"]
+    if not _peer_can_share_inventory(root):
+        return jsonify({"error": "inventory_policy_denied"}), 403, {"Cache-Control": "no-store"}
+    try:
+        rows = build_inventory_rows(root)
+    except (OSError, RuntimeError, ValueError):
+        return jsonify({"error": "inventory_unavailable"}), 503
+    generation = inventory_generation(rows)
+    cursor = _bounded_int(request.args.get("cursor", "0"), 0, 0, max(0, len(rows)))
+    limit = _bounded_int(request.args.get("limit", "250"), 250, 1, MAX_PAGE_SIZE)
+    page = rows[cursor:cursor + limit]
+    next_cursor = cursor + len(page)
+    return jsonify({
+        "schema": INVENTORY_INDEX_SCHEMA,
+        "generation": generation,
+        "cursor": cursor,
+        "next_cursor": next_cursor if next_cursor < len(rows) else None,
+        "count": len(page),
+        "total": len(rows),
+        "items": page,
     })

@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_peer_auth import headers as peer_headers
 from app.federation_store import FederationStore
 from app.federation_trust_store import FederationTrustStore
 from app.security_controls import protect_browser_mutation
+from app.settings_store import SettingsStore
 from app.v3_federation_routes import bp as v3_bp
 
 
@@ -21,15 +23,20 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root_a = Path(self.temp.name) / "peer-a"
         self.root_b = Path(self.temp.name) / "peer-b"
-        self.old_env = {
-            name: os.environ.get(name)
-            for name in (
-                "SIMPLEOFFICE_V3_FEDERATION_ENABLED",
-                "SIMPLEOFFICE_FEDERATION_PEER_ID",
-                "SIMPLEOFFICE_FEDERATION_TOKEN",
-            )
-        }
-        os.environ["SIMPLEOFFICE_V3_FEDERATION_ENABLED"] = "true"
+        # The serving peer (peer-b) reads its own id from the user-home
+        # identity store (no environment): point it at the test root.
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=Path(self.temp.name) / "app-config-b.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        app_config_store.put("federation", {"peer_id": "peer-b"})
+        SettingsStore(self.root_a).save(
+            {"v3": {"v3.federation": True}}, "v3-federation-test",
+        )
+        SettingsStore(self.root_b).save(
+            {"v3": {"v3.federation": True}}, "v3-federation-test",
+        )
         self.token_a = "unique-peer-a-secret"
         self.token_b = "unique-peer-b-secret"
         self.app_a = self._app(self.root_a)
@@ -40,11 +47,6 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
         self._save_peer(self.app_b, self.root_b, "peer-a", self.token_a)
 
     def tearDown(self):
-        for name, value in self.old_env.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
         self.temp.cleanup()
 
     @staticmethod
@@ -85,8 +87,6 @@ class V3FederationTwoPeerHttpTest(unittest.TestCase):
         }
 
     def _post_from_a(self, path: str, value: dict[str, object], client=None):
-        os.environ["SIMPLEOFFICE_FEDERATION_PEER_ID"] = "peer-b"
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = "global-token-peer-b"
         body = json.dumps(value, separators=(",", ":")).encode("utf-8")
         headers = {
             "Content-Type": "application/json",

@@ -15,7 +15,7 @@ Ortstermine erfassen Räume, Geräte, Verbindungen, Stromwerte, Beobachtungen un
 
 Die Seite nutzt nur ausdrücklich angeforderte Browserfunktionen. Geolocation fragt erst nach Klick die Gerätefreigabe an. Kamera und Barcode-Erkennung werden nur nach Nutzeraktion gestartet; der Videostream wird nach dem Scan beendet. Funktionen hängen von Browser, Berechtigung und sicherem Kontext (HTTPS) ab. Grundrisse, Fotos und Dateien werden als Terminanhänge abgelegt. Maximalgröße ist 16 MiB.
 
-Für QR-Labels muss `SIMPLEOFFICE_SERVER_PUBLIC_URL` (oder `SIMPLEOFFICE_FEDERATION_PUBLIC_URL`) auf die von den Mitarbeitenden erreichbare Server-URL gesetzt sein. Das Label führt zur konkreten Gerätedokumentation, enthält aber keine Zugangsdaten.
+Für QR-Labels muss in der Admin-Oberfläche unter Federation → Netzwerkeinstellungen die öffentliche Server-URL auf die von den Mitarbeitenden erreichbare Server-URL gesetzt sein (`SIMPLEOFFICE_SERVER_PUBLIC_URL` und `SIMPLEOFFICE_FEDERATION_PUBLIC_URL` sind entfernt). Das Label führt zur konkreten Gerätedokumentation, enthält aber keine Zugangsdaten.
 
 ## LAN-Scan und Grenzen
 

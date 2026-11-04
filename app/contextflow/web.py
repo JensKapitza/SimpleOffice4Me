@@ -9,7 +9,7 @@ Meta agent route on verified synthetic demo roots.
 
 from __future__ import annotations
 
-import os
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -34,6 +34,7 @@ from ..mail_case_store import MailCaseStore
 from ..object_vision import ocr_availability
 from ..site_visit_store import SiteVisitStore
 from .actions import ApprovalStale, approve_task
+from .agent_web import render_agent
 from .case_links import BERLIN, CaseLinkStore
 from .contracts import (
     INVOICE_EDITOR_URL,
@@ -63,7 +64,6 @@ from .inventory_match import (
     resolve_unique_target,
 )
 from .ot_travel_hints import card_ot_travel_hint
-from .peer_stock import peer_availability
 from .vision import (
     InferenceTimeoutError,
     InferenceUnavailable,
@@ -72,18 +72,14 @@ from .vision import (
     prepare_draft,
     suggest_inventory_object,
     validate_image,
-    vision_settings_from_mapping,
 )
 
 bp = Blueprint("contextflow", __name__, url_prefix="/contextflow")
 
 
 def _enabled() -> bool:
-    """ContextFlow is off unless explicitly enabled via config or env."""
-    return bool(
-        current_app.config.get("CONTEXTFLOW_ENABLED", False)
-        or os.environ.get("CONTEXTFLOW_ENABLED") == "1"
-    )
+    """ContextFlow is off unless explicitly enabled via Flask config."""
+    return bool(current_app.config.get("CONTEXTFLOW_ENABLED", False))
 
 
 @bp.app_context_processor
@@ -456,9 +452,110 @@ def mail_draft():
     return redirect(url_for("mail_reader.index", case=str(result["case_id"]), mode="case") + "#mail-case")
 
 
+@bp.get("/agent")
+@login_required
+def agent_form():
+    """Show the Meta demo-analysis form for one confirmed case."""
+    _gate()
+    actor = _actor()
+    settings = _vision_settings()
+    preselected = str(request.args.get("link_id", "") or "")
+    return render_agent(actor, _root(), settings, None, None, 200, preselected)
+
+
+@bp.post("/agent/run")
+@login_required
+def agent_run():
+    """Run the Meta tool loop once; the result stays a proposal."""
+    from .meta_agent import (
+        MetaAgentError,
+        release_agent_run,
+        reserve_agent_run,
+        run_agent,
+    )
+
+    _gate()
+    actor = _actor()
+    form = request.form
+    settings = _vision_settings()
+    submitted = str(form.get("link_id", ""))
+    slot, retry_after = reserve_agent_run(actor)
+    if slot == "limited":
+        body, code = render_agent(
+            actor,
+            _root(),
+            settings,
+            None,
+            "Zu viele Analysen in kurzer Zeit – bitte später erneut versuchen.",
+            429,
+            submitted,
+        )
+        return body, code, {"Retry-After": str(retry_after or 60)}
+    if slot == "busy":
+        return render_agent(
+            actor,
+            _root(),
+            settings,
+            None,
+            "Für diesen Benutzer läuft bereits eine Analyse – bitte abwarten.",
+            409,
+            submitted,
+        )
+    start = time.monotonic()
+    try:
+        try:
+            result = run_agent(
+                actor=actor,
+                link_id=submitted,
+                consent_meta=form.get("consent_meta") == "yes",
+                settings=settings,
+                root=_root(),
+                now=_now(),
+            )
+        except PermissionError as exc:
+            return render_agent(
+                actor,
+                _root(),
+                settings,
+                None,
+                str(exc) or "Keine Berechtigung",
+                403,
+                submitted,
+            )
+        except ValueError as exc:
+            return render_agent(
+                actor, _root(), settings, None, str(exc), 400, submitted
+            )
+        except KeyError:
+            return render_agent(
+                actor,
+                _root(),
+                settings,
+                None,
+                "Analyse gestört, bitte erneut versuchen.",
+                500,
+                submitted,
+            )
+        except MetaAgentError as exc:
+            return render_agent(
+                actor, _root(), settings, None, str(exc), 502, submitted
+            )
+        run_seconds = time.monotonic() - start
+        return render_agent(
+            actor, _root(), settings, result, None, 200, submitted, run_seconds
+        )
+    finally:
+        release_agent_run(actor)
+
+
 def _vision_settings() -> dict[str, Any]:
-    """Vision backend settings; Meta stays doubly gated (flag + checkbox)."""
-    return vision_settings_from_mapping(current_app.config, os.environ)
+    """Vision backend settings from the admin settings file (no environment).
+
+    Meta stays doubly gated (stored flag + per-photo checkbox).
+    """
+    from .. import vision_config as _vision_config
+
+    return _vision_config.effective_settings(current_app.config)
 
 
 @bp.get("/ml-status")
@@ -759,27 +856,6 @@ def doc_tag_confirm():
     return {"ok": True, **result}, 200
 
 
-@bp.post("/peer-stock-check")
-@login_required
-def peer_stock_check():
-    """Ask opt-in friends' shared catalogs for one identifier (JSON).
-
-    Read-only and local: only friends (trust edge plus enabled peer
-    record plus documents-receive opt-in) are consulted, no network
-    is used, no content is stored or forwarded. Friends without a
-    valid index are listed as not_synced/error, never as "no hit".
-    """
-    _gate()
-    actor = _actor()
-    try:
-        result = peer_availability(
-            root=_root(), actor=actor, identifier=request.form.get("identifier", "")
-        )
-    except ValueError as exc:
-        return {"ok": False, "error": str(exc)}, 400
-    return {"ok": True, **result}, 200
-
-
 @bp.post("/suggest")
 @login_required
 def suggest():
@@ -900,7 +976,5 @@ def hint_prefs():
         abort(400, description=str(exc))
     return redirect(url_for("contextflow.dashboard"))
 
-from .agent_routes import register_agent_routes as _register_agent_routes
 from .meta_key_routes import register_meta_key_routes as _register_meta_key_routes
-_register_agent_routes(bp)
 _register_meta_key_routes(bp)

@@ -8,7 +8,6 @@ master automatically exposes this collector unless explicitly disabled.
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import secrets
 import threading
@@ -77,7 +76,10 @@ def relay_enabled() -> bool:
 
 def _restrict_public_relay_surface() -> None:
     """Fail closed if the dedicated relay image later gains extra routes."""
-    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE", "web").strip() != "error-relay":
+    from simpleoffice_server_config import effective_server_settings
+
+    role = effective_server_settings(current_app.config["DOCUMENT_ROOT"])["container_role"]
+    if role != "error-relay":
         return
     allowed = (
         request.path == "/api/error-reports/v1/health"

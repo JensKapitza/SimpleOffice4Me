@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from flask import current_app
+
 from .chat_call_types import CALL_TYPES
 from .mini_services import default_config_path
 from .telephony_profiles import TelephonyProfileStore
@@ -30,7 +32,9 @@ _SAFE_USER = re.compile(r"^[A-Za-z0-9_.+*-]{1,120}$")
 
 
 def _store() -> TelephonyProfileStore:
-    return TelephonyProfileStore(default_config_path().parent / "telephony")
+    return TelephonyProfileStore(
+        default_config_path().parent / "telephony", current_app.config["SECRET_KEY"],
+    )
 
 
 def _reachable_host(value: str) -> bool:

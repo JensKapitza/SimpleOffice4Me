@@ -1,0 +1,90 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4">
+  <div class="mb-4">
+    <h1 class="h2 mb-1">{{ 'Server & background services' if g.language == 'en' else 'Server & Hintergrunddienste' }}</h1>
+    <p class="text-secondary mb-0">{{ 'Bind address, WSGI limits and background workers. Values apply after a restart of the web process. Explicit per-start overrides (CLI flags, systemd units, desktop shell) win over these stored values; no environment variable is required.' if g.language == 'en' else 'Bind-Adresse, WSGI-Grenzen und Hintergrunddienste. Werte gelten nach einem Neustart des Webprozesses. Explizite Start-Overrides (CLI-Schalter, Systemd-Units, Desktop-Shell) gewinnen über diese gespeicherten Werte; keine Umgebungsvariable ist erforderlich.' }}</p>
+  </div>
+  <nav aria-label="{{ 'Settings sections' if g.language == 'en' else 'Einstellungsbereiche' }}" class="mb-4">
+    <div class="nav nav-tabs">
+      <a class="nav-link" href="{{ url_for('documents.settings') }}">{{ 'General' if g.language == 'en' else 'Allgemein' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.documents_media_settings') }}">{{ 'Documents & media' if g.language == 'en' else 'Dokumente & Medien' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.network_settings') }}">{{ 'Network & synchronisation' if g.language == 'en' else 'Netzwerk & Synchronisation' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.integration_settings') }}">{{ 'Integrations & services' if g.language == 'en' else 'Integrationen & Dienste' }}</a>
+      <a class="nav-link active" href="{{ url_for('admin_server.server_settings') }}" aria-current="page">{{ 'Server' if g.language == 'en' else 'Server' }}</a>
+      <a class="nav-link" href="{{ url_for('admin.printer_settings') }}">{{ 'Printers' if g.language == 'en' else 'Drucker' }}</a>
+    </div>
+  </nav>
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  <section class="card">
+    <div class="card-header"><strong>{{ 'HTTP bind & WSGI' if g.language == 'en' else 'HTTP-Bindung & WSGI' }}</strong></div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('admin_server.save_server_settings') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+        <div class="col-md-7">
+          <label class="form-label" for="server-host">{{ 'Bind address' if g.language == 'en' else 'Bind-Adresse' }}</label>
+          <input class="form-control" id="server-host" type="text" name="host" value="{{ server.host }}" maxlength="253" required>
+          <div class="form-text">{{ 'Default: 127.0.0.1 (local only). Use 0.0.0.0 only behind a trusted reverse proxy.' if g.language == 'en' else 'Standard: 127.0.0.1 (nur lokal). 0.0.0.0 nur hinter einem vertrauenswürdigen Reverse-Proxy verwenden.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="server-port">{{ 'HTTP port' if g.language == 'en' else 'HTTP-Port' }}</label>
+          <input class="form-control" id="server-port" type="number" name="port" value="{{ server.port }}" min="{{ port_min }}" max="{{ port_max }}" step="1" required>
+          <div class="form-text">{{ 'Default: 8080. Allowed: 1–65535. Restart required.' if g.language == 'en' else 'Standard: 8080. Zulässig: 1–65535. Neustart erforderlich.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="server-threads">{{ 'WSGI threads' if g.language == 'en' else 'WSGI-Threads' }}</label>
+          <input class="form-control" id="server-threads" type="number" name="wsgi_threads" value="{{ server.wsgi_threads }}" min="{{ threads_min }}" max="{{ threads_max }}" step="1" required>
+          <div class="form-text">{{ 'Default: 4. Allowed: 1–64. Restart required.' if g.language == 'en' else 'Standard: 4. Zulässig: 1–64. Neustart erforderlich.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="server-timeout">{{ 'WSGI channel timeout (seconds)' if g.language == 'en' else 'WSGI-Kanalzeitlimit (Sekunden)' }}</label>
+          <input class="form-control" id="server-timeout" type="number" name="wsgi_channel_timeout" value="{{ server.wsgi_channel_timeout }}" min="{{ timeout_min }}" max="{{ timeout_max }}" step="1" required>
+          <div class="form-text">{{ 'Default: 120 seconds. Allowed: 10–3600 seconds. Restart required.' if g.language == 'en' else 'Standard: 120 Sekunden. Zulässig: 10–3600 Sekunden. Neustart erforderlich.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="server-hops">{{ 'Trusted proxy hops' if g.language == 'en' else 'Vertrauenswürdige Proxy-Hops' }}</label>
+          <input class="form-control" id="server-hops" type="number" name="trusted_proxy_hops" value="{{ server.trusted_proxy_hops }}" min="{{ hops_min }}" max="{{ hops_max }}" step="1" required>
+          <div class="form-text">{{ 'Default: 0 (no proxy headers trusted). Allowed: 0–16. Restart required.' if g.language == 'en' else 'Standard: 0 (keine Proxy-Header vertraut). Zulässig: 0–16. Neustart erforderlich.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <label class="form-label" for="server-role">{{ 'Container role' if g.language == 'en' else 'Container-Rolle' }}</label>
+          <select class="form-select" id="server-role" name="container_role">
+            <option value="" {% if server.container_role == '' %}selected{% endif %}>{{ 'Standard single-process start' if g.language == 'en' else 'Standard-Einzelprozessstart' }}</option>
+            <option value="web" {% if server.container_role == 'web' %}selected{% endif %}>web</option>
+            <option value="error-relay" {% if server.container_role == 'error-relay' %}selected{% endif %}>error-relay</option>
+          </select>
+          <div class="form-text">{{ 'Deployment role: web serves normally, error-relay exposes only the relay API, empty means a standard start. Restart required.' if g.language == 'en' else 'Deployment-Rolle: web bedient normal, error-relay zeigt nur die Relay-API, leer bedeutet Standardstart. Neustart erforderlich.' }}</div>
+        </div>
+        <div class="col-md-7">
+          <input type="hidden" name="background_index_enabled" value="0">
+          <div class="form-check mt-2">
+            <input class="form-check-input" id="server-bgindex" type="checkbox" name="background_index_enabled" value="1" {% if server.background_index_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="server-bgindex">{{ 'Background document index worker' if g.language == 'en' else 'Hintergrund-Indexdienst für Dokumente' }}</label>
+          </div>
+          <input type="hidden" name="osm_index_enabled" value="0">
+          <div class="form-check mt-2">
+            <input class="form-check-input" id="server-osmindex" type="checkbox" name="osm_index_enabled" value="1" {% if server.osm_index_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="server-osmindex">{{ 'OSM address index worker' if g.language == 'en' else 'OSM-Adressindexdienst' }}</label>
+          </div>
+          <input type="hidden" name="datalogger_enabled" value="0">
+          <div class="form-check mt-2">
+            <input class="form-check-input" id="server-datalogger" type="checkbox" name="datalogger_enabled" value="1" {% if server.datalogger_enabled %}checked{% endif %}>
+            <label class="form-check-label" for="server-datalogger">{{ 'Data logger worker' if g.language == 'en' else 'Datenloggerdienst' }}</label>
+          </div>
+          <input type="hidden" name="mini_services_autostart" value="0">
+          <div class="form-check mt-2">
+            <input class="form-check-input" id="server-mini" type="checkbox" name="mini_services_autostart" value="1" {% if server.mini_services_autostart %}checked{% endif %}>
+            <label class="form-check-label" for="server-mini">{{ 'Mini-services worker autostart' if g.language == 'en' else 'Mini-Services-Autostart' }}</label>
+          </div>
+          <div class="form-text">{{ 'Defaults: all on. The desktop shell keeps background workers off for its embedded service. Changes apply to newly started processes.' if g.language == 'en' else 'Standards: alle an. Die Desktop-Shell hält Hintergrunddienste für ihren eingebetteten Dienst aus. Änderungen gelten für neu gestartete Prozesse.' }}</div>
+        </div>
+        <div class="col-12 d-flex flex-wrap gap-2">
+          <button class="btn btn-primary" type="submit">{{ 'Save settings' if g.language == 'en' else 'Einstellungen speichern' }}</button>
+          <button class="btn btn-outline-secondary" type="submit" name="reset" value="1" formnovalidate>{{ 'Reset to default' if g.language == 'en' else 'Auf Standardwert zurücksetzen' }}</button>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+{% endblock %}

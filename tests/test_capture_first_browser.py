@@ -108,9 +108,9 @@ class CaptureFirstBrowserTests(unittest.TestCase):
                 {"name": f"gallery-a-{seed}.jpg", "mimeType": "image/jpeg", "buffer": self._jpeg_bytes(110 + seed)},
                 {"name": f"gallery-b-{seed}.jpg", "mimeType": "image/jpeg", "buffer": self._jpeg_bytes(150 + seed)},
             ])
-            self.assertIn("2 Foto(s)", page.locator("#photo-selection").inner_text())
+            self.assertIn("2 photo(s)", page.locator("#photo-selection").inner_text())
             page.locator("#photo-start").click()
-            expect(page.locator("#photo-summary")).to_contain_text("2 neu", timeout=30000)
+            expect(page.locator("#photo-summary")).to_contain_text("2 new", timeout=30000)
             self.assertEqual(2, page.locator("#photo-results a").count())
             self.assertEqual([], page_errors)
         finally:

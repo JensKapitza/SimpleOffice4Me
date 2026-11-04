@@ -116,15 +116,10 @@ PDFs kann der Indexlauf entsprechend länger dauern.
 
 Web-Uploads sind standardmäßig auf insgesamt 512 MiB pro HTTP-Anfrage
 begrenzt. Mehrere gleichzeitig ausgewählte Dateien teilen sich dieses Limit.
-Für größere Scanstapel kann es zwischen 1 und 4096 MiB angepasst werden:
-
-```bash
-SIMPLEOFFICE_MAX_UPLOAD_MIB=1024 ./start.sh
-```
-
-Unter Windows wird vor `start.bat` entsprechend
-`set SIMPLEOFFICE_MAX_UPLOAD_MIB=1024` verwendet. Ungültige Werte fallen auf
-512 MiB zurück. Ein vorgeschalteter Reverse Proxy muss mindestens dasselbe
+Für größere Scanstapel kann es unter **Einstellungen → Dokumente & Medien**
+zwischen 1 und 4096 MiB angepasst werden (Neustart erforderlich). Die
+Umgebungsvariable `SIMPLEOFFICE_MAX_UPLOAD_MIB` ist entfernt und wird nicht
+mehr gelesen. Ein vorgeschalteter Reverse Proxy muss mindestens dasselbe
 Limit erlauben. Bricht ein Import mit einem Fehler ab oder überschreitet er die
 Grenze, wird seine unvollständige Staging-Datei automatisch entfernt. Bei einem
 harten Prozessabbruch kann sie beim nächsten Start weiterhin sichtbar sein.
@@ -132,11 +127,8 @@ harten Prozessabbruch kann sie beim nächsten Start weiterhin sichtbar sein.
 Optional kann der über WebDAV sichtbare Dokumentbaum zusätzlich begrenzt
 werden. Administratoren verwalten das Kontingent nach der Einrichtung unter
 **Einstellungen → Netzwerk & Synchronisation**. Nach Änderungen ist ein Neustart
-erforderlich. Für die Erstkonfiguration bleibt die Umgebungsvariable verfügbar:
-
-```bash
-SIMPLEOFFICE_WEBDAV_QUOTA_MIB=10240 ./start.sh
-```
+erforderlich. Die Umgebungsvariable `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` ist
+entfernt und wird nicht mehr gelesen.
 
 Desktop-Clients können Belegung und Restplatz nach RFC 4331 auslesen;
 wachsende PUT- und COPY-Anfragen oberhalb der Grenze werden ohne Teiländerung

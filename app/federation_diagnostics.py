@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import http.client
 import json
-import os
 import re
 import secrets
 import socket
@@ -17,6 +16,7 @@ from flask import current_app
 
 from .federation_discovery_endpoint import host_header, resolve_pinned_endpoint
 from .federation_core import sanitize_peer_id
+from . import federation_local_identity as _identity
 from .federation_local_profile import local_peer_id
 from .federation_peer_auth import headers as peer_auth_headers
 from .federation_store import FederationStore
@@ -121,7 +121,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
         token = store.peer_token(peer_id)
         if not token:
             return _record_failure(store, peer_id, started, "configuration", {**stages, "authentication": "missing_peer_token"})
-        shared_bearer = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+        shared_bearer = _identity.shared_token()
         if not shared_bearer and not current_app.testing:
             return _record_failure(store, peer_id, started, "configuration", {**stages, "authentication": "shared_bearer_not_configured"})
         if not store.claim_diagnostic_attempt(peer_id, limit=RATE_LIMIT_COUNT, window_seconds=RATE_LIMIT_WINDOW_SECONDS):
@@ -148,7 +148,7 @@ def probe_peer(root: str | Path, peer_id: str, *, now: int | None = None) -> dic
     except (RuntimeError, ValueError):
         stages["authentication"] = "local_peer_identity_unavailable"
         return _record_failure(store, peer_id, started, "configuration", stages)
-    bearer = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip() or token
+    bearer = _identity.shared_token() or token
     headers = {
         "Authorization": f"Bearer {bearer}",
         "Content-Type": "application/json",

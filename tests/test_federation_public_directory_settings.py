@@ -12,6 +12,7 @@ from unittest.mock import patch
 from werkzeug.security import generate_password_hash
 
 from app import app, db as database
+from app import app_config_store
 from app.federation_local_profile import local_profile
 from app.settings_store import (
     DEFAULT_FEDERATION_PROFILE_COUNTRY,
@@ -40,12 +41,14 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
         )
         self.environment = patch.dict(os.environ, {
             "SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY": "0",
-            "SIMPLEOFFICE_FEDERATION_DIRECTORY_TOKEN": "",
-            "SIMPLEOFFICE_FEDERATION_TOKEN": "",
-            "SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "",
             "SIMPLEOFFICE_FEDERATION_COUNTRY": "",
         })
         self.environment.start()
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
         with app.app_context():
             database.ensure_auth_database()
             db = database.get_db()
@@ -149,30 +152,32 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
         )
         self.assertFalse(json.loads(row["detail"])["enabled"])
 
-    def test_legacy_optin_migrates_once_invalid_values_reject_and_reset_is_safe(self):
+    def test_admin_optin_persists_invalid_values_reject_and_reset_is_safe(self):
         store = SettingsStore(self.root)
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY": "yes"}):
-            self.assertTrue(
-                store.settings()["integrations"]["federation_public_directory_enabled"],
-            )
-            store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
+        store.save(
+            {"integrations": {"federation_public_directory_enabled": True}},
+            "federation-admin",
+        )
+        self.assertTrue(
+            store.settings()["integrations"]["federation_public_directory_enabled"],
+        )
+        store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_PUBLIC_DIRECTORY": "0"}):
-            self.assertTrue(
-                store.settings()["integrations"]["federation_public_directory_enabled"],
-            )
-            for invalid in ("", "2", "true", "off"):
-                with self.subTest(invalid=invalid):
-                    self.post_setting(
-                        self.admin,
-                        {"federation_public_directory_enabled": invalid},
-                    )
-                    self.assertTrue(
-                        store.settings()["integrations"][
-                            "federation_public_directory_enabled"
-                        ],
-                    )
-            reset = self.post_setting(self.admin, {"reset": "1"})
+        self.assertTrue(
+            store.settings()["integrations"]["federation_public_directory_enabled"],
+        )
+        for invalid in ("", "2", "true", "off"):
+            with self.subTest(invalid=invalid):
+                self.post_setting(
+                    self.admin,
+                    {"federation_public_directory_enabled": invalid},
+                )
+                self.assertTrue(
+                    store.settings()["integrations"][
+                        "federation_public_directory_enabled"
+                    ],
+                )
+        reset = self.post_setting(self.admin, {"reset": "1"})
 
         self.assertEqual(302, reset.status_code)
         integrations = SettingsStore(self.root).settings()["integrations"]
@@ -203,24 +208,19 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
             page.get_data(as_text=True).count('id="federation-public-url"'),
         )
         store = SettingsStore(self.root)
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "office.example/simpleoffice"},
-        ):
-            self.assertEqual(
-                "https://office.example/simpleoffice",
-                store.settings()["integrations"]["federation_public_url"],
-            )
-            store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
-
-        with patch.dict(
-            os.environ,
-            {"SIMPLEOFFICE_FEDERATION_PUBLIC_URL": "https://changed.example"},
-        ):
-            self.assertEqual(
-                "https://office.example/simpleoffice",
-                store.settings()["integrations"]["federation_public_url"],
-            )
+        store.save(
+            {"integrations": {"federation_public_url": "office.example/simpleoffice"}},
+            "federation-admin",
+        )
+        self.assertEqual(
+            "https://office.example/simpleoffice",
+            store.settings()["integrations"]["federation_public_url"],
+        )
+        store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
+        self.assertEqual(
+            "https://office.example/simpleoffice",
+            store.settings()["integrations"]["federation_public_url"],
+        )
         with patch(
             "app.federation_local_profile.FederationIdentity.public_identity",
             return_value={"public_key": "public-key", "fingerprint": "sha256:test"},
@@ -312,23 +312,25 @@ class FederationPublicDirectorySettingsTests(unittest.TestCase):
         page = self.admin.get("/admin/settings/integrations")
         self.assertIn('name="federation_profile_country"', page.get_data(as_text=True))
         store = SettingsStore(self.root)
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_COUNTRY": "de"}):
-            self.assertEqual(
-                "DE", store.settings()["integrations"]["federation_profile_country"],
-            )
-            store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
+        store.save(
+            {"integrations": {"federation_profile_country": "de"}},
+            "federation-admin",
+        )
+        self.assertEqual(
+            "DE", store.settings()["integrations"]["federation_profile_country"],
+        )
+        store.save({"integrations": {"federation_autoscan_seconds": 10800}}, "federation-admin")
 
-        with patch.dict(os.environ, {"SIMPLEOFFICE_FEDERATION_COUNTRY": "FR"}):
+        self.assertEqual(
+            "DE", store.settings()["integrations"]["federation_profile_country"],
+        )
+        with patch(
+            "app.federation_local_profile.FederationIdentity.public_identity",
+            return_value={"public_key": "public-key", "fingerprint": "sha256:test"},
+        ):
             self.assertEqual(
-                "DE", store.settings()["integrations"]["federation_profile_country"],
+                "DE", local_profile(self.root, "https://profile.example")["country"],
             )
-            with patch(
-                "app.federation_local_profile.FederationIdentity.public_identity",
-                return_value={"public_key": "public-key", "fingerprint": "sha256:test"},
-            ):
-                self.assertEqual(
-                    "DE", local_profile(self.root, "https://profile.example")["country"],
-                )
 
         path = "/admin/settings/integrations/federation-profile-country"
         self.assertEqual(403, self.user.post(

@@ -3,30 +3,30 @@
 {% block body %}
 <main id="main-content" class="container-xl py-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <h1 class="h3 mb-0">Bankfreigabe für Umsatzabruf</h1>
-    <a class="btn btn-outline-secondary" href="{{ url_for('.index') }}">Abbrechen</a>
+    <h1 class="h3 mb-0">{{ 'Bank approval for transaction retrieval' if g.language == 'en' else 'Bankfreigabe für Umsatzabruf' }}</h1>
+    <a class="btn btn-outline-secondary" href="{{ url_for('.index') }}">{{ 'Cancel' if g.language == 'en' else 'Abbrechen' }}</a>
   </div>
-  <p>Die Bank verlangt eine zusätzliche Freigabe für den ausschließlich lesenden Umsatzabruf von
+  <p>{{ 'The bank requires an additional approval for the strictly read-only transaction retrieval of' if g.language == 'en' else 'Die Bank verlangt eine zusätzliche Freigabe für den ausschließlich lesenden Umsatzabruf von' }}
     <strong>{{ connection.institution }} · {{ mapping.name }}</strong>.
   </p>
   {% if completed_count %}
   <div class="alert alert-info" role="status" aria-live="polite">
-    Bereits erfolgreich synchronisierte Konten: {{ completed_count }}. Sie werden bei der Fortsetzung nicht erneut abgerufen.
+    {{ 'Already successfully synchronised accounts:' if g.language == 'en' else 'Bereits erfolgreich synchronisierte Konten:' }} {{ completed_count }}. {{ 'They will not be retrieved again on continuation.' if g.language == 'en' else 'Sie werden bei der Fortsetzung nicht erneut abgerufen.' }}
   </div>
   {% endif %}
   {% if challenge_text %}<div class="alert alert-info" role="status" aria-live="polite">{{ challenge_text }}</div>{% endif %}
   {% if decoupled %}
-  <p>Bestätige die Anfrage in der offiziellen App oder auf dem Gerät deiner Bank. Eine TAN-Eingabe ist nicht erforderlich.</p>
+  <p>{{ 'Confirm the request in the official app or on your bank device. No TAN entry is required.' if g.language == 'en' else 'Bestätige die Anfrage in der offiziellen App oder auf dem Gerät deiner Bank. Eine TAN-Eingabe ist nicht erforderlich.' }}</p>
   {% else %}
-  <p>Gib die von deiner Bank angeforderte TAN ein. PIN und TAN werden nur für diesen Fortsetzungsschritt verwendet und nicht gespeichert.</p>
+  <p>{{ 'Enter the TAN requested by your bank. PIN and TAN are used only for this continuation step and are not stored.' if g.language == 'en' else 'Gib die von deiner Bank angeforderte TAN ein. PIN und TAN werden nur für diesen Fortsetzungsschritt verwendet und nicht gespeichert.' }}</p>
   {% endif %}
   <form method="post" action="{{ url_for('.continue_bank_connection_sync', connection_id=connection_id) }}" class="card card-body">
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="challenge_token" value="{{ challenge_token }}">
-    <div class="mb-3"><label class="form-label" for="sync-resume-pin">PIN zur Fortsetzung</label><input required class="form-control" id="sync-resume-pin" name="pin" type="password" autocomplete="new-password" maxlength="256"></div>
+    <div class="mb-3"><label class="form-label" for="sync-resume-pin">{{ 'PIN to continue' if g.language == 'en' else 'PIN zur Fortsetzung' }}</label><input required class="form-control" id="sync-resume-pin" name="pin" type="password" autocomplete="new-password" maxlength="256"></div>
     {% if not decoupled %}<div class="mb-3"><label class="form-label" for="sync-resume-tan">TAN</label><input required class="form-control" id="sync-resume-tan" name="tan" type="password" autocomplete="one-time-code" maxlength="256"></div>{% endif %}
-    <button class="btn btn-primary align-self-start" type="submit">Umsatzabruf fortsetzen</button>
+    <button class="btn btn-primary align-self-start" type="submit">{{ 'Continue transaction retrieval' if g.language == 'en' else 'Umsatzabruf fortsetzen' }}</button>
   </form>
-  <p class="small text-secondary mt-3">Die verschlüsselte, einmal verwendbare Freigabe läuft nach fünf Minuten ab. Bereits abgeschlossene Konten werden nicht erneut abgerufen. Es werden keine Zahlungsaufträge ausgeführt.</p>
+  <p class="small text-secondary mt-3">{{ 'The encrypted, single-use approval expires after five minutes. Already completed accounts are not retrieved again. No payment orders are executed.' if g.language == 'en' else 'Die verschlüsselte, einmal verwendbare Freigabe läuft nach fünf Minuten ab. Bereits abgeschlossene Konten werden nicht erneut abgerufen. Es werden keine Zahlungsaufträge ausgeführt.' }}</p>
 </main>
 {% endblock %}

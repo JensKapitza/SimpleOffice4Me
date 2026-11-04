@@ -11,7 +11,7 @@
     <div class="row g-3 align-items-end">
       <div class="col-lg-7"><label class="form-label" for="combine-q">{{ tr('duplicates.search_label') }}</label><input id="combine-q" class="form-control" type="search" name="q" value="{{ query }}" placeholder="{{ tr('duplicates.search_hint') }}" enterkeyhint="search" autocomplete="off"></div>
       <div class="col-lg-3"><label class="form-label" for="combine-match">{{ tr('duplicates.match_filter') }}</label><select id="combine-match" class="form-select" name="match"><option value="any"{% if selected_match == 'any' %} selected{% endif %}>{{ tr('duplicates.match_any') }}</option><option value="name"{% if selected_match == 'name' %} selected{% endif %}>{{ tr('duplicates.match_name') }}</option><option value="email"{% if selected_match == 'email' %} selected{% endif %}>{{ tr('duplicates.match_email') }}</option><option value="phone"{% if selected_match == 'phone' %} selected{% endif %}>{{ tr('duplicates.match_phone') }}</option><option value="company"{% if selected_match == 'company' %} selected{% endif %}>{{ tr('duplicates.match_company') }}</option><option value="address"{% if selected_match == 'address' %} selected{% endif %}>{{ tr('duplicates.match_address') }}</option></select></div>
-      <div class="col-lg-2 d-grid gap-2"><button class="btn btn-primary" type="submit">{{ tr('duplicates.refine') }}</button>{% if query or selected_match != 'any' %}<a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.combine_contacts') }}">Filter zurücksetzen</a>{% endif %}</div>
+      <div class="col-lg-2 d-grid gap-2"><button class="btn btn-primary" type="submit">{{ tr('duplicates.refine') }}</button>{% if query or selected_match != 'any' %}<a class="btn btn-outline-secondary" href="{{ url_for('contact_audit.combine_contacts') }}">{{ tr('duplicates.reset_filter') }}</a>{% endif %}</div>
     </div>
   </form>
 
@@ -19,9 +19,9 @@
     <input type="hidden" name="q" value="{{ query }}"><input type="hidden" name="match" value="{{ selected_match }}">
     <div class="alert alert-light border d-flex flex-wrap align-items-center gap-2">
       <span class="me-auto">{{ tr('duplicates.combine_help') }}</span>
-      <div class="btn-group btn-group-sm" role="group" aria-label="Auswahl steuern">
-        <button type="button" class="btn btn-outline-secondary" id="combine-select-all">Alle sichtbaren</button>
-        <button type="button" class="btn btn-outline-secondary" id="combine-clear">Auswahl leeren</button>
+      <div class="btn-group btn-group-sm" role="group" aria-label="{{ tr('duplicates.selection_controls') }}">
+        <button type="button" class="btn btn-outline-secondary" id="combine-select-all">{{ tr('duplicates.select_visible') }}</button>
+        <button type="button" class="btn btn-outline-secondary" id="combine-clear">{{ tr('duplicates.clear_selection') }}</button>
       </div>
       <span id="combine-selection-count" class="badge text-bg-secondary" data-label="{{ tr('duplicates.selected') }}" aria-live="polite">0 {{ tr('duplicates.selected') }}</span>
       <button id="combine-submit" type="submit" class="btn btn-success" disabled data-confirm="{{ tr('duplicates.multi_confirm') }}"><i class="fas fa-object-group me-1" aria-hidden="true"></i>{{ tr('duplicates.combine_selected') }}</button>

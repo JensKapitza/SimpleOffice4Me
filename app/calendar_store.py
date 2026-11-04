@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import smtplib
 import uuid
@@ -15,6 +14,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from . import mail_smtp as _smtp
 from .document_store import CONTROL_DIR, atomic_json_write, utc_now
 from .revision_history import RevisionHistory
 from .file_lock import exclusive_file_lock
@@ -819,10 +819,9 @@ class CalendarStore:
 
     @classmethod
     def _send_ics_confirmation(cls, event: dict[str, Any]) -> None:
-        host = os.environ.get("SIMPLEOFFICE_SMTP_HOST", "")
-        sender = os.environ.get("SIMPLEOFFICE_SMTP_FROM", "")
-        if not host or not sender:
+        if not _smtp.configured():
             raise RuntimeError("SMTP is not configured; booking remains pending")
+        sender = _smtp.sender()
         ics = cls._confirmation_ics(event)
         message = EmailMessage()
         message["Subject"] = f"Termin bestätigt: {event['title']}"
@@ -830,12 +829,11 @@ class CalendarStore:
         message["To"] = event["requester_email"]
         message.set_content("Dein Termin wurde bestätigt. Die Kalendereinladung ist angehängt.")
         message.add_alternative(ics, subtype="calendar", params={"method": "REQUEST", "charset": "UTF-8"})
-        port = int(os.environ.get("SIMPLEOFFICE_SMTP_PORT", "587"))
-        with smtplib.SMTP(host, port, timeout=20) as smtp:
-            if os.environ.get("SIMPLEOFFICE_SMTP_STARTTLS", "true").lower() in ("1", "true", "yes"):
+        with smtplib.SMTP(_smtp.host(), _smtp.port(), timeout=20) as smtp:
+            if _smtp.starttls():
                 smtp.starttls()
-            if os.environ.get("SIMPLEOFFICE_SMTP_USER"):
-                smtp.login(os.environ["SIMPLEOFFICE_SMTP_USER"], os.environ.get("SIMPLEOFFICE_SMTP_PASSWORD", ""))
+            if _smtp.user():
+                smtp.login(_smtp.user(), _smtp.password())
             smtp.send_message(message)
 
     @staticmethod

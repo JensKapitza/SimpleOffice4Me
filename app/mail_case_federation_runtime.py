@@ -1,10 +1,10 @@
 """Background retry worker for durable mail-case federation events."""
 from __future__ import annotations
 
-import os
 import threading
 import time
 
+from . import federation_local_identity as _identity
 from .mail_case_federation import retry_due_mail_case_events
 
 _LOCK = threading.Lock()
@@ -12,14 +12,14 @@ _STARTED = False
 
 
 def _enabled() -> bool:
-    return os.environ.get("SIMPLEOFFICE_MAIL_CASE_FEDERATION_WORKER", "1").strip().casefold() not in {
-        "0", "false", "no", "off",
-    }
+    from . import federation_network as _network
+
+    return _network.mail_case_worker_enabled()
 
 
 def _worker(app, root: str) -> None:
     global _STARTED
-    local_peer_id = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "simpleoffice-local")
+    local_peer_id = _identity.peer_id()
     try:
         while not app.testing and _enabled() and str(app.config["DOCUMENT_ROOT"]) == root:
             with app.app_context():

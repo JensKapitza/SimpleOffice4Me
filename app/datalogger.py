@@ -17,7 +17,13 @@ from .datalogger_store import (
     MIN_POLL_INTERVAL_SECONDS,
     DataLoggerStore,
 )
+from .datalogger_collectors import (
+    DEFAULT_SENSOR_ALLOWED_HOSTS,
+    MAX_SENSOR_SECRET_CHARS,
+    validate_sensor_allowed_hosts,
+)
 from .db import get_db
+from .settings_store import SettingsStore
 
 bp = Blueprint("datalogger", __name__, url_prefix="/datalogger")
 
@@ -58,7 +64,8 @@ def _source_config(kind, form):
         return {"metric": metric, "path": (str(form.get("path", "")).strip() or ".")[:500], "recursive": form.get("recursive") == "1", "max_entries": 100000}
     if kind == "http_json":
         return {"url": form.get("url", "")[:1000], "json_path": (form.get("json_path", "") or "value")[:300], "timeout": 5,
-                "header_name": form.get("header_name", "Authorization")[:80], "header_env": form.get("header_env", "")[:120]}
+                "header_name": form.get("header_name", "Authorization")[:80],
+                "header_secret": str(form.get("header_secret", ""))[:MAX_SENSOR_SECRET_CHARS]}
     if kind == "lm_sensors": return {"json_path": form.get("json_path", "")[:300]}
     raise ValueError("Unbekannter Quellentyp.")
 
@@ -85,6 +92,7 @@ def settings():
         abort(403)
     try:
         tick_seconds = _store().poll_interval_seconds()
+        allowed_hosts = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()["datalogger"]["allowed_hosts"]
     except (OSError, sqlite3.Error, ValueError) as exc:
         current_app.logger.warning("Datalogger settings read failed: %s", type(exc).__name__)
         flash("Datalogger-Einstellung konnte nicht gelesen werden. Datenbankrechte prüfen.")
@@ -94,6 +102,8 @@ def settings():
         default_tick_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
         min_tick_seconds=MIN_POLL_INTERVAL_SECONDS,
         max_tick_seconds=MAX_POLL_INTERVAL_SECONDS,
+        allowed_hosts=allowed_hosts,
+        default_allowed_hosts=list(DEFAULT_SENSOR_ALLOWED_HOSTS),
     )
 
 
@@ -103,10 +113,23 @@ def save_settings():
     if not is_admin():
         abort(403)
     submitted = request.form.get("poll_interval_seconds", "")
-    if request.form.get("reset") == "1":
+    reset_defaults = request.form.get("reset") == "1"
+    if reset_defaults:
         submitted = DEFAULT_POLL_INTERVAL_SECONDS
     try:
         _store().update_poll_interval(submitted, g.user["username"])
+        if reset_defaults:
+            allowed_hosts = list(DEFAULT_SENSOR_ALLOWED_HOSTS)
+        else:
+            raw_hosts = request.form.get("allowed_hosts", "")
+            parsed_hosts = [
+                item for chunk in raw_hosts.replace("\n", ",").split(",")
+                if (item := chunk.strip())
+            ]
+            allowed_hosts = validate_sensor_allowed_hosts(parsed_hosts)
+        SettingsStore(current_app.config["DOCUMENT_ROOT"]).save(
+            {"datalogger": {"allowed_hosts": allowed_hosts}}, str(g.user["username"]),
+        )
     except ValueError as exc:
         flash(str(exc))
         return render_template(
@@ -114,6 +137,8 @@ def save_settings():
             default_tick_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
             min_tick_seconds=MIN_POLL_INTERVAL_SECONDS,
             max_tick_seconds=MAX_POLL_INTERVAL_SECONDS,
+            allowed_hosts=request.form.get("allowed_hosts", "").split(),
+            default_allowed_hosts=list(DEFAULT_SENSOR_ALLOWED_HOSTS),
         ), 400
     except (OSError, sqlite3.Error) as exc:
         current_app.logger.warning("Datalogger settings save failed: %s", type(exc).__name__)
@@ -123,8 +148,10 @@ def save_settings():
             default_tick_seconds=DEFAULT_POLL_INTERVAL_SECONDS,
             min_tick_seconds=MIN_POLL_INTERVAL_SECONDS,
             max_tick_seconds=MAX_POLL_INTERVAL_SECONDS,
+            allowed_hosts=request.form.get("allowed_hosts", "").split(),
+            default_allowed_hosts=list(DEFAULT_SENSOR_ALLOWED_HOSTS),
         ), 503
-    flash("Pollintervall gespeichert. Es gilt ab dem nächsten Worker-Zyklus.")
+    flash("Datalogger-Einstellungen gespeichert. Sie gelten ab dem nächsten Worker-Zyklus.")
     return redirect(url_for("datalogger.settings"))
 
 

@@ -311,6 +311,9 @@ class SiteVisitHttpRouteTests(unittest.TestCase):
         self.client = flask_app.test_client()
         self.client.post("/auth/register", data={"username": "report-owner", "password": "report-owner-password"})
         self.client.post("/auth/login", data={"username": "report-owner", "password": "report-owner-password"})
+        # EN is the app default; this suite asserts German UI strings.
+        with self.client.session_transaction() as session:
+            session["simpleoffice_language"] = "de"
         # Authentication fixtures use the test-only CSRF exemption; enable the
         # real browser mutation guard for every report request under test.
         flask_app.config["TEST_CSRF_PROTECTION"] = True

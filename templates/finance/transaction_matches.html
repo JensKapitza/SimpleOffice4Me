@@ -2,8 +2,8 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
-  <a class="btn btn-sm btn-outline-secondary mb-3" href="{{ url_for('.index', account_id=transaction.account_id) }}">← Finanzen</a>
-  <h1 class="h2">Bankumsatz zuordnen</h1>
+  <a class="btn btn-sm btn-outline-secondary mb-3" href="{{ url_for('.index', account_id=transaction.account_id) }}">← {{ 'Finances' if g.language == 'en' else 'Finanzen' }}</a>
+  <h1 class="h2">{{ 'Assign bank transaction' if g.language == 'en' else 'Bankumsatz zuordnen' }}</h1>
   <section class="card mb-4"><div class="card-body">
     <div class="row">
       <div class="col-md-3"><strong>{{ transaction.booking_date }}</strong></div>
@@ -14,14 +14,14 @@
 
   {% if confirmed %}
   <div class="alert alert-success" role="status" aria-live="polite">
-    <strong>Bestätigte Zuordnung</strong>
+    <strong>{{ 'Confirmed assignment' if g.language == 'en' else 'Bestätigte Zuordnung' }}</strong>
     {% for item in confirmed %}<div>{{ item.source_type }} · {{ item.source_id }} · Score {{ item.score }}</div>{% endfor %}
   </div>
   {% endif %}
 
-  <div class="alert alert-info" role="status" aria-live="polite">Zahlungsbetrag: {{ '%.2f'|format(allocation.total_cents / 100) }} · bereits zugeordnet: {{ '%.2f'|format(allocation.allocated_cents / 100) }} · <strong>offen: {{ '%.2f'|format(allocation.remaining_cents / 100) }}</strong></div>
-  <h2 class="h4">Vorschläge</h2>
-  <p class="text-secondary">Vorschläge verändern weder den Bankumsatz noch Rechnung oder Vertrag. Erst „Zuordnung bestätigen“ speichert die Verknüpfung.</p>
+  <div class="alert alert-info" role="status" aria-live="polite">{{ 'Payment amount:' if g.language == 'en' else 'Zahlungsbetrag:' }} {{ '%.2f'|format(allocation.total_cents / 100) }} · {{ 'already assigned:' if g.language == 'en' else 'bereits zugeordnet:' }} {{ '%.2f'|format(allocation.allocated_cents / 100) }} · <strong>{{ 'open:' if g.language == 'en' else 'offen:' }} {{ '%.2f'|format(allocation.remaining_cents / 100) }}</strong></div>
+  <h2 class="h4">{{ 'Suggestions' if g.language == 'en' else 'Vorschläge' }}</h2>
+  <p class="text-secondary">{{ 'Suggestions change neither the bank transaction nor invoice or contract. Only “Confirm assignment” saves the link.' if g.language == 'en' else 'Vorschläge verändern weder den Bankumsatz noch Rechnung oder Vertrag. Erst „Zuordnung bestätigen“ speichert die Verknüpfung.' }}</p>
   {% for proposal in proposals %}
   <section class="card mb-3"><div class="card-body">
     <div class="d-flex justify-content-between gap-3">
@@ -35,11 +35,11 @@
       <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="source_type" value="{{ proposal.source_type }}">
       <input type="hidden" name="source_id" value="{{ proposal.source_id }}">
-      <button type="submit" class="btn btn-sm btn-primary">Zuordnung bestätigen</button>
+      <button type="submit" class="btn btn-sm btn-primary">{{ 'Confirm assignment' if g.language == 'en' else 'Zuordnung bestätigen' }}</button>
     </form>
   </div></section>
   {% else %}
-  <div class="alert alert-secondary" role="status" aria-live="polite">Keine ausreichend passenden offenen Rechnungen oder Verpflichtungen gefunden.</div>
+  <div class="alert alert-secondary" role="status" aria-live="polite">{{ 'No sufficiently matching open invoices or obligations found.' if g.language == 'en' else 'Keine ausreichend passenden offenen Rechnungen oder Verpflichtungen gefunden.' }}</div>
   {% endfor %}
 </main>
 {% endblock %}

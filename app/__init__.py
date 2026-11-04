@@ -28,7 +28,7 @@ from .bs4 import download_file, renderwithbs4
 from flask import Flask, send_from_directory, \
     render_template_string, render_template, \
     request, session, redirect, abort, send_file, \
-    g, url_for
+    current_app, g, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.exceptions import HTTPException
@@ -41,11 +41,9 @@ from .settings_limits import (
     MAX_UPLOAD_LIMIT_MIB,
     MIN_UPLOAD_LIMIT_MIB,
     MIB,
-    MAX_WEBDAV_QUOTA_MIB,
+    DEFAULT_WEBDAV_QUARANTINE_MIB,
+    MAX_WEBDAV_QUARANTINE_MIB,
 )
-
-DEFAULT_WEBDAV_QUARANTINE_MIB = 1024
-MAX_WEBDAV_QUARANTINE_MIB = 64 * 1024
 
 
 def _jinja_error_context(error, extracted_frames):
@@ -76,121 +74,120 @@ def configured_session_cookie_secure() -> bool:
     }
 
 
-def configured_upload_limit_bytes() -> int:
-    """Return a bounded total request limit for file imports."""
-    requested = os.environ.get(
-        "SIMPLEOFFICE_MAX_UPLOAD_MIB",
-        str(DEFAULT_UPLOAD_LIMIT_MIB),
-    ).strip()
-    try:
-        limit_mib = int(requested)
-    except ValueError:
-        limit_mib = DEFAULT_UPLOAD_LIMIT_MIB
+def configured_upload_limit_bytes(document_root: str | Path | None = None) -> int:
+    """Return a bounded total request limit for file imports.
+
+    The value comes from the media settings file; without a document root
+    there is nothing to read, so the default applies (no environment).
+    """
+    if document_root is None:
+        return DEFAULT_UPLOAD_LIMIT_MIB * MIB
+    from .settings_store import SettingsStore
+    limit_mib = SettingsStore(document_root).settings()["media"]["upload_limit_mib"]
     return max(MIN_UPLOAD_LIMIT_MIB, min(limit_mib, MAX_UPLOAD_LIMIT_MIB)) * MIB
 
 
-def configured_s3_overlay_upload_limit_bytes(max_content_bytes: int) -> int:
-    """Return the S3 overlay cap bounded by the total request size."""
-    requested = os.environ.get(
-        'SIMPLEOFFICE_S3_MAX_UPLOAD_MIB', str(max_content_bytes // MIB),
-    ).strip()
+def _s3_boot_settings(document_root) -> dict:
+    """Read persisted S3 overlay settings; fail closed to defaults."""
     try:
-        limit_mib = int(requested)
-    except ValueError:
-        limit_mib = max_content_bytes // MIB
+        from .s3_settings import (
+            DEFAULT_S3_CLOCK_SKEW_SECONDS,
+            DEFAULT_S3_MAX_STAGING_MIB,
+            DEFAULT_S3_MAX_UPLOAD_MIB,
+            DEFAULT_S3_REGION,
+        )
+        from .settings_store import SettingsStore
+
+        return SettingsStore(document_root).settings()["s3"]
+    except (OSError, ValueError):
+        return {
+            "enabled": False,
+            "region": DEFAULT_S3_REGION,
+            "clock_skew_seconds": DEFAULT_S3_CLOCK_SKEW_SECONDS,
+            "max_staging_mib": DEFAULT_S3_MAX_STAGING_MIB,
+            "max_upload_mib": DEFAULT_S3_MAX_UPLOAD_MIB,
+        }
+
+
+def configured_s3_overlay_upload_limit_bytes(max_content_bytes: int, s3_max_upload_mib: int | None = None) -> int:
+    """Return the S3 overlay cap bounded by the total request size."""
+    if s3_max_upload_mib is None or isinstance(s3_max_upload_mib, bool):
+        return max_content_bytes
+    try:
+        limit_mib = int(s3_max_upload_mib)
+    except (ValueError, TypeError):
+        return max_content_bytes
     return min(max(1, limit_mib), max_content_bytes // MIB) * MIB
 
 
-def apply_upload_limit_settings(app_config: dict, upload_limit_mib: int) -> None:
+def apply_upload_limit_settings(app_config: dict, upload_limit_mib: int, s3_max_upload_mib: int | None = None) -> None:
     """Apply the persisted global request cap and keep the S3 cap subordinate."""
     app_config['MAX_CONTENT_LENGTH'] = upload_limit_mib * MIB
     app_config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_bytes(
-        app_config['MAX_CONTENT_LENGTH'],
+        app_config['MAX_CONTENT_LENGTH'], s3_max_upload_mib,
     )
 
 
 def configured_webdav_quota_bytes(document_root: str | Path | None = None) -> int:
     """Return the optional managed-tree WebDAV quota in bytes.
 
-    Zero keeps the historic unlimited behavior.  Invalid or negative values
-    fail safely to that backwards-compatible default instead of introducing
-    a surprising storage outage during startup.
+    Zero keeps the historic unlimited behavior.  The value comes from the
+    settings file; without a document root there is nothing to read, so the
+    result is zero (no environment).
     """
-    if document_root is not None:
-        from .settings_store import SettingsStore
-        quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quota_mib"]
-        return quota_mib * MIB
-    requested = os.environ.get("SIMPLEOFFICE_WEBDAV_QUOTA_MIB", "0").strip()
-    try:
-        limit_mib = int(requested)
-    except ValueError:
+    if document_root is None:
         return 0
-    if limit_mib <= 0:
-        return 0
-    return min(limit_mib, MAX_WEBDAV_QUOTA_MIB) * MIB
+    from .settings_store import SettingsStore
+    quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quota_mib"]
+    return quota_mib * MIB
 
 
-def configured_webdav_upload_scan() -> bool:
-    """Return whether WebDAV PUT bodies require a clean ClamAV verdict."""
-    return os.environ.get("SIMPLEOFFICE_WEBDAV_CLAMAV", "0").strip().casefold() in {
-        "1", "true", "yes", "on",
-    }
+def configured_webdav_upload_scan(document_root: str | Path | None = None) -> bool:
+    """Return whether WebDAV PUT bodies require a clean ClamAV verdict.
+
+    The value comes from the settings file; without a document root there is
+    nothing to read, so the result is False (no environment).
+    """
+    if document_root is None:
+        return False
+    from .settings_store import SettingsStore
+    enabled = SettingsStore(document_root).settings()["network"]["webdav_clamav_enabled"]
+    return bool(enabled)
 
 
-def configured_webdav_quarantine_bytes() -> int:
-    """Return the bounded private capacity for failed WebDAV upload scans."""
-    requested = os.environ.get(
-        "SIMPLEOFFICE_WEBDAV_QUARANTINE_MIB",
-        str(DEFAULT_WEBDAV_QUARANTINE_MIB),
-    ).strip()
-    try:
-        limit_mib = int(requested)
-    except ValueError:
-        limit_mib = DEFAULT_WEBDAV_QUARANTINE_MIB
-    return max(1, min(limit_mib, MAX_WEBDAV_QUARANTINE_MIB)) * MIB
+def configured_webdav_quarantine_bytes(document_root: str | Path | None = None) -> int:
+    """Return the bounded private capacity for failed WebDAV upload scans.
+
+    The value comes from the settings file; without a document root there is
+    nothing to read, so the default applies (no environment).
+    """
+    if document_root is None:
+        return DEFAULT_WEBDAV_QUARANTINE_MIB * MIB
+    from .settings_store import SettingsStore
+
+    quota_mib = SettingsStore(document_root).settings()["network"]["webdav_quarantine_mib"]
+    return max(1, min(quota_mib, MAX_WEBDAV_QUARANTINE_MIB)) * MIB
 
 
 def google_oauth_web_config() -> dict[str, object]:
-    """Return the ``web`` block from an optional Google OAuth JSON file."""
-    credentials_file = os.environ.get("SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE", "").strip()
-    if not credentials_file:
-        return {}
-    try:
-        credentials = json.loads(Path(credentials_file).read_text(encoding="utf-8"))
-        web = credentials["web"]
-        if not isinstance(web, dict):
-            raise TypeError("web must be an object")
-        return web
-    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-        raise RuntimeError("Invalid SIMPLEOFFICE_GOOGLE_CREDENTIALS_FILE; expected Google Web OAuth JSON") from exc
+    """Return the ``web`` block from the stored Google OAuth JSON file (no environment)."""
+    from . import marketplace_credentials as _marketplace
+
+    return _marketplace.google_oauth_web_config()
 
 
 def google_oauth_credentials() -> tuple[str, str]:
-    """Read Google OAuth client credentials from environment or a protected file.
+    """Read Google OAuth client credentials from the disk store or the stored OAuth file."""
+    from . import marketplace_credentials as _marketplace
 
-    The file format is the JSON download created by Google Cloud for a
-    "Web application" OAuth client.  It intentionally only supplies the
-    client credentials; the redirect URI remains explicit server configuration.
-    """
-    client_id = os.environ.get("SIMPLEOFFICE_GOOGLE_CLIENT_ID", "").strip()
-    client_secret = os.environ.get("SIMPLEOFFICE_GOOGLE_CLIENT_SECRET", "").strip()
-    web = google_oauth_web_config()
-    if not web:
-        return client_id, client_secret
-    try:
-        file_client_id = str(web["client_id"]).strip()
-        file_client_secret = str(web["client_secret"]).strip()
-    except (KeyError, TypeError) as exc:
-        raise RuntimeError("Google OAuth JSON requires web.client_id and web.client_secret") from exc
-    return client_id or file_client_id, client_secret or file_client_secret
+    return _marketplace.google_oauth_credentials()
 
 
 def google_oauth_redirect_uris() -> tuple[str, ...]:
     """Return callback URIs declared in the Google OAuth JSON file."""
-    values = google_oauth_web_config().get("redirect_uris", [])
-    if not isinstance(values, list):
-        return ()
-    return tuple(str(value).strip() for value in values if isinstance(value, str) and value.strip())
+    from . import marketplace_credentials as _marketplace
+
+    return _marketplace.google_oauth_redirect_uris()
 
 
 class SchemeAwareSessionInterface(SecureCookieSessionInterface):
@@ -262,30 +259,23 @@ app.config['DATABASE_FILEDIR'] = filebase_dir
 app.config['DATABASE'] = os.path.join(database_dir, "my.sqlite")
 app.config['DATABASE_TRANSLATION'] = os.path.join(database_dir, "translation.sqlite")
 app.config['DOCUMENT_ROOT'] = os.environ.get('SIMPLEOFFICE_DOCUMENT_ROOT', os.path.join(database_dir, "documents"))
-app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes()
-app.config['S3_OVERLAY_ENABLED'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_ENABLED', '0').strip().casefold() in {'1', 'true', 'yes', 'on'}
-app.config['S3_OVERLAY_REGION'] = os.environ.get('SIMPLEOFFICE_S3_OVERLAY_REGION', 'us-east-1').strip() or 'us-east-1'
-try:
-    s3_overlay_clock_skew = int(os.environ.get('SIMPLEOFFICE_S3_CLOCK_SKEW_SECONDS', '900'))
-except ValueError:
-    s3_overlay_clock_skew = 900
-app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, s3_overlay_clock_skew), 3600)
+app.config['MAX_CONTENT_LENGTH'] = configured_upload_limit_bytes(app.config['DOCUMENT_ROOT'])
+_s3_boot = _s3_boot_settings(app.config['DOCUMENT_ROOT'])
+app.config['S3_OVERLAY_ENABLED'] = bool(_s3_boot["enabled"])
+app.config['S3_OVERLAY_REGION'] = _s3_boot["region"]
+app.config['S3_OVERLAY_CLOCK_SKEW_SECONDS'] = min(max(0, _s3_boot["clock_skew_seconds"]), 3600)
 app.config['S3_OVERLAY_MAX_UPLOAD_BYTES'] = configured_s3_overlay_upload_limit_bytes(
-    app.config['MAX_CONTENT_LENGTH'],
+    app.config['MAX_CONTENT_LENGTH'], _s3_boot["max_upload_mib"],
 )
-try:
-    s3_overlay_staging_mib = int(os.environ.get('SIMPLEOFFICE_S3_MAX_STAGING_MIB', '2048'))
-except ValueError:
-    s3_overlay_staging_mib = 2048
-app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, s3_overlay_staging_mib), 65536) * MIB
-app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes()
-app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan()
-app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes()
+app.config['S3_OVERLAY_MAX_STAGING_BYTES'] = min(max(64, _s3_boot["max_staging_mib"]), 65536) * MIB
+app.config['WEBDAV_QUOTA_BYTES'] = configured_webdav_quota_bytes(app.config['DOCUMENT_ROOT'])
+app.config['WEBDAV_UPLOAD_SCAN'] = configured_webdav_upload_scan(app.config['DOCUMENT_ROOT'])
+app.config['WEBDAV_QUARANTINE_BYTES'] = configured_webdav_quarantine_bytes(app.config['DOCUMENT_ROOT'])
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SECRET_KEY'] = load_or_create_secret_key(Path(app.instance_path) / "session-secret")
-google_client_id, google_client_secret = google_oauth_credentials()
-app.config['GOOGLE_OAUTH_CLIENT_ID'] = google_client_id
-app.config['GOOGLE_OAUTH_CLIENT_SECRET'] = google_client_secret
+# NOTE: Google OAuth client ID/secret are intentionally NOT cached in
+# app.config: they come from the disk store at request time
+# (marketplace_credentials), so admin saves apply without restart.
 app.config['GOOGLE_OAUTH_REDIRECT_URI'] = os.environ.get('SIMPLEOFFICE_GOOGLE_REDIRECT_URI', '')
 app.config['GOOGLE_OAUTH_REDIRECT_URIS'] = google_oauth_redirect_uris()
 app.config['SESSION_COOKIE_SECURE'] = configured_session_cookie_secure()
@@ -298,7 +288,10 @@ app.config['GOOGLE_OAUTH_AUTO_PROVISION'] = os.environ.get(
 app.config['ALLOW_PUBLIC_REGISTRATION'] = os.environ.get(
     'SIMPLEOFFICE_ALLOW_PUBLIC_REGISTRATION', '0'
 ).strip().casefold() in {'1', 'true', 'yes', 'on'}
-app.config['MCP_ENABLED'] = os.environ.get('SIMPLEOFFICE_MCP', '1').strip().casefold() in {'1', 'true', 'yes', 'on'}
+from . import mcp_config as _mcp_config
+# MCP on/off is configured on the MCP settings page (admins only) and
+# persisted; the former SIMPLEOFFICE_MCP variable is no longer read.
+app.config['MCP_ENABLED'] = _mcp_config.is_enabled()
 
 
 @app.errorhandler(RequestEntityTooLarge)
@@ -310,11 +303,14 @@ def request_too_large(_error):
         {"Content-Type": "text/plain; charset=utf-8"},
     )
 
-try:
-    trusted_proxy_hops = int(os.environ.get('SIMPLEOFFICE_TRUSTED_PROXY_HOPS', '0'))
-except ValueError:
-    trusted_proxy_hops = 0
-if trusted_proxy_hops > 0:
+from simpleoffice_server_config import effective_server_settings as _effective_server_settings
+_trusted_proxy_hops = 0
+if app.config.get("DOCUMENT_ROOT"):
+    _trusted_proxy_hops = int(_effective_server_settings(
+        app.config["DOCUMENT_ROOT"],
+    )["trusted_proxy_hops"])
+if _trusted_proxy_hops > 0:
+    trusted_proxy_hops = _trusted_proxy_hops
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=trusted_proxy_hops, x_proto=trusted_proxy_hops, x_host=trusted_proxy_hops, x_prefix=trusted_proxy_hops)
 
 
@@ -337,8 +333,12 @@ fdb.init_app(app)
 from . import document_store as document_store
 document_store.init_app(app)
 from .settings_store import SettingsStore
-_startup_media_settings = SettingsStore(app.config['DOCUMENT_ROOT']).settings()['media']
-apply_upload_limit_settings(app.config, int(_startup_media_settings['upload_limit_mib']))
+_startup_settings = SettingsStore(app.config['DOCUMENT_ROOT']).settings()
+apply_upload_limit_settings(
+    app.config,
+    int(_startup_settings['media']['upload_limit_mib']),
+    _startup_settings['s3']['max_upload_mib'],
+)
 
 from . import replication_store as replication_store
 replication_store.init_app(app)
@@ -366,6 +366,7 @@ app.register_blueprint(personnel_time_clock.bp)
 personnel_time_clock.init_app(app)
 
 from .contextflow import web as contextflow_web
+from .contextflow import peer_check_web  # noqa: F401 (registers extra routes before the blueprint below)
 from .contextflow import position_web  # noqa: F401 (registers extra routes before the blueprint below)
 from .contextflow import ot_travel_web  # noqa: F401 (registers extra routes before the blueprint below)
 app.register_blueprint(contextflow_web.bp)
@@ -391,11 +392,20 @@ app.register_blueprint(mail_routes.bp)
 from . import mail_reader_routes
 app.register_blueprint(mail_reader_routes.bp)
 
+from . import mail_smtp_admin
+app.register_blueprint(mail_smtp_admin.bp)
+
+from . import marketplace_admin
+app.register_blueprint(marketplace_admin.bp)
+
 from . import admin
 app.register_blueprint(admin.bp)
 
 from . import admin_osm_settings
 app.register_blueprint(admin_osm_settings.bp)
+
+from . import admin_server_settings
+app.register_blueprint(admin_server_settings.bp)
 
 from . import admin_error_reporting_settings
 app.register_blueprint(admin_error_reporting_settings.bp)
@@ -483,7 +493,9 @@ def assign_request_id():
 @app.before_request
 def restrict_error_relay_role():
     """Expose only the relay API when this image is run as the dedicated relay role."""
-    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE", "web").strip() != "error-relay":
+    from simpleoffice_server_config import effective_server_settings
+    role = effective_server_settings(current_app.config["DOCUMENT_ROOT"])["container_role"]
+    if role != "error-relay":
         return None
     if request.path.startswith("/api/error-reports/v1/"):
         return None

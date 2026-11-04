@@ -1,7 +1,6 @@
 import hashlib
 import hmac
 import json
-import os
 import tempfile
 import time
 import unittest
@@ -10,6 +9,7 @@ from unittest.mock import patch
 
 from flask import Flask
 
+from app import app_config_store
 from app.federation_print_auth import PrintRequestProof, identify_source_peer as real_identify_source_peer, new_nonce, sign_request
 from app.federation_print_http import bp
 from app.federation_store import FederationStore
@@ -37,8 +37,13 @@ class FederationPrintHttpTest(unittest.TestCase):
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, DOCUMENT_ROOT=str(self.root), SECRET_KEY="print-http-test-secret")
         self.app.register_blueprint(bp)
-        self.previous_token = os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN")
-        os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = RECEIVER_TOKEN
+        self._store_patcher = patch.object(
+            app_config_store, "settings_path", return_value=self.root / "app-config.json",
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        with self.app.app_context():
+            app_config_store.put_secret("federation", "token", RECEIVER_TOKEN)
         self.discover = patch("app.printershare_store.discover_printers", return_value=[dict(TEST_PRINTER)])
         self.spool = patch("app.printershare_store.spool_payload", return_value="spool-ok")
         self.discover.start()
@@ -62,10 +67,6 @@ class FederationPrintHttpTest(unittest.TestCase):
     def tearDown(self):
         self.spool.stop()
         self.discover.stop()
-        if self.previous_token is None:
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_TOKEN", None)
-        else:
-            os.environ["SIMPLEOFFICE_FEDERATION_TOKEN"] = self.previous_token
         self.temp.cleanup()
 
     def capabilities(self):

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import hashlib
-import os
 import re
 import urllib.error
 import urllib.request
@@ -15,6 +14,7 @@ from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_te
 from .attachment_security import MAX_ATTACHMENT_BYTES
 from .auth import login_required
 from .db import get_db
+from . import federation_local_identity as _identity
 from .mail_archive_preview import load_local_attachment_by_id, load_local_eml, load_local_eml_by_id, preview_eml_bytes
 from .mail_case_followups import suggest_case_followups
 from .mail_case_store import MailCaseStore
@@ -60,7 +60,7 @@ def _remote_case_eml(root: str | Path, peer_id: str, locator: str, expected_hash
     from .v3_federation import FederationContract
 
     peer_id = sanitize_peer_id(peer_id)
-    local_id = os.environ.get("SIMPLEOFFICE_FEDERATION_PEER_ID", "simpleoffice-local")
+    local_id = _identity.peer_id()
     contract = FederationContract(root, local_id)
     peer = contract.peers.get_peer(peer_id)
     if not peer or not peer.get("enabled") or not contract._directly_trusted(peer_id):

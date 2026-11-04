@@ -18,6 +18,7 @@ from urllib.parse import urljoin, urlsplit
 
 from flask import Blueprint, abort, current_app, g, request, send_file, session
 
+from . import federation_network as _network
 from .access_control import audit, is_admin
 from .db import get_db
 
@@ -82,17 +83,18 @@ def _loopback_request_base_url() -> str:
 def _configured_base_url() -> str:
     value = str(
         current_app.config.get("WEB_EXPORT_BASE_URL")
-        or os.environ.get("SIMPLEOFFICE_SERVER_PUBLIC_URL", "")
+        or _network.server_public_url()
         or _loopback_request_base_url()
     ).strip().rstrip("/")
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
         raise RuntimeError(
-            "Für Webseitenexport ist SIMPLEOFFICE_SERVER_PUBLIC_URL erforderlich "
+            "Für Webseitenexport ist die öffentliche Server-URL aus den "
+            "Föderations-Netzwerkeinstellungen erforderlich "
             "(außer bei lokalem Zugriff über localhost/Loopback)."
         )
     if parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
-        raise RuntimeError("SIMPLEOFFICE_SERVER_PUBLIC_URL muss nur Schema, Host und optional Port enthalten.")
+        raise RuntimeError("Die öffentliche Server-URL muss nur Schema, Host und optional Port enthalten.")
     return value
 
 

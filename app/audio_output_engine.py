@@ -23,6 +23,19 @@ from typing import Iterable
 SAMPLE_RATE = 48_000
 
 
+def _stored_piper_model(document_root: object) -> str:
+    """Read the persisted Piper model path; empty means not configured."""
+    if document_root is None:
+        return ""
+    try:
+        from .settings_store import SettingsStore
+
+        model = SettingsStore(document_root).settings()["media"].get("piper_model", "")
+        return model if isinstance(model, str) else ""
+    except (OSError, ValueError):
+        return ""
+
+
 def _cache_key(*parts: str) -> str:
     return hashlib.sha256("\0".join(parts).encode("utf-8")).hexdigest()
 
@@ -70,12 +83,12 @@ def render_preset(name: str, cache_dir: str | Path) -> Path:
     return target
 
 
-def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | None = None, cancel_event=None) -> Path:
+def render_tts(text: str, voice: str, cache_dir: str | Path, *, model: str | None = None, document_root: object = None, cancel_event=None) -> Path:
     root = Path(cache_dir)
     root.mkdir(parents=True, exist_ok=True)
-    selected_model = str(model or os.environ.get("SIMPLEOFFICE_PIPER_MODEL", "")).strip()
+    selected_model = str(model or _stored_piper_model(document_root)).strip()
     if not selected_model:
-        raise RuntimeError("Piper-Modell fehlt: SIMPLEOFFICE_PIPER_MODEL setzen")
+        raise RuntimeError("Piper-Modell fehlt: Modellpfad in den Medien-Einstellungen hinterlegen")
     piper = shutil.which("piper")
     if not piper:
         raise RuntimeError("Piper ist nicht installiert")

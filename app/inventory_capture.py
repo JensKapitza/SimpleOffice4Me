@@ -26,6 +26,7 @@ from .capture_analysis import (
     isbn_from_text,
     missing_book_fields,
     route_kind,
+    split_cover_hierarchy,
     title_lines,
 )
 from .inventory_capture_vision import capture_ml_label, capture_ocr
@@ -101,8 +102,8 @@ def analyze_photo(
     """Analyze one inbox photo and return the JSON payload (no storage).
 
     Raises ValueError for invalid image data. ``consent_meta`` is an
-    explicit per-request opt-in for the Meta cloud path (batch review
-    only); single-photo callers keep the default False.
+    explicit per-request opt-in for the Meta cloud path (capture page
+    checkbox, default off).
     """
     from .library.ocr_input import optimize_upload
 
@@ -120,17 +121,28 @@ def analyze_photo(
     duplicates = capture_duplicates(isbn)
     metadata = capture_metadata(isbn)
     lines = title_lines(text)
+    hierarchy = split_cover_hierarchy(ocr.get("blocks", []))
     year = str(metadata.get("year", "") or "") or extract_year(text)
-    title = (
-        str(metadata.get("title", "") or "")
-        or str(ml_result.get("label", "") or "")
-        or (lines[0] if lines else "")
-    )
+    ml_label = str(ml_result.get("label", "") or "")
+    if str(metadata.get("title", "") or ""):
+        title = str(metadata.get("title", "") or "")
+        title_source = "cache"
+    elif hierarchy.get("title_confident") and hierarchy.get("title"):
+        title = str(hierarchy["title"])
+        title_source = "ocr-hierarchie"
+    elif ml_label:
+        title = ml_label
+        title_source = "ml"
+    else:
+        title = ""
+        title_source = "ocr"
     ml_tags = ml_result.get("tags", [])
     ml_tags = [tag for tag in ml_tags if isinstance(tag, str)] \
         if isinstance(ml_tags, list) else []
     description = str(ml_result.get("note", "") or "")
     subtitle = str(ml_result.get("subtitle", "") or "").strip()
+    if not subtitle and hierarchy.get("title_confident"):
+        subtitle = str(hierarchy.get("subtitle", "") or "").strip()
     if subtitle and subtitle.casefold() not in description.casefold():
         description = (description + "\nUntertitel: " + subtitle).strip()
     prefill: dict[str, Any] = {
@@ -141,12 +153,16 @@ def analyze_photo(
     if route["kind"] == "book":
         prefill.update({
             "title": title,
-            "authors": metadata.get("authors") or ml_result.get("authors", []),
+            "authors": (
+                metadata.get("authors") or ml_result.get("authors", [])
+                or hierarchy.get("authors", [])
+            ),
             "subtitle": subtitle,
             "year": year,
             "publisher": metadata.get("publisher", ""),
             "title_lines": lines,
-            "metadata_source": "cache" if metadata.get("title") else "ocr",
+            "metadata_source": title_source,
+            "title_evidence": str(hierarchy.get("title_evidence", "") or ""),
         })
         missing = missing_book_fields(prefill)
     else:
@@ -177,10 +193,16 @@ def analyze_photo(
                 "provider_label", "model",
             )
         } | {
+            # Coded backend errors carry stable, localizable texts (kept for
+            # request-language rendering). Uncoded backend errors never leak
+            # raw text; they fall back to the generic message.
             "error": (
-                "ML-Analyse ist vorübergehend nicht verfügbar."
-                if ml_result.get("error") else ""
+                ml_result.get("error", "")
+                if ml_result.get("error_code")
+                else ("ML-Analyse ist vorübergehend nicht verfügbar."
+                      if ml_result.get("error") else "")
             ),
+            "error_code": str(ml_result.get("error_code", "") or ""),
         },
         "duplicates": duplicates,
         "missing_fields": missing,
@@ -239,10 +261,14 @@ def public_entry(entry: dict[str, Any], preview_url: str) -> dict[str, Any]:
     }
 
 
-def reanalyze_entry(entry_id: str, actor: str, root: str) -> dict[str, Any]:
+def reanalyze_entry(
+    entry_id: str, actor: str, root: str, *, consent_meta: bool = False
+) -> dict[str, Any]:
     """Re-run analysis on the stored original; returns the stored entry.
 
-    Raises ValueError when the entry or its original is unavailable.
+    ``consent_meta`` is the explicit per-request Meta opt-in from the
+    capture page checkbox (default off). Raises ValueError when the
+    entry or its original is unavailable.
     """
     from .capture_inbox_store import CaptureInboxStore
 
@@ -252,7 +278,8 @@ def reanalyze_entry(entry_id: str, actor: str, root: str) -> dict[str, Any]:
         raw = path.read_bytes()
     except OSError as exc:
         raise ValueError("Original ist nicht verfügbar") from exc
-    payload = analyze_photo(raw, entry_id)
+    payload = analyze_photo(
+        raw, entry_id, consent_meta=consent_meta is True, root=root)
     updated = store.save_analysis(entry_id, actor, payload)
     if updated is None:
         raise ValueError("Erfassung ist nicht verfügbar")
@@ -839,6 +866,13 @@ def _create_batch_item(  # noqa: C901 - linear validation chain
         "publisher": str(fields.get("publisher", "") or ""),
         "published_date": str(
             fields.get("published_date", fields.get("year", "")) or ""),
+        "market_price": str(fields.get("market_price", "") or ""),
+        "currency": str(fields.get("currency", "") or ""),
+        "price_source": (
+            str(fields.get("price_source", "") or "")
+            if str(fields.get("market_price", "") or "").strip()
+            else ""
+        ),
         "metadata_source": "capture-batch",
     }
     stored_fields = inventory_module._object_fields(form_like, isbn)

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import hmac
-import os
 import time
 from contextlib import contextmanager
 
@@ -11,6 +10,7 @@ from flask import Blueprint, Response, current_app, g, jsonify, request
 from .document_store import DocumentStore, sha256_file
 from .federation_blocks import build_content_manifest, content_manifest_valid, sha512_bytes
 from .federation_core import normalize_sha256
+from . import federation_local_identity as _identity
 from .federation_peer_auth import authenticate as authenticate_peer
 from .federation_store import FederationStore
 from .v2.materialize import materialize_verified_object
@@ -29,7 +29,7 @@ DEDUP_REQUEST_WINDOW = 60
 
 
 def _configured_secret() -> str:
-    return os.environ.get("SIMPLEOFFICE_FEDERATION_TOKEN", "").strip()
+    return _identity.shared_token()
 
 
 def _supplied_secret() -> str:

@@ -196,8 +196,9 @@ MCP wird davon unabhängig über `MCP_ENABLED` deaktiviert.
   Einstieg: `python tools/litellm_smoke.py` auf einem Docker-Host. Das Skript
   arbeitet in einem temporären Konfigurationspfad und entfernt seinen Container.
 
-Die Containerabnahme ergänzt die bestehenden Python-3.10-/3.14-/3.15-Gates,
-Policy, Größenlimits, CRA, SBOM und Dependency-Audit. Reale Providerkosten,
+Die Containerabnahme läuft zusätzlich zur Python-3.14-Produktionsprüfung,
+dem nicht blockierenden Python-3.15-Experimentallauf, den Policy- und
+Größenprüfungen, CRA, SBOM und Dependency-Audit. Reale Providerkosten,
 lang laufender Lastbetrieb und externe Gateway-Datenbank-Restore brauchen
 separate Betreiber-Nachweise; diese werden nicht durch Mock-Tests behauptet.
 

@@ -15,6 +15,10 @@ _THREAD = None
 _PYTHON_SYMBOL_LIBRARY = None
 MAX_SERVER_WORKERS = 6
 MAX_PENDING_REQUESTS = 12
+# Logcat marker for the #811 runtime smoke gate. Chaquopy forwards Python
+# stdout to logcat, so an emulator/device run can grep for this line to prove
+# the real cryptography._rust import succeeded inside the packaged app.
+RUST_SMOKE_MARKER = "SIMPLEOFFICE_ANDROID_RUST_IMPORT_OK"
 
 
 class QuietRequestHandler(WSGIRequestHandler):
@@ -65,10 +69,8 @@ def _configure_lan_addresses(lan_addresses: str = "") -> None:
         value = item.strip()
         if value and value not in values:
             values.append(value)
-    if values:
-        os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"] = ",".join(values)
-    else:
-        os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
+    from app import federation_network
+    federation_network.set_lan_addresses(",".join(values))
 
 
 def _configure_environment(
@@ -140,6 +142,7 @@ def _promote_android_python_symbols() -> None:
 def _verify_android_cryptography_extension() -> None:
     """Load cryptography's Rust module before application startup imports it indirectly."""
     importlib.import_module("cryptography.hazmat.bindings._rust")
+    print(RUST_SMOKE_MARKER, flush=True)
 
 
 def _serve() -> None:

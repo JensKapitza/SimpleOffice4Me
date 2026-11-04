@@ -39,8 +39,9 @@ Windows: Den offiziellen EXE-Installer oder das portable ZIP von ClamAV
 verwenden, `freshclam.conf` aus dem Muster erzeugen und anschließend
 `freshclam.exe` ausführen. Anders als die Debian-Pakete richtet das offizielle
 Windows-Paket die Konfiguration und einen Dienst nicht vollständig automatisch
-ein. Der Scanner kann danach über `SIMPLEOFFICE_CLAMAV_SCANNER` auf den
-installierten absoluten Pfad gesetzt werden.
+ein. Der Scanner kann danach unter **Admin → Einstellungen →
+Integrationen & Dienste → ClamAV-Sicherheitsprüfung** auf den installierten
+absoluten Pfad gesetzt werden (Feld „Expliziter ClamAV-Scannerpfad“).
 
 Primärquellen: [ClamAV-Installation für Linux, macOS und Windows](https://docs.clamav.net/manual/Installing.html),
 [Windows-FAQ](https://docs.clamav.net/faq/faq-win32.html) und
@@ -53,11 +54,12 @@ Hinweise zu fehlenden Werkzeugen und der für das erkannte System passende
 Installationsbefehl. Die Prüfung installiert nichts und benötigt keine
 Administratorrechte.
 
-- `SIMPLEOFFICE_SECURITY_ADMINS=alice,bob`: Benutzer für Serverprüfung und Signaturupdate; ohne Wert gibt es keinen Web-Administrator.
-- `SIMPLEOFFICE_CLAMAV_SCANNER=/usr/bin/clamdscan`: optionaler absoluter Pfad; nur `clamdscan` oder `clamscan` werden akzeptiert.
-- `SIMPLEOFFICE_CLAMAV_TIMEOUT=120`: Legacy-Startwert, effektiv 5 bis 900 Sekunden; wird nur verwendet, solange kein persistierter Adminwert existiert.
+- Sicherheits-Admin-Liste unter **Admin → Benutzer → Admin-Listen**: Benutzer für Serverprüfung und Signaturupdate; ohne Eintrag gibt es keinen Web-Administrator (`SIMPLEOFFICE_SECURITY_ADMINS` ist entfernt).
+- Expliziter Scannerpfad (optionaler absoluter Pfad, nur `clamdscan` oder `clamscan`; `SIMPLEOFFICE_CLAMAV_SCANNER` ist entfernt).
+- Prüfzeitlimit, effektiv 5 bis 900 Sekunden (`SIMPLEOFFICE_CLAMAV_TIMEOUT` ist entfernt).
+- Scanner-Auswahl `auto` (ClamAV zuerst), `clamav` oder `defender` (`SIMPLEOFFICE_SCANNER` ist entfernt).
 
-Das Prüfzeitlimit kann unter **Admin → Einstellungen → Integrationen & Dienste → ClamAV-Sicherheitsprüfung** geändert und zurückgesetzt werden. Änderungen gelten für neu gestartete Prüfungen; ein Dienstneustart ist nicht erforderlich. Der gespeicherte Wert hat Vorrang vor `SIMPLEOFFICE_CLAMAV_TIMEOUT`.
+Prüfzeitlimit, Scanner-Auswahl und Scannerpfad können unter **Admin → Einstellungen → Integrationen & Dienste → ClamAV-Sicherheitsprüfung** geändert und zurückgesetzt werden. Änderungen gelten für neu gestartete Prüfungen; ein Dienstneustart ist nicht erforderlich.
 
 `clamscan` funktioniert ohne Daemon, `clamdscan` ist bei vielen Dateien schneller. Vor `clamd` muss eine Signaturdatenbank vorhanden sein. Der ClamAV-TCP-Socket besitzt keine eigene Authentifizierung und darf nicht ins Internet veröffentlicht werden; ein lokaler Unix-Socket ist vorzuziehen. Programme laufen mit festen Argumentlisten ohne Shell. Der Dienstbenutzer braucht Leserechte auf Dokumente und Schreibrechte auf `.simpleoffice-meta/quarantine`.
 
@@ -74,7 +76,7 @@ Das Prüfzeitlimit kann unter **Admin → Einstellungen → Integrationen & Dien
 - Quarantänedateien werden zufällig benannt, exklusiv mit `0600` angelegt und nicht über Download, Freigaben oder WebDAV angeboten.
 - Bei fehlendem Scanner, Timeout oder Fehler gilt **fail closed**: keine Freigabe.
 - Die Serverprüfung umfasst nur reguläre Dateien im verwalteten Bestand; Symlinks und Systempfade werden übersprungen.
-- Anwendungsadministratoren (einschließlich des bei der Ersteinrichtung angelegten ersten Administrators) sowie optional über `SIMPLEOFFICE_SECURITY_ADMINS` delegierte Sicherheitsadministratoren dürfen Update und Bestandsscan auslösen. Dokumentrechte werden nicht gelockert.
+- Anwendungsadministratoren (einschließlich des bei der Ersteinrichtung angelegten ersten Administrators) sowie optional über die Admin-Listen delegierte Sicherheitsadministratoren dürfen Update und Bestandsscan auslösen. Dokumentrechte werden nicht gelockert.
 - Das ClamAV-Ereignisjournal zeigt Start und Abschluss einer Bestandsprüfung, Ergebniszähler, Laufzeit, Signatur-Updates sowie einzelne Datei-Funde und -Fehler. Fehler werden als sichere Kategorien protokolliert; Zugangsdaten, Kommandoausgaben und vollständige interne Pfade werden nicht in die Oberfläche übernommen.
 - Mail-Absender und Betreff sind unbestätigte Fremdangaben, kein Identitätsnachweis. Daten werden nicht extern übertragen.
 
@@ -96,8 +98,10 @@ unbekannt bleiben getrennt und fail closed; ein Scan-Start allein gilt nie als
 sauber, das Verdikt kommt nur aus `Get-MpThreatDetection`. Die Prüfung läuft auf
 dem Anwendungsserver (Hinweis unter `/documents/security`); der Scan-Button
 erscheint nur, wenn der Provider lauffähig ist (`can_scan`). Die Auswahl erfolgt
-über `SIMPLEOFFICE_SCANNER` (`auto`, `clamav`, `defender`; ungültig fail closed),
-Standard bleibt ClamAV zuerst, ClamAV-Verhalten ist unverändert.
+unter **Admin → Einstellungen → Integrationen & Dienste →
+ClamAV-Sicherheitsprüfung** (`scanner_choice`: `auto`, `clamav`, `defender`;
+ungültig fail closed), Standard bleibt ClamAV zuerst, ClamAV-Verhalten ist
+unverändert.
 
 macOS XProtect arbeitet automatisch; es gibt keinen generischen
 app-gesteuerten Pfad-Scan. Die Oberfläche zeigt dort nur dann eine Scan-Aktion,

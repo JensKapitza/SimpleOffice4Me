@@ -71,20 +71,44 @@ def _integer_setting(name: str, default: int, minimum: int, maximum: int) -> int
     return value
 
 
-def waitress_options(config: dict[str, object], max_request_body_size: int) -> dict[str, object]:
-    host = os.environ.get("SIMPLEOFFICE_HOST", str(config["host"])).strip()
-    if not host or any(character.isspace() for character in host):
-        raise RuntimeError("SIMPLEOFFICE_HOST darf nicht leer sein oder Leerzeichen enthalten.")
+def _server_section(document_root: str | None = None) -> dict[str, object]:
+    """Persisted server section for this document root (stdlib-only read)."""
+    if not document_root:
+        return {}
+    try:
+        from simpleoffice_server_config import stored_server_settings
+    except ImportError:
+        return {}
+    section = stored_server_settings(document_root)
+    return section if isinstance(section, dict) else {}
+
+
+def waitress_options(
+    config: dict[str, object],
+    max_request_body_size: int,
+    document_root: str | None = None,
+) -> dict[str, object]:
+    """Effective WSGI bind: explicit environment wins over the persisted
+    `server` section, which wins over the first-start config file. Invalid
+    values stop the start instead of starting with surprises."""
+    from simpleoffice_server_config import strict_server_settings
+
+    stored = {"host": str(config["host"]), "port": int(config["port"])}
+    stored.update(_server_section(document_root))
+    try:
+        server = strict_server_settings(stored=stored)
+    except ValueError as exc:
+        raise RuntimeError(f"Servereinstellung ungültig: {exc}") from exc
     options: dict[str, object] = {
-        "host": host,
-        "port": _integer_setting("SIMPLEOFFICE_PORT", int(config["port"]), 1, 65535),
-        "threads": _integer_setting("SIMPLEOFFICE_WSGI_THREADS", 4, 1, 64),
-        "channel_timeout": _integer_setting("SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT", 120, 10, 3600),
+        "host": server["host"],
+        "port": server["port"],
+        "threads": server["wsgi_threads"],
+        "channel_timeout": server["wsgi_channel_timeout"],
         "max_request_body_size": max_request_body_size,
         "expose_tracebacks": False,
         "ident": "SimpleOffice4Me",
     }
-    if _integer_setting("SIMPLEOFFICE_TRUSTED_PROXY_HOPS", 0, 0, 16) > 0:
+    if int(server["trusted_proxy_hops"]) > 0:
         options["clear_untrusted_proxy_headers"] = False
     return options
 
@@ -131,13 +155,22 @@ def should_report_scan_progress(current_files: int, last_files: int, now: float,
     return current_files - last_files >= SCAN_STATUS_FILE_INTERVAL or now - last_at >= SCAN_STATUS_TIME_INTERVAL
 
 
-def background_index_enabled() -> bool:
-    value = os.environ.get("SIMPLEOFFICE_BACKGROUND_INDEX", "1").strip().casefold()
-    return value not in {"0", "false", "no", "off"}
+def _effective_server(document_root: str | None = None) -> dict[str, object]:
+    """Lenient effective settings for worker toggles (never crash here)."""
+    from simpleoffice_server_config import effective_server_settings
+
+    return effective_server_settings(
+        document_root if document_root else None,
+        stored=_server_section(document_root),
+    )
+
+
+def background_index_enabled(document_root: str | None = None) -> bool:
+    return bool(_effective_server(document_root)["background_index_enabled"])
 
 
 def start_index_worker(document_root: str) -> subprocess.Popen[bytes] | None:
-    if not background_index_enabled():
+    if not background_index_enabled(document_root):
         return None
     command = [sys.executable, "-m", "tools.index_worker", "--root", document_root]
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
@@ -164,9 +197,8 @@ def start_osm_index_worker(document_root: str, *, force: bool = False, city: str
     return subprocess.Popen(command, **options)
 
 
-def osm_index_enabled() -> bool:
-    value = os.environ.get("SIMPLEOFFICE_OSM_INDEX", "1").strip().casefold()
-    return value not in {"0", "false", "no", "off"}
+def osm_index_enabled(document_root: str | None = None) -> bool:
+    return bool(_effective_server(document_root)["osm_index_enabled"])
 
 
 def start_osm_download_worker(document_root: str, region: str) -> subprocess.Popen[bytes]:
@@ -184,12 +216,12 @@ def start_osm_download_worker(document_root: str, region: str) -> subprocess.Pop
     return subprocess.Popen(command, **options)
 
 
-def datalogger_enabled() -> bool:
-    return os.environ.get("SIMPLEOFFICE_DATALOGGER", "1").strip().casefold() not in {"0", "false", "no", "off"}
+def datalogger_enabled(document_root: str | None = None) -> bool:
+    return bool(_effective_server(document_root)["datalogger_enabled"])
 
 
 def start_datalogger_worker(document_root: str) -> subprocess.Popen[bytes] | None:
-    if not datalogger_enabled():
+    if not datalogger_enabled(document_root):
         return None
     options: dict[str, object] = {"cwd": str(PROJECT_ROOT), "stdin": subprocess.DEVNULL}
     if os.name == "nt":
@@ -209,13 +241,13 @@ def stop_worker(worker: subprocess.Popen[bytes] | None) -> None:
         print(f"Hintergrunddienst PID {worker.pid} reagiert nicht auf SIGTERM; kein erzwungenes Beenden.", file=sys.stderr)
 
 
-def start_mini_worker() -> subprocess.Popen[bytes] | None:
+def start_mini_worker(document_root: str | None = None) -> subprocess.Popen[bytes] | None:
     from simpleoffice_mini_core import default_config_path, read_status
-    value = os.environ.get("SIMPLEOFFICE_MINI_SERVICES_AUTOSTART", "1").strip().casefold()
-    if value in {"0", "false", "no", "off"}:
+    server = _effective_server(document_root)
+    if not server["mini_services_autostart"]:
         return None
     # Containers and systemd already have a separately privileged worker role.
-    if os.environ.get("SIMPLEOFFICE_CONTAINER_ROLE") in {"web", "error-relay"}:
+    if server["container_role"] in {"web", "error-relay"}:
         return None
     path = default_config_path().resolve()
     if read_status(path).get("state") in {"running", "degraded", "starting"}:
@@ -298,7 +330,7 @@ def start(configure_only: bool = False) -> None:
     from app import app
     from app.audio_streamer import manager as audio_manager
     from app.audio_output_worker import worker as announcement_worker
-    options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]))
+    options = waitress_options(config, int(app.config["MAX_CONTENT_LENGTH"]), document_root)
     host = str(options["host"])
     port = int(options["port"])
     try:
@@ -323,7 +355,7 @@ def start(configure_only: bool = False) -> None:
     except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
         print(f"LiteLLM-Autostart fehlgeschlagen ({type(exc).__name__}). Mini-Service-Konfiguration prüfen.", file=sys.stderr)
     try:
-        mini_worker = start_mini_worker()
+        mini_worker = start_mini_worker(document_root)
     except (OSError, ValueError) as exc:
         mini_worker = None
         print(f"Mini-Services Worker konnte nicht gestartet werden ({type(exc).__name__}). Dienststatus und Rechte prüfen.", file=sys.stderr)
@@ -334,7 +366,7 @@ def start(configure_only: bool = False) -> None:
         from app.document_store import DocumentStore
         DocumentStore(document_root).set_scan_status({"state": "failed", "error": f"Indexdienst konnte nicht gestartet werden: {exc}"})
         print(f"Indexdienst konnte nicht gestartet werden: {exc}", file=sys.stderr, flush=True)
-    if osm_index_enabled():
+    if osm_index_enabled(document_root):
         try:
             osm_worker = start_osm_index_worker(document_root, force=os.environ.get("SIMPLEOFFICE_OSM_REINDEX_ON_START", "").strip().casefold() in {"1", "true", "yes", "on"})
         except OSError as exc:

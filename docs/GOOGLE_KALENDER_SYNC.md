@@ -45,8 +45,9 @@ Serverbetrieb ausgestellter Offline-Refresh-Token mit dem Scope
 `https://www.googleapis.com/auth/calendar.readonly` und ein vorhandener lokaler
 Zielkalender mit Schreibrecht des zugeordneten SimpleOffice-Benutzers.
 
-Die Konfiguration wird ausschließlich aus
-`SIMPLEOFFICE_GOOGLE_CALENDAR_ACCOUNTS_JSON` gelesen. Beispiel mit
+Die Konfiguration wird ausschließlich aus dem App-Store gelesen (Admin →
+Einstellungen → Integrationen → Marketplace & OAuth → Kalenderkonten-JSON,
+verschlüsselt gespeichert, keine Umgebungsvariable). Beispiel mit
 Platzhaltern:
 
 ```json
@@ -61,8 +62,6 @@ Platzhaltern:
 }
 ```
 
-Die Variable sollte über eine nur für den Dienstbenutzer lesbare
-Environment-Datei gesetzt werden, beispielsweise mit Dateirechten `0600`.
 Geheimnisse gehören weder in das Repository noch in `start.sh`, eine
 `.env`-Datei im Projektverzeichnis, Logs oder Screenshots. Mehrere Benutzer
 können getrennte Blöcke erhalten; Benutzer ohne Block sehen die Funktion als

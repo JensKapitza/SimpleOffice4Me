@@ -70,13 +70,10 @@ Nur Administratoren können den Repository-Pfad eines Projekts konfigurieren.
 Normale Projektbenutzer können einen bereits freigegebenen Code-Bereich nutzen,
 aber den Serverpfad nicht auf ein anderes Repository umstellen.
 
-Weitere Wurzeln können per Pfadliste freigegeben werden:
-
-```text
-SIMPLEOFFICE_PROJECT_REPO_ROOTS=/srv/git:/opt/company-repos
-```
-
-Unter Windows wird der jeweilige Plattform-Pfadtrenner verwendet.
+Weitere Wurzeln geben Administratoren unter **Administration →
+Projekt-Repositories** frei (ein absoluter Pfad pro Zeile, höchstens 64;
+`SIMPLEOFFICE_PROJECT_REPO_ROOTS` ist entfernt). Fehlende Verzeichnisse bleiben
+inaktiv, bis sie existieren; relative Pfade werden abgelehnt.
 
 Der aktuelle Codebereich ist absichtlich read-only. Angezeigt werden Branch,
 HEAD, Arbeitsbaumstatus einschließlich unversionierter Dateien,

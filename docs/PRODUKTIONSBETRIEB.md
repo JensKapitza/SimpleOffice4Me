@@ -45,7 +45,7 @@ weiterhin einen HTTPS-Reverse-Proxy.
 | `--port PORT` | `SIMPLEOFFICE_PORT` | Wert der Ersteinrichtung, gewöhnlich `8080` | 1–65535 |
 | `--threads ANZAHL` | `SIMPLEOFFICE_WSGI_THREADS` | 4 | 1–64 |
 | `--channel-timeout SEKUNDEN` | `SIMPLEOFFICE_WSGI_CHANNEL_TIMEOUT` | 120 | 10–3600 |
-| – | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (Legacy-Initialwert) | 0 (deaktiviert) | 1–1.048.576 MiB oder 0; persistierte Admin-Einstellung hat Vorrang |
+| – | `SIMPLEOFFICE_WEBDAV_QUOTA_MIB` (entfernt) | 0 (deaktiviert) | 1–1.048.576 MiB oder 0; nur noch Admin-Einstellung (Netzwerk & Synchronisation) |
 | – | `SIMPLEOFFICE_BACKGROUND_INDEX` | 1 | `0`/`false`/`off` deaktiviert den automatischen Indexdienst |
 | – | `SIMPLEOFFICE_INDEX_YIELD_MS` | 1 | 0–100 ms Pause je Datei |
 
@@ -55,13 +55,13 @@ Ungültige Werte beenden den Start mit einer verständlichen Fehlermeldung,
 anstatt unbemerkt einen anderen Wert zu verwenden.
 
 Die maximale von Waitress angenommene HTTP-Anfrage wird automatisch an
-`SIMPLEOFFICE_MAX_UPLOAD_MIB` beziehungsweise Flasks `MAX_CONTENT_LENGTH`
-angeglichen. Damit widersprechen sich Proxy-, WSGI- und Anwendungsgrenze nicht
-innerhalb von SimpleOffice4Me.
+das gespeicherte Uploadlimit beziehungsweise Flasks `MAX_CONTENT_LENGTH`
+angeglichen (`SIMPLEOFFICE_MAX_UPLOAD_MIB` ist entfernt). Damit widersprechen
+sich Proxy-, WSGI- und Anwendungsgrenze nicht innerhalb von SimpleOffice4Me.
 
 ## Voraussetzungen
 
-- CPython 3.11–3.15 final gemäß
+- CPython 3.11–3.14 produktiv unterstützt; 3.15 bleibt experimentell gemäß
   [Runtime-Policy](PYTHON_RUNTIME_SUPPORT.md); Python 3.10 wird nicht unterstützt,
 - ein freier TCP-Port,
 - Schreibzugriff auf Projekt-, Instanz- und Dokumentordner,

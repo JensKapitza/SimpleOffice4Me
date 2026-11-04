@@ -30,9 +30,15 @@ docker run --rm -p 8080:8080 \
 
 ## GitHub Container Registry
 
-Pushes to `main` and version tags publish a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub Container Registry.
+Pushes to `main` and version tags publish a multi-architecture image for `linux/amd64` and `linux/arm64` to GitHub Container Registry. Manual workflow runs publish only when started on `main`, the hackathon branch, or a `v*` version tag.
 
-The default branch also receives the `latest` tag. Version tags such as `v1.2.3` retain their tag name.
+The default branch also receives the `latest` tag. Version tags such as `v1.2.3` retain their tag name. Pushes to `hackathon/contextflow-mvp` publish the separate `hackathon-contextflow-mvp` tag and a commit-specific `sha-*` tag; they do not update `latest` or the stable release-version tag. Pull requests continue to produce downloadable build artifacts without publishing an image.
+
+Pull the current hackathon build with:
+
+```sh
+docker pull ghcr.io/jenskapitza/simpleoffice4me:hackathon-contextflow-mvp
+```
 
 ## Isolated federation test network
 
@@ -100,7 +106,11 @@ the separate local opt-in and finally revokes the opt-in on both peers and
 proves the denial again. The compatibility bearer cannot authenticate a peer
 identity. The seed command writes only to disposable test volumes; its optional
 trust flag is a local approval on that instance, not a network pairing
-protocol.
+protocol. Each seed run first persists the container's own disposable local
+identity (peer id, public URL, shared token from the isolated testnet
+environment) into the container-local disk store, because the application
+reads no identity environment variables at runtime. Only the three isolated
+testnet identities are accepted; anything else fails closed.
 
 The Ubuntu Docker-host CI job runs this same two-container sequence from a
 fresh set of volumes. It waits for health before each phase, restarts `peer-b`

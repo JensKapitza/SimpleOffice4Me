@@ -1,10 +1,8 @@
 from app.sqlite_utils import connect as sqlite_connect
-import os
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from werkzeug.security import generate_password_hash
 
@@ -81,15 +79,13 @@ class PrinterShareQuickWinsTests(unittest.TestCase):
         self.assertEqual(10, _clamp_int("100", 1, 1, 10))
         self.assertEqual(7, _clamp_int("bad", 7, 1, 10))
 
-    def test_purge_interval_uses_legacy_value_until_persisted_value_exists(self):
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "90"}):
-            self.assertEqual(90, configured_purge_interval(str(self.root)))
-            SettingsStore(self.root).save(
-                {"integrations": {"printershare_purge_interval_seconds": 180}},
-                "admin",
-            )
-        with patch.dict(os.environ, {"SIMPLEOFFICE_PRINTERSHARE_PURGE_INTERVAL": "300"}):
-            self.assertEqual(180, configured_purge_interval(str(self.root)))
+    def test_purge_interval_uses_default_until_persisted_value_exists(self):
+        self.assertEqual(60, configured_purge_interval(str(self.root)))
+        SettingsStore(self.root).save(
+            {"integrations": {"printershare_purge_interval_seconds": 180}},
+            "admin",
+        )
+        self.assertEqual(180, configured_purge_interval(str(self.root)))
 
     def test_helpers_parse_booleans(self):
         self.assertIs(_parse_bool("yes"), True)

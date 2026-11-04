@@ -13,6 +13,36 @@
   const documentId = root.dataset.documentId || '';
   const folder = root.dataset.folder || '';
   const csrf = root.dataset.csrf || '';
+  const EN = (document.documentElement.lang || '').toLowerCase().startsWith('en');
+  const STR = {
+    currentTags: EN ? 'Current tags: ' : 'Aktuelle Tags: ',
+    none: EN ? 'none' : 'keine',
+    alreadyPresent: EN ? 'already present' : 'schon vorhanden',
+    pickAtLeastOne: EN ? 'Please select at least one suggestion.' : 'Bitte mindestens einen Vorschlag auswählen.',
+    applying: EN ? 'Applying tags …' : 'Tags werden übernommen …',
+    applyFailed: (code) => EN ? `Apply failed (${code}).` : `Übernahme fehlgeschlagen (${code}).`,
+    applied: (added, skipped) => EN
+      ? `${added} tag(s) applied${skipped ? `, ${skipped} already present` : ''}.`
+      : `${added} Tag(s) übernommen${skipped ? `, ${skipped} schon vorhanden` : ''}.`,
+    applyNetwork: EN ? 'Apply failed (network).' : 'Übernahme fehlgeschlagen (Netzwerk).',
+    angelSees: EN ? 'The angel sees:' : 'Der Engel sieht:',
+    objectHint: EN ? 'Object hint from the image' : 'Objekthinweis aus dem Bild',
+    stillLooking: EN ? 'The angel is still looking at the image …' : 'Der Engel schaut sich noch das Bild an …',
+    imageFailed: (code) => EN ? `Image analysis failed (${code}).` : `Bildanalyse fehlgeschlagen (${code}).`,
+    imageNetwork: EN ? 'Image analysis failed (network).' : 'Bildanalyse fehlgeschlagen (Netzwerk).',
+    noSuggestions: EN ? 'No suggestions.' : 'Keine Vorschläge.',
+    suggestFailed: (code) => EN ? `Suggestion failed (${code}).` : `Vorschlag fehlgeschlagen (${code}).`,
+    timeoutHint: EN ? 'The model may still be loading — please try again later.' : 'Das Modell lädt möglicherweise noch — bitte später erneut versuchen.',
+    ollamaHint: EN ? 'Please set up Ollama with a text model on this machine.' : 'Bitte Ollama mit Textmodell auf diesem Rechner einrichten.',
+    noVerifiable: EN ? 'No verifiable tag suggestions found.' : 'Keine belegbaren Tag-Vorschläge gefunden.',
+    readyWho: (who) => EN ? `Suggestions ready (${who}). Please review and confirm.` : `Vorschläge bereit (${who}). Bitte prüfen und bestätigen.`,
+    ready: EN ? 'Suggestions ready. Please review and confirm.' : 'Vorschläge bereit. Bitte prüfen und bestätigen.',
+    suggestNetwork: EN ? 'Suggestion failed (network).' : 'Vorschlag fehlgeschlagen (Netzwerk).',
+    pondering: EN ? 'The angel is pondering metadata and text …' : 'Der Engel grübelt über Metadaten und Text …',
+    suggests: EN ? 'The angel suggests:' : 'Der Engel schlägt vor:',
+    creating: EN ? 'Creating suggestions …' : 'Vorschläge werden erstellt …',
+    applySelected: EN ? 'Apply selected' : 'Ausgewählte übernehmen',
+  };
   const cleanText = (value) => String(value || '').trim();
   const setStatus = (text, kind) => {
     if (!status) return;
@@ -26,9 +56,9 @@
   const safeJson = async (response) => { try { return await response.json(); } catch (_error) { return {}; } };
   const renderBadges = (tags) => {
     if (!tagsPara) return;
-    tagsPara.textContent = 'Aktuelle Tags: ';
+    tagsPara.textContent = STR.currentTags;
     const list = Array.isArray(tags) ? tags : [];
-    if (!list.length) { const none = document.createElement('span'); none.className = 'text-secondary'; none.textContent = 'keine'; tagsPara.appendChild(none); return; }
+    if (!list.length) { const none = document.createElement('span'); none.className = 'text-secondary'; none.textContent = STR.none; tagsPara.appendChild(none); return; }
     list.forEach((tag) => { const badge = document.createElement('span'); badge.className = 'badge text-bg-secondary me-1'; badge.textContent = cleanText(tag); tagsPara.appendChild(badge); });
   };
   const pickRow = (tag, reason, already) => {
@@ -39,15 +69,15 @@
     box.checked = true; box.disabled = Boolean(already);
     wrap.appendChild(box);
     const name = document.createElement('strong'); name.textContent = tag; wrap.appendChild(name);
-    if (already) { const note = document.createElement('span'); note.className = 'badge text-bg-secondary ms-2'; note.textContent = 'schon vorhanden'; wrap.appendChild(note); }
+    if (already) { const note = document.createElement('span'); note.className = 'badge text-bg-secondary ms-2'; note.textContent = STR.alreadyPresent; wrap.appendChild(note); }
     if (reason) { const why = document.createElement('div'); why.className = 'small text-secondary'; why.textContent = reason; wrap.appendChild(why); }
     return wrap;
   };
   const confirmSelection = async () => {
     const picked = [...result.querySelectorAll('input[data-engel-pick]:checked:not(:disabled)')]
       .map((box) => cleanText(box.value)).filter(Boolean);
-    if (!picked.length) { setStatus('Bitte mindestens einen Vorschlag auswählen.', 'warning'); return; }
-    setStatus('Tags werden übernommen …', 'info');
+    if (!picked.length) { setStatus(STR.pickAtLeastOne, 'warning'); return; }
+    setStatus(STR.applying, 'info');
     try {
       const data = new FormData();
       data.append('document_id', documentId);
@@ -56,24 +86,24 @@
       const response = await fetch(confirmUrl, { method: 'POST', body: data, cache: 'no-store' });
       const payload = await safeJson(response);
       if (!response.ok || !payload || payload.ok !== true) {
-        setStatus(cleanText(payload && payload.error) || `Übernahme fehlgeschlagen (${response.status}).`, 'danger');
+        setStatus(cleanText(payload && payload.error) || STR.applyFailed(response.status), 'danger');
         return;
       }
       const added = Array.isArray(payload.added) ? payload.added.length : 0;
       const skipped = Array.isArray(payload.skipped) ? payload.skipped.length : 0;
       renderBadges(payload.tags);
-      setStatus(`${added} Tag(s) übernommen${skipped ? `, ${skipped} schon vorhanden` : ''}.`, 'success');
+      setStatus(STR.applied(added, skipped), 'success');
       result.hidden = true; result.textContent = '';
-    } catch (_error) { setStatus('Übernahme fehlgeschlagen (Netzwerk).', 'danger'); }
+    } catch (_error) { setStatus(STR.applyNetwork, 'danger'); }
   };
   const renderImageInto = (slot, image) => {
     const seen = document.createElement('div');
-    seen.className = 'fw-semibold mt-3 mb-1'; seen.textContent = 'Der Engel sieht:';
+    seen.className = 'fw-semibold mt-3 mb-1'; seen.textContent = STR.angelSees;
     slot.appendChild(seen);
     const desc = document.createElement('p'); desc.className = 'small mb-2'; desc.textContent = cleanText(image.description);
     slot.appendChild(desc);
     (Array.isArray(image.objects) ? image.objects : []).forEach((name) => {
-      slot.appendChild(pickRow(cleanText(name), 'Objekthinweis aus dem Bild', false));
+      slot.appendChild(pickRow(cleanText(name), STR.objectHint, false));
     });
   };
   const renderImageWarning = (slot, message) => {
@@ -84,7 +114,7 @@
     if (!imageUrl || !slot) return;
     const pending = document.createElement('p');
     pending.className = 'small text-secondary mt-3 mb-0';
-    pending.textContent = 'Der Engel schaut sich noch das Bild an …';
+    pending.textContent = STR.stillLooking;
     slot.appendChild(pending);
     try {
       const data = new FormData();
@@ -94,20 +124,20 @@
       const payload = await safeJson(response);
       pending.remove();
       if (!response.ok || !payload || payload.ok !== true) {
-        renderImageWarning(slot, cleanText(payload && payload.error) || `Bildanalyse fehlgeschlagen (${response.status}).`);
+        renderImageWarning(slot, cleanText(payload && payload.error) || STR.imageFailed(response.status));
         return;
       }
       if (!payload.image) return;
       renderImageInto(slot, payload.image);
     } catch (_error) {
       pending.remove();
-      renderImageWarning(slot, 'Bildanalyse fehlgeschlagen (Netzwerk).');
+      renderImageWarning(slot, STR.imageNetwork);
     }
   };
   const renderTagRows = (slot, payload) => {
     slot.textContent = '';
     const rows = Array.isArray(payload.suggestions) ? payload.suggestions : [];
-    if (!rows.length) { const none = document.createElement('p'); none.className = 'small text-secondary mb-0'; none.textContent = 'Keine Vorschläge.'; slot.appendChild(none); return; }
+    if (!rows.length) { const none = document.createElement('p'); none.className = 'small text-secondary mb-0'; none.textContent = STR.noSuggestions; slot.appendChild(none); return; }
     rows.forEach((row) => slot.appendChild(pickRow(cleanText(row.tag), cleanText(row.reason), row.already)));
   };
   const renderTagsWarning = (slot, message) => {
@@ -124,12 +154,12 @@
       const response = await fetch(suggestUrl, { method: 'POST', body: data, cache: 'no-store' });
       const payload = await safeJson(response);
       if (!response.ok || !payload || payload.ok !== true) {
-        const message = cleanText(payload && payload.error) || `Vorschlag fehlgeschlagen (${response.status}).`;
+        const message = cleanText(payload && payload.error) || STR.suggestFailed(response.status);
         let hinted = message;
         if (response.status === 503) {
           hinted = payload && payload.timeout === true
-            ? `${message} Das Modell lädt möglicherweise noch — bitte später erneut versuchen.`
-            : `${message} Bitte Ollama mit Textmodell auf diesem Rechner einrichten.`;
+            ? `${message} ${STR.timeoutHint}`
+            : `${message} ${STR.ollamaHint}`;
         }
         setStatus(hinted, response.status === 503 ? 'warning' : 'danger');
         renderTagsWarning(slot, hinted);
@@ -137,36 +167,36 @@
       }
       const rows = Array.isArray(payload.suggestions) ? payload.suggestions : [];
       if (!rows.length) {
-        setStatus('Keine belegbaren Tag-Vorschläge gefunden.', 'warning');
+        setStatus(STR.noVerifiable, 'warning');
       } else {
         const who = [cleanText(payload.provider_label), cleanText(payload.model)].filter(Boolean).join(' · ');
-        setStatus(who ? `Vorschläge bereit (${who}). Bitte prüfen und bestätigen.` : 'Vorschläge bereit. Bitte prüfen und bestätigen.', 'success');
+        setStatus(who ? STR.readyWho(who) : STR.ready, 'success');
       }
       renderTagRows(slot, payload);
     } catch (_error) {
-      setStatus('Vorschlag fehlgeschlagen (Netzwerk).', 'danger');
-      renderTagsWarning(slot, 'Vorschlag fehlgeschlagen (Netzwerk).');
+      setStatus(STR.suggestNetwork, 'danger');
+      renderTagsWarning(slot, STR.suggestNetwork);
     }
   };
   const suggest = async () => {
     if (!suggestUrl || !suggestBtn) return;
     suggestBtn.disabled = true;
-    setStatus('Der Engel grübelt über Metadaten und Text …', 'info');
+    setStatus(STR.pondering, 'info');
     result.hidden = false; result.textContent = '';
     const box = document.createElement('div');
     box.className = 'border rounded p-2';
     const head = document.createElement('div');
-    head.className = 'fw-semibold mb-2'; head.textContent = 'Der Engel schlägt vor:';
+    head.className = 'fw-semibold mb-2'; head.textContent = STR.suggests;
     box.appendChild(head);
     const tagsSlot = document.createElement('div');
     const tagsPending = document.createElement('p');
-    tagsPending.className = 'small text-secondary mb-0'; tagsPending.textContent = 'Vorschläge werden erstellt …';
+    tagsPending.className = 'small text-secondary mb-0'; tagsPending.textContent = STR.creating;
     tagsSlot.appendChild(tagsPending);
     box.appendChild(tagsSlot);
     const imageSlot = document.createElement('div');
     box.appendChild(imageSlot);
     const confirmBtn = document.createElement('button');
-    confirmBtn.type = 'button'; confirmBtn.className = 'btn btn-success mt-2'; confirmBtn.textContent = 'Ausgewählte übernehmen';
+    confirmBtn.type = 'button'; confirmBtn.className = 'btn btn-success mt-2'; confirmBtn.textContent = STR.applySelected;
     confirmBtn.addEventListener('click', confirmSelection);
     box.appendChild(confirmBtn);
     result.appendChild(box);

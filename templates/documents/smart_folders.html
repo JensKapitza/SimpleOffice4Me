@@ -2,34 +2,34 @@
 {% block header %}{% include "documents/nav.html" %}{% endblock %}
 {% block body %}
 <main id="main-content" class="container-xl py-4">
-  <h1 class="h3">Smart Views und Sammelordner</h1>
-  <p class="text-secondary">Ordner werden bei Bedarf angezeigt. Erst das Aktivieren speichert zusätzliche Ordnerdaten.</p>
+  <h1 class="h3">{{ 'Smart views and collection folders' if g.language == 'en' else 'Smart Views und Sammelordner' }}</h1>
+  <p class="text-secondary">{{ 'Folders are shown on demand. Only activating stores additional folder data.' if g.language == 'en' else 'Ordner werden bei Bedarf angezeigt. Erst das Aktivieren speichert zusätzliche Ordnerdaten.' }}</p>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
-  {% if assignment_document %}<div class="alert alert-info" role="status" aria-live="polite">Wähle eine Ansicht für <strong>{{ assignment_document.last_path }}</strong>. Die logische Zuordnung verschiebt die Originaldatei nicht.</div>{% endif %}
-  {% if move_document %}<div class="alert alert-info" role="status" aria-live="polite">Wähle das physische Ziel für <strong>{{ move_document.last_path }}</strong>. Der Zielpfad wird vor der Bestätigung angezeigt; bestehende kontextgebundene Freigaben werden beim Verschieben widerrufen.</div>{% endif %}
+  {% if assignment_document %}<div class="alert alert-info" role="status" aria-live="polite">{{ ('Choose a view for <strong>' ~ assignment_document.last_path ~ '</strong>. The logical assignment does not move the original file.') if g.language == 'en' else ('Wähle eine Ansicht für <strong>' ~ assignment_document.last_path ~ '</strong>. Die logische Zuordnung verschiebt die Originaldatei nicht.') }}</div>{% endif %}
+  {% if move_document %}<div class="alert alert-info" role="status" aria-live="polite">{{ ('Choose the physical destination for <strong>' ~ move_document.last_path ~ '</strong>. The destination path is shown before confirmation; existing context-bound shares are revoked on move.') if g.language == 'en' else ('Wähle das physische Ziel für <strong>' ~ move_document.last_path ~ '</strong>. Der Zielpfad wird vor der Bestätigung angezeigt; bestehende kontextgebundene Freigaben werden beim Verschieben widerrufen.') }}</div>{% endif %}
   <div class="row g-3">
-    <nav class="col-lg-4" aria-label="Ordner">
+    <nav class="col-lg-4" aria-label="{{ 'Folders' if g.language == 'en' else 'Ordner' }}">
       <div class="list-group">
         {% for folder in folders %}
         <a class="list-group-item list-group-item-action" href="{{ url_for('documents.smart_folder_view', folder=folder.path, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">
           {{ folder.path }} <span class="badge text-bg-secondary">{{ folder.count }}</span>
-          {% if folder.active %}<span class="badge text-bg-primary">Aktiv</span>{% endif %}
-          {% if folder.source_folder_paths %}<small class="d-block text-secondary">Quelle: {{ folder.source_folder_paths|join(', ') }}</small>{% endif %}
+          {% if folder.active %}<span class="badge text-bg-primary">{{ 'Active' if g.language == 'en' else 'Aktiv' }}</span>{% endif %}
+          {% if folder.source_folder_paths %}<small class="d-block text-secondary">{{ 'Source:' if g.language == 'en' else 'Quelle:' }} {{ folder.source_folder_paths|join(', ') }}</small>{% endif %}
         </a>
-        {% else %}<p>Keine Ordner mit Dokumenten vorhanden.</p>{% endfor %}
+        {% else %}<p>{{ 'No folders with documents yet.' if g.language == 'en' else 'Keine Ordner mit Dokumenten vorhanden.' }}</p>{% endfor %}
       </div>
     </nav>
-    <section class="col-lg-8" aria-label="Ordnerinhalt">
+    <section class="col-lg-8" aria-label="{{ 'Folder contents' if g.language == 'en' else 'Ordnerinhalt' }}">
       {% if selected %}
       <h2 class="h4">{{ selected.path }}</h2>
-      <p>{{ selected.count }} Dokument(e)</p>
-      {% if selected.source_folder_paths %}<p class="small text-secondary">Quellordner: {{ selected.source_folder_paths|join(', ') }}</p>{% endif %}
+      <p>{{ selected.count }} {{ 'document(s)' if g.language == 'en' else 'Dokument(e)' }}</p>
+      {% if selected.source_folder_paths %}<p class="small text-secondary">{{ 'Source folders:' if g.language == 'en' else 'Quellordner:' }} {{ selected.source_folder_paths|join(', ') }}</p>{% endif %}
       {% if assignment_document %}
       <form method="post" action="{{ url_for('documents.assign_smart_folder', document_id=assignment_document.document_id) }}" class="border rounded p-3 mb-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="folder" value="{{ selected.path }}">
-        <p class="mb-2">Ziel: {{ selected.path }}</p>
-        <button type="submit" class="btn btn-outline-primary">Dokument logisch zuordnen</button>
+        <p class="mb-2">{{ 'Target:' if g.language == 'en' else 'Ziel:' }} {{ selected.path }}</p>
+        <button type="submit" class="btn btn-outline-primary">{{ 'Assign document logically' if g.language == 'en' else 'Dokument logisch zuordnen' }}</button>
       </form>
       {% endif %}
       {% if move_document %}
@@ -37,19 +37,19 @@
       <form method="post" action="{{ url_for('documents.move_document', document_id=move_document.document_id) }}" class="border rounded p-3 mb-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="destination_folder" value="{{ selected.path }}">
-        <p class="mb-2">Physischer Zielpfad: <strong>{{ selected.path }}/{{ move_filename }}</strong></p>
-        {% if move_already_in_folder %}<p class="small text-secondary">Das Dokument liegt bereits in diesem Ordner.</p>
-        {% elif move_collision %}<p class="small text-danger" role="alert">Im Ziel existiert bereits eine Datei mit diesem Namen.</p>
-        {% else %}<button type="submit" class="btn btn-outline-secondary">Physisch verschieben</button>{% endif %}
+        <p class="mb-2">{{ 'Physical destination path:' if g.language == 'en' else 'Physischer Zielpfad:' }} <strong>{{ selected.path }}/{{ move_filename }}</strong></p>
+        {% if move_already_in_folder %}<p class="small text-secondary">{{ 'The document is already in this folder.' if g.language == 'en' else 'Das Dokument liegt bereits in diesem Ordner.' }}</p>
+        {% elif move_collision %}<p class="small text-danger" role="alert">{{ 'A file with this name already exists at the destination.' if g.language == 'en' else 'Im Ziel existiert bereits eine Datei mit diesem Namen.' }}</p>
+        {% else %}<button type="submit" class="btn btn-outline-secondary">{{ 'Move physically' if g.language == 'en' else 'Physisch verschieben' }}</button>{% endif %}
       </form>
       {% endif %}
       {% for group in selected.merged_preview_groups %}
-      <section class="mb-3" aria-label="Übernommene Sammelordner-Vorschau">
-        <h3 class="h6">Übernommene Vorschau: {{ group.source }}</h3>
+      <section class="mb-3" aria-label="{{ 'Adopted collection-folder preview' if g.language == 'en' else 'Übernommene Sammelordner-Vorschau' }}">
+        <h3 class="h6">{{ 'Adopted preview:' if g.language == 'en' else 'Übernommene Vorschau:' }} {{ group.source }}</h3>
         <div class="row g-2">
           {% for doc in group.members %}<div class="col-6 col-md-4">
             <a class="d-block border rounded p-2 h-100 text-decoration-none" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
-              {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async">
+              {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="{{ 'Preview: ' if g.language == 'en' else 'Vorschau: ' }}{{ doc.last_path }}" loading="lazy" decoding="async">
               {% else %}<span class="d-block text-secondary py-3" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
               <span class="small text-break">{{ doc.last_path }}</span>
             </a>
@@ -58,81 +58,81 @@
       </section>
       {% endfor %}
       {% if selected.active %}
-      <section class="border rounded p-3 mb-3" aria-label="Sammelordner-Aufgaben">
-        <h3 class="h5">Aufgaben ({{ tasks|length }})</h3>
+      <section class="border rounded p-3 mb-3" aria-label="{{ 'Collection-folder tasks' if g.language == 'en' else 'Sammelordner-Aufgaben' }}">
+        <h3 class="h5">{{ 'Tasks' if g.language == 'en' else 'Aufgaben' }} ({{ tasks|length }})</h3>
         <form method="post" action="{{ url_for('documents.create_smart_folder_task') }}" class="row g-2 mb-3">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="folder" value="{{ selected.path }}">
-          <div class="col-md-5"><input class="form-control" name="title" maxlength="300" placeholder="Aufgabe" required></div>
-          <div class="col-md-5"><input class="form-control" name="description" maxlength="10000" placeholder="Beschreibung (optional)"></div>
-          <div class="col-md-2"><button type="submit" class="btn btn-outline-primary w-100">Hinzufügen</button></div>
+          <div class="col-md-5"><input class="form-control" name="title" maxlength="300" placeholder="{{ 'Task' if g.language == 'en' else 'Aufgabe' }}" required></div>
+          <div class="col-md-5"><input class="form-control" name="description" maxlength="10000" placeholder="{{ 'Description (optional)' if g.language == 'en' else 'Beschreibung (optional)' }}"></div>
+          <div class="col-md-2"><button type="submit" class="btn btn-outline-primary w-100">{{ 'Add' if g.language == 'en' else 'Hinzufügen' }}</button></div>
         </form>
         <ul class="list-group">
           {% for task in tasks %}<li class="list-group-item d-flex justify-content-between gap-2">
-            <span class="text-break">{{ task.title }}{% if task.due %}<small class="d-block text-secondary">Fällig: {{ task.due }}</small>{% endif %}</span>
+            <span class="text-break">{{ task.title }}{% if task.due %}<small class="d-block text-secondary">{{ 'Due:' if g.language == 'en' else 'Fällig:' }} {{ task.due }}</small>{% endif %}</span>
             <span class="badge text-bg-secondary align-self-start">{{ task.status }}</span>
-          </li>{% else %}<li class="list-group-item text-secondary">Keine Aufgaben verknüpft.</li>{% endfor %}
+          </li>{% else %}<li class="list-group-item text-secondary">{{ 'No tasks linked.' if g.language == 'en' else 'Keine Aufgaben verknüpft.' }}</li>{% endfor %}
         </ul>
-        <a class="small d-inline-block mt-2" href="{{ url_for('tasks.board') }}">Aufgaben öffnen und bearbeiten</a>
+        <a class="small d-inline-block mt-2" href="{{ url_for('tasks.board') }}">{{ 'Open and edit tasks' if g.language == 'en' else 'Aufgaben öffnen und bearbeiten' }}</a>
       </section>
       {% endif %}
       {% if selected.active %}
       <details class="mb-3">
-        <summary class="text-primary">Stapelaktion für Vorschau / OCR</summary>
+        <summary class="text-primary">{{ 'Batch action for preview / OCR' if g.language == 'en' else 'Stapelaktion für Vorschau / OCR' }}</summary>
         {% if batch_jobs_enabled %}
         <form method="post" action="{{ url_for('documents.enqueue_smart_folder_batch') }}" class="border rounded p-3 mt-2">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="folder" value="{{ selected.path }}">
           <input type="hidden" name="batch_request_id" value="{{ batch_request_id }}">
-          <label class="form-label" for="smart-folder-batch-action">Aktion</label>
+          <label class="form-label" for="smart-folder-batch-action">{{ 'Action' if g.language == 'en' else 'Aktion' }}</label>
           <select class="form-select mb-2" id="smart-folder-batch-action" name="action">
-            <option value="preview">Vorschaubilder neu erzeugen</option>
-            <option value="ocr">OCR / Texterkennung neu ausführen</option>
-            <option value="preview_ocr">Vorschaubilder und OCR erneuern</option>
+            <option value="preview">{{ 'Regenerate thumbnails' if g.language == 'en' else 'Vorschaubilder neu erzeugen' }}</option>
+            <option value="ocr">{{ 'Re-run OCR / text recognition' if g.language == 'en' else 'OCR / Texterkennung neu ausführen' }}</option>
+            <option value="preview_ocr">{{ 'Renew thumbnails and OCR' if g.language == 'en' else 'Vorschaubilder und OCR erneuern' }}</option>
           </select>
           <fieldset>
-            <legend class="form-label">Dokumente auswählen (Vorschau max. 100, OCR max. 5)</legend>
+            <legend class="form-label">{{ 'Select documents (preview max. 100, OCR max. 5)' if g.language == 'en' else 'Dokumente auswählen (Vorschau max. 100, OCR max. 5)' }}</legend>
             <div class="row g-1">
               {% for doc in selected.preview_candidates %}<div class="col-12 col-md-6">
                 <label class="form-check text-break"><input class="form-check-input" type="checkbox" name="document_ids" value="{{ doc.document_id }}"><span class="form-check-label">{{ doc.last_path }}</span></label>
               </div>{% endfor %}
             </div>
-            {% if selected.preview_candidates_truncated %}<p class="small text-secondary">Auswahl aus den ersten 200 Dokumenten dieses Ordners.</p>{% endif %}
+            {% if selected.preview_candidates_truncated %}<p class="small text-secondary">{{ 'Selection from the first 200 documents of this folder.' if g.language == 'en' else 'Auswahl aus den ersten 200 Dokumenten dieses Ordners.' }}</p>{% endif %}
           </fieldset>
-          <button type="submit" class="btn btn-outline-primary mt-2">Hintergrundaktion einreihen</button>
+          <button type="submit" class="btn btn-outline-primary mt-2">{{ 'Queue background action' if g.language == 'en' else 'Hintergrundaktion einreihen' }}</button>
         </form>
-        {% else %}<p class="small text-secondary mt-2">Die optionale V3-Hintergrundwarteschlange ist deaktiviert; für Stapelaktionen muss SIMPLEOFFICE_V3_JOBS_ENABLED aktiviert und der V3-Job-Worker gestartet sein.</p>{% endif %}
+        {% else %}<p class="small text-secondary mt-2">{{ 'The optional V3 background queue is disabled; for batch actions SIMPLEOFFICE_V3_JOBS_ENABLED must be enabled and the V3 job worker started.' if g.language == 'en' else 'Die optionale V3-Hintergrundwarteschlange ist deaktiviert; für Stapelaktionen muss SIMPLEOFFICE_V3_JOBS_ENABLED aktiviert und der V3-Job-Worker gestartet sein.' }}</p>{% endif %}
       </details>
       {% endif %}
       {% if selected.preview_members %}
-      <section class="mb-3" aria-label="Sammelordner-Vorschau">
-        <h3 class="h5">Vorschaunavigation ({{ selected.preview_members|length }} ausgewählt)</h3>
+      <section class="mb-3" aria-label="{{ 'Collection-folder preview' if g.language == 'en' else 'Sammelordner-Vorschau' }}">
+        <h3 class="h5">{{ 'Preview navigation' if g.language == 'en' else 'Vorschaunavigation' }} ({{ selected.preview_members|length }} {{ 'selected' if g.language == 'en' else 'ausgewählt' }})</h3>
         {% set current_preview = selected.current_preview %}
         <a class="d-block border rounded p-3 text-decoration-none" href="{{ url_for('documents.detail', document_id=current_preview.document_id) }}">
-          {% if current_preview.preview and current_preview.preview.status == 'ready' %}<img class="img-fluid d-block mx-auto" src="{{ url_for('documents.document_thumbnail', document_id=current_preview.document_id) }}" alt="Vorschau: {{ current_preview.last_path }}" loading="lazy" decoding="async">
+          {% if current_preview.preview and current_preview.preview.status == 'ready' %}<img class="img-fluid d-block mx-auto" src="{{ url_for('documents.document_thumbnail', document_id=current_preview.document_id) }}" alt="{{ 'Preview: ' if g.language == 'en' else 'Vorschau: ' }}{{ current_preview.last_path }}" loading="lazy" decoding="async">
           {% else %}<span class="d-block text-secondary text-center py-4" aria-hidden="true"><i class="fas fa-file fa-2x"></i></span>{% endif %}
           <span class="d-block small text-break mt-2">{{ current_preview.last_path }}</span>
         </a>
-        <nav class="d-flex justify-content-between align-items-center mt-2" aria-label="Vorschaunavigation">
-          {% if selected.preview_index > 0 %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index - 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">Vorheriges Bild</a>{% else %}<span></span>{% endif %}
-          <span class="small">Bild {{ selected.preview_index + 1 }} / {{ selected.preview_members|length }}</span>
-          {% if selected.preview_index + 1 < selected.preview_members|length %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index + 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">Nächstes Bild</a>{% else %}<span></span>{% endif %}
+        <nav class="d-flex justify-content-between align-items-center mt-2" aria-label="{{ 'Preview navigation' if g.language == 'en' else 'Vorschaunavigation' }}">
+          {% if selected.preview_index > 0 %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index - 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">{{ 'Previous image' if g.language == 'en' else 'Vorheriges Bild' }}</a>{% else %}<span></span>{% endif %}
+          <span class="small">{{ 'Image' if g.language == 'en' else 'Bild' }} {{ selected.preview_index + 1 }} / {{ selected.preview_members|length }}</span>
+          {% if selected.preview_index + 1 < selected.preview_members|length %}<a class="btn btn-sm btn-outline-secondary" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=selected.preview_index + 1, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">{{ 'Next image' if g.language == 'en' else 'Nächstes Bild' }}</a>{% else %}<span></span>{% endif %}
         </nav>
         {% if contextflow_enabled|default(false) and feature_enabled('documents') %}
         <div id="doc-engel" class="border rounded p-3 mt-2" data-suggest-url="{{ url_for('contextflow.doc_tag_suggest') }}" data-confirm-url="{{ url_for('contextflow.doc_tag_confirm') }}" data-image-url="{{ url_for('contextflow.doc_image_suggest') }}" data-document-id="{{ current_preview.document_id }}" data-folder="{{ selected.path }}" data-csrf="{{ csrf_token() }}">
-          <h4 class="h6 mb-1"><span class="badge text-bg-warning me-1" aria-hidden="true">✦</span>Büroengel · Tag-Vorschläge</h4>
-          <p class="small mb-2" id="doc-engel-tags">Aktuelle Tags: {% for tag in current_preview.tags|default([]) %}<span class="badge text-bg-secondary me-1">{{ tag }}</span>{% else %}<span class="text-secondary">keine</span>{% endfor %}</p>
-          <button type="button" class="btn btn-outline-primary" id="doc-engel-suggest">Welche Tags würdest du hinzufügen?</button>
-          <p class="small text-secondary mt-1 mb-0">Lokale KI auf diesem Rechner — nichts wird ohne deine Bestätigung übernommen.</p>
+          <h4 class="h6 mb-1"><span class="badge text-bg-warning me-1" aria-hidden="true">✦</span>{{ 'Office angel · tag suggestions' if g.language == 'en' else 'Büroengel · Tag-Vorschläge' }}</h4>
+          <p class="small mb-2" id="doc-engel-tags">{{ 'Current tags:' if g.language == 'en' else 'Aktuelle Tags:' }} {% for tag in current_preview.tags|default([]) %}<span class="badge text-bg-secondary me-1">{{ tag }}</span>{% else %}<span class="text-secondary">{{ 'none' if g.language == 'en' else 'keine' }}</span>{% endfor %}</p>
+          <button type="button" class="btn btn-outline-primary" id="doc-engel-suggest">{{ 'Which tags would you add?' if g.language == 'en' else 'Welche Tags würdest du hinzufügen?' }}</button>
+          <p class="small text-secondary mt-1 mb-0">{{ 'Local AI on this machine — nothing is applied without your confirmation.' if g.language == 'en' else 'Lokale KI auf diesem Rechner — nichts wird ohne deine Bestätigung übernommen.' }}</p>
           <div id="doc-engel-status" class="mt-2" role="status" aria-live="polite"></div>
           <div id="doc-engel-result" class="mt-2" hidden></div>
         </div>
         {% endif %}
-        <details class="mt-2"><summary>Alle ausgewählten Vorschaubilder anzeigen</summary>
+        <details class="mt-2"><summary>{{ 'Show all selected thumbnails' if g.language == 'en' else 'Alle ausgewählten Vorschaubilder anzeigen' }}</summary>
           <div class="row g-2 mt-1">
             {% for doc in selected.preview_members %}<div class="col-6 col-md-4">
               <a class="d-block border rounded p-2 h-100 text-decoration-none" href="{{ url_for('documents.smart_folder_view', folder=selected.path, preview_index=loop.index0, assign_document_id=assignment_document.document_id if assignment_document else none, move_document_id=move_document.document_id if move_document else none) }}">
-                {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async">
+                {% if doc.preview and doc.preview.status == 'ready' %}<img class="img-fluid" src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="{{ 'Preview: ' if g.language == 'en' else 'Vorschau: ' }}{{ doc.last_path }}" loading="lazy" decoding="async">
                 {% else %}<span class="d-block text-secondary py-3" aria-hidden="true"><i class="fas fa-file"></i></span>{% endif %}
                 <span class="small text-break">{{ doc.last_path }}</span>
               </a>
@@ -143,7 +143,7 @@
       {% endif %}
       {% if selected.active %}
       <details class="mb-3">
-        <summary class="text-primary">Vorschaubilder auswählen (1, 4 oder 6)</summary>
+        <summary class="text-primary">{{ 'Select thumbnails (1, 4 or 6)' if g.language == 'en' else 'Vorschaubilder auswählen (1, 4 oder 6)' }}</summary>
         <form method="post" action="{{ url_for('documents.set_smart_folder_previews') }}" class="border rounded p-3 mt-2">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="folder" value="{{ selected.path }}">
@@ -157,56 +157,56 @@
               </label>
             </div>{% endfor %}
           </div>
-          {% if selected.preview_candidates_truncated %}<p class="small text-secondary mt-2">Auswahl aus den ersten 200 Dokumenten dieses Ordners.</p>{% endif %}
-          <button type="submit" class="btn btn-outline-primary mt-2">Vorschau speichern</button>
+          {% if selected.preview_candidates_truncated %}<p class="small text-secondary mt-2">{{ 'Selection from the first 200 documents of this folder.' if g.language == 'en' else 'Auswahl aus den ersten 200 Dokumenten dieses Ordners.' }}</p>{% endif %}
+          <button type="submit" class="btn btn-outline-primary mt-2">{{ 'Save preview' if g.language == 'en' else 'Vorschau speichern' }}</button>
         </form>
       </details>
       {% endif %}
       {% if selected.same_name %}
-      <div class="alert alert-info" role="status" aria-live="polite">Weitere Ordner mit gleichem Namen:
+      <div class="alert alert-info" role="status" aria-live="polite">{{ 'More folders with the same name:' if g.language == 'en' else 'Weitere Ordner mit gleichem Namen:' }}
         {% for other in selected.same_name %}
           <a href="{{ url_for('documents.smart_folder_view', folder=other.path) }}">{{ other.path }}</a>{% if not loop.last %}, {% endif %}
         {% endfor %}
-        <p class="mb-0 small">Keine automatische Zusammenführung.</p>
+        <p class="mb-0 small">{{ 'No automatic merge.' if g.language == 'en' else 'Keine automatische Zusammenführung.' }}</p>
       </div>
       {% endif %}
       {% if selected.same_name %}
       <form method="get" action="{{ url_for('documents.smart_folder_merge_preview') }}" class="border rounded p-3 mb-3">
-        <h3 class="h6">Logische Ordnerzuordnungen zusammenführen</h3>
+        <h3 class="h6">{{ 'Merge logical folder assignments' if g.language == 'en' else 'Logische Ordnerzuordnungen zusammenführen' }}</h3>
         <input type="hidden" name="source" value="{{ selected.path }}">
-        <label for="merge-target" class="form-label">Ziel-Sammelordner auswählen</label>
+        <label for="merge-target" class="form-label">{{ 'Select target collection folder' if g.language == 'en' else 'Ziel-Sammelordner auswählen' }}</label>
         <select id="merge-target" class="form-select mb-2" name="target" required>
-          <option value="">Ziel auswählen</option>
+          <option value="">{{ 'Select target' if g.language == 'en' else 'Ziel auswählen' }}</option>
           {% for other in selected.same_name %}<option value="{{ other.path }}">{{ other.path }}</option>{% endfor %}
         </select>
-        <p class="small">Übernimmt logische Zuordnungen, Notizen und kompatible Extraktionsregeln. Bei Regelkonflikten wird abgebrochen. Originaldateien bleiben an ihrem Speicherort.</p>
-        <button type="submit" class="btn btn-outline-warning">Fusion prüfen</button>
+        <p class="small">{{ 'Adopts logical assignments, notes and compatible extraction rules. Aborts on rule conflicts. Original files stay at their storage location.' if g.language == 'en' else 'Übernimmt logische Zuordnungen, Notizen und kompatible Extraktionsregeln. Bei Regelkonflikten wird abgebrochen. Originaldateien bleiben an ihrem Speicherort.' }}</p>
+        <button type="submit" class="btn btn-outline-warning">{{ 'Check merge' if g.language == 'en' else 'Fusion prüfen' }}</button>
       </form>
       {% endif %}
       <form method="post" action="{{ url_for('documents.activate_smart_folder') }}" class="mb-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="folder" value="{{ selected.path }}">
-        <label class="form-label" for="folder-notes">Sammelordner-Notizen</label>
+        <label class="form-label" for="folder-notes">{{ 'Collection-folder notes' if g.language == 'en' else 'Sammelordner-Notizen' }}</label>
         <textarea class="form-control mb-2" id="folder-notes" name="notes" rows="3" maxlength="20000">{{ selected.notes|default('') }}</textarea>
-        <button class="btn btn-primary" type="submit">{{ 'Notizen speichern' if selected.active else 'Als Sammelordner aktivieren' }}</button>
+        <button class="btn btn-primary" type="submit">{{ ('Save notes' if selected.active else 'Activate as collection folder') if g.language == 'en' else ('Notizen speichern' if selected.active else 'Als Sammelordner aktivieren') }}</button>
       </form>
       <section class="mb-3">
-        <h3 class="h5">Tabellarische Auswertung</h3>
+        <h3 class="h5">{{ 'Table evaluation' if g.language == 'en' else 'Tabellarische Auswertung' }}</h3>
         {% if selected.active %}
         <form method="post" action="{{ url_for('documents.save_smart_folder_rule') }}" class="row g-2">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="folder" value="{{ selected.path }}">
-          <div class="col"><input class="form-control" name="name" maxlength="80" placeholder="Spaltenname" required></div>
-          <div class="col"><input class="form-control" name="field" maxlength="120" placeholder="JSON-Schlüssel / CSV-Spalte / XML-Pfad" required></div>
-          <div class="col-auto"><button type="submit" class="btn btn-outline-primary">Regel speichern</button></div>
+          <div class="col"><input class="form-control" name="name" maxlength="80" placeholder="{{ 'Column name' if g.language == 'en' else 'Spaltenname' }}" required></div>
+          <div class="col"><input class="form-control" name="field" maxlength="120" placeholder="{{ 'JSON key / CSV column / XML path' if g.language == 'en' else 'JSON-Schlüssel / CSV-Spalte / XML-Pfad' }}" required></div>
+          <div class="col-auto"><button type="submit" class="btn btn-outline-primary">{{ 'Save rule' if g.language == 'en' else 'Regel speichern' }}</button></div>
         </form>
-        {% else %}<p class="small text-secondary">Aktiviere den Sammelordner, bevor du Extraktionsregeln speicherst.</p>{% endif %}
+        {% else %}<p class="small text-secondary">{{ 'Activate the collection folder before saving extraction rules.' if g.language == 'en' else 'Aktiviere den Sammelordner, bevor du Extraktionsregeln speicherst.' }}</p>{% endif %}
         {% if rules %}
         <p class="small text-secondary mt-2">{% for name, field in rules.items() %}{{ name }}: {{ field }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
-        <a href="{{ url_for('documents.export_smart_folder', folder=selected.path) }}">CSV exportieren</a>
+        <a href="{{ url_for('documents.export_smart_folder', folder=selected.path) }}">{{ 'Export CSV' if g.language == 'en' else 'CSV exportieren' }}</a>
         <div class="table-responsive"><table class="table table-sm">
-          <caption>Extrahierte Felder für Dokumente in {{ selected.path }}</caption>
-          <thead><tr><th scope="col">Datei</th>{% for name in rules %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
+          <caption>{{ ('Extracted fields for documents in ' ~ selected.path) if g.language == 'en' else ('Extrahierte Felder für Dokumente in ' ~ selected.path) }}</caption>
+          <thead><tr><th scope="col">{{ 'File' if g.language == 'en' else 'Datei' }}</th>{% for name in rules %}<th scope="col">{{ name }}</th>{% endfor %}</tr></thead>
           <tbody>{% for row in rows %}<tr><td><a href="{{ url_for('documents.detail', document_id=row.document_id) }}">{{ row.path }}</a></td>{% for name in rules %}<td>{{ row.get(name, '') }}</td>{% endfor %}</tr>{% endfor %}</tbody>
         </table></div>
         {% endif %}
@@ -214,15 +214,15 @@
       <form method="post" action="{{ url_for('documents.assign_many_smart_folder') }}" class="border rounded p-3 mb-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="source" value="{{ selected.path }}">
-        <h3 class="h6">Dokumente einer weiteren Smart View zuordnen</h3>
-        <label class="form-label" for="bulk-target">Bestehender Zielordner</label>
+        <h3 class="h6">{{ 'Assign documents to another smart view' if g.language == 'en' else 'Dokumente einer weiteren Smart View zuordnen' }}</h3>
+        <label class="form-label" for="bulk-target">{{ 'Existing target folder' if g.language == 'en' else 'Bestehender Zielordner' }}</label>
         <select class="form-select mb-2" id="bulk-target" name="target" required>
-          <option value="">Ziel auswählen</option>
+          <option value="">{{ 'Select target' if g.language == 'en' else 'Ziel auswählen' }}</option>
           {% for folder in folders if folder.path != selected.path %}
           <option value="{{ folder.path }}">{{ folder.path }}</option>
           {% endfor %}
         </select>
-        <p class="small text-secondary">Maximal 100 Dokumente auswählen. Die Dateien bleiben am bisherigen Speicherort.</p>
+        <p class="small text-secondary">{{ 'Select at most 100 documents. The files stay at their current storage location.' if g.language == 'en' else 'Maximal 100 Dokumente auswählen. Die Dateien bleiben am bisherigen Speicherort.' }}</p>
         <div class="list-group mb-2">
           {% for doc in selected.members[:100] %}
           <label class="list-group-item">
@@ -231,14 +231,14 @@
           </label>
           {% endfor %}
         </div>
-        {% if selected.members|length > 100 %}<p class="small">Es werden die ersten 100 Dokumente zur Auswahl angeboten.</p>{% endif %}
-        <button type="submit" class="btn btn-outline-primary">Ausgewählte Dokumente zuordnen</button>
+        {% if selected.members|length > 100 %}<p class="small">{{ 'The first 100 documents are offered for selection.' if g.language == 'en' else 'Es werden die ersten 100 Dokumente zur Auswahl angeboten.' }}</p>{% endif %}
+        <button type="submit" class="btn btn-outline-primary">{{ 'Assign selected documents' if g.language == 'en' else 'Ausgewählte Dokumente zuordnen' }}</button>
       </form>
       <form method="post" action="{{ url_for('documents.unassign_many_smart_folder') }}" class="border rounded p-3 mb-3">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="folder" value="{{ selected.path }}">
-        <h3 class="h6">Logische Zuordnungen gesammelt entfernen</h3>
-        <p class="small text-secondary">Nur ausdrücklich hinzugefügte Zuordnungen werden entfernt. Physische Ordnerzugehörigkeit und importierte Herkunft bleiben erhalten.</p>
+        <h3 class="h6">{{ 'Remove logical assignments in bulk' if g.language == 'en' else 'Logische Zuordnungen gesammelt entfernen' }}</h3>
+        <p class="small text-secondary">{{ 'Only explicitly added assignments are removed. Physical folder membership and imported origin stay intact.' if g.language == 'en' else 'Nur ausdrücklich hinzugefügte Zuordnungen werden entfernt. Physische Ordnerzugehörigkeit und importierte Herkunft bleiben erhalten.' }}</p>
         <div class="list-group mb-2">
           {% for doc in selected.explicit_members[:100] %}
           <label class="list-group-item">
@@ -247,23 +247,23 @@
           </label>
           {% endfor %}
         </div>
-        {% if selected.explicit_members|length > 100 %}<p class="small">Die ersten 100 expliziten Zuordnungen werden angeboten.</p>{% endif %}
-        <label for="bulk-remove-confirm" class="form-label">ENTFERNEN eingeben</label>
+        {% if selected.explicit_members|length > 100 %}<p class="small">{{ 'The first 100 explicit assignments are offered.' if g.language == 'en' else 'Die ersten 100 expliziten Zuordnungen werden angeboten.' }}</p>{% endif %}
+        <label for="bulk-remove-confirm" class="form-label">{{ 'Type ENTFERNEN' if g.language == 'en' else 'ENTFERNEN eingeben' }}</label>
         <input id="bulk-remove-confirm" class="form-control mb-2" name="confirm" required pattern="ENTFERNEN">
-        <button type="submit" class="btn btn-outline-danger" {% if not selected.explicit_members %}disabled{% endif %}>Ausgewählte Zuordnungen entfernen</button>
+        <button type="submit" class="btn btn-outline-danger" {% if not selected.explicit_members %}disabled{% endif %}>{{ 'Remove selected assignments' if g.language == 'en' else 'Ausgewählte Zuordnungen entfernen' }}</button>
       </form>
       <div class="list-group">
         {% for doc in selected.members %}
         <a class="list-group-item list-group-item-action d-flex align-items-center gap-3" href="{{ url_for('documents.detail', document_id=doc.document_id) }}">
           {% if doc.preview and doc.preview.status == 'ready' %}
-          <img src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="Vorschau: {{ doc.last_path }}" loading="lazy" decoding="async" width="96" height="72" style="object-fit:contain">
+          <img src="{{ url_for('documents.document_thumbnail', document_id=doc.document_id) }}" alt="{{ 'Preview: ' if g.language == 'en' else 'Vorschau: ' }}{{ doc.last_path }}" loading="lazy" decoding="async" width="96" height="72" style="object-fit:contain">
           {% else %}<i class="fas fa-file text-secondary" aria-hidden="true"></i>{% endif %}
           <span class="text-break">{{ doc.last_path }}</span>
         </a>
         {% endfor %}
       </div>
       {% else %}
-      <p>Wähle einen Ordner, um seine Dokumente dynamisch anzuzeigen.</p>
+      <p>{{ 'Select a folder to show its documents dynamically.' if g.language == 'en' else 'Wähle einen Ordner, um seine Dokumente dynamisch anzuzeigen.' }}</p>
       {% endif %}
     </section>
   </div>

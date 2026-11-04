@@ -3,9 +3,12 @@ from __future__ import annotations
 import ast
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+
+from app import app_config_store
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,7 +33,8 @@ class AndroidRuntimeTests(unittest.TestCase):
         self.assertIn('os.environ["SIMPLEOFFICE_ANDROID"] = "1"', source)
         self.assertIn('os.environ["SIMPLEOFFICE_HOST"] = "127.0.0.1"', source)
         self.assertIn('os.environ["SIMPLEOFFICE_BACKGROUND_INDEX"] = "0"', source)
-        self.assertIn('SIMPLEOFFICE_FEDERATION_LAN_ADDRESS', source)
+        self.assertIn('federation_network', source)
+        self.assertNotIn('SIMPLEOFFICE_FEDERATION_LAN_ADDRESS', source)
         self.assertIn('def set_lan_addresses(', source)
         self.assertIn('make_server(\n            "0.0.0.0",', source)
 
@@ -41,18 +45,23 @@ class AndroidRuntimeTests(unittest.TestCase):
         runtime = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(runtime)
 
-        with mock.patch.dict("os.environ", {}, clear=False):
-            import os
-            os.environ.pop("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", None)
-            self.assertTrue(runtime.set_lan_addresses(
-                "192.168.4.22,192.168.4.22,10.0.0.8,172.20.10.1,100.64.0.2,169.254.8.9"
-            ))
-            self.assertEqual(
-                "192.168.4.22,10.0.0.8,172.20.10.1,100.64.0.2,169.254.8.9",
-                os.environ["SIMPLEOFFICE_FEDERATION_LAN_ADDRESS"],
-            )
-            runtime.set_lan_addresses("")
-            self.assertNotIn("SIMPLEOFFICE_FEDERATION_LAN_ADDRESS", os.environ)
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.object(
+                app_config_store, "settings_path",
+                return_value=Path(tmp) / "app-config.json",
+            ):
+                self.assertTrue(runtime.set_lan_addresses(
+                    "192.168.4.22,192.168.4.22,10.0.0.8,172.20.10.1,100.64.0.2,169.254.8.9"
+                ))
+                self.assertEqual(
+                    "192.168.4.22,10.0.0.8,172.20.10.1,100.64.0.2,169.254.8.9",
+                    app_config_store.get("federation_network", "lan_addresses", ""),
+                )
+                runtime.set_lan_addresses("")
+                self.assertEqual(
+                    "",
+                    app_config_store.get("federation_network", "lan_addresses", ""),
+                )
 
     def test_runtime_receives_native_identity_and_registers_local_auth_before_serving(self):
         source = RUNTIME.read_text(encoding="utf-8")

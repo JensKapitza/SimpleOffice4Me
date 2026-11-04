@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from app.osm_address import LocalAddressIndex, _remote_total, field_suggestions, human_bytes, unique_candidate
 from app.settings_store import (
+    DEFAULT_OSM_READ_TIMEOUT_SECONDS,
     DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
     DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
     MAX_OSM_FILTER_TIMEOUT_SECONDS,
@@ -143,89 +144,44 @@ class OsmAddressTests(unittest.TestCase):
             self.assertEqual("retrying", status["state"])
             self.assertEqual(50.0, status["progress_percent"])
 
-    def test_legacy_osm_timeout_is_migrated_and_persisted_value_wins(self):
+    def test_osm_timeout_uses_default_and_persisted_value_wins(self):
         with tempfile.TemporaryDirectory() as root:
             store = SettingsStore(root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": "900"}):
-                self.assertEqual(
-                    900,
-                    store.settings()["integrations"]["osm_download_read_timeout_seconds"],
-                )
-                store.save({"network": {"webdav_quota_mib": 0}}, "osm-test-admin")
+            self.assertEqual(
+                DEFAULT_OSM_READ_TIMEOUT_SECONDS,
+                store.settings()["integrations"]["osm_download_read_timeout_seconds"],
+            )
+            store.save({"integrations": {"osm_download_read_timeout_seconds": 900}}, "osm-test-admin")
+            self.assertEqual(
+                900,
+                store.settings()["integrations"]["osm_download_read_timeout_seconds"],
+            )
 
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": "600"}):
-                self.assertEqual(
-                    900,
-                    store.settings()["integrations"]["osm_download_read_timeout_seconds"],
-                )
-
-    def test_legacy_osm_timeout_is_clamped_or_defaults_for_invalid_input(self):
-        expectations = {"10": 30, "7200": 3600, "--5": 300, "invalid": 300, "9" * 13: 300}
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_READ_TIMEOUT_SECONDS": raw}):
-                    timeout = SettingsStore(root).settings()["integrations"][
-                        "osm_download_read_timeout_seconds"
-                    ]
-                self.assertEqual(expected, timeout)
-
-    def test_legacy_osm_filter_timeout_is_migrated_clamped_and_persisted(self):
+    def test_osm_filter_timeout_uses_default_and_persists(self):
         with tempfile.TemporaryDirectory() as root:
             store = SettingsStore(root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "7200"}):
-                self.assertEqual(
-                    7200,
-                    store.settings()["integrations"]["osm_filter_timeout_seconds"],
-                )
-                store.save({"network": {"webdav_quota_mib": 0}}, "osm-test-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": "3600"}):
-                self.assertEqual(
-                    7200,
-                    store.settings()["integrations"]["osm_filter_timeout_seconds"],
-                )
+            self.assertEqual(
+                DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
+                store.settings()["integrations"]["osm_filter_timeout_seconds"],
+            )
+            store.save({"integrations": {"osm_filter_timeout_seconds": 7200}}, "osm-test-admin")
+            self.assertEqual(
+                7200,
+                store.settings()["integrations"]["osm_filter_timeout_seconds"],
+            )
 
-        expectations = {
-            "1": MIN_OSM_FILTER_TIMEOUT_SECONDS,
-            "90000": MAX_OSM_FILTER_TIMEOUT_SECONDS,
-            "invalid": DEFAULT_OSM_FILTER_TIMEOUT_SECONDS,
-            "9" * 13: MAX_OSM_FILTER_TIMEOUT_SECONDS,
-            "-" + "9" * 20: MIN_OSM_FILTER_TIMEOUT_SECONDS,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_FILTER_TIMEOUT": raw}):
-                    timeout = SettingsStore(root).settings()["integrations"][
-                        "osm_filter_timeout_seconds"
-                    ]
-                self.assertEqual(expected, timeout)
-
-    def test_legacy_osm_export_idle_timeout_is_migrated_and_bounded(self):
+    def test_osm_export_idle_timeout_uses_default_and_persists(self):
         with tempfile.TemporaryDirectory() as root:
             store = SettingsStore(root)
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "2400"}):
-                self.assertEqual(
-                    2400,
-                    store.settings()["integrations"]["osm_export_idle_timeout_seconds"],
-                )
-                store.save({"network": {"webdav_quota_mib": 0}}, "osm-test-admin")
-            with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": "300"}):
-                self.assertEqual(
-                    2400,
-                    store.settings()["integrations"]["osm_export_idle_timeout_seconds"],
-                )
-
-        expectations = {
-            "1": MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-            "90000": MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-            "invalid": DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-            "9" * 13: MAX_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-            "-" + "9" * 20: MIN_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
-        }
-        for raw, expected in expectations.items():
-            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as root:
-                with patch.dict(os.environ, {"SIMPLEOFFICE_OSM_EXPORT_IDLE_TIMEOUT": raw}):
-                    timeout = _osm_export_idle_timeout(root)
-                self.assertEqual(expected, timeout)
+            self.assertEqual(
+                DEFAULT_OSM_EXPORT_IDLE_TIMEOUT_SECONDS,
+                store.settings()["integrations"]["osm_export_idle_timeout_seconds"],
+            )
+            store.save({"integrations": {"osm_export_idle_timeout_seconds": 2400}}, "osm-test-admin")
+            self.assertEqual(
+                2400,
+                store.settings()["integrations"]["osm_export_idle_timeout_seconds"],
+            )
 
     def test_download_uses_persisted_osm_read_timeout(self):
         with tempfile.TemporaryDirectory() as root:
