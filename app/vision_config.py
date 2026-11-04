@@ -1,11 +1,11 @@
-"""Persisted Vision/ML backend settings with encrypted Meta API key.
+"""Persisted Vision/ML backend settings with encrypted cloud API keys.
 
 Single source of truth is the settings file edited on the Vision/ML admin
-page — no environment variables configure the ML backend. The Meta Model API
-key is never stored in clear text: only ``meta_api_key_enc`` (``enc:v1:`` via
-:mod:`app.security_controls`) is persisted. ``public()`` exposes
-``meta_api_key_configured`` as a boolean only. Meta cloud inference stays
-doubly gated (stored ``meta_consent`` flag plus per-photo consent in the UI)
+page — no environment variables configure the ML backend. Cloud API keys
+(Meta, OpenAI) are never stored in clear text: only ``*_api_key_enc``
+(``enc:v1:`` via :mod:`app.security_controls`) is persisted. ``public()``
+exposes ``*_api_key_configured`` as booleans only. Cloud inference stays
+doubly gated (stored consent flag plus per-photo consent in the UI)
 and limited to verified synthetic demo roots (see
 :mod:`app.contextflow.vision`).
 """
@@ -16,6 +16,7 @@ from typing import Any, Mapping
 
 from simpleoffice_mini_core import _atomic_write, default_config_path
 
+from .contextflow.openai_provider import OPENAI_API_ENDPOINT
 from .contextflow.vision import (
     META_MODEL_API_ENDPOINT,
     META_MODEL_API_MODEL,
@@ -34,15 +35,20 @@ DEFAULTS: dict[str, Any] = {
     "meta_endpoint": "",
     "meta_model": "",
     "meta_api_key_enc": "",
+    "openai_consent": False,
+    "openai_endpoint": "",
+    "openai_model": "",
+    "openai_api_key_enc": "",
     "version": 1,
 }
-SECRET_FIELDS = ("meta_api_key",)
+SECRET_FIELDS = ("meta_api_key", "openai_api_key")
 MAX_CONFIG_BYTES = 32768
 _KEY_PURPOSE = "vision-meta-api-key"
+_KEY_PURPOSE_OPENAI = "vision-openai-api-key"
 
 _ERRORS = {
     "unknown": ("Unbekannte Vision-Einstellung.", "Unknown vision setting."),
-    "provider": ("Anbieter prüfen (local oder meta).", "Check the provider (local or meta)."),
+    "provider": ("Anbieter prüfen (local, meta oder openai).", "Check the provider (local, meta or openai)."),
     "url": ("Ollama-URL prüfen (nur http auf Loopback).", "Check the Ollama URL (HTTP loopback only)."),
     "model": ("Modellnamen prüfen.", "Check the model name."),
     "timeout": ("Timeout muss zwischen 5 und 300 Sekunden liegen.", "Timeout must be between 5 and 300 seconds."),
@@ -73,7 +79,7 @@ def validate(value: Mapping[str, Any] | None, language: str = "de") -> dict[str,
     result = {**DEFAULTS, **value}
     if type(result["enabled"]) is not bool:
         result["enabled"] = bool(result["enabled"])
-    if result["provider"] not in ("local", "meta"):
+    if result["provider"] not in ("local", "meta", "openai"):
         raise _fail("provider", language)
     url = result["ollama_url"]
     if not isinstance(url, str) or not url or len(url) > 512:
@@ -109,6 +115,22 @@ def validate(value: Mapping[str, Any] | None, language: str = "de") -> dict[str,
     if not isinstance(encrypted, str) or (encrypted and not encrypted.startswith("enc:v1:")) or len(encrypted) > 8192:
         raise _fail("secret", language)
     result["meta_api_key_enc"] = encrypted
+    if type(result["openai_consent"]) is not bool:
+        result["openai_consent"] = bool(result["openai_consent"])
+    openai_endpoint = result["openai_endpoint"]
+    if not isinstance(openai_endpoint, str) or len(openai_endpoint) > 512:
+        raise _fail("endpoint", language)
+    if openai_endpoint.strip() and openai_endpoint.strip() != OPENAI_API_ENDPOINT:
+        raise _fail("endpoint", language)
+    result["openai_endpoint"] = openai_endpoint.strip()
+    openai_model = result["openai_model"]
+    if not isinstance(openai_model, str) or len(openai_model) > 160:
+        raise _fail("apimodel", language)
+    result["openai_model"] = openai_model.strip()
+    openai_encrypted = result.get("openai_api_key_enc", "")
+    if not isinstance(openai_encrypted, str) or (openai_encrypted and not openai_encrypted.startswith("enc:v1:")) or len(openai_encrypted) > 8192:
+        raise _fail("secret", language)
+    result["openai_api_key_enc"] = openai_encrypted
     return result
 
 
@@ -121,9 +143,12 @@ def settings() -> dict[str, Any]:
     return validate(json.loads(path.read_text(encoding="utf-8")))
 
 
+_KEY_PURPOSES = {"meta_api_key": _KEY_PURPOSE, "openai_api_key": _KEY_PURPOSE_OPENAI}
+
+
 def secret(config: Mapping[str, Any], key: str = "meta_api_key") -> str:
     try:
-        value = unprotect_value(config[key + "_enc"], _KEY_PURPOSE)
+        value = unprotect_value(config[key + "_enc"], _KEY_PURPOSES[key])
     except (ValueError, KeyError) as exc:
         raise ValueError(_ERRORS["keylocked"][0]) from exc
     if not value or len(value) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in value):
@@ -139,6 +164,11 @@ def prepare(value: Mapping[str, Any], language: str = "de") -> dict[str, Any]:
         if not isinstance(raw, str) or len(raw) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in raw):
             raise _fail("keychars", language)
         candidate["meta_api_key_enc"] = protect_value(raw, _KEY_PURPOSE)
+    openai_raw = candidate.pop("openai_api_key", None)
+    if openai_raw:
+        if not isinstance(openai_raw, str) or len(openai_raw) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in openai_raw):
+            raise _fail("keychars", language)
+        candidate["openai_api_key_enc"] = protect_value(openai_raw, _KEY_PURPOSE_OPENAI)
     return validate({**previous, **candidate}, language)
 
 
@@ -175,6 +205,10 @@ def effective_settings(config: Mapping[str, Any]) -> dict[str, Any]:
         file_key = secret(stored) if stored.get("meta_api_key_enc") else ""
     except ValueError:
         file_key = ""
+    try:
+        openai_file_key = secret(stored, "openai_api_key") if stored.get("openai_api_key_enc") else ""
+    except ValueError:
+        openai_file_key = ""
     return {
         "enabled": bool(get("CONTEXTFLOW_ML_ENABLED", stored["enabled"])),
         "provider": get("CONTEXTFLOW_VISION_PROVIDER", stored["provider"]) or "local",
@@ -185,4 +219,8 @@ def effective_settings(config: Mapping[str, Any]) -> dict[str, Any]:
         "meta_api_key": demo_key or file_key,
         "meta_endpoint": get("CONTEXTFLOW_META_ENDPOINT", stored["meta_endpoint"]) or "",
         "meta_model": get("CONTEXTFLOW_META_MODEL", stored["meta_model"]) or "",
+        "openai_consent": bool(get("CONTEXTFLOW_OPENAI_CONSENT", stored["openai_consent"])),
+        "openai_api_key": openai_file_key,
+        "openai_endpoint": get("CONTEXTFLOW_OPENAI_ENDPOINT", stored["openai_endpoint"]) or "",
+        "openai_model": get("CONTEXTFLOW_OPENAI_MODEL", stored["openai_model"]) or "",
     }

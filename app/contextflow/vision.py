@@ -702,6 +702,10 @@ def vision_settings_from_mapping(
         "meta_api_key": runtime_key or env_key,
         "meta_endpoint": get("CONTEXTFLOW_META_ENDPOINT", ""),
         "meta_model": get("CONTEXTFLOW_META_MODEL", ""),
+        "openai_consent": bool(get("CONTEXTFLOW_OPENAI_CONSENT", False)),
+        "openai_api_key": environ.get("OPENAI_API_KEY", ""),
+        "openai_endpoint": get("CONTEXTFLOW_OPENAI_ENDPOINT", ""),
+        "openai_model": get("CONTEXTFLOW_OPENAI_MODEL", ""),
     }
 
 
@@ -710,12 +714,13 @@ def select_provider(
     consent_meta: bool,
     root: object,
 ) -> VisionProvider:
-    """Pick the configured backend; Meta only with consent + synthetic root.
+    """Pick the configured backend; cloud only with consent + synthetic root.
 
     The Meta Contributor path never runs on real roots: Contributor
     content may train future Meta models, so even text-only contact
-    calls require a verified synthetic demo root. Local and mock
-    providers are unaffected by the root.
+    calls require a verified synthetic demo root. The OpenAI path has
+    the same barrier: content sent to a third party must stay
+    synthetic. Local and mock providers are unaffected by the root.
     """
     from pathlib import Path as _Path
 
@@ -739,6 +744,23 @@ def select_provider(
         if not is_verified_demo_root(_Path(str(root))):
             raise PermissionError("Meta inference is limited to a synthetic demo root")
         return MetaVisionProvider(key, endpoint, model)
+    if choice == "openai":
+        from .openai_provider import OPENAI_API_ENDPOINT, OpenAIVisionProvider
+        if consent_meta is not True or settings.get("openai_consent") is not True:
+            raise PermissionError("OpenAI inference needs explicit consent")
+        key = str(settings.get("openai_api_key", "") or "")
+        endpoint = str(
+            settings.get("openai_endpoint", OPENAI_API_ENDPOINT)
+            or OPENAI_API_ENDPOINT
+        ).strip()
+        model = str(
+            settings.get("openai_model", "gpt-4o-mini") or "gpt-4o-mini"
+        ).strip()
+        if not key or not endpoint or not model:
+            raise PermissionError("OpenAI inference is not configured")
+        if not is_verified_demo_root(_Path(str(root))):
+            raise PermissionError("OpenAI inference is limited to a synthetic demo root")
+        return OpenAIVisionProvider(key, endpoint, model)
     if choice != "local":
         raise VisionError(f"unknown vision provider: {choice}")
     return LocalVisionProvider(
@@ -817,10 +839,28 @@ def ml_status(
         meta["models_error"] = models_error
     elif choice == "meta" and key:
         meta["models_error"] = "Meta-Modellprüfung nicht freigegeben"
+    from .openai_provider import OpenAIVisionProvider as _OpenAIProvider
+    from .openai_provider import check_openai_model as _check_openai_model
+    openai_key = str(settings.get("openai_api_key", "") or "")
+    openai: dict[str, Any] = {
+        "model": "gpt-4o-mini",
+        "label": _OpenAIProvider.label,
+        "key_present": bool(openai_key),
+        "server_consent": settings.get("openai_consent") is True,
+        "model_listed": None,
+        "models_error": "",
+    }
+    if choice == "openai" and openai_key and models_probe_allowed is True:
+        listed, models_error = _check_openai_model(openai_key)
+        openai["model_listed"] = listed
+        openai["models_error"] = models_error
+    elif choice == "openai" and openai_key:
+        openai["models_error"] = "OpenAI-Modellprüfung nicht freigegeben"
     return {
         "provider": choice,
         "ollama": ollama,
         "meta": meta,
+        "openai": openai,
     }
 
 

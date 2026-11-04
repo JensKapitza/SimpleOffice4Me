@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -150,7 +151,15 @@ def legacy_federation_public_url() -> str:
 
 
 def legacy_error_relay_mode() -> str:
-    return DEFAULT_ERROR_RELAY_MODE
+    """Preserve the master-role default and explicit legacy relay override.
+
+    Explicit process environment wins over the default, matching the
+    server-settings precedence (env > persisted store > defaults).
+    """
+    value = os.environ.get("SIMPLEOFFICE_ERROR_RELAY_ENABLED")
+    if value is None:
+        return DEFAULT_ERROR_RELAY_MODE
+    return "enabled" if value.strip().casefold() in {"1", "true", "yes", "on"} else "disabled"
 
 
 def normalize_integration_settings(

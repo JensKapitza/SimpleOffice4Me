@@ -223,14 +223,14 @@ def _ocr_photo(data: bytes, mime: str, label: str) -> tuple[str, str]:
 def _require_provider(
     settings: dict[str, Any], consent_meta: bool = False, root: object = None
 ) -> Any:
-    """Select the real Meta provider; refuse mock placeholders.
+    """Select the real cloud provider; refuse mock placeholders.
 
-    Local Ollama is the default. The Meta cloud backend additionally
-    needs explicit per-request consent, the server-side consent flag,
-    an API key, and a verified synthetic demo root; real data roots
-    stay excluded (PermissionError, routed as 403). Only pasted text
-    plus local OCR text reach the single text-only Meta call, photo
-    bytes never leave the machine.
+    Local Ollama is the default. A cloud backend (Meta or OpenAI)
+    additionally needs explicit per-request consent, the server-side
+    consent flag, an API key, and a verified synthetic demo root;
+    real data roots stay excluded (PermissionError, routed as 403).
+    Only pasted text plus local OCR text reach the single text-only
+    cloud call, photo bytes never leave the machine.
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     if choice == "local" and not str(settings.get("ollama_model", "") or "").strip():
@@ -294,7 +294,7 @@ def suggest_contact_fields(
         )
     provider = _require_provider(settings, consent_meta, root)
     prompt = build_contact_prompt(sources)
-    if provider.name == "meta":
+    if provider.name in ("meta", "openai"):
         raw = provider.complete_text(prompt)
     else:
         raw = complete_text(provider, prompt)
