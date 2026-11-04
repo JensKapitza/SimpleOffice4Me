@@ -9,7 +9,7 @@
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
   <div id="screen-message" class="alert alert-secondary py-2" role="status" aria-live="polite">Bereit.</div>
 
-  <section class="card shadow-sm mb-3">
+  <section class="card shadow-sm mb-3{{ ' d-none' if viewer_mode|default(false) else '' }}">
     <div class="card-body">
       <h2 class="h4 mb-1">Bildschirm teilen</h2>
       <p class="text-secondary">Der Verbindungscode wird zuerst erzeugt. Anschließend fragt das Gerät sichtbar nach der Bildschirmfreigabe.</p>
@@ -35,7 +35,7 @@
         <button class="btn btn-primary btn-lg" id="screen-share-start" type="button"><i class="fas fa-display me-1" aria-hidden="true"></i>Teilen starten</button>
         <button class="btn btn-outline-danger btn-lg" id="screen-share-stop" type="button" disabled>Beenden</button>
       </div>
-      <video id="screen-local-preview" class="w-100 bg-dark rounded mt-3 d-none" autoplay muted playsinline></video>
+      <div id="screen-share-link-box" class="d-none mt-3"><label for="screen-share-link">Zuschauer-Link (Anmeldung erforderlich)</label><div class="input-group"><input id="screen-share-link" class="form-control" readonly><button id="screen-copy-link" type="button" class="btn btn-outline-secondary">Link kopieren</button></div></div><video id="screen-local-preview" class="w-100 bg-dark rounded mt-3 d-none" autoplay muted playsinline></video>
     </div>
   </section>
 
