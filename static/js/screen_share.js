@@ -159,6 +159,7 @@
       session = created.session; code = session.join_code;
       byId('screen-share-code').value = code;
       byId('screen-share-link').value = `${window.location.origin}/screen/view/${encodeURIComponent(code)}`;
+      byId('screen-proxy-link').value = root.dataset.proxyOrigin ? `${root.dataset.proxyOrigin}/screen/view/${encodeURIComponent(code)}` : '';
       byId('screen-share-link-box')?.classList.remove('d-none');
       byId('screen-share-code-box').classList.remove('d-none');
       const qr = byId('screen-share-qr');
