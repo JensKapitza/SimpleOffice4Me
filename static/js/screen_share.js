@@ -158,7 +158,7 @@
       const created = await api('/screen/api/sessions', {method: 'POST', body: '{}'});
       session = created.session; code = session.join_code;
       byId('screen-share-code').value = code;
-      byId('screen-share-link').value = `${window.location.origin}/screen/view/${encodeURIComponent(code)}`;
+      byId('screen-share-link').value = `${window.location?.origin || ''}/screen/view/${encodeURIComponent(code)}`;
       byId('screen-proxy-link').value = root.dataset.proxyOrigin ? `${root.dataset.proxyOrigin}/screen/view/${encodeURIComponent(code)}` : '';
       byId('screen-share-link-box')?.classList.remove('d-none');
       byId('screen-share-code-box').classList.remove('d-none');
@@ -199,6 +199,12 @@
     const input = byId('screen-share-link');
     try { await navigator.clipboard.writeText(input.value); show('Zuschauer-Link kopiert.', 'success'); }
     catch (_) { input.select(); show('Zuschauer-Link zum Kopieren markiert.', 'secondary'); }
+  });
+  byId('screen-copy-proxy-link')?.addEventListener('click', async () => {
+    const input = byId('screen-proxy-link');
+    if (!input.value) { show('Kein LAN-Proxy-Link verfügbar.', 'warning'); return; }
+    try { await navigator.clipboard.writeText(input.value); show('LAN-Link kopiert.', 'success'); }
+    catch (_) { input.select(); show('LAN-Link zum Kopieren markiert.', 'secondary'); }
   });
   byId('screen-receive-start').addEventListener('click', async () => {
     try {
