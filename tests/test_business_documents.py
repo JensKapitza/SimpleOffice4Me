@@ -260,7 +260,7 @@ class BusinessDocumentTests(unittest.TestCase):
             self.assertEqual("draft-test", saved["invoice_id"])
             self.assertTrue((root / CONTROL_DIR / "invoices" / "draft-test.json").exists())
 
-    def test_free_text_invoice_cannot_finalize_without_structured_address(self):
+    def test_free_text_invoice_reaches_contact_validation_without_structured_address(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             invoice_id = "draft-free-text"
@@ -269,7 +269,7 @@ class BusinessDocumentTests(unittest.TestCase):
             row = {"invoice_id": invoice_id, "contact_id": "contact-1", "status": "draft",
                    "buyer": {"street": "Teststr. 1", "postal": "", "city": "", "country": "DE"}}
             (directory / (invoice_id + ".json")).write_text(json.dumps(row), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "strukturierte Adressdaten"):
+            with self.assertRaisesRegex(ValueError, "unknown contact"):
                 finalize_invoice(root, invoice_id, "tester")
 
     def test_free_text_invoice_address_is_parsed_into_structured_fields(self):
@@ -297,8 +297,16 @@ class BusinessDocumentTests(unittest.TestCase):
         self.assertEqual("Berlin", address["city"])
         self.assertEqual("AT", address["country"])
 
-    def test_free_text_invoice_address_rejects_missing_fields_and_invalid_country(self):
-        for value in ("Musterstraße 1", "Musterstraße 1\nBerlin", "Musterstraße 1\n10115 Berlin\nGermany"):
+    def test_free_text_invoice_address_preserves_unstructured_lines(self):
+        for value in ("Musterstraße 1\nBerlin", "Musterstraße 1\n10115 Berlin\nGermany"):
+            with self.subTest(value=value):
+                parsed = _parse_free_text_invoice_address(value)
+                self.assertEqual(value, parsed["label"])
+                self.assertEqual("", parsed["postal"])
+                self.assertEqual("", parsed["city"])
+
+    def test_free_text_invoice_address_rejects_single_line_and_oversize(self):
+        for value in ("Musterstraße 1", "A" * 1001 + "\nBerlin"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 _parse_free_text_invoice_address(value)
 
