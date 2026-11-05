@@ -46,6 +46,19 @@ test('LAN proxy forwards method, path and body to fixed loopback backend', async
   }
 });
 
+
+test('non-loopback LAN proxy refuses to bind without TLS credentials', async () => {
+  await assert.rejects(
+    createLanProxy({host: '0.0.0.0', port: 18081, backendPort: 18080}),
+    /requires TLS certificate and private key/
+  );
+  await assert.rejects(
+    createLanProxy({host: '192.168.1.20', port: 18081, backendPort: 18080,
+      tls: {cert: 'certificate-only'}}),
+    /requires TLS certificate and private key/
+  );
+});
+
 test('proxy removes hop-by-hop headers and untrusted forwarded headers', () => {
   const result = cleanHeaders({
     connection: 'close', 'x-forwarded-host': 'evil', 'proxy-authorization': 'secret',
