@@ -175,7 +175,9 @@ def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
 @bp.get("")
 @login_required
 def index():
-    return render_template("screen/index.html", screen_status=platform_status(), proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", ""))
+    from .screen_ready_hints import suggest_screen_review
+    state = platform_status()
+    return render_template("screen/index.html", screen_status=state, screen_hints=suggest_screen_review(state), proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", ""))
 
 
 @bp.get("/view/<code>")
