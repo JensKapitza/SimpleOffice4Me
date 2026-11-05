@@ -46,7 +46,9 @@ def _runtime_error():
 @bp.get("")
 @admin_required
 def page():
-    return render_template("admin/audio_streamer.html", status=manager.status(), settings={name: stream_settings(name) for name in DEFAULTS}, windows_audio=platform.system() == "Windows")
+    from .streamer_care_hints import suggest_streamer_review
+    state = manager.status()
+    return render_template("admin/audio_streamer.html", status=state, settings={name: stream_settings(name) for name in DEFAULTS}, windows_audio=platform.system() == "Windows", streamer_hints=suggest_streamer_review(state))
 
 
 @bp.get("/status")
