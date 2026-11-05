@@ -482,6 +482,38 @@ class AdminSecurityTest(unittest.TestCase):
             timed_out = self.admin.post(target, follow_redirects=True)
         self.assertIn("Testauftrag konnte nicht an das Drucksystem übergeben werden", timed_out.get_data(as_text=True))
 
+    def test_windows_pdf_virtual_printer_downloads_without_spool(self):
+        printer = {
+            "printer_id": "f" * 24, "name": "Microsoft Print to PDF",
+            "driver": "Microsoft Print To PDF", "port": "PORTPROMPT:",
+            "is_default": False, "kind": "normal", "backend": "windows",
+            "label": "PDF export", "federation_shared": False,
+        }
+        target = f"/printershare/admin/printers/{printer['printer_id']}/test"
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload") as spool:
+            response = self.admin.post(target)
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("application/pdf", response.mimetype)
+        self.assertIn("attachment", response.headers["Content-Disposition"])
+        self.assertIn("simpleoffice-druckertest.pdf", response.headers["Content-Disposition"])
+        self.assertIn("SimpleOffice4Me Druckertest", PdfReader(BytesIO(response.data)).pages[0].extract_text())
+        spool.assert_not_called()
+
+    def test_portprompt_on_non_pdf_device_still_spools(self):
+        printer = {
+            "printer_id": "e" * 24, "name": "Physical Windows printer",
+            "driver": "Physical", "port": "PORTPROMPT:",
+            "is_default": False, "kind": "normal", "backend": "windows",
+            "label": "Office", "federation_shared": False,
+        }
+        target = f"/printershare/admin/printers/{printer['printer_id']}/test"
+        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+             patch("app.printershare.spool_payload") as spool:
+            response = self.admin.post(target)
+        self.assertEqual(302, response.status_code)
+        spool.assert_called_once()
+
     def test_generic_test_page_rejects_raw_printer_without_spooling(self):
         printer = {
             "printer_id": "d" * 24, "name": "RAW labeler", "driver": "ZPL",
