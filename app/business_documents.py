@@ -14,6 +14,7 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
+from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
 from .invoice_relations import (
@@ -305,30 +306,6 @@ def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dic
         return inspect_zugferd_pdf(path)
 
 
-def _parse_free_text_invoice_address(value: object, default_country: str = "DE") -> dict[str, str]:
-    """Turn the explicit street / postal-city / ISO-country lines into a CII address."""
-    raw = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
-    lines = [" ".join(line.split()) for line in raw.split("\n") if line.strip()]
-    if len(raw) > 1000 or not 2 <= len(lines) <= 4 or any(len(line) > 250 for line in lines):
-        raise ValueError("Freitextadresse: Straße, PLZ/Ort und optional ISO-Land eingeben (maximal 1000 Zeichen).")
-    has_country = len(lines) >= 3 and bool(re.fullmatch(r"[A-Za-z]{2}", lines[-1]))
-    postal_city = lines[-2] if has_country else lines[-1]
-    street_lines = lines[:-2] if has_country else lines[:-1]
-    postal_city_parts = postal_city.split(maxsplit=1)
-    if not street_lines or len(postal_city_parts) != 2:
-        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort, z. B. ‚10115, Berlin‘.")
-    postal = postal_city_parts[0].rstrip(",")
-    city = postal_city_parts[1].strip()
-    country = (lines[-1] if has_country else str(default_country or "DE")).upper()
-    if not postal or not city or not re.fullmatch(r"[A-Z]{2}", country):
-        raise ValueError("Freitextadresse benötigt eine Straße sowie PLZ und Ort; das Land muss ein ISO-Code sein.")
-    street = " ".join(street_lines)
-    return {
-        "id": "", "label": "\n".join(lines), "street": street,
-        "postal": postal, "city": city, "country": country,
-    }
-
-
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     address_mode = str(form.get("address_mode", "existing")).strip()
     if address_mode not in {"existing", "manual", "free_text"}:
@@ -379,7 +356,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     address_lines=[line.strip() for line in label.splitlines() if line.strip() and line.strip().casefold() not in known_names]
     recipient_lines=[person] if recipient_type == "private" else [company,*([person] if person else [])]
     buyer_label="\n".join(recipient_lines+address_lines); buyer_name=person if recipient_type == "private" else company
-    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":buyer_label,"recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
+    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":buyer_label,"address_mode":address_mode,"free_text":label if address_mode == "free_text" else "","recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
     reference_invoice_id, reference_invoice_number = validated_invoice_reference(
         root, contact_id, form.get("reference_invoice_id", ""),
     )
@@ -458,8 +435,9 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
         buyer = row.get("buyer") or {}
-        if not all(str(buyer.get(key, "")).strip() for key in ("street", "postal", "city", "country")):
-            raise ValueError("Für die elektronische Rechnung fehlen strukturierte Adressdaten (Straße, PLZ, Ort oder Land). Bitte den Entwurf mit einer strukturierten Rechnungsadresse bearbeiten.")
+        # Unstructured addresses are permitted for ordinary PDF invoices.
+        # ZUGFeRD is attempted only when the buyer has structured address fields.
+        structured_buyer = all(str(buyer.get(key, "")).strip() for key in ("street", "postal", "city", "country"))
         timed("contact_load", lambda: ContactStore(root).get(row["contact_id"], actor) if row.get("contact_id") else None)
         reference_id, reference_number = timed(
             "reference_invoice_validate",
@@ -476,15 +454,28 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
         try:
             tpl = timed("template_load", lambda: active_template(root, row["template_id"]))
-            content_pdf = timed("content_pdf_render", lambda: _invoice_content_pdf(row)); visual = timed("template_pdf_render", lambda: _merge_content_with_template(root, tpl, content_pdf)); pdfa, pdfa_details = timed("ghostscript_pdfa_convert", lambda: _pdfa3_convert_detailed(visual))
-            row["zugferd"].update({"pdfa_pipeline": pdfa_details["status"], "pdfa_details": pdfa_details})
-            try: xml = timed("zugferd_xml_generate", lambda: _cii_xml(row))
-            except Exception: row["zugferd"]["status"] = "xml_generation_failed"; raise
-            try: hybrid = timed("zugferd_xml_embed", lambda: embed_invoice_xml(pdfa, xml, "factur-x.xml"))
-            except Exception: row["zugferd"]["status"] = "embedding_failed"; raise
-            validation = timed("zugferd_validate", lambda: _validate_hybrid(hybrid, xml)); technical_status = _zugferd_status(str(pdfa_details["status"]), validation); row["zugferd"].update({"validation": validation, "status": technical_status})
-            if technical_status != "validated": raise ValueError("ZUGFeRD validation is required but PDF/A-3/XML validation did not pass: " + ", ".join(validation.get("details", [])))
-            document = timed("final_file_save_and_contact_link", lambda: _store_generated_pdf(root, row["contact_id"], f"Rechnung-{number}", hybrid, actor, "invoice", tpl["template_id"], metadata={"invoice_id": invoice_id, "invoice_number": number, "invoice_total": row["totals"]["gross"], "invoice_currency": row["currency"], "zugferd_status": technical_status, "zugferd_version": row.get("zugferd", {}).get("version", ZUGFERD_VERSION)}))
+            content_pdf = timed("content_pdf_render", lambda: _invoice_content_pdf(row))
+            visual = timed("template_pdf_render", lambda: _merge_content_with_template(root, tpl, content_pdf))
+            output_pdf = visual
+            technical_status = "pdf_only"
+            row["zugferd"]["status"] = "pdf_only"
+            if structured_buyer:
+                try:
+                    pdfa, pdfa_details = timed("ghostscript_pdfa_convert", lambda: _pdfa3_convert_detailed(visual))
+                    row["zugferd"].update({"pdfa_pipeline": pdfa_details["status"], "pdfa_details": pdfa_details})
+                    xml = timed("zugferd_xml_generate", lambda: _cii_xml(row))
+                    hybrid = timed("zugferd_xml_embed", lambda: embed_invoice_xml(pdfa, xml, "factur-x.xml"))
+                    validation = timed("zugferd_validate", lambda: _validate_hybrid(hybrid, xml))
+                    technical_status = _zugferd_status(str(pdfa_details["status"]), validation)
+                    row["zugferd"].update({"validation": validation, "status": technical_status})
+                    if technical_status == "validated":
+                        output_pdf = hybrid
+                    else:
+                        row["zugferd"]["status"] = technical_status
+                except (ValueError, RuntimeError, OSError, ImportError) as exc:
+                    logger.warning("ZUGFeRD generation failed for invoice %s: %s", invoice_id, type(exc).__name__)
+                    row["zugferd"].update({"status": "pdf_only", "error": str(exc)[:500]})
+            document = timed("final_file_save_and_contact_link", lambda: _store_generated_pdf(root, row["contact_id"], f"Rechnung-{number}", output_pdf, actor, "invoice", tpl["template_id"], metadata={"invoice_id": invoice_id, "invoice_number": number, "invoice_total": row["totals"]["gross"], "invoice_currency": row["currency"], "zugferd_status": row["zugferd"]["status"], "zugferd_version": row.get("zugferd", {}).get("version", ZUGFERD_VERSION)}))
         except Exception as exc:
             row["status"] = "draft"; row["finalization_error"] = str(exc); row["finalization_timings_ms"] = timings; row["history"].append({"type": "finalization_failed", "at": utc_now(), "actor": actor, "error": str(exc)[:500]}); atomic_json_write(path, row); raise
         row.pop("finalization_error", None); row["document_id"] = document["document_id"]; row["status"] = "open"; row["history"].append({"type": "issued", "at": utc_now(), "actor": actor})
