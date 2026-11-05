@@ -21,7 +21,7 @@ def _desktop_proxy_status(document_root):
         if state not in {"running", "disabled", "stopped", "error"}:
             return result
         origin = str(content.get("origin", ""))
-        if len(origin) > 255 or not origin.startswith("http://"):
+        if len(origin) > 255 or not origin.startswith("https://"):
             origin = ""
         return {
             "state": state,
