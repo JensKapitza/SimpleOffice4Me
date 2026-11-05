@@ -163,7 +163,7 @@ class ScreenShareTests(unittest.TestCase):
         self.assertIn("data-viewer-code", template)
         self.assertIn("screen-proxy-link", template)
         self.assertIn("screen-receive-start", javascript)
-        self.assertIn("root.dataset.viewerCode", javascript)
+        self.assertIn("root.dataset?.viewerCode", javascript)
 
     def test_electron_ipc_handlers_are_present_and_validated(self):
         source = (ROOT / "desktop/electron/main.js").read_text(encoding="utf-8")
