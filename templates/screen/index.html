@@ -7,6 +7,7 @@
     <p class="text-secondary mb-0">{{ "Freigegebenen Bildschirm in einer eigenen Ansicht empfangen." if viewer_mode|default(false) else "Bildschirm sicher zwischen SimpleOffice-Geräten teilen oder empfangen." }}</p>
   </div>
   {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+  {% if screen_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in screen_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
   <div id="screen-message" class="alert alert-secondary py-2" role="status" aria-live="polite">Bereit.</div>
 
   <section class="card shadow-sm mb-3{{ ' d-none' if viewer_mode|default(false) else '' }}">

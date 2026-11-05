@@ -799,8 +799,11 @@ def manage():
         except (OSError, ValueError, TypeError) as exc:
             flash(str(exc))
     s3_settings = _s3_settings_store().settings()["s3"]
-    return render_template("admin/s3_overlay.html", credentials=credentials.list_for(str(g.user["username"])), generated=generated,
-                           enabled=_s3_is_enabled(), endpoint=request.url_root.rstrip("/") + S3_PREFIX,
+    from app.s3_credential_hints import suggest_credential_review
+    items = credentials.list_for(str(g.user["username"]))
+    overlay_enabled = _s3_is_enabled()
+    return render_template("admin/s3_overlay.html", credentials=items, credential_hints=suggest_credential_review(items, overlay_enabled), generated=generated,
+                           enabled=overlay_enabled, endpoint=request.url_root.rstrip("/") + S3_PREFIX,
                            region=current_app.config.get("S3_OVERLAY_REGION", "us-east-1"), bucket=BUCKET,
                            s3_region=s3_settings["region"],
                            s3_clock_skew_seconds=s3_settings["clock_skew_seconds"],

@@ -275,7 +275,9 @@ def quick_search():
         matches = matches[:50]
         if len(matches) == 1:
             return redirect(matches[0]["url"])
-    return render_template("documents/quick_search.html", query=query, matches=matches)
+    from .search_narrow_hints import suggest_search_narrowing
+    return render_template("documents/quick_search.html", query=query, matches=matches,
+                           narrow_hints=suggest_search_narrowing(matches, query))
 
 
 @bp.post("/search/index")

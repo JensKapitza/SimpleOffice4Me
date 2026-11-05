@@ -194,16 +194,19 @@ def printer_settings():
         # Never reflect credentials or malformed legacy URI content into HTML.
         brother["uri"] = ""
         brother["uri_needs_review"] = True
+    from .printer_setup_hints import suggest_printer_review
+    settings = store.settings()
     return render_template(
         "admin/printers.html",
         printers=printers,
         standard_printers=[item for item in printers if store._compatible(item, "standard")],
         label_printers=[item for item in printers if store._compatible(item, "label")],
-        printer_settings=store.settings(),
+        printer_settings=settings,
         users=users,
         brother=brother,
         printer_models=sorted(MODELS),
         printer_labels=sorted(LABELS, key=lambda value: (len(value), value)),
+        setup_hints=suggest_printer_review(printers, settings),
     )
 
 
