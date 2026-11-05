@@ -17,7 +17,7 @@ function fixture() {
   const reply = data => ({ok: true, json: async () => data});
   const context = {
     Headers, AbortController, MediaStream: class {},
-    document: {querySelector: q => q.includes('csrf') ? {content: 'token'} : {dataset: {}},
+    document: {querySelector: q => q.includes('csrf') ? {content: 'token'} : {dataset: {viewerCode: ''}},
       getElementById: element, querySelectorAll: () => []},
     navigator: {mediaDevices: {getDisplayMedia: async () => stream}, clipboard: {writeText: async () => {}}},
     window: {setTimeout(fn, ms) { timers.set(++timerId, {fn, ms}); return timerId; },
