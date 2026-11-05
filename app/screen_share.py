@@ -12,10 +12,11 @@ import threading
 import time
 from typing import Any
 
-from flask import Blueprint, Response, abort, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, redirect, render_template, request, url_for
 
 from .access_control import audit
 from .auth import login_required
+from .desktop_proxy_status import _desktop_proxy_status
 from .federation_qr_image import render_qr_svg
 
 
@@ -172,12 +173,21 @@ def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
     return {"session_id": session_id, "join_code": value["join_code"], "created_at": value["created_at"], "updated_at": value["updated_at"], "connected": bool(value.get("connected")), "closed": bool(value.get("closed"))}
 
 
+def _screen_proxy_origin() -> str:
+    """Advertise only a live, successfully bound HTTPS desktop proxy."""
+    root = current_app.config.get("DOCUMENT_ROOT")
+    if not root:
+        return ""
+    status = _desktop_proxy_status(root)
+    return status.get("origin", "") if status.get("state") == "running" else ""
+
+
 @bp.get("")
 @login_required
 def index():
     from .screen_ready_hints import suggest_screen_review
     state = platform_status()
-    return render_template("screen/index.html", screen_status=state, screen_hints=suggest_screen_review(state), proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", ""))
+    return render_template("screen/index.html", screen_status=state, screen_hints=suggest_screen_review(state), proxy_origin=_screen_proxy_origin())
 
 
 @bp.get("/view/<code>")
@@ -193,7 +203,7 @@ def viewer(code: str):
     response = Response(render_template(
         "screen/index.html", screen_status=platform_status(),
         viewer_mode=True, viewer_code=normalized,
-        proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", "")
+        proxy_origin=_screen_proxy_origin()
     ))
     response.headers["Cache-Control"] = "no-store"
     response.headers["Referrer-Policy"] = "no-referrer"
