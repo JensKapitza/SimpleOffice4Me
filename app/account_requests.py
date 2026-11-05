@@ -119,13 +119,16 @@ def new():
 
 @bp.get('/admin')
 def admin():
+    from .invite_care_hints import suggest_invite_review
     _admin_required()
     items = _db().execute("SELECT id,username,email FROM account_request WHERE status='pending' ORDER BY id").fetchall()
     users = _db().execute("SELECT id,username FROM user WHERE is_disabled=0 ORDER BY username").fetchall()
     invitations = _db().execute("SELECT u.id,u.username,u.email,i.expires_at FROM account_invitation i JOIN user u ON u.id=i.user_id WHERE i.used_at IS NULL AND u.is_disabled=1 ORDER BY u.username").fetchall()
     settings = _db().execute("SELECT * FROM registration_settings WHERE id=1").fetchone()
+    moment = int(time.time())
     return render_template("admin/account_requests.html", items=items, account_users=users,
-                           invitations=invitations, settings=settings, now=int(time.time()))
+                           invitations=invitations, settings=settings, now=moment,
+                           invite_hints=suggest_invite_review(items, users, invitations, moment))
 
 @bp.post('/admin/<int:request_id>')
 def decide(request_id):
