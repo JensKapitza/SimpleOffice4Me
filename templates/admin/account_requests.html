@@ -3,6 +3,7 @@
 {% block body %}<main id="main-content" class="container-xl py-4">
 <h1>{{ 'Account requests' if g.language == 'en' else 'Kontoanträge' }}</h1><p><a class="btn btn-primary" href="{{ url_for('account_requests.invite') }}">{{ '+ User' if g.language == 'en' else '+ Benutzer' }}</a> <a class="btn btn-outline-secondary" href="{{ url_for('admin.users') }}">{{ 'User management' if g.language == 'en' else 'Benutzerverwaltung' }}</a></p>
 {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+{% if invite_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in invite_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
 <form class="card p-3 mb-4" method="post" action="{{ url_for('account_requests.registration_toggle') }}">
 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 <label class="form-check-label"><input class="form-check-input" type="checkbox" name="enabled" value="1" {% if settings.enabled %}checked{% endif %}> {{ 'Allow account requests' if g.language == 'en' else 'Kontoanträge zulassen' }}</label>
