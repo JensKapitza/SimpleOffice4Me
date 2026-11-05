@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import platform
 import secrets
 import shutil
@@ -176,7 +177,27 @@ def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
 def index():
     from .screen_ready_hints import suggest_screen_review
     state = platform_status()
-    return render_template("screen/index.html", screen_status=state, screen_hints=suggest_screen_review(state))
+    return render_template("screen/index.html", screen_status=state, screen_hints=suggest_screen_review(state), proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", ""))
+
+
+@bp.get("/view/<code>")
+@login_required
+def viewer(code: str):
+    """Dedicated viewer page. Reuses the authenticated WebRTC signaling API."""
+    normalized = code.strip().upper()
+    with _sessions_lock:
+        _purge_sessions()
+        if not any(value["join_code"] == normalized and not value.get("closed")
+                   for value in _sessions.values()):
+            abort(404)
+    response = Response(render_template(
+        "screen/index.html", screen_status=platform_status(),
+        viewer_mode=True, viewer_code=normalized,
+        proxy_origin=os.environ.get("SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN", "")
+    ))
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @bp.get("/status")
@@ -303,6 +324,8 @@ def post_signal(session_id: str):
     payload = body.get("payload")
     if role not in {"sender", "receiver"} or kind not in {"offer", "answer", "ice", "ready", "bye"}:
         abort(400)
+    if kind == "bye" and role != "sender":
+        abort(403)
     if kind in {"offer", "answer"}:
         if role != ("sender" if kind == "offer" else "receiver"):
             abort(400)
@@ -343,12 +366,11 @@ def post_signal(session_id: str):
 @bp.delete("/api/sessions/<session_id>")
 @login_required
 def close_session(session_id: str):
-    code = request.headers.get("X-Screen-Code", "").strip().upper()
     with _sessions_lock:
         value = _sessions.get(session_id)
         if value is None:
             return jsonify({"schema": 1, "closed": True})
-        if value["owner"] != _actor_id() and code != value["join_code"]:
+        if value["owner"] != _actor_id():
             abort(403)
         value["closed"] = True
         value["updated_at"] = time.time()
