@@ -165,8 +165,10 @@ function persistedLanProxy(documentRoot) {
     advertised = interfaces.find((item) =>
       item && item.family === 'IPv4' && !item.internal)?.address || '';
   }
-  const origin = advertised && !advertised.includes(':')
-    ? `http://${advertised}:${port}` : '';
+  const tlsConfigured = Boolean(process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_CERT &&
+    process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_KEY);
+  const origin = tlsConfigured && advertised && !advertised.includes(':')
+    ? `https://${advertised}:${port}` : '';
   return {host, port, origin};
 }
 
@@ -252,6 +254,15 @@ async function startBackend() {
   });
 }
 
+function loadLanProxyTls() {
+  const certificatePath = process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_CERT;
+  const privateKeyPath = process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_KEY;
+  if (!certificatePath || !privateKeyPath) {
+    throw new Error('HTTPS LAN proxy requires TLS certificate and private key paths');
+  }
+  return {cert: fs.readFileSync(certificatePath), key: fs.readFileSync(privateKeyPath)};
+}
+
 async function startConfiguredLanProxy() {
   if (!backendUrl || !backendDocumentRoot) return;
   const proxy = persistedLanProxy(backendDocumentRoot);
@@ -259,11 +270,11 @@ async function startConfiguredLanProxy() {
   const {host, port} = proxy;
   try {
     lanProxy = await createLanProxy({
-      host, port, backendPort: Number(new URL(backendUrl).port),
+      host, port, tls: loadLanProxyTls(), backendPort: Number(new URL(backendUrl).port),
       publicHost: proxy.origin ? new URL(proxy.origin).host : ''
     });
-    console.log(`SimpleOffice LAN proxy listening on ${host}:${port}`);
-    updateProxyStatus('running', `Proxy listening on ${host}:${port}`, proxy.origin);
+    console.log(`SimpleOffice HTTPS LAN proxy listening on ${host}:${port}`);
+    updateProxyStatus('running', `HTTPS proxy listening on ${host}:${port}`, proxy.origin);
   } catch (error) {
     console.error('LAN proxy failed to start:', error);
     lanProxy = null;
