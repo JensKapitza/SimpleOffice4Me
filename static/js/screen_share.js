@@ -122,7 +122,7 @@
     stopping = true;
     if (pollTimer) window.clearTimeout(pollTimer); pollTimer = null;
     // Start notification while identifiers still exist, but release capture immediately.
-    const notification = notify && session ? sendSignal('bye', null).catch(() => {}) : Promise.resolve();
+    const notification = notify && session && role === 'sender' ? sendSignal('bye', null).catch(() => {}) : Promise.resolve();
     if (pc) pc.close(); pc = null;
     if (stream) stream.getTracks().forEach((track) => track.stop()); stream = null;
     try { window.SimpleOfficeNativeScreen?.stopShare?.(); } catch (_) { /* optional bridge */ }
@@ -131,6 +131,7 @@
     byId('screen-remote-video').srcObject = null; byId('screen-remote-video').classList.add('d-none');
     byId('screen-share-code-box').classList.add('d-none');
     byId('screen-share-code').value = '';
+    byId('screen-share-link-box')?.classList.add('d-none');
     const qr = byId('screen-share-qr'); qr.removeAttribute('src'); qr.classList.add('d-none');
     byId('screen-share-start').disabled = false;
     byId('screen-share-stop').disabled = true; byId('screen-receive-stop').disabled = true; byId('screen-fullscreen').disabled = true;
@@ -157,6 +158,9 @@
       const created = await api('/screen/api/sessions', {method: 'POST', body: '{}'});
       session = created.session; code = session.join_code;
       byId('screen-share-code').value = code;
+      byId('screen-share-link').value = `${window.location?.origin || ''}/screen/view/${encodeURIComponent(code)}`;
+      byId('screen-proxy-link').value = root.dataset.proxyOrigin ? `${root.dataset.proxyOrigin}/screen/view/${encodeURIComponent(code)}` : '';
+      byId('screen-share-link-box')?.classList.remove('d-none');
       byId('screen-share-code-box').classList.remove('d-none');
       const qr = byId('screen-share-qr');
       qr.src = `/screen/api/sessions/${encodeURIComponent(session.session_id)}/connect-qr.svg`;
@@ -191,6 +195,17 @@
       show('Verbindungscode ist markiert und kann kopiert werden.', 'secondary');
     }
   });
+  byId('screen-copy-link')?.addEventListener('click', async () => {
+    const input = byId('screen-share-link');
+    try { await navigator.clipboard.writeText(input.value); show('Zuschauer-Link kopiert.', 'success'); }
+    catch (_) { input.select(); show('Zuschauer-Link zum Kopieren markiert.', 'secondary'); }
+  });
+  byId('screen-copy-proxy-link')?.addEventListener('click', async () => {
+    const input = byId('screen-proxy-link');
+    if (!input.value) { show('Kein LAN-Proxy-Link verfügbar.', 'warning'); return; }
+    try { await navigator.clipboard.writeText(input.value); show('LAN-Link kopiert.', 'success'); }
+    catch (_) { input.select(); show('LAN-Link zum Kopieren markiert.', 'secondary'); }
+  });
   byId('screen-receive-start').addEventListener('click', async () => {
     try {
       await stop(false, false); code = String(byId('screen-join-code').value || '').trim().toUpperCase();
@@ -205,6 +220,11 @@
       byId('screen-receive-stop').disabled = false; poll(); show('Verbindung wird aufgebaut …', 'primary');
     } catch (error) { await stop(false, false); signalFailure('Verbindung fehlgeschlagen', error); }
   });
+  const viewerCode = String(root.dataset?.viewerCode || '').trim();
+  if (viewerCode) {
+    byId('screen-join-code').value = viewerCode;
+    byId('screen-receive-start').click();
+  }
   byId('screen-receive-stop').addEventListener('click', () => stop(true));
   byId('screen-fullscreen').addEventListener('click', async () => {
     try { await byId('screen-remote-video').requestFullscreen?.(); }

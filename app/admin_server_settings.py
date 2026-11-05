@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+
 from flask import Blueprint, current_app, flash, g, redirect, render_template, request, url_for
 
 from .access_control import audit
 from .admin import admin_required
 from .settings_store import SettingsStore
+from .desktop_proxy_status import _desktop_proxy_status
 from .translations import translate
 from simpleoffice_server_config import (
     CONTAINER_ROLES,
@@ -28,9 +30,11 @@ bp = Blueprint("admin_server", __name__, url_prefix="/admin")
 @admin_required
 def server_settings():
     settings = SettingsStore(current_app.config["DOCUMENT_ROOT"]).settings()
+    proxy_status = _desktop_proxy_status(current_app.config["DOCUMENT_ROOT"])
     return render_template(
         "admin/server_settings.html",
         server=settings["server"],
+        desktop_proxy_status=proxy_status,
         port_min=MIN_SERVER_PORT,
         port_max=MAX_SERVER_PORT,
         threads_min=MIN_WSGI_THREADS,
