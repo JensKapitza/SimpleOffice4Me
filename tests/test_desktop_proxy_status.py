@@ -21,7 +21,7 @@ class DesktopProxyStatusTests(unittest.TestCase):
             "schema": 1,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "state": "running",
-            "origin": "http://192.168.1.20:8081",
+            "origin": "https://192.168.1.20:8081",
             "message": "Proxy running",
             **values,
         }), encoding="utf-8")
@@ -30,7 +30,7 @@ class DesktopProxyStatusTests(unittest.TestCase):
         self.write()
         result = _desktop_proxy_status(self.root)
         self.assertEqual("running", result["state"])
-        self.assertEqual("http://192.168.1.20:8081", result["origin"])
+        self.assertEqual("https://192.168.1.20:8081", result["origin"])
 
     def test_stale_status_is_not_treated_as_running(self):
         self.write(updated_at=(datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat())
@@ -48,6 +48,10 @@ class DesktopProxyStatusTests(unittest.TestCase):
         self.assertEqual("unknown", _desktop_proxy_status(self.root)["state"])
         self.file.write_text('{"updated_at":"broken"}', encoding="utf-8")
         self.assertEqual("unknown", _desktop_proxy_status(self.root)["state"])
+
+    def test_plaintext_http_lan_origin_is_never_advertised(self):
+        self.write(origin="http://192.168.1.20:8081")
+        self.assertEqual("", _desktop_proxy_status(self.root)["origin"])
 
     def test_untrusted_scheme_is_not_linked(self):
         self.write(origin="javascript:alert(1)")
