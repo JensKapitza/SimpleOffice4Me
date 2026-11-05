@@ -19,6 +19,23 @@ def project_version() -> str:
 
 
 class InstallableArtifactWorkflowTests(unittest.TestCase):
+    def test_electron_package_includes_local_main_process_dependencies(self):
+        desktop_dir = ROOT / "desktop" / "electron"
+        package = json.loads(
+            (desktop_dir / "package.json").read_text(encoding="utf-8")
+        )
+        main_source = (desktop_dir / "main.js").read_text(encoding="utf-8")
+        packaged_files = set(package["build"]["files"])
+        local_requires = re.findall(
+            r"require\(['\"](\./[^'\"]+)['\"]\)", main_source
+        )
+        self.assertTrue(local_requires, "expected main process local dependencies")
+        for dependency in local_requires:
+            with self.subTest(dependency=dependency):
+                relative = dependency.removeprefix("./")
+                candidates = {relative, relative + ".js", relative + "/index.js"}
+                self.assertTrue(candidates & packaged_files)
+
     def test_desktop_package_version_tracks_project(self):
         package = json.loads(
             (ROOT / "desktop" / "electron" / "package.json").read_text(encoding="utf-8")

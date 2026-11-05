@@ -30,6 +30,7 @@
     "asar": true,
     "files": [
       "main.js",
+      "lan_proxy.js",
       "preload.js",
       "loading.html",
       "build-config.json"
