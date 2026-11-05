@@ -220,7 +220,7 @@
       byId('screen-receive-stop').disabled = false; poll(); show('Verbindung wird aufgebaut …', 'primary');
     } catch (error) { await stop(false, false); signalFailure('Verbindung fehlgeschlagen', error); }
   });
-  const viewerCode = String(root.dataset.viewerCode || '').trim();
+  const viewerCode = String(root.dataset?.viewerCode || '').trim();
   if (viewerCode) {
     byId('screen-join-code').value = viewerCode;
     byId('screen-receive-start').click();
