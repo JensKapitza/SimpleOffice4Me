@@ -1,11 +1,13 @@
 """Diagnose host Ollama connectivity from inside the Docker container.
 
-Run with: python -m tools.ollama_diagnostics
-The configured admin URL is used by default. This reports transport/API
-reachability separately from the app's model allowlist.
+Run simpleoffice-ollama-test to use the Vision/ML admin URL, or pass
+host.docker.internal / a private host IP to test it once.
+Transport reachability is reported separately from the app's model allowlist.
 """
 from __future__ import annotations
 
+import argparse
+import ipaddress
 import json
 import socket
 import subprocess
@@ -14,16 +16,49 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlsplit
 
-from app.contextflow.vision import _localhost_only
 from app.vision_config import settings
+
+DEFAULT_PORT = 11434
+ALLOWED_NAMES = frozenset({"localhost", "host.docker.internal"})
+
+
+def _target(value: str) -> tuple[str, str, int]:
+    value = str(value or "").strip()
+    if not value:
+        raise ValueError("Host oder URL fehlt")
+    if "://" not in value:
+        value = "http://" + value
+    parts = urlsplit(value)
+    if parts.scheme != "http" or parts.username or parts.password or parts.query or parts.fragment:
+        raise ValueError("Nur plain HTTP ohne Zugangsdaten ist erlaubt")
+    if parts.path not in ("", "/"):
+        raise ValueError("Nur eine Host-Adresse ohne Pfad angeben")
+    host = (parts.hostname or "").casefold()
+    if host not in ALLOWED_NAMES:
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            raise ValueError("Erlaubt sind localhost, host.docker.internal oder private IP-Adressen") from None
+        if not address.is_private and not address.is_loopback:
+            raise ValueError("Nur private oder Loopback-IP-Adressen sind erlaubt")
+    port = parts.port or DEFAULT_PORT
+    if not 1 <= port <= 65535:
+        raise ValueError("Port liegt außerhalb des gültigen Bereichs")
+    display_host = f"[{host}]" if ":" in host else host
+    return f"http://{display_host}:{port}", host, port
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Ollama-Verbindung aus dem Container testen")
+    parser.add_argument(
+        "host_or_url",
+        nargs="?",
+        help="optional: host.docker.internal, private Host-IP oder vollständige HTTP-URL",
+    )
+    args = parser.parse_args()
+    configured = args.host_or_url or str(settings().get("ollama_url", ""))
     try:
-        base_url = _localhost_only(str(settings().get("ollama_url", "")))
-        parts = urlsplit(base_url)
-        host = parts.hostname or ""
-        port = parts.port or 80
+        base_url, host, port = _target(configured)
     except (ValueError, TypeError) as exc:
         print(f"URL-Konfiguration: FEHLER ({exc})")
         return 2
@@ -36,7 +71,6 @@ def main() -> int:
         print(f"DNS: OK ({host} -> {', '.join(addresses)})")
     except OSError as exc:
         print(f"DNS: FEHLER ({exc})")
-        addresses = []
 
     try:
         ping = subprocess.run(
@@ -46,7 +80,13 @@ def main() -> int:
             timeout=4,
             check=False,
         )
-        print("Ping: OK" if ping.returncode == 0 else f"Ping: FEHLER ({ping.stderr.strip() or 'keine Antwort'})")
+        if ping.returncode == 0:
+            print("Ping: OK")
+        else:
+            error = ping.stderr.strip() or "keine Antwort"
+            if "Operation not permitted" in error or "Operation not permitted" in ping.stdout:
+                error += "; Container mit NET_RAW neu erstellen"
+            print(f"Ping: FEHLER ({error})")
     except (OSError, subprocess.TimeoutExpired) as exc:
         print(f"Ping: FEHLER ({exc})")
 
