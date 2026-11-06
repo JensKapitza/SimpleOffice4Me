@@ -2,6 +2,10 @@
 
 SimpleOffice4Me can be built and distributed as a Docker image.
 
+The runtime image includes `openssh-client` and `rsync` for outbound SSH-based
+source imports. It does not run an SSH server (`sshd`); SSH is used by the
+application to connect to registered remote sources.
+
 The image build context excludes local `.env` files and `deploy/docker/secrets/`.
 Only the placeholder `deploy/docker/.env.example` is included. Supply real
 credentials at runtime through Compose secrets or environment configuration;
