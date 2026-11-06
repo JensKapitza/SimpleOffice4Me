@@ -35,6 +35,8 @@ services:
       - CHOWN
       - SETUID
       - SETGID
+      # Allows the explicit Ollama host-connectivity diagnostic to send ICMP ping.
+      - NET_RAW
     tmpfs:
       - /tmp:rw,nosuid,nodev,noexec,size=256m
 
