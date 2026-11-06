@@ -40,6 +40,7 @@ RUN --mount=type=secret,id=proxy_ca,required=false \
     else \
         /opt/simpleoffice4me/.venv/bin/pip install --no-cache-dir '.[ocr]'; \
     fi \
+    && install -m 0755 /opt/simpleoffice4me/deploy/docker/ollama-diagnostics /usr/local/bin/simpleoffice-ollama-test \
     && /opt/simpleoffice4me/.venv/bin/python -c "import tools.service_control; import app.audio_output_worker" \
     && rm -rf /opt/simpleoffice4me/database /opt/simpleoffice4me/instance \
     && install -d -o simpleoffice -g simpleoffice -m 0750 \
