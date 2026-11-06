@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+cd /opt/simpleoffice4me
+exec python -m tools.ollama_diagnostics "$@"
