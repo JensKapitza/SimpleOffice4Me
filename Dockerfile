@@ -21,6 +21,7 @@ RUN apt-get update \
         gosu \
         imagemagick \
         iproute2 \
+        iputils-ping \
         libreoffice-writer \
         nftables \
         poppler-utils \
