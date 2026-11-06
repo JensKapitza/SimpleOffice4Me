@@ -15,10 +15,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         cups-client \
+        ffmpeg \
+        fonts-dejavu-core \
         git \
         gosu \
+        imagemagick \
         iproute2 \
+        libreoffice-writer \
         nftables \
+        poppler-utils \
         procps \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid "${SIMPLEOFFICE_GID}" simpleoffice \
