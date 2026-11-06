@@ -72,3 +72,54 @@ Unter Windows beendet die Testbereinigung den eigenen Onefile-Prozessbaum,
 bevor temporäre Dateien entfernt werden. Der Electron-Launcher verwendet auch
 beim erzwungenen Abschluss nach seinem regulären Wartefenster den Prozessbaum;
 das Beenden nur des Bootloader-Elternprozesses würde das Backend zurücklassen.
+
+## Windows-Start-Smoke-Test des Electron-Pakets
+
+Nach `npm run package:desktop` startet die Desktop-CI unter Windows das erzeugte
+`dist/win-unpacked/SimpleOffice4Me.exe` samt unveränderter `resources/app.asar`
+und eingebettetem Python-Backend. Das ist ein Laufzeittest des gepackten
+Anwendungsinhalts; NSIS-Installation und Portable-Selbstentpackung werden damit
+nicht getestet. Die vorhandenen Backend-, Paket- und LAN-Proxy-Tests bleiben
+zusätzliche, getrennt benannte Prüfungen.
+
+Voraussetzungen werden per PowerShell geprüft und protokolliert: tatsächliche
+Runner-Image-/Windows-Version, Architektur, interaktive Sitzung, Bildschirm,
+CIM-Prozessabfrage und `taskkill`. Fehlende Fähigkeiten führen zum Fehler;
+der Lauf wird nicht durch eine statische Prüfung ersetzt. Node 24 stellt den
+WebSocket-Client für den Electron-Main-Process-Inspector bereit; zusätzliche
+Testpakete oder Änderungen am Produktionscode sind nicht erforderlich.
+
+Der Inspector bindet ausschließlich an Loopback mit dynamischem Port und
+pausiert vor dem tatsächlichen ASAR-Einstieg `main.js`. Erst nach Umleitung von
+`userData`, `sessionData` und `documents` in ein frisches temporäres Profil läuft
+die Anwendung weiter. Geerbte Python-/Node-/Desktop-Konfiguration wird bereinigt;
+externe Fehlerberichte sind sowohl in der Umgebung als auch in den isolierten
+Dokumenteinstellungen deaktiviert. Chromium erhält zusätzlich den isolierten
+`--user-data-dir`. Sandbox und Web-Sicherheit der Windows-Anwendung bleiben aktiv.
+
+Das Gate verlangt `app.isPackaged`, passende EXE-/ASAR-Pfade, einen tatsächlich
+gestarteten eingebetteten Backend-Kindprozess, eine geladene Loopback-Seite im
+Electron-Fenster und eine unabhängige HTTP-200-Antwort mit UTF-8 und
+Anwendungskennung. Fehlende Module, Python-Tracebacks und unbehandelte
+Main-Process-Fehler führen zum Fehlschlag, auch beim Beenden. Der reguläre
+`app.quit()` muss Exitcode 0 liefern; bekannte Nachkommen (einschließlich
+PyInstaller-Onefile-Kind), Backend-Listener und temporäre Daten müssen verschwinden.
+Prozesse werden über Paketpfad, Elternbeziehungen und Startzeit verfolgt.
+Ein nötiger erzwungener Abbruch ist ausschließlich Fehlerbereinigung und lässt
+den Test niemals bestehen.
+
+Nach einem Windows-Build im Repository-Root ausführbar:
+
+```powershell
+node desktop/ci/smoke-windows.cjs desktop/electron/dist/win-unpacked/SimpleOffice4Me.exe artifacts/windows-start-smoke
+```
+
+`windows-start-smoke-evidence` enthält auch bei einem fehlgeschlagenen Test
+`result.json`, `electron.log` und die Runner-Diagnose. `runtime_executed`, `stage`,
+`passed`, `forced_cleanup` und `cleanup_complete` unterscheiden Startversuch,
+Prüfergebnis und Bereinigung. Fehlt der Lauf wegen eines vorherigen Buildfehlers,
+ist damit kein Laufzeiterfolg nachgewiesen.
+
+`node --test tests/desktop_start_smoke.test.cjs` prüft den Testtreiber mit
+Positiv-/Negativfällen und echten Node-Kindprozessen/Inspector-Verbindungen.
+Diese Tests sind ausdrücklich kein Windows-Electron-Paketnachweis.
