@@ -41,7 +41,7 @@ ALLOWED_MIME = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
 ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp"}
 TITLE_LIMIT = 240
 DESCRIPTION_LIMIT = 12000
-LOCALHOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+LOCALHOSTS = frozenset({"127.0.0.1", "localhost", "::1", "host.docker.internal"})
 META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1/responses"
 META_MODEL_API_MODELS_ENDPOINT = "https://api.meta.ai/v1/models"
 META_MODEL_API_MODEL = "muse-spark-1.3-contributor"
@@ -253,13 +253,13 @@ class MockVisionProvider(VisionProvider):
 
 
 def _localhost_only(url: str) -> str:
-    """Return the URL only for plain-HTTP loopback backends, else refuse."""
+    """Allow loopback or Docker’s explicit host-gateway name over plain HTTP."""
     try:
         parts = urlsplit(url)
     except ValueError as exc:
         raise VisionError(f"invalid backend URL ({exc})") from None
     if parts.scheme != "http" or (parts.hostname or "") not in LOCALHOSTS:
-        raise VisionError("local inference is limited to loopback HTTP")
+        raise VisionError("local inference is limited to loopback or host-gateway HTTP")
     return url.rstrip("/")
 
 
@@ -273,7 +273,7 @@ _DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
 
 def local_urlopen(request: urllib.request.Request, timeout: float):
-    """Open one loopback inference request without consulting proxies.
+    """Open one local inference request without consulting proxies.
 
     Proxy environment variables (or OS proxy settings) are ignored so
     local document bytes never leave the machine through a proxy; the
