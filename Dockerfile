@@ -24,7 +24,9 @@ RUN apt-get update \
         iputils-ping \
         libreoffice-writer \
         nftables \
+        openssh-client \
         poppler-utils \
+        rsync \
         procps \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid "${SIMPLEOFFICE_GID}" simpleoffice \
