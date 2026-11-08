@@ -3,7 +3,17 @@
 set -euo pipefail
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-PYTHON="${PYTHON:-python3}"
+# Prefer an already installed, production-supported runtime.
+if [ -z "${PYTHON:-}" ]; then
+  PYTHON=python3
+  for candidate in python3.14 python3.13 python3.12 python3.11 python3; do
+    if command -v "$candidate" >/dev/null 2>&1 &&
+       "$candidate" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1; then
+      PYTHON="$candidate"
+      break
+    fi
+  done
+fi
 BOOTSTRAP_PYTHON="$PYTHON"
 VENV="${SIMPLEOFFICE_VENV:-$ROOT/.venv}"
 START_MODE=auto
@@ -169,9 +179,13 @@ case "$OS_NAME" in
       echo "--standalone ist auf $OS_NAME nicht verfügbar." >&2
       exit 2
     fi
+    HELPER_PATH="$ROOT/tools/cross_platform_start.py"
     if [ "$OS_NAME" != Darwin ] && command -v cygpath >/dev/null 2>&1; then
       VENV="$(cygpath -w "$VENV")"
+      HELPER_PATH="$(cygpath -w "$HELPER_PATH")"
     fi
+    HELPER_ARGS=()
+    if [ "$CHECK_SYSTEM" -eq 1 ]; then HELPER_ARGS+=(--check-system); fi
     HELPER_PYTHON=""
     for candidate in python3.14 python3.13 python3.12 python3.11 python3 python; do
       if command -v "$candidate" >/dev/null 2>&1; then
@@ -180,10 +194,10 @@ case "$OS_NAME" in
       fi
     done
     if [ -n "$HELPER_PYTHON" ]; then
-      exec "$HELPER_PYTHON" "$ROOT/tools/cross_platform_start.py" --venv "$VENV" --mode "$START_MODE" "$@"
+      exec "$HELPER_PYTHON" "$HELPER_PATH" --venv "$VENV" --mode "$START_MODE" "${HELPER_ARGS[@]}" "$@"
     fi
     if command -v py >/dev/null 2>&1; then
-      exec py -3 "$ROOT/tools/cross_platform_start.py" --venv "$VENV" --mode "$START_MODE" "$@"
+      exec py -3 "$HELPER_PATH" --venv "$VENV" --mode "$START_MODE" "${HELPER_ARGS[@]}" "$@"
     fi
     echo "Python wurde nicht gefunden; installiere CPython 3.14." >&2
     exit 1
