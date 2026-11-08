@@ -5,7 +5,9 @@ set -euo pipefail
 ROOT="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 PYTHON="${PYTHON:-python3}"
 BOOTSTRAP_PYTHON="$PYTHON"
-VENV="$ROOT/.venv"
+VENV="${SIMPLEOFFICE_VENV:-$ROOT/.venv}"
+START_MODE=auto
+VENV_EXPLICIT=0
 IS_TERMUX=0
 CHECK_SYSTEM=0
 NATIVE_PM=""
@@ -39,6 +41,9 @@ Optionen:
   --reindex-osm               OSM-Index aus vorhandenem Download neu aufbauen
   --check-system              Systemwerkzeuge prüfen, ohne Serverstart/Installation
   --standalone                Python 3.14 unabhängig vom System herunterladen und verwenden
+  --venv PFAD                 venv-Pfad (Standard: .venv im Projekt)
+  setup                       venv einrichten/aktualisieren, ohne Serverstart
+  run                         Vorhandene venv ohne Paketinstallation starten
   --help                      Diese Hilfe anzeigen
 
 Beim Start werden unter Linux zuerst vorhandene/native Distribution-Pakete
@@ -81,6 +86,8 @@ case "${1:-}" in
     exec "$CONTROL_PYTHON" -m tools.launcher "$START_COMMAND" "$@"
     ;;
   start) shift ;;
+  setup) START_MODE=setup; shift ;;
+  run) START_MODE=run; shift ;;
 esac
 
 while [ "$#" -gt 0 ]; do
@@ -134,12 +141,54 @@ while [ "$#" -gt 0 ]; do
       CHECK_SYSTEM=1; shift ;;
     --standalone)
       STANDALONE=1; shift ;;
+    --venv)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "--venv benötigt einen Pfad." >&2; exit 2; }
+      VENV="$2"; VENV_EXPLICIT=1; shift 2 ;;
     --help|-h)
       usage; exit 0 ;;
     *)
       echo "Unbekannte Option: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+# Relative paths are interpreted relative to the project, not to the caller.
+case "$VENV" in
+  /*) ;;
+  *) VENV="$ROOT/$VENV" ;;
+esac
+if [ "$VENV_EXPLICIT" -eq 1 ]; then
+  export SIMPLEOFFICE_NATIVE_PACKAGES=0
+fi
+
+# macOS and Windows (Git Bash / MSYS2 / Cygwin) use a portable stdlib launcher.
+# Native Windows cmd/PowerShell cannot execute a .sh file without Bash.
+OS_NAME="$(uname -s 2>/dev/null || printf unknown)"
+case "$OS_NAME" in
+  Darwin|MINGW*|MSYS*|CYGWIN*)
+    if [ "$STANDALONE" -eq 1 ]; then
+      echo "--standalone ist auf $OS_NAME nicht verfügbar." >&2
+      exit 2
+    fi
+    if [ "$OS_NAME" != Darwin ] && command -v cygpath >/dev/null 2>&1; then
+      VENV="$(cygpath -w "$VENV")"
+    fi
+    HELPER_PYTHON=""
+    for candidate in python3.14 python3.13 python3.12 python3.11 python3 python; do
+      if command -v "$candidate" >/dev/null 2>&1; then
+        HELPER_PYTHON="$candidate"
+        break
+      fi
+    done
+    if [ -n "$HELPER_PYTHON" ]; then
+      exec "$HELPER_PYTHON" "$ROOT/tools/cross_platform_start.py" --venv "$VENV" --mode "$START_MODE" "$@"
+    fi
+    if command -v py >/dev/null 2>&1; then
+      exec py -3 "$ROOT/tools/cross_platform_start.py" --venv "$VENV" --mode "$START_MODE" "$@"
+    fi
+    echo "Python wurde nicht gefunden; installiere CPython 3.14." >&2
+    exit 1
+    ;;
+esac
 
 if [ -n "${TERMUX_VERSION:-}" ] \
   || { [ -n "${PREFIX:-}" ] && [ -x "${PREFIX}/bin/pkg" ]; } \
@@ -543,6 +592,21 @@ setup_standalone_runtime() {
 
 detect_linux_distribution
 detect_native_package_manager
+# In auto/run mode, a prepared environment is started without installation.
+# 'run' intentionally fails if dependencies or the runtime are not usable.
+if [ "$STANDALONE" -eq 0 ] && [ "$CHECK_SYSTEM" -eq 0 ] && [ "$START_MODE" != setup ]; then
+  if [ -x "$VENV/bin/python" ] &&
+     "$VENV/bin/python" "$ROOT/simpleoffice_runtime_support.py" >/dev/null 2>&1 &&
+     "$VENV/bin/python" -c 'from importlib.metadata import version; version("simpleoffice4me")' >/dev/null 2>&1 &&
+     "$VENV/bin/python" -m pip check >/dev/null 2>&1; then
+    cd "$ROOT"
+    exec "$VENV/bin/python" -m tools.launcher start
+  fi
+  if [ "$START_MODE" = run ]; then
+    echo "venv nicht startbereit: $VENV. Bitte zuerst setup ausführen." >&2
+    exit 1
+  fi
+fi
 if [ "$STANDALONE" -eq 1 ]; then
   setup_standalone_runtime
 fi
@@ -582,7 +646,8 @@ if [ "$USE_SYSTEM_SITE_PACKAGES" -eq 1 ] && [ -x "$VENV/bin/python" ] && ! venv_
       echo "Kein freigegebener Bootstrap-Interpreter für den sicheren venv-Neuaufbau verfügbar." >&2
       exit 1
     fi
-    rm -rf "$VENV"
+    echo "Vorhandene venv wird nicht automatisch gelöscht; fehlende Pakete kommen aus pip."
+    USE_SYSTEM_SITE_PACKAGES=0
   else
     echo "Freigegebene .venv bleibt erhalten; pip ergänzt fehlende Pakete in dieser Umgebung."
     USE_SYSTEM_SITE_PACKAGES=0
@@ -668,5 +733,9 @@ fi
 
 "$VENV/bin/python" "$ROOT/tools/install_invoice_validator.py" || true
 "$VENV/bin/python" "$ROOT/tools/install_xrechnung_validator.py" || true
+if [ "$START_MODE" = setup ]; then
+  echo "venv-Einrichtung abgeschlossen: $VENV"
+  exit 0
+fi
 cd "$ROOT"
 exec "$VENV/bin/python" -m tools.launcher start "$@"
