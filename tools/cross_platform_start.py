@@ -138,7 +138,7 @@ def main() -> int:
     print(f"Plattform: {platform.system()}, venv: {target}", flush=True)
 
     if args.check_system:
-        runtime = str(executable) if supported_runtime(str(executable)) else choose_bootstrap()
+        runtime = str(executable) if executable.is_file() and supported_runtime(str(executable)) else choose_bootstrap()
         return subprocess.call([*(runtime if isinstance(runtime, list) else [runtime]),
                                 str(ROOT / "tools" / "system_requirements.py")])
 
