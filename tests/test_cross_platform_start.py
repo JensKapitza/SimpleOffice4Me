@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -22,13 +22,13 @@ class CrossPlatformStartTests(unittest.TestCase):
     def test_venv_layout_unix(self):
         with patch.object(launcher.os, "name", "posix"):
             self.assertEqual(
-                launcher.venv_python(Path("/tmp/project/.venv")),
-                Path("/tmp/project/.venv/bin/python"),
+                launcher.venv_python(PurePosixPath("/tmp/project/.venv")),
+                PurePosixPath("/tmp/project/.venv/bin/python"),
             )
 
     def test_venv_layout_windows(self):
         # On POSIX, Path semantics still permit checking the relative Windows layout.
-        base = Path("venv")
+        base = PureWindowsPath("venv")
         with patch.object(launcher.os, "name", "nt"):
             result = launcher.venv_python(base)
         self.assertEqual(
