@@ -9,6 +9,9 @@ on:
       - .github/workflows/cross-platform-start.yml
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   launcher:
     strategy:
