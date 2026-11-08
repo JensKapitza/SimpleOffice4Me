@@ -28,9 +28,11 @@ class CrossPlatformStartTests(unittest.TestCase):
 
     def test_venv_layout_windows(self):
         # On POSIX, Path semantics still permit checking the relative Windows layout.
+        base = Path("venv")
         with patch.object(launcher.os, "name", "nt"):
-            self.assertEqual(
-                str(launcher.venv_python(Path("venv"))).replace("\\", "/"),
+            result = launcher.venv_python(base)
+        self.assertEqual(
+                str(result).replace("\\", "/"),
                 "venv/Scripts/python.exe",
             )
 
