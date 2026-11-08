@@ -1,0 +1,36 @@
+name: Cross-platform startup
+
+on:
+  pull_request:
+    paths:
+      - start.sh
+      - tools/cross_platform_start.py
+      - tests/test_cross_platform_start.py
+      - .github/workflows/cross-platform-start.yml
+  workflow_dispatch:
+
+jobs:
+  launcher:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p test_cross_platform_start.py -v
+      - name: Bash syntax
+        shell: bash
+        run: bash -n start.sh
+      - name: CLI and non-installing run mode
+        shell: bash
+        run: |
+          bash start.sh --help
+          if bash start.sh run --venv .venv-that-does-not-exist; then
+            echo "run unexpectedly succeeded without an installed environment" >&2
+            exit 1
+          fi
