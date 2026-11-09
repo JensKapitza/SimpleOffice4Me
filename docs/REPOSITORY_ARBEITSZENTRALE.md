@@ -143,7 +143,9 @@ zusätzlich in den eigenen GitHub-Einstellungen widerrufen werden.
 
 Öffentliche Snapshots stammen ausschließlich aus anonymen GET-Anfragen.
 Kontobezogene Snapshots sind separat und verschlüsselt; sie werden niemals
-zum Public-Cache. Auth-, Status- und Datenantworten verwenden `private,
+zum Public-Cache. Beide neuen Persistenzmodule sind in der S3-Datenquelleninventur
+ausdrücklich als Authentifizierungs- beziehungsweise privater Cache-Zustand
+ausgeschlossen; es gibt dafür keinen generischen S3-Export. Auth-, Status- und Datenantworten verwenden `private,
 no-store`; der Service Worker persistiert diese Antworten nicht. CSRF-Schutz
 gilt auch für Anmeldung, Polling, Abmeldung und den manuellen Refresh.
 
