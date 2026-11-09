@@ -12,7 +12,7 @@ from cryptography.exceptions import InvalidTag
 from .db import get_db
 from .repository_workspace_context import CHECKLIST, documentation_gaps
 from .repository_workspace_github import (
-    GitHubReadClient, REPOSITORY, REPOSITORY_URL, WorkspaceError, WorkspaceUnauthorized,
+    GitHubReadClient, REPOSITORY, REPOSITORY_URL, WorkspaceError, WorkspaceUnauthorized, public_source_error,
 )
 from .repository_workspace_model import normalise
 from .security_controls import protect_value, unprotect_value
@@ -97,7 +97,7 @@ class _Collector:
         except WorkspaceError as exc:
             self.sources.append({"id": ident, "label": label,
                                  "state": "unavailable" if exc.status in (403, 404) else "error",
-                                 "message": str(exc), "checked_at": _iso()})
+                                 "message": public_source_error(exc.status), "checked_at": _iso()})
             return ([] if collection else {}), False
 
 

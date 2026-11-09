@@ -14,7 +14,7 @@ from app.db import ensure_auth_database, get_db
 from app import repository_workspace_auth as auth
 from app import repository_workspace_oauth as oauth
 from app import repository_workspace_store as store
-from app.repository_workspace_github import WorkspaceUnauthorized
+from app.repository_workspace_github import WorkspaceError, WorkspaceUnauthorized
 from app.repository_workspace_store import WorkspaceAuthError
 
 PREFIX = "/repository-workspace/api"
@@ -96,6 +96,23 @@ class RepositoryWorkspaceAuthTests(unittest.TestCase):
         self.assertIn("no-store", response.headers["Cache-Control"])
         self.assertIn("Cookie", response.headers["Vary"])
         self.assertEqual(503, self.post("/auth/start").status_code)
+
+    def test_authorization_failure_never_serializes_exception_details(self):
+        self.authenticate()
+        self.data.snapshot.side_effect = WorkspaceUnauthorized("synthetic-private-token-and-stack-detail", status=401)
+        response = self.client.get(PREFIX + "/snapshot")
+        self.assertEqual(401, response.status_code)
+        self.assertNotIn("synthetic-private-token-and-stack-detail", response.get_data(as_text=True))
+        self.assertFalse(response.json["auth"]["authenticated"])
+
+    def test_provider_errors_use_fixed_messages_even_if_exception_contains_private_data(self):
+        for error in (WorkspaceError("synthetic-private-provider-detail", status=502),
+                      WorkspaceAuthError("synthetic-private-provider-detail", 503)):
+            with self.subTest(status=error.status):
+                self.data.snapshot.side_effect = error
+                response = self.client.get(PREFIX + "/snapshot")
+                self.assertNotIn("synthetic-private-provider-detail", response.get_data(as_text=True))
+                self.assertIn(response.status_code, (401, 502))
 
     def test_public_page_does_not_unlock_office_documents(self):
         response = self.client.get("/repository-workspace/")

@@ -39,6 +39,18 @@ class WorkspaceUnauthorized(WorkspaceError):
     pass
 
 
+def public_source_error(status: int) -> str:
+    """Never serialize exception strings, even from future client implementations."""
+    return {
+        400: "Quelle konnte nicht sicher abgefragt werden; Abfragekonfiguration prüfen.",
+        401: "GitHub-Anmeldung nicht mehr gültig. Bitte erneut verbinden.",
+        403: "Quelle nicht zugänglich: Berechtigung oder GitHub-Limit prüfen.",
+        404: "Quelle nicht zugänglich oder nicht vorhanden; nicht als leer bewertet.",
+        429: "GitHub-Abruflimit erreicht. Wartezeit einhalten; Quelle bleibt ungeprüft.",
+        503: "Abrufbudget erreicht oder Quelle vorübergehend nicht verfügbar; weitere Daten ungeprüft.",
+    }.get(status, "GitHub-Quelle nicht erreichbar, Zeitlimit oder ungültige Antwort; Daten ungeprüft.")
+
+
 class _NoRedirects(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -147,7 +159,7 @@ class GitHubReadClient:
             except WorkspaceError as exc:
                 if not records:
                     raise
-                self.partial_message = "Teilweise abgerufen. " + str(exc)
+                self.partial_message = "Teilweise abgerufen. " + public_source_error(exc.status)
                 return records, False
             items = payload.get(key) if key and isinstance(payload, dict) else payload
             if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):

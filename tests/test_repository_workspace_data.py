@@ -140,6 +140,15 @@ class GitHubReadTransportTest(unittest.TestCase):
         self.assertFalse(complete)
         self.assertIn("Teilweise", client.partial_message)
 
+    def test_partial_pagination_never_serializes_exception_details(self):
+        client = self.client()
+        client.headers = {"link": '<https://api.github.com/next>; rel="next"'}
+        with patch.object(client, "get", side_effect=[[{"id": 1}], WorkspaceError("sensitive-provider-detail", status=503)]):
+            records, complete = client.collection("issues")
+        self.assertEqual([{"id": 1}], records)
+        self.assertFalse(complete)
+        self.assertNotIn("sensitive-provider-detail", client.partial_message)
+
     def test_pagination_constructs_only_allowlisted_urls(self):
         client = self.client()
         client._opener.open.side_effect = [
@@ -313,6 +322,15 @@ class WorkspaceSnapshotCacheTest(unittest.TestCase):
         security = [s for s in snapshot["sources"] if s["id"] in {"code-scanning", "dependabot"}]
         self.assertTrue(all(s["state"] == "unavailable" for s in security))
         self.assertFalse(any(call.args[0].endswith("/alerts") for call in reader.return_value.collection.call_args_list))
+
+    def test_source_failure_never_serializes_exception_details(self):
+        collector = data._Collector("")
+        with patch.object(collector.client, "collection", side_effect=WorkspaceError("sensitive-source-stack", status=403)):
+            records, complete = collector.fetch("issues", "Issues", "issues")
+        self.assertEqual([], records)
+        self.assertFalse(complete)
+        self.assertNotIn("sensitive-source-stack", json.dumps(collector.sources))
+        self.assertEqual("unavailable", collector.sources[0]["state"])
 
     def test_partial_sources_do_not_discard_successful_issues(self):
         with patch.object(data, "GitHubReadClient") as reader:

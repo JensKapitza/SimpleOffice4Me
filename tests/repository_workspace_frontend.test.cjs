@@ -50,7 +50,9 @@ test("Markdown exports preserve uncertainty and escape untrusted titles and link
   assert.ok(!content.includes("javascript:"));
   assert.ok(content.includes("Noch ungeprüft"));
   assert.ok(content.includes("kein Freigabenachweis"));
-  assert.ok(content.includes("https://github.com/JensKapitza/SimpleOffice4Me/issues/874"));
+  assert.deepEqual(content.split("\n").filter((line) => line.startsWith("- [")), [
+    "- [Quelle \\[1\\]](https://github.com/JensKapitza/SimpleOffice4Me/issues/874)",
+  ]);
 });
 
 test("draft exports are explicitly unpublished and never imply tests passed", () => {

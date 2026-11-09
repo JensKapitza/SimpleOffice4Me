@@ -65,11 +65,12 @@ def _snapshot(refresh: bool = False):
             return jsonify({"error": "Die GitHub-Sitzung hat sich geändert. Daten erneut abrufen.",
                             "auth": auth.status()}), 401
         return jsonify(result)
-    except (WorkspaceUnauthorized, WorkspaceAuthError) as exc:
+    except (WorkspaceUnauthorized, WorkspaceAuthError):
         if previous != "public":
             _data().invalidate_cache(previous)
         _discard_account()
-        return jsonify({"error": str(exc), "auth": auth.status()}), 401
+        return jsonify({"error": "Die GitHub-Sitzung ist nicht mehr gültig. Bitte erneut anmelden.",
+                        "auth": auth.status()}), 401
 
 
 @bp.get("/api/snapshot")
@@ -95,7 +96,16 @@ def prevent_account_cache(response):
 def provider_error(error):
     if error.status == 401:
         _discard_account()
-    response = jsonify({"error": str(error), "auth": auth.status()})
+    messages = {
+        400: "Die Anfrage ist ungültig. Bitte die Ansicht neu laden.",
+        401: "Die GitHub-Sitzung ist nicht mehr gültig. Bitte erneut anmelden.",
+        403: "Der Zugriff ist nicht freigegeben. HTTPS-Verbindung und Berechtigungen prüfen.",
+        409: "Die Anmeldung wurde abgebrochen oder der Sitzungskontext hat sich geändert.",
+        429: "Das Abruflimit ist erreicht. Bitte die Wartezeit einhalten.",
+        503: "Die Anmeldung oder Datenabfrage ist derzeit nicht verfügbar. Konfiguration und Kontostatus prüfen.",
+    }
+    response = jsonify({"error": messages.get(error.status, "GitHub ist momentan nicht erreichbar. Später erneut versuchen."),
+                        "auth": auth.status()})
     response.status_code = error.status
     if error.retry_after:
         response.headers["Retry-After"] = str(error.retry_after)
