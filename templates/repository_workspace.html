@@ -1,0 +1,84 @@
+{% extends "layout.html" %}
+{% block title %}Arbeitszentrale · SimpleOffice4Me{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/repository_workspace.css') }}">{% endblock %}
+{% block script %}<script defer src="{{ url_for('static', filename='js/repository_workspace.js') }}"></script>{% endblock %}
+{% block header %}
+{% if g.user %}{% include "documents/nav.html" %}{% else %}
+<nav class="navbar navbar-dark app-navbar" aria-label="Öffentliche Navigation">
+  <div class="container-fluid px-3 px-md-4"><a class="navbar-brand fw-semibold" href="{{ url_for('auth.login') }}">SimpleOffice</a><a class="btn btn-sm btn-outline-light" href="{{ url_for('auth.login') }}">Zur Anwendung</a></div>
+</nav>
+{% endif %}
+{% endblock %}
+{% block body %}
+<main id="main-content" class="rw-shell" data-repository-workspace data-api-base="{{ request.script_root }}/repository-workspace/api">
+  <header class="rw-heading">
+    <div><p class="rw-eyebrow">SimpleOffice4Me · Repository</p><h1>Arbeitszentrale</h1><p class="text-secondary mb-0">PRs, Issues, Prüfungen und nächste Schritte an einem Ort.</p></div>
+    <div class="rw-actions"><span class="rw-badge rw-badge-readonly"><i class="fa-solid fa-lock" aria-hidden="true"></i> Rein lesend</span><a class="btn btn-outline-secondary" href="https://github.com/JensKapitza/SimpleOffice4Me" target="_blank" rel="noopener noreferrer">Repository <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></a><button type="button" class="btn btn-primary" id="rw-refresh" disabled><i class="fa-solid fa-rotate" aria-hidden="true"></i> Daten aktualisieren</button></div>
+  </header>
+  <p class="rw-boundary">Nur planen, prüfen und dokumentieren. Aktualisieren liest GitHub erneut; es installiert kein Softwareupdate und ändert keine PRs, Issues, Reviews oder CI-Läufe.</p>
+
+  <section class="rw-auth card" aria-labelledby="rw-auth-title">
+    <div><h2 class="h6 mb-1" id="rw-auth-title">Öffentliche Ansicht</h2><p class="small text-secondary mb-0" id="rw-auth-description">Öffentliche Repository-Daten sind ohne Konto lesbar. Ein GitHub-Konto kann zusätzlich freigegebene Prüf- und Security-Daten sichtbar machen.</p><p class="small mb-0 mt-1" id="rw-auth-reason" hidden></p></div>
+    <div class="rw-actions"><span class="small text-secondary" id="rw-auth-expiry"></span><button type="button" class="btn btn-outline-primary" id="rw-login" disabled><i class="fa-brands fa-github" aria-hidden="true"></i> Mit GitHub anmelden</button><button type="button" class="btn btn-outline-secondary" id="rw-logout" hidden>GitHub abmelden</button></div>
+    <div class="rw-device" id="rw-device" hidden>
+      <p class="mb-2">Öffne GitHub und gib diesen Code ein. Prüfe dort das richtige Konto und die angezeigten Leserechte.</p>
+      <div class="rw-actions"><label class="visually-hidden" for="rw-device-code">GitHub-Bestätigungscode</label><input id="rw-device-code" class="form-control rw-device-code" readonly autocomplete="off"><a id="rw-device-link" class="btn btn-primary" href="https://github.com/login/device" target="_blank" rel="noopener noreferrer">GitHub öffnen</a><button type="button" class="btn btn-outline-secondary" id="rw-device-cancel">Anmeldung abbrechen</button></div>
+      <p class="small mt-2 mb-0" id="rw-device-status" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <div class="rw-update-line"><div><p class="small text-secondary mb-0" id="rw-updated">Noch keine Repository-Daten geladen.</p><p class="small text-secondary mb-0" id="rw-refresh-hint"></p></div><p class="small mb-0" id="rw-message" role="status" aria-live="polite"></p></div>
+  <div class="alert alert-warning" id="rw-warning" role="status" aria-live="polite" hidden></div>
+  <noscript><div class="alert alert-info" role="status" aria-live="polite">Für Filter, GitHub-Abruf und Arbeitslisten ist JavaScript erforderlich. Das Repository kannst du über den Link oben direkt öffnen.</div></noscript>
+
+  <section class="rw-stats" id="rw-stats" aria-label="Erfasster Bestand" hidden></section>
+  <nav class="rw-tabs" aria-label="Ansichten der Arbeitszentrale">
+    <button type="button" class="rw-tab active" data-rw-view="overview" aria-pressed="true" aria-controls="rw-overview">Übersicht</button>
+    <button type="button" class="rw-tab" data-rw-view="worklist" aria-pressed="false" aria-controls="rw-worklist">Arbeitsliste</button>
+    <button type="button" class="rw-tab" data-rw-view="gaps" aria-pressed="false" aria-controls="rw-gaps">Dokumentationsbedarf</button>
+    <button type="button" class="rw-tab" data-rw-view="sources" aria-pressed="false" aria-controls="rw-sources">Quellen &amp; Abdeckung</button>
+  </nav>
+
+  <section id="rw-overview" data-rw-panel="overview" aria-label="Priorisierte Übersicht">
+    <form method="get" id="rw-filters" class="rw-filters" role="search" aria-label="Repository-Einträge filtern">
+      <div class="rw-search"><label class="form-label small" for="rw-search">Suche</label><input type="search" name="q" id="rw-search" class="form-control" placeholder="Titel, Nummer, Ursache …" autocomplete="off"></div>
+      <div><label class="form-label small" for="rw-priority">Priorität</label><select id="rw-priority" class="form-select"><option value="">Alle Prioritäten</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div>
+      <div><label class="form-label small" for="rw-area">Bereich</label><select id="rw-area" class="form-select"><option value="">Alle Bereiche</option></select></div>
+      <div><label class="form-label small" for="rw-type">Typ</label><select id="rw-type" class="form-select"><option value="">Alle Typen</option><option value="pr">Pull Request</option><option value="issue">Issue</option><option value="ci">CI / Test</option><option value="security">Security</option><option value="review">Review</option></select></div>
+      <div><label class="form-label small" for="rw-status">Status</label><select id="rw-status" class="form-select"><option value="">Alle Status</option><option value="open">Offen</option><option value="review">In Prüfung</option><option value="blocked">Blockiert</option><option value="ready">Bereit zum Merge</option><option value="done">Erledigt</option></select></div>
+      <button type="button" class="btn btn-outline-secondary" id="rw-filter-reset">Zurücksetzen</button>
+    </form>
+    <div class="rw-view-line"><p class="small text-secondary mb-0" id="rw-results">Daten werden geladen …</p><div class="btn-group btn-group-sm" role="group" aria-label="Darstellung"><button type="button" class="btn btn-outline-secondary active" id="rw-board-mode" aria-pressed="true">Board</button><button type="button" class="btn btn-outline-secondary" id="rw-list-mode" aria-pressed="false">Liste</button></div></div>
+    <p class="small text-secondary">Spalten und Prioritäten sind begründete Arbeitseinschätzungen. „Bereit zum Merge“ ist keine Merge-Freigabe; ohne belegte Prüfungen bleibt die Spalte leer.</p>
+    <div id="rw-board" class="rw-board" aria-label="Statusspalten"></div>
+    <div id="rw-list" class="table-responsive" hidden></div>
+  </section>
+
+  <section id="rw-worklist" data-rw-panel="worklist" hidden aria-labelledby="rw-worklist-title">
+    <div class="rw-section-heading"><div><h2 class="h4" id="rw-worklist-title">Nächste Schritte</h2><p class="text-secondary mb-0">Eine wiederverwendbare Prüfreihenfolge für jeden Arbeitsdurchlauf.</p></div><div class="rw-actions"><button type="button" class="btn btn-outline-secondary" id="rw-checklist-reset">Häkchen zurücksetzen</button><button type="button" class="btn btn-outline-primary" id="rw-export-worklist">Arbeitsliste exportieren</button></div></div>
+    <p class="small text-secondary mt-3">Nur die Häkchen dieser allgemeinen Checkliste bleiben in diesem Browser gespeichert. Vorgemerkte Einträge und Notizen bleiben ausschließlich in diesem geöffneten Tab und werden bei Kontowechsel gelöscht.</p>
+    <div class="rw-checklist card" id="rw-checklist"></div>
+    <h3 class="h5 mt-4">Vorgemerkte Einträge</h3><p class="small text-secondary">Öffne einen Eintrag in der Übersicht und wähle „Für Arbeitsliste vormerken“.</p><div id="rw-bookmarks" class="rw-bookmarks"></div>
+  </section>
+
+  <section id="rw-gaps" data-rw-panel="gaps" hidden aria-labelledby="rw-gaps-title">
+    <div class="rw-section-heading"><div><h2 class="h4" id="rw-gaps-title">Noch zu dokumentieren</h2><p class="text-secondary mb-0">Prüfaufträge und fehlende Nachweise vor einem neuen Issue auf vorhandene Tracker prüfen.</p></div><button type="button" class="btn btn-outline-primary" id="rw-export-drafts">Entwürfe exportieren</button></div>
+    <div id="rw-gap-list" class="rw-gap-list mt-3"></div>
+    <details class="card rw-draft-editor mt-4"><summary class="h6 mb-0">Eigenen Arbeitsauftrag entwerfen</summary><p class="small text-secondary mt-3">Nur in diesem Tab. Mit Export sicherst du den Text als Markdown; es wird kein Issue angelegt.</p>
+      <form method="get" id="rw-draft-form" class="row g-3">
+        <div class="col-md-8"><label for="rw-draft-title" class="form-label">Titel</label><input id="rw-draft-title" class="form-control" maxlength="180" required></div>
+        <div class="col-md-4"><label for="rw-draft-area" class="form-label">Bereich</label><input id="rw-draft-area" class="form-control" maxlength="80" placeholder="z. B. Desktop, Dokumente, Security"></div>
+        <div class="col-md-6"><label for="rw-draft-cause" class="form-label">Ursache / offene Frage</label><textarea id="rw-draft-cause" class="form-control" rows="3" maxlength="4000" required></textarea></div>
+        <div class="col-md-6"><label for="rw-draft-next" class="form-label">Nächste Prüfschritte</label><textarea id="rw-draft-next" class="form-control" rows="3" maxlength="4000"></textarea></div>
+        <div class="col-md-6"><label for="rw-draft-tests" class="form-label">Teststatus / fehlende Nachweise</label><textarea id="rw-draft-tests" class="form-control" rows="2" maxlength="4000"></textarea></div>
+        <div class="col-md-6"><label for="rw-draft-docs" class="form-label">Benötigte Dokumentation / vorhandene Tracker</label><textarea id="rw-draft-docs" class="form-control" rows="2" maxlength="4000"></textarea></div>
+        <div><button type="submit" class="btn btn-primary">Entwurf in diesem Tab aufnehmen</button></div>
+      </form>
+    </details><div id="rw-local-drafts" class="rw-gap-list mt-3"></div>
+  </section>
+
+  <section id="rw-sources" data-rw-panel="sources" hidden aria-labelledby="rw-sources-title"><h2 class="h4" id="rw-sources-title">Quellen &amp; Abdeckung</h2><p class="text-secondary">Ein fehlender oder verweigerter Abruf bedeutet „ungeprüft“. Er ist kein Nachweis für null Funde oder erfolgreiche Tests.</p><div id="rw-source-list" class="rw-source-list"></div><p class="small text-secondary mt-3">Quellenlinks führen zu GitHub. Dort gelten die Berechtigungen des jeweils angemeldeten GitHub-Kontos. Historische Hinweise sind keine aktuelle Bestandsaufnahme.</p></section>
+
+  <dialog id="rw-detail" class="rw-dialog" aria-labelledby="rw-detail-title"><div class="rw-dialog-heading"><h2 class="h4 mb-0" id="rw-detail-title"></h2><button type="button" class="btn-close" id="rw-detail-close" aria-label="Eintrag schließen"></button></div><div id="rw-detail-body"></div><div class="rw-actions rw-detail-actions"><button type="button" class="btn btn-primary" id="rw-bookmark">Für Arbeitsliste vormerken</button><button type="button" class="btn btn-outline-secondary" id="rw-export-item">Prüfnotiz exportieren</button></div></dialog>
+</main>
+{% endblock %}

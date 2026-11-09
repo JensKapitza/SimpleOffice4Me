@@ -103,6 +103,7 @@
             {{ 'More' if g.language == 'en' else 'Mehr' }}
           </a>
           <ul class="dropdown-menu" aria-labelledby="nav-more">
+            <li><a class="dropdown-item" href="{{ url_for('repository_workspace.index') }}">{{ 'Repository workspace' if g.language == 'en' else 'Repository-Arbeitszentrale' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('gamification.index') }}">{{ 'Data roulette' if g.language == 'en' else 'Daten-Roulette' }}</a></li>
             <li><a class="dropdown-item" href="{{ url_for('datalogger.index') }}">{{ 'Data logger' if g.language == 'en' else 'Datenlogger' }}</a></li>
             <li><hr class="dropdown-divider"></li>

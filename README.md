@@ -15,6 +15,7 @@ Ein geschlossenes Funktions-Issue bedeutet daher keine Gesamtfreigabe für 3.0.
 - [3.0-Betrieb: Funktionen, Schalter, Freigaben und Rückkehr](docs/V3_BETRIEBSLEITFADEN.md)
 - [Konfigurationsregister mit Quellen und Sicherheitsgrenzen](docs/KONFIGURATIONSREGISTER.md)
 - [Dokumentations- und Issue-Prüfung samt bekannten Abweichungen](docs/DOKUMENTATIONSPRUEFUNG_3_0.md)
+- [Öffentliche, rein lesende Repository-Arbeitszentrale](docs/REPOSITORY_ARBEITSZENTRALE.md)
 
 Das [Dokumentationslogo](docs/assets/README.md) greift die vorhandene
 Ordner-/Petrol-Marke auf. „2080“ ist seine gestalterische Zukunftsidee;
@@ -23,6 +24,15 @@ Prüfdaten und Release-Aussagen beziehen sich auf den tatsächlichen Stand.
 SimpleOffice4Me ist eine selbst betriebene Office-, Dokumenten- und
 CRM-Anwendung auf Basis von Python und Flask. Sie bündelt Dokumente, Kontakte,
 Kalender, Rechnungen und sichere Dateiübertragungen in einer Oberfläche.
+
+Unter **`/repository-workspace/`** ist die Arbeitszentrale für dieses Repository
+ohne Office-Konto erreichbar, auch über die Anmeldeseite und **Mehr →
+Arbeitszentrale**. Sie bündelt PRs, Issues, CI-, Review- und berechtigte
+Security-Funde mit Filtern, Prüfschritten und lokalen Arbeitsaufträgen.
+**Daten aktualisieren** liest Quellen erneut; die Ansicht führt keine Merges,
+Schließungen, Zuweisungen, CI-Neustarts oder Softwareupdates aus. Optional lässt
+sich eine GitHub App mit Leseberechtigungen für die Device-Anmeldung
+[konfigurieren](docs/REPOSITORY_ARBEITSZENTRALE.md#optionale-github-anmeldung).
 
 ## Büroengel / ContextFlow (Hackathon, Meta-only)
 

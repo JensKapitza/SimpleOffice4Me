@@ -318,6 +318,8 @@ from . import auth
 app.register_blueprint(auth.bp)
 from . import account_requests
 app.register_blueprint(account_requests.bp)
+from . import repository_workspace
+app.register_blueprint(repository_workspace.bp)
 
 from . import db
 db.init_app(app)
@@ -541,6 +543,9 @@ def forbidden(error):
 def unhandled_application_error(error):
     if isinstance(error, HTTPException):
         return error
+    if request.blueprint == "repository_workspace":
+        # Public read-only monitoring must never create a GitHub error issue.
+        return repository_workspace.workspace_error(error)
     if app.testing and app.config.get("PROPAGATE_EXCEPTIONS", True):
         raise error
     request_id = getattr(g, "request_id", secrets.token_hex(8))
