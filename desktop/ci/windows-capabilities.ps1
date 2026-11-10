@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'The packaged Windows runtime smoke requires Windows.' }
 Add-Type -AssemblyName System.Windows.Forms
-$session = (Get-Process -Id $PID).SessionId
+$self = Get-Process -Id $PID -ErrorAction Stop
+$session = $self.SessionId
 $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
 $capabilities = [ordered]@{
     ImageOS = $env:ImageOS
@@ -14,7 +15,7 @@ $capabilities = [ordered]@{
     ScreenWidth = $screen.Width
     ScreenHeight = $screen.Height
     Taskkill = (Get-Command taskkill.exe -ErrorAction Stop).Source
-    ProcessQuery = @(Get-CimInstance Win32_Process -Filter "ProcessId = $PID").Count -eq 1
+    ProcessQuery = ($self.Id -eq $PID -and -not $self.HasExited)
 }
 $capabilities | ConvertTo-Json
 if (-not $capabilities.UserInteractive -or $session -eq 0 -or
