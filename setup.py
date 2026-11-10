@@ -25,7 +25,7 @@ RUNTIME_DEPENDENCIES = [
     "pypdf>=5.0,<7",
     "waitress>=3.0,<4",
     "cryptography>=50.0.2,<51",
-    "watchdog>=6,<7",
+    "watchdog>=6,<8",
     "tzdata>=2024.1",
 ]
 
