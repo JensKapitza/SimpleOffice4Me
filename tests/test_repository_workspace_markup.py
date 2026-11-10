@@ -21,6 +21,14 @@ class RepositoryWorkspaceMarkupTests(unittest.TestCase):
                 actual = [option.get("value", option.get_text(strip=True)) for option in select.find_all("option", recursive=False)]
                 self.assertEqual(values, actual)
 
+    def test_board_aria_label_has_supported_region_role(self):
+        template = Path(__file__).resolve().parents[1] / "templates" / "repository_workspace.html"
+        document = BeautifulSoup(template.read_text(encoding="utf-8"), "html.parser")
+        board = document.find(id="rw-board")
+        self.assertIsNotNone(board)
+        self.assertEqual("Statusspalten", board.get("aria-label"))
+        self.assertEqual("region", board.get("role"))
+
 
 if __name__ == "__main__":
     unittest.main()
