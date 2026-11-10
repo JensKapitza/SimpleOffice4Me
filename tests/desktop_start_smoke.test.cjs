@@ -10,6 +10,13 @@ const path = require('node:path');
 const {Inspector} = require('../desktop/ci/inspector.cjs');
 const {assertPage, assertRuntime, fatalOutput, installFaultObservers, listenerClosed, prepareProfile, selectProcesses, smokeEnvironment, waitUntil} = require('../desktop/ci/smoke-windows.cjs');
 
+test('Windows capability preflight avoids slow CIM process queries', () => {
+  const script = fs.readFileSync(path.join(__dirname, '..', 'desktop', 'ci', 'windows-capabilities.ps1'), 'utf8');
+  assert.doesNotMatch(script, /Get-CimInstance|Win32_Process/);
+  assert.match(script, /Get-Process -Id \\$PID -ErrorAction Stop/);
+  assert.match(script, /ProcessQuery = \\(\\$self\.Id -eq \\$PID -and -not \\$self\.HasExited\\)/);
+});
+
 test('listener cleanup requires a refused TCP connection rather than a failed HTTP request', async (t) => {
   const server = net.createServer(socket => socket.end());
   t.after(() => server.close());
