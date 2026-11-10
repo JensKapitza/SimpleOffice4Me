@@ -13,8 +13,8 @@ const {assertPage, assertRuntime, fatalOutput, installFaultObservers, listenerCl
 test('Windows capability preflight avoids slow CIM process queries', () => {
   const script = fs.readFileSync(path.join(__dirname, '..', 'desktop', 'ci', 'windows-capabilities.ps1'), 'utf8');
   assert.doesNotMatch(script, /Get-CimInstance|Win32_Process/);
-  assert.match(script, /Get-Process -Id \\$PID -ErrorAction Stop/);
-  assert.match(script, /ProcessQuery = \\(\\$self\.Id -eq \\$PID -and -not \\$self\.HasExited\\)/);
+  assert.match(script, /Get-Process -Id \$PID -ErrorAction Stop/);
+  assert.match(script, /ProcessQuery = \(\$self\.Id -eq \$PID -and -not \$self\.HasExited\)/);
 });
 
 test('listener cleanup requires a refused TCP connection rather than a failed HTTP request', async (t) => {
