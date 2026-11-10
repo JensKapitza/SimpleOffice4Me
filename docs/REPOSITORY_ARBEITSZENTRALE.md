@@ -117,7 +117,11 @@ Abbruch, Ablehnung und Ablauf werden getrennt behandelt.
 Die GitHub-Anmeldung ist **keine SimpleOffice-Anmeldung** und erzeugt keine
 Office-Berechtigungen. Ein GitHub-App-User-Token erhält nur die Schnittmenge
 aus Rechten des Kontos, Rechten der App und für beide zugänglichen Repositories.
-Der Login garantiert deshalb keinen Zugriff auf Security-Funde.
+Der Login garantiert deshalb keinen Zugriff auf Security-Funde. Beim Token-Austausch
+wird zusätzlich die GitHub-Repository-ID von `SimpleOffice4Me` (`368332171`)
+übergeben. Damit wird das User-Token nach Möglichkeit bereits bei GitHub auf dieses
+eine Repository begrenzt; die feste GET-Allowlist der Anwendung bleibt zusätzlich
+bestehen.
 
 GitHub empfiehlt für gewöhnliche Webanwendungen den Web-Flow mit PKCE. Dieser
 Bereich implementiert den ausdrücklich gewünschten Device Flow als optionale
