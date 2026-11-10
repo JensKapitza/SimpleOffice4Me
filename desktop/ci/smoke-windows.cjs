@@ -208,7 +208,7 @@ async function main() {
       assertRuntime(state, executable, root);
       const window = state.windows.find(w => /^http:\/\/127\.0\.0\.1:\d+\//.test(w.url) && !w.loading);
       if (!window) return false;
-      backendUrl = new URL(window.url).origin + '/';
+      backendUrl = window.url;
       const response = await fetch(backendUrl, {redirect: 'manual', signal: AbortSignal.timeout(3000)});
       assertPage(response.status, response.headers.get('content-type') || '', await response.text());
       return state;
