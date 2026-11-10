@@ -61,3 +61,38 @@ python3.14 simpleoffice_runtime_support.py
 
 Für produktive Installationen sind finale CPython-Versionen 3.11–3.14
 freigegeben; neue Builds verwenden 3.14. Python 3.15 bleibt experimentell.
+
+## Virtuelle Umgebung beim Start auswählen (Linux, macOS, Windows)
+
+`start.sh` erkennt Linux (einschließlich Termux), macOS und Windows unter
+**Git Bash/MSYS2/Cygwin**. Auf Windows ist hierfür eine Bash-Umgebung nötig;
+die Datei ist kein natives PowerShell-Skript.
+
+```bash
+# Standard: vorhandene .venv unmittelbar starten, sonst einrichten
+bash start.sh
+
+# Eigene Umgebung: neu erstellen oder bestehende wiederverwenden
+bash start.sh --venv .venv314
+bash start.sh --venv /pfad/zur/umgebung
+
+# Nur einrichten/aktualisieren, noch nicht starten
+bash start.sh setup --venv .venv314
+
+# Nur starten, ohne Installation oder Reparatur
+bash start.sh run --venv .venv314
+```
+
+Relative venv-Pfade beziehen sich immer auf das Repository. Das Skript
+löscht eine vorhandene Umgebung nicht automatisch. Bei inkompatiblen
+Python-Versionen besser eine **neue** venv angeben. Der Einrichtungsmodus
+installiert die Python-Abhängigkeiten über pip (Linux mit Standard-venv
+kann weiterhin native Distributionspakete nutzen). Für neue Umgebungen wird
+eine verfügbare stabile CPython-Version bevorzugt, insbesondere Python 3.14.
+Eine explizite Interpreterwahl ist mit `PYTHON=/pfad/python3.14` möglich.
+
+Unter Windows muss die Git-Bash-Installation eine aufrufbare Python-Laufzeit
+(oder den `py`-Launcher) bereitstellen. Der Windows/macOS-Pfad verwaltet
+aktuell die Python-Anwendung; optionale native Komponenten und Browser-
+Export-Abhängigkeiten können separat eingerichtet werden. Der
+`--standalone`-Installer bleibt auf Linux beschränkt.
