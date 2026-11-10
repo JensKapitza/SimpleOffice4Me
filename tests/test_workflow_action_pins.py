@@ -69,11 +69,11 @@ class WorkflowActionPinTests(unittest.TestCase):
     def test_ci_pip_bootstrap_is_hash_locked_in_consuming_workflows(self):
         root = Path(__file__).resolve().parents[1]
         lock_text = (root / "requirements-ci-pip.txt").read_text(encoding="utf-8")
-        self.assertIn("pip==26.2.2", lock_text)
+        self.assertIn("pip==26.3", lock_text)
         self.assertEqual(
             {
-                "fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70",
-                "3a8e5c800492787f33a4114ef54444546c340df428974ebba17e0fd47e11af2f",
+                "6c36ae7da8695be67e3cd9f7d87919667ced53f57ce2ede75d89b5912ed2bc4c",
+                "f3b60b20ffaadd4415ed7957212a38ac63fa4c5fa375bd0f4a797777940fad13",
             },
             set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
         )
@@ -110,27 +110,27 @@ class WorkflowActionPinTests(unittest.TestCase):
     def test_ruff_static_analyzer_is_installed_from_hash_lock(self):
         root = Path(__file__).resolve().parents[1]
         lock_text = (root / "requirements-ci-ruff.txt").read_text(encoding="utf-8")
-        self.assertIn("ruff==0.16.9", lock_text)
+        self.assertIn("ruff==0.17.4", lock_text)
         self.assertEqual(
             {
-                "95e6f022090368ab3b824c36276839c53b2adf1a3f4c09fefc33dfc400f6da96",
-                "a5f27be168556594a86d2f415db0cf43f5291917849318f873c7e2791f7a8c67",
-                "1632eb1d6197f33bd00b1acbc5b71009e89a8895c158e2d2b03a834fac964ab6",
-                "b3f951b14d865d5952c89d40a5ca07e87abe24fa5453299878411e127748fb1c",
-                "447fc07e1573afff7cb02803462b12b6c8ece7cf10e2cd78565fa6d7a1c0bf8d",
-                "8a3e039a6a40ed976c491722b60e0ae4a4aa1a86057f540ee7a37a5d19ae9120",
-                "4684dded7db60aa57cb118fa158630f5feade4af5782903b6053484bdf9bd129",
-                "d29c934357e45642fda2f34c0b1f4025b4a6c01e15e4bf0016879d60078a142c",
-                "a21713e629d3e5bdb2f5c2def1cc7f04f47fa8e1a7eb0571b4a28e1da64bc728",
-                "7baa24ef5fc8e77aa93879e1d3f43754a01ae488e869f1ae30cf431afd4d2452",
-                "a41aac6230aadfaa133bdfa1614488531ffa3e0837567ae04c0da2058a9c0f9e",
-                "c2529fb5896d49115b0e9aa8f887490b34bbe76baf879ec2264ac59406869ce7",
-                "41e3870277694177429b56406d65dfbdb2c2802c52b715edaf6a0b829c69d4ee",
-                "8adbe4e58af167f767d7b2ba5e83c42e878350796cf78c2f5e14ab9903a92588",
-                "0e1dbc2073624dee6618d41d0098690a7244654af746704b64759e12b6b6b385",
-                "6bd40fec8cd4c8a3d4dd589bd8ad4e6320c13c29234159bfd959a40d529d597b",
-                "ed1a252039200f57a59eebc063b54beabea67bfbaaca0eeaa7f54b5fbcda2284",
-                "12b625c6cfba78d285d9f48eda5f053374f1e53cb10ef17342a383750db99161",
+                "f32d178b50e826e00f6c6c1be3f56333068acb9b67fe167143527fa9b81e890d",
+                "181ae38a9a8fb94925bf7d0794327b48d7fd7f4b50cfd84c0e999cc09ef8d131",
+                "67c5a894fc054cf41f75f7afa24815de5a74329d97634126c2a1015740ff4e8c",
+                "3971a78cba76298b284c8321e6d40d93045ed348bec5c369d85099efc97fb7cf",
+                "6007e7f3a0e55b0fbdb947af69cf24c21b4928df6be8ef3e767c69b5ccccf496",
+                "0d1f4848fd2ec0499be4046db9b7dfcc952666885f00233cc7033515282556a8",
+                "20e43d7a08e712e33067ba887e6574546c79bd4831596ce8f16803ac7ff9ad90",
+                "e3b84eb74f260d1c2dbd236fd9d4c011d4fdd0a52bdf8aea57a10e3a1b71fca5",
+                "49b77f7b3921669466882a4881168801bdb06ec2cd83fb936049016cf5fdece1",
+                "2cd025509b2e15721b426fc70fd946d71f43b3db3b08e946dfec2d696d911690",
+                "6b21c771b296888e8a35c6f48555f4b44e4483f61675d6ed51810a5203469ce6",
+                "5f28cf0dd37cb172fa5a8d2e92e6ada3a9dbd0609f094ed24039929eef0b7524",
+                "f99e95a1515161138be3cbd1b06c06e739d8feb38ade35564556999fffc3686e",
+                "7e061dcc0933c7031a616ac8d66ac540309b2aa21ab558101a8f53e9ac7a1185",
+                "8ea6e0017c785f7282092b11e46338e4ebed1b9e575ebf2e55a8a1eda968241a",
+                "7ed2f416349944f908f9574215994602242b0836844eba48eec61473033afca0",
+                "13e781c3c5f663e7fba737eaaeb70dd943dd55171daf316afb25cd5268cfe0c7",
+                "2b08c4ff98dc234f4a3871a3105353b922fa875ea1073ca31001eb8c06bb4d89",
             },
             set(re.findall(r"--hash=sha256:([0-9a-f]{64})", lock_text)),
         )
@@ -139,7 +139,7 @@ class WorkflowActionPinTests(unittest.TestCase):
             encoding="utf-8",
         )
         self.assertIn("--require-hashes -r requirements-ci-ruff.txt", workflow)
-        self.assertNotIn("ruff==0.16.9", workflow)
+        self.assertNotIn("ruff==0.17.4", workflow)
         scanner_ignore = (root / ".oss-scanner/Dockerfile.dockerignore").read_text(
             encoding="utf-8",
         )
@@ -282,8 +282,8 @@ class WorkflowActionPinTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         source_text = (root / "requirements-ci-awscli.in").read_text(encoding="utf-8")
         lock_text = (root / "requirements-ci-awscli.txt").read_text(encoding="utf-8")
-        self.assertIn("awscli==1.46.2", source_text)
-        self.assertIn("awscli==1.46.2", lock_text)
+        self.assertIn("awscli==1.46.3", source_text)
+        self.assertIn("awscli==1.46.3", lock_text)
         self.assertNotIn("awscli==1.42.59", lock_text)
         package_stanza = []
         package_count = 0
@@ -332,9 +332,9 @@ class WorkflowActionPinTests(unittest.TestCase):
         apk_lock = (root / "requirements-ci-android-apk.txt").read_text(
             encoding="utf-8",
         )
-        self.assertIn("pip==26.2.2", wheel_lock)
+        self.assertIn("pip==26.3", wheel_lock)
         self.assertNotIn("pip==26.1.2", wheel_lock)
-        for package in ("pip==26.2.2", "cibuildwheel==4.3.5", "wheel==0.48.0"):
+        for package in ("pip==26.3", "cibuildwheel==4.3.5", "wheel==0.48.0"):
             with self.subTest(package=package):
                 lines = wheel_lock.splitlines()
                 start = next(
