@@ -29,6 +29,18 @@ Quellpfade aufgelistet, niemals tatsächlich konfigurierte Werte.
 
 ## Ergänzte Optionen und Verfeinerungen
 
+### Öffentliche Repository-Arbeitszentrale
+
+`repository_workspace.github_client_id` im vorhandenen `app-config.json`
+aktiviert die optionale GitHub-App-Device-Anmeldung unter
+`/repository-workspace/`. Der Standard ist leer; öffentliche Repository-Daten
+bleiben ohne Anmeldung lesbar. `SIMPLEOFFICE_GITHUB_WORKSPACE_CLIENT_ID` ist
+der optionale Prozess-Fallback, falls kein persistierter Wert vorliegt.
+Es wird eine GitHub-App-Client-ID erwartet, kein Client-Secret und kein PAT.
+Die App muss ausschließlich die dokumentierten Leseberechtigungen erhalten.
+Quelle: `app/repository_workspace_auth.py`; Einrichtung und Grenzen:
+[Repository-Arbeitszentrale](REPOSITORY_ARBEITSZENTRALE.md).
+
 ### Ausgehende Fehlerberichte
 
 Die automatische Übertragung datensparsamer Diagnosen ist unter **Admin →
