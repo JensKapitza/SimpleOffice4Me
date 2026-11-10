@@ -21,6 +21,7 @@ SESSION_KEY = "github_workspace_capability"
 CLIENT_ID_RE = re.compile(r"Iv[0-9]+\.[A-Za-z0-9]{6,96}\Z")
 CAPABILITY_RE = re.compile(r"[A-Za-z0-9_-]{43}\Z")
 MAX_SESSION_SECONDS = 8 * 60 * 60
+REPOSITORY_ID = "368332171"
 
 
 def _configured_client_id() -> str:
@@ -231,6 +232,7 @@ def poll() -> dict:
         payload = oauth.post(oauth.TOKEN_URL, {
             "client_id": client_id, "device_code": secret["device_code"],
             "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "repository_id": REPOSITORY_ID,
         })
         error = payload.get("error", "")
         if error in {"authorization_pending", "slow_down"}:
