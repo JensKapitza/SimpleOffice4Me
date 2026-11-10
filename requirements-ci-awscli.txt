@@ -4,9 +4,9 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes --output-file=requirements-ci-awscli.txt --strip-extras requirements-ci-awscli.in
 #
-awscli==1.46.2 \
-    --hash=sha256:43e77f324745e760918dc3c6ffb73eef49e35e9f52a5c39fe4a6de854f7e1121 \
-    --hash=sha256:d818f5a3c8e772271db67ac002c9ba2bc4ec064e5aefbf1605e23bd2cf4346c5
+awscli==1.46.3 \
+    --hash=sha256:94c561c1b1b2cf0978ec8d87d956c26c807555438593eec29ea90602b9518cfb \
+    --hash=sha256:9b1146f4159bdf98688d900e2ffd0ac05c18f7fb28641c6b0817e64574e3ce1f
     # via -r requirements-ci-awscli.in
 colorama==0.4.6 \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \

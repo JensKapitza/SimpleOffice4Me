@@ -25,7 +25,7 @@ RUNTIME_DEPENDENCIES = [
     "pypdf>=5.0,<7",
     "waitress>=3.0,<4",
     "cryptography>=50.0.2,<51",
-    "watchdog>=6,<7",
+    "watchdog>=6,<8",
     "tzdata>=2024.1",
 ]
 
@@ -67,7 +67,7 @@ setup(
         "web-export": ["playwright==1.64.1"],
         "security": ["pip-audit>=2.7,<3"],
         "sbom": ["packaging>=26.3,<27"],
-        "quality": ["ruff==0.17.3"],
+        "quality": ["ruff==0.17.4"],
         "ocr": [
             "rapidocr==3.10.0",
             "onnxruntime==1.31.1",

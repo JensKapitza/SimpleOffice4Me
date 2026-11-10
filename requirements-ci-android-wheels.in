@@ -1,5 +1,5 @@
 # Host-side tools for the Android native-wheel CI job. Keep the CPython
 # orchestration runtime and build utility versions explicit.
-pip==26.2.2
+pip==26.3
 cibuildwheel==4.3.5
 wheel==0.48.0
