@@ -10,6 +10,9 @@ on:
       - 'requirements-ci-tools.txt'
       - 'pyproject.toml'
       - 'tests/test_desktop_ocr_dependencies.py'
+      - 'tests/test_installable_release_artifacts.py'
+      - 'tests/desktop_lan_proxy.test.cjs'
+      - 'tests/desktop_start_smoke.test.cjs'
       - 'tools/generate_sbom.py'
       - '.github/workflows/desktop-build.yml'
 
@@ -92,6 +95,11 @@ jobs:
       - name: Verify OCR dependency markers
         shell: bash
         run: python -m unittest discover -s tests -p test_desktop_ocr_dependencies.py
+      - name: Verify packaging and smoke harness regressions (not a packaged runtime test)
+        shell: bash
+        run: |
+          python -m unittest discover -s tests -p test_installable_release_artifacts.py
+          node --test tests/desktop_lan_proxy.test.cjs tests/desktop_start_smoke.test.cjs
       - name: Build Python backend
         working-directory: desktop/electron
         run: npm run build:backend
@@ -115,6 +123,22 @@ jobs:
               raise SystemExit(f'Missing bundled backend {binary} in {root}')
           print('Packaged backends:', *candidates, sep='\n')
           PY
+      - name: Smoke-test packaged Windows Electron runtime
+        if: matrix.artifact == 'windows'
+        timeout-minutes: 5
+        shell: pwsh
+        run: >-
+          node desktop/ci/smoke-windows.cjs
+          desktop/electron/dist/win-unpacked/SimpleOffice4Me.exe
+          artifacts/windows-start-smoke
+      - name: Upload Windows runtime smoke evidence
+        if: always() && matrix.artifact == 'windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-start-smoke-evidence
+          path: artifacts/windows-start-smoke/
+          if-no-files-found: warn
+          retention-days: 14
       - name: Install pinned CycloneDX CLI and validate the npm SBOM
         shell: bash
         run: |
