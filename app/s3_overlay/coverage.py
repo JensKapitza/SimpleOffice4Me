@@ -59,6 +59,8 @@ PERSISTENCE_COVERAGE = {
     # Auth, credentials, keys, encrypted payloads and recovery material.
     "android_auth": "excluded:authentication factors and device secrets",
     "db": "excluded:account hashes, session state and authorization records",
+    "repository_workspace_store": "excluded:encrypted GitHub tokens, device grants and visitor authentication state must never be projected through generic S3",
+    "repository_workspace_data": "excluded:visitor-scoped private GitHub snapshots are transient authorization-bound cache data, not a generic S3 read model",
     "password_vault": "excluded:encrypted password vault payloads and unlock material",
     "s3_overlay.credentials": "excluded:encrypted S3 signing secrets",
     "s3_overlay.multipart": "excluded:temporary transport staging is not authoritative application data",

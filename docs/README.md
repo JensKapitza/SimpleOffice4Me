@@ -8,6 +8,7 @@
 - [Konfigurationsregister: statische Namen, neue Erläuterungen und Secret-Grenzen](KONFIGURATIONSREGISTER.md)
 - [Dokumentationsprüfung: Funktionen, geschlossene Issues und Secret-Scan](DOKUMENTATIONSPRUEFUNG_3_0.md)
 - [Release Gate: datierte Nachweise und offene externe Abnahmen](V3_RELEASE_GATE.md)
+- [Öffentliche Repository-Arbeitszentrale, GitHub Device Flow und Lesegrenzen](REPOSITORY_ARBEITSZENTRALE.md)
 - [Bestehender MCP-Zugang für ChatGPT und andere Clients](CHATGPT_MCP.md)
 - [Dokumentationslogo und Gestaltung](assets/README.md)
 
