@@ -271,6 +271,19 @@ class RepositoryWorkspaceAuthTests(unittest.TestCase):
                 with app.app_context():
                     self.assertIsNone(store.read(key))
 
+    def test_device_token_exchange_is_scoped_to_simpleoffice_repository(self):
+        self.start()
+        self.now += 5
+        with patch.object(oauth, "post", return_value={"error": "authorization_pending"}) as provider:
+            result = self.post("/auth/poll")
+        self.assertEqual("pending", result.json["status"])
+        provider.assert_called_once_with(oauth.TOKEN_URL, {
+            "client_id": CLIENT_ID,
+            "device_code": DEVICE_CODE,
+            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+            "repository_id": auth.REPOSITORY_ID,
+        })
+
     def test_device_expiry_and_token_expiry_are_local_fail_closed(self):
         self.start()
         self.now += 901
