@@ -241,6 +241,7 @@
     }
     const style = item.style || {};
     document.querySelector('[data-prop="color"]').value = style.color || '#111827';
+    document.querySelector('[data-prop="font_family"]').value = style.font_family || 'Helvetica';
     document.querySelector('[data-prop="font_size"]').value = String(style.font_size || 10);
     for (const button of document.querySelectorAll('[data-format]')) {
       button.classList.toggle('active', Boolean(style[button.dataset.format]));
@@ -423,6 +424,11 @@
   });
   document.querySelector('[data-prop="color"]').addEventListener('input', event => {
     const item = selected(); if (!item) return; item.style.color = event.target.value; renderElements(); commitHistory();
+  });
+  document.querySelector('[data-prop="font_family"]').addEventListener('change', event => {
+    const item = selected(); if (!item) return;
+    item.style.font_family = event.target.value;
+    renderElements(); commitHistory();
   });
   document.querySelector('[data-prop="font_size"]').addEventListener('change', event => {
     const item = selected(); if (!item) return; item.style.font_size = Number(event.target.value); renderElements(); commitHistory();
