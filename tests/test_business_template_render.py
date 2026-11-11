@@ -23,6 +23,7 @@ from app.business_documents import (
     _business_template,
     _business_template_choices,
     _render_invoice_with_template,
+    _render_letter_with_template,
 )
 
 
@@ -142,6 +143,26 @@ class VisualBusinessTemplateRenderTests(unittest.TestCase):
                 self.assertEqual(visual["template_id"], resolved["template_id"])
                 with self.assertRaisesRegex(ValueError, "not valid for letter"):
                     _business_template(root, visual["template_id"], "letter")
+
+    def test_visual_letter_ignores_legacy_cover_flag(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            visual = self._create(root, "letter")
+            with mock.patch(
+                "app.business_template_dispatch.render_visual_letter_pdf",
+                return_value=b"visual-letter",
+            ) as renderer:
+                pdf = _render_letter_with_template(
+                    root,
+                    visual,
+                    recipient="Max Muster",
+                    subject="Betreff",
+                    body="Text",
+                    cover=True,
+                )
+            self.assertEqual(b"visual-letter", pdf)
+            renderer.assert_called_once()
+            self.assertNotIn("cover", renderer.call_args.kwargs)
 
     def test_invoice_dispatch_keeps_legacy_path_and_uses_visual_renderer(self):
         row = sample_invoice()
