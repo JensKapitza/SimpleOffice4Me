@@ -38,8 +38,8 @@
 
   function macroPreviewRuns(text) {
     const source = tokenPreview(text);
-    const tagRe = /\[(\/?)(B|I|U|SIZE|COLOR|ALIGN)(?:=([^\]]+))?\]/gi;
-    let state = {bold:false,italic:false,underline:false,fontSize:null,color:null,align:null};
+    const tagRe = /\[(\/?)(B|I|U|SIZE|FONT|COLOR|ALIGN)(?:=([^\]]+))?\]/gi;
+    let state = {bold:false,italic:false,underline:false,fontSize:null,fontFamily:null,color:null,align:null};
     const stack = [];
     const runs = [];
     let position = 0;
@@ -66,6 +66,9 @@
           const size = Number(argument);
           if (!Number.isFinite(size) || size < 6 || size > 72) throw new Error('invalid size');
           state.fontSize = size;
+        } else if (tag === 'FONT') {
+          if (!['Helvetica','Times-Roman','Courier'].includes(String(argument || ''))) throw new Error('invalid font');
+          state.fontFamily = String(argument);
         } else if (tag === 'COLOR') {
           if (!/^#[0-9a-f]{6}$/i.test(argument || '')) throw new Error('invalid color');
           state.color = argument;
@@ -95,6 +98,7 @@
         span.style.fontStyle = run.italic ? 'italic' : '';
         span.style.textDecoration = run.underline ? 'underline' : '';
         if (run.fontSize) span.style.fontSize = `${run.fontSize}pt`;
+        if (run.fontFamily) span.style.fontFamily = run.fontFamily === 'Times-Roman' ? '"Times New Roman", serif' : run.fontFamily;
         if (run.color) span.style.color = run.color;
         if (run.align) {
           span.style.display = 'block';
