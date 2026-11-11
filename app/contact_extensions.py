@@ -19,7 +19,12 @@ from .auth import login_required
 from .access_control import has_feature
 from .contact_store import ContactStore
 from .contact_management import ContactManagement
-from .business_document_preferences import document_preferences, document_preferences_from_form
+from .business_document_preferences import (
+    company_bank_accounts,
+    document_preferences,
+    document_preferences_from_form,
+    validate_document_preferences,
+)
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
 from .mail_reader import _header, _message_text
@@ -421,24 +426,33 @@ def register(bp) -> None:
         if contact is None: abort(404)
         if not contacts.can_manage_contact(contact, actor): abort(403)
         store = ContactCRMStore(current_app.config["DOCUMENT_ROOT"])
+        root = Path(current_app.config["DOCUMENT_ROOT"])
+        from .business_document_generation import business_settings
+        from .business_template_dispatch import business_template_choices
+        invoice_templates = business_template_choices(root, "invoice")
+        letter_templates = business_template_choices(root, "letter")
+        seller_accounts = company_bank_accounts(business_settings(root))
         if request.method == "POST":
-            values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": _parse_address_rows(request.form.get("addresses", "")), "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)], "document_preferences": document_preferences_from_form(request.form, store.record(contact_id))}
+            current = store.record(contact_id)
+            preferences = validate_document_preferences(
+                document_preferences_from_form(request.form, current),
+                invoice_template_ids={str(row.get("template_id", "")) for row in invoice_templates},
+                letter_template_ids={str(row.get("template_id", "")) for row in letter_templates},
+                bank_account_ids={str(row.get("account_id", "")) for row in seller_accounts},
+            )
+            values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": _parse_address_rows(request.form.get("addresses", "")), "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)], "document_preferences": preferences}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
         crm = store.record(contact_id)
-        from .business_document_generation import business_settings
-        from .business_document_preferences import company_bank_accounts
-        from .business_template_dispatch import business_template_choices
-        root = Path(current_app.config["DOCUMENT_ROOT"])
         return render_template(
             "documents/contact_crm.html",
             contact=contact,
             crm=crm,
             timeline=store.timeline(contact, crm),
             osm_status=index.status(),
-            invoice_templates=business_template_choices(root, "invoice"),
-            letter_templates=business_template_choices(root, "letter"),
-            company_bank_accounts=company_bank_accounts(business_settings(root)),
+            invoice_templates=invoice_templates,
+            letter_templates=letter_templates,
+            company_bank_accounts=seller_accounts,
         )
 
     @bp.post("/documents/contacts/<contact_id>/crm/activity", endpoint="crm_add_activity")
