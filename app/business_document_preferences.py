@@ -202,3 +202,23 @@ def document_preferences_from_form(form, current: Mapping[str, Any]) -> dict[str
         "letter_template_id": str(form.get("letter_template_id", existing["letter_template_id"])).strip(),
         "invoice_bank_account_id": str(form.get("invoice_bank_account_id", existing["invoice_bank_account_id"])).strip().lower(),
     }
+
+
+def validate_document_preferences(
+    preferences: Mapping[str, Any],
+    *,
+    invoice_template_ids: set[str],
+    letter_template_ids: set[str],
+    bank_account_ids: set[str],
+) -> dict[str, str]:
+    clean = document_preferences({"document_preferences": preferences})
+    checks = (
+        ("invoice_template_id", invoice_template_ids, "invoice template"),
+        ("letter_template_id", letter_template_ids, "letter template"),
+        ("invoice_bank_account_id", bank_account_ids, "company bank account"),
+    )
+    for key, allowed, label in checks:
+        value = clean[key]
+        if value and value not in allowed:
+            raise ValueError(f"unknown {label}")
+    return clean
