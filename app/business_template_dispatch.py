@@ -24,10 +24,12 @@ def business_template_choices(root: Path, document_type: str) -> list[dict[str, 
     """
     visual = visual_template_choices(root, document_type)
     visual_active = any(bool(row.get("active")) for row in visual)
-    legacy = [
-        {**row, "active": bool(row.get("active")) and not visual_active}
-        for row in templates(root)
-    ]
+    legacy_source = list(templates(root))
+    legacy = (
+        [{**row, "active": False} for row in legacy_source]
+        if visual_active
+        else legacy_source
+    )
     return legacy + visual
 
 
