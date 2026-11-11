@@ -84,6 +84,27 @@ class BusinessDocumentPreferenceTests(unittest.TestCase):
             reloaded = business_settings(root)
             self.assertEqual([ACCOUNT_1, ACCOUNT_2], [row["account_id"] for row in reloaded["seller_bank_accounts"]])
 
+    def test_legacy_single_bank_fields_can_still_update_existing_settings(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with mock.patch("app.business_document_generation.DocumentStore"):
+                save_business_settings(root, _business_form(), "tester")
+                updated = save_business_settings(
+                    root,
+                    {
+                        "seller_name": "Kapitza GmbH",
+                        "seller_iban": "DE44500105175407324931",
+                        "seller_blz": "50010517",
+                        "seller_bic": "INGDDEFFXXX",
+                        "seller_bank": "Legacy Update Bank",
+                    },
+                    "tester",
+                )
+            self.assertEqual("DE44500105175407324931", updated["seller_iban"])
+            self.assertEqual("Legacy Update Bank", updated["seller_bank"])
+            self.assertEqual(1, len(updated["seller_bank_accounts"]))
+            self.assertEqual("DE44500105175407324931", updated["seller_bank_accounts"][0]["iban"])
+
     def test_explicit_empty_account_editor_removes_all_company_accounts(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
