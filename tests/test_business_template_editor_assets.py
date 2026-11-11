@@ -19,6 +19,7 @@ class BusinessTemplateEditorAssetTests(unittest.TestCase):
             'data-action="layer-up"',
             'data-action="layer-down"',
             "data-element-visible",
+            'data-prop="font_family"',
         ):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.template)
