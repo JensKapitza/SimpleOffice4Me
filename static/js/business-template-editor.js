@@ -14,11 +14,49 @@
   const previewTokens = JSON.parse(previewNode.textContent || '{}');
   let selectedId = null;
   let previewMode = false;
+  let snapGrid = 5;
+  let history = [JSON.stringify(layout)];
+  let historyIndex = 0;
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const round = value => Math.round(value * 100) / 100;
   const byId = id => layout.elements.find(item => item.id === id);
   const makeId = prefix => `${prefix}-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`;
+
+  const snap = value => snapGrid > 0 ? round(Math.round(Number(value) / snapGrid) * snapGrid) : round(Number(value));
+
+  function updateHistoryControls() {
+    const undo = document.querySelector('[data-action="undo"]');
+    const redo = document.querySelector('[data-action="redo"]');
+    if (undo) undo.disabled = historyIndex <= 0;
+    if (redo) redo.disabled = historyIndex >= history.length - 1;
+  }
+
+  function commitHistory() {
+    const snapshot = JSON.stringify(layout);
+    if (history[historyIndex] === snapshot) {
+      updateHistoryControls();
+      return;
+    }
+    history = history.slice(0, historyIndex + 1);
+    history.push(snapshot);
+    if (history.length > 50) history.shift();
+    historyIndex = history.length - 1;
+    updateHistoryControls();
+  }
+
+  function restoreHistory(index) {
+    if (index < 0 || index >= history.length) return;
+    historyIndex = index;
+    layout = JSON.parse(history[historyIndex]);
+    if (selectedId && !byId(selectedId)) selectedId = null;
+    renderRegions();
+    renderElements();
+    updateHistoryControls();
+  }
+
+  function undo() { restoreHistory(historyIndex - 1); }
+  function redo() { restoreHistory(historyIndex + 1); }
 
   function tokenPreview(text) {
     return String(text).replace(/\{\{([a-z0-9_.-]{1,80})\}\}/gi, (match, token) => (
@@ -129,6 +167,9 @@
       node.className = 'template-element';
       node.dataset.elementId = element.id;
       node.dataset.type = element.type;
+      node.tabIndex = 0;
+      node.setAttribute('role', 'button');
+      node.setAttribute('aria-label', `Vorlagenelement ${element.id}`);
       node.style.left = `${mmToPercent(element.x_mm, 'x')}%`;
       node.style.top = `${mmToPercent(element.y_mm, 'y')}%`;
       node.style.width = `${mmToPercent(element.width_mm, 'x')}%`;
@@ -174,7 +215,7 @@
     const props = document.getElementById('element-properties');
     empty.hidden = Boolean(item);
     props.hidden = !item;
-    document.querySelectorAll('[data-format],[data-align],[data-prop],[data-metric],[data-action="delete-element"],[data-action="duplicate-element"]').forEach(control => {
+    document.querySelectorAll('[data-format],[data-align],[data-prop],[data-metric],[data-action="delete-element"],[data-action="duplicate-element"],[data-action="layer-up"],[data-action="layer-down"]').forEach(control => {
       control.disabled = !item;
     });
     if (!item) return;
@@ -184,6 +225,7 @@
     textInput.disabled = ['line','rect','invoice_lines','invoice_totals','body'].includes(item.type);
     document.querySelector('[data-element-region]').value = item.region || 'content';
     document.querySelector('[data-element-locked]').checked = Boolean(item.locked);
+    document.querySelector('[data-element-visible]').checked = item.visible !== false;
     for (const input of document.querySelectorAll('[data-metric]')) {
       input.value = item[input.dataset.metric] ?? '';
     }
@@ -227,6 +269,7 @@
     };
     layout.elements.push(item);
     selectElement(item.id);
+    commitHistory();
   }
 
   function addBasic(type) {
@@ -253,6 +296,7 @@
     };
     layout.elements.push(item);
     selectElement(item.id);
+    commitHistory();
   }
 
   function insertMacro(token) {
@@ -261,6 +305,7 @@
     const text = `{{${token}}}`;
     item.text = `${item.text || ''}${item.text ? ' ' : ''}${text}`.slice(0, 4000);
     renderElements();
+    commitHistory();
   }
 
   layer.addEventListener('pointerdown', event => {
@@ -281,17 +326,18 @@
       const dx = (moveEvent.clientX - start.x) / bounds.width * 210;
       const dy = (moveEvent.clientY - start.y) / bounds.height * 297;
       if (resizing) {
-        item.width_mm = round(clamp(start.w + dx, 1, 210 - item.x_mm));
-        item.height_mm = round(clamp(start.h + dy, 1, 297 - item.y_mm));
+        item.width_mm = clamp(snap(start.w + dx), 1, 210 - item.x_mm);
+        item.height_mm = clamp(snap(start.h + dy), 1, 297 - item.y_mm);
       } else {
-        item.x_mm = round(clamp(start.xMm + dx, 0, 210 - item.width_mm));
-        item.y_mm = round(clamp(start.yMm + dy, 0, 297 - item.height_mm));
+        item.x_mm = clamp(snap(start.xMm + dx), 0, 210 - item.width_mm);
+        item.y_mm = clamp(snap(start.yMm + dy), 0, 297 - item.height_mm);
       }
       renderElements();
     };
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      commitHistory();
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up, {once:true});
@@ -313,17 +359,21 @@
     const align = event.target.closest('[data-align]');
     if (align) {
       const item = selected(); if (!item) return;
-      item.style.align = align.dataset.align; renderElements(); return;
+      item.style.align = align.dataset.align; renderElements(); commitHistory(); return;
     }
     const format = event.target.closest('[data-format]');
     if (format) {
       const item = selected(); if (!item) return;
       const key = format.dataset.format;
-      item.style[key] = !item.style[key]; renderElements(); return;
+      item.style[key] = !item.style[key]; renderElements(); commitHistory(); return;
     }
     const action = event.target.closest('[data-action]');
     if (!action) return;
-    if (action.dataset.action === 'toggle-preview') {
+    if (action.dataset.action === 'undo') {
+      undo();
+    } else if (action.dataset.action === 'redo') {
+      redo();
+    } else if (action.dataset.action === 'toggle-preview') {
       previewMode = !previewMode;
       canvas.classList.toggle('template-preview-mode', previewMode);
       action.classList.toggle('active', previewMode);
@@ -331,7 +381,7 @@
     } else if (action.dataset.action === 'delete-element') {
       if (!selectedId) return;
       layout.elements = layout.elements.filter(row => row.id !== selectedId);
-      selectedId = null; renderElements();
+      selectedId = null; renderElements(); commitHistory();
     } else if (action.dataset.action === 'duplicate-element') {
       const item = selected(); if (!item) return;
       const clone = structuredClone(item);
@@ -339,24 +389,33 @@
       clone.x_mm = round(clamp(Number(clone.x_mm) + 4, 0, 210 - Number(clone.width_mm)));
       clone.y_mm = round(clamp(Number(clone.y_mm) + 4, 0, 297 - Number(clone.height_mm)));
       clone.z_index = Math.max(1, ...layout.elements.map(row => Number(row.z_index || 1))) + 1;
-      layout.elements.push(clone); selectElement(clone.id);
+      layout.elements.push(clone); selectElement(clone.id); commitHistory();
+    } else if (action.dataset.action === 'layer-up' || action.dataset.action === 'layer-down') {
+      const item = selected(); if (!item) return;
+      const delta = action.dataset.action === 'layer-up' ? 1 : -1;
+      item.z_index = clamp(Number(item.z_index || 1) + delta, 0, 999);
+      renderElements(); commitHistory();
     } else if (action.dataset.action === 'insert-macro') {
       insertMacro(document.getElementById('macro-token').value);
     }
   });
 
   document.querySelector('[data-element-text]').addEventListener('input', event => setElementText(event.target.value));
+  document.querySelector('[data-element-text]').addEventListener('change', () => commitHistory());
   document.querySelector('[data-element-region]').addEventListener('change', event => {
-    const item = selected(); if (!item) return; item.region = event.target.value; renderElements();
+    const item = selected(); if (!item) return; item.region = event.target.value; renderElements(); commitHistory();
   });
   document.querySelector('[data-element-locked]').addEventListener('change', event => {
-    const item = selected(); if (!item) return; item.locked = event.target.checked; renderElements();
+    const item = selected(); if (!item) return; item.locked = event.target.checked; renderElements(); commitHistory();
+  });
+  document.querySelector('[data-element-visible]').addEventListener('change', event => {
+    const item = selected(); if (!item) return; item.visible = event.target.checked; renderElements(); commitHistory();
   });
   document.querySelector('[data-prop="color"]').addEventListener('input', event => {
-    const item = selected(); if (!item) return; item.style.color = event.target.value; renderElements();
+    const item = selected(); if (!item) return; item.style.color = event.target.value; renderElements(); commitHistory();
   });
   document.querySelector('[data-prop="font_size"]').addEventListener('change', event => {
-    const item = selected(); if (!item) return; item.style.font_size = Number(event.target.value); renderElements();
+    const item = selected(); if (!item) return; item.style.font_size = Number(event.target.value); renderElements(); commitHistory();
   });
   for (const input of document.querySelectorAll('[data-metric]')) {
     input.addEventListener('change', event => {
@@ -366,14 +425,14 @@
       item[key] = round(clamp(Number(event.target.value || 0), key.includes('width') || key.includes('height') ? 1 : 0, max));
       if (item.x_mm + item.width_mm > 210) item.x_mm = round(210 - item.width_mm);
       if (item.y_mm + item.height_mm > 297) item.y_mm = round(297 - item.height_mm);
-      renderElements();
+      renderElements(); commitHistory();
     });
   }
   for (const input of document.querySelectorAll('[data-region-enabled]')) {
     input.addEventListener('change', event => {
       const region = event.target.dataset.regionEnabled;
       layout.regions[region].enabled = event.target.checked;
-      renderRegions(); syncHidden();
+      renderRegions(); syncHidden(); commitHistory();
     });
   }
   for (const input of document.querySelectorAll('[data-free-text]')) {
@@ -384,9 +443,50 @@
       syncHidden();
       if (previewMode) renderElements();
     });
+    input.addEventListener('change', () => commitHistory());
   }
+
+  const snapSelect = document.querySelector('[data-snap-grid]');
+  if (snapSelect) {
+    snapGrid = Number(snapSelect.value || 0);
+    canvas.classList.toggle('snap-grid', snapGrid > 0);
+    snapSelect.addEventListener('change', () => {
+      snapGrid = Number(snapSelect.value || 0);
+      canvas.classList.toggle('snap-grid', snapGrid > 0);
+    });
+  }
+
+  document.addEventListener('keydown', event => {
+    const target = event.target;
+    const editing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') {
+      event.preventDefault();
+      if (event.shiftKey) redo(); else undo();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'y') {
+      event.preventDefault(); redo(); return;
+    }
+    if (editing) return;
+    const item = selected();
+    if (!item) return;
+    if ((event.key === 'Delete' || event.key === 'Backspace') && !item.locked) {
+      event.preventDefault();
+      layout.elements = layout.elements.filter(row => row.id !== selectedId);
+      selectedId = null; renderElements(); commitHistory(); return;
+    }
+    if (!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(event.key) || item.locked) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 5 : 1;
+    if (event.key === 'ArrowLeft') item.x_mm = round(clamp(Number(item.x_mm) - step, 0, 210 - Number(item.width_mm)));
+    if (event.key === 'ArrowRight') item.x_mm = round(clamp(Number(item.x_mm) + step, 0, 210 - Number(item.width_mm)));
+    if (event.key === 'ArrowUp') item.y_mm = round(clamp(Number(item.y_mm) - step, 0, 297 - Number(item.height_mm)));
+    if (event.key === 'ArrowDown') item.y_mm = round(clamp(Number(item.y_mm) + step, 0, 297 - Number(item.height_mm)));
+    renderElements(); commitHistory();
+  });
 
   form.addEventListener('submit', () => syncHidden());
   renderRegions();
   renderElements();
+  updateHistoryControls();
 })();
