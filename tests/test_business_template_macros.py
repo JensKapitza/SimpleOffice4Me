@@ -47,12 +47,13 @@ class BusinessTemplateMacroTests(unittest.TestCase):
 
     def test_size_alignment_italic_and_underline_are_parsed(self):
         runs = rich_text_runs(
-            "[ALIGN=center][SIZE=12][I][U]Text[/U][/I][/SIZE][/ALIGN]"
+            "[ALIGN=center][FONT=Courier][SIZE=12][I][U]Text[/U][/I][/SIZE][/FONT][/ALIGN]"
         )
         self.assertEqual(1, len(runs))
         self.assertEqual("Text", runs[0]["text"])
         self.assertEqual("center", runs[0]["align"])
         self.assertEqual(12.0, runs[0]["font_size"])
+        self.assertEqual("Courier", runs[0]["font_family"])
         self.assertTrue(runs[0]["italic"])
         self.assertTrue(runs[0]["underline"])
 
@@ -61,6 +62,7 @@ class BusinessTemplateMacroTests(unittest.TestCase):
             "[SIZE=99]Text[/SIZE]",
             "[COLOR=red]Text[/COLOR]",
             "[ALIGN=middle]Text[/ALIGN]",
+            "[FONT=Comic Sans]Text[/FONT]",
             "[B]Text[/I]",
             "[B]Text",
             "[B=x]Text[/B]",

@@ -11,9 +11,10 @@ from typing import Any, Mapping
 MAX_MACRO_TEXT = 10_000
 MAX_MACRO_NESTING = 16
 TOKEN_RE = re.compile(r"\{\{([a-z0-9_.-]{1,80})\}\}", re.IGNORECASE)
-TAG_RE = re.compile(r"\[(/?)(B|I|U|SIZE|COLOR|ALIGN)(?:=([^\]]+))?\]", re.IGNORECASE)
+TAG_RE = re.compile(r"\[(/?)(B|I|U|SIZE|FONT|COLOR|ALIGN)(?:=([^\]]+))?\]", re.IGNORECASE)
 COLOR_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 ALIGNMENTS = {"left", "center", "right", "justify"}
+FONT_FAMILIES = {"Helvetica", "Times-Roman", "Courier"}
 
 
 class MacroSyntaxError(ValueError):
@@ -58,6 +59,7 @@ def _default_style() -> dict[str, Any]:
         "italic": False,
         "underline": False,
         "font_size": None,
+        "font_family": None,
         "color": None,
         "align": None,
     }
@@ -86,6 +88,11 @@ def _open_tag(style: dict[str, Any], tag: str, argument: str | None) -> None:
         if not 6 <= size <= 72:
             raise MacroSyntaxError("SIZE must be between 6 and 72")
         style["font_size"] = round(size, 2)
+    elif tag == "FONT":
+        family = str(argument or "")
+        if family not in FONT_FAMILIES:
+            raise MacroSyntaxError("FONT must be Helvetica, Times-Roman or Courier")
+        style["font_family"] = family
     elif tag == "COLOR":
         color = str(argument or "")
         if not COLOR_RE.fullmatch(color):
