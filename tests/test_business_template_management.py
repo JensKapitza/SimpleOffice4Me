@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest import mock
 
 from PIL import Image
+from app.business_document_generation import business_settings, save_business_settings
 from app.business_template_editor import (
     active_visual_template,
     create_visual_template,
@@ -29,6 +30,24 @@ class VisualTemplateManagementTests(unittest.TestCase):
             return create_visual_template(
                 root, {"name": name, "document_type": document_type}, "tester"
             )
+
+    def test_business_master_data_persists_bank_code(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with mock.patch("app.business_document_generation.DocumentStore"):
+                saved = save_business_settings(
+                    root,
+                    {
+                        "seller_name": "Kapitza Test GmbH",
+                        "seller_blz": "35050000",
+                        "seller_iban": "DE123",
+                        "seller_bic": "DUISDE33XXX",
+                        "seller_bank": "Testbank",
+                    },
+                    "tester",
+                )
+            self.assertEqual("35050000", saved["seller_blz"])
+            self.assertEqual("35050000", business_settings(root)["seller_blz"])
 
     def test_create_and_save_write_version_snapshots(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -122,6 +141,23 @@ class VisualTemplateManagementTests(unittest.TestCase):
         target = io.BytesIO()
         Image.new("RGBA", (24, 12), (20, 90, 180, 255)).save(target, format="PNG")
         return target.getvalue()
+
+    def test_invoice_pdf_resolves_bank_code_token(self):
+        from app.business_template_render import render_visual_invoice_pdf, sample_invoice
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            row = self._create(root, "Rechnung mit BLZ")
+            invoice = sample_invoice()
+            invoice["seller"]["blz"] = "35050000"
+            text = "\n".join(
+                page.extract_text() or ""
+                for page in __import__("pypdf").PdfReader(
+                    io.BytesIO(render_visual_invoice_pdf(root, row["template_id"], invoice))
+                ).pages
+            )
+            self.assertIn("BLZ", text)
+            self.assertIn("35050000", text)
 
     def test_image_asset_is_normalized_exported_imported_and_renderable(self):
         from app.business_template_render import render_visual_invoice_pdf, sample_invoice
