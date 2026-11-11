@@ -115,7 +115,7 @@ Serverseitig werden A4-Grenzen, Elementanzahl, Textlängen, Farben, Schriften un
 - `{{datum.heute}}`
 - `{{freitext1}}`, `{{freitext2}}`, `{{freitext3}}`
 
-Die aktuelle Editor-Vorschau ersetzt ausschließlich bekannte Tokens als Text. Es wird kein HTML, Python, JavaScript oder Shell-Code ausgeführt.
+Die Editor-Vorschau und der PDF-Renderer lösen ausschließlich bekannte Tokens und die whitelist-basierte Formatsprache auf. Es wird kein HTML, Python, JavaScript oder Shell-Code ausgeführt.
 
 ## Editorbedienung
 
@@ -138,30 +138,55 @@ Die aktuelle Editor-Vorschau ersetzt ausschließlich bekannte Tokens als Text. E
 
 Die farbigen Bereiche dienen nur als Editorhilfe und werden nicht Bestandteil eines späteren PDF-Exports.
 
-## Geplante Folgeschritte
+## Implementierter Funktionsumfang im PR-Stack
 
 ### #1003 Makrosprache
 
-Whitelist-Parser für:
+Implementiert:
 
-- `[B]...[/B]`
-- `[I]...[/I]`
-- `[U]...[/U]`
-- `[SIZE=...]`
+- `[B]...[/B]`, `[I]...[/I]`, `[U]...[/U]`
+- `[SIZE=6..72]`
 - `[COLOR=#RRGGBB]`
-- `[ALIGN=...]`
+- `[ALIGN=left|center|right|justify]`
+- verschachtelte Tokenauflösung mit Zyklus-/Tiefenlimit
+- identische sichere Vorschau ohne `innerHTML`
 
 ### #1004 Rendering
 
-Ein gemeinsamer Render-Service übersetzt dasselbe JSON-Layout in Vorschau und finales PDF. Die bestehende ZUGFeRD-/PDF-A-Pipeline bleibt maßgeblich.
+Implementiert:
+
+- gemeinsamer A4/mm-Renderer mit ReportLab
+- dynamische Rechnungspositionen und Summen
+- automatische Mehrseitenaufteilung
+- Dokumenttext für Brief/Angebot/Lieferschein
+- PDF-Vorschau aus dem Editor
+- Auswahl visueller Vorlagen im bestehenden Rechnungs- und Briefworkflow
+- Legacy-Dispatcher; PDF/A/ZUGFeRD bleiben hinter dem visuellen Renderer erhalten
 
 ### #1005 Editor UX
 
-Raster/Snap, Undo/Redo, Ebenen und erweiterte Tastaturbedienung.
+Implementiert:
 
-### #1006 Verwaltung
+- Drag/Resize plus numerische mm-Eingabe
+- Snap-Raster aus/1/2/5 mm
+- Undo/Redo (50 Zustände)
+- Ebenensteuerung
+- Sichtbarkeit und Positionssperre
+- Pfeiltasten, Shift+Pfeil, Entf, Strg/Cmd+Z/Y
+- fokussierbare Canvas-Elemente
 
-Versionen/Snapshots, Import/Export, Aktivierung je Dokumenttyp und Wiederherstellung.
+### #1006 Verwaltung und Assets
+
+Implementiert:
+
+- versionierte Snapshots und Restore als neue Version
+- aktive visuelle Vorlage je Dokumenttyp
+- JSON-Export/Import mit Schema-Version
+- Audit-Ereignisse
+- sichere PNG/JPEG-Logo-/Bildassets
+- Bilddekodierung/Normalisierung mit Pillow
+- 750-KB-Einzellimit und 3-MB-Gesamtlimit
+- Bildassets werden bei Duplikat sowie Export/Import mitgeführt
 
 ## Kompatibilitätsregel
 
