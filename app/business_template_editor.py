@@ -656,7 +656,7 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
             io.BytesIO(payload.encode("utf-8")),
             mimetype="application/json",
             as_attachment=True,
-            download_name=f"{row['name']}.simpleoffice-template.json",
+            download_name=f"template-{template_id}.simpleoffice-template.json",
         )
 
     @bp.post("/templates/editor/<template_id>/activate")
@@ -720,7 +720,7 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
                 )
             return send_file(
                 io.BytesIO(pdf), mimetype="application/pdf", as_attachment=False,
-                download_name=f"{row['name']}-Vorschau.pdf",
+                download_name=f"template-{template_id}-preview.pdf",
             )
         except ValueError:
             abort(409)
