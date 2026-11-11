@@ -43,6 +43,10 @@ class BusinessTemplateEditorAssetTests(unittest.TestCase):
         self.assertIn("document.createTextNode", self.script)
         self.assertIn("span.textContent = run.text", self.script)
 
+    def test_image_upload_sends_csrf_header(self):
+        self.assertIn('meta[name="csrf-token"]', self.script)
+        self.assertIn("'X-CSRF-Token': csrf", self.script)
+
     def test_canvas_has_visible_grid_and_keyboard_focus_styles(self):
         self.assertIn(".template-canvas.snap-grid", self.styles)
         self.assertIn(".template-element:focus-visible", self.styles)
