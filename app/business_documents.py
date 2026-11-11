@@ -14,7 +14,8 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
-from .business_template_editor import register_template_editor_routes
+from .business_template_editor import register_template_editor_routes, visual_template, visual_template_choices
+from .business_template_render import render_visual_invoice_pdf, render_visual_letter_pdf
 from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
@@ -40,6 +41,55 @@ from .v2.storage_runtime import result_or_raise, storage_for
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 register_invoice_relation_routes(bp)
 register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings)
+
+
+def _business_template_choices(root: Path, document_type: str) -> list[dict[str, Any]]:
+    """Combine legacy corporate backgrounds with compatible visual templates."""
+    return list(templates(root)) + visual_template_choices(root, document_type)
+
+
+def _business_template(root: Path, template_id: str, document_type: str) -> dict[str, Any]:
+    """Resolve an explicit legacy or visual template and enforce its document type."""
+    template_id = str(template_id or "").strip()
+    if not template_id:
+        return active_template(root)
+    try:
+        return active_template(root, template_id)
+    except ValueError as legacy_error:
+        try:
+            row, _layout = visual_template(root, template_id)
+        except ValueError:
+            raise legacy_error
+        if row.get("document_type") != document_type:
+            raise ValueError(f"visual template is not valid for {document_type}")
+        return row
+
+
+def _render_invoice_with_template(root: Path, template_row: dict[str, Any], row: dict[str, Any]) -> bytes:
+    if template_row.get("source") == "visual":
+        return render_visual_invoice_pdf(root, template_row["template_id"], row)
+    return _merge_content_with_template(root, template_row, _invoice_content_pdf(row))
+
+
+def _render_letter_with_template(
+    root: Path,
+    template_row: dict[str, Any],
+    *,
+    recipient: str,
+    subject: str,
+    body: str,
+    cover: bool = False,
+) -> bytes:
+    if template_row.get("source") == "visual":
+        if cover:
+            raise ValueError("visual letter templates do not use the legacy cover-page option")
+        return render_visual_letter_pdf(
+            root, template_row["template_id"],
+            business=business_settings(root), recipient=recipient, subject=subject, body=body,
+        )
+    return render_business_pdf(
+        root, template_row, recipient=recipient, subject=subject, markdown=body, cover=cover,
+    )
 
 
 def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
@@ -368,7 +418,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     available_credit = max(Decimal("0"), Decimal(CustomerCreditLedger(root).account(contact_id, row["currency"])["balance"]))
     planned_credit = min(Decimal(totals["gross"]), available_credit).quantize(MONEY)
     row["settlement"] = {"customer_credit": f"{planned_credit:.2f}", "bank_due": f"{(Decimal(totals['gross']) - planned_credit).quantize(MONEY):.2f}"}
-    tpl=active_template(root,row["template_id"]); row["template_id"]=tpl["template_id"]
+    tpl=_business_template(root,row["template_id"],"invoice"); row["template_id"]=tpl["template_id"]
     row["history"].append({"type":"draft_updated" if existing else "draft_created","at":now,"actor":actor})
     return row
 
@@ -418,7 +468,7 @@ def _draft_watermark(pdf: bytes) -> bytes:
 
 def draft_invoice_pdf(root: Path, row: dict[str, Any]) -> bytes:
     if row.get("status") != "draft": raise ValueError("invoice is not a draft")
-    tpl=active_template(root,row.get("template_id","")); visual=_merge_content_with_template(root,tpl,_invoice_content_pdf(row)); return _draft_watermark(visual)
+    tpl=_business_template(root,row.get("template_id",""),"invoice"); visual=_render_invoice_with_template(root,tpl,row); return _draft_watermark(visual)
 
 
 def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
@@ -455,9 +505,8 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         number = row.get("invoice_number", ""); number = timed("invoice_number_assign", lambda: _invoice_number(root)) if not number or number.startswith("DRAFT-") else number
         row["invoice_number"] = number; row["history"].append({"type": "number_assigned", "at": utc_now(), "actor": actor, "invoice_number": number})
         try:
-            tpl = timed("template_load", lambda: active_template(root, row["template_id"]))
-            content_pdf = timed("content_pdf_render", lambda: _invoice_content_pdf(row))
-            visual = timed("template_pdf_render", lambda: _merge_content_with_template(root, tpl, content_pdf))
+            tpl = timed("template_load", lambda: _business_template(root, row["template_id"], "invoice"))
+            visual = timed("template_pdf_render", lambda: _render_invoice_with_template(root, tpl, row))
             output_pdf = visual
             technical_status = "pdf_only"
             row["zugferd"]["status"] = "pdf_only"
@@ -576,9 +625,9 @@ def contact_letter(contact_id:str):
     if request.method=="POST" and request.form.get("body","").strip():
         try:
             if not address:raise ValueError("recipient address is required")
-            tpl=active_template(root,request.form.get("template_id",""));subject=request.form.get("subject","").strip();pdf=render_business_pdf(root,tpl,recipient=address,subject=subject,markdown=request.form.get("body","").strip(),cover=request.form.get("cover")=="1");document=_store_generated_pdf(root,contact_id,subject or "Brief",pdf,actor,"letter",tpl["template_id"]);flash("Brief erzeugt und mit dem CRM-Kontakt verknüpft.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
+            tpl=_business_template(root,request.form.get("template_id",""),"letter");subject=request.form.get("subject","").strip();pdf=_render_letter_with_template(root,tpl,recipient=address,subject=subject,body=request.form.get("body","").strip(),cover=request.form.get("cover")=="1");document=_store_generated_pdf(root,contact_id,subject or "Brief",pdf,actor,"letter",tpl["template_id"]);flash("Brief erzeugt und mit dem CRM-Kontakt verknüpft.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
         except ValueError as exc:flash(str(exc))
-    return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=templates(root),links=contact_links(root,contact_id))
+    return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=_business_template_choices(root,"letter"),links=contact_links(root,contact_id))
 
 def _invoice_task(root: Path, task_id: str, actor: str, contact_id: str, *, required: bool = True):
     if not task_id:
@@ -651,7 +700,7 @@ def contact_invoice(contact_id:str):
     )
     return render_template(
         "documents/contact_invoice.html", contact=contact, crm=crm, address=address,
-        addresses=addresses, templates=templates(root), business=settings,
+        addresses=addresses, templates=_business_template_choices(root,"invoice"), business=settings,
         payment_days=payment_days,
         issue_date=draft.get("issue_date", date.today().isoformat()) if draft else date.today().isoformat(),
         service_date=draft.get("service_date", date.today().isoformat()) if draft else date.today().isoformat(),
