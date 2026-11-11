@@ -267,13 +267,13 @@
     renderElements();
   }
 
-  function addToken(token) {
+  function addToken(token, position = null) {
     const item = {
       id: makeId('token'),
       type: 'token',
       region: 'content',
-      x_mm: 20,
-      y_mm: 110 + (layout.elements.length % 8) * 10,
+      x_mm: position?.x ?? 20,
+      y_mm: position?.y ?? (110 + (layout.elements.length % 8) * 10),
       width_mm: 80,
       height_mm: 9,
       text: `{{${token}}}`,
@@ -287,7 +287,7 @@
     commitHistory();
   }
 
-  function addBasic(type) {
+  function addBasic(type, position = null) {
     const isLine = type === 'line';
     const dynamicSizes = {
       invoice_lines: {width:174, height:68},
@@ -299,8 +299,8 @@
       id: makeId(type),
       type,
       region: 'content',
-      x_mm: dynamic ? 18 : 25,
-      y_mm: 120 + (layout.elements.length % 8) * 8,
+      x_mm: position?.x ?? (dynamic ? 18 : 25),
+      y_mm: position?.y ?? (120 + (layout.elements.length % 8) * 8),
       width_mm: dynamic ? dynamic.width : (type === 'rect' ? 55 : 80),
       height_mm: dynamic ? dynamic.height : (isLine ? 1 : (type === 'rect' ? 18 : 10)),
       text: type === 'text' ? 'Text' : '',
@@ -322,6 +322,42 @@
     renderElements();
     commitHistory();
   }
+
+  for (const paletteItem of document.querySelectorAll('[data-add-token],[data-add-element]')) {
+    paletteItem.draggable = true;
+    paletteItem.addEventListener('dragstart', event => {
+      const payload = paletteItem.dataset.addToken
+        ? {kind: 'token', value: paletteItem.dataset.addToken}
+        : {kind: 'element', value: paletteItem.dataset.addElement};
+      event.dataTransfer?.setData('application/x-simpleoffice-template-element', JSON.stringify(payload));
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'copy';
+    });
+  }
+
+  canvas.addEventListener('dragover', event => {
+    if (!event.dataTransfer?.types.includes('application/x-simpleoffice-template-element')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+
+  canvas.addEventListener('drop', event => {
+    const raw = event.dataTransfer?.getData('application/x-simpleoffice-template-element');
+    if (!raw) return;
+    event.preventDefault();
+    let payload;
+    try {
+      payload = JSON.parse(raw);
+    } catch (_error) {
+      return;
+    }
+    const bounds = canvas.getBoundingClientRect();
+    const position = {
+      x: snap(clamp((event.clientX - bounds.left) / bounds.width * 210, 0, 209)),
+      y: snap(clamp((event.clientY - bounds.top) / bounds.height * 297, 0, 296)),
+    };
+    if (payload.kind === 'token') addToken(String(payload.value || ''), position);
+    if (payload.kind === 'element') addBasic(String(payload.value || ''), position);
+  });
 
   layer.addEventListener('pointerdown', event => {
     const node = event.target.closest('.template-element');
