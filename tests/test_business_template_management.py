@@ -214,7 +214,7 @@ class VisualTemplateManagementTests(unittest.TestCase):
                 set_active_visual_template(root, visual["template_id"], "tester")
 
             legacy = {"template_id": "legacy", "name": "Legacy", "active": True}
-            with mock.patch("app.business_documents.templates", return_value=[legacy]):
+            with mock.patch("app.business_template_dispatch.templates", return_value=[legacy]):
                 choices = _business_template_choices(root, "invoice")
 
             self.assertFalse(choices[0]["active"])
