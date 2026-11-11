@@ -145,7 +145,18 @@
       node.classList.toggle('is-selected', selectedId === element.id);
       node.classList.toggle('is-locked', Boolean(element.locked));
       node.classList.toggle('is-hidden', element.visible === false);
-      if (!['line', 'rect'].includes(element.type)) renderElementText(node, element.text || '');
+      if (element.type === 'invoice_lines') {
+        node.classList.add('dynamic-template-element');
+        node.textContent = 'Rechnungspositionen / Tabelle';
+      } else if (element.type === 'invoice_totals') {
+        node.classList.add('dynamic-template-element');
+        node.textContent = 'Summen / Gesamtbetrag';
+      } else if (element.type === 'body') {
+        node.classList.add('dynamic-template-element');
+        node.textContent = 'Dokumenttext / Fließtext';
+      } else if (!['line', 'rect'].includes(element.type)) {
+        renderElementText(node, element.text || '');
+      }
 
       const handle = document.createElement('span');
       handle.className = 'resize-handle';
@@ -168,7 +179,9 @@
     });
     if (!item) return;
 
-    document.querySelector('[data-element-text]').value = item.text || '';
+    const textInput = document.querySelector('[data-element-text]');
+    textInput.value = item.text || '';
+    textInput.disabled = ['line','rect','invoice_lines','invoice_totals','body'].includes(item.type);
     document.querySelector('[data-element-region]').value = item.region || 'content';
     document.querySelector('[data-element-locked]').checked = Boolean(item.locked);
     for (const input of document.querySelectorAll('[data-metric]')) {
@@ -218,14 +231,20 @@
 
   function addBasic(type) {
     const isLine = type === 'line';
+    const dynamicSizes = {
+      invoice_lines: {width:174, height:68},
+      invoice_totals: {width:80, height:30},
+      body: {width:174, height:110},
+    };
+    const dynamic = dynamicSizes[type];
     const item = {
       id: makeId(type),
       type,
       region: 'content',
-      x_mm: 25,
+      x_mm: dynamic ? 18 : 25,
       y_mm: 120 + (layout.elements.length % 8) * 8,
-      width_mm: type === 'rect' ? 55 : 80,
-      height_mm: isLine ? 1 : (type === 'rect' ? 18 : 10),
+      width_mm: dynamic ? dynamic.width : (type === 'rect' ? 55 : 80),
+      height_mm: dynamic ? dynamic.height : (isLine ? 1 : (type === 'rect' ? 18 : 10)),
       text: type === 'text' ? 'Text' : '',
       style: {font_size:10,font_family:'Helvetica',bold:false,italic:false,underline:false,color:'#111827',align:'left'},
       z_index: Math.max(1, ...layout.elements.map(row => Number(row.z_index || 1))) + 1,
