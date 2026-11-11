@@ -255,8 +255,9 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
         settings[key] = str(values.get(key, settings.get(key, ""))).strip()
     settings["seller_bank_accounts"] = bank_accounts_from_form(values, settings)
     if not settings["seller_bank_accounts"]:
+        explicit_accounts = str(values.get("bank_accounts_present", "")).strip() == "1"
         for key in ("seller_iban", "seller_blz", "seller_bic", "seller_bank"):
-            settings[key] = str(values.get(key, settings.get(key, ""))).strip()
+            settings[key] = "" if explicit_accounts else str(values.get(key, settings.get(key, ""))).strip()
     apply_default_bank_legacy_fields(settings)
     try: days = int(str(values.get("default_payment_days", settings.get("default_payment_days", "14"))).strip())
     except ValueError as exc: raise ValueError("default payment days must be an integer") from exc
