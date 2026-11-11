@@ -32,8 +32,9 @@ VISUAL_TEMPLATE_INDEX = "visual-templates.json"
 VISUAL_TEMPLATE_STATE = "visual-template-state.json"
 VISUAL_TEMPLATE_SCHEMA = 1
 VISUAL_TEMPLATE_EXPORT_SCHEMA = 1
-MAX_TEMPLATE_IMPORT_BYTES = 2_000_000
+MAX_TEMPLATE_IMPORT_BYTES = 5_000_000
 MAX_TEMPLATE_IMAGE_BYTES = 750_000
+MAX_TEMPLATE_ASSET_TOTAL_BYTES = 3_000_000
 MAX_TEMPLATE_IMAGE_PIXELS = 20_000_000
 DOCUMENT_TYPES = {"invoice", "quote", "delivery_note", "letter"}
 REGIONS = {"header", "content", "footer", "margin_left", "margin_right"}
@@ -475,6 +476,7 @@ def export_visual_template(root: Path, template_id: str) -> dict[str, Any]:
         for key in ("name", "document_type", "language", "schema_version")
     }
     assets: dict[str, str] = {}
+    asset_total = 0
     for element in layout.get("elements", []):
         if element.get("type") != "image":
             continue
@@ -482,7 +484,11 @@ def export_visual_template(root: Path, template_id: str) -> dict[str, Any]:
         path = visual_template_asset_path(root, template_id, asset)
         if not path.is_file():
             raise ValueError("template image asset is missing")
-        assets[asset] = base64.b64encode(path.read_bytes()).decode("ascii")
+        raw = path.read_bytes()
+        asset_total += len(raw)
+        if asset_total > MAX_TEMPLATE_ASSET_TOTAL_BYTES:
+            raise ValueError("template image assets exceed the 3 MB total limit")
+        assets[asset] = base64.b64encode(raw).decode("ascii")
     return {
         "export_schema": VISUAL_TEMPLATE_EXPORT_SCHEMA,
         "metadata": metadata,
@@ -545,9 +551,17 @@ def save_visual_template(
     actor: str,
 ) -> dict[str, Any]:
     normalized = validate_visual_layout(layout)
-    for element in normalized["elements"]:
-        if element["type"] == "image" and not visual_template_asset_path(root, template_id, element["asset"]).is_file():
+    referenced_assets = {
+        element["asset"] for element in normalized["elements"] if element["type"] == "image"
+    }
+    asset_total = 0
+    for asset in referenced_assets:
+        asset_path = visual_template_asset_path(root, template_id, asset)
+        if not asset_path.is_file():
             raise ValueError("template image asset is missing")
+        asset_total += asset_path.stat().st_size
+    if asset_total > MAX_TEMPLATE_ASSET_TOTAL_BYTES:
+        raise ValueError("template image assets exceed the 3 MB total limit")
     directory = _directory(root)
     lock = directory / ".visual-templates-write.lock"
     with exclusive_file_lock(lock):
@@ -611,6 +625,7 @@ def import_visual_template(root: Path, payload: Any, actor: str) -> dict[str, An
     if set(assets) != referenced:
         raise ValueError("visual template asset manifest does not match image elements")
     decoded_assets: dict[str, bytes] = {}
+    asset_total = 0
     for asset, encoded in assets.items():
         if not ASSET_NAME.fullmatch(str(asset)) or not isinstance(encoded, str):
             raise ValueError("visual template asset manifest is invalid")
@@ -618,7 +633,11 @@ def import_visual_template(root: Path, payload: Any, actor: str) -> dict[str, An
             raw = base64.b64decode(encoded, validate=True)
         except (ValueError, TypeError) as exc:
             raise ValueError("visual template asset encoding is invalid") from exc
-        decoded_assets[str(asset)] = _normalized_template_image(raw)
+        normalized_asset = _normalized_template_image(raw)
+        asset_total += len(normalized_asset)
+        if asset_total > MAX_TEMPLATE_ASSET_TOTAL_BYTES:
+            raise ValueError("visual template assets exceed the 3 MB total limit")
+        decoded_assets[str(asset)] = normalized_asset
     row = create_visual_template(
         root,
         {"name": name, "document_type": document_type, "language": language},
