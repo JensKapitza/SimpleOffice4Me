@@ -6,16 +6,21 @@ backwards compatible until visual layouts are connected to PDF generation.
 """
 from __future__ import annotations
 
+import base64
 import copy
 import io
 import json
+import os
 import re
+import tempfile
 import uuid
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from flask import abort, flash, g, redirect, render_template, request, send_file, url_for
+from PIL import Image, UnidentifiedImageError
+
+from flask import abort, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 
 from .auth import login_required
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
@@ -27,13 +32,16 @@ VISUAL_TEMPLATE_INDEX = "visual-templates.json"
 VISUAL_TEMPLATE_STATE = "visual-template-state.json"
 VISUAL_TEMPLATE_SCHEMA = 1
 VISUAL_TEMPLATE_EXPORT_SCHEMA = 1
-MAX_TEMPLATE_IMPORT_BYTES = 1_000_000
+MAX_TEMPLATE_IMPORT_BYTES = 2_000_000
+MAX_TEMPLATE_IMAGE_BYTES = 750_000
+MAX_TEMPLATE_IMAGE_PIXELS = 20_000_000
 DOCUMENT_TYPES = {"invoice", "quote", "delivery_note", "letter"}
 REGIONS = {"header", "content", "footer", "margin_left", "margin_right"}
-ELEMENT_TYPES = {"text", "token", "line", "rect", "invoice_lines", "invoice_totals", "body"}
+ELEMENT_TYPES = {"text", "token", "line", "rect", "image", "invoice_lines", "invoice_totals", "body"}
 ALIGNMENTS = {"left", "center", "right", "justify"}
 HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 TOKEN_PATTERN = re.compile(r"\{\{[a-z0-9_.-]{1,80}\}\}", re.IGNORECASE)
+ASSET_NAME = re.compile(r"^[0-9a-f-]{36}\.png$")
 MAX_ELEMENTS = 160
 MAX_TEXT = 4000
 
@@ -95,6 +103,56 @@ def _layout_path(root: Path, template_id: str) -> Path:
         raise ValueError("invalid visual template identifier")
     return _directory(root) / f"{template_id}.json"
 
+def visual_template_asset_path(root: Path, template_id: str, asset: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f-]{36}", template_id):
+        raise ValueError("invalid visual template identifier")
+    if not ASSET_NAME.fullmatch(str(asset)):
+        raise ValueError("invalid visual template asset")
+    directory = _directory(root) / "assets" / template_id
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / str(asset)
+
+
+def _atomic_bytes(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def store_visual_template_asset(root: Path, template_id: str, raw: bytes) -> str:
+    if not raw or len(raw) > MAX_TEMPLATE_IMAGE_BYTES:
+        raise ValueError("template image must contain at most 750 KB")
+    try:
+        image = Image.open(io.BytesIO(raw))
+        image.verify()
+        image = Image.open(io.BytesIO(raw))
+        width, height = image.size
+        if width <= 0 or height <= 0 or width * height > MAX_TEMPLATE_IMAGE_PIXELS:
+            raise ValueError("template image dimensions are invalid or too large")
+        if image.format not in {"PNG", "JPEG"}:
+            raise ValueError("only PNG and JPEG template images are supported")
+        converted = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+        target = io.BytesIO()
+        converted.save(target, format="PNG", optimize=True)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError("template image is not a valid PNG or JPEG") from exc
+    asset = f"{uuid.uuid4()}.png"
+    _atomic_bytes(visual_template_asset_path(root, template_id, asset), target.getvalue())
+    return asset
+
+
 
 def _read_json(path: Path, default: Any) -> Any:
     try:
@@ -144,6 +202,8 @@ def _element(
     width: float,
     height: float,
     text: str = "",
+    *,
+    asset: str = "",
     **style: Any,
 ) -> dict[str, Any]:
     return {
@@ -155,6 +215,7 @@ def _element(
         "width_mm": width,
         "height_mm": height,
         "text": text,
+        "asset": asset,
         "style": _style(**style),
         "z_index": 1,
         "locked": False,
@@ -294,6 +355,12 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
         height_mm = _number(raw.get("height_mm", 8), minimum=1, maximum=297, name="height")
         if x_mm + width_mm > 210.01 or y_mm + height_mm > 297.01:
             raise ValueError("template element must stay inside the A4 page")
+        asset = str(raw.get("asset", ""))
+        if element_type == "image":
+            if not ASSET_NAME.fullmatch(asset):
+                raise ValueError("image element requires a valid uploaded asset")
+        elif asset:
+            raise ValueError("only image elements may reference an asset")
         normalized_elements.append({
             "id": element_id,
             "type": element_type,
@@ -303,6 +370,7 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
             "width_mm": width_mm,
             "height_mm": height_mm,
             "text": text,
+            "asset": asset,
             "style": _validate_style(raw.get("style")),
             "z_index": int(_number(raw.get("z_index", 1), minimum=0, maximum=999, name="z index")),
             "locked": bool(raw.get("locked", False)),
@@ -401,10 +469,20 @@ def export_visual_template(root: Path, template_id: str) -> dict[str, Any]:
         key: row.get(key)
         for key in ("name", "document_type", "language", "schema_version")
     }
+    assets: dict[str, str] = {}
+    for element in layout.get("elements", []):
+        if element.get("type") != "image":
+            continue
+        asset = str(element.get("asset", ""))
+        path = visual_template_asset_path(root, template_id, asset)
+        if not path.is_file():
+            raise ValueError("template image asset is missing")
+        assets[asset] = base64.b64encode(path.read_bytes()).decode("ascii")
     return {
         "export_schema": VISUAL_TEMPLATE_EXPORT_SCHEMA,
         "metadata": metadata,
         "layout": layout,
+        "assets": assets,
     }
 
 
@@ -462,6 +540,9 @@ def save_visual_template(
     actor: str,
 ) -> dict[str, Any]:
     normalized = validate_visual_layout(layout)
+    for element in normalized["elements"]:
+        if element["type"] == "image" and not visual_template_asset_path(root, template_id, element["asset"]).is_file():
+            raise ValueError("template image asset is missing")
     directory = _directory(root)
     lock = directory / ".visual-templates-write.lock"
     with exclusive_file_lock(lock):
@@ -514,12 +595,35 @@ def import_visual_template(root: Path, payload: Any, actor: str) -> dict[str, An
     name = str(metadata.get("name", "")).strip()
     document_type = str(metadata.get("document_type", "")).strip()
     language = str(metadata.get("language", "de")).strip()
+    assets = payload.get("assets", {})
+    if not isinstance(assets, dict):
+        raise ValueError("visual template assets must be an object")
+    referenced = {
+        str(element.get("asset", ""))
+        for element in layout.get("elements", [])
+        if element.get("type") == "image"
+    }
+    if set(assets) != referenced:
+        raise ValueError("visual template asset manifest does not match image elements")
+    decoded_assets: dict[str, bytes] = {}
+    for asset, encoded in assets.items():
+        if not ASSET_NAME.fullmatch(str(asset)) or not isinstance(encoded, str):
+            raise ValueError("visual template asset manifest is invalid")
+        try:
+            raw = base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("visual template asset encoding is invalid") from exc
+        if len(raw) > MAX_TEMPLATE_IMAGE_BYTES:
+            raise ValueError("visual template image exceeds the import limit")
+        decoded_assets[str(asset)] = raw
     row = create_visual_template(
         root,
         {"name": name, "document_type": document_type, "language": language},
         actor,
         layout=layout,
     )
+    for asset, raw in decoded_assets.items():
+        _atomic_bytes(visual_template_asset_path(root, row["template_id"], asset), raw)
     DocumentStore(root).history.record(
         "visual_business_template_imported", actor, "business-template", row["template_id"],
         {"name": row["name"], "document_type": row["document_type"]},
@@ -682,6 +786,37 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
         except ValueError as exc:
             flash(str(exc))
         return redirect(url_for(".visual_template_edit", template_id=template_id))
+
+    @bp.post("/templates/editor/<template_id>/assets")
+    @login_required
+    def visual_template_asset_upload(template_id: str):
+        if not _is_admin():
+            abort(403)
+        try:
+            visual_template(root_provider(), template_id)
+        except ValueError:
+            abort(404)
+        upload = request.files.get("image")
+        if upload is None:
+            abort(400)
+        raw = upload.stream.read(MAX_TEMPLATE_IMAGE_BYTES + 1)
+        try:
+            asset = store_visual_template_asset(root_provider(), template_id, raw)
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        return jsonify({"ok": True, "asset": asset})
+
+    @bp.get("/templates/editor/<template_id>/assets/<asset>")
+    @login_required
+    def visual_template_asset(template_id: str, asset: str):
+        try:
+            visual_template(root_provider(), template_id)
+            path = visual_template_asset_path(root_provider(), template_id, asset)
+        except ValueError:
+            abort(404)
+        if not path.is_file():
+            abort(404)
+        return send_file(path, mimetype="image/png", conditional=True)
 
     @bp.get("/templates/editor/<template_id>/preview.pdf")
     @login_required
