@@ -129,7 +129,7 @@ def _atomic_bytes(path: Path, payload: bytes) -> None:
             pass
 
 
-def store_visual_template_asset(root: Path, template_id: str, raw: bytes) -> str:
+def _normalized_template_image(raw: bytes) -> bytes:
     if not raw or len(raw) > MAX_TEMPLATE_IMAGE_BYTES:
         raise ValueError("template image must contain at most 750 KB")
     try:
@@ -144,12 +144,17 @@ def store_visual_template_asset(root: Path, template_id: str, raw: bytes) -> str
         converted = image.convert("RGBA" if "A" in image.getbands() else "RGB")
         target = io.BytesIO()
         converted.save(target, format="PNG", optimize=True)
+        return target.getvalue()
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         if isinstance(exc, ValueError):
             raise
         raise ValueError("template image is not a valid PNG or JPEG") from exc
+
+
+def store_visual_template_asset(root: Path, template_id: str, raw: bytes) -> str:
+    normalized = _normalized_template_image(raw)
     asset = f"{uuid.uuid4()}.png"
-    _atomic_bytes(visual_template_asset_path(root, template_id, asset), target.getvalue())
+    _atomic_bytes(visual_template_asset_path(root, template_id, asset), normalized)
     return asset
 
 
@@ -613,9 +618,7 @@ def import_visual_template(root: Path, payload: Any, actor: str) -> dict[str, An
             raw = base64.b64decode(encoded, validate=True)
         except (ValueError, TypeError) as exc:
             raise ValueError("visual template asset encoding is invalid") from exc
-        if len(raw) > MAX_TEMPLATE_IMAGE_BYTES:
-            raise ValueError("visual template image exceeds the import limit")
-        decoded_assets[str(asset)] = raw
+        decoded_assets[str(asset)] = _normalized_template_image(raw)
     row = create_visual_template(
         root,
         {"name": name, "document_type": document_type, "language": language},
