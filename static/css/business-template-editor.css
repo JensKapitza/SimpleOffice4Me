@@ -2,6 +2,7 @@
 .template-editor-grid { display:grid; grid-template-columns:minmax(210px,250px) minmax(560px,1fr) minmax(300px,360px); gap:1rem; align-items:start; }
 .template-elements-panel,.template-properties-panel { position:sticky; top:1rem; max-height:calc(100vh - 2rem); overflow:auto; }
 .template-editor-toolbar { position:sticky; top:.5rem; z-index:20; box-shadow:0 .15rem .5rem rgba(0,0,0,.08); }
+.toolbar-font { width:112px; }
 .toolbar-size { width:88px; }
 .grid-select { width:76px; }
 .metric-input { width:76px; display:inline-block; margin-left:.25rem; }
