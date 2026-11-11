@@ -17,7 +17,7 @@
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary" type="button" data-action="toggle-preview"><i class="fa-regular fa-eye me-1"></i>Token-Vorschau</button>
-        <a class="btn btn-outline-primary" href="{{ url_for('.visual_template_preview', template_id=template_row.template_id) }}" target="_blank" rel="noopener"><i class="fa-regular fa-file-pdf me-1"></i>Vorschau (PDF)</a>
+        <a class="btn btn-outline-primary" href="{{ url_for('.visual_template_preview', template_id=template_row.template_id) }}" target="_blank" rel="noopener noreferrer"><i class="fa-regular fa-file-pdf me-1"></i>Vorschau (PDF)</a>
         {% if is_admin %}<button class="btn btn-primary" type="submit"><i class="fa-regular fa-floppy-disk me-1"></i>Speichern</button>{% endif %}
       </div>
     </div>
