@@ -50,6 +50,11 @@ from reportlab.platypus import BaseDocTemplate, Frame, ListFlowable, ListItem, P
 
 from .auth import login_required
 from .calendar_store import CalendarStore
+from .business_document_preferences import (
+    apply_default_bank_legacy_fields,
+    bank_accounts_from_form,
+    company_bank_accounts,
+)
 from .contact_extensions import ContactCRMStore
 from .customer_credit import CustomerCreditLedger
 from .contact_store import ContactStore
@@ -236,23 +241,35 @@ def active_template(root: Path, template_id: str = "") -> dict[str, Any]:
 
 
 def business_settings(root: Path) -> dict[str, Any]:
-    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_blz": "", "seller_bic": "", "seller_bank": "", "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
+    defaults = {"seller_name": "", "seller_street": "", "seller_postal": "", "seller_city": "", "seller_state": "", "seller_country": "DE", "seller_email": "", "seller_vat_id": "", "seller_tax_number": "", "seller_iban": "", "seller_blz": "", "seller_bic": "", "seller_bank": "", "seller_bank_accounts": [], "payment_terms": "Zahlbar ohne Abzug", "default_payment_days": "14", "currency": "EUR", "zugferd_profile": ZUGFERD_PROFILE, "zugferd_version": ZUGFERD_VERSION, "require_zugferd_validation": True}
     stored = _read_json(root / CONTROL_DIR / SETTINGS_FILE, {})
     if isinstance(stored, dict): defaults.update(stored)
+    defaults["seller_bank_accounts"] = company_bank_accounts(defaults)
+    apply_default_bank_legacy_fields(defaults)
     return defaults
 
 
 def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> dict[str, Any]:
     settings = business_settings(root)
-    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "seller_iban", "seller_blz", "seller_bic", "seller_bank", "payment_terms", "currency", "zugferd_profile"):
+    for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "payment_terms", "currency", "zugferd_profile"):
         settings[key] = str(values.get(key, settings.get(key, ""))).strip()
+    settings["seller_bank_accounts"] = bank_accounts_from_form(values, settings)
+    if not settings["seller_bank_accounts"]:
+        for key in ("seller_iban", "seller_blz", "seller_bic", "seller_bank"):
+            settings[key] = str(values.get(key, settings.get(key, ""))).strip()
+    apply_default_bank_legacy_fields(settings)
     try: days = int(str(values.get("default_payment_days", settings.get("default_payment_days", "14"))).strip())
     except ValueError as exc: raise ValueError("default payment days must be an integer") from exc
     if not 0 <= days <= 3650: raise ValueError("default payment days must be between 0 and 3650")
     settings["default_payment_days"] = str(days); settings["seller_country"] = (settings["seller_country"] or "DE").upper()[:2]; settings["currency"] = (settings["currency"] or "EUR").upper()[:3]
     settings["zugferd_profile"] = ZUGFERD_PROFILE; settings["zugferd_version"] = ZUGFERD_VERSION; settings["require_zugferd_validation"] = True
     path = root / CONTROL_DIR / SETTINGS_FILE; path.parent.mkdir(parents=True, exist_ok=True); atomic_json_write(path, settings)
-    DocumentStore(root).history.record("business_settings_updated", actor, "business-settings", "default", {key: value for key, value in settings.items() if "iban" not in key.casefold()})
+    audit_settings = {
+        key: value for key, value in settings.items()
+        if "iban" not in key.casefold() and key != "seller_bank_accounts"
+    }
+    audit_settings["bank_account_count"] = len(settings.get("seller_bank_accounts", []))
+    DocumentStore(root).history.record("business_settings_updated", actor, "business-settings", "default", audit_settings)
     return settings
 
 
