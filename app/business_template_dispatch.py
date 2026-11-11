@@ -12,11 +12,7 @@ from .business_document_generation import (
     render_business_pdf,
     templates,
 )
-from .business_template_editor import (
-    active_visual_template,
-    visual_template,
-    visual_template_choices,
-)
+from .business_template_editor import visual_template, visual_template_choices
 from .business_template_render import render_visual_invoice_pdf, render_visual_letter_pdf
 
 
@@ -29,8 +25,7 @@ def business_template(root: Path, template_id: str, document_type: str) -> dict[
     """Resolve an explicit legacy or visual template and enforce its document type."""
     template_id = str(template_id or "").strip()
     if not template_id:
-        visual_default = active_visual_template(root, document_type)
-        return visual_default if visual_default is not None else active_template(root)
+        return active_template(root)
     try:
         return active_template(root, template_id)
     except ValueError as legacy_error:
