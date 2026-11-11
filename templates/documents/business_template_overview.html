@@ -13,17 +13,17 @@
     </div>
     {% if is_admin %}
     <div class="d-flex flex-wrap gap-2">
-      <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#import-template">
+      <button class="btn btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#import-template" aria-expanded="false" aria-controls="import-template">
         <i class="fa-solid fa-file-import me-1"></i>Importieren
       </button>
-      <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-template">
+      <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-template" aria-expanded="false" aria-controls="new-template">
         <i class="fa-solid fa-plus me-1"></i>Neue Vorlage erstellen
       </button>
     </div>
     {% endif %}
   </div>
 
-  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
 
   {% if is_admin %}
   <section id="import-template" class="collapse card mb-4">
