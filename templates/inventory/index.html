@@ -144,7 +144,7 @@
         {% if meta_photo_consent_available %}
         <div class="form-check mt-2">
           <input class="form-check-input" type="checkbox" value="yes" id="meta-photo-consent">
-          <label class="form-check-label" for="meta-photo-consent">Dieses Foto für die Analyse an Meta Muse Spark senden. Im Contributor-Modus können Inhalte zur Verbesserung künftiger Meta-Modelle verwendet werden.</label>
+          <label class="form-check-label" for="meta-photo-consent">{% include "contextflow/_provider_consent.html" %}</label>
         </div>
         {% endif %}
         <div id="object-suggestion" class="alert alert-info py-2 mt-2" role="status" aria-live="polite" hidden>

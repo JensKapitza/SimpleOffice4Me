@@ -123,7 +123,7 @@
           <h4 class="h6 mb-1"><span class="badge text-bg-warning me-1" aria-hidden="true">✦</span>{{ 'Office angel · tag suggestions' if g.language == 'en' else 'Büroengel · Tag-Vorschläge' }}</h4>
           <p class="small mb-2" id="doc-engel-tags">{{ 'Current tags:' if g.language == 'en' else 'Aktuelle Tags:' }} {% for tag in current_preview.tags|default([]) %}<span class="badge text-bg-secondary me-1">{{ tag }}</span>{% else %}<span class="text-secondary">{{ 'none' if g.language == 'en' else 'keine' }}</span>{% endfor %}</p>
           <button type="button" class="btn btn-outline-primary" id="doc-engel-suggest">{{ 'Which tags would you add?' if g.language == 'en' else 'Welche Tags würdest du hinzufügen?' }}</button>
-          <p class="small text-secondary mt-1 mb-0">{{ 'Local AI on this machine — nothing is applied without your confirmation.' if g.language == 'en' else 'Lokale KI auf diesem Rechner — nichts wird ohne deine Bestätigung übernommen.' }}</p>
+          <p class="small text-secondary mt-1 mb-0">{{ 'Local AI on this machine. This workflow has no external-data consent and only uses local backends; nothing is applied without confirmation.' if g.language == 'en' else 'Lokale KI auf diesem Rechner. Dieser Ablauf enthält keine externe Datenfreigabe und nutzt nur lokale Backends; nichts wird ohne deine Bestätigung übernommen.' }}</p>
           <div id="doc-engel-status" class="mt-2" role="status" aria-live="polite"></div>
           <div id="doc-engel-result" class="mt-2" hidden></div>
         </div>

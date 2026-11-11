@@ -1,10 +1,7 @@
-"""OpenAI cloud inference for ContextFlow (synthetic demo roots only).
+"""OpenAI and compatible inference with free model IDs and explicit data consent.
 
-Third-party cloud path mirroring the Meta provider's discipline: pinned
-official endpoint, explicit model allowlist (fail-closed), key only in
-the Authorization header, no redirects, bounded reads, and errors that
-never carry the key. Gating (consent + verified synthetic demo root)
-stays with :func:`app.contextflow.vision.select_provider`.
+Native OpenAI uses its fixed official endpoint. Compatible mode uses validated
+URLs, pinned DNS and verified TLS. Secrets never appear in public errors.
 """
 from __future__ import annotations
 
@@ -26,21 +23,15 @@ OPENAI_MODELS_ENDPOINT = "https://api.openai.com/v1/models"
 OPENAI_CHAT_COMPLETIONS_PATH = "/chat/completions"
 OPENAI_CALL_TIMEOUT = 60.0
 OPENAI_MAX_RESPONSE_BYTES = 256 * 1024
-# Deliberately exact OpenAI IDs. Custom aliases could point at a
-# different (billable) model while claiming a cheap name, so inference
-# fails closed — same policy as META_OLLAMA_MODELS in vision.py.
-OPENAI_MODELS = frozenset({"gpt-4o-mini", "gpt-4o"})
 
 
 def require_openai_model(model: object) -> str:
-    """Accept only explicitly supported OpenAI model IDs."""
-    configured = str(model or "").strip().casefold()
-    if configured not in OPENAI_MODELS:
-        raise VisionError(
-            f"Das OpenAI-Modell '{configured}' ist nicht freigegeben. "
-            "ContextFlow erlaubt für OpenAI ausschließlich: "
-            + ", ".join(sorted(OPENAI_MODELS)) + "."
-        )
+    """Validate a free case-sensitive model identifier, not a vendor allowlist."""
+    import re
+
+    configured = str(model or "").strip()
+    if len(configured) > 160 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]*", configured):
+        raise VisionError("Anbieter-Modell-ID ist leer oder ungültig.")
     return configured
 
 
@@ -61,7 +52,7 @@ def _openai_content(payload: Any) -> dict[str, Any]:
         raise VisionError("OpenAI inference returned no suggestion JSON")
     try:
         parsed = json.loads(content)
-    except ValueError as exc:
+    except (ValueError, RecursionError) as exc:
         raise VisionError(
             f"OpenAI inference returned no suggestion JSON ({exc})"
         ) from None
@@ -70,70 +61,57 @@ def _openai_content(payload: Any) -> dict[str, Any]:
     return parsed
 
 
-def check_openai_model(api_key: str, timeout: float = META_MODELS_TIMEOUT) -> tuple[bool, str]:
-    """Check via GET /v1/models that a supported OpenAI model is listed.
-
-    Returns (listed, short error). The key travels only in the
-    Authorization header and never appears in errors, logs, or files.
-    """
-    if not api_key:
-        return (False, "kein API-Schlüssel")
-    request = urllib.request.Request(
-        OPENAI_MODELS_ENDPOINT,
-        headers={"Authorization": f"Bearer {api_key}"},
-        method="GET",
-    )
+def check_openai_model(api_key: str, timeout: float = META_MODELS_TIMEOUT, *,
+                       model: str = "gpt-4o-mini", endpoint: str = OPENAI_API_ENDPOINT) -> tuple[bool, str]:
+    """Check the configured exact ID; never accept a different listed model."""
+    from .provider_transport import request_json
     try:
-        opener = urllib.request.build_opener(_NoRedirectHandler())
-        with opener.open(request, timeout=timeout) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except TimeoutError:
-        return (False, "Zeitüberschreitung")
-    except (urllib.error.URLError, OSError, ValueError):
-        return (False, "Modelliste nicht erreichbar")
-    entries = payload.get("data") if isinstance(payload, dict) else None
+        expected = require_openai_model(model)
+        payload = request_json(endpoint, api_key, "/models", None, timeout)
+    except (VisionError, ValueError):
+        return False, "Modelliste nicht erreichbar oder Konfiguration ungültig"
+    entries = payload.get("data")
     if not isinstance(entries, list):
-        return (False, "ungültige Modelliste")
-    listed = any(
-        isinstance(entry, dict) and str(entry.get("id", "")).strip().casefold() in OPENAI_MODELS
-        for entry in entries
-    )
-    return (listed, "" if listed else "Modell nicht gelistet")
+        return False, "ungültige Modelliste"
+    listed = any(isinstance(entry, dict) and entry.get("id") == expected for entry in entries)
+    return listed, "" if listed else "Modell nicht gelistet"
 
 
 class OpenAIVisionProvider(VisionProvider):
-    """OpenAI cloud inference: synthetic demo roots only (third-party).
+    """One shared Chat Completions adapter; external data needs explicit consent.
 
-    Speaks the OpenAI Chat Completions endpoint (``POST
-    /v1/chat/completions``) with an explicitly allowlisted model
-    (``gpt-4o-mini`` default). Like the Meta cloud path, this provider
-    never runs on real roots: content sent to a third party could be
-    used beyond the request, so even text-only calls require a verified
-    synthetic demo root. The key travels only in the Authorization
-    header; errors never carry the key, URLs with credentials, or
-    tracebacks.
+    Compatible mode also supports anonymous loopback services. Structured-result
+    validation stays with callers; protocol support is not a live model test.
     """
 
     name = "openai"
     label = "OpenAI ChatGPT (chat/completions)"
 
-    def __init__(self, api_key: str, endpoint: str, model: str) -> None:
-        if not api_key:
-            raise PermissionError("OpenAI inference needs an API key")
-        if str(endpoint or "").strip() != OPENAI_API_ENDPOINT:
+    def __init__(self, api_key: str, endpoint: str, model: str, *, compatible: bool = False) -> None:
+        from .provider_transport import is_local_endpoint, validate_endpoint
+
+        clean = validate_endpoint(endpoint)
+        if not compatible and clean != OPENAI_API_ENDPOINT:
             raise VisionError("OpenAI API endpoint is not the official endpoint")
+        if not api_key and not (compatible and is_local_endpoint(clean)):
+            raise PermissionError("OpenAI inference needs an API key")
+        if not isinstance(api_key, str) or len(api_key) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in api_key):
+            raise VisionError("Anbieter-Key ist ungültig.")
         self.api_key = api_key
-        self.endpoint = OPENAI_API_ENDPOINT
+        self.endpoint = clean
         self.model = require_openai_model(model)
+        self.compatible = compatible
+        if compatible:
+            self.label = "OpenAI-kompatibles Modell (chat/completions)"
 
     def _post_chat(self, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        body = json.dumps(
-            {
-                "model": self.model,
-                "messages": messages,
-                "response_format": {"type": "json_object"},
-            }
-        ).encode("utf-8")
+        value = {"model": self.model, "messages": messages}
+        if not self.compatible:
+            value["response_format"] = {"type": "json_object"}
+        if self.compatible:
+            from .provider_transport import request_json
+            return _openai_content(request_json(self.endpoint, self.api_key, "/chat/completions", value))
+        body = json.dumps(value).encode("utf-8")
         request = urllib.request.Request(
             self.endpoint + OPENAI_CHAT_COMPLETIONS_PATH,
             data=body,
@@ -148,12 +126,12 @@ class OpenAIVisionProvider(VisionProvider):
             with opener.open(request, timeout=OPENAI_CALL_TIMEOUT) as response:
                 raw = response.read(OPENAI_MAX_RESPONSE_BYTES + 1)
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
-            raise VisionError(f"OpenAI inference failed ({exc})") from None
+            raise VisionError("OpenAI inference failed; endpoint, credentials and service status prüfen.") from None
         if len(raw) > OPENAI_MAX_RESPONSE_BYTES:
             raise VisionError("OpenAI inference returned too much data")
         try:
             payload = json.loads(raw.decode("utf-8"))
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             raise VisionError(
                 f"OpenAI inference returned no suggestion JSON ({exc})"
             ) from None

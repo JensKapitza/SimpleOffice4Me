@@ -65,7 +65,7 @@ test("local distinguishes reachable, unseen and missing model", () => {
 
   assert.equal(
     active,
-    "ML aktiv · Meta-Modell lokal via Ollama · llama3.2:1b · OCR: RapidOCR + Tesseract",
+    "ML konfiguriert · Modell lokal via Ollama · llama3.2:1b · OCR: RapidOCR + Tesseract",
   );
   assert.ok(unseen.includes("Ollama erreichbar, Modell llama3.2:1b nicht gesehen"));
   assert.ok(!unseen.includes("aktiv"));
@@ -80,7 +80,7 @@ test("unapproved models are never Meta-labeled, even when reachable", () => {
       ollama: {model, model_allowed: false, reachable: true, model_seen: true},
       ocr: {},
     });
-    assert.equal(line, `ML: Modell nicht freigegeben · ${model} · OCR: nicht installiert`);
+    assert.equal(line, `ML: Modell-ID ungültig · ${model} · OCR: nicht installiert`);
     assert.ok(!line.includes("Meta-Modell"));
     assert.ok(!line.includes("aktiv"));
   }
@@ -89,7 +89,7 @@ test("unapproved models are never Meta-labeled, even when reachable", () => {
     ollama: {model: "qwen3-vl:2b", reachable: true, model_seen: true},
     ocr: {},
   });
-  assert.ok(missingFlag.includes("Modell nicht freigegeben"));
+  assert.ok(missingFlag.includes("Modell-ID ungültig"));
 });
 
 test("mock, unknown and empty payloads stay understandable", () => {

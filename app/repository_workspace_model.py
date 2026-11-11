@@ -8,6 +8,12 @@ _FAILURES = {"failure", "timed_out", "action_required", "startup_failure"}
 _BAD_STATUSES = {"error", "failure"}
 _AREA_WORDS = [
     ("Security", ("security", "cve-", "vulnerab", "sicherheit", "codeql", "dependabot")),
+    ("Bildschirmfreigabe", ("screen share", "screen-share", "bildschirm", "viewer-url")),
+    ("Server-Einstellungen", ("server settings", "server-einstellungen", "127.0.0.1")),
+    ("Sprache", ("language", "sprache", "übersetzung")),
+    ("Drucker", ("drucker", "printer", "etikett")),
+    ("PDF / ZUGFeRD", ("zugferd", "xrechnung", "invoice", "rechnung", "template", "vorlage")),
+    ("Proxy-Weiterleitung", ("proxy", "weiterleitung")),
     ("Desktop", ("electron", "desktop", "pwsh")),
     ("Runtime & Installation", ("python", "venv", "start.sh", "dependency", "dependencies", "pip", "installation")),
     ("Release & Qualität", ("ci", "workflow", "test", "release", "build", "actions")),
@@ -37,6 +43,41 @@ def area_for(raw: dict) -> str:
     return "Projekt & Allgemein"
 
 
+def platforms_for(raw: dict) -> list[str]:
+    """Title/label hints are an explicit, unverified scope, never device evidence."""
+    labels = " ".join(text(row.get("name")) for row in raw.get("labels", []) if isinstance(row, dict))
+    words = (text(raw.get("title")) + " " + labels).casefold()
+    hints = {"Windows": ("windows", "win32", "win-unpacked", "powershell", "pwsh", "nsis"),
+             "Linux": ("linux", "ubuntu", "debian", "appimage", "cups"),
+             "macOS": ("macos", "mac os", "darwin"), "Android": ("android", "chaquopy", "apk")}
+    return [platform for platform, names in hints.items() if any(name in words for name in names)]
+
+
+def merge_preparation(item: dict) -> dict:
+    """Separate possible preparation from approval; never infer merge readiness."""
+    if item.get("type") != "pr":
+        return {"state": "not_applicable", "summary": "Kein Pull Request; zugehörige Implementierung separat prüfen."}
+    if item.get("status") == "done":
+        return {"state": "done", "summary": "Bereits geschlossen; Merge-Beleg und integrierten Stand separat abgleichen."}
+    if item.get("status") == "blocked":
+        return {"state": "no", "summary": "Derzeit nein: fehlgeschlagene/abgebrochene Prüfungen oder aktuelle Review-Blocker klären."}
+    if item.get("status") == "missing_evidence":
+        return {"state": "unknown", "summary": "Noch nicht beurteilbar: aktuelle Prüf-/Review-Nachweise fehlen. Keine Merge-Freigabe."}
+    if item.get("draft"):
+        return {"state": "conditional", "summary": "Prüfunterlagen vorbereitbar; Draft, vollständige Implementierung und technische Freigabe bleiben offen."}
+    return {"state": "conditional", "summary": "Bedingt vorbereitbar; Diff, Pflichtchecks, Branch-Regeln und Reviews noch manuell abgleichen. Keine Merge-Freigabe."}
+
+
+def add_planning_fields(item: dict) -> dict:
+    """Also upgrades cached snapshots without retaining a parallel record store."""
+    if item.get("type") == "pr" and item.get("status") in {"open", "review"} and item.get("test_status", {}).get("state") == "unknown":
+        item["status"] = "missing_evidence"
+    item.setdefault("platforms", platforms_for(item))
+    item.setdefault("platform_assessment", "Nur Titel-/Label-Hinweise, keine bestätigte Betroffenheit. Fehlende Zuordnung bleibt ungeprüft.")
+    item["merge_preparation"] = merge_preparation(item)
+    return item
+
+
 def _priority(raw: dict, default: str = "P2") -> str:
     labels = {text(label.get("name")).casefold() for label in raw.get("labels", []) if isinstance(label, dict)}
     for priority in ("P0", "P1", "P2", "P3"):
@@ -54,6 +95,8 @@ def _base(raw: dict, kind: str) -> dict:
         "id": f"{kind}-{number}", "type": kind, "number": number,
         "title": text(raw.get("title"), 240) or "Ohne Titel", "url": url, "area": area,
         "priority": _priority(raw), "status": "open",
+        "platforms": platforms_for(raw),
+        "platform_assessment": "Aus Titel/Labels abgeleiteter Prüfumfang, keine Geräteabnahme; Betroffenheit ungeprüft.",
         "cause": "Ursache nicht verifiziert; Originalbeschreibung und Reproduktion prüfen.",
         "blockers": [], "next_steps": ["Originalquelle und aktuellen Stand prüfen.",
                                        "Reproduktions- und Abnahmekriterien dokumentieren."],
@@ -100,6 +143,7 @@ def pull_request(raw: dict, detail: dict, runs: list[dict]) -> tuple[dict, list[
     item = _base(raw, "pr")
     sha = text((raw.get("head") or {}).get("sha"), 40)
     item["head_sha"] = sha
+    item["draft"] = bool(raw.get("draft"))
     current_runs = latest_runs([r for r in runs if r.get("head_sha") == sha and r.get("event") == "pull_request"])
     checks = [c for c in detail.get("checks", []) if c.get("head_sha") == sha]
     statuses = detail.get("statuses", [])
@@ -145,6 +189,11 @@ def pull_request(raw: dict, detail: dict, runs: list[dict]) -> tuple[dict, list[
     item["assessment"] += " Auch grüne Checks ergeben hier keine automatische Merge-Bereitschaft."
     if not detail.get("complete"):
         item["blockers"].append("CI-/Review-Abdeckung teilweise oder nicht abrufbar.")
+    if state == "unknown" and item["status"] != "blocked":
+        item["status"] = "missing_evidence"
+    add_planning_fields(item)
+    for finding in findings:
+        add_planning_fields(finding)
     return item, findings
 
 
@@ -155,7 +204,9 @@ def issue(raw: dict) -> dict:
         reason = raw.get("state_reason")
         item["cause"] = "Auf GitHub geschlossen" + (" (nicht geplant)" if reason == "not_planned" else "") + "."
         item["assessment"] += " Geschlossen bedeutet weder behoben noch getestet."
-    return item
+    if item["status"] == "open" and any(word in item["title"].casefold() for word in ("abnahme", "nachweis", "release gate")):
+        item["status"] = "missing_evidence"
+    return add_planning_fields(item)
 
 
 def completed(raw: dict) -> dict:
@@ -167,7 +218,7 @@ def completed(raw: dict) -> dict:
         merged = bool((raw.get("pull_request") or {}).get("merged_at"))
         item["cause"] = "Auf GitHub gemergt." if merged else "Pull Request geschlossen; Merge nicht belegt."
         item["evidence"] = [{"label": "GitHub-Original", "url": item["url"]}]
-    return item
+    return add_planning_fields(item)
 
 
 def ci_findings(runs: list[dict], pulls: list[dict], main_sha: str) -> list[dict]:
@@ -232,6 +283,7 @@ def normalise(payload: dict) -> list[dict]:
     for kind in ("code-scanning", "dependabot"):
         items.extend(security_findings(payload.get(kind, []), kind))
     for item in items:
+        add_planning_fields(item)
         doc = DOCS.get(item["area"])
         if doc:
             item["documentation"].append("Projektbezug: docs/" + doc)

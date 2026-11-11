@@ -344,7 +344,9 @@ def dashboard():
                 }
             )
     vision_labels = {
-        "local": "Meta-Modell lokal via Ollama",
+        "local": "Lokales Modell via Ollama",
+        "openai": "OpenAI (mit Einwilligung)",
+        "compatible": "OpenAI-kompatibler Anbieter (mit Einwilligung bei externen Daten)",
         "mock": "Demo-Mock (keine echte Analyse)",
         "meta": "Meta Muse Spark 1.3 Contributor (Meta Model API · nur synthetische Demo + Einwilligung)",
     }
@@ -354,7 +356,7 @@ def dashboard():
         if isinstance(row, dict)
     ]
     vision_provider = str(
-        current_app.config.get("CONTEXTFLOW_VISION_PROVIDER", "local") or "local"
+        _vision_settings().get("provider", "local") or "local"
     ).lower()
     return render_template(
         "contextflow/index.html",
@@ -582,8 +584,9 @@ def ml_status_route():
     permitted = bool(name) and has_feature(user, "documents")
     probe_allowed = (
         permitted
-        and settings.get("meta_consent") is True
-        and is_verified_demo_root(_root())
+        and ((settings.get("provider") == "meta" and settings.get("meta_consent") is True
+              and is_verified_demo_root(_root()))
+             or (settings.get("provider") in {"openai", "compatible"} and settings.get("openai_consent") is True))
     )
     status = ml_status(settings, models_probe_allowed=probe_allowed)
     status["ocr"] = ocr_availability()

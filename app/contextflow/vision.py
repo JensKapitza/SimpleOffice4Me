@@ -1,13 +1,9 @@
-"""Image-based finding suggestions for ContextFlow (vision slice).
+"""Validated draft inference for ContextFlow using configured model providers.
 
-A photo plus an explicitly selected visit/asset yields a *draft* finding
-suggestion. Drafts are never stored and never create records by themselves;
-only an explicit user confirmation creates a finding through the existing
-``SiteVisitStore.add_finding`` API. Raw image bytes stay in memory and are
-never written to disk, logged, or forwarded anywhere except the selected
-inference backend — and the Meta cloud backend only with explicit
-per-request consent, an explicit server flag, an API key, and a verified
-synthetic demo root. Real office data never leaves the machine.
+Suggestions never create records by themselves; explicit confirmation uses the
+existing actor-scoped stores. Local backends keep inputs on the configured local
+service. External APIs require server and per-request consent; Meta Contributor
+additionally requires a verified synthetic demo root. Images remain in memory.
 """
 
 from __future__ import annotations
@@ -46,23 +42,6 @@ META_MODEL_API_ENDPOINT = "https://api.meta.ai/v1/responses"
 META_MODEL_API_MODELS_ENDPOINT = "https://api.meta.ai/v1/models"
 META_MODEL_API_MODEL = "muse-spark-1.3-contributor"
 META_MODELS_TIMEOUT = 10.0
-# Names are deliberately exact Ollama IDs. Custom aliases could point to
-# non-Meta weights while claiming a Meta name, so inference fails closed.
-META_OLLAMA_TEXT_MODELS = frozenset(
-    {"llama3.2:1b", "llama3.2:3b", "llama3.2:latest"}
-)
-META_OLLAMA_VISION_MODELS = frozenset(
-    {
-        "llama3.2-vision",
-        "llama3.2-vision:11b",
-        "llama3.2-vision:90b",
-        "llama3.2-vision:latest",
-        "muse-glimmer",
-        "muse-glimmer:latest",
-        "muse-glimmer:30b",
-    }
-)
-META_OLLAMA_MODELS = META_OLLAMA_TEXT_MODELS | META_OLLAMA_VISION_MODELS
 
 
 class InferenceUnavailable(VisionError):
@@ -86,19 +65,17 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def require_meta_ollama_model(model: object, *, vision: bool = False) -> str:
-    """Accept only explicitly supported Meta model IDs for local inference."""
-    configured = str(model or "").strip().casefold()
-    if configured not in META_OLLAMA_MODELS:
-        raise VisionError(
-            f"Das lokale Modell '{configured or '(leer)'}' ist nicht freigegeben. "
-            "ContextFlow erlaubt zur Laufzeit ausschließlich Meta-Modelle: "
-            "Llama 3.2 über Ollama oder Muse Glimmer."
-        )
-    if vision and configured not in META_OLLAMA_VISION_MODELS:
-        raise VisionError(
-            f"Das Meta-Modell '{configured}' verarbeitet nur Text, keine Bilder. "
-            "Für Fotos bitte llama3.2-vision:11b oder muse-glimmer verwenden."
-        )
+    """Legacy function name; accept a free, case-sensitive model ID.
+
+    Vendor names are not a capability test. Image callers probe /api/show
+    before sending any image bytes.
+    """
+    _ = vision
+    configured = str(model or "").strip()
+    if (not configured or len(configured) > 160
+            or any(c.isspace() or ord(c) < 32 for c in configured)
+            or any(c in configured for c in "\\;`$<>\"'")):
+        raise VisionError("Ollama-Modell-ID ist leer oder ungültig.")
     return configured
 
 
@@ -258,7 +235,9 @@ def _localhost_only(url: str) -> str:
         parts = urlsplit(url)
     except ValueError as exc:
         raise VisionError(f"invalid backend URL ({exc})") from None
-    if parts.scheme != "http" or (parts.hostname or "") not in LOCALHOSTS:
+    if (parts.scheme != "http" or (parts.hostname or "") not in LOCALHOSTS
+            or parts.username or parts.password or parts.query or parts.fragment
+            or parts.path not in ("", "/") or "\\" in url):
         raise VisionError("local inference is limited to loopback or host-gateway HTTP")
     return url.rstrip("/")
 
@@ -269,7 +248,7 @@ OLLAMA_CONTENT_MAX_CHARS = 32 * 1024
 OLLAMA_PROBE_TIMEOUT = 10.0
 OLLAMA_PROBE_MAX_BYTES = 1024 * 1024
 
-_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+_DIRECT_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirectHandler())
 
 
 def local_urlopen(request: urllib.request.Request, timeout: float):
@@ -415,8 +394,8 @@ def parse_chat_stream(
     return answer
 
 
-def resolve_local_model(base_url: str, model: str, timeout: float) -> str:
-    """Return the configured Meta model after a bounded Ollama probe.
+def resolve_local_model(base_url: str, model: str, timeout: float, *, vision: bool = False) -> str:
+    """Return the configured model after an availability/capability probe.
 
     Nothing is ever downloaded; probes send only the model name over
     direct loopback. Probe failures fail open to the configured model;
@@ -441,10 +420,23 @@ def resolve_local_model(base_url: str, model: str, timeout: float) -> str:
                 f"{configured}` ausführen und erneut versuchen. Es wird "
                 "nichts automatisch heruntergeladen."
             ) from None
+        if vision:
+            raise InferenceUnavailable("Die Bildfähigkeit des Modells konnte nicht geprüft werden.") from None
+        return configured
+    except TimeoutError:
+        if vision:
+            raise InferenceTimeoutError("Ollama-Bildfähigkeitsprüfung hat das Zeitlimit überschritten.") from None
         return configured
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        if vision:
+            raise InferenceUnavailable("Die Bildfähigkeit des Modells konnte nicht geprüft werden.") from None
         return configured
-    _ = payload
+    if vision:
+        capabilities = payload.get("capabilities") if isinstance(payload, dict) else None
+        if not isinstance(capabilities, list):
+            raise InferenceUnavailable("Ollama meldet keine prüfbare Bildfähigkeit. Ollama aktualisieren oder ein Vision-Modell wählen.")
+        if "vision" not in capabilities:
+            raise VisionError("Das konfigurierte Modell verarbeitet nur Text, keine Bilder. Bitte ein Vision-Modell wählen.")
     return configured
 
 
@@ -452,7 +444,7 @@ class LocalVisionProvider(VisionProvider):
     """On-machine Ollama vision model; default backend, never cloud."""
 
     name = "local"
-    label = "Meta-Modell lokal via Ollama"
+    label = "Lokales Modell via Ollama"
 
     def __init__(self, base_url: str, model: str, timeout: int = 60) -> None:
         self.base_url = _localhost_only(base_url)
@@ -462,8 +454,7 @@ class LocalVisionProvider(VisionProvider):
 
     def suggest(self, image: bytes, mime: str, context: dict[str, str]) -> dict[str, Any]:
         _ = mime
-        require_meta_ollama_model(self.model, vision=True)
-        model = resolve_local_model(self.base_url, self.model, self.timeout)
+        model = resolve_local_model(self.base_url, self.model, self.timeout, vision=True)
         self.resolved_model = model
         prompt = context.get("instruction") or (
             "Analysiere das Foto als Büro-Service-Befund. Antworte NUR mit "
@@ -505,7 +496,7 @@ class LocalVisionProvider(VisionProvider):
             ) from None
         except (urllib.error.URLError, OSError) as exc:
             raise InferenceUnavailable(
-                f"lokale Inferenz nicht erreichbar ({exc})"
+                "Lokale Inferenz nicht erreichbar; Ollama und Modell prüfen."
             ) from None
         try:
             return json.loads(answer)
@@ -714,13 +705,10 @@ def select_provider(
     consent_meta: bool,
     root: object,
 ) -> VisionProvider:
-    """Pick the configured backend; cloud only with consent + synthetic root.
+    """Select a configured model, with server/request consent for external data.
 
-    The Meta Contributor path never runs on real roots: Contributor
-    content may train future Meta models, so even text-only contact
-    calls require a verified synthetic demo root. The OpenAI path has
-    the same barrier: content sent to a third party must stay
-    synthetic. Local and mock providers are unaffected by the root.
+    The Meta Contributor service additionally requires a verified synthetic root.
+    Compatible loopback services need neither a cloud key nor cloud consent.
     """
     from pathlib import Path as _Path
 
@@ -744,9 +732,12 @@ def select_provider(
         if not is_verified_demo_root(_Path(str(root))):
             raise PermissionError("Meta inference is limited to a synthetic demo root")
         return MetaVisionProvider(key, endpoint, model)
-    if choice == "openai":
+    if choice in {"openai", "compatible"}:
         from .openai_provider import OPENAI_API_ENDPOINT, OpenAIVisionProvider
-        if consent_meta is not True or settings.get("openai_consent") is not True:
+        from .provider_transport import is_local_endpoint
+        endpoint = str(settings.get("openai_endpoint", "") or OPENAI_API_ENDPOINT).strip()
+        local = choice == "compatible" and is_local_endpoint(endpoint)
+        if not local and (consent_meta is not True or settings.get("openai_consent") is not True):
             raise PermissionError("OpenAI inference needs explicit consent")
         key = str(settings.get("openai_api_key", "") or "")
         endpoint = str(
@@ -754,13 +745,11 @@ def select_provider(
             or OPENAI_API_ENDPOINT
         ).strip()
         model = str(
-            settings.get("openai_model", "gpt-4o-mini") or "gpt-4o-mini"
+            settings.get("openai_model", "") or ("gpt-4o-mini" if choice == "openai" else "")
         ).strip()
-        if not key or not endpoint or not model:
+        if (not key and not local) or not endpoint or not model:
             raise PermissionError("OpenAI inference is not configured")
-        if not is_verified_demo_root(_Path(str(root))):
-            raise PermissionError("OpenAI inference is limited to a synthetic demo root")
-        return OpenAIVisionProvider(key, endpoint, model)
+        return OpenAIVisionProvider(key, endpoint, model, compatible=choice == "compatible")
     if choice != "local":
         raise VisionError(f"unknown vision provider: {choice}")
     return LocalVisionProvider(
@@ -790,25 +779,19 @@ def _ollama_probe(url: str, model: str, timeout: float = 3.0) -> dict[str, Any]:
     if isinstance(models, list):
         for entry in models:
             if isinstance(entry, dict) and entry.get("name"):
-                names.add(str(entry["name"]).strip().casefold())
-    wanted = model.strip().casefold()
-    seen = bool(wanted) and (wanted in names or any(name.startswith(wanted + ":") for name in names))
+                names.add(str(entry["name"]).strip())
+    wanted = model.strip()
+    seen = bool(wanted) and (wanted in names or (":" not in wanted and wanted + ":latest" in names))
     return {"reachable": True, "model_seen": seen, "error": ""}
 
 
 def ml_status(
     settings: dict[str, Any], *, models_probe_allowed: bool = False
 ) -> dict[str, Any]:
-    """Summarize ML backend state for the header badge (no secrets).
+    """Report checked availability, exact configured models and secret-presence booleans.
 
-    Reports the configured provider, loopback Ollama reachability plus
-    whether the configured Meta model is installed, and Meta cloud
-    readiness as booleans only — never keys, URLs with credentials,
-    or tracebacks. The pinned model is verified via GET /v1/models
-    only when the caller explicitly allows it (server consent plus
-    documents permission plus verified synthetic demo root); the
-    default refuses the external request fail-closed. Ollama is
-    probed only for allowlisted Meta models (model_allowed).
+    Local endpoints may be probed. External model-list requests require the caller's
+    explicit permission; neither a model list nor reachability proves inference.
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     model = str(settings.get("ollama_model", "") or "").strip()
@@ -818,7 +801,11 @@ def ml_status(
         allowed = True
     except VisionError:
         allowed = False
-    ollama: dict[str, Any] = {"url": url, "model": model, "reachable": False,
+    try:
+        public_url = _localhost_only(url) if url else ""
+    except VisionError:
+        public_url = ""
+    ollama: dict[str, Any] = {"url": public_url, "model": model, "reachable": False,
                               "model_seen": False, "model_allowed": allowed, "error": ""}
     if choice == "local" and url and allowed:
         ollama.update(_ollama_probe(url, model))
@@ -843,18 +830,31 @@ def ml_status(
     from .openai_provider import check_openai_model as _check_openai_model
     openai_key = str(settings.get("openai_api_key", "") or "")
     openai: dict[str, Any] = {
-        "model": "gpt-4o-mini",
-        "label": _OpenAIProvider.label,
+        "model": str(settings.get("openai_model", "") or ("gpt-4o-mini" if choice == "openai" else "")),
+        "label": "OpenAI-kompatibler Anbieter" if choice == "compatible" else _OpenAIProvider.label,
         "key_present": bool(openai_key),
         "server_consent": settings.get("openai_consent") is True,
         "model_listed": None,
         "models_error": "",
     }
-    if choice == "openai" and openai_key and models_probe_allowed is True:
-        listed, models_error = _check_openai_model(openai_key)
+    from .provider_transport import is_local_endpoint
+    endpoint = str(settings.get("openai_endpoint", "") or "https://api.openai.com/v1")
+    try:
+        compatible_local = choice == "compatible" and is_local_endpoint(endpoint)
+    except VisionError:
+        compatible_local = False
+    openai["local"] = compatible_local
+    openai["key_required"] = not compatible_local
+    if compatible_local and openai["model"]:
+        listed, models_error = _check_openai_model(openai_key, timeout=3, model=openai["model"], endpoint=endpoint)
         openai["model_listed"] = listed
         openai["models_error"] = models_error
-    elif choice == "openai" and openai_key:
+    elif choice in {"openai", "compatible"} and openai_key and models_probe_allowed is True:
+        listed, models_error = _check_openai_model(openai_key, model=openai["model"],
+            endpoint=str(settings.get("openai_endpoint", "") or "https://api.openai.com/v1"))
+        openai["model_listed"] = listed
+        openai["models_error"] = models_error
+    elif choice in {"openai", "compatible"} and openai_key:
         openai["models_error"] = "OpenAI-Modellprüfung nicht freigegeben"
     return {
         "provider": choice,

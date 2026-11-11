@@ -151,14 +151,14 @@ def _require_local_provider(settings: dict[str, Any], *, purpose: str) -> Any:
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     if choice == "local" and not str(settings.get("ollama_model", "") or "").strip():
         raise InferenceUnavailable(
-            "Kein freigegebenes Meta-Modell konfiguriert. Bitte ein Ollama-Modell wählen."
+            "Kein lokales Modell konfiguriert. Bitte ein Ollama-Modell wählen."
         )
     provider = select_provider(settings, False, None)
     if provider.name == "mock":
         raise MockBlockedError(
-            f"Für {purpose} ist kein Meta-Modell verfügbar "
+            f"Für {purpose} ist kein Modell verfügbar "
             "(Platzhalter sind hier nicht erlaubt). Bitte Ollama mit "
-            "einem freigegebenen Meta-Modell einrichten."
+            "einem passenden Modell einrichten."
         )
     return provider
 
@@ -339,6 +339,8 @@ def complete_text(
     the model default unless a caller pins it. Validation of the
     parsed payload always stays with the caller.
     """
+    if getattr(provider, "name", "local") in {"openai", "meta"}:
+        return provider.complete_text(prompt)
     model = vision.resolve_local_model(provider.base_url, provider.model, provider.timeout)
     provider.resolved_model = model
     body = vision.ollama_chat_body(
@@ -369,7 +371,7 @@ def complete_text(
             "Bitte später erneut versuchen."
         ) from None
     except (urllib.error.URLError, OSError) as exc:
-        raise InferenceUnavailable(f"lokale Inferenz nicht erreichbar ({exc})") from None
+        raise InferenceUnavailable("Lokale Inferenz nicht erreichbar; Ollama und Modell prüfen.") from None
     return _parse_json_object(answer)
 
 
