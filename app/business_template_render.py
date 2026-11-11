@@ -15,9 +15,10 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Paragraph, Table, TableStyle
 
-from .business_template_editor import visual_template
+from .business_template_editor import visual_template, visual_template_asset_path
 from .business_template_macros import rich_text_runs
 
 ALIGNMENT = {"left": TA_LEFT, "center": TA_CENTER, "right": TA_RIGHT, "justify": TA_JUSTIFY}
@@ -187,6 +188,17 @@ def _draw_shape(c: canvas.Canvas, element: dict[str, Any]) -> None:
         c.rect(x, y, width, height, stroke=1, fill=0)
     c.restoreState()
 
+def _draw_image(c: canvas.Canvas, root, template_id: str, element: dict[str, Any]) -> None:
+    x, y, width, height = _rect(element)
+    path = visual_template_asset_path(root, template_id, str(element.get("asset", "")))
+    if not path.is_file():
+        raise ValueError("template image asset is missing")
+    c.drawImage(
+        ImageReader(str(path)), x, y, width=width, height=height,
+        preserveAspectRatio=True, anchor="c", mask="auto",
+    )
+
+
 
 def _static_elements(layout: dict[str, Any], *, first_page: bool) -> Iterable[dict[str, Any]]:
     for element in layout.get("elements", []):
@@ -200,12 +212,14 @@ def _static_elements(layout: dict[str, Any], *, first_page: bool) -> Iterable[di
         yield element
 
 
-def _draw_static(c: canvas.Canvas, layout: dict[str, Any], values: dict[str, Any], *, first_page: bool) -> None:
+def _draw_static(c: canvas.Canvas, root, template_id: str, layout: dict[str, Any], values: dict[str, Any], *, first_page: bool) -> None:
     for element in _static_elements(layout, first_page=first_page):
         if element.get("type") in {"text", "token"}:
             _draw_text(c, element, values)
         elif element.get("type") in {"line", "rect"}:
             _draw_shape(c, element)
+        elif element.get("type") == "image":
+            _draw_image(c, root, template_id, element)
 
 
 def _invoice_table(lines: list[dict[str, Any]], row: dict[str, Any], width: float) -> Table:
@@ -332,7 +346,7 @@ def render_visual_invoice_pdf(root, template_id: str, row: dict[str, Any]) -> by
     for page_index, chunk in enumerate(chunks):
         first_page = page_index == 0
         last_page = page_index == total_pages - 1
-        _draw_static(c, layout, context, first_page=first_page)
+        _draw_static(c, root, template_id, layout, context, first_page=first_page)
         _draw_invoice_lines(c, lines_element, row, chunk)
         if last_page:
             _draw_invoice_totals(c, totals_element, row)
@@ -388,7 +402,7 @@ def render_visual_letter_pdf(
     c = canvas.Canvas(target, pagesize=A4)
     total_pages = len(chunks)
     for page_index, chunk in enumerate(chunks):
-        _draw_static(c, layout, context, first_page=page_index == 0)
+        _draw_static(c, root, template_id, layout, context, first_page=page_index == 0)
         c.saveState()
         c.setFillColor(colors.HexColor(str(style.get("color", "#111827"))))
         c.setFont(_font_name(style), font_size)
