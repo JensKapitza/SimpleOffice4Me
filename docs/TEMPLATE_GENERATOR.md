@@ -103,6 +103,7 @@ Serverseitig werden A4-Grenzen, Elementanzahl, Textlängen, Farben, Schriften un
 - `{{firma.ansprechpartner}}`
 - `{{firma.email}}`
 - `{{firma.iban}}`
+- `{{firma.blz}}`
 - `{{firma.bic}}`
 - `{{firma.bank}}`
 - `{{firma.steuer_nr}}`
@@ -125,6 +126,7 @@ Die Editor-Vorschau und der PDF-Renderer lösen ausschließlich bekannte Tokens 
 - Resize über den Griff unten rechts
 - X/Y/B/H alternativ numerisch in mm
 - B/I/U
+- Schriftart (Helvetica, Times, Courier)
 - Schriftgröße
 - Farbe
 - Ausrichtung
@@ -178,6 +180,8 @@ Implementiert:
 ### #1006 Verwaltung und Assets
 
 Implementiert:
+
+- BLZ als gespeichertes Firmen-/Bank-Stammdatum und `{{firma.blz}}`-Token
 
 - versionierte Snapshots und Restore als neue Version
 - aktive visuelle Vorlage je Dokumenttyp
