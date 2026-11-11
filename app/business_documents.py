@@ -637,7 +637,7 @@ def contact_invoice(contact_id:str):
     )
     return render_template(
         "documents/contact_invoice.html", contact=contact, crm=crm, address=address,
-        addresses=addresses, templates=invoice_templates, business=settings, company_bank_accounts=seller_accounts, selected_template_id=selected_template_id, selected_bank_account_id=selected_bank_account_id,
+        addresses=addresses, templates=invoice_templates, business=settings, company_bank_accounts=seller_accounts, selected_template_id=selected_template_id, selected_bank_account_id=selected_bank_account_id, selected_bank_account=next((row for row in seller_accounts if row.get("account_id")==selected_bank_account_id),None),
         payment_days=payment_days,
         issue_date=draft.get("issue_date", date.today().isoformat()) if draft else date.today().isoformat(),
         service_date=draft.get("service_date", date.today().isoformat()) if draft else date.today().isoformat(),
