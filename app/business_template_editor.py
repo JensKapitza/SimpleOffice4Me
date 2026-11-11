@@ -19,6 +19,7 @@ from flask import abort, flash, g, redirect, render_template, request, url_for
 from .auth import login_required
 from .document_store import CONTROL_DIR, DocumentStore, atomic_json_write, utc_now
 from .file_lock import exclusive_file_lock
+from .business_template_macros import MacroSyntaxError, macro_tokens, validate_macro_text
 
 VISUAL_TEMPLATE_DIR = "business-templates/visual"
 VISUAL_TEMPLATE_INDEX = "visual-templates.json"
@@ -230,6 +231,14 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
         text = str(raw.get("text", ""))
         if len(text) > MAX_TEXT:
             raise ValueError("template element text is too long")
+        try:
+            validate_macro_text(text)
+        except MacroSyntaxError as exc:
+            raise ValueError(f"invalid template macro: {exc}") from exc
+        known_tokens = {token for token, _label in TOKEN_CATALOG}
+        unknown_tokens = sorted(macro_tokens(text) - known_tokens)
+        if unknown_tokens:
+            raise ValueError(f"unknown template token: {unknown_tokens[0]}")
         x_mm = _number(raw.get("x_mm", 10), minimum=0, maximum=210, name="x")
         y_mm = _number(raw.get("y_mm", 10), minimum=0, maximum=297, name="y")
         width_mm = _number(raw.get("width_mm", 40), minimum=1, maximum=210, name="width")
