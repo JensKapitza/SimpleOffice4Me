@@ -10,6 +10,14 @@
   {% if screen_hints %}<div class="alert alert-info" role="status" aria-live="polite"><strong>{{ 'AI hint (proposal only, nothing changed)' if g.language == 'en' else 'AI-Hinweis (nur Vorschlag, nichts geändert)' }}:</strong><ul class="mb-0">{% for hint in screen_hints %}<li>{{ hint.reason }}</li>{% endfor %}</ul></div>{% endif %}
   <div id="screen-message" class="alert alert-secondary py-2" role="status" aria-live="polite">Bereit.</div>
 
+  <section id="screen-workspace-section" class="card shadow-sm mb-3" hidden>
+    <div class="card-header"><strong>Anwendung während der Freigabe</strong></div>
+    <div class="card-body">
+      <p class="small text-secondary">Hier kannst du die Anwendung weiter bedienen. Seitenwechsel in diesem Arbeitsbereich erhalten die Freigabe. Das Schließen oder Neuladen dieser Support-Seite beendet sie. Eingabefreigaben betreffen nur freigegebene Formularfelder; gespeichert wird durch dich.</p>
+      <iframe id="screen-workspace-frame" title="SimpleOffice Arbeitsbereich" data-start-url="{{ url_for('documents.index') }}" class="w-100 border rounded" style="height:70vh;min-height:360px" sandbox="allow-same-origin allow-scripts allow-forms allow-downloads allow-popups allow-modals" referrerpolicy="same-origin"></iframe>
+    </div>
+  </section>
+
   <section class="card shadow-sm mb-3{{ ' d-none' if viewer_mode|default(false) else '' }}">
     <div class="card-body">
       <h2 class="h4 mb-1">Bildschirm teilen</h2>
@@ -64,5 +72,8 @@
 
   <section class="card mt-4"><div class="card-header"><strong>Aktive Session</strong></div><div class="card-body"><span id="screen-session-role">–</span> · <span id="screen-session-state">nicht verbunden</span></div></section>
 </main>
+<script src="{{ url_for('static', filename='js/screen_workspace.js') }}"></script>
+{% include "screen/support.html" %}
+<script src="{{ url_for('static', filename='js/screen_support.js') }}"></script>
 <script src="{{ url_for('static', filename='js/screen_share.js') }}"></script>
 {% endblock %}
