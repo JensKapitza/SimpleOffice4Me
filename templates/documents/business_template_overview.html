@@ -1,0 +1,102 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/business-template-editor.css') }}">
+{% endblock %}
+{% block body %}
+<main id="main-content" class="container-xl py-4 template-overview">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+    <div>
+      <a class="small text-decoration-none" href="{{ url_for('.template_manager') }}">← Vorlagen</a>
+      <h1 class="h2 mt-2 mb-1">Vorlagenübersicht</h1>
+      <p class="text-secondary mb-0">Visuelle Dokumentvorlagen direkt in SimpleOffice erstellen und bearbeiten.</p>
+    </div>
+    {% if is_admin %}
+    <button class="btn btn-primary" type="button" data-bs-toggle="collapse" data-bs-target="#new-template">
+      <i class="fa-solid fa-plus me-1"></i>Neue Vorlage erstellen
+    </button>
+    {% endif %}
+  </div>
+
+  {% for message in get_flashed_messages() %}<div class="alert alert-info" role="status">{{ message }}</div>{% endfor %}
+
+  {% if is_admin %}
+  <section id="new-template" class="collapse card mb-4">
+    <div class="card-header fw-semibold">Aus Basis-Layout starten</div>
+    <div class="card-body">
+      <form method="post" action="{{ url_for('.visual_template_create') }}" class="row g-3">
+        <div class="col-md-5">
+          <label class="form-label" for="template-name">Name</label>
+          <input id="template-name" class="form-control" name="name" maxlength="120" required placeholder="Rechnung Standard">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label" for="document-type">Dokumenttyp</label>
+          <select id="document-type" class="form-select" name="document_type">
+            <option value="invoice">Rechnung</option>
+            <option value="quote">Angebot</option>
+            <option value="delivery_note">Lieferschein</option>
+            <option value="letter">Brief</option>
+          </select>
+        </div>
+        <div class="col-md-3 d-flex align-items-end">
+          <button class="btn btn-primary w-100" type="submit">Basis-Layout anlegen</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="row g-4">
+    {% for row in visual_templates %}
+    <div class="col-lg-6">
+      <article class="card h-100 template-card">
+        <div class="card-body d-flex gap-3">
+          <div class="template-card-preview" aria-hidden="true">
+            <div class="preview-header"></div>
+            <div class="preview-content"><span></span><span></span><span></span></div>
+            <div class="preview-footer"></div>
+          </div>
+          <div class="flex-grow-1 min-width-0">
+            <div class="d-flex justify-content-between gap-2">
+              <div>
+                <h2 class="h5 mb-1">{{ row.name }}</h2>
+                <div class="text-secondary small">
+                  {% if row.document_type == 'invoice' %}Rechnung{% elif row.document_type == 'quote' %}Angebot{% elif row.document_type == 'delivery_note' %}Lieferschein{% else %}Brief{% endif %}
+                </div>
+              </div>
+              <span class="badge text-bg-primary align-self-start">Visuell</span>
+            </div>
+            <p class="small text-secondary mt-3 mb-3">Schema {{ row.schema_version }} · Version {{ row.version }}<br>Geändert: {{ row.updated_at }}</p>
+            <div class="d-flex flex-wrap gap-2">
+              <a class="btn btn-sm btn-primary" href="{{ url_for('.visual_template_edit', template_id=row.template_id) }}">Bearbeiten</a>
+              {% if is_admin %}
+              <form method="post" action="{{ url_for('.visual_template_duplicate', template_id=row.template_id) }}">
+                <button class="btn btn-sm btn-outline-secondary" type="submit">Duplizieren</button>
+              </form>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+    {% else %}
+    <div class="col-12">
+      <div class="card"><div class="card-body py-5 text-center">
+        <h2 class="h5">Noch keine visuellen Vorlagen</h2>
+        <p class="text-secondary mb-0">Lege eine neue Vorlage aus dem Basis-Layout an. Bestehende 3-Seiten-PDF-/Office-Vorlagen bleiben parallel erhalten.</p>
+      </div></div>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card mt-4">
+    <div class="card-header fw-semibold">Bereiche im Editor</div>
+    <div class="card-body d-flex flex-wrap gap-3">
+      <span class="template-region-key key-header">Header</span>
+      <span class="template-region-key key-content">Inhalt</span>
+      <span class="template-region-key key-footer">Footer</span>
+      <span class="template-region-key key-margin">Randinfo</span>
+    </div>
+  </section>
+</main>
+{% endblock %}
