@@ -184,6 +184,26 @@
           </div>
         </section>
 
+        <section class="card mb-3">
+          <div class="card-header fw-semibold">Versionen</div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush">
+              {% for version in versions %}
+              <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+                <div><strong>v{{ version.version }}</strong><br><small class="text-secondary">{{ version.updated_at }} · {{ version.updated_by }}</small></div>
+                {% if is_admin and version.version != template_row.version %}
+                <form method="post" action="{{ url_for('.visual_template_restore', template_id=template_row.template_id, version=version.version) }}">
+                  <button class="btn btn-sm btn-outline-secondary" type="submit">Wiederherstellen</button>
+                </form>
+                {% else %}<span class="badge text-bg-light">aktuell</span>{% endif %}
+              </div>
+              {% else %}
+              <div class="list-group-item text-secondary small">Noch keine Snapshots vorhanden.</div>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
         <section class="card macro-cheatsheet">
           <div class="card-header fw-semibold">Einfache Makrosprache</div>
           <div class="card-body small">
