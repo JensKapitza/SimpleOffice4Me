@@ -36,7 +36,20 @@ def resolve_tokens(text: str, values: Mapping[str, Any], *, keep_unknown: bool =
         value = values[key]
         return "" if value is None else str(value)
 
-    return TOKEN_RE.sub(replace, source)
+    seen = {source}
+    for _pass in range(8):
+        expanded = TOKEN_RE.sub(replace, source)
+        if len(expanded) > MAX_MACRO_TEXT:
+            raise MacroSyntaxError("expanded macro text exceeds the maximum length")
+        if expanded == source:
+            return expanded
+        if expanded in seen:
+            raise MacroSyntaxError("token expansion cycle detected")
+        seen.add(expanded)
+        source = expanded
+    if TOKEN_RE.search(source):
+        raise MacroSyntaxError("token expansion depth exceeded")
+    return source
 
 
 def _default_style() -> dict[str, Any]:
