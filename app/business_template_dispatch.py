@@ -69,6 +69,7 @@ def render_letter_with_template(
     subject: str,
     body: str,
     cover: bool = False,
+    customer: dict[str, Any] | None = None,
 ) -> bytes:
     if template_row.get("source") == "visual":
         return render_visual_letter_pdf(
@@ -78,6 +79,7 @@ def render_letter_with_template(
             recipient=recipient,
             subject=subject,
             body=body,
+            customer=customer or {},
         )
     return render_business_pdf(
         root,
