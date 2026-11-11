@@ -45,7 +45,7 @@ from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 register_invoice_relation_routes(bp)
-register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings)
+register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings, business_settings_saver=save_business_settings)
 
 
 
