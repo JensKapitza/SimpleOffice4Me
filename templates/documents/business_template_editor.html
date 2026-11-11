@@ -33,6 +33,12 @@
         <button type="button" class="btn btn-sm btn-outline-secondary fst-italic" data-format="italic" title="Kursiv">I</button>
         <button type="button" class="btn btn-sm btn-outline-secondary text-decoration-underline" data-format="underline" title="Unterstrichen">U</button>
         <label class="visually-hidden" for="editor-color">Farbe</label><input id="editor-color" type="color" class="form-control form-control-color form-control-sm" value="#111827" data-prop="color">
+        <label class="visually-hidden" for="editor-font">Schriftart</label>
+        <select id="editor-font" class="form-select form-select-sm toolbar-font" data-prop="font_family">
+          <option value="Helvetica">Helvetica</option>
+          <option value="Times-Roman">Times</option>
+          <option value="Courier">Courier</option>
+        </select>
         <label class="visually-hidden" for="editor-size">Schriftgröße</label>
         <select id="editor-size" class="form-select form-select-sm toolbar-size" data-prop="font_size">
           {% for size in (7,8,9,10,11,12,14,16,18,20,24,28,32,36,48) %}<option value="{{ size }}">{{ size }} pt</option>{% endfor %}
