@@ -10,6 +10,7 @@
   const hidden = document.getElementById('layout-json');
   const layoutNode = document.getElementById('template-layout-data');
   const previewNode = document.getElementById('template-preview-tokens');
+  const assetUrlTemplate = canvas.dataset.assetUrlTemplate || '';
   let layout = JSON.parse(layoutNode.textContent || '{}');
   const previewTokens = JSON.parse(previewNode.textContent || '{}');
   let selectedId = null;
@@ -186,7 +187,14 @@
       node.classList.toggle('is-selected', selectedId === element.id);
       node.classList.toggle('is-locked', Boolean(element.locked));
       node.classList.toggle('is-hidden', element.visible === false);
-      if (element.type === 'invoice_lines') {
+      if (element.type === 'image') {
+        node.classList.add('image-template-element');
+        const image = document.createElement('img');
+        image.alt = 'Vorlagenbild';
+        image.draggable = false;
+        image.src = assetUrlTemplate.replace('__ASSET__', encodeURIComponent(element.asset || ''));
+        node.appendChild(image);
+      } else if (element.type === 'invoice_lines') {
         node.classList.add('dynamic-template-element');
         node.textContent = 'Rechnungspositionen / Tabelle';
       } else if (element.type === 'invoice_totals') {
@@ -222,7 +230,7 @@
 
     const textInput = document.querySelector('[data-element-text]');
     textInput.value = item.text || '';
-    textInput.disabled = ['line','rect','invoice_lines','invoice_totals','body'].includes(item.type);
+    textInput.disabled = ['line','rect','image','invoice_lines','invoice_totals','body'].includes(item.type);
     document.querySelector('[data-element-region]').value = item.region || 'content';
     document.querySelector('[data-element-locked]').checked = Boolean(item.locked);
     document.querySelector('[data-element-visible]').checked = item.visible !== false;
@@ -275,6 +283,7 @@
   function addBasic(type) {
     const isLine = type === 'line';
     const dynamicSizes = {
+      image: {width:45, height:24},
       invoice_lines: {width:174, height:68},
       invoice_totals: {width:80, height:30},
       body: {width:174, height:110},
@@ -289,6 +298,7 @@
       width_mm: dynamic ? dynamic.width : (type === 'rect' ? 55 : 80),
       height_mm: dynamic ? dynamic.height : (isLine ? 1 : (type === 'rect' ? 18 : 10)),
       text: type === 'text' ? 'Text' : '',
+      asset: '',
       style: {font_size:10,font_family:'Helvetica',bold:false,italic:false,underline:false,color:'#111827',align:'left'},
       z_index: Math.max(1, ...layout.elements.map(row => Number(row.z_index || 1))) + 1,
       locked: false,
@@ -301,7 +311,7 @@
 
   function insertMacro(token) {
     const item = selected();
-    if (!item || ['line', 'rect'].includes(item.type)) return;
+    if (!item || ['line', 'rect', 'image', 'invoice_lines', 'invoice_totals', 'body'].includes(item.type)) return;
     const text = `{{${token}}}`;
     item.text = `${item.text || ''}${item.text ? ' ' : ''}${text}`.slice(0, 4000);
     renderElements();
@@ -484,6 +494,50 @@
     if (event.key === 'ArrowDown') item.y_mm = round(clamp(Number(item.y_mm) + step, 0, 297 - Number(item.height_mm)));
     renderElements(); commitHistory();
   });
+
+  const imageUpload = document.querySelector('[data-image-upload]');
+  if (imageUpload) {
+    imageUpload.addEventListener('change', async () => {
+      const file = imageUpload.files?.[0];
+      if (!file) return;
+      const body = new FormData();
+      body.append('image', file);
+      imageUpload.disabled = true;
+      try {
+        const response = await fetch(imageUpload.dataset.uploadUrl, {
+          method: 'POST',
+          body,
+          credentials: 'same-origin',
+          headers: {'Accept': 'application/json'},
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'Bild konnte nicht hochgeladen werden');
+        const item = {
+          id: makeId('image'),
+          type: 'image',
+          region: 'header',
+          x_mm: 145,
+          y_mm: 12,
+          width_mm: 45,
+          height_mm: 24,
+          text: '',
+          asset: result.asset,
+          style: {font_size:10,font_family:'Helvetica',bold:false,italic:false,underline:false,color:'#111827',align:'left'},
+          z_index: Math.max(1, ...layout.elements.map(row => Number(row.z_index || 1))) + 1,
+          locked: false,
+          visible: true,
+        };
+        layout.elements.push(item);
+        selectElement(item.id);
+        commitHistory();
+      } catch (error) {
+        window.alert(error instanceof Error ? error.message : 'Bild konnte nicht hochgeladen werden');
+      } finally {
+        imageUpload.value = '';
+        imageUpload.disabled = false;
+      }
+    });
+  }
 
   form.addEventListener('submit', () => syncHidden());
   renderRegions();
