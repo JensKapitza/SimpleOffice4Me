@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import io
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+from PIL import Image
 from app.business_template_editor import (
     active_visual_template,
     create_visual_template,
@@ -13,7 +15,9 @@ from app.business_template_editor import (
     restore_visual_template_version,
     save_visual_template,
     set_active_visual_template,
+    store_visual_template_asset,
     visual_template,
+    visual_template_asset_path,
     visual_template_versions,
 )
 from app.business_documents import _business_template, _business_template_choices
@@ -112,6 +116,59 @@ class VisualTemplateManagementTests(unittest.TestCase):
                         {"export_schema": 99, "metadata": {}, "layout": {}},
                         "tester",
                     )
+
+    @staticmethod
+    def _png_bytes() -> bytes:
+        target = io.BytesIO()
+        Image.new("RGBA", (24, 12), (20, 90, 180, 255)).save(target, format="PNG")
+        return target.getvalue()
+
+    def test_image_asset_is_normalized_exported_imported_and_renderable(self):
+        from app.business_template_render import render_visual_invoice_pdf, sample_invoice
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            row = self._create(root, "Rechnung mit Logo")
+            asset = store_visual_template_asset(root, row["template_id"], self._png_bytes())
+            metadata, layout = visual_template(root, row["template_id"])
+            layout["elements"].append({
+                "id": "logo",
+                "type": "image",
+                "region": "header",
+                "x_mm": 150,
+                "y_mm": 12,
+                "width_mm": 35,
+                "height_mm": 18,
+                "text": "",
+                "asset": asset,
+                "style": {
+                    "font_size": 10, "font_family": "Helvetica", "bold": False,
+                    "italic": False, "underline": False, "color": "#111827",
+                    "align": "left",
+                },
+                "z_index": 5,
+                "locked": False,
+                "visible": True,
+            })
+            with mock.patch("app.business_template_editor.DocumentStore"):
+                save_visual_template(root, row["template_id"], metadata, layout, "tester")
+
+            exported = export_visual_template(root, row["template_id"])
+            self.assertEqual([asset], list(exported["assets"]))
+            self.assertTrue(visual_template_asset_path(root, row["template_id"], asset).is_file())
+            self.assertGreater(len(render_visual_invoice_pdf(root, row["template_id"], sample_invoice())), 500)
+
+            with mock.patch("app.business_template_editor.DocumentStore"):
+                imported = import_visual_template(root, exported, "tester")
+            self.assertTrue(visual_template_asset_path(root, imported["template_id"], asset).is_file())
+            self.assertGreater(len(render_visual_invoice_pdf(root, imported["template_id"], sample_invoice())), 500)
+
+    def test_image_upload_rejects_non_image_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            row = self._create(root, "Rechnung")
+            with self.assertRaisesRegex(ValueError, "valid PNG or JPEG"):
+                store_visual_template_asset(root, row["template_id"], b"<script>alert(1)</script>")
 
     def test_active_visual_template_wins_default_workflow_choice(self):
         with tempfile.TemporaryDirectory() as temp:
