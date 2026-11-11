@@ -514,11 +514,15 @@
       body.append('image', file);
       imageUpload.disabled = true;
       try {
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
         const response = await fetch(imageUpload.dataset.uploadUrl, {
           method: 'POST',
           body,
           credentials: 'same-origin',
-          headers: {'Accept': 'application/json'},
+          headers: {
+            'Accept': 'application/json',
+            'X-CSRF-Token': csrf,
+          },
         });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || 'Bild konnte nicht hochgeladen werden');
