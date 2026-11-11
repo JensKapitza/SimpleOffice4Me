@@ -61,3 +61,6 @@
   .template-editor-toolbar { position:static; }
   .metric-input { width:68px; }
 }
+
+.template-element.dynamic-template-element { display:flex; align-items:center; justify-content:center; border:1px dashed #64748b; background:rgba(148,163,184,.11); color:#475569; font-size:8pt!important; font-weight:600; text-align:center; }
+.template-element.dynamic-template-element.is-selected { border:2px solid #0d6efd; background:rgba(13,110,253,.08); color:#1d4ed8; }
