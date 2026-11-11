@@ -253,11 +253,22 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
     settings = business_settings(root)
     for key in ("seller_name", "seller_street", "seller_postal", "seller_city", "seller_state", "seller_country", "seller_email", "seller_vat_id", "seller_tax_number", "payment_terms", "currency", "zugferd_profile"):
         settings[key] = str(values.get(key, settings.get(key, ""))).strip()
-    settings["seller_bank_accounts"] = bank_accounts_from_form(values, settings)
-    if not settings["seller_bank_accounts"]:
-        explicit_accounts = str(values.get("bank_accounts_present", "")).strip() == "1"
-        for key in ("seller_iban", "seller_blz", "seller_bic", "seller_bank"):
-            settings[key] = "" if explicit_accounts else str(values.get(key, settings.get(key, ""))).strip()
+    legacy_bank_keys = ("seller_iban", "seller_blz", "seller_bic", "seller_bank")
+    legacy_bank_update = (
+        not hasattr(values, "getlist")
+        and values.get("seller_bank_accounts") is None
+        and any(key in values for key in legacy_bank_keys)
+    )
+    if legacy_bank_update:
+        settings["seller_bank_accounts"] = []
+        for key in legacy_bank_keys:
+            settings[key] = str(values.get(key, settings.get(key, ""))).strip()
+    else:
+        settings["seller_bank_accounts"] = bank_accounts_from_form(values, settings)
+        if not settings["seller_bank_accounts"]:
+            explicit_accounts = str(values.get("bank_accounts_present", "")).strip() == "1"
+            for key in legacy_bank_keys:
+                settings[key] = "" if explicit_accounts else str(values.get(key, settings.get(key, ""))).strip()
     apply_default_bank_legacy_fields(settings)
     try: days = int(str(values.get("default_payment_days", settings.get("default_payment_days", "14"))).strip())
     except ValueError as exc: raise ValueError("default payment days must be an integer") from exc
@@ -267,7 +278,7 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
     path = root / CONTROL_DIR / SETTINGS_FILE; path.parent.mkdir(parents=True, exist_ok=True); atomic_json_write(path, settings)
     audit_settings = {
         key: value for key, value in settings.items()
-        if "iban" not in key.casefold() and key != "seller_bank_accounts"
+        if key not in {"seller_iban", "seller_blz", "seller_bic", "seller_bank", "seller_bank_accounts"}
     }
     audit_settings["bank_account_count"] = len(settings.get("seller_bank_accounts", []))
     DocumentStore(root).history.record("business_settings_updated", actor, "business-settings", "default", audit_settings)
