@@ -8,7 +8,7 @@
   </div>
   <div class="table-responsive">
     <table class="table table-sm align-middle mb-2">
-      <thead><tr><th>Standard</th><th>Bezeichnung</th><th>Kontoinhaber</th><th>IBAN</th><th>BLZ</th><th>BIC</th><th>Bank</th><th>Währung</th><th></th></tr></thead>
+      <thead><tr><th scope="col">Standard</th><th scope="col">Bezeichnung</th><th scope="col">Kontoinhaber</th><th scope="col">IBAN</th><th scope="col">BLZ</th><th scope="col">BIC</th><th scope="col">Bank</th><th scope="col">Währung</th><th scope="col"></th></tr></thead>
       <tbody data-bank-account-rows>
         {% for row in business.seller_bank_accounts|default([]) %}
         <tr data-bank-account-row>
