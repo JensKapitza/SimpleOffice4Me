@@ -22,6 +22,18 @@ class BusinessTemplateMacroTests(unittest.TestCase):
         self.assertEqual("Muster GmbH / RE-2026-0001 / {{unknown.value}}", rendered)
         self.assertEqual({"firma.name", "rechnung.nummer", "unknown.value"}, macro_tokens(text))
 
+    def test_resolve_tokens_expands_nested_values_and_rejects_cycles(self):
+        values = {
+            "freitext3": "Zahlung bitte bis {{rechnung.zahlungsziel}}.",
+            "rechnung.zahlungsziel": "25.11.2026",
+        }
+        self.assertEqual(
+            "Zahlung bitte bis 25.11.2026.",
+            resolve_tokens("{{freitext3}}", values),
+        )
+        with self.assertRaisesRegex(MacroSyntaxError, "cycle"):
+            resolve_tokens("{{a}}", {"a": "{{b}}", "b": "{{a}}"})
+
     def test_rich_text_runs_support_nested_safe_formatting(self):
         runs = rich_text_runs(
             "[B]Hallo [COLOR=#1e88e5]{{firma.name}}[/COLOR][/B]",
