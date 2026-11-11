@@ -276,6 +276,13 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
             "locked": bool(raw.get("locked", False)),
             "visible": bool(raw.get("visible", True)),
         })
+    dynamic_types = ("invoice_lines", "invoice_totals", "body")
+    for dynamic_type in dynamic_types:
+        matching = [item for item in normalized_elements if item["type"] == dynamic_type]
+        if len(matching) > 1:
+            raise ValueError(f"visual template may contain only one {dynamic_type} element")
+        if matching and matching[0]["region"] != "content":
+            raise ValueError(f"{dynamic_type} element must be in the content region")
     regions_in = layout.get("regions", {}) if isinstance(layout.get("regions"), dict) else {}
     def region(name: str, enabled: bool) -> dict[str, Any]:
         raw_region = regions_in.get(name, {})
