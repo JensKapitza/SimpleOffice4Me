@@ -18,7 +18,6 @@ from app.business_customer_documents import (
 from app.business_document_generation import business_settings, save_business_settings
 from app.business_document_preferences import (
     company_bank_accounts,
-    document_preferences,
     validate_document_preferences,
 )
 from app.business_documents import _invoice_row_from_form
@@ -241,7 +240,7 @@ class BusinessDocumentPreferenceTests(unittest.TestCase):
             with mock.patch("app.business_documents._build_invoice_lines", return_value=[]), \
                  mock.patch("app.business_documents._invoice_totals", return_value={"net": "0.00", "tax": "0.00", "gross": "0.00", "vat_groups": {}}), \
                  mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-1"), \
-                 mock.patch("app.business_documents.active_template", return_value={"template_id": "legacy-template"}):
+                 mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "legacy-template"}):
                 row = _invoice_row_from_form(root, contact["contact_id"], form, "tester")
 
             self.assertEqual(ACCOUNT_1, row["seller"]["bank_account_id"])
