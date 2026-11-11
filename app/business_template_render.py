@@ -370,8 +370,8 @@ def render_visual_letter_pdf(
     body: str,
 ) -> bytes:
     meta, layout = visual_template(root, template_id)
-    if meta.get("document_type") != "letter":
-        raise ValueError("selected visual template is not a letter template")
+    if meta.get("document_type") not in {"letter", "quote", "delivery_note"}:
+        raise ValueError("selected visual template is not a body-document template")
     body_element = next((e for e in layout["elements"] if e.get("type") == "body" and e.get("visible", True)), None)
     if body_element is None:
         raise ValueError("letter visual template requires a body element")
