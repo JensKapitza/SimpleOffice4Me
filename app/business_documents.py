@@ -518,7 +518,7 @@ def upload_template():
 @login_required
 def update_business_settings():
     if not _is_admin():abort(403)
-    try:save_business_settings(_root(),request.form.to_dict(),_actor());flash("Rechnungssteller- und Dokumenteinstellungen gespeichert.")
+    try:save_business_settings(_root(),request.form,_actor());flash("Rechnungssteller- und Dokumenteinstellungen gespeichert.")
     except ValueError as exc:flash(str(exc))
     return redirect(url_for(".template_manager"))
 
