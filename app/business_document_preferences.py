@@ -103,19 +103,17 @@ def company_bank_accounts(settings: Mapping[str, Any]) -> list[dict[str, Any]]:
     iban = _clean_iban(settings.get("seller_iban"))
     if not iban:
         return []
-    return normalize_company_bank_accounts(
-        [{
-            "account_id": "0" * 32,
-            "label": "Standardkonto",
-            "holder": settings.get("seller_name", ""),
-            "iban": iban,
-            "blz": settings.get("seller_blz", ""),
-            "bic": settings.get("seller_bic", ""),
-            "bank": settings.get("seller_bank", ""),
-            "currency": settings.get("currency", "EUR"),
-        }],
-        default_account_id="0" * 32,
-    )
+    return [{
+        "account_id": "0" * 32,
+        "label": "Standardkonto",
+        "holder": str(settings.get("seller_name", "")),
+        "iban": iban,
+        "blz": re.sub(r"\\s+", "", str(settings.get("seller_blz", "")))[:20],
+        "bic": _clean_bic(settings.get("seller_bic")),
+        "bank": str(settings.get("seller_bank", "")),
+        "currency": _clean_currency(settings.get("currency", "EUR")),
+        "default": True,
+    }]
 
 
 def selected_company_bank_account(
