@@ -24,7 +24,10 @@ from .business_template_macros import MacroSyntaxError, macro_tokens, validate_m
 
 VISUAL_TEMPLATE_DIR = "business-templates/visual"
 VISUAL_TEMPLATE_INDEX = "visual-templates.json"
+VISUAL_TEMPLATE_STATE = "visual-template-state.json"
 VISUAL_TEMPLATE_SCHEMA = 1
+VISUAL_TEMPLATE_EXPORT_SCHEMA = 1
+MAX_TEMPLATE_IMPORT_BYTES = 1_000_000
 DOCUMENT_TYPES = {"invoice", "quote", "delivery_note", "letter"}
 REGIONS = {"header", "content", "footer", "margin_left", "margin_right"}
 ELEMENT_TYPES = {"text", "token", "line", "rect", "invoice_lines", "invoice_totals", "body"}
@@ -65,6 +68,27 @@ def _directory(root: Path) -> Path:
 def _index_path(root: Path) -> Path:
     return _directory(root) / VISUAL_TEMPLATE_INDEX
 
+def _state_path(root: Path) -> Path:
+    return _directory(root) / VISUAL_TEMPLATE_STATE
+
+
+def _history_path(root: Path, template_id: str, version: int) -> Path:
+    if not re.fullmatch(r"[0-9a-f-]{36}", template_id):
+        raise ValueError("invalid visual template identifier")
+    if not 1 <= int(version) <= 999_999:
+        raise ValueError("invalid visual template version")
+    path = _directory(root) / "history" / template_id / f"{int(version)}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _visual_state(root: Path) -> dict[str, Any]:
+    state = _read_json(_state_path(root), {"active_by_type": {}})
+    if not isinstance(state, dict) or not isinstance(state.get("active_by_type", {}), dict):
+        return {"active_by_type": {}}
+    return state
+
+
 
 def _layout_path(root: Path, template_id: str) -> Path:
     if not re.fullmatch(r"[0-9a-f-]{36}", template_id):
@@ -83,8 +107,16 @@ def visual_templates(root: Path) -> list[dict[str, Any]]:
     rows = _read_json(_index_path(root), {"templates": []}).get("templates", [])
     if not isinstance(rows, list):
         return []
+    active_by_type = _visual_state(root).get("active_by_type", {})
+    normalized = []
+    for source in rows:
+        if not isinstance(source, dict):
+            continue
+        row = dict(source)
+        row["active"] = active_by_type.get(str(row.get("document_type", ""))) == row.get("template_id")
+        normalized.append(row)
     return sorted(
-        (row for row in rows if isinstance(row, dict)),
+        normalized,
         key=lambda row: (str(row.get("document_type", "")), str(row.get("name", "")).casefold()),
     )
 
@@ -310,7 +342,73 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
     }
 
 
-def create_visual_template(root: Path, values: dict[str, Any], actor: str) -> dict[str, Any]:
+def _write_snapshot(root: Path, row: dict[str, Any], layout: dict[str, Any]) -> None:
+    atomic_json_write(
+        _history_path(root, str(row["template_id"]), int(row["version"])),
+        {
+            "export_schema": VISUAL_TEMPLATE_EXPORT_SCHEMA,
+            "metadata": copy.deepcopy(row),
+            "layout": copy.deepcopy(layout),
+        },
+    )
+
+
+def visual_template_versions(root: Path, template_id: str) -> list[dict[str, Any]]:
+    visual_template(root, template_id)
+    directory = _directory(root) / "history" / template_id
+    if not directory.is_dir():
+        return []
+    result = []
+    for path in directory.glob("*.json"):
+        try:
+            version = int(path.stem)
+        except ValueError:
+            continue
+        payload = _read_json(path, {})
+        metadata = payload.get("metadata", {}) if isinstance(payload, dict) else {}
+        result.append({
+            "version": version,
+            "updated_at": metadata.get("updated_at") or metadata.get("created_at") or "",
+            "updated_by": metadata.get("updated_by") or metadata.get("created_by") or "",
+        })
+    return sorted(result, key=lambda item: int(item["version"]), reverse=True)
+
+
+def active_visual_template(root: Path, document_type: str) -> dict[str, Any] | None:
+    if document_type not in DOCUMENT_TYPES:
+        raise ValueError("unsupported document type")
+    active_id = _visual_state(root).get("active_by_type", {}).get(document_type)
+    return next((row for row in visual_templates(root) if row.get("template_id") == active_id), None)
+
+
+def set_active_visual_template(root: Path, template_id: str, actor: str) -> dict[str, Any]:
+    row, _layout = visual_template(root, template_id)
+    directory = _directory(root)
+    with exclusive_file_lock(directory / ".visual-templates-write.lock"):
+        state = _visual_state(root)
+        state.setdefault("active_by_type", {})[row["document_type"]] = template_id
+        atomic_json_write(_state_path(root), state)
+    DocumentStore(root).history.record(
+        "visual_business_template_activated", actor, "business-template", template_id,
+        {"document_type": row["document_type"], "name": row["name"]},
+    )
+    return next(item for item in visual_templates(root) if item["template_id"] == template_id)
+
+
+def export_visual_template(root: Path, template_id: str) -> dict[str, Any]:
+    row, layout = visual_template(root, template_id)
+    metadata = {
+        key: row.get(key)
+        for key in ("name", "document_type", "language", "schema_version")
+    }
+    return {
+        "export_schema": VISUAL_TEMPLATE_EXPORT_SCHEMA,
+        "metadata": metadata,
+        "layout": layout,
+    }
+
+
+def create_visual_template(root: Path, values: dict[str, Any], actor: str, layout: Any | None = None) -> dict[str, Any]:
     name = str(values.get("name", "")).strip()
     document_type = str(values.get("document_type", "invoice")).strip()
     if not name or len(name) > 120:
@@ -332,7 +430,7 @@ def create_visual_template(root: Path, values: dict[str, Any], actor: str) -> di
         "updated_at": now,
         "updated_by": actor,
     }
-    layout = default_visual_layout(document_type)
+    layout = validate_visual_layout(layout if layout is not None else default_visual_layout(document_type))
     directory = _directory(root)
     lock = directory / ".visual-templates-write.lock"
     with exclusive_file_lock(lock):
@@ -340,6 +438,7 @@ def create_visual_template(root: Path, values: dict[str, Any], actor: str) -> di
         payload.setdefault("templates", []).append(row)
         atomic_json_write(_layout_path(root, template_id), layout)
         atomic_json_write(_index_path(root), payload)
+        _write_snapshot(root, row, layout)
     DocumentStore(root).history.record(
         "visual_business_template_created", actor, "business-template", template_id,
         {"name": name, "document_type": document_type, "schema_version": VISUAL_TEMPLATE_SCHEMA},
@@ -387,6 +486,7 @@ def save_visual_template(
         )
         atomic_json_write(_layout_path(root, template_id), normalized)
         atomic_json_write(_index_path(root), payload)
+        _write_snapshot(root, row, normalized)
     DocumentStore(root).history.record(
         "visual_business_template_updated", actor, "business-template", template_id,
         {"name": row["name"], "version": row["version"]},
@@ -396,13 +496,48 @@ def save_visual_template(
 
 def duplicate_visual_template(root: Path, template_id: str, actor: str) -> dict[str, Any]:
     source, layout = visual_template(root, template_id)
-    created = create_visual_template(
+    return create_visual_template(
         root,
         {"name": f"{source['name']} – Kopie", "document_type": source["document_type"], "language": source.get("language", "de")},
         actor,
+        layout=layout,
     )
-    save_visual_template(root, created["template_id"], created, layout, actor)
-    return next(row for row in visual_templates(root) if row["template_id"] == created["template_id"])
+
+
+def import_visual_template(root: Path, payload: Any, actor: str) -> dict[str, Any]:
+    if not isinstance(payload, dict) or payload.get("export_schema") != VISUAL_TEMPLATE_EXPORT_SCHEMA:
+        raise ValueError("unsupported visual template export schema")
+    metadata = payload.get("metadata")
+    if not isinstance(metadata, dict):
+        raise ValueError("visual template export metadata is missing")
+    layout = validate_visual_layout(payload.get("layout"))
+    name = str(metadata.get("name", "")).strip()
+    document_type = str(metadata.get("document_type", "")).strip()
+    language = str(metadata.get("language", "de")).strip()
+    row = create_visual_template(
+        root,
+        {"name": name, "document_type": document_type, "language": language},
+        actor,
+        layout=layout,
+    )
+    DocumentStore(root).history.record(
+        "visual_business_template_imported", actor, "business-template", row["template_id"],
+        {"name": row["name"], "document_type": row["document_type"]},
+    )
+    return row
+
+
+def restore_visual_template_version(root: Path, template_id: str, version: int, actor: str) -> dict[str, Any]:
+    current, _layout = visual_template(root, template_id)
+    snapshot = _read_json(_history_path(root, template_id, version), {})
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("layout"), dict):
+        raise ValueError("visual template version not found")
+    restored = save_visual_template(root, template_id, current, snapshot["layout"], actor)
+    DocumentStore(root).history.record(
+        "visual_business_template_restored", actor, "business-template", template_id,
+        {"restored_from_version": int(version), "new_version": restored["version"]},
+    )
+    return restored
 
 
 def editor_preview_tokens(business: dict[str, Any], layout: dict[str, Any]) -> dict[str, str]:
@@ -432,7 +567,7 @@ def visual_template_choices(root: Path, document_type: str) -> list[dict[str, An
     if document_type not in DOCUMENT_TYPES:
         raise ValueError("unsupported document type")
     return [
-        {**row, "active": False, "visual": True}
+        {**row, "visual": True}
         for row in visual_templates(root)
         if row.get("document_type") == document_type
     ]
@@ -485,7 +620,68 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
             preview_tokens=editor_preview_tokens(business_settings_provider(root_provider()), layout),
             is_admin=_is_admin(),
             document_types=sorted(DOCUMENT_TYPES),
+            versions=visual_template_versions(root_provider(), template_id),
         )
+
+    @bp.post("/templates/editor/import")
+    @login_required
+    def visual_template_import():
+        if not _is_admin():
+            abort(403)
+        upload = request.files.get("template_json")
+        if upload is None:
+            abort(400)
+        raw = upload.stream.read(MAX_TEMPLATE_IMPORT_BYTES + 1)
+        if len(raw) > MAX_TEMPLATE_IMPORT_BYTES:
+            flash("Vorlagendatei ist zu groß.")
+            return redirect(url_for(".visual_template_overview"))
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            row = import_visual_template(root_provider(), payload, actor_provider())
+            flash("Visuelle Vorlage wurde importiert.")
+            return redirect(url_for(".visual_template_edit", template_id=row["template_id"]))
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            flash(str(exc))
+            return redirect(url_for(".visual_template_overview"))
+
+    @bp.get("/templates/editor/<template_id>/export.json")
+    @login_required
+    def visual_template_export(template_id: str):
+        try:
+            row, _layout = visual_template(root_provider(), template_id)
+            payload = json.dumps(export_visual_template(root_provider(), template_id), ensure_ascii=False, indent=2)
+        except ValueError:
+            abort(404)
+        return send_file(
+            io.BytesIO(payload.encode("utf-8")),
+            mimetype="application/json",
+            as_attachment=True,
+            download_name=f"{row['name']}.simpleoffice-template.json",
+        )
+
+    @bp.post("/templates/editor/<template_id>/activate")
+    @login_required
+    def visual_template_activate(template_id: str):
+        if not _is_admin():
+            abort(403)
+        try:
+            set_active_visual_template(root_provider(), template_id, actor_provider())
+            flash("Visuelle Vorlage wurde für diesen Dokumenttyp aktiviert.")
+        except ValueError as exc:
+            flash(str(exc))
+        return redirect(url_for(".visual_template_overview"))
+
+    @bp.post("/templates/editor/<template_id>/restore/<int:version>")
+    @login_required
+    def visual_template_restore(template_id: str, version: int):
+        if not _is_admin():
+            abort(403)
+        try:
+            restore_visual_template_version(root_provider(), template_id, version, actor_provider())
+            flash(f"Version {version} wurde als neue Version wiederhergestellt.")
+        except ValueError as exc:
+            flash(str(exc))
+        return redirect(url_for(".visual_template_edit", template_id=template_id))
 
     @bp.get("/templates/editor/<template_id>/preview.pdf")
     @login_required
