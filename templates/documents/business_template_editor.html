@@ -17,6 +17,7 @@
       </div>
       <div class="d-flex gap-2">
         <button class="btn btn-outline-secondary" type="button" data-action="toggle-preview"><i class="fa-regular fa-eye me-1"></i>Token-Vorschau</button>
+        <a class="btn btn-outline-primary" href="{{ url_for('.visual_template_preview', template_id=template_row.template_id) }}" target="_blank" rel="noopener"><i class="fa-regular fa-file-pdf me-1"></i>Vorschau (PDF)</a>
         {% if is_admin %}<button class="btn btn-primary" type="submit"><i class="fa-regular fa-floppy-disk me-1"></i>Speichern</button>{% endif %}
       </div>
     </div>
@@ -79,6 +80,9 @@
                   <button type="button" class="template-palette-item" data-add-element="text"><i class="fa-solid fa-font"></i><span>Textfeld</span></button>
                   <button type="button" class="template-palette-item" data-add-element="line"><i class="fa-solid fa-minus"></i><span>Linie</span></button>
                   <button type="button" class="template-palette-item" data-add-element="rect"><i class="fa-regular fa-square"></i><span>Rechteck</span></button>
+                  <button type="button" class="template-palette-item" data-add-element="invoice_lines"><i class="fa-solid fa-table-list"></i><span>Rechnungspositionen</span></button>
+                  <button type="button" class="template-palette-item" data-add-element="invoice_totals"><i class="fa-solid fa-calculator"></i><span>Summenblock</span></button>
+                  <button type="button" class="template-palette-item" data-add-element="body"><i class="fa-solid fa-align-left"></i><span>Dokumenttext</span></button>
                 </div>
               </div>
             </div>
