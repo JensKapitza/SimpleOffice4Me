@@ -137,6 +137,8 @@ def _rich_markup(text: str, values: dict[str, Any]) -> tuple[str, str | None]:
         attributes = []
         if run.get("font_size"):
             attributes.append(f'size="{float(run["font_size"]):g}"')
+        if run.get("font_family"):
+            attributes.append(f'name="{run["font_family"]}"')
         if run.get("color"):
             attributes.append(f'color="{run["color"]}"')
         if attributes:
