@@ -39,6 +39,12 @@ class BusinessTemplateEditorAssetTests(unittest.TestCase):
             with self.subTest(marker=marker):
                 self.assertIn(marker, self.script)
 
+    def test_palette_supports_real_drag_and_drop(self):
+        self.assertIn("application/x-simpleoffice-template-element", self.script)
+        self.assertIn("dragstart", self.script)
+        self.assertIn("canvas.addEventListener('drop'", self.script)
+        self.assertIn("paletteItem.draggable = true", self.script)
+
     def test_preview_builds_safe_dom_without_inner_html(self):
         self.assertNotIn("innerHTML", self.script)
         self.assertIn("document.createTextNode", self.script)
