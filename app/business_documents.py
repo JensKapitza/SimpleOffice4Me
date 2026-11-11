@@ -14,7 +14,7 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
-from .business_template_editor import register_template_editor_routes, visual_template, visual_template_choices
+from .business_template_editor import active_visual_template, register_template_editor_routes, visual_template, visual_template_choices
 from .business_template_render import render_visual_invoice_pdf, render_visual_letter_pdf
 from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
@@ -44,15 +44,26 @@ register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, 
 
 
 def _business_template_choices(root: Path, document_type: str) -> list[dict[str, Any]]:
-    """Combine legacy corporate backgrounds with compatible visual templates."""
-    return list(templates(root)) + visual_template_choices(root, document_type)
+    """Combine legacy backgrounds with compatible visual templates.
+
+    An explicitly activated visual template wins the default selection for its
+    document type without changing the legacy global-template setting.
+    """
+    visual = visual_template_choices(root, document_type)
+    visual_active = any(bool(row.get("active")) for row in visual)
+    legacy = [
+        {**row, "active": bool(row.get("active")) and not visual_active}
+        for row in templates(root)
+    ]
+    return legacy + visual
 
 
 def _business_template(root: Path, template_id: str, document_type: str) -> dict[str, Any]:
     """Resolve an explicit legacy or visual template and enforce its document type."""
     template_id = str(template_id or "").strip()
     if not template_id:
-        return active_template(root)
+        visual_default = active_visual_template(root, document_type)
+        return visual_default if visual_default is not None else active_template(root)
     try:
         return active_template(root, template_id)
     except ValueError as legacy_error:
