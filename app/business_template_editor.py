@@ -230,14 +230,20 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
         text = str(raw.get("text", ""))
         if len(text) > MAX_TEXT:
             raise ValueError("template element text is too long")
+        x_mm = _number(raw.get("x_mm", 10), minimum=0, maximum=210, name="x")
+        y_mm = _number(raw.get("y_mm", 10), minimum=0, maximum=297, name="y")
+        width_mm = _number(raw.get("width_mm", 40), minimum=1, maximum=210, name="width")
+        height_mm = _number(raw.get("height_mm", 8), minimum=1, maximum=297, name="height")
+        if x_mm + width_mm > 210.01 or y_mm + height_mm > 297.01:
+            raise ValueError("template element must stay inside the A4 page")
         normalized_elements.append({
             "id": element_id,
             "type": element_type,
             "region": region,
-            "x_mm": _number(raw.get("x_mm", 10), minimum=0, maximum=210, name="x"),
-            "y_mm": _number(raw.get("y_mm", 10), minimum=0, maximum=297, name="y"),
-            "width_mm": _number(raw.get("width_mm", 40), minimum=1, maximum=210, name="width"),
-            "height_mm": _number(raw.get("height_mm", 8), minimum=1, maximum=297, name="height"),
+            "x_mm": x_mm,
+            "y_mm": y_mm,
+            "width_mm": width_mm,
+            "height_mm": height_mm,
             "text": text,
             "style": _validate_style(raw.get("style")),
             "z_index": int(_number(raw.get("z_index", 1), minimum=0, maximum=999, name="z index")),
@@ -245,12 +251,17 @@ def validate_visual_layout(layout: Any) -> dict[str, Any]:
             "visible": bool(raw.get("visible", True)),
         })
     regions_in = layout.get("regions", {}) if isinstance(layout.get("regions"), dict) else {}
+    def region(name: str, enabled: bool) -> dict[str, Any]:
+        raw_region = regions_in.get(name, {})
+        if raw_region is not None and not isinstance(raw_region, dict):
+            raise ValueError("template region configuration must be an object")
+        return {"enabled": bool((raw_region or {}).get("enabled", enabled))}
     regions = {
-        "header": {"enabled": bool(regions_in.get("header", {}).get("enabled", True)), "y_mm": 8, "height_mm": 38},
+        "header": {**region("header", True), "y_mm": 8, "height_mm": 38},
         "content": {"enabled": True, "y_mm": 48, "height_mm": 207},
-        "footer": {"enabled": bool(regions_in.get("footer", {}).get("enabled", True)), "y_mm": 257, "height_mm": 32},
-        "margin_left": {"enabled": bool(regions_in.get("margin_left", {}).get("enabled", False)), "width_mm": 8},
-        "margin_right": {"enabled": bool(regions_in.get("margin_right", {}).get("enabled", False)), "width_mm": 8},
+        "footer": {**region("footer", True), "y_mm": 257, "height_mm": 32},
+        "margin_left": {**region("margin_left", False), "width_mm": 8},
+        "margin_right": {**region("margin_right", False), "width_mm": 8},
     }
     free_in = layout.get("free_text", {}) if isinstance(layout.get("free_text"), dict) else {}
     free_text = {
