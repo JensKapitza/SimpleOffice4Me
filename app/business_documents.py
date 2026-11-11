@@ -14,8 +14,13 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
-from .business_template_editor import register_template_editor_routes, visual_template, visual_template_choices
-from .business_template_render import render_visual_invoice_pdf, render_visual_letter_pdf
+from .business_template_editor import register_template_editor_routes
+from .business_template_dispatch import (
+    business_template as _business_template,
+    business_template_choices as _business_template_choices,
+    render_invoice_with_template as _render_invoice_with_template,
+    render_letter_with_template as _render_letter_with_template,
+)
 from .invoice_addresses import parse_free_text_invoice_address as _parse_free_text_invoice_address
 from .invoice_access import _managed_invoice  # noqa: F401 (re-exported facade for invoice_relation_routes)
 from .invoice_display import _display_zugferd
@@ -42,54 +47,6 @@ bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 register_invoice_relation_routes(bp)
 register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings)
 
-
-def _business_template_choices(root: Path, document_type: str) -> list[dict[str, Any]]:
-    """Combine legacy corporate backgrounds with compatible visual templates."""
-    return list(templates(root)) + visual_template_choices(root, document_type)
-
-
-def _business_template(root: Path, template_id: str, document_type: str) -> dict[str, Any]:
-    """Resolve an explicit legacy or visual template and enforce its document type."""
-    template_id = str(template_id or "").strip()
-    if not template_id:
-        return active_template(root)
-    try:
-        return active_template(root, template_id)
-    except ValueError as legacy_error:
-        try:
-            row, _layout = visual_template(root, template_id)
-        except ValueError:
-            raise legacy_error
-        if row.get("document_type") != document_type:
-            raise ValueError(f"visual template is not valid for {document_type}")
-        return row
-
-
-def _render_invoice_with_template(root: Path, template_row: dict[str, Any], row: dict[str, Any]) -> bytes:
-    if template_row.get("source") == "visual":
-        return render_visual_invoice_pdf(root, template_row["template_id"], row)
-    return _merge_content_with_template(root, template_row, _invoice_content_pdf(row))
-
-
-def _render_letter_with_template(
-    root: Path,
-    template_row: dict[str, Any],
-    *,
-    recipient: str,
-    subject: str,
-    body: str,
-    cover: bool = False,
-) -> bytes:
-    if template_row.get("source") == "visual":
-        if cover:
-            raise ValueError("visual letter templates do not use the legacy cover-page option")
-        return render_visual_letter_pdf(
-            root, template_row["template_id"],
-            business=business_settings(root), recipient=recipient, subject=subject, body=body,
-        )
-    return render_business_pdf(
-        root, template_row, recipient=recipient, subject=subject, markdown=body, cover=cover,
-    )
 
 
 def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
