@@ -147,6 +147,29 @@
         </section>
 
         <section class="card mb-3">
+          <div class="card-header fw-semibold"><i class="fa-solid fa-building me-1"></i>Firmenstammdaten</div>
+          <div class="card-body">
+            <div class="small text-secondary mb-3">Diese Werte sind zentrale Stammdaten. Änderungen hier gelten auch für andere Vorlagen und neue Dokumente.</div>
+            <div class="row g-2">
+              <div class="col-12"><label class="form-label small">Firma / Name</label><input class="form-control form-control-sm" name="seller_name" value="{{ business.seller_name }}" required></div>
+              <div class="col-12"><label class="form-label small">E-Mail</label><input class="form-control form-control-sm" type="email" name="seller_email" value="{{ business.seller_email }}"></div>
+              <div class="col-12"><label class="form-label small">Straße</label><input class="form-control form-control-sm" name="seller_street" value="{{ business.seller_street }}" required></div>
+              <div class="col-4"><label class="form-label small">PLZ</label><input class="form-control form-control-sm" name="seller_postal" value="{{ business.seller_postal }}" required></div>
+              <div class="col-8"><label class="form-label small">Ort</label><input class="form-control form-control-sm" name="seller_city" value="{{ business.seller_city }}" required></div>
+              <div class="col-8"><label class="form-label small">Bundesland</label><input class="form-control form-control-sm" name="seller_state" value="{{ business.seller_state }}"></div>
+              <div class="col-4"><label class="form-label small">Land</label><input class="form-control form-control-sm text-uppercase" name="seller_country" maxlength="2" value="{{ business.seller_country }}"></div>
+              <div class="col-6"><label class="form-label small">USt-IdNr.</label><input class="form-control form-control-sm" name="seller_vat_id" value="{{ business.seller_vat_id }}"></div>
+              <div class="col-6"><label class="form-label small">Steuernummer</label><input class="form-control form-control-sm" name="seller_tax_number" value="{{ business.seller_tax_number }}"></div>
+              <div class="col-8"><label class="form-label small">Zahlungsbedingung</label><input class="form-control form-control-sm" name="payment_terms" value="{{ business.payment_terms }}"></div>
+              <div class="col-4"><label class="form-label small">Tage</label><input class="form-control form-control-sm" type="number" min="0" max="3650" name="default_payment_days" value="{{ business.default_payment_days }}"></div>
+              <div class="col-4"><label class="form-label small">Währung</label><input class="form-control form-control-sm text-uppercase" name="currency" maxlength="3" value="{{ business.currency }}"></div>
+              <input type="hidden" name="zugferd_profile" value="EN16931">
+              {% include "documents/_company_bank_accounts.html" %}
+            </div>
+          </div>
+        </section>
+
+        <section class="card mb-3">
           <div class="card-header fw-semibold">Ausgewähltes Element</div>
           <div class="card-body">
             <div id="no-selection" class="text-secondary small">Wähle ein Element auf der Seite aus.</div>
@@ -233,5 +256,6 @@
     </div>
   </form>
 </main>
+<script src="{{ url_for('static', filename='js/company-bank-accounts.js') }}"></script>
 <script src="{{ url_for('static', filename='js/business-template-editor.js') }}"></script>
 {% endblock %}
