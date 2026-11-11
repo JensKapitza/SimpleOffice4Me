@@ -33,7 +33,7 @@ def preferred_template_id(
     if preferred and preferred in valid:
         return preferred
     active = next((str(row.get("template_id", "")) for row in choices if row.get("active")), "")
-    return active or (next(iter(valid)) if valid else "")
+    return active or (str(choices[0].get("template_id", "")) if choices else "")
 
 
 def preferred_bank_account_id(
