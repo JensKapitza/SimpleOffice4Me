@@ -434,12 +434,16 @@ def register(bp) -> None:
         seller_accounts = company_bank_accounts(business_settings(root))
         if request.method == "POST":
             current = store.record(contact_id)
-            preferences = validate_document_preferences(
-                document_preferences_from_form(request.form, current),
-                invoice_template_ids={str(row.get("template_id", "")) for row in invoice_templates},
-                letter_template_ids={str(row.get("template_id", "")) for row in letter_templates},
-                bank_account_ids={str(row.get("account_id", "")) for row in seller_accounts},
-            )
+            try:
+                preferences = validate_document_preferences(
+                    document_preferences_from_form(request.form, current),
+                    invoice_template_ids={str(row.get("template_id", "")) for row in invoice_templates},
+                    letter_template_ids={str(row.get("template_id", "")) for row in letter_templates},
+                    bank_account_ids={str(row.get("account_id", "")) for row in seller_accounts},
+                )
+            except ValueError as exc:
+                flash(str(exc))
+                return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
             values = {"roles": request.form.getlist("roles"), "status": request.form.get("status", "active"), "customer_number": request.form.get("customer_number", ""), "supplier_number": request.form.get("supplier_number", ""), "discount": request.form.get("discount", ""), "payment_terms": request.form.get("payment_terms", ""), "payment_days": request.form.get("payment_days", ""), "currency": request.form.get("currency", "EUR"), "tax_number": request.form.get("tax_number", ""), "vat_id": request.form.get("vat_id", ""), "notes": request.form.get("notes", ""), "addresses": _parse_address_rows(request.form.get("addresses", "")), "communications": [dict(zip(("type", "value", "preferred"), row)) for row in _parse_rows(request.form.get("communications", ""), 3)], "bank_accounts": [dict(zip(("holder", "iban", "bic", "bank"), row)) for row in _parse_rows(request.form.get("bank_accounts", ""), 4)], "relations": [dict(zip(("type", "contact_id"), row)) for row in _parse_rows(request.form.get("relations", ""), 2)], "document_preferences": preferences}
             store.save(contact_id, values, actor); flash("CRM-Daten gespeichert. CardDAV-Änderungen können diese Daten nicht löschen."); return redirect(url_for("contact_audit.crm_contact", contact_id=contact_id))
         index = LocalAddressIndex(current_app.config["DOCUMENT_ROOT"])
