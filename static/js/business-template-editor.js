@@ -59,9 +59,19 @@
   function redo() { restoreHistory(historyIndex + 1); }
 
   function tokenPreview(text) {
-    return String(text).replace(/\{\{([a-z0-9_.-]{1,80})\}\}/gi, (match, token) => (
-      Object.prototype.hasOwnProperty.call(previewTokens, token) ? previewTokens[token] : match
-    ));
+    let source = String(text);
+    const seen = new Set([source]);
+    for (let pass = 0; pass < 8; pass += 1) {
+      const expanded = source.replace(/\{\{([a-z0-9_.-]{1,80})\}\}/gi, (match, token) => (
+        Object.prototype.hasOwnProperty.call(previewTokens, token) ? previewTokens[token] : match
+      ));
+      if (expanded === source) return expanded;
+      if (expanded.length > 10000 || seen.has(expanded)) throw new Error('invalid nested token expansion');
+      seen.add(expanded);
+      source = expanded;
+    }
+    if (/\{\{([a-z0-9_.-]{1,80})\}\}/i.test(source)) throw new Error('token expansion depth exceeded');
+    return source;
   }
 
   function macroPreviewRuns(text) {
