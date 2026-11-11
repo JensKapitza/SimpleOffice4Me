@@ -180,6 +180,16 @@ jobs:
           python -m playwright install --list
       - name: Resource Commander browser regressions
         run: python -m unittest discover -s tests -p test_resource_commander_browser.py -v
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Company bank accounts browser regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHROME_BIN="$(python -c 'from playwright.sync_api import sync_playwright; p=sync_playwright().start(); print(p.chromium.executable_path); p.stop()')"
+          export CHROME_BIN
+          node --test tests/company_bank_accounts_browser.test.cjs
 
   docker-host:
     name: Docker and Buildx host
