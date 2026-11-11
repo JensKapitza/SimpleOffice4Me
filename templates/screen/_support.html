@@ -10,7 +10,7 @@
       <button id="screen-support-revoke" class="btn btn-outline-danger" type="button" disabled>Eingabefreigabe widerrufen</button>
     </div>
     <div id="screen-support-fields" class="my-3"></div>
-    <form id="screen-support-notice-form" class="my-3">
+    <form id="screen-support-notice-form" class="my-3" method="post" action="{{ url_for('screen.index') }}">
       <label class="form-label" for="screen-support-notice">Hinweis an die Gegenstelle</label>
       <textarea id="screen-support-notice" class="form-control" rows="2" maxlength="1000" placeholder="Zum Beispiel: Ich kann dich nicht hören."></textarea>
       <button id="screen-support-send" class="btn btn-outline-primary mt-2" type="submit" disabled>Hinweis senden</button>
