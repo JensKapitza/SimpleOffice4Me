@@ -58,8 +58,6 @@ def render_letter_with_template(
     cover: bool = False,
 ) -> bytes:
     if template_row.get("source") == "visual":
-        if cover:
-            raise ValueError("visual letter templates do not use the legacy cover-page option")
         return render_visual_letter_pdf(
             root,
             template_row["template_id"],
