@@ -596,12 +596,24 @@ def save_visual_template(
 
 def duplicate_visual_template(root: Path, template_id: str, actor: str) -> dict[str, Any]:
     source, layout = visual_template(root, template_id)
-    return create_visual_template(
+    created = create_visual_template(
         root,
         {"name": f"{source['name']} – Kopie", "document_type": source["document_type"], "language": source.get("language", "de")},
         actor,
         layout=layout,
     )
+    for element in layout.get("elements", []):
+        if element.get("type") != "image":
+            continue
+        asset = str(element.get("asset", ""))
+        source_path = visual_template_asset_path(root, template_id, asset)
+        if not source_path.is_file():
+            raise ValueError("template image asset is missing")
+        _atomic_bytes(
+            visual_template_asset_path(root, created["template_id"], asset),
+            source_path.read_bytes(),
+        )
+    return created
 
 
 def import_visual_template(root: Path, payload: Any, actor: str) -> dict[str, Any]:
