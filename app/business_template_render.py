@@ -52,7 +52,6 @@ def invoice_template_context(row: dict[str, Any], layout: dict[str, Any]) -> dic
     seller = row.get("seller") or {}
     buyer = row.get("buyer") or {}
     free_text = layout.get("free_text") or {}
-    customer = customer or {}
     seller_address = " ".join(
         str(seller.get(key, "")).strip()
         for key in ("street", "postal", "city")
@@ -90,6 +89,7 @@ def business_template_context(
     customer: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     free_text = layout.get("free_text") or {}
+    customer = customer or {}
     seller_address = " ".join(
         str(business.get(key, "")).strip()
         for key in ("seller_street", "seller_postal", "seller_city")
