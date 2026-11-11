@@ -145,7 +145,10 @@ def _normalized_template_image(raw: bytes) -> bytes:
         converted = image.convert("RGBA" if "A" in image.getbands() else "RGB")
         target = io.BytesIO()
         converted.save(target, format="PNG", optimize=True)
-        return target.getvalue()
+        normalized = target.getvalue()
+        if len(normalized) > MAX_TEMPLATE_IMAGE_BYTES:
+            raise ValueError("normalized template image exceeds the 750 KB limit")
+        return normalized
     except (UnidentifiedImageError, OSError, ValueError) as exc:
         if isinstance(exc, ValueError):
             raise
