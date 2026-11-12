@@ -27,7 +27,12 @@ from app.business_document_preferences import (
     normalize_company_bank_accounts,
     validate_document_preferences,
 )
-from app.business_documents import _invoice_row_from_form, _invoice_store_path, finalize_invoice
+from app.business_documents import (
+    _invoice_row_from_form,
+    _invoice_store_path,
+    draft_invoice_pdf,
+    finalize_invoice,
+)
 from app.business_template_editor import create_visual_template, save_visual_template, visual_template
 from app.business_template_render import render_visual_letter_pdf
 from app.contact_extensions import ContactCRMStore
@@ -110,6 +115,9 @@ class BusinessDocumentPreferenceTests(unittest.TestCase):
                     "iban": "DE88370400440532013000",
                 },
             }), encoding="utf-8")
+            legacy_draft = json.loads(draft_path.read_text(encoding="utf-8"))
+            with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
+                draft_invoice_pdf(root, legacy_draft)
             with self.assertRaisesRegex(ValueError, "IBAN ist ungültig"):
                 finalize_invoice(root, "legacy-draft", "tester")
 

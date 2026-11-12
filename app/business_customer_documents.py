@@ -11,6 +11,16 @@ from .business_document_preferences import (
 )
 
 
+def validate_invoice_seller_iban(iban: Any, label: Any = "Rechnungskonto") -> None:
+    value = str(iban or "").strip()
+    if not value:
+        return
+    normalize_company_bank_accounts([{
+        "label": str(label or "Rechnungskonto"),
+        "iban": value,
+    }])
+
+
 def preferred_template_id(
     crm: Mapping[str, Any],
     document_type: str,
@@ -67,10 +77,7 @@ def invoice_seller_snapshot(
 ) -> dict[str, str]:
     account = selected_company_bank_account(settings, account_id)
     if account is not None and account.get("iban"):
-        normalize_company_bank_accounts([{
-            "label": str(account.get("label") or "Rechnungskonto"),
-            "iban": account["iban"],
-        }])
+        validate_invoice_seller_iban(account["iban"], account.get("label"))
     return {
         "name": str(settings.get("seller_name", "")),
         "street": str(settings.get("seller_street", "")),
