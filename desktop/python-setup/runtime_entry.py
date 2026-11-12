@@ -65,16 +65,26 @@ def main() -> None:
 
     server = _desktop_server(app.config["DOCUMENT_ROOT"])
     from waitress import serve
-    serve(
-        app,
-        host="127.0.0.1",
-        port=int(server["port"]),
-        threads=max(2, min(int(server["wsgi_threads"]), 16)),
-        channel_timeout=120,
-        max_request_body_size=int(app.config["MAX_CONTENT_LENGTH"]),
-        expose_tracebacks=False,
-        ident="SimpleOffice4Me Desktop",
-    )
+    backend_port = int(server["port"])
+    app.config["LAN_PROXY_BACKEND_HOST"] = "127.0.0.1"
+    app.config["LAN_PROXY_BACKEND_PORT"] = backend_port
+    from app.lan_proxy import configure_lan_proxy, lan_proxy_runtime
+    proxy_status = configure_lan_proxy(app, app.config["DOCUMENT_ROOT"], "127.0.0.1", backend_port)
+    if proxy_status["state"] == "error":
+        print(f"Desktop LAN proxy could not start: {proxy_status['message']}", flush=True)
+    try:
+        serve(
+            app,
+            host="127.0.0.1",
+            port=backend_port,
+            threads=max(2, min(int(server["wsgi_threads"]), 16)),
+            channel_timeout=120,
+            max_request_body_size=int(app.config["MAX_CONTENT_LENGTH"]),
+            expose_tracebacks=False,
+            ident="SimpleOffice4Me Desktop",
+        )
+    finally:
+        lan_proxy_runtime.stop(state="stopped", message="Desktop backend stopped")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ from app import app_config_store
 from app.federation_print_auth import PrintRequestProof, identify_source_peer as real_identify_source_peer, new_nonce, sign_request
 from app.federation_print_http import bp
 from app.federation_store import FederationStore
-from app.printershare_store import PrinterShareStore
+from app.printershare_store import PrinterDiscoveryResult, PrinterShareStore
 
 
 TEST_PRINTER = {
@@ -44,7 +44,10 @@ class FederationPrintHttpTest(unittest.TestCase):
         self.addCleanup(self._store_patcher.stop)
         with self.app.app_context():
             app_config_store.put_secret("federation", "token", RECEIVER_TOKEN)
-        self.discover = patch("app.printershare_store.discover_printers", return_value=[dict(TEST_PRINTER)])
+        self.discover = patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([dict(TEST_PRINTER)]),
+        )
         self.spool = patch("app.printershare_store.spool_payload", return_value="spool-ok")
         self.discover.start()
         self.spool_mock = self.spool.start()

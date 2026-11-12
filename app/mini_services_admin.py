@@ -22,7 +22,7 @@ from .mini_services import (
     save_config,
     tail_dns_log,
 )
-from .desktop_proxy_status import _desktop_proxy_status
+from .desktop_proxy_status import _lan_proxy_status
 from .network_system_status import dhcp_network_candidates, ipv4_routing_status, network_interfaces
 from simpleoffice_network_gateway import DEFAULT_GATEWAY_SETTINGS
 from simpleoffice_network_gateway_runtime import load_gateway_settings, save_gateway_settings
@@ -99,7 +99,7 @@ def index():
         "admin/mini_services_hub.html",
         config=config,
         status=read_status(default_config_path()),
-        desktop_proxy_status=_desktop_proxy_status(current_app.config["DOCUMENT_ROOT"]),
+        desktop_proxy_status=_lan_proxy_status(current_app.config["DOCUMENT_ROOT"]),
     )
 
 

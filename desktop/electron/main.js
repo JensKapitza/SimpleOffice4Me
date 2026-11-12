@@ -4,18 +4,12 @@ const { app, BrowserWindow, desktopCapturer, dialog, ipcMain, shell, session } =
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const net = require('node:net');
-const os = require('node:os');
-const {createLanProxy} = require('./lan_proxy');
 const path = require('node:path');
 
 let mainWindow = null;
 let backend = null;
 let backendUrl = null;
 let quitting = false;
-let lanProxy = null;
-let backendDocumentRoot = null;
-let proxyStatusTimer = null;
-let proxyStatusState = {state: 'disabled', message: 'LAN proxy is not configured'};
 
 function executableOnPath(name) {
   const extensions = process.platform === 'win32' ? ['.exe', '.cmd', '.bat', ''] : [''];
@@ -145,60 +139,6 @@ function backendCommand() {
   return developmentBackend();
 }
 
-function persistedLanProxy(documentRoot) {
-  let settings;
-  try {
-    settings = JSON.parse(fs.readFileSync(path.join(
-      documentRoot, '.simpleoffice-meta', 'settings.json'
-    ), 'utf8')).server || {};
-  } catch (error) {
-    if (error.code !== 'ENOENT') console.error('Cannot read server settings:', error);
-    return null;
-  }
-  const host = String(settings.host || '127.0.0.1').trim();
-  const port = Number(settings.port);
-  if (['127.0.0.1', 'localhost', '::1'].includes(host)) return null;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-  let advertised = host;
-  if (host === '0.0.0.0') {
-    const interfaces = Object.values(os.networkInterfaces()).flat();
-    advertised = interfaces.find((item) =>
-      item && item.family === 'IPv4' && !item.internal)?.address || '';
-  }
-  const tlsConfigured = Boolean(process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_CERT &&
-    process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_KEY);
-  const origin = tlsConfigured && advertised && !advertised.includes(':')
-    ? `https://${advertised}:${port}` : '';
-  return {host, port, origin};
-}
-
-function writeProxyStatus() {
-  if (!backendDocumentRoot) return;
-  const folder = path.join(backendDocumentRoot, '.simpleoffice-meta');
-  try {
-    fs.mkdirSync(folder, {recursive: true});
-    const target = path.join(folder, 'desktop-proxy-status.json');
-    const temporary = target + '.tmp-' + process.pid;
-    const body = JSON.stringify({
-      schema: 1, owner_pid: process.pid, updated_at: new Date().toISOString(),
-      ...proxyStatusState
-    });
-    fs.writeFileSync(temporary, body, {mode: 0o600});
-    fs.renameSync(temporary, target);
-  } catch (error) {
-    console.error('Desktop proxy status could not be saved:', error.code || error.name);
-  }
-}
-
-function updateProxyStatus(state, message, origin = '', heartbeat = true) {
-  proxyStatusState = {state, message, origin};
-  writeProxyStatus();
-  if (heartbeat && !proxyStatusTimer) {
-    proxyStatusTimer = setInterval(writeProxyStatus, 5000);
-    proxyStatusTimer.unref?.();
-  }
-}
-
 async function startBackend() {
   const port = await freePort();
   const userData = app.getPath('userData');
@@ -206,9 +146,6 @@ async function startBackend() {
   const documentRoot = path.join(app.getPath('documents'), 'SimpleOffice4Me');
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(documentRoot, { recursive: true });
-  backendDocumentRoot = documentRoot;
-  updateProxyStatus('disabled', 'LAN proxy is not configured');
-
   backendUrl = `http://127.0.0.1:${port}`;
   const launch = backendCommand();
   const errorReportUrl = (process.env.SIMPLEOFFICE_ERROR_REPORT_URL || packagedErrorReportUrl()).trim();
@@ -224,7 +161,6 @@ async function startBackend() {
     SIMPLEOFFICE_DOCUMENT_ROOT: documentRoot,
     SIMPLEOFFICE_HOST: '127.0.0.1',
     SIMPLEOFFICE_PORT: String(port),
-    SIMPLEOFFICE_DESKTOP_LAN_PROXY_ORIGIN: persistedLanProxy(documentRoot)?.origin || '',
     SIMPLEOFFICE_ERROR_REPORT_URL: errorReportUrl,
     SIMPLEOFFICE_BACKGROUND_INDEX: process.env.SIMPLEOFFICE_BACKGROUND_INDEX || '0',
     SIMPLEOFFICE_OSM_INDEX: process.env.SIMPLEOFFICE_OSM_INDEX || '0',
@@ -240,8 +176,6 @@ async function startBackend() {
   backend.stdout?.on('data', (chunk) => console.log(`[python] ${chunk.toString().trimEnd()}`));
   backend.stderr?.on('data', (chunk) => console.error(`[python] ${chunk.toString().trimEnd()}`));
   backend.on('exit', (code, signal) => {
-    if (lanProxy) { lanProxy.close(); lanProxy = null; }
-    updateProxyStatus('stopped', 'Backend process stopped');
     backend = null;
     if (!quitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.loadFile(path.join(__dirname, 'loading.html'), {
@@ -252,34 +186,6 @@ async function startBackend() {
   backend.on('error', (error) => {
     console.error('Python backend start failed:', error);
   });
-}
-
-function loadLanProxyTls() {
-  const certificatePath = process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_CERT;
-  const privateKeyPath = process.env.SIMPLEOFFICE_DESKTOP_LAN_TLS_KEY;
-  if (!certificatePath || !privateKeyPath) {
-    throw new Error('HTTPS LAN proxy requires TLS certificate and private key paths');
-  }
-  return {cert: fs.readFileSync(certificatePath), key: fs.readFileSync(privateKeyPath)};
-}
-
-async function startConfiguredLanProxy() {
-  if (!backendUrl || !backendDocumentRoot) return;
-  const proxy = persistedLanProxy(backendDocumentRoot);
-  if (!proxy) { updateProxyStatus('disabled', 'Only local loopback binding configured'); return; }
-  const {host, port} = proxy;
-  try {
-    lanProxy = await createLanProxy({
-      host, port, tls: loadLanProxyTls(), backendPort: Number(new URL(backendUrl).port),
-      publicHost: proxy.origin ? new URL(proxy.origin).host : ''
-    });
-    console.log(`SimpleOffice HTTPS LAN proxy listening on ${host}:${port}`);
-    updateProxyStatus('running', `HTTPS proxy listening on ${host}:${port}`, proxy.origin);
-  } catch (error) {
-    console.error('LAN proxy failed to start:', error);
-    lanProxy = null;
-    updateProxyStatus('error', `LAN proxy failed: ${error.code || error.name}`);
-  }
 }
 
 async function waitForBackend(timeoutMs = 30000) {
@@ -397,7 +303,6 @@ app.whenReady().then(async () => {
   try {
     await startBackend();
     await waitForBackend();
-    await startConfiguredLanProxy();
     await window.loadURL(backendUrl);
   } catch (error) {
     console.error(error);
@@ -421,9 +326,6 @@ app.on('window-all-closed', () => {
 app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
-  if (lanProxy) { lanProxy.close(); lanProxy = null; }
-  if (proxyStatusTimer) { clearInterval(proxyStatusTimer); proxyStatusTimer = null; }
-  updateProxyStatus('stopped', 'Desktop application exited', '', false);
   if (backend && backend.exitCode === null) {
     event.preventDefault();
     stopBackend().finally(() => app.quit());

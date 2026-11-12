@@ -103,6 +103,11 @@ from simpleoffice_server_config import (
     effective_server_settings,
     validate_server_settings,
 )
+from .lan_proxy_config import (
+    DEFAULT_LAN_PROXY_SETTINGS,
+    normalize_lan_proxy_settings,
+    validate_lan_proxy_settings,
+)
 from .revision_history import RevisionHistory
 from .media_settings import (
     DEFAULT_ARCHIVE_OCR_ENABLED as DEFAULT_ARCHIVE_OCR_ENABLED,
@@ -264,6 +269,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "v3": {key: False for key in CAPABILITY_KEYS},
     "server": dict(DEFAULT_SERVER_SETTINGS),
+    "lan_proxy": dict(DEFAULT_LAN_PROXY_SETTINGS),
     "projects": {"repo_roots": list(DEFAULT_REPO_ROOTS)},
     "extensions": {"http_allowlist": list(DEFAULT_EXTENSION_HTTP_ALLOWLIST)},
     "datalogger": {"allowed_hosts": list(DEFAULT_SENSOR_ALLOWED_HOSTS)},
@@ -451,6 +457,8 @@ class SettingsStore:
         result["v3"] = normalize_v3_settings(result.get("v3", {}))
         stored_server = stored.get("server") if isinstance(stored, dict) else None
         result["server"] = effective_server_settings(stored=stored_server)
+        stored_lan_proxy = stored.get("lan_proxy") if isinstance(stored, dict) else None
+        result["lan_proxy"] = normalize_lan_proxy_settings(stored_lan_proxy)
         stored_projects = result.get("projects", {})
         result["projects"] = {
             "repo_roots": normalize_repo_roots(
@@ -625,7 +633,7 @@ class SettingsStore:
             merged = {**latest, **settings}
             for section in (
                 "network", "media", "integrations", "v3", "server", "projects",
-                "extensions", "finance",
+                "extensions", "finance", "lan_proxy",
             ):
                 section_update = settings.get(section)
                 if isinstance(section_update, dict):
@@ -658,6 +666,7 @@ class SettingsStore:
         integrations = settings.get("integrations", {})
         v3 = settings.get("v3", {})
         server = settings.get("server", {})
+        lan_proxy = settings.get("lan_proxy", {})
         projects = settings.get("projects", {})
         extensions = settings.get("extensions", {})
         datalogger = settings.get("datalogger", {})
@@ -713,6 +722,7 @@ class SettingsStore:
         media = validate_media_settings(media)
         v3 = validate_v3_settings(v3)
         server = validate_server_settings(server)
+        lan_proxy = validate_lan_proxy_settings(lan_proxy)
         if not isinstance(projects, dict):
             raise ValueError("project settings must be an object")
         projects = {"repo_roots": validate_repo_roots(projects.get("repo_roots", []))}
@@ -780,6 +790,7 @@ class SettingsStore:
             },
             "v3": v3,
             "server": server,
+            "lan_proxy": lan_proxy,
             "projects": projects,
             "extensions": extensions,
             "datalogger": datalogger,

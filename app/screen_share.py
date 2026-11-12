@@ -16,7 +16,7 @@ from flask import Blueprint, Response, abort, current_app, flash, g, jsonify, re
 
 from .access_control import audit
 from .auth import login_required
-from .desktop_proxy_status import _desktop_proxy_status
+from .desktop_proxy_status import _lan_proxy_status
 from .federation_qr_image import render_qr_svg
 from .screen_support import register_support, session_ended
 
@@ -176,11 +176,11 @@ def _snapshot(session_id: str, value: dict[str, Any]) -> dict[str, Any]:
 
 
 def _screen_proxy_origin() -> str:
-    """Advertise only a live, successfully bound HTTPS desktop proxy."""
+    """Advertise only a live, successfully bound HTTPS LAN proxy."""
     root = current_app.config.get("DOCUMENT_ROOT")
     if not root:
         return ""
-    status = _desktop_proxy_status(root)
+    status = _lan_proxy_status(root)
     return status.get("origin", "") if status.get("state") == "running" else ""
 
 

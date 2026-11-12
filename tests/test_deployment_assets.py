@@ -33,6 +33,21 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("gosu", dockerfile)
         self.assertIn("HEALTHCHECK", dockerfile)
 
+    def test_cups_access_is_opt_in_and_keeps_the_web_process_unprivileged(self):
+        compose = self.text("deploy/docker/compose.yaml")
+        cups = self.text("deploy/docker/compose.cups.yaml")
+        entrypoint = self.text("deploy/docker/entrypoint.sh")
+        dockerfile = self.text("Dockerfile")
+        self.assertNotIn("/run/cups/cups.sock", compose)
+        self.assertIn("/run/cups/cups.sock", cups)
+        self.assertIn("CUPS_SOCKET_GID", cups)
+        self.assertIn("group_add:", cups)
+        self.assertIn("create_host_path: false", cups)
+        self.assertIn("setpriv --reuid=", entrypoint)
+        self.assertIn('--groups="$CUPS_SOCKET_GID"', entrypoint)
+        self.assertIn("util-linux", dockerfile)
+        self.assertNotIn("privileged: true", cups)
+
     def test_scanner_build_context_includes_required_workflows_but_excludes_local_data(self):
         dockerignore = self.text(".oss-scanner/Dockerfile.dockerignore")
         for item in (
@@ -51,6 +66,22 @@ class DeploymentAssetsTest(unittest.TestCase):
         ):
             with self.subTest(item=item):
                 self.assertIn(item, dockerignore)
+
+    def test_lan_proxy_overlay_publishes_only_a_selected_host_address(self):
+        compose = self.text("deploy/docker/compose.lan-proxy.yaml")
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS:?", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST:?", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE: \"1\"", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_TLS_DIR: /run/simpleoffice", compose)
+        self.assertIn("read_only: true", compose)
+        self.assertIn("create_host_path: false", compose)
+        settings = self.text("templates/admin/server_settings.html")
+        self.assertIn("Enable and auto-start LAN proxy", settings)
+        self.assertIn("Proxy bind address", settings)
+        self.assertIn("Firewall access remains under your control", settings)
+        android = self.text("android/apk/app/build.gradle")
+        self.assertNotIn("aiohttp==", android)
+        self.assertIn("start_wsgi_proxy", self.text("app/lan_proxy_wsgi.py"))
 
     def test_federation_compose_restart_smoke_is_wired_to_docker_ci(self):
         compose = self.text("deploy/docker/compose.federation-test.yaml")

@@ -76,6 +76,7 @@ def main() -> None:
         "--collect-submodules", "app",
         "--collect-submodules", "tools",
         "--collect-data", "app",
+        "--collect-all", "aiohttp",
         # ReportLab barcode widgets import their implementations dynamically.
         "--collect-submodules", "reportlab.graphics.barcode",
         "--collect-data", "reportlab",

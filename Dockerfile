@@ -28,6 +28,7 @@ RUN apt-get update \
         poppler-utils \
         rsync \
         procps \
+        util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid "${SIMPLEOFFICE_GID}" simpleoffice \
     && useradd --uid "${SIMPLEOFFICE_UID}" --gid simpleoffice --home-dir /var/lib/simpleoffice4me --shell /usr/sbin/nologin simpleoffice

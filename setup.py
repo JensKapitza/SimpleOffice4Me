@@ -16,6 +16,7 @@ runpy.run_path(str(Path(__file__).with_name("simpleoffice_runtime_support.py")))
 
 
 RUNTIME_DEPENDENCIES = [
+    "aiohttp>=3.12,<4",
     "Flask>=3.0,<4",
     "argon2-cffi>=23.1,<26",
     "beautifulsoup4>=4.12,<5",

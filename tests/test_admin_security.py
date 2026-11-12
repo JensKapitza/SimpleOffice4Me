@@ -17,7 +17,7 @@ from app import app_config_store
 from app import db as database
 from app.settings_store import SettingsStore
 from app.applogging import SecretRedactionFilter, redact
-from app.printershare_store import PrinterShareStore
+from app.printershare_store import PrinterDiscoveryResult, PrinterShareStore
 
 
 class AdminSecurityTest(unittest.TestCase):
@@ -311,7 +311,10 @@ class AdminSecurityTest(unittest.TestCase):
             "port": "TEST:", "is_default": True, "kind": "normal", "backend": "test",
         }
         other = {**standard, "printer_id": "b" * 24, "name": "Other", "is_default": False}
-        with patch("app.printershare_store.discover_printers", return_value=[standard, other]):
+        with patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([standard, other]),
+        ):
             self.assertEqual(403, self.worker.get("/admin/settings/printers").status_code)
             self.assertEqual(403, self.worker.get("/library/printer/discover").status_code)
             self.assertEqual(
@@ -344,7 +347,7 @@ class AdminSecurityTest(unittest.TestCase):
             )
             with self.worker.session_transaction() as state:
                 csrf_token = state.get("_csrf_token", "")
-            with patch("app.printershare_store.discover_printers", return_value=[standard, other]), \
+            with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([standard, other])), \
                  patch("app.printershare_store.spool_payload") as spool:
                 response = self.worker.post(
                     "/printershare/jobs",
@@ -358,6 +361,37 @@ class AdminSecurityTest(unittest.TestCase):
                 )
             self.assertEqual(400, response.status_code)
             spool.assert_not_called()
+
+    def test_printer_page_lists_enabled_and_disabled_cups_queues(self):
+        enabled = {
+            "printer_id": "c" * 24, "name": "Office_CUPS", "driver": "CUPS",
+            "port": "", "is_default": True, "is_enabled": True,
+            "kind": "normal", "backend": "cups",
+        }
+        disabled = {
+            "printer_id": "d" * 24, "name": "Label_CUPS", "driver": "CUPS",
+            "port": "", "is_default": False, "is_enabled": False,
+            "kind": "label", "backend": "cups",
+        }
+        with patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([enabled, disabled]),
+        ):
+            body = self.admin.get("/admin/settings/printers").get_data(as_text=True)
+
+        self.assertIn("Office_CUPS", body)
+        self.assertIn("Label_CUPS", body)
+        self.assertIn("CUPS-Warteschlange deaktiviert", body)
+
+    def test_printer_page_shows_cups_access_issue_without_raw_details(self):
+        with patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([], "access_denied"),
+        ):
+            body = self.admin.get("/admin/settings/printers").get_data(as_text=True)
+
+        self.assertIn("Der Zugriff auf CUPS wurde verweigert", body)
+        self.assertNotIn("/run/cups/cups.sock", body)
 
     def test_printer_device_failure_does_not_reflect_os_secrets(self):
         secret = "smb://admin:secret-password@printer/share"
@@ -401,7 +435,7 @@ class AdminSecurityTest(unittest.TestCase):
             "port": "TEST:", "is_default": True, "kind": "normal", "backend": "cups",
             "label": "Office Printer", "federation_shared": False,
         }
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+        with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([printer])), \
              patch("app.printershare.spool_payload", side_effect=ValueError(secret)):
             response = self.admin.post(
                 f"/printershare/admin/printers/{printer['printer_id']}/test",
@@ -465,7 +499,7 @@ class AdminSecurityTest(unittest.TestCase):
             "label": "Office Printer", "federation_shared": False,
         }
         target = f"/printershare/admin/printers/{printer['printer_id']}/test"
-        with patch("app.printershare_store.discover_printers", return_value=[printer]):
+        with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([printer])):
             self.assertEqual(403, self.worker.post(target).status_code)
             with patch("app.printershare.spool_payload") as spool:
                 response = self.admin.post(target)
@@ -477,7 +511,7 @@ class AdminSecurityTest(unittest.TestCase):
         self.assertEqual("simpleoffice-druckertest.pdf", spool.call_args.kwargs["filename"])
         page = PdfReader(BytesIO(spool.call_args.args[1])).pages[0]
         self.assertIn("SimpleOffice4Me Druckertest", page.extract_text())
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+        with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([printer])), \
              patch("app.printershare.spool_payload", side_effect=subprocess.TimeoutExpired(["lp"], 180)):
             timed_out = self.admin.post(target, follow_redirects=True)
         self.assertIn("Testauftrag konnte nicht an das Drucksystem übergeben werden", timed_out.get_data(as_text=True))
@@ -490,7 +524,7 @@ class AdminSecurityTest(unittest.TestCase):
             "label": "PDF export", "federation_shared": False,
         }
         target = f"/printershare/admin/printers/{printer['printer_id']}/test"
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+        with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([printer])), \
              patch("app.printershare.spool_payload") as spool:
             response = self.admin.post(target)
         self.assertEqual(200, response.status_code)
@@ -508,7 +542,7 @@ class AdminSecurityTest(unittest.TestCase):
             "label": "Office", "federation_shared": False,
         }
         target = f"/printershare/admin/printers/{printer['printer_id']}/test"
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+        with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([printer])), \
              patch("app.printershare.spool_payload") as spool:
             response = self.admin.post(target)
         self.assertEqual(302, response.status_code)
@@ -521,7 +555,7 @@ class AdminSecurityTest(unittest.TestCase):
             "label": "RAW labeler", "federation_shared": False,
         }
         target = f"/printershare/admin/printers/{printer['printer_id']}/test"
-        with patch("app.printershare_store.discover_printers", return_value=[printer]), \
+        with patch("app.printershare_store.discover_printer_inventory", return_value=PrinterDiscoveryResult([printer])), \
              patch("app.printershare.spool_payload") as spool:
             response = self.admin.post(target, follow_redirects=True)
 

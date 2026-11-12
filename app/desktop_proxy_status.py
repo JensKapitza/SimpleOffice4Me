@@ -1,12 +1,20 @@
-"""Read-only desktop proxy heartbeat; shared by admin and Mini-Services UI."""
+"""Read-only LAN proxy status shared by admin, screen sharing and Mini Services."""
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-def _desktop_proxy_status(document_root):
-    """Read the desktop proxy heartbeat without trusting stale process state."""
+def _lan_proxy_status(document_root):
+    """Read the live in-process proxy first, then the legacy Electron heartbeat."""
+    try:
+        from .lan_proxy import lan_proxy_runtime
+
+        live = lan_proxy_runtime.status()
+        if live.get("state") != "unknown":
+            return live
+    except (ImportError, RuntimeError):
+        pass
     result = {"state": "unknown", "message": "No desktop proxy status available", "origin": ""}
     path = Path(document_root) / ".simpleoffice-meta" / "desktop-proxy-status.json"
     try:
@@ -30,5 +38,10 @@ def _desktop_proxy_status(document_root):
         }
     except (OSError, ValueError, TypeError, KeyError, OverflowError):
         return result
+
+
+def _desktop_proxy_status(document_root):
+    """Backward-compatible alias for the generalized LAN proxy status."""
+    return _lan_proxy_status(document_root)
 
 
