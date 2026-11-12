@@ -14,6 +14,8 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
+from .business_customer_documents import invoice_seller_snapshot, letter_customer_context, preferred_bank_account_id, preferred_template_id
+from .business_document_preferences import company_bank_accounts
 from .business_template_editor import register_template_editor_routes
 from .business_template_dispatch import (
     business_template as _business_template,
@@ -45,9 +47,7 @@ from .v2.storage_runtime import result_or_raise, storage_for
 
 bp = Blueprint("business_documents", __name__, url_prefix="/documents/business")
 register_invoice_relation_routes(bp)
-register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings)
-
-
+register_template_editor_routes(bp, root_provider=_root, actor_provider=_actor, business_settings_provider=business_settings, business_settings_saver=save_business_settings)
 
 def _mirror_invoice_relation_event(root: Path, actor: str, invoice_id: str, action: str, details: dict[str, Any]) -> bool:
     try:
@@ -63,21 +63,17 @@ def _v3_finance_enabled(root: Path) -> bool:
     from .v3_capabilities import enabled
     return enabled("v3.finance", root=root)
 
-
 def _v3_finance_sync(root: Path, row: dict[str, Any], actor: str) -> None:
     if not _v3_finance_enabled(root):
         return
     from .v3_finance import track_invoice_best_effort
     track_invoice_best_effort(root, row, actor)
 
-
 def _link_path(root: Path) -> Path:
     path=root/CONTROL_DIR/LINK_FILE; path.parent.mkdir(parents=True,exist_ok=True); return path
 
-
 def contact_links(root: Path, contact_id: str) -> list[dict[str, Any]]:
     rows=_read_json(_link_path(root),{"links":[]}).get("links",[]); return sorted((row for row in rows if row.get("contact_id")==contact_id),key=lambda row:row.get("created_at",""),reverse=True)
-
 
 def _customer_document_rows(root: Path, contact_id: str, invoice_rows: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """Resolve only authoritative customer/document relations, without name guessing."""
@@ -115,7 +111,6 @@ def _customer_document_rows(root: Path, contact_id: str, invoice_rows: list[dict
                        **({} if safe else {"error": "document_file_missing_or_unsafe"})})
     return sorted(result, key=lambda item: str(item.get("document", {}).get("last_seen_at", "")), reverse=True)
 
-
 def _document_provenance(document: dict[str, Any]) -> dict[str, Any]:
     attributes = document.get("attributes", {}) if isinstance(document.get("attributes"), dict) else {}
     origin_keys = {
@@ -136,7 +131,6 @@ def _document_provenance(document: dict[str, Any]) -> dict[str, Any]:
         "malware_scan": attributes.get("malware_scan", {}),
     }
 
-
 def _archive_member_name(document: dict[str, Any], used: set[str]) -> str:
     original = Path(str(document.get("last_path", "document"))).name
     stem = _safe_filename(Path(original).stem) or "document"
@@ -152,7 +146,6 @@ def _archive_member_name(document: dict[str, Any], used: set[str]) -> str:
     used.add(unique)
     return unique
 
-
 def _write_verified_archive_member(root: Path, actor: str, document_id: str, archive, member_name: str) -> tuple[str, int]:
     """Verify before opening a ZIP member; never archive projection content."""
     digest = hashlib.sha256()
@@ -164,7 +157,6 @@ def _write_verified_archive_member(root: Path, actor: str, document_id: str, arc
                 digest.update(chunk)
                 size += len(chunk)
     return digest.hexdigest(), size
-
 
 def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -> tuple[BinaryIO, dict[str, Any]]:
     """Build an auditable customer archive with files, provenance and history."""
@@ -272,7 +264,6 @@ def customer_document_archive(root: Path, contact: dict[str, Any], actor: str) -
         target.close()
         raise
 
-
 def attach_contact_document(root: Path, contact_id: str, document_id: str, actor: str, *, relation: str="correspondence", metadata: dict[str,Any]|None=None) -> dict[str,Any]:
     path=_link_path(root)
     with exclusive_file_lock(path.with_suffix(".lock")):
@@ -281,14 +272,12 @@ def attach_contact_document(root: Path, contact_id: str, document_id: str, actor
         row={"link_id":str(uuid.uuid4()),"contact_id":contact_id,"document_id":document_id,"relation":relation,"metadata":metadata or {},"created_at":utc_now(),"created_by":actor}; payload.setdefault("links",[]).append(row); atomic_json_write(path,payload)
     DocumentStore(root).history.record("contact_document_attached",actor,"contacts",contact_id,row); return row
 
-
 def _xml_values(root: ET.Element) -> dict[str,list[str]]:
     values:dict[str,list[str]]={}
     for element in root.iter():
         local=element.tag.rsplit("}",1)[-1]; value=(element.text or "").strip()
         if value:values.setdefault(local,[]).append(value)
     return values
-
 
 def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
     result={"detected":False,"xml_filename":"","profile":"","invoice_id":"","issue_date":"","currency":"","seller":"","buyer":"","grand_total":"","tax_total":"","due_payable":"","raw_xml":"","validation":"not_validated"}
@@ -308,12 +297,10 @@ def inspect_zugferd_pdf(path: Path) -> dict[str,Any]:
         result["profile"]=ZUGFERD_PROFILE; break
     return result
 
-
 def _inspect_stored_zugferd_pdf(root: Path, document_id: str, actor: str) -> dict[str, Any]:
     """Inspect verified authoritative bytes without trusting the legacy projection."""
     with materialize_verified_object(root, actor, document_id, suffix=".pdf") as path:
         return inspect_zugferd_pdf(path)
-
 
 def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existing: dict[str, Any] | None = None) -> dict[str, Any]:
     address_mode = str(form.get("address_mode", "existing")).strip()
@@ -347,7 +334,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
             raise ValueError("Bitte eine gültige gespeicherte Rechnungsadresse auswählen.")
         label = candidate["label"]
     if not candidate:raise ValueError("billing address is required")
-    settings=business_settings(root)
+    settings=business_settings(root); invoice_choices=_business_template_choices(root,"invoice"); template_id=preferred_template_id(crm,"invoice",invoice_choices,explicit_id=form.get("template_id",""),existing_id=(existing or {}).get("template_id","")); bank_account_id=preferred_bank_account_id(settings,crm,explicit_id=form.get("bank_account_id",""),existing_id=(existing or {}).get("seller",{}).get("bank_account_id","")); seller=invoice_seller_snapshot(settings,bank_account_id)
     for required in ("seller_name","seller_street","seller_postal","seller_city"):
         if not settings.get(required):raise ValueError("invoice issuer data is incomplete; configure business document settings first")
     lines=_build_invoice_lines(root,form); totals=_invoice_totals(lines); issue_text=form.get("issue_date","") or date.today().isoformat(); service_text=form.get("service_date","") or issue_text
@@ -365,7 +352,7 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     address_lines=[line.strip() for line in label.splitlines() if line.strip() and line.strip().casefold() not in known_names]
     recipient_lines=[person] if recipient_type == "private" else [company,*([person] if person else [])]
     buyer_label="\n".join(recipient_lines+address_lines); buyer_name=person if recipient_type == "private" else company
-    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":{"name":settings["seller_name"],"street":settings["seller_street"],"postal":settings["seller_postal"],"city":settings["seller_city"],"country":settings.get("seller_country") or "DE","email":settings.get("seller_email","") ,"vat_id":settings.get("seller_vat_id","") ,"tax_number":settings.get("seller_tax_number","") ,"iban":settings.get("seller_iban","") ,"blz":settings.get("seller_blz","") ,"bic":settings.get("seller_bic","") ,"bank":settings.get("seller_bank","")},"buyer":{"name":buyer_name,"label":buyer_label,"address_mode":address_mode,"free_text":label if address_mode == "free_text" else "","recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":str(form.get("template_id","")).strip(),"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
+    now=utc_now(); row={"invoice_id":invoice_id,"invoice_number":existing.get("invoice_number") if existing else _draft_invoice_number(root,issue),"contact_id":contact_id,"issue_date":issue.isoformat(),"service_date":service.isoformat(),"due_date":due.isoformat(),"currency":str(form.get("currency") or crm.get("currency") or settings.get("currency") or "EUR").upper()[:3],"payment_terms":str(form.get("payment_terms") or crm.get("payment_terms") or settings.get("payment_terms") or "").strip(),"seller":seller,"buyer":{"name":buyer_name,"label":buyer_label,"address_mode":address_mode,"free_text":label if address_mode == "free_text" else "","recipient_type":recipient_type,"company":company if recipient_type == "company" else "","contact_name":person,"address_id":candidate["id"],"street":candidate.get("street",label),"postal":candidate.get("postal","") ,"city":candidate.get("city","") ,"country":candidate.get("country") or "DE","vat_id":crm.get("vat_id","")},"lines":lines,"totals":totals,"status":"draft","payments":[],"history":list(existing.get("history",[])) if existing else [],"template_id":template_id,"zugferd":{"version":ZUGFERD_VERSION,"profile":ZUGFERD_PROFILE,"status":"not_created"},"created_at":existing.get("created_at",now) if existing else now,"created_by":existing.get("created_by",actor) if existing else actor,"updated_at":now,"updated_by":actor}
     reference_invoice_id, reference_invoice_number = validated_invoice_reference(
         root, contact_id, form.get("reference_invoice_id", ""),
     )
@@ -378,7 +365,6 @@ def _invoice_row_from_form(root: Path, contact_id: str, form, actor: str, existi
     tpl=_business_template(root,row["template_id"],"invoice"); row["template_id"]=tpl["template_id"]
     row["history"].append({"type":"draft_updated" if existing else "draft_created","at":now,"actor":actor})
     return row
-
 
 def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id: str = "") -> dict[str, Any]:
     path = _invoice_store_path(root, invoice_id) if invoice_id else None
@@ -415,18 +401,15 @@ def save_invoice_draft(root: Path, contact_id: str, form, actor: str, invoice_id
     )
     return row
 
-
 def _draft_watermark(pdf: bytes) -> bytes:
     reader=PdfReader(io.BytesIO(pdf)); writer=PdfWriter()
     for source in reader.pages:
         overlay=io.BytesIO(); c=canvas.Canvas(overlay,pagesize=A4); c.saveState(); c.setFillColor(colors.Color(.75,.1,.1,alpha=.18)); c.setFont("Helvetica-Bold",42); c.translate(A4[0]/2,A4[1]/2); c.rotate(35); c.drawCentredString(0,0,"ENTWURF / DRAFT"); c.setFont("Helvetica-Bold",12); c.drawCentredString(0,-18*mm,"KEINE RECHNUNG / NOT AN INVOICE"); c.restoreState(); c.save(); overlay.seek(0); writer.add_page(source); writer.pages[-1].merge_page(PdfReader(overlay).pages[0])
     target=io.BytesIO(); writer.write(target); return target.getvalue()
 
-
 def draft_invoice_pdf(root: Path, row: dict[str, Any]) -> bytes:
     if row.get("status") != "draft": raise ValueError("invoice is not a draft")
     tpl=_business_template(root,row.get("template_id",""),"invoice"); visual=_render_invoice_with_template(root,tpl,row); return _draft_watermark(visual)
-
 
 def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
     path = _invoice_store_path(root, invoice_id)
@@ -491,10 +474,8 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
     if Decimal(row.get("settlement", {}).get("customer_credit", "0")) > 0: row = timed("customer_credit_apply", lambda: apply_available_customer_credit(root, invoice_id, actor))
     total_ms = round((time.perf_counter() - started_total) * 1000, 1); row["finalization_timings_ms"] = {**timings, "total": total_ms}; logger.info("invoice_finalization invoice_id=%s total_ms=%.1f status=%s timings=%s", invoice_id, total_ms, row["zugferd"]["status"], timings); return row, document
 
-
 def _create_invoice(root: Path, contact_id: str, form, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
     draft=save_invoice_draft(root,contact_id,form,actor); return finalize_invoice(root,draft["invoice_id"],actor)
-
 
 @bp.get("/templates")
 @login_required
@@ -518,7 +499,7 @@ def upload_template():
 @login_required
 def update_business_settings():
     if not _is_admin():abort(403)
-    try:save_business_settings(_root(),request.form.to_dict(),_actor());flash("Rechnungssteller- und Dokumenteinstellungen gespeichert.")
+    try:save_business_settings(_root(),request.form,_actor());flash("Rechnungssteller- und Dokumenteinstellungen gespeichert.")
     except ValueError as exc:flash(str(exc))
     return redirect(url_for(".template_manager"))
 
@@ -578,13 +559,13 @@ def appointment_invoice_candidates(contact_id: str):
 def contact_letter(contact_id:str):
     root,actor=_root(),_actor();contacts=ContactStore(root);contact=contacts.get(contact_id,actor)
     if not contacts.can_manage(contact_id,actor):abort(403)
-    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else request.args.get("address","");address,addresses=address_labels(contact,crm,selected)
+    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else request.args.get("address","");address,addresses=address_labels(contact,crm,selected);letter_templates=_business_template_choices(root,"letter");selected_template_id=preferred_template_id(crm,"letter",letter_templates,explicit_id=request.form.get("template_id","") if request.method=="POST" else "")
     if request.method=="POST" and request.form.get("body","").strip():
         try:
             if not address:raise ValueError("recipient address is required")
-            tpl=_business_template(root,request.form.get("template_id",""),"letter");subject=request.form.get("subject","").strip();pdf=_render_letter_with_template(root,tpl,recipient=address,subject=subject,body=request.form.get("body","").strip(),cover=request.form.get("cover")=="1");document=_store_generated_pdf(root,contact_id,subject or "Brief",pdf,actor,"letter",tpl["template_id"]);flash("Brief erzeugt und mit dem CRM-Kontakt verknüpft.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
+            tpl=_business_template(root,selected_template_id,"letter");subject=request.form.get("subject","").strip();pdf=_render_letter_with_template(root,tpl,recipient=address,subject=subject,body=request.form.get("body","").strip(),cover=request.form.get("cover")=="1",customer=letter_customer_context(contact,crm));document=_store_generated_pdf(root,contact_id,subject or "Brief",pdf,actor,"letter",tpl["template_id"]);flash("Brief erzeugt und mit dem CRM-Kontakt verknüpft.");return redirect(url_for("documents.detail",document_id=document["document_id"]))
         except ValueError as exc:flash(str(exc))
-    return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=_business_template_choices(root,"letter"),links=contact_links(root,contact_id))
+    return render_template("documents/contact_letter.html",contact=contact,crm=crm,address=address,addresses=addresses,templates=letter_templates,selected_template_id=selected_template_id,links=contact_links(root,contact_id))
 
 def _invoice_task(root: Path, task_id: str, actor: str, contact_id: str, *, required: bool = True):
     if not task_id:
@@ -602,7 +583,6 @@ def _invoice_task(root: Path, task_id: str, actor: str, contact_id: str, *, requ
         return None
     return task
 
-
 @bp.route("/contacts/<contact_id>/invoice",methods=("GET","POST"))
 @login_required
 def contact_invoice(contact_id:str):
@@ -618,7 +598,7 @@ def contact_invoice(contact_id:str):
     task_id = (request.form.get("task_id", "").strip() if request.method == "POST" else
                str((draft or {}).get("task_id") or request.args.get("task_id", "")).strip())
     linked_task = _invoice_task(root, task_id, actor, contact_id, required=not bool(draft))
-    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else (draft.get("buyer",{}).get("address_id","") if draft else request.args.get("address",""));address,addresses=address_labels(contact,crm,selected);settings=business_settings(root)
+    crm=ContactCRMStore(root).record(contact_id);selected=request.form.get("address","") if request.method=="POST" else (draft.get("buyer",{}).get("address_id","") if draft else request.args.get("address",""));address,addresses=address_labels(contact,crm,selected);settings=business_settings(root);invoice_templates=_business_template_choices(root,"invoice");seller_accounts=company_bank_accounts(settings);selected_template_id=preferred_template_id(crm,"invoice",invoice_templates,explicit_id=request.form.get("template_id","") if request.method=="POST" else "",existing_id=(draft or {}).get("template_id",""));selected_bank_account_id=preferred_bank_account_id(settings,crm,explicit_id=request.form.get("bank_account_id","") if request.method=="POST" else "",existing_id=(draft or {}).get("seller",{}).get("bank_account_id",""))
     if request.method=="POST":
         try:
             if draft and task_id != str(draft.get("task_id", "")):
@@ -657,7 +637,7 @@ def contact_invoice(contact_id:str):
     )
     return render_template(
         "documents/contact_invoice.html", contact=contact, crm=crm, address=address,
-        addresses=addresses, templates=_business_template_choices(root,"invoice"), business=settings,
+        addresses=addresses, templates=invoice_templates, business=settings, company_bank_accounts=seller_accounts, selected_template_id=selected_template_id, selected_bank_account_id=selected_bank_account_id, selected_bank_account=next((row for row in seller_accounts if row.get("account_id")==selected_bank_account_id),None),
         payment_days=payment_days,
         issue_date=draft.get("issue_date", date.today().isoformat()) if draft else date.today().isoformat(),
         service_date=draft.get("service_date", date.today().isoformat()) if draft else date.today().isoformat(),
@@ -722,7 +702,6 @@ def refund_customer_credit(contact_id: str):
     try: CustomerCreditLedger(root).refund(contact_id, request.form.get("amount", ""), actor=actor, reference=request.form.get("reference", ""), note=request.form.get("note", ""), currency=request.form.get("currency", "EUR")); flash("Guthabenauszahlung wurde protokolliert.")
     except ValueError as exc: flash(str(exc))
     return redirect(url_for(".customer_billing", contact_id=contact_id))
-
 
 def _verified_invoice_download(root: Path, row: dict[str, Any], actor: str):
     target = tempfile.TemporaryFile(mode="w+b")
@@ -908,7 +887,6 @@ def invoice_detail(invoice_id:str):
         credit=CustomerCreditLedger(root).account(row["contact_id"],row.get("currency","EUR")),
         write_off_reasons=sorted(WRITE_OFF_REASONS),
     )
-
 
 @bp.post("/invoices/<invoice_id>/payments")
 @login_required

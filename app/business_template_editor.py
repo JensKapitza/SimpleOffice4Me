@@ -62,6 +62,14 @@ TOKEN_CATALOG = (
     ("rechnung.zahlungsziel", "Zahlungsziel"),
     ("kunde.name", "Kundenname"),
     ("kunde.anschrift", "Kundenanschrift"),
+    ("kunde.kundennummer", "Kundennummer"),
+    ("kunde.email", "Kunden-E-Mail"),
+    ("kunde.telefon", "Kunden-Telefon"),
+    ("kunde.ust_idnr", "Kunden-USt-IdNr."),
+    ("kunde.steuer_nr", "Kunden-Steuernummer"),
+    ("kunde.zahlungsbedingung", "Kunden-Zahlungsbedingung"),
+    ("kunde.waehrung", "Kunden-Währung"),
+    ("dokument.betreff", "Dokument-Betreff"),
     ("datum.heute", "Heutiges Datum"),
     ("freitext1", "Freitext 1"),
     ("freitext2", "Freitext 2"),
@@ -700,6 +708,14 @@ def editor_preview_tokens(business: dict[str, Any], layout: dict[str, Any]) -> d
         "rechnung.zahlungsziel": "14 Tage",
         "kunde.name": "Musterkunde GmbH",
         "kunde.anschrift": "Kundenstraße 5 · 54321 Kundenstadt",
+        "kunde.kundennummer": "K-10001",
+        "kunde.email": "kunde@example.invalid",
+        "kunde.telefon": "+49 203 123456",
+        "kunde.ust_idnr": "DE987654321",
+        "kunde.steuer_nr": "12/987/65432",
+        "kunde.zahlungsbedingung": "Zahlbar innerhalb 14 Tagen",
+        "kunde.waehrung": "EUR",
+        "dokument.betreff": "Musterbetreff",
         "datum.heute": date.today().isoformat(),
         **{key: str(value) for key, value in layout.get("free_text", {}).items()},
     }
@@ -723,7 +739,7 @@ def _is_admin() -> bool:
         return False
 
 
-def register_template_editor_routes(bp, *, root_provider, actor_provider, business_settings_provider) -> None:
+def register_template_editor_routes(bp, *, root_provider, actor_provider, business_settings_provider, business_settings_saver) -> None:
     @bp.get("/templates/editor")
     @login_required
     def visual_template_overview():
@@ -754,13 +770,15 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
             row, layout = visual_template(root_provider(), template_id)
         except ValueError:
             abort(404)
+        business = business_settings_provider(root_provider())
         return render_template(
             "documents/business_template_editor.html",
             template_row=row,
             layout=layout,
             layout_json=json.dumps(layout, ensure_ascii=False),
             tokens=TOKEN_CATALOG,
-            preview_tokens=editor_preview_tokens(business_settings_provider(root_provider()), layout),
+            business=business,
+            preview_tokens=editor_preview_tokens(business, layout),
             is_admin=_is_admin(),
             document_types=sorted(DOCUMENT_TYPES),
             versions=visual_template_versions(root_provider(), template_id),
@@ -907,10 +925,12 @@ def register_template_editor_routes(bp, *, root_provider, actor_provider, busine
             abort(403)
         try:
             layout = json.loads(request.form.get("layout_json", "{}"))
+            validate_visual_layout(layout)
+            business_settings_saver(root_provider(), request.form, actor_provider())
             save_visual_template(
                 root_provider(), template_id, request.form.to_dict(), layout, actor_provider()
             )
-            flash("Visuelle Vorlage wurde gespeichert.")
+            flash("Vorlage und Firmenstammdaten wurden gespeichert.")
         except (ValueError, json.JSONDecodeError) as exc:
             flash(str(exc))
         return redirect(url_for(".visual_template_edit", template_id=template_id))

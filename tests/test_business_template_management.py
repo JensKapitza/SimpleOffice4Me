@@ -40,7 +40,7 @@ class VisualTemplateManagementTests(unittest.TestCase):
                     {
                         "seller_name": "Kapitza Test GmbH",
                         "seller_blz": "35050000",
-                        "seller_iban": "DE123",
+                        "seller_iban": "DE89370400440532013000",
                         "seller_bic": "DUISDE33XXX",
                         "seller_bank": "Testbank",
                     },

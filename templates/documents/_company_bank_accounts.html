@@ -1,0 +1,42 @@
+<div class="col-12" data-company-bank-accounts><input type="hidden" name="bank_accounts_present" value="1">
+  <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+    <div>
+      <label class="form-label mb-0">Eigene Bankkonten</label>
+      <div class="form-text mt-0">Mehrere Konten sind möglich. Das Standardkonto wird für Kunden ohne eigene Zuordnung verwendet.</div>
+    </div>
+    <button type="button" class="btn btn-sm btn-outline-primary" data-add-bank-account><i class="fa-solid fa-plus me-1"></i>Konto hinzufügen</button>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-2">
+      <thead><tr><th scope="col">Standard</th><th scope="col">Bezeichnung</th><th scope="col">Kontoinhaber</th><th scope="col">IBAN</th><th scope="col">BLZ</th><th scope="col">BIC</th><th scope="col">Bank</th><th scope="col">Währung</th><th scope="col"></th></tr></thead>
+      <tbody data-bank-account-rows>
+        {% for row in business.seller_bank_accounts|default([]) %}
+        <tr data-bank-account-row>
+          <td class="text-center"><input class="form-check-input" type="radio" name="default_bank_account_id" value="{{ row.account_id }}" {% if row.default %}checked{% endif %} aria-label="Standardkonto"></td>
+          <td><input type="hidden" name="bank_account_id" value="{{ row.account_id }}"><input class="form-control form-control-sm" name="bank_account_label" value="{{ row.label }}" maxlength="120" required></td>
+          <td><input class="form-control form-control-sm" name="bank_account_holder" value="{{ row.holder }}" maxlength="160"></td>
+          <td><input class="form-control form-control-sm font-monospace" name="bank_account_iban" value="{{ row.iban }}" maxlength="34" required></td>
+          <td><input class="form-control form-control-sm font-monospace" name="bank_account_blz" value="{{ row.blz }}" maxlength="20"></td>
+          <td><input class="form-control form-control-sm font-monospace" name="bank_account_bic" value="{{ row.bic }}" maxlength="11"></td>
+          <td><input class="form-control form-control-sm" name="bank_account_bank" value="{{ row.bank }}" maxlength="160"></td>
+          <td><input class="form-control form-control-sm text-uppercase" name="bank_account_currency" value="{{ row.currency|default('EUR') }}" maxlength="3"></td>
+          <td><button type="button" class="btn btn-sm btn-outline-danger" data-remove-bank-account aria-label="Bankkonto entfernen"><i class="fa-regular fa-trash-can"></i></button></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <template data-bank-account-template>
+    <tr data-bank-account-row>
+      <td class="text-center"><input class="form-check-input" type="radio" name="default_bank_account_id" value="" aria-label="Standardkonto"></td>
+      <td><input type="hidden" name="bank_account_id" value=""><input class="form-control form-control-sm" name="bank_account_label" value="" maxlength="120" placeholder="z. B. Geschäftskonto" required></td>
+      <td><input class="form-control form-control-sm" name="bank_account_holder" value="" maxlength="160"></td>
+      <td><input class="form-control form-control-sm font-monospace" name="bank_account_iban" value="" maxlength="34" required></td>
+      <td><input class="form-control form-control-sm font-monospace" name="bank_account_blz" value="" maxlength="20"></td>
+      <td><input class="form-control form-control-sm font-monospace" name="bank_account_bic" value="" maxlength="11"></td>
+      <td><input class="form-control form-control-sm" name="bank_account_bank" value="" maxlength="160"></td>
+      <td><input class="form-control form-control-sm text-uppercase" name="bank_account_currency" value="EUR" maxlength="3"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-danger" data-remove-bank-account aria-label="Bankkonto entfernen"><i class="fa-regular fa-trash-can"></i></button></td>
+    </tr>
+  </template>
+</div>

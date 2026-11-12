@@ -86,8 +86,10 @@ def business_template_context(
     *,
     recipient: str = "",
     subject: str = "",
+    customer: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     free_text = layout.get("free_text") or {}
+    customer = customer or {}
     seller_address = " ".join(
         str(business.get(key, "")).strip()
         for key in ("seller_street", "seller_postal", "seller_city")
@@ -109,6 +111,14 @@ def business_template_context(
         "rechnung.zahlungsziel": str(business.get("payment_terms", "")),
         "kunde.name": recipient.splitlines()[0] if recipient else "",
         "kunde.anschrift": recipient,
+        "kunde.kundennummer": str(customer.get("customer_number", "")),
+        "kunde.email": str(customer.get("email", "")),
+        "kunde.telefon": str(customer.get("phone", "")),
+        "kunde.ust_idnr": str(customer.get("vat_id", "")),
+        "kunde.steuer_nr": str(customer.get("tax_number", "")),
+        "kunde.zahlungsbedingung": str(customer.get("payment_terms", "")),
+        "kunde.waehrung": str(customer.get("currency", "")),
+        "dokument.betreff": subject,
         "datum.heute": date.today().isoformat(),
         "freitext1": subject or str(free_text.get("freitext1", "")),
         "freitext2": str(free_text.get("freitext2", "")),
@@ -386,6 +396,7 @@ def render_visual_letter_pdf(
     recipient: str,
     subject: str,
     body: str,
+    customer: dict[str, Any] | None = None,
 ) -> bytes:
     meta, layout = visual_template(root, template_id)
     if meta.get("document_type") not in {"letter", "quote", "delivery_note"}:
@@ -393,7 +404,7 @@ def render_visual_letter_pdf(
     body_element = next((e for e in layout["elements"] if e.get("type") == "body" and e.get("visible", True)), None)
     if body_element is None:
         raise ValueError("letter visual template requires a body element")
-    context = business_template_context(business, layout, recipient=recipient, subject=subject)
+    context = business_template_context(business, layout, recipient=recipient, subject=subject, customer=customer)
     x, y, width, height = _rect(body_element)
     style = body_element.get("style") or {}
     font_size = float(style.get("font_size", 10))

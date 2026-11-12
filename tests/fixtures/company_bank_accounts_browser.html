@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Bankkonten DOM Regression</title>
+<!-- The production header loads this before the content exists. -->
+<script src="../../static/js/company-bank-accounts.js"></script>
+</head><body>
+<form id="settings" data-company-bank-accounts>
+  <button type="button" data-add-bank-account>Konto hinzufügen</button>
+  <table><tbody data-bank-account-rows></tbody></table>
+  <template data-bank-account-template>
+    <tr data-bank-account-row><td><input type="radio" name="default_bank_account_id"></td>
+    <td><input type="hidden" name="bank_account_id"><input name="bank_account_label"></td>
+    <td><button type="button" data-remove-bank-account>Entfernen</button></td></tr>
+  </template>
+</form>
+<div id="result">PENDING</div>
+<script>
+window.addEventListener('load', () => {
+  const result = document.getElementById('result');
+  const root = document.getElementById('settings');
+  const rows = root.querySelector('[data-bank-account-rows]');
+  const add = root.querySelector('[data-add-bank-account]');
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  try {
+    assert(root.dataset.bankAccountsInitialized === 'true', 'header script not initialized');
+    add.click(); add.click(); add.click();
+    let items = [...rows.querySelectorAll('[data-bank-account-row]')];
+    assert(items.length === 3, 'three accounts not added');
+    const ids = items.map(row => row.querySelector('[name="bank_account_id"]').value);
+    assert(ids.every(Boolean) && new Set(ids).size === 3, 'account IDs missing or duplicate');
+    assert(items[0].querySelector('input[type=radio]').checked, 'initial default not selected');
+    items[1].querySelector('input[type=radio]').click();
+    assert(new FormData(root).get('default_bank_account_id') === ids[1], 'default not serialized');
+    items[1].querySelector('[data-remove-bank-account]').click();
+    items = [...rows.querySelectorAll('[data-bank-account-row]')];
+    assert(items.length === 2, 'default account not removed');
+    assert(new FormData(root).get('default_bank_account_id') === ids[0], 'default not reassigned');
+    items[0].querySelector('[data-remove-bank-account]').click();
+    items[1].querySelector('[data-remove-bank-account]').click();
+    assert(rows.children.length === 0, 'all accounts not removed');
+    add.click();
+    assert(rows.children.length === 1, 'account cannot be re-added');
+    assert(Boolean(new FormData(root).get('default_bank_account_id')), 'default not restored');
+    // Re-running the same script must not register duplicate listeners.
+    const script = document.createElement('script');
+    script.src = '../../static/js/company-bank-accounts.js';
+    script.onload = () => {
+      add.click();
+      result.textContent = rows.children.length === 2 ? 'PASS' : 'FAIL: double initialization';
+    };
+    document.body.append(script);
+  } catch (error) { result.textContent = 'FAIL: ' + error.message; }
+});
+</script>
+</body></html>
