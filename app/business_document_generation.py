@@ -54,6 +54,7 @@ from .business_document_preferences import (
     apply_default_bank_legacy_fields,
     bank_accounts_from_form,
     company_bank_accounts,
+    normalize_company_bank_accounts,
 )
 from .contact_extensions import ContactCRMStore
 from .customer_credit import CustomerCreditLedger
