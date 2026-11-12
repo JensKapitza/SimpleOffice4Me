@@ -260,9 +260,24 @@ def save_business_settings(root: Path, values: dict[str, Any], actor: str) -> di
         and any(key in values for key in legacy_bank_keys)
     )
     if legacy_bank_update:
-        settings["seller_bank_accounts"] = []
         for key in legacy_bank_keys:
             settings[key] = str(values.get(key, settings.get(key, ""))).strip()
+        if settings.get("seller_iban"):
+            settings["seller_bank_accounts"] = normalize_company_bank_accounts(
+                [{
+                    "account_id": "0" * 32,
+                    "label": "Standardkonto",
+                    "holder": settings.get("seller_name", ""),
+                    "iban": settings["seller_iban"],
+                    "blz": settings["seller_blz"],
+                    "bic": settings["seller_bic"],
+                    "bank": settings["seller_bank"],
+                    "currency": settings.get("currency", "EUR"),
+                }],
+                default_account_id="0" * 32,
+            )
+        else:
+            settings["seller_bank_accounts"] = []
     else:
         settings["seller_bank_accounts"] = bank_accounts_from_form(values, settings)
         if not settings["seller_bank_accounts"]:
