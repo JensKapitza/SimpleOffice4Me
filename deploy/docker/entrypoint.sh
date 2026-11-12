@@ -62,6 +62,18 @@ case "$ROLE" in
         export SIMPLEOFFICE_LOG_STDERR_ONLY=1
         export SIMPLEOFFICE_HOST=${SIMPLEOFFICE_HOST:-0.0.0.0}
         if [ "$(id -u)" = "0" ]; then
+            if [ -n "${CUPS_SOCKET_GID:-}" ]; then
+                case "$CUPS_SOCKET_GID" in
+                    *[!0-9]*|0*)
+                        echo "CUPS_SOCKET_GID must be a non-zero numeric group ID" >&2
+                        exit 78
+                        ;;
+                esac
+                APP_UID=$(id -u simpleoffice)
+                APP_GID=$(id -g simpleoffice)
+                exec setpriv --reuid="$APP_UID" --regid="$APP_GID" \
+                    --groups="$CUPS_SOCKET_GID" -- "$@"
+            fi
             exec gosu simpleoffice "$@"
         fi
         exec "$@"

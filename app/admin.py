@@ -181,7 +181,7 @@ def printer_settings():
     from .printershare_store import PrinterShareStore
 
     store = PrinterShareStore(current_app.config["DOCUMENT_ROOT"], current_app.config["SECRET_KEY"])
-    printers = store.printers()
+    printers, printer_discovery_issue = store.printer_inventory()
     users = get_db().execute(
         "SELECT username, is_disabled FROM user ORDER BY username COLLATE NOCASE"
     ).fetchall()
@@ -202,6 +202,7 @@ def printer_settings():
         standard_printers=[item for item in printers if store._compatible(item, "standard")],
         label_printers=[item for item in printers if store._compatible(item, "label")],
         printer_settings=settings,
+        printer_discovery_issue=printer_discovery_issue,
         users=users,
         brother=brother,
         printer_models=sorted(MODELS),

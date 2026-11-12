@@ -33,6 +33,21 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("gosu", dockerfile)
         self.assertIn("HEALTHCHECK", dockerfile)
 
+    def test_cups_access_is_opt_in_and_keeps_the_web_process_unprivileged(self):
+        compose = self.text("deploy/docker/compose.yaml")
+        cups = self.text("deploy/docker/compose.cups.yaml")
+        entrypoint = self.text("deploy/docker/entrypoint.sh")
+        dockerfile = self.text("Dockerfile")
+        self.assertNotIn("/run/cups/cups.sock", compose)
+        self.assertIn("/run/cups/cups.sock", cups)
+        self.assertIn("CUPS_SOCKET_GID", cups)
+        self.assertIn("group_add:", cups)
+        self.assertIn("create_host_path: false", cups)
+        self.assertIn("setpriv --reuid=", entrypoint)
+        self.assertIn('--groups="$CUPS_SOCKET_GID"', entrypoint)
+        self.assertIn("util-linux", dockerfile)
+        self.assertNotIn("privileged: true", cups)
+
     def test_scanner_build_context_includes_required_workflows_but_excludes_local_data(self):
         dockerignore = self.text(".oss-scanner/Dockerfile.dockerignore")
         for item in (

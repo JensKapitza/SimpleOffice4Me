@@ -16,6 +16,7 @@ services:
       SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN: ${SIMPLEOFFICE_RESOURCE_COMMANDER_TOKEN:-}
       SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS: ${SIMPLEOFFICE_RESOURCE_COMMANDER_PEER_TOKENS:-}
       SIMPLEOFFICE_FEDERATION_PEER_ID: ${SIMPLEOFFICE_FEDERATION_PEER_ID:-}
+      CUPS_SERVER: ${CUPS_SERVER:-}
     extra_hosts:
       # Reach Ollama on the Docker host from this container.
       - "host.docker.internal:host-gateway"
@@ -23,8 +24,6 @@ services:
       - "${SIMPLEOFFICE_BIND_ADDRESS:-127.0.0.1}:${SIMPLEOFFICE_HTTP_PORT:-8080}:8080"
     volumes:
       - simpleoffice-data:/var/lib/simpleoffice4me
-      # Linux/CUPS optional: uncomment if the container should use host printers.
-      # - /run/cups/cups.sock:/run/cups/cups.sock
     security_opt:
       - no-new-privileges:true
     cap_drop:

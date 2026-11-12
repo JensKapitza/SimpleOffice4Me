@@ -1,0 +1,13 @@
+# Opt-in access to the Linux host CUPS scheduler. Start alongside compose.yaml.
+services:
+  simpleoffice:
+    environment:
+      CUPS_SOCKET_GID: ${CUPS_SOCKET_GID:?Set CUPS_SOCKET_GID to the numeric group ID of the host CUPS socket}
+    group_add:
+      - ${CUPS_SOCKET_GID:?Set CUPS_SOCKET_GID to the numeric group ID of the host CUPS socket}
+    volumes:
+      - type: bind
+        source: ${CUPS_SOCKET_PATH:-/run/cups/cups.sock}
+        target: /run/cups/cups.sock
+        bind:
+          create_host_path: false

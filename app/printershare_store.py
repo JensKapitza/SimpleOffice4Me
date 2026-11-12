@@ -28,6 +28,16 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from .document_store import CONTROL_DIR, atomic_json_write
 from .file_lock import exclusive_file_lock
 
+from .printershare_discovery import (
+    PrinterDiscoveryResult,
+    _discover_cups,
+    _discover_windows,
+    discover_printer_inventory,
+    discover_printers,
+    infer_printer_kind,
+    printer_id,
+)
+
 
 RETENTION_ORDER = {"no_store": 0, "ttl": 1, "permanent": 2}
 RETENTION_LABELS = {
@@ -85,96 +95,6 @@ def _bounded_int(value: object, default: int, minimum: int, maximum: int) -> int
         return default
     return max(minimum, min(parsed, maximum))
 
-
-def printer_id(name: str) -> str:
-    material = f"{platform.system().casefold()}\0{name}".encode("utf-8", "replace")
-    return hashlib.sha256(material).hexdigest()[:24]
-
-
-def infer_printer_kind(name: str, driver: str = "") -> str:
-    value = f"{name} {driver}".casefold()
-    if any(token in value for token in ("zebra", "dymo", "brother ql", "label", "etikett", "thermal", "thermo")):
-        return "label"
-    return "normal"
-
-
-def _discover_cups() -> list[dict[str, Any]]:
-    executable = shutil.which("lpstat")
-    if not executable:
-        return []
-    result = subprocess.run([executable, "-p"], capture_output=True, text=True, timeout=10, check=False)
-    if result.returncode:
-        return []
-    default_name = ""
-    default_result = subprocess.run([executable, "-d"], capture_output=True, text=True, timeout=10, check=False)
-    if default_result.returncode == 0 and ":" in default_result.stdout:
-        default_name = default_result.stdout.split(":", 1)[1].strip()
-    printers: list[dict[str, Any]] = []
-    for line in result.stdout.splitlines():
-        match = re.match(r"^printer\s+(\S+)", line.strip(), re.IGNORECASE)
-        if not match or re.search(r"\bdisabled\b", line, re.IGNORECASE):
-            continue
-        name = match.group(1)
-        printers.append({
-            "printer_id": printer_id(name),
-            "name": name,
-            "driver": "CUPS",
-            "port": "",
-            "is_default": name == default_name,
-            "kind": infer_printer_kind(name, "CUPS"),
-            "backend": "cups",
-        })
-    return printers
-
-
-def _discover_windows() -> list[dict[str, Any]]:
-    executable = shutil.which("powershell.exe") or shutil.which("pwsh")
-    if not executable:
-        return []
-    command = (
-        "Get-CimInstance Win32_Printer | "
-        "Select-Object Name,DriverName,PortName,Shared,Default,WorkOffline | ConvertTo-Json -Compress"
-    )
-    result = subprocess.run(
-        [executable, "-NoProfile", "-NonInteractive", "-Command", command],
-        capture_output=True,
-        text=True,
-        timeout=20,
-        check=False,
-    )
-    if result.returncode or not result.stdout.strip():
-        return []
-    try:
-        value = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return []
-    rows = value if isinstance(value, list) else [value]
-    printers = []
-    for row in rows:
-        if not isinstance(row, dict) or not str(row.get("Name") or "").strip() \
-                or row.get("WorkOffline") is True:
-            continue
-        name = str(row["Name"]).strip()
-        driver = str(row.get("DriverName") or "")
-        printers.append({
-            "printer_id": printer_id(name),
-            "name": name,
-            "driver": driver,
-            "port": str(row.get("PortName") or ""),
-            "is_default": bool(row.get("Default")),
-            "kind": infer_printer_kind(name, driver),
-            "backend": "windows",
-        })
-    return printers
-
-
-def discover_printers() -> list[dict[str, Any]]:
-    system = platform.system()
-    if system == "Windows":
-        return _discover_windows()
-    if system in {"Linux", "Darwin"}:
-        return _discover_cups()
-    return []
 
 
 def _spool_cups(printer: dict[str, Any], payload: bytes, content_type: str) -> str:
@@ -517,10 +437,11 @@ class PrinterShareStore:
             atomic_json_write(self.settings_path, data)
         return data["printers"][target_id]
 
-    def printers(self) -> list[dict[str, Any]]:
+    def printer_inventory(self) -> tuple[list[dict[str, Any]], str | None]:
         settings = self.settings()
+        discovered = discover_printer_inventory()
         result = []
-        for item in discover_printers():
+        for item in discovered.printers:
             override = settings["printers"].get(item["printer_id"], {})
             configured_kind = str(override.get("kind") or "auto")
             kind = item["kind"] if configured_kind == "auto" else configured_kind
@@ -534,7 +455,12 @@ class PrinterShareStore:
         legacy_brother = self._legacy_brother_printer()
         if legacy_brother:
             result.append(legacy_brother)
-        return sorted(result, key=lambda item: (not item["is_default"], item["label"].casefold()))
+        ordered = sorted(result, key=lambda item: (not item["is_default"], item["label"].casefold()))
+        return ordered, discovered.issue
+
+    def printers(self) -> list[dict[str, Any]]:
+        """Keep the list-only API used by print routes and existing clients."""
+        return self.printer_inventory()[0]
 
     def _legacy_brother_printer(self) -> dict[str, Any] | None:
         """Expose the migrated Brother profile as a private central device."""
