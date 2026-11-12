@@ -1,0 +1,185 @@
+{% extends "layout.html" %}
+{% block header %}{% include "documents/nav.html" %}{% endblock %}
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/business-template-editor.css') }}">
+{% endblock %}
+{% block body %}
+<main id="main-content" class="container-fluid py-3 template-editor-shell" data-template-editor>
+  <script type="application/json" id="template-layout-data">{{ layout|tojson }}</script>
+  <script type="application/json" id="template-preview-tokens">{{ preview_tokens|tojson }}</script>
+
+  <form id="template-editor-form" method="post" action="{{ url_for('.visual_template_save', template_id=template_row.template_id) }}">
+    <input type="hidden" name="layout_json" id="layout-json">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+      <div>
+        <a class="small text-decoration-none" href="{{ url_for('.visual_template_overview') }}">← Vorlagenübersicht</a>
+        <h1 class="h3 mt-1 mb-0">Template-Editor – Format &amp; Makros</h1>
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-secondary" type="button" data-action="toggle-preview"><i class="fa-regular fa-eye me-1"></i>Token-Vorschau</button>
+        {% if is_admin %}<button class="btn btn-primary" type="submit"><i class="fa-regular fa-floppy-disk me-1"></i>Speichern</button>{% endif %}
+      </div>
+    </div>
+
+    {% for message in get_flashed_messages() %}<div class="alert alert-info py-2" role="status" aria-live="polite">{{ message }}</div>{% endfor %}
+
+    <div class="template-editor-toolbar card mb-3">
+      <div class="card-body py-2 d-flex flex-wrap align-items-center gap-2">
+        <button type="button" class="btn btn-sm btn-outline-secondary fw-bold" data-format="bold" title="Fett">B</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary fst-italic" data-format="italic" title="Kursiv">I</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary text-decoration-underline" data-format="underline" title="Unterstrichen">U</button>
+        <label class="visually-hidden" for="editor-color">Farbe</label><input id="editor-color" type="color" class="form-control form-control-color form-control-sm" value="#111827" data-prop="color">
+        <label class="visually-hidden" for="editor-size">Schriftgröße</label>
+        <select id="editor-size" class="form-select form-select-sm toolbar-size" data-prop="font_size">
+          {% for size in (7,8,9,10,11,12,14,16,18,20,24,28,32,36,48) %}<option value="{{ size }}">{{ size }} pt</option>{% endfor %}
+        </select>
+        <span class="toolbar-divider"></span>
+        {% for align, icon in [('left','fa-align-left'),('center','fa-align-center'),('right','fa-align-right'),('justify','fa-align-justify')] %}
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-align="{{ align }}" title="{{ align }}"><i class="fa-solid {{ icon }}"></i></button>
+        {% endfor %}
+        <span class="toolbar-divider"></span>
+        <label class="small mb-0">X <input class="form-control form-control-sm metric-input" type="number" min="0" max="210" step="0.5" data-metric="x_mm"></label>
+        <label class="small mb-0">Y <input class="form-control form-control-sm metric-input" type="number" min="0" max="297" step="0.5" data-metric="y_mm"></label>
+        <label class="small mb-0">B <input class="form-control form-control-sm metric-input" type="number" min="1" max="210" step="0.5" data-metric="width_mm"></label>
+        <label class="small mb-0">H <input class="form-control form-control-sm metric-input" type="number" min="1" max="297" step="0.5" data-metric="height_mm"></label>
+        <div class="ms-auto d-flex gap-2">
+          <button type="button" class="btn btn-sm btn-outline-secondary" data-action="duplicate-element" title="Duplizieren"><i class="fa-regular fa-copy"></i></button>
+          <button type="button" class="btn btn-sm btn-outline-danger" data-action="delete-element" title="Löschen"><i class="fa-regular fa-trash-can"></i></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="template-editor-grid">
+      <aside class="card template-elements-panel">
+        <div class="card-header fw-semibold">Vorlagenelemente</div>
+        <div class="card-body p-2">
+          <div class="accordion accordion-flush" id="template-element-accordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header"><button class="accordion-button py-2" type="button" data-bs-toggle="collapse" data-bs-target="#tokens" aria-expanded="true" aria-controls="tokens">Standardfelder</button></h2>
+              <div id="tokens" class="accordion-collapse collapse show">
+                <div class="accordion-body p-1 template-palette">
+                  {% for token, label in tokens %}
+                  <button type="button" class="template-palette-item" data-add-token="{{ token }}"><i class="fa-solid fa-grip-vertical"></i><span>{{ label }}</span></button>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <div class="accordion-item">
+              <h2 class="accordion-header"><button class="accordion-button py-2" type="button" data-bs-toggle="collapse" data-bs-target="#free-text" aria-expanded="true" aria-controls="free-text">Freitextfelder</button></h2>
+              <div id="free-text" class="accordion-collapse collapse show">
+                <div class="accordion-body p-1 template-palette">
+                  {% for n in (1,2,3) %}<button type="button" class="template-palette-item" data-add-token="freitext{{ n }}"><i class="fa-solid fa-grip-vertical"></i><span>Freitext {{ n }}</span></button>{% endfor %}
+                </div>
+              </div>
+            </div>
+            <div class="accordion-item">
+              <h2 class="accordion-header"><button class="accordion-button py-2" type="button" data-bs-toggle="collapse" data-bs-target="#basic-elements" aria-expanded="true" aria-controls="basic-elements">Elemente</button></h2>
+              <div id="basic-elements" class="accordion-collapse collapse show">
+                <div class="accordion-body p-1 template-palette">
+                  <button type="button" class="template-palette-item" data-add-element="text"><i class="fa-solid fa-font"></i><span>Textfeld</span></button>
+                  <button type="button" class="template-palette-item" data-add-element="line"><i class="fa-solid fa-minus"></i><span>Linie</span></button>
+                  <button type="button" class="template-palette-item" data-add-element="rect"><i class="fa-regular fa-square"></i><span>Rechteck</span></button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="template-canvas-wrap" aria-label="A4 Vorlagenvorschau">
+        <div class="template-page-label">A4 (210 × 297 mm)</div>
+        <div id="template-canvas" class="template-canvas">
+          <div class="template-region region-header" data-region="header"><span>Header</span></div>
+          <div class="template-region region-content" data-region="content"><span>Inhalt</span></div>
+          <div class="template-region region-footer" data-region="footer"><span>Footer</span></div>
+          <div class="template-region region-margin-left" data-region="margin_left"><span>Randinfo</span></div>
+          <div class="template-region region-margin-right" data-region="margin_right"><span>Randinfo</span></div>
+          <div id="template-elements-layer"></div>
+        </div>
+      </section>
+
+      <aside class="template-properties-panel">
+        <section class="card mb-3">
+          <div class="card-header fw-semibold"><i class="fa-solid fa-gear me-1"></i>Eigenschaften</div>
+          <div class="card-body">
+            <label class="form-label">Name des Templates</label>
+            <input class="form-control mb-3" name="name" maxlength="120" required value="{{ template_row.name }}" {% if not is_admin %}readonly{% endif %}>
+            <label class="form-label">Dokumenttyp</label>
+            <select class="form-select mb-3" name="document_type" {% if not is_admin %}disabled{% endif %}>
+              <option value="invoice" {% if template_row.document_type == 'invoice' %}selected{% endif %}>Rechnung</option>
+              <option value="quote" {% if template_row.document_type == 'quote' %}selected{% endif %}>Angebot</option>
+              <option value="delivery_note" {% if template_row.document_type == 'delivery_note' %}selected{% endif %}>Lieferschein</option>
+              <option value="letter" {% if template_row.document_type == 'letter' %}selected{% endif %}>Brief</option>
+            </select>
+            <input type="hidden" name="language" value="{{ template_row.language|default('de') }}">
+            <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="header-enabled" data-region-enabled="header"><label class="form-check-label" for="header-enabled">Header anzeigen</label></div>
+            <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="footer-enabled" data-region-enabled="footer"><label class="form-check-label" for="footer-enabled">Footer anzeigen</label></div>
+            <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="margin-left-enabled" data-region-enabled="margin_left"><label class="form-check-label" for="margin-left-enabled">Randinfo links</label></div>
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" id="margin-right-enabled" data-region-enabled="margin_right"><label class="form-check-label" for="margin-right-enabled">Randinfo rechts</label></div>
+          </div>
+        </section>
+
+        <section class="card mb-3">
+          <div class="card-header fw-semibold">Ausgewähltes Element</div>
+          <div class="card-body">
+            <div id="no-selection" class="text-secondary small">Wähle ein Element auf der Seite aus.</div>
+            <div id="element-properties" hidden>
+              <label class="form-label" for="element-text">Text / Makro</label>
+              <textarea id="element-text" class="form-control mb-2" rows="4" maxlength="4000" data-element-text></textarea>
+              <label class="form-label" for="element-region">Bereich</label>
+              <select id="element-region" class="form-select mb-2" data-element-region>
+                <option value="header">Header</option><option value="content">Inhalt</option><option value="footer">Footer</option><option value="margin_left">Rand links</option><option value="margin_right">Rand rechts</option>
+              </select>
+              <div class="form-check"><input class="form-check-input" type="checkbox" id="element-locked" data-element-locked><label class="form-check-label" for="element-locked">Position sperren</label></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card mb-3 macro-assistant">
+          <div class="card-header fw-semibold"><code>{{ '{}' }}</code> Makro-Assistent</div>
+          <div class="card-body">
+            <label class="form-label" for="macro-token">Makro einfügen</label>
+            <div class="input-group mb-3">
+              <select id="macro-token" class="form-select">
+                {% for token, label in tokens %}<option value="{{ token }}">{{ label }} · {{ '{{' }}{{ token }}{{ '}}' }}</option>{% endfor %}
+              </select>
+              <button class="btn btn-outline-primary" type="button" data-action="insert-macro">Einfügen</button>
+            </div>
+            <div class="small d-flex flex-wrap gap-1">
+              {% for token in ('firma.name','firma.iban','rechnung.nummer','datum.heute','freitext1') %}
+              <button class="btn btn-sm btn-light border" type="button" data-quick-token="{{ token }}">{{ '{{' }}{{ token }}{{ '}}' }}</button>
+              {% endfor %}
+            </div>
+          </div>
+        </section>
+
+        <section class="card mb-3">
+          <div class="card-header fw-semibold">Freitext-Vorgaben</div>
+          <div class="card-body">
+            {% for n in (1,2,3) %}
+            <label class="form-label small" for="free-text-{{ n }}">Freitext {{ n }}</label>
+            <input id="free-text-{{ n }}" class="form-control form-control-sm mb-2" maxlength="500" data-free-text="freitext{{ n }}">
+            {% endfor %}
+          </div>
+        </section>
+
+        <section class="card macro-cheatsheet">
+          <div class="card-header fw-semibold">Einfache Makrosprache</div>
+          <div class="card-body small">
+            <table class="table table-sm mb-0">
+              <tbody>
+                <tr><td><code>[B]Fett[/B]</code></td><td><strong>Fett</strong></td></tr>
+                <tr><td><code>[I]Kursiv[/I]</code></td><td><em>Kursiv</em></td></tr>
+                <tr><td><code>[SIZE=12]Text[/SIZE]</code></td><td>12 pt</td></tr>
+                <tr><td><code>[COLOR=#1E88E5]Text[/COLOR]</code></td><td>Farbe</td></tr>
+                <tr><td><code>{{ '{{rechnung.nummer}}' }}</code></td><td>Token</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </aside>
+    </div>
+  </form>
+</main>
+<script src="{{ url_for('static', filename='js/business-template-editor.js') }}"></script>
+{% endblock %}
