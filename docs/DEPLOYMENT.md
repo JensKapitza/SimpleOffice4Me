@@ -52,13 +52,39 @@ Der Container startet nur zur Initialisierung eines neuen Volumes als root. Daf�
 
 ### Host-Drucker aus Docker
 
-Unter Linux kann SimpleOffice den CUPS-Spooler des Hosts verwenden. Dazu in `deploy/docker/compose.yaml` den vorhandenen optionalen Mount aktivieren:
+Unter Linux kann SimpleOffice den CUPS-Spooler des Hosts verwenden. Der Zugriff
+bleibt opt-in und wird über einen Compose-Override nur für den Webcontainer
+freigegeben. Ermittle die Gruppen-ID des Host-Sockets:
 
-```yaml
-- /run/cups/cups.sock:/run/cups/cups.sock
+```bash
+stat -c '%g' /run/cups/cups.sock
 ```
 
-Für Netzwerkdrucker kann alternativ ein erreichbarer CUPS-Server genutzt werden. Ein Linux-Container kann den Windows-Host-Spooler nicht wie eine native Windows-Anwendung verwenden; dafür native Installation oder Netzwerkdrucker einsetzen.
+Starte SimpleOffice anschließend mit dieser Gruppen-ID und dem optionalen
+Socket-Pfad:
+
+```bash
+CUPS_SOCKET_GID="$(stat -c '%g' /run/cups/cups.sock)" \
+  docker compose --env-file deploy/docker/.env \
+  -f deploy/docker/compose.yaml \
+  -f deploy/docker/compose.cups.yaml up -d --build
+```
+
+Der Override bindet nur `/run/cups/cups.sock` ein. Der Prozess bleibt unter UID
+10001; der Einstiegspunkt erhält für diesen Start ausschließlich die
+konfigurierte numerische Socket-Gruppe und verwirft andere Zusatzgruppen. Der
+Socket muss für diese Gruppe les- und schreibbar sein. Passe bei abweichendem
+Host-Pfad `CUPS_SOCKET_PATH` an. Prüfe danach `/admin/settings/printers`; dort
+werden auch in CUPS deaktivierte Warteschlangen sichtbar markiert. Aufträge an
+deaktivierte Warteschlangen werden von CUPS möglicherweise zurückgehalten, bis
+die Warteschlange auf dem Host wieder aktiviert wird.
+
+Für einen entfernten oder per IP erreichbaren CUPS-Server kann stattdessen
+`CUPS_SERVER=host.docker.internal:631` in `deploy/docker/.env` gesetzt werden.
+Der Server muss Netzwerkzugriffe aus dem Container erlauben. Druckaufträge
+werden über genau den konfigurierten CUPS-Server eingereicht. Ein Linux-Container
+kann den Windows-Host-Spooler nicht wie eine native Windows-Anwendung verwenden;
+dafür native Installation oder Netzwerkdrucker einsetzen.
 
 ## 2. Docker LAN: DHCP, DNS, TFTP/PXE und Routing
 

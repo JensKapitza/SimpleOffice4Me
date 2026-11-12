@@ -1,6 +1,7 @@
 import tempfile
 import time
 import unittest
+import subprocess
 from contextlib import contextmanager
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -9,7 +10,17 @@ from unittest.mock import patch
 from flask import Flask
 
 from app.file_lock import exclusive_file_lock
-from app.printershare_store import PrinterShareStore, _suffix_for, effective_retention, spool_payload
+from app.printershare_store import (
+    PrinterDiscoveryResult,
+    PrinterShareStore,
+    _discover_cups,
+    _spool_cups,
+    _suffix_for,
+    discover_printer_inventory,
+    discover_printers,
+    effective_retention,
+    spool_payload,
+)
 
 
 TEST_PRINTER = {
@@ -29,7 +40,10 @@ class PrinterShareStoreTest(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.app = Flask(__name__)
         self.app.config.update(TESTING=True, SECRET_KEY="printershare-test-secret")
-        self.discover = patch("app.printershare_store.discover_printers", return_value=[dict(TEST_PRINTER)])
+        self.discover = patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([dict(TEST_PRINTER)]),
+        )
         self.spool = patch("app.printershare_store.spool_payload", return_value="test-spool-42")
         self.discover.start()
         self.spool_mock = self.spool.start()
@@ -39,6 +53,152 @@ class PrinterShareStoreTest(unittest.TestCase):
         self.spool.stop()
         self.discover.stop()
         self.temp.cleanup()
+
+    def test_cups_discovery_includes_disabled_queues_and_marks_default(self):
+        commands = []
+
+        def fake_run(command, **kwargs):
+            commands.append((command, kwargs))
+            if command[-1] == "-r":
+                return CompletedProcess(command, 0, stdout="scheduler is running\n", stderr="")
+            if command[-1] == "-p":
+                return CompletedProcess(
+                    command,
+                    0,
+                    stdout=(
+                        "printer Office is idle. enabled since Wed 12 Nov 2026\n"
+                        "printer Label_QL disabled since Wed 12 Nov 2026\n"
+                        "printer Label_QL disabled since Wed 12 Nov 2026\n"
+                    ),
+                    stderr="",
+                )
+            return CompletedProcess(command, 0, stdout="system default destination: Office\n", stderr="")
+
+        with (
+            patch("app.printershare_discovery.shutil.which", return_value="/usr/bin/lpstat"),
+            patch("app.printershare_discovery.subprocess.run", side_effect=fake_run),
+        ):
+            result = _discover_cups()
+
+        self.assertIsNone(result.issue)
+        self.assertEqual(["Office", "Label_QL"], [printer["name"] for printer in result.printers])
+        self.assertTrue(result.printers[0]["is_default"])
+        self.assertTrue(result.printers[0]["is_enabled"])
+        self.assertFalse(result.printers[1]["is_enabled"])
+        self.assertEqual("disabled", result.printers[1]["status"])
+        self.assertTrue(all(call[1]["env"]["LC_ALL"] == "C" for call in commands))
+        self.assertTrue(all(call[1]["errors"] == "replace" for call in commands))
+
+    def test_cups_discovery_reports_missing_client_and_access_denial(self):
+        with (
+            patch("app.printershare_discovery.platform.system", return_value="Linux"),
+            patch("app.printershare_discovery.shutil.which", return_value=None),
+        ):
+            self.assertEqual("client_missing", discover_printer_inventory().issue)
+
+        def denied(command, **kwargs):
+            return CompletedProcess(command, 1, stdout="", stderr="Permission denied: /run/cups/cups.sock")
+
+        with (
+            patch("app.printershare_discovery.shutil.which", return_value="/usr/bin/lpstat"),
+            patch("app.printershare_discovery.subprocess.run", side_effect=denied),
+        ):
+            result = _discover_cups()
+        self.assertEqual("access_denied", result.issue)
+        self.assertEqual([], result.printers)
+
+    def test_cups_discovery_reports_timeout_but_treats_empty_scheduler_as_no_printers(self):
+        with (
+            patch("app.printershare_discovery.shutil.which", return_value="/usr/bin/lpstat"),
+            patch(
+                "app.printershare_discovery.subprocess.run",
+                side_effect=subprocess.TimeoutExpired(["lpstat"], 10),
+            ),
+        ):
+            self.assertEqual("timeout", _discover_cups().issue)
+
+        def empty_queue(command, **kwargs):
+            if command[-1] == "-r":
+                return CompletedProcess(command, 0, stdout="scheduler is running\n", stderr="")
+            if command[-1] == "-p":
+                return CompletedProcess(command, 1, stdout="", stderr="lpstat: No destinations added.")
+            return CompletedProcess(command, 1, stdout="no system default destination", stderr="")
+
+        with (
+            patch("app.printershare_discovery.shutil.which", return_value="/usr/bin/lpstat"),
+            patch("app.printershare_discovery.subprocess.run", side_effect=empty_queue),
+        ):
+            result = _discover_cups()
+        self.assertEqual([], result.printers)
+        self.assertIsNone(result.issue)
+
+    def test_cups_discovery_ignores_malformed_or_option_like_queue_names(self):
+        too_long = "Q" * 256
+
+        def fake_run(command, **kwargs):
+            if command[-1] == "-r":
+                return CompletedProcess(command, 0, stdout="scheduler is running\n", stderr="")
+            if command[-1] == "-p":
+                return CompletedProcess(
+                    command,
+                    0,
+                    stdout=(
+                        "printer -option is idle. enabled since now\n"
+                        "printer Good_Queue is idle. enabled since now\n"
+                        f"printer {too_long} is idle. enabled since now\n"
+                        "not a printer row\n"
+                    ),
+                    stderr="",
+                )
+            return CompletedProcess(command, 1, stdout="no system default destination", stderr="")
+
+        with (
+            patch("app.printershare_discovery.shutil.which", return_value="/usr/bin/lpstat"),
+            patch("app.printershare_discovery.subprocess.run", side_effect=fake_run),
+        ):
+            result = _discover_cups()
+
+        self.assertEqual(["Good_Queue"], [printer["name"] for printer in result.printers])
+
+    def test_cups_spool_uses_the_selected_queue_as_one_argument(self):
+        printer = {**TEST_PRINTER, "backend": "cups", "name": "Second_Office"}
+        with (
+            patch("app.printershare_store.shutil.which", return_value="/usr/bin/lp"),
+            patch(
+                "app.printershare_store.subprocess.run",
+                return_value=CompletedProcess(
+                    ["/usr/bin/lp"], 0, stdout=b"request id is Second_Office-12", stderr=b""
+                ),
+            ) as run,
+        ):
+            _spool_cups(printer, b"sample", "application/pdf")
+        self.assertEqual(["/usr/bin/lp", "-d", "Second_Office"], run.call_args.args[0])
+
+    def test_disabled_cups_queue_remains_visible_selectable_and_submittable(self):
+        paused = {
+            **TEST_PRINTER,
+            "printer_id": "b" * 24,
+            "name": "Paused_Office",
+            "backend": "cups",
+            "is_enabled": False,
+            "status": "disabled",
+        }
+        with patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([paused]),
+        ):
+            self.store.set_user_preferences("alice", standard_printer_id=paused["printer_id"])
+            selected = self.store.resolve_user_printer("alice", "standard")
+            submitted = self.store.submit(
+                paused["printer_id"],
+                b"queue while paused",
+                content_type="application/pdf",
+                retention_ceiling="no_store",
+            )
+
+        self.assertEqual(paused["printer_id"], selected["printer_id"])
+        self.assertEqual("spooled", submitted["status"])
+        self.spool_mock.assert_called_once()
 
     def test_retention_ceiling_never_allows_more_storage(self):
         self.assertEqual(effective_retention("permanent", "no_store"), "no_store")
@@ -155,8 +315,8 @@ class PrinterShareStoreTest(unittest.TestCase):
             "kind": "label",
         }
         with patch(
-            "app.printershare_store.discover_printers",
-            return_value=[dict(TEST_PRINTER), label_printer],
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([dict(TEST_PRINTER), label_printer]),
         ):
             saved = self.store.set_user_preferences(
                 "alice", standard_printer_id=TEST_PRINTER["printer_id"],
@@ -174,8 +334,8 @@ class PrinterShareStoreTest(unittest.TestCase):
     def test_policy_precedence_and_forced_printer_are_server_enforced(self):
         second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
         with patch(
-            "app.printershare_store.discover_printers",
-            return_value=[dict(TEST_PRINTER), second],
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([dict(TEST_PRINTER), second]),
         ):
             self.store.set_user_preferences(
                 "alice", standard_printer_id=TEST_PRINTER["printer_id"],
@@ -202,8 +362,8 @@ class PrinterShareStoreTest(unittest.TestCase):
     def test_user_printer_preferences_are_isolated_between_accounts(self):
         second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
         with patch(
-            "app.printershare_store.discover_printers",
-            return_value=[dict(TEST_PRINTER), second],
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([dict(TEST_PRINTER), second]),
         ):
             self.store.set_user_preferences(
                 "alice", standard_printer_id=second["printer_id"],
@@ -220,8 +380,8 @@ class PrinterShareStoreTest(unittest.TestCase):
     def test_forced_policy_blocks_preference_change_and_preserves_saved_value(self):
         second = {**TEST_PRINTER, "printer_id": "c" * 24, "name": "Printer 2", "is_default": False}
         with patch(
-            "app.printershare_store.discover_printers",
-            return_value=[dict(TEST_PRINTER), second],
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([dict(TEST_PRINTER), second]),
         ):
             self.store.set_user_preferences(
                 "alice", standard_printer_id=TEST_PRINTER["printer_id"],
@@ -256,7 +416,10 @@ class PrinterShareStoreTest(unittest.TestCase):
             "standard": {"mode": "forced", "printer_id": TEST_PRINTER["printer_id"]},
             "label": {"mode": "none", "printer_id": ""},
         })
-        with patch("app.printershare_store.discover_printers", return_value=[]):
+        with patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([]),
+        ):
             context = self.store.user_printer_context("alice")["roles"]["standard"]
             self.assertFalse(context["available"])
             self.assertEqual("forced", context["policy"])
@@ -266,7 +429,10 @@ class PrinterShareStoreTest(unittest.TestCase):
     def test_removed_personal_printer_uses_compatible_system_fallback(self):
         replacement = {**TEST_PRINTER, "printer_id": "e" * 24, "name": "Replacement"}
         self.store.set_user_preferences("alice", standard_printer_id=TEST_PRINTER["printer_id"])
-        with patch("app.printershare_store.discover_printers", return_value=[replacement]):
+        with patch(
+            "app.printershare_store.discover_printer_inventory",
+            return_value=PrinterDiscoveryResult([replacement]),
+        ):
             context = self.store.user_printer_context("alice")["roles"]["standard"]
 
         self.assertEqual(replacement["printer_id"], context["printer_id"])
