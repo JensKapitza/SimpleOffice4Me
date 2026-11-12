@@ -57,6 +57,7 @@ class DeploymentAssetsTest(unittest.TestCase):
         self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS:?", compose)
         self.assertIn("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST:?", compose)
         self.assertIn("SIMPLEOFFICE_LAN_PROXY_CONTAINER_MODE: \"1\"", compose)
+        self.assertIn("SIMPLEOFFICE_LAN_PROXY_TLS_DIR: /run/simpleoffice", compose)
         self.assertIn("read_only: true", compose)
         self.assertIn("create_host_path: false", compose)
         settings = self.text("templates/admin/server_settings.html")

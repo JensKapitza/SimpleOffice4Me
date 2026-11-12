@@ -228,6 +228,27 @@ class ServerAdminTests(unittest.TestCase):
         self.assertIn("LAN-Proxy aktivieren und automatisch starten", body)
         self.assertIn("Proxy starten", body)
 
+    def test_legacy_absolute_tls_paths_show_an_actionable_migration_notice(self):
+        from app.settings_store import SettingsStore
+
+        SettingsStore(self.root).path.parent.mkdir(parents=True, exist_ok=True)
+        SettingsStore(self.root).path.write_text(
+            json.dumps({"lan_proxy": {
+                "enabled": True,
+                "bind_host": "127.0.0.1",
+                "port": 8081,
+                "tls_cert": "/etc/ssl/office/fullchain.pem",
+                "tls_key": "/etc/ssl/office/privkey.pem",
+            }}),
+            encoding="utf-8",
+        )
+        with patch.dict(os.environ, {"SIMPLEOFFICE_LAN_PROXY_TLS_DIR": str(self.root / "tls")}):
+            page = self.client.get("/admin/settings/server")
+        self.assertEqual(200, page.status_code)
+        body = page.get_data(as_text=True)
+        self.assertIn("legacy absolute-path format", body)
+        self.assertIn("/etc/ssl/office/fullchain.pem", body)
+
     def test_admin_can_save_reset_and_is_validated(self):
         response = self.client.post(
             "/admin/settings/server",
@@ -270,8 +291,8 @@ class ServerAdminTests(unittest.TestCase):
             "enabled": False,
             "bind_host": "192.168.1.42",
             "port": 8443,
-            "tls_cert": "/tmp/synthetic-certificate.pem",
-            "tls_key": "/tmp/synthetic-private-key.pem",
+            "tls_cert": "synthetic-certificate.pem",
+            "tls_key": "synthetic-private-key.pem",
         }}, "test")
         with patch("app.admin_server_settings._apply_lan_proxy", return_value={
             "state": "running", "message": "running", "origin": "https://192.168.1.42:8443",

@@ -18,8 +18,17 @@ WSGI-Starts, sobald der Server die erste Anfrage bearbeitet.
   wird der Port nur an die in `SIMPLEOFFICE_LAN_PROXY_PUBLISH_ADDRESS`
   eingetragene Host-IP.
 - Ein gültiges, von den Clients vertrautes TLS-Zertifikat und der zugehörige
-  private Schlüssel sind Pflicht. Der Schlüssel muss außerhalb des
-  Dokumentordners liegen und darf nicht für andere lesbar sein.
+  private Schlüssel sind Pflicht. Die Einstellungen enthalten nur Dateinamen;
+  die Dateien liegen im TLS-Ordner `SIMPLEOFFICE_LAN_PROXY_TLS_DIR` (Standard
+  auf dem Host: `~/.simpleoffice4me/lan-proxy`, in Docker: `/run/simpleoffice`).
+  Ein eigener TLS-Ordner muss als absoluter Pfad über
+  `SIMPLEOFFICE_LAN_PROXY_TLS_DIR` festgelegt werden. Er darf nicht für Gruppe
+  oder andere Benutzer beschreibbar sein und muss außerhalb des Dokumentordners
+  liegen. Der Schlüssel darf für Gruppe oder andere Benutzer nicht lesbar sein.
+  Bereits gespeicherte absolute Pfade innerhalb dieses Ordners werden beim Lesen
+  auf relative Dateinamen umgestellt. Für ältere Pfade außerhalb des Ordners
+  zeigt die Einstellungsseite einen Migrationshinweis; Dateien dort ablegen und
+  die Felder auf relative Dateinamen umstellen.
 - Änderungen und Start/Stop gelten sofort. Ein belegter Port oder eine nicht
   verfügbare Bind-Adresse erscheint als Fehlerstatus; es gibt keinen stillen
   Portwechsel.
@@ -45,8 +54,7 @@ CONNECT und TRACE werden nicht weitergeleitet.
    ```
 
 3. In den Server-Einstellungen `0.0.0.0` als Proxy-Bind-Adresse und die
-   Containerpfade `/run/simpleoffice/lan-proxy.crt` sowie
-   `/run/simpleoffice/lan-proxy.key` eintragen und den Proxy aktivieren. Der
+   Dateinamen `lan-proxy.crt` sowie `lan-proxy.key` eintragen und den Proxy aktivieren. Der
    veröffentlichte Port ist standardmäßig `8081`; der Proxy-Port in der UI muss
    ebenfalls `8081` sein.
    Für eine private Schlüsseldatei auf Linux kann der Containerbenutzer

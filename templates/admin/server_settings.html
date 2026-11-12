@@ -38,6 +38,7 @@
       <form method="post" action="{{ url_for('admin_server.save_server_settings') }}" class="row g-3 align-items-end">
         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
         <div class="col-12"><h2 class="h5 mb-0">{{ 'HTTPS LAN proxy' if g.language == 'en' else 'HTTPS-LAN-Proxy' }}</h2></div>
+        {% if lan_proxy.legacy_tls_paths %}<div class="col-12"><div class="alert alert-warning mb-0">{{ 'Saved certificate paths use the legacy absolute-path format. Set SIMPLEOFFICE_LAN_PROXY_TLS_DIR to the absolute directory containing both files, place them there, then replace these values with relative file names.' if g.language == 'en' else 'Die gespeicherten Zertifikatpfade verwenden das alte absolute Format. SIMPLEOFFICE_LAN_PROXY_TLS_DIR auf den absoluten Ordner mit beiden Dateien setzen, die Dateien dort ablegen und diese Werte durch relative Dateinamen ersetzen.' }}</div></div>{% endif %}
         <div class="col-md-7">
           <input type="hidden" name="lan_proxy_enabled" value="0">
           <div class="form-check form-switch"><input class="form-check-input" id="lan-proxy-enabled" type="checkbox" name="lan_proxy_enabled" value="1" {% if lan_proxy.enabled %}checked{% endif %}><label class="form-check-label" for="lan-proxy-enabled">{{ 'Enable and auto-start LAN proxy' if g.language == 'en' else 'LAN-Proxy aktivieren und automatisch starten' }}</label></div>
@@ -53,14 +54,14 @@
           <input class="form-control" id="lan-proxy-port" type="number" name="lan_proxy_port" value="{{ lan_proxy.port }}" min="1024" max="65535" required>
         </div>
         <div class="col-md-6">
-          <label class="form-label" for="lan-proxy-cert">{{ 'TLS certificate path' if g.language == 'en' else 'Pfad zum TLS-Zertifikat' }}</label>
-          <input class="form-control font-monospace" id="lan-proxy-cert" name="lan_proxy_tls_cert" value="{{ lan_proxy.tls_cert }}" maxlength="4096" autocomplete="off">
+          <label class="form-label" for="lan-proxy-cert">{{ 'TLS certificate file name' if g.language == 'en' else 'Dateiname des TLS-Zertifikats' }}</label>
+          <input class="form-control font-monospace" id="lan-proxy-cert" name="lan_proxy_tls_cert" value="{{ lan_proxy.tls_cert }}" maxlength="255" autocomplete="off" placeholder="lan-proxy.crt">
         </div>
         <div class="col-md-6">
-          <label class="form-label" for="lan-proxy-key">{{ 'TLS private key path' if g.language == 'en' else 'Pfad zum TLS-Privatschlüssel' }}</label>
-          <input class="form-control font-monospace" id="lan-proxy-key" name="lan_proxy_tls_key" value="{{ lan_proxy.tls_key }}" maxlength="4096" autocomplete="off">
+          <label class="form-label" for="lan-proxy-key">{{ 'TLS private key file name' if g.language == 'en' else 'Dateiname des TLS-Privatschlüssels' }}</label>
+          <input class="form-control font-monospace" id="lan-proxy-key" name="lan_proxy_tls_key" value="{{ lan_proxy.tls_key }}" maxlength="255" autocomplete="off" placeholder="lan-proxy.key">
         </div>
-        <div class="col-12"><p class="form-text mb-0">{{ 'The certificate must be trusted by LAN browsers and include the chosen IP or DNS name. The key must be outside the document folder, readable by the app user, and not world-readable. Firewall access remains under your control.' if g.language == 'en' else 'Das Zertifikat muss von den LAN-Browsern vertraut werden und die gewählte IP oder den DNS-Namen enthalten. Der Schlüssel muss außerhalb des Dokumentordners liegen, für den Anwendungsbenutzer lesbar und für andere nicht öffentlich lesbar sein. Die Firewall bleibt unter deiner Kontrolle.' }}</p></div>
+        <div class="col-12"><p class="form-text mb-0">{{ 'Place both files in SIMPLEOFFICE_LAN_PROXY_TLS_DIR (the configured directory must be absolute; default: ~/.simpleoffice4me/lan-proxy; Docker: /run/simpleoffice). The directory must not be writable by group or other users. The certificate must be trusted by LAN browsers and cover the chosen IP or DNS name. The private key must be readable by the app user and not by group or other users. Firewall access remains under your control.' if g.language == 'en' else 'Beide Dateien in SIMPLEOFFICE_LAN_PROXY_TLS_DIR ablegen (der konfigurierte Ordner muss absolut sein; Standard: ~/.simpleoffice4me/lan-proxy; Docker: /run/simpleoffice). Der Ordner darf für Gruppe oder andere Benutzer nicht beschreibbar sein. Das Zertifikat muss von den LAN-Browsern vertraut werden und die gewählte IP oder den DNS-Namen abdecken. Der private Schlüssel muss für den Anwendungsbenutzer, aber nicht für Gruppe oder andere Benutzer lesbar sein. Die Firewall bleibt unter deiner Kontrolle.' }}</p></div>
         <div class="col-12"><hr></div>
         <div class="col-md-7">
           <label class="form-label" for="server-host">{{ 'Bind address' if g.language == 'en' else 'Bind-Adresse' }}</label>

@@ -17,10 +17,12 @@ from werkzeug.serving import make_server
 from app.lan_proxy import (
     LanProxyHeadersMiddleware,
     LanProxyRuntime,
+    _tls_context,
     _secure_response_cookies,
 )
 from app.lan_proxy_config import (
     DEFAULT_LAN_PROXY_SETTINGS,
+    normalize_lan_proxy_settings,
     validate_lan_proxy_settings,
 )
 
@@ -30,11 +32,40 @@ class LanProxyConfigTests(unittest.TestCase):
         self.assertFalse(DEFAULT_LAN_PROXY_SETTINGS["enabled"])
         self.assertEqual("127.0.0.1", DEFAULT_LAN_PROXY_SETTINGS["bind_host"])
 
-    def test_tls_paths_must_be_absolute_and_paired_when_enabled(self):
+    def test_tls_file_names_must_be_safe_and_paired_when_enabled(self):
         with self.assertRaises(ValueError):
-            validate_lan_proxy_settings({"enabled": True, "tls_cert": "cert.pem", "tls_key": "/tmp/key.pem"})
+            validate_lan_proxy_settings({"enabled": True, "tls_cert": "cert.pem", "tls_key": "../key.pem"})
         with self.assertRaises(ValueError):
-            validate_lan_proxy_settings({"enabled": True, "tls_cert": "/tmp/cert.pem"})
+            validate_lan_proxy_settings({"enabled": True, "tls_cert": "/tmp/cert.pem", "tls_key": "key.pem"})
+        with self.assertRaises(ValueError):
+            validate_lan_proxy_settings({"enabled": True, "tls_cert": "cert.pem"})
+
+    def test_legacy_absolute_tls_paths_are_preserved_or_migrated_within_tls_directory(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            tls_directory = Path(temporary) / "tls"
+            tls_directory.mkdir()
+            certificate = tls_directory / "certs" / "fullchain.pem"
+            certificate.parent.mkdir()
+            key = tls_directory / "privkey.pem"
+            with patch.dict(os.environ, {"SIMPLEOFFICE_LAN_PROXY_TLS_DIR": str(tls_directory)}):
+                migrated = normalize_lan_proxy_settings({"tls_cert": str(certificate), "tls_key": str(key)})
+                self.assertEqual("certs/fullchain.pem", migrated["tls_cert"])
+                self.assertEqual("privkey.pem", migrated["tls_key"])
+                self.assertFalse(migrated["legacy_tls_paths"])
+
+                legacy = normalize_lan_proxy_settings(
+                    {"tls_cert": str(Path(temporary) / "outside.pem"), "tls_key": str(key)}
+                )
+                self.assertTrue(legacy["legacy_tls_paths"])
+                self.assertEqual(str(Path(temporary) / "outside.pem"), legacy["tls_cert"])
+                with self.assertRaisesRegex(ValueError, "relativer Dateipfad"):
+                    validate_lan_proxy_settings(
+                        {
+                            "enabled": True,
+                            "tls_cert": legacy["tls_cert"],
+                            "tls_key": legacy["tls_key"],
+                        }
+                    )
 
     def test_wildcard_is_allowed_only_for_explicit_container_mode(self):
         settings = {**DEFAULT_LAN_PROXY_SETTINGS, "bind_host": "0.0.0.0"}
@@ -129,8 +160,8 @@ class LanProxyStartupTests(unittest.TestCase):
                         "enabled": True,
                         "bind_host": "192.168.1.42",
                         "port": 8443,
-                        "tls_cert": "/tmp/certificate.pem",
-                        "tls_key": "/tmp/private-key.pem",
+                        "tls_cert": "certificate.pem",
+                        "tls_key": "private-key.pem",
                     }
                 },
                 "test",
@@ -154,6 +185,14 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         self.documents = self.root / "documents"
         self.documents.mkdir()
+        self.tls_directory = self.root / "tls"
+        self.tls_directory.mkdir()
+        self.tls_directory_environment = patch.dict(
+            os.environ,
+            {"SIMPLEOFFICE_LAN_PROXY_TLS_DIR": str(self.tls_directory)},
+        )
+        self.tls_directory_environment.start()
+        self.addCleanup(self.tls_directory_environment.stop)
         self.certificate, self.private_key = self._make_certificate()
         self.backend = Flask("lan-proxy-backend")
 
@@ -202,8 +241,8 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
             )
             .sign(key, hashes.SHA256())
         )
-        cert_path = self.root / "test-cert.pem"
-        key_path = self.root / "test-key.pem"
+        cert_path = self.tls_directory / "test-cert.pem"
+        key_path = self.tls_directory / "test-key.pem"
         cert_path.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
         key_path.write_bytes(
             key.private_bytes(
@@ -238,8 +277,8 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
                     "enabled": True,
                     "bind_host": "127.0.0.1",
                     "port": proxy_port,
-                    "tls_cert": str(self.certificate),
-                    "tls_key": str(self.private_key),
+                    "tls_cert": self.certificate.name,
+                    "tls_key": self.private_key.name,
                 },
                 backend_host="127.0.0.1",
                 backend_port=self.backend_server.server_port,
@@ -278,6 +317,35 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
         self.assertIsNone(body["forwarded_header"])
         self.assertIsNone(response.getheader("X-Forwarded-For"))
         self.assertIn("Secure", response.getheader("Set-Cookie", ""))
+
+    def test_tls_symlink_cannot_escape_the_server_owned_directory(self):
+        external_key = self.root / "external-key.pem"
+        external_key.write_bytes(self.private_key.read_bytes())
+        external_key.chmod(0o600)
+        escaped_key = self.tls_directory / "external.key"
+        escaped_key.symlink_to(external_key)
+        with self.assertRaisesRegex(ValueError, "freigegebenen TLS-Ordner"):
+            _tls_context(self.certificate.name, escaped_key.name, self.documents, self.tls_directory)
+
+    def test_tls_private_key_must_not_be_group_or_other_readable(self):
+        if os.name != "posix":
+            self.skipTest("POSIX private-key permission bits are unavailable")
+        import ssl
+
+        self.private_key.chmod(0o640)
+        with self.assertRaisesRegex(ValueError, "zu weit freigegeben"):
+            _tls_context(self.certificate.name, self.private_key.name, self.documents, self.tls_directory)
+        self.private_key.chmod(0o600)
+        context = _tls_context(self.certificate.name, self.private_key.name, self.documents, self.tls_directory)
+        self.assertEqual(context.minimum_version, ssl.TLSVersion.TLSv1_2)
+
+    def test_tls_directory_must_not_be_group_or_other_writable(self):
+        if os.name != "posix":
+            self.skipTest("POSIX directory permission bits are unavailable")
+        self.tls_directory.chmod(0o777)
+        self.addCleanup(self.tls_directory.chmod, 0o700)
+        with self.assertRaisesRegex(ValueError, "TLS-Ordner darf"):
+            _tls_context(self.certificate.name, self.private_key.name, self.documents, self.tls_directory)
 
     def test_chunked_upload_over_limit_is_rejected(self):
         from http.client import HTTPSConnection
@@ -339,8 +407,8 @@ class LanProxyHttpsIntegrationTests(unittest.TestCase):
                 "enabled": True,
                 "bind_host": "127.0.0.1",
                 "port": proxy_port,
-                "tls_cert": str(self.certificate),
-                "tls_key": str(self.private_key),
+                "tls_cert": self.certificate.name,
+                "tls_key": self.private_key.name,
             },
             backend_host="127.0.0.1",
             backend_port=self.backend_server.server_port,

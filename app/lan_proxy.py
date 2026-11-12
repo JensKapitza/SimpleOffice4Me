@@ -15,7 +15,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .lan_proxy_config import container_proxy_mode, validate_lan_proxy_settings
+from werkzeug.utils import safe_join
+
+from .lan_proxy_config import (
+    container_proxy_mode,
+    lan_proxy_tls_directory,
+    validate_lan_proxy_tls_directory,
+    validate_lan_proxy_settings,
+)
 
 
 LOG = logging.getLogger(__name__)
@@ -78,16 +85,35 @@ def _secure_response_cookies(headers) -> list[tuple[str, str]]:
     return result
 
 
-def _tls_context(certificate: str, private_key: str, document_root: str | Path | None) -> ssl.SSLContext:
-    cert_path = Path(certificate).expanduser().resolve(strict=True)
-    key_path = Path(private_key).expanduser().resolve(strict=True)
+def _tls_file_path(directory: Path, filename: str) -> Path:
+    joined = safe_join(os.fspath(directory), filename)
+    if joined is None:
+        raise ValueError("TLS-Dateiname liegt außerhalb des freigegebenen TLS-Ordners.")
+    trusted_directory = directory.resolve(strict=True)
+    path = Path(joined).resolve(strict=True)
+    if not path.is_relative_to(trusted_directory):
+        raise ValueError("TLS-Datei muss im freigegebenen TLS-Ordner liegen.")
+    return path
+
+
+def _tls_context(
+    certificate: str,
+    private_key: str,
+    document_root: str | Path | None,
+    tls_directory: Path | None = None,
+) -> ssl.SSLContext:
+    tls_directory = validate_lan_proxy_tls_directory(tls_directory or lan_proxy_tls_directory())
+    cert_path = _tls_file_path(tls_directory, certificate)
+    key_path = _tls_file_path(tls_directory, private_key)
     if not cert_path.is_file() or not key_path.is_file() or cert_path == key_path:
         raise ValueError("TLS-Zertifikat und Privatschlüssel müssen lesbare Dateien sein.")
     if document_root:
         root = Path(document_root).expanduser().resolve()
+        if root == tls_directory or root in tls_directory.parents:
+            raise ValueError("Der TLS-Ordner darf nicht im Dokumentordner liegen.")
         if root == key_path or root in key_path.parents:
             raise ValueError("Der TLS-Privatschlüssel darf nicht im Dokumentordner liegen.")
-    if os.name == "posix" and stat.S_IMODE(key_path.stat().st_mode) & 0o027:
+    if os.name == "posix" and stat.S_IMODE(key_path.stat().st_mode) & 0o077:
         raise ValueError("Der TLS-Privatschlüssel ist für Gruppe oder andere Benutzer zu weit freigegeben.")
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -147,8 +173,8 @@ async def _proxy_application(
                 allow_redirects=False,
             )
             upstream = await upstream_context
-        except web.HTTPRequestEntityTooLarge as exc:
-            return web.Response(status=413, text=str(exc), content_type="text/plain")
+        except web.HTTPRequestEntityTooLarge:
+            return web.Response(status=413, text="Request body too large", content_type="text/plain")
         except _RequestBodyTooLarge:
             return web.Response(status=413, text="Request body too large", content_type="text/plain")
         except asyncio.TimeoutError:
@@ -226,11 +252,12 @@ class LanProxyRuntime:
                 backend_address = ipaddress.ip_address(backend_host)
                 if not backend_address.is_loopback or not 1 <= int(backend_port) <= 65535:
                     raise ValueError("LAN proxy backend must be a fixed loopback endpoint.")
-                if config["bind_host"] == "0.0.0.0" and not container_proxy_mode():
+                if ipaddress.ip_address(config["bind_host"]).is_unspecified and not container_proxy_mode():
                     raise ValueError("Wildcard LAN proxy binding is only allowed inside the Docker network namespace.")
-                tls = _tls_context(config["tls_cert"], config["tls_key"], document_root)
+                tls_directory = lan_proxy_tls_directory()
+                tls = _tls_context(config["tls_cert"], config["tls_key"], document_root, tls_directory)
                 token = secrets.token_urlsafe(32)
-                profile = (config, str(backend_address), int(backend_port), str(document_root))
+                profile = (config, str(backend_address), int(backend_port), str(document_root), str(tls_directory))
                 if self._profile == profile and self.status()["state"] == "running":
                     return self.status()
                 self.stop(state="stopped", message="LAN proxy configuration changed")
@@ -366,7 +393,7 @@ class LanProxyRuntime:
     def _public_host(config: dict[str, Any]) -> str:
         host = config["bind_host"]
         public_port = int(config["port"])
-        if host == "0.0.0.0":
+        if ipaddress.ip_address(host).is_unspecified:
             advertised = os.environ.get("SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST", "").strip()
             if not advertised:
                 raise ValueError("Docker LAN proxy requires SIMPLEOFFICE_LAN_PROXY_PUBLIC_HOST")
