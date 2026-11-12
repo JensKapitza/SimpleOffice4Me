@@ -119,3 +119,9 @@ weiterhin ausdrücklich. Verspätete Freigabeantworten dürfen einen lokalen
 Widerruf nicht aufheben. Wartende Eingaben bleiben bei unveränderten Feldern
 erhalten; bei geänderter Seite oder geändertem Feld wird eine Ablehnung im
 Verlauf erfasst, ohne den eingegebenen Wert zu speichern.
+
+Die Chromium-Regressionsprüfung hält außerdem echte HTTP-Freigabeantworten
+zurück. Nach lokalem Widerruf mit fehlgeschlagenem Server-Widerruf und nach
+Sitzungswechsel dürfen solche Antworten keine wartenden Feldeingaben freigeben.
+Ein nachfolgender Hinweis bestätigt, dass der Support-Poll tatsächlich weiterläuft;
+Feldwert, lokale Sperranzeige und Verlauf werden gemeinsam geprüft.

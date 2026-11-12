@@ -78,6 +78,96 @@ def fixture(directory):
     return app
 
 
+def consent_race(browser, origin, replace_session=False):
+    """Hold a real HTTP grant response while keeping the browser UI interactive."""
+    owner_context = browser.new_context(extra_http_headers={"X-Test-Actor": "owner"})
+    receiver_context = browser.new_context(extra_http_headers={"X-Test-Actor": "receiver"})
+    held = {}
+    try:
+        owner = owner_context.new_page()
+        owner.add_init_script("navigator.mediaDevices.getDisplayMedia=async()=>{const c=document.createElement('canvas');c.width=320;c.height=200;return c.captureStream(5)}")
+        owner.goto(origin + "/screen")
+        owner.locator("#screen-share-start").click()
+        expect(owner.locator("#screen-message")).to_contain_text("Teilen aktiv")
+        receiver = receiver_context.new_page()
+        code = owner.locator("#screen-share-code").input_value()
+        receiver.goto(origin + "/screen/view/" + code)
+        expect(receiver.locator("#screen-session-state")).to_have_text("connected", timeout=15000)
+
+        def intercept(route):
+            body = route.request.post_data_json if route.request.method == "POST" else {}
+            if body.get("type") == "grant" and not held:
+                response = route.fetch()
+                assert response.ok
+                held.update(route=route, response=response, url=route.request.url)
+                return  # The server granted; the browser has not received its answer.
+            if body.get("type") == "revoke":
+                route.abort("connectionfailed")  # Prove the local veto independently of server success.
+                return
+            route.continue_()
+
+        owner.route("**/screen/api/sessions/*/support", intercept)
+        receiver.locator("#screen-support-request").click()
+        expect(owner.locator("#screen-support-permission-popup")).to_be_visible()
+        owner.locator("#screen-support-popup-grant").click()
+        expect(owner.locator("#screen-support-revoke")).to_be_enabled()
+        assert held, "grant response must be held before applying the local veto"
+        url = held["url"]
+        if replace_session:
+            owner.locator("#screen-share-stop").click()
+            expect(owner.locator("#screen-session-state")).to_have_text("nicht verbunden")
+            owner.locator("#screen-share-start").click()
+            expect(owner.locator("#screen-message")).to_contain_text("Teilen aktiv")
+            code = owner.locator("#screen-share-code").input_value()
+            receiver.close()
+            receiver = receiver_context.new_page()
+            receiver.goto(origin + "/screen/view/" + code)
+            expect(receiver.locator("#screen-session-state")).to_have_text("connected", timeout=15000)
+            receiver.locator("#screen-support-request").click()
+            expect(owner.locator("#screen-support-permission-popup")).to_be_visible()
+            created = owner_context.request.post(origin + "/screen/api/join", headers={"X-CSRF-Token": TOKEN}, data={"code": code})
+            assert created.ok
+            session_id = created.json()["session"]["session_id"]
+            url = origin + "/screen/api/sessions/" + session_id + "/support"
+            # Simulate authoritative state arriving from another owner request. This
+            # browser has not consented in the new session; an old answer must not do so.
+            approved = owner_context.request.post(url, headers={"X-CSRF-Token": TOKEN}, data={"role": "sender", "type": "grant"})
+            assert approved.ok
+        else:
+            owner.locator("#screen-support-revoke").click()
+            expect(owner.locator("#screen-support-error")).to_contain_text("fetch", ignore_case=True)
+
+        headers = {"X-Screen-Code": code, "X-CSRF-Token": TOKEN}
+        snapshot = receiver_context.request.get(url + "?role=receiver", headers=headers)
+        assert snapshot.ok
+        data = snapshot.json()
+        assert data["state"]["permission"] == "granted"
+        assert data["fields"], "a valid current-page input must be available"
+        queued = receiver_context.request.post(url, headers=headers, data={
+            "role": "receiver", "type": "input", "generation": data["state"]["generation"],
+            "epoch": data["epoch"], "field_id": data["fields"][0]["id"], "value": "MUST-NOT-APPLY"})
+        assert queued.ok
+        with owner.expect_response(lambda response: response.url == held["url"] and response.request.method == "POST" and response.request.post_data_json.get("type") == "grant"):
+            held["route"].fulfill(response=held["response"])
+            held["released"] = True
+        sentinel = "Poll nach alter Freigabe " + ("Sitzungswechsel" if replace_session else "Widerruf")
+        notice = receiver_context.request.post(url, headers=headers, data={"role": "receiver", "type": "notice", "text": sentinel})
+        assert notice.ok
+        expect(owner.locator("#screen-support-popup-text")).to_have_text(sentinel)
+        expect(owner.locator("#screen-support-status")).to_contain_text("lokal gesperrt")
+        expect(owner.locator("#screen-support-active-banner")).to_be_hidden()
+        expect(owner.frame_locator("#screen-workspace-frame").locator("#title")).not_to_have_value("MUST-NOT-APPLY")
+        history = owner_context.request.get(url + "?role=sender")
+        assert history.ok
+        assert not any(event["type"] == "input-result" and event.get("outcome") == "applied" for event in history.json()["events"])
+        print("PASS: delayed grant after " + ("session replacement" if replace_session else "failed server revoke") + " cannot enable input")
+    finally:
+        if held and not held.get("released"):
+            held["route"].abort()
+        owner_context.close()
+        receiver_context.close()
+
+
 def main():
     screen_share._sessions.clear()
     screen_support._runtime.clear()
@@ -142,6 +232,8 @@ def main():
                 owner.reload()
                 expect(owner.locator("#screen-support-history")).to_contain_text("Kein Ton <script>unsafe</script>")
                 expect(owner.locator("#screen-support-history")).to_contain_text("Sitzung beendet")
+                consent_race(browser, origin)
+                consent_race(browser, origin, replace_session=True)
                 browser.close()
                 print("PASS: Chromium/WebRTC, navigation persistence, consent/input/no auto-save, notice/ack/XSS text, revoke, archive after reload")
         finally:
