@@ -210,20 +210,20 @@ def _require_provider(
 
     Local Ollama is the default. A cloud backend (Meta or OpenAI)
     additionally needs explicit per-request consent, the server-side
-    consent flag, an API key, and a verified synthetic demo root;
+    consent flag and an API key; Meta Contributor additionally needs a verified synthetic demo root;
     real data roots stay excluded (PermissionError, routed as 403).
     """
     choice = str(settings.get("provider", "local") or "local").strip().lower()
     if choice == "local" and not str(settings.get("ollama_model", "") or "").strip():
         raise InferenceUnavailable(
-            "Kein freigegebenes Meta-Modell konfiguriert. Bitte ein Ollama-Modell wählen."
+            "Kein lokales Modell konfiguriert. Bitte ein Ollama-Modell wählen."
         )
     provider = select_provider(settings, consent_meta is True, root)
     if provider.name == "mock":
         raise MockBlockedError(
-            "Für die OT-Analyse ist kein Meta-Modell verfügbar "
+            "Für die OT-Analyse ist kein Modell verfügbar "
             "(Platzhalter sind hier nicht erlaubt). Bitte Ollama mit "
-            "einem freigegebenen Meta-Modell einrichten."
+            "einem passenden Modell einrichten."
         )
     return provider
 

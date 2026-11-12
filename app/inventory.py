@@ -565,6 +565,10 @@ def index():
         and vision_settings.get("meta_consent") is True
         and vision_settings.get("meta_api_key")
         and is_verified_demo_root(Path(current_app.config["DOCUMENT_ROOT"]))
+    ) or bool(
+        str(vision_settings.get("provider", "")).strip().lower() in {"openai", "compatible"}
+        and vision_settings.get("openai_consent") is True
+        and vision_settings.get("openai_api_key")
     )
     angel_avatar = True
     try:

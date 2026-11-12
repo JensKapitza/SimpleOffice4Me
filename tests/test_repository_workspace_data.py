@@ -165,7 +165,7 @@ class GitHubReadTransportTest(unittest.TestCase):
 class RepositoryAssessmentTest(unittest.TestCase):
     def test_old_commit_and_push_runs_cannot_block_current_pr(self):
         item, _ = model.pull_request(pull(), {}, [run(head_sha=OLD_SHA), run(event="push")])
-        self.assertEqual("review", item["status"])
+        self.assertEqual("missing_evidence", item["status"])
         self.assertEqual("unknown", item["test_status"]["state"])
         self.assertEqual([], model.ci_findings([run(head_sha=OLD_SHA), run(event="push")], [pull()], ""))
 
@@ -201,7 +201,7 @@ class RepositoryAssessmentTest(unittest.TestCase):
         review = {"id": 5, "state": "CHANGES_REQUESTED", "commit_id": OLD_SHA, "user": {"id": 2},
                   "submitted_at": "2026-11-09T10:00:00Z", "body": "Check this"}
         item, findings = model.pull_request(pull(), {"reviews": [review]}, [])
-        self.assertEqual("review", item["status"])
+        self.assertEqual("missing_evidence", item["status"])
         self.assertIn("ungeprüft", findings[0]["assessment"])
         review["commit_id"] = SHA
         item, _ = model.pull_request(pull(), {"reviews": [review]}, [])
@@ -214,7 +214,7 @@ class RepositoryAssessmentTest(unittest.TestCase):
                     "submitted_at": "2026-11-09T11:00:00Z"}]
         item, findings = model.pull_request(pull(), {"reviews": reviews}, [])
         self.assertEqual([], findings)
-        self.assertEqual("review", item["status"])
+        self.assertEqual("missing_evidence", item["status"])
 
     def test_automated_review_findings_remain_visible(self):
         review = {"id": 1, "state": "CHANGES_REQUESTED", "commit_id": SHA,
@@ -240,6 +240,42 @@ class RepositoryAssessmentTest(unittest.TestCase):
         self.assertEqual("P1", items[0]["priority"])
         self.assertNotIn("do-not-expose", json.dumps(items))
         self.assertIn("ungeprüft", items[0]["cause"])
+
+
+    def test_platform_hints_remain_unverified_and_unknown_is_not_all_platforms(self):
+        self.assertEqual(["Windows", "Linux", "macOS", "Android"], model.platforms_for({"title": "Windows Linux macOS Android"}))
+        self.assertEqual([], model.platforms_for({"title": "Fix invoice"}))
+        item = model.issue({"number": 7, "title": "Windows installer"})
+        self.assertEqual(["Windows"], item["platforms"])
+        self.assertIn("keine Geräteabnahme", item["platform_assessment"])
+
+    def test_missing_current_evidence_is_explicit_and_never_merge_ready(self):
+        item, _ = model.pull_request(pull(), {}, [run(head_sha=OLD_SHA)])
+        self.assertEqual("missing_evidence", item["status"])
+        self.assertEqual("unknown", item["merge_preparation"]["state"])
+        self.assertIn("Keine Merge-Freigabe", item["merge_preparation"]["summary"])
+        self.assertEqual("missing_evidence", model.issue({"number": 506, "title": "Release Gate: Abnahme"})["status"])
+
+    def test_failed_ci_and_current_review_block_conditional_preparation(self):
+        item, _ = model.pull_request(pull(draft=True), {"complete": True}, [run()])
+        self.assertEqual("no", item["merge_preparation"]["state"])
+        item, _ = model.pull_request(pull(draft=True), {"complete": True}, [run(conclusion="success")])
+        self.assertEqual("conditional", item["merge_preparation"]["state"])
+        self.assertIn("Draft", item["merge_preparation"]["summary"])
+        item, _ = model.pull_request(pull(), {"reviews": [{"state": "CHANGES_REQUESTED", "commit_id": SHA,
+                                  "user": {"id": 1}}]}, [run(conclusion="success")])
+        self.assertEqual("no", item["merge_preparation"]["state"])
+
+    def test_platform_checklists_and_dated_work_orders_are_not_live_test_claims(self):
+        snapshot = data._empty(False)
+        self.assertEqual({"Windows", "Linux", "macOS", "Android"}, set(snapshot["platform_checklists"]))
+        identifiers = [row["id"] for rows in snapshot["platform_checklists"].values() for row in rows]
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        self.assertEqual(24, len(identifiers))
+        scopes = {row["area"] for row in snapshot["documentation_gaps"]}
+        self.assertTrue({"Runtime & Installation", "Desktop", "Proxy-Weiterleitung", "Drucker", "PDF / ZUGFeRD", "Sprache", "Server-Einstellungen", "Bildschirmfreigabe"}.issubset(scopes))
+        for row in snapshot["documentation_gaps"]:
+            self.assertIn("ungeprüft", row["assessment"].casefold())
 
 
 class WorkspaceSnapshotCacheTest(unittest.TestCase):

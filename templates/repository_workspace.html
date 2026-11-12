@@ -45,19 +45,23 @@
       <div><label class="form-label small" for="rw-priority">Priorität</label><select id="rw-priority" class="form-select"><option value="">Alle Prioritäten</option><option>P0</option><option>P1</option><option>P2</option><option>P3</option></select></div>
       <div><label class="form-label small" for="rw-area">Bereich</label><select id="rw-area" class="form-select"><option value="">Alle Bereiche</option></select></div>
       <div><label class="form-label small" for="rw-type">Typ</label><select id="rw-type" class="form-select"><option value="">Alle Typen</option><option value="pr">Pull Request</option><option value="issue">Issue</option><option value="ci">CI / Test</option><option value="security">Security</option><option value="review">Review</option></select></div>
-      <div><label class="form-label small" for="rw-status">Status</label><select id="rw-status" class="form-select"><option value="">Alle Status</option><option value="open">Offen</option><option value="review">In Prüfung</option><option value="blocked">Blockiert</option><option value="ready">Bereit zum Merge</option><option value="done">Erledigt</option></select></div>
+      <div><label class="form-label small" for="rw-status">Status</label><select id="rw-status" class="form-select"><option value="">Alle Status</option><option value="open">Offen</option><option value="review">In Prüfung</option><option value="blocked">Blockiert</option><option value="missing_evidence">Nachweis fehlt</option><option value="ready">Bereit zum Merge</option><option value="done">Erledigt</option></select></div>
+      <div><label class="form-label small" for="rw-platform">Plattform</label><select id="rw-platform" class="form-select"><option value="">Alle Plattformen</option><option>Windows</option><option>Linux</option><option>macOS</option><option>Android</option><option value="unknown">Ungeprüft / nicht zugeordnet</option></select></div>
       <button type="button" class="btn btn-outline-secondary" id="rw-filter-reset">Zurücksetzen</button>
     </form>
     <div class="rw-view-line"><p class="small text-secondary mb-0" id="rw-results">Daten werden geladen …</p><div class="btn-group btn-group-sm" role="group" aria-label="Darstellung"><button type="button" class="btn btn-outline-secondary active" id="rw-board-mode" aria-pressed="true">Board</button><button type="button" class="btn btn-outline-secondary" id="rw-list-mode" aria-pressed="false">Liste</button></div></div>
-    <p class="small text-secondary">Spalten und Prioritäten sind begründete Arbeitseinschätzungen. „Bereit zum Merge“ ist keine Merge-Freigabe; ohne belegte Prüfungen bleibt die Spalte leer.</p>
+    <p class="small text-secondary">Spalten und Prioritäten sind begründete Arbeitseinschätzungen. Plattformen sind Titel-/Label-Hinweise, keine bestätigte Betroffenheit. „Bereit zum Merge“ ist keine Merge-Freigabe; ohne belegte Prüfungen bleibt die Spalte leer.</p>
     <div id="rw-board" class="rw-board" role="region" aria-label="Statusspalten"></div>
     <div id="rw-list" class="table-responsive" hidden></div>
   </section>
 
   <section id="rw-worklist" data-rw-panel="worklist" hidden aria-labelledby="rw-worklist-title">
     <div class="rw-section-heading"><div><h2 class="h4" id="rw-worklist-title">Nächste Schritte</h2><p class="text-secondary mb-0">Eine wiederverwendbare Prüfreihenfolge für jeden Arbeitsdurchlauf.</p></div><div class="rw-actions"><button type="button" class="btn btn-outline-secondary" id="rw-checklist-reset">Häkchen zurücksetzen</button><button type="button" class="btn btn-outline-primary" id="rw-export-worklist">Arbeitsliste exportieren</button></div></div>
-    <p class="small text-secondary mt-3">Nur die Häkchen dieser allgemeinen Checkliste bleiben in diesem Browser gespeichert. Vorgemerkte Einträge und Notizen bleiben ausschließlich in diesem geöffneten Tab und werden bei Kontowechsel gelöscht.</p>
+    <p class="small text-secondary mt-3">Nur die persönlichen Häkchen der Arbeits- und Plattformchecklisten bleiben in diesem Browser gespeichert. Vorgemerkte Einträge und Notizen bleiben ausschließlich in diesem geöffneten Tab und werden bei Kontowechsel gelöscht.</p>
     <div class="rw-checklist card" id="rw-checklist"></div>
+    <h3 class="h5 mt-4">Plattform-Abnahme</h3>
+    <p class="small text-secondary">Persönliche Häkchen sind keine Abnahmefreigabe. Je Prüfung Commit, Gerät/OS, Ablauf, Soll/Ist und Belege dokumentieren. Die Arbeitszentrale führt keine Tests aus.</p>
+    <div id="rw-platform-checklists" class="rw-platform-checklists"></div>
     <h3 class="h5 mt-4">Vorgemerkte Einträge</h3><p class="small text-secondary">Öffne einen Eintrag in der Übersicht und wähle „Für Arbeitsliste vormerken“.</p><div id="rw-bookmarks" class="rw-bookmarks"></div>
   </section>
 

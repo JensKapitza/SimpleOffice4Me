@@ -312,7 +312,7 @@ class DocTagSuggestContracts(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.get_json()
         self.assertTrue(payload["ok"])
-        self.assertEqual("Meta-Modell lokal via Ollama", payload["provider_label"])
+        self.assertEqual("Lokales Modell via Ollama", payload["provider_label"])
         self.assertIn(payload["text_source"], ("extracted", "file"))
         self.assertEqual(
             ["Rechnung", "120 Euro"], [row["tag"] for row in payload["suggestions"]]
@@ -381,7 +381,7 @@ class DocTagSuggestContracts(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual("Ein Schreibtisch mit Bank.", payload["image"]["description"])
         self.assertEqual(["Bank"], payload["image"]["objects"])
-        self.assertEqual("Meta-Modell lokal via Ollama", payload["provider_label"])
+        self.assertEqual("Lokales Modell via Ollama", payload["provider_label"])
 
     def test_image_suggest_reads_real_store_file_when_v2_missing(self):
         storage = _StubStorage(PNG_1PX, ok=False)
@@ -912,7 +912,7 @@ class DocTagSuggestContracts(unittest.TestCase):
             response = self.suggest(self.txt_id)
 
         self.assertEqual(503, response.status_code)
-        self.assertIn("Meta-Modell", response.get_json()["error"])
+        self.assertIn("lokales Modell", response.get_json()["error"])
         opened.assert_not_called()
 
     def test_unreachable_backend_returns_503(self):

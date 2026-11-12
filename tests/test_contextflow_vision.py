@@ -361,16 +361,14 @@ class VisionBackendTest(unittest.TestCase):
         with self.assertRaises(VisionError):
             select_provider({"provider": "raten"}, False, self.root)
 
-    def test_runtime_rejects_non_meta_and_text_only_image_models(self) -> None:
-        with mock.patch("app.contextflow.vision.local_urlopen") as transport:
-            with self.assertRaises(VisionError):
-                LocalVisionProvider("http://127.0.0.1:11434", "qwen3-vl:2b")
+    def test_runtime_checks_image_capability_instead_of_vendor(self) -> None:
+        provider = LocalVisionProvider("http://127.0.0.1:11434", "qwen3-vl:2b")
+        route = _local_route(show={"capabilities": ["completion"]})
+        with mock.patch("app.contextflow.vision.local_urlopen", side_effect=route) as transport:
             with self.assertRaises(VisionError) as raised:
-                LocalVisionProvider(
-                    "http://127.0.0.1:11434", "llama3.2:1b"
-                ).suggest(b"x", "image/png", {})
+                provider.suggest(b"x", "image/png", {})
         self.assertIn("nur Text", str(raised.exception))
-        transport.assert_not_called()
+        self.assertEqual(1, transport.call_count)
 
     def test_meta_provider_pins_official_endpoint_and_model(self) -> None:
         with self.assertRaises(VisionError):

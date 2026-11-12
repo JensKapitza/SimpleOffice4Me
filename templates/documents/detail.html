@@ -108,7 +108,7 @@
 <section id="doc-image-engel" class="card mb-4" data-suggest-url="{{ url_for('contextflow.doc_image_suggest') }}" data-document-id="{{ document.document_id }}" data-csrf="{{ csrf_token() }}">
   <div class="card-header"><strong>{{ '✦ Office Angel · Image analysis' if g.language == 'en' else '✦ Büroengel · Bildanalyse' }}</strong></div>
   <div class="card-body">
-    <p class="small text-secondary mb-2">{{ 'Real analysis of the stored image by the local Meta model. Model and result are shown, nothing is stored.' if g.language == 'en' else 'Echte Analyse des gespeicherten Bildes durch das lokale Meta-Modell. Modell und Ergebnis werden angezeigt, nichts wird gespeichert.' }}</p>
+    <p class="small text-secondary mb-2">{{ 'Local analysis of the stored image. This workflow has no external-data consent and therefore uses only local backends. Model and result are shown, nothing is stored.' if g.language == 'en' else 'Lokale Analyse des gespeicherten Bildes. Dieser Ablauf enthält keine Einwilligung für externe Datenverarbeitung und nutzt daher nur lokale Backends. Modell und Ergebnis werden angezeigt, nichts wird gespeichert.' }}</p>
     <button type="button" class="btn btn-outline-primary" id="doc-image-analyze">{{ 'Analyze image' if g.language == 'en' else 'Bild analysieren' }}</button>
     <div id="doc-image-status" class="mt-2" role="status" aria-live="polite"></div>
     <div id="doc-image-result" class="mt-2" hidden></div>

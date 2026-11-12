@@ -11,8 +11,9 @@ class RepositoryWorkspaceMarkupTests(unittest.TestCase):
         document = BeautifulSoup(template.read_text(encoding="utf-8"), "html.parser")
         expected = {
             "rw-priority": ["", "P0", "P1", "P2", "P3"],
+            "rw-platform": ["", "Windows", "Linux", "macOS", "Android", "unknown"],
             "rw-type": ["", "pr", "issue", "ci", "security", "review"],
-            "rw-status": ["", "open", "review", "blocked", "ready", "done"],
+            "rw-status": ["", "open", "review", "blocked", "missing_evidence", "ready", "done"],
         }
         for identifier, values in expected.items():
             with self.subTest(control=identifier):

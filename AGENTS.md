@@ -236,17 +236,17 @@ Dokumentation ist Bestandteil der Implementierung.
 - Nicht nur das Was, sondern insbesondere das Warum dokumentieren.
 - Hackathon-Arbeitslog (verbindliche Nutzer-Vorgabe 28.10.2026, geht bei Widerspruch vor): Nach jeder sinnvollen abgeschlossenen Aufgabe oder einem Arbeitspaket einen sachlichen Eintrag im bestehenden Log `docs/WORKLOG_2026-10-26.md` ergänzen. Neue Einträge zweisprachig (Deutsch und Englisch) im Tabellenformat Datum/Commit/Arbeit/Warum und mit tatsächlicher Verifikation verfassen. Zusammenhängende Arbeit nach Aufgabe bündeln, maximal 3 Stunden je Eintrag; Dauer nur angeben, wenn sie erfasst wurde, nie schätzen. Keine minutengenaue Dauerberichterstattung, keine unbelegten Tests oder fremde Repo-Wartung im Hackathon-Log behaupten.
 
-## 23. Büroengel/ContextFlow-Hackathon: verpflichtende Meta-Modell-Architektur
+## 23. Büroengel/ContextFlow: freie Modell- und Anbieterwahl
 
-Diese Regeln gelten für alle Laufzeit-Inferenzen der Wettbewerbsversion von Büroengel/ContextFlow:
+Aktualisierte Nutzervorgabe vom 11.11.2026: Die Anwendung muss lokale Modelle und kompatible Anbieter ohne starre Hersteller- oder Modell-Allowlist verwenden können. Die frühere Meta-only-Wettbewerbsvorgabe ist für den laufenden Anwendungsbetrieb aufgehoben.
 
-- Coding-Werkzeuge und Entwicklungsmodelle sind frei wählbar; Muse Code ist nicht vorgeschrieben.
-- Jede vom Wettbewerbssystem aufgerufene Laufzeit-KI muss ein Meta-Modell sein. OpenAI-, Claude- und sonstige Nicht-Meta-Modelle dürfen nicht als Inferenz-Backends eingebunden oder aufgerufen werden.
-- Backends bleiben modular, aber die Wettbewerbs-Konfiguration muss Nicht-Meta-Modelle technisch ablehnen. Ein OpenAI-kompatibles Protokoll ist zulässig, wenn Ziel-Endpoint und tatsächlich verwendetes Modell von Meta sind.
-- Lokale Meta-Modelle via Ollama sind der bevorzugte Betriebsweg. Die Llama-3.2-Textmodelle (1B/3B) sind nur für Text geeignet; Bildaufgaben benötigen ein freigegebenes Meta-Vision-Modell wie Llama 3.2 Vision oder Muse Glimmer. Die Runtime-Allowlist im Code ist maßgeblich.
-- Meta-Cloud-Inferenz darf nur mit ausdrücklicher Einwilligung und dem isolierten synthetischen Demo-Root laufen. Echte Büro-, Kunden-, Dokument- und Inventardaten dürfen diesen Pfad nie erreichen.
-- Vor jeder neuen KI-Integration Modellherkunft, Modellkennung, Endpoint, Datenfluss, lokale Alternative und Tests gegen diese Vorgaben prüfen. Fehlende Laufzeit-Gates und Dokumentation gehören zum Implementierungsumfang.
-- README und 3-Minuten-Demo müssen die tatsächlich aufgerufene Meta-Modellkennung sichtbar nennen. Ein Mock ist kein Meta-Modellnachweis und darf nicht als echte KI-Demo ausgegeben werden.
+- Bestehende Providerverträge und Transportlogik erweitern; keine parallele KI-Architektur erzeugen.
+- Modell-IDs frei konfigurierbar erhalten. Modellverfügbarkeit, Text-/Bildfähigkeit, Erreichbarkeit und Konfigurationsfehler getrennt prüfen und anzeigen; aus einem Modellnamen keine Fähigkeiten oder Herstellerfreigabe ableiten.
+- Lokale Ollama- sowie OpenAI-kompatible Dienste unterstützen; konkrete Anbieterkompatibilität anhand des tatsächlich getesteten Protokolls dokumentieren.
+- Freie Modellwahl hebt weder Authentifizierung und Autorisierung noch TLS-/Zieladressprüfung, Redirect-Schutz, Zeit-/Größenlimits oder Secretschutz auf.
+- Externe Inferenz erfordert weiterhin bewusste Server- und Anfragefreigaben für den Datenfluss. Meta-Contributor-spezifische synthetische Demo-Grenzen bleiben erhalten; sie dürfen keine pauschale Herstellersperre für andere Dienste erzeugen.
+- Keine echten Kundendaten, Zugangsdaten oder Live-KI-Aufrufe für Entwicklungstests ohne ausdrückliche Freigabe. Synthetische Transporttests beweisen den Codepfad, keine reale Modellverfügbarkeit.
+- Konfiguration, Grenzen und tatsächlich geprüfte Anbieter dokumentieren. Keine funktionierende Modellanbindung behaupten, wenn nur ein Mock oder ein Konfigurationsentwurf vorliegt.
 
 ## 15. UI/UX
 

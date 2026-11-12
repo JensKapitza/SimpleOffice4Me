@@ -161,7 +161,7 @@ class BusinessDocumentTests(unittest.TestCase):
                 with mock.patch("app.business_documents.business_settings", return_value={
                     "seller_name": "Seller", "seller_street": "Seller Street 2",
                     "seller_postal": "10117", "seller_city": "Berlin", "currency": "EUR",
-                }), mock.patch("app.business_documents.active_template", return_value={"template_id": "test"}):
+                }), mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "test"}):
                     row = save_invoice_draft(root, contact["contact_id"], form, "tester")
                     self.assertEqual(components, {key: row["buyer"][key] for key in components})
                     self.assertEqual(0 if mode == "free_text" else 1,
@@ -329,7 +329,7 @@ class BusinessDocumentTests(unittest.TestCase):
                      "net": "0.00", "tax": "0.00", "gross": "0.00", "vat_groups": {},
                  }), \
                  mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-2026-0001"), \
-                 mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "template-1"}), \
                  mock.patch("app.business_documents.DocumentStore"):
                 row = save_invoice_draft(root, contact["contact_id"], form, "tester")
 
@@ -344,9 +344,9 @@ class BusinessDocumentTests(unittest.TestCase):
                 self.assertIn(address_part, pdf_text)
 
             with mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
-                 mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}), \
+                 mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "template-1"}), \
                  mock.patch("app.business_documents._validate_project_sources"), \
-                 mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"), \
+                 mock.patch("app.business_template_dispatch._merge_content_with_template", return_value=b"visual"), \
                  mock.patch("app.business_documents._pdfa3_convert_detailed", return_value=(b"pdfa", {"status": "pdfa3_created"})), \
                  mock.patch("app.business_documents._cii_xml", return_value=b"<Invoice />"), \
                  mock.patch("app.business_documents.embed_invoice_xml", return_value=b"hybrid"), \
@@ -392,7 +392,7 @@ class BusinessDocumentTests(unittest.TestCase):
                     "net": "0.00", "tax": "0.00", "gross": "0.00", "vat_groups": {},
                 }),
                 mock.patch("app.business_documents._draft_invoice_number", return_value="DRAFT-2026-0001"),
-                mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}),
+                mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "template-1"}),
                 mock.patch("app.business_documents.DocumentStore"),
             ):
                 row = save_invoice_draft(root, contact["contact_id"], form, "tester")
@@ -400,10 +400,10 @@ class BusinessDocumentTests(unittest.TestCase):
             self.assertEqual("", row["buyer"]["city"])
             with (
                 mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"),
-                mock.patch("app.business_documents.active_template", return_value={"template_id": "template-1"}),
+                mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "template-1"}),
                 mock.patch("app.business_documents._validate_project_sources"),
-                mock.patch("app.business_documents._invoice_content_pdf", return_value=b"content"),
-                mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"),
+                mock.patch("app.business_template_dispatch._invoice_content_pdf", return_value=b"content"),
+                mock.patch("app.business_template_dispatch._merge_content_with_template", return_value=b"visual"),
                 mock.patch("app.business_documents._pdfa3_convert_detailed") as pdfa,
                 mock.patch("app.business_documents._store_generated_pdf", return_value={"document_id": "pdf-only-1"}) as store,
                 mock.patch("app.business_documents.DocumentStore"),
@@ -848,8 +848,8 @@ class BusinessDocumentTests(unittest.TestCase):
             path.write_text(json.dumps(original), encoding="utf-8")
             with mock.patch("app.business_documents.business_settings", return_value={}), \
                  mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
-                 mock.patch("app.business_documents.active_template", return_value={"template_id": "tpl"}), \
-                 mock.patch("app.business_documents._invoice_content_pdf", side_effect=KeyboardInterrupt):
+                 mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "tpl"}), \
+                 mock.patch("app.business_template_dispatch._invoice_content_pdf", side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     finalize_invoice(root, "draft-1", "tester")
             self.assertEqual(original, json.loads(path.read_text(encoding="utf-8")))

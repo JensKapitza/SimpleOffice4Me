@@ -48,7 +48,7 @@ _KEY_PURPOSE_OPENAI = "vision-openai-api-key"
 
 _ERRORS = {
     "unknown": ("Unbekannte Vision-Einstellung.", "Unknown vision setting."),
-    "provider": ("Anbieter prüfen (local, meta oder openai).", "Check the provider (local, meta or openai)."),
+    "provider": ("Anbieter prüfen (local, meta, openai oder compatible).", "Check the provider (local, meta, openai or compatible)."),
     "url": ("Ollama-URL prüfen (nur http auf Loopback).", "Check the Ollama URL (HTTP loopback only)."),
     "model": ("Modellnamen prüfen.", "Check the model name."),
     "timeout": ("Timeout muss zwischen 5 und 300 Sekunden liegen.", "Timeout must be between 5 and 300 seconds."),
@@ -79,7 +79,7 @@ def validate(value: Mapping[str, Any] | None, language: str = "de") -> dict[str,
     result = {**DEFAULTS, **value}
     if type(result["enabled"]) is not bool:
         result["enabled"] = bool(result["enabled"])
-    if result["provider"] not in ("local", "meta", "openai"):
+    if result["provider"] not in ("local", "meta", "openai", "compatible"):
         raise _fail("provider", language)
     url = result["ollama_url"]
     if not isinstance(url, str) or not url or len(url) > 512:
@@ -120,12 +120,23 @@ def validate(value: Mapping[str, Any] | None, language: str = "de") -> dict[str,
     openai_endpoint = result["openai_endpoint"]
     if not isinstance(openai_endpoint, str) or len(openai_endpoint) > 512:
         raise _fail("endpoint", language)
-    if openai_endpoint.strip() and openai_endpoint.strip() != OPENAI_API_ENDPOINT:
-        raise _fail("endpoint", language)
-    result["openai_endpoint"] = openai_endpoint.strip()
+    if openai_endpoint.strip():
+        from .contextflow.provider_transport import validate_endpoint
+        try:
+            clean_endpoint = validate_endpoint(openai_endpoint.strip())
+        except VisionError:
+            raise ValueError("Kompatibler Endpunkt benötigt HTTPS oder HTTP auf Loopback, ohne Zugangsdaten/Query.") from None
+        if result["provider"] == "openai" and clean_endpoint != OPENAI_API_ENDPOINT:
+            raise ValueError("Für eigene API-Endpunkte den kompatiblen Anbieter wählen.")
+        result["openai_endpoint"] = clean_endpoint
+    else:
+        result["openai_endpoint"] = ""
     openai_model = result["openai_model"]
     if not isinstance(openai_model, str) or len(openai_model) > 160:
         raise _fail("apimodel", language)
+    if openai_model.strip():
+        from .contextflow.openai_provider import require_openai_model
+        require_openai_model(openai_model)
     result["openai_model"] = openai_model.strip()
     openai_encrypted = result.get("openai_api_key_enc", "")
     if not isinstance(openai_encrypted, str) or (openai_encrypted and not openai_encrypted.startswith("enc:v1:")) or len(openai_encrypted) > 8192:
@@ -165,6 +176,15 @@ def prepare(value: Mapping[str, Any], language: str = "de") -> dict[str, Any]:
             raise _fail("keychars", language)
         candidate["meta_api_key_enc"] = protect_value(raw, _KEY_PURPOSE)
     openai_raw = candidate.pop("openai_api_key", None)
+    clear_key = candidate.pop("openai_api_key_clear", False) is True
+    if clear_key:
+        candidate["openai_api_key_enc"] = ""
+    from urllib.parse import urlsplit
+    from .contextflow.provider_transport import validate_endpoint
+    before_host = urlsplit(validate_endpoint(previous.get("openai_endpoint") or OPENAI_API_ENDPOINT)).netloc
+    after_host = urlsplit(validate_endpoint(candidate.get("openai_endpoint", previous.get("openai_endpoint")) or OPENAI_API_ENDPOINT)).netloc
+    if before_host != after_host and previous.get("openai_api_key_enc") and not openai_raw and not clear_key:
+        raise ValueError("Bei Anbieterwechsel den API-Key neu eingeben oder ausdrücklich entfernen.")
     if openai_raw:
         if not isinstance(openai_raw, str) or len(openai_raw) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in openai_raw):
             raise _fail("keychars", language)
@@ -196,7 +216,9 @@ def effective_settings(config: Mapping[str, Any]) -> dict[str, Any]:
         stored = settings()
     except (OSError, ValueError):
         stored = validate({})
-    get = config.get
+    def get(key, default=None):
+        value = config.get(key)
+        return default if value is None else value
     # The demo launcher may inject its process key for one synthetic-only
     # run. It is memory-only; normal installations use the encrypted admin
     # setting. select_provider still enforces explicit consent + demo root.

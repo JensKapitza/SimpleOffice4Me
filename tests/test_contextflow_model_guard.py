@@ -36,23 +36,24 @@ class ModelGuardTest(unittest.TestCase):
         self.assertEqual(["/api/show", "/api/chat"], calls)
         self.assertEqual("llama3.2-vision:11b", _chat_bodies(opener)[0]["model"])
 
-    def test_non_meta_model_is_refused_before_network(self) -> None:
-        with mock.patch("app.contextflow.vision.local_urlopen") as transport:
-            with self.assertRaises(VisionError) as raised:
-                suggest_inventory_object(
-                    b"x", "image/png", {}, self._settings("qwen3-vl:2b")
-                )
-        self.assertIn("ausschließlich Meta-Modelle", str(raised.exception))
-        transport.assert_not_called()
+    def test_non_meta_vision_model_reaches_chat(self) -> None:
+        for model in ("qwen3-vl:2b", "mimo-v2.6", "Vendor/Model:latest"):
+            calls = []
+            route = _local_route(show=SHOW_PLAIN, chat=self._hammer_chat(), calls=calls)
+            with mock.patch("app.contextflow.vision.local_urlopen", side_effect=route) as transport:
+                out = suggest_inventory_object(b"x", "image/png", {}, self._settings(model))
+            self.assertEqual("Hammer", out["suggestion"]["object_name"])
+            self.assertEqual(model, _chat_bodies(transport)[0]["model"])
+            self.assertEqual(["/api/show", "/api/chat"], calls)
 
-    def test_text_only_meta_model_is_refused_for_image_tasks(self) -> None:
-        with mock.patch("app.contextflow.vision.local_urlopen") as transport:
+    def test_text_model_is_refused_by_capability_before_image_upload(self) -> None:
+        calls = []
+        route = _local_route(show={"capabilities": ["completion"]}, calls=calls)
+        with mock.patch("app.contextflow.vision.local_urlopen", side_effect=route):
             with self.assertRaises(VisionError) as raised:
-                suggest_inventory_object(
-                    b"x", "image/png", {}, self._settings("llama3.2:1b")
-                )
+                suggest_inventory_object(b"x", "image/png", {}, self._settings("mimo-v2.6"))
         self.assertIn("nur Text", str(raised.exception))
-        transport.assert_not_called()
+        self.assertEqual(["/api/show"], calls)
 
     def test_allowed_meta_model_is_not_rejected_for_thinking_capability(self) -> None:
         calls: list = []
@@ -84,21 +85,13 @@ class ModelGuardTest(unittest.TestCase):
         self.assertIn("ollama pull llama3.2-vision:11b", str(raised.exception))
         self.assertEqual(["/api/show"], calls)
 
-    def test_show_probe_failure_fails_open_for_approved_model(self) -> None:
-        calls: list = []
-        route = _local_route(
-            show=urllib.error.URLError("show down"),
-            chat=self._hammer_chat(),
-            calls=calls,
-        )
-        with mock.patch("app.contextflow.vision.local_urlopen", side_effect=route) as opener:
-            out = suggest_inventory_object(
-                b"x", "image/png", {}, self._settings("muse-glimmer")
-            )
-        self.assertEqual("Hammer", out["suggestion"]["object_name"])
-        self.assertEqual("muse-glimmer", out["model"])
-        self.assertEqual("muse-glimmer", _chat_bodies(opener)[0]["model"])
-        self.assertEqual(["/api/show", "/api/chat"], calls)
+    def test_unknown_image_capability_fails_before_upload(self) -> None:
+        calls = []
+        route = _local_route(show=urllib.error.URLError("show down"), chat=self._hammer_chat(), calls=calls)
+        with mock.patch("app.contextflow.vision.local_urlopen", side_effect=route):
+            with self.assertRaises(InferenceUnavailable):
+                suggest_inventory_object(b"x", "image/png", {}, self._settings("mimo-v2.6"))
+        self.assertEqual(["/api/show"], calls)
 
 if __name__ == "__main__":
     unittest.main()
