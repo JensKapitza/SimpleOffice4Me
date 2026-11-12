@@ -10,11 +10,11 @@ from datetime import datetime, timezone
 from cryptography.exceptions import InvalidTag
 
 from .db import get_db
-from .repository_workspace_context import CHECKLIST, documentation_gaps
+from .repository_workspace_context import CHECKLIST, documentation_gaps, platform_checklists
 from .repository_workspace_github import (
     GitHubReadClient, REPOSITORY, REPOSITORY_URL, WorkspaceError, WorkspaceUnauthorized, public_source_error,
 )
-from .repository_workspace_model import normalise
+from .repository_workspace_model import normalise, add_planning_fields
 from .security_controls import protect_value, unprotect_value
 
 PUBLIC_TTL = 1800  # A shared anonymous GitHub IP budget is only 60 requests/hour.
@@ -59,7 +59,14 @@ def _decode(row, private: bool) -> dict | None:
                 return None
             encoded = unprotect_value(encoded, "repository-workspace-cache-" + row["cache_key"])
         value = json.loads(encoded)
-        return value if isinstance(value, dict) else None
+        if not isinstance(value, dict):
+            return None
+        if not isinstance(value.get("items", []), list) or any(not isinstance(item, dict) for item in value.get("items", [])):
+            return None
+        value.update(checklist=CHECKLIST, platform_checklists=platform_checklists(), documentation_gaps=documentation_gaps())
+        for item in value.get("items", []):
+            add_planning_fields(item)
+        return value
     except (ValueError, InvalidTag, TypeError, UnicodeError, RecursionError):
         return None
 
@@ -68,7 +75,7 @@ def _empty(private: bool) -> dict:
     return {"repository": {"full_name": REPOSITORY, "url": REPOSITORY_URL, "default_branch": "main"},
             "mode": "account" if private else "public", "fetched_at": None, "cached": False,
             "next_refresh_at": None, "items": [], "sources": [], "checklist": CHECKLIST,
-            "documentation_gaps": documentation_gaps()}
+            "documentation_gaps": documentation_gaps(), "platform_checklists": platform_checklists()}
 
 
 class _Collector:

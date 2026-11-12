@@ -220,7 +220,7 @@ class VisualTemplateManagementTests(unittest.TestCase):
             self.assertFalse(choices[0]["active"])
             self.assertTrue(choices[1]["active"])
 
-            with mock.patch("app.business_template_dispatch.active_template") as legacy_default:
+            with mock.patch("app.business_documents.active_template") as legacy_default:
                 resolved = _business_template(root, "", "invoice")
             legacy_default.assert_not_called()
             self.assertEqual(visual["template_id"], resolved["template_id"])

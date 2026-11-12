@@ -346,7 +346,7 @@ class BusinessDocumentTests(unittest.TestCase):
             with mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
                  mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "template-1"}), \
                  mock.patch("app.business_documents._validate_project_sources"), \
-                 mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"), \
+                 mock.patch("app.business_template_dispatch._merge_content_with_template", return_value=b"visual"), \
                  mock.patch("app.business_documents._pdfa3_convert_detailed", return_value=(b"pdfa", {"status": "pdfa3_created"})), \
                  mock.patch("app.business_documents._cii_xml", return_value=b"<Invoice />"), \
                  mock.patch("app.business_documents.embed_invoice_xml", return_value=b"hybrid"), \
@@ -402,8 +402,8 @@ class BusinessDocumentTests(unittest.TestCase):
                 mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"),
                 mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "template-1"}),
                 mock.patch("app.business_documents._validate_project_sources"),
-                mock.patch("app.business_documents._invoice_content_pdf", return_value=b"content"),
-                mock.patch("app.business_documents._merge_content_with_template", return_value=b"visual"),
+                mock.patch("app.business_template_dispatch._invoice_content_pdf", return_value=b"content"),
+                mock.patch("app.business_template_dispatch._merge_content_with_template", return_value=b"visual"),
                 mock.patch("app.business_documents._pdfa3_convert_detailed") as pdfa,
                 mock.patch("app.business_documents._store_generated_pdf", return_value={"document_id": "pdf-only-1"}) as store,
                 mock.patch("app.business_documents.DocumentStore"),
@@ -849,7 +849,7 @@ class BusinessDocumentTests(unittest.TestCase):
             with mock.patch("app.business_documents.business_settings", return_value={}), \
                  mock.patch("app.business_documents._invoice_number", return_value="RE-2026-0001"), \
                  mock.patch("app.business_template_dispatch.active_template", return_value={"template_id": "tpl"}), \
-                 mock.patch("app.business_documents._invoice_content_pdf", side_effect=KeyboardInterrupt):
+                 mock.patch("app.business_template_dispatch._invoice_content_pdf", side_effect=KeyboardInterrupt):
                 with self.assertRaises(KeyboardInterrupt):
                     finalize_invoice(root, "draft-1", "tester")
             self.assertEqual(original, json.loads(path.read_text(encoding="utf-8")))

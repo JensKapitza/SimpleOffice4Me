@@ -194,3 +194,16 @@ automatisch vorgenommen.
 - [REST-Abruflimits und bedingte Anfragen](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)
 - [Code-Scanning-Endpunkte](https://docs.github.com/en/rest/code-scanning/code-scanning)
 - [Dependabot-Endpunkte](https://docs.github.com/en/rest/dependabot/alerts)
+
+
+## Release- und Plattformprüfung in der Anwendung
+
+Die bestehende Arbeitszentrale unter `/repository-workspace/` ist der zentrale Einstieg in SimpleOffice4Me. Es wird weder eine separate Site noch ein zweiter Projekt-/Auftragsspeicher benötigt.
+
+- Plattformfilter: Windows, Linux, macOS und Android; fehlende Zuordnung separat als „Ungeprüft / nicht zugeordnet“. Titel-/Label-Hinweise sind Prüfumfang, keine bestätigte Betroffenheit.
+- „Nachweis fehlt“ kennzeichnet PRs ohne aktuellen Prüfnachweis sowie entsprechende Abnahmetracker. Fehler oder aktuelle Review-Blocker haben Vorrang; alte Commit-Ergebnisse zählen nicht als aktueller Nachweis.
+- „Merge grundsätzlich vorbereitbar?“ steht im Detail und im Markdown-Export. Draft, fehlgeschlagene/abgebrochene Checks, ungeprüfte Pflichtregeln und Reviews werden nicht in eine Freigabe umgedeutet. Die Zentrale führt weiterhin keine GitHub-Mutationen aus.
+- In der Arbeitsliste stehen wiederverwendbare Checklisten für alle vier Plattformen. Persönliche Häkchen werden unter dem bestehenden browserlokalen Checklisten-Schlüssel gespeichert, enthalten keine privaten GitHub-Daten und bestätigen keine Projektabnahme. Der Export enthält diese Listen samt offenen Nachweisanforderungen.
+- Dokumentationsbedarf enthält datierte, ungeprüfte Prüfaufträge für Start/venv, Windows-Paketierung/Smoke/Installer, Abhängigkeiten, Proxy, Drucker, PDF/ZUGFeRD, Sprache, Server-Einstellungen und Bildschirmfreigabe. Vor einem neuen Issue aktuellen Stand und bestehende Tracker abgleichen; historische Meldungen sind keine Live-Fehlerliste.
+
+Je tatsächlicher Abnahme sind Release-Commit, Gerät/OS/Version, Testdaten, Schritte, Soll/Ist, Ergebnis, Artefakte und verbleibende Grenzen festzuhalten. Ein erfolgreicher Build ersetzt keinen Zielgerätetest; dessen Fehlen allein ist gemäß Projektpolicy kein Merge-Blocker für eine technisch vollständig geprüfte Implementierung.

@@ -70,6 +70,7 @@
     };
     peer.onconnectionstatechange = () => {
       setState(peer.connectionState);
+      if (['disconnected', 'failed', 'closed'].includes(peer.connectionState)) window.SimpleOfficeScreenSupport?.disconnected();
       if (peer.connectionState === 'failed') signalFailure('WebRTC-Verbindung fehlgeschlagen', 'ICE-Aushandlung ohne Ergebnis');
     };
     peer.onicecandidateerror = (event) => signalFailure('ICE-Fehler', event.errorText || event.errorCode);
@@ -120,6 +121,8 @@
   const stop = async (notify = true, resetMessage = true) => {
     if (stopping) return;
     stopping = true;
+    window.SimpleOfficeScreenSupport?.stop();
+    window.SimpleOfficeScreenWorkspace?.stop();
     if (pollTimer) window.clearTimeout(pollTimer); pollTimer = null;
     // Start notification while identifiers still exist, but release capture immediately.
     const notification = notify && session && role === 'sender' ? sendSignal('bye', null).catch(() => {}) : Promise.resolve();
@@ -169,6 +172,8 @@
       show(`Verbindungscode ${code} ist bereit. Jetzt Bildschirmfreigabe auswählen.`, 'primary');
       setState('Bildschirmauswahl');
       stream = await captureDisplay();
+      window.SimpleOfficeScreenWorkspace?.start();
+      window.SimpleOfficeScreenSupport?.start(session, role, code);
       const preview = byId('screen-local-preview'); preview.srcObject = stream; preview.classList.remove('d-none');
       pc = await createPeer(); stream.getTracks().forEach((track) => pc.addTrack(track, stream));
       stream.getVideoTracks()[0]?.addEventListener('ended', () => stop(true));
@@ -176,7 +181,7 @@
       await sendSignal('offer', pc.localDescription.toJSON()); poll();
       show(`Teilen aktiv. Verbindungscode: ${code}`, 'success'); setState('wartet auf Empfänger');
     } catch (error) {
-      await stop(false, false);
+      await stop(true, false);
       signalFailure('Bildschirmfreigabe konnte nicht gestartet werden', error);
     } finally {
       starting = false;
@@ -211,7 +216,9 @@
       await stop(false, false); code = String(byId('screen-join-code').value || '').trim().toUpperCase();
       if (!code) throw new Error('Verbindungscode fehlt.');
       const resolved = await api('/screen/api/join', {method: 'POST', body: JSON.stringify({code})});
-      session = resolved.session; role = 'receiver'; roleLabel.textContent = 'Empfänger'; setState('verbindet');
+      session = resolved.session; role = 'receiver';
+      window.SimpleOfficeScreenSupport?.start(session, role, code);
+      roleLabel.textContent = 'Empfänger'; setState('verbindet');
       pc = await createPeer();
       pc.ontrack = (event) => {
         const video = byId('screen-remote-video'); video.srcObject = event.streams[0];
@@ -242,7 +249,18 @@
       show(result?.message || 'Systemdialog wurde geöffnet.', 'success');
     } catch (error) { signalFailure('Systemdialog konnte nicht geöffnet werden', error); }
   }));
-  window.addEventListener('beforeunload', () => {
+  window.addEventListener('beforeunload', (event) => {
+    if (stream) { event.preventDefault(); event.returnValue = ''; }
+  });
+  window.addEventListener('pagehide', () => {
+    window.SimpleOfficeScreenSupport?.disconnected();
+    if (session && role === 'sender') {
+      fetch(`/screen/api/sessions/${encodeURIComponent(session.session_id)}/signals`, {
+        method: 'POST', credentials: 'same-origin', keepalive: true,
+        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf},
+        body: JSON.stringify({role, code, type: 'bye', payload: null})
+      }).catch(() => {});
+    }
     if (stream) stream.getTracks().forEach((track) => track.stop());
     try { window.SimpleOfficeNativeScreen?.stopShare?.(); } catch (_) { /* optional bridge */ }
   });

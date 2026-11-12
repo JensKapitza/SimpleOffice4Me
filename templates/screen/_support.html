@@ -1,0 +1,29 @@
+<section class="card my-3" id="screen-support-panel" aria-label="Support und Verlauf">
+  <div class="card-body">
+    <h2 class="h4">Support</h2>
+    <p class="text-secondary">Hinweise funktionieren ohne Ton. Eingabefreigaben gelten nur für angebotene Felder im Anwendungsbereich. Speichern und andere Aktionen führst du selbst aus.</p>
+    <div id="screen-support-status" role="status" aria-live="polite">Keine aktive Support-Sitzung.</div>
+    <div class="d-flex flex-wrap gap-2 my-2">
+      <button id="screen-support-request" class="btn btn-outline-primary" type="button" disabled>Eingaben anfordern</button>
+      <button id="screen-support-grant" class="btn btn-primary" type="button" disabled>Eingaben erlauben</button>
+      <button id="screen-support-deny" class="btn btn-outline-secondary" type="button" disabled>Ablehnen</button>
+      <button id="screen-support-revoke" class="btn btn-outline-danger" type="button" disabled>Eingabefreigabe widerrufen</button>
+    </div>
+    <div id="screen-support-fields" class="my-3"></div>
+    <form id="screen-support-notice-form" class="my-3" method="post" action="{{ url_for('screen.index') }}">
+      <label class="form-label" for="screen-support-notice">Hinweis an die Gegenstelle</label>
+      <textarea id="screen-support-notice" class="form-control" rows="2" maxlength="1000" placeholder="Zum Beispiel: Ich kann dich nicht hören."></textarea>
+      <button id="screen-support-send" class="btn btn-outline-primary mt-2" type="submit" disabled>Hinweis senden</button>
+    </form>
+    <p id="screen-support-error" class="text-danger" role="alert"></p>
+    <details open><summary class="fw-semibold">Sitzungsverlauf</summary><p class="form-text">Meldungen und Kenntnisnahmen bleiben erhalten. Eingegebene Feldwerte werden nicht im Verlauf gespeichert.</p><ol id="screen-support-history" class="mt-2"></ol></details>
+  </div>
+</section>
+<div id="screen-support-popup" class="card shadow border-primary position-fixed bottom-0 end-0 m-3 d-none" style="z-index:1090;max-width:420px" role="alertdialog" aria-modal="false" aria-labelledby="screen-support-popup-title" tabindex="-1">
+  <div class="card-body"><h2 id="screen-support-popup-title" class="h5">Hinweis der Gegenstelle</h2><p id="screen-support-popup-text" class="text-break"></p><button id="screen-support-ack" class="btn btn-primary" type="button">Zur Kenntnis genommen</button></div>
+</div>
+
+<div id="screen-support-permission-popup" class="card shadow border-warning position-fixed top-0 end-0 m-3 d-none" style="z-index:1091;max-width:420px" role="alertdialog" aria-modal="false" aria-labelledby="screen-support-permission-title">
+  <div class="card-body"><h2 id="screen-support-permission-title" class="h5">Eingaben wurden angefordert</h2><p>Die Gegenstelle möchte freigegebene Anwendungsfelder anpassen. Du kannst die Freigabe jederzeit widerrufen.</p><button id="screen-support-popup-grant" class="btn btn-primary" type="button">Eingaben erlauben</button> <button id="screen-support-popup-deny" class="btn btn-outline-secondary" type="button">Ablehnen</button></div>
+</div>
+<div id="screen-support-active-banner" class="alert alert-warning position-fixed top-0 start-0 m-2 d-none" style="z-index:1089" role="status">Eingabefreigabe aktiv. <button id="screen-support-banner-revoke" class="btn btn-outline-danger btn-sm" type="button">Widerrufen</button></div>

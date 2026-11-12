@@ -212,7 +212,7 @@
       </label>
       <label class="cf-check">
         <input type="checkbox" name="consent_meta" value="yes">
-        {{ tr('cf.vision.consent') }}
+        {% include "contextflow/_provider_consent.html" %}
       </label>
       <button class="cf-btn cf-primary" type="submit">{{ tr('cf.vision.submit') }}</button>
     </form>

@@ -20,9 +20,9 @@
 .rw-tab { flex: 0 0 auto; background: none; border: 0; border-bottom: 3px solid transparent; padding: .85rem 1rem; color: var(--so-muted); font-size: .9rem; font-weight: 650; }
 .rw-tab.active { color: var(--so-primary); border-bottom-color: var(--so-primary); }
 .rw-tab:focus-visible, .rw-entry:focus-visible, .rw-draft-editor summary:focus-visible { outline: 3px solid var(--so-primary); outline-offset: -3px; border-radius: .3rem; }
-.rw-filters { display: grid; grid-template-columns: minmax(11rem, 1.8fr) repeat(4, minmax(8rem, 1fr)) auto; align-items: end; gap: .75rem; }
+.rw-filters { display: grid; grid-template-columns: minmax(11rem, 1.8fr) repeat(5, minmax(7rem, 1fr)) auto; align-items: end; gap: .75rem; }
 .rw-view-line { margin: 1rem 0 .65rem; }
-.rw-board { display: grid; grid-template-columns: repeat(5, minmax(195px,1fr)); align-items: start; gap: .85rem; overflow-x: auto; padding-bottom: .8rem; }
+.rw-board { display: grid; grid-template-columns: repeat(6, minmax(195px,1fr)); align-items: start; gap: .85rem; overflow-x: auto; padding-bottom: .8rem; }
 .rw-column { border: 1px solid var(--so-border); border-radius: .75rem; background: color-mix(in srgb, var(--so-border) 25%, var(--so-body-bg)); min-height: 12rem; }
 .rw-column-heading { padding: .85rem .8rem; margin: 0; display: flex; align-items: center; justify-content: space-between; gap: .5rem; font-size: .83rem; font-weight: 700; }
 .rw-column-count { font-size: .72rem; padding: .15rem .45rem; background: var(--so-surface); border: 1px solid var(--so-border); border-radius: 1rem; }
@@ -71,3 +71,7 @@
 @media (max-width: 1100px) { .rw-filters { grid-template-columns: repeat(3, minmax(0, 1fr)); } .rw-search { grid-column: span 2; } }
 @media (max-width: 640px) { .rw-shell { padding: 1.2rem .85rem 3rem; } .rw-heading > .rw-actions { width: 100%; } .rw-heading .btn { flex: 1; } .rw-stats { grid-template-columns: repeat(2, minmax(0,1fr)); gap: .5rem; } .rw-filters { grid-template-columns: repeat(2, minmax(0,1fr)); gap: .65rem; } .rw-tab { padding-inline: .7rem; font-size: .82rem; } .rw-source { grid-template-columns: 1fr auto; } .rw-source > p { grid-column: 1 / -1; margin-bottom: 0; } .rw-dialog { padding: 1rem; } }
 @media print { .rw-auth, .rw-filters, .rw-tabs, .rw-actions, .rw-draft-editor, .rw-boundary, .rw-view-line .btn-group { display: none !important; } .rw-board { display: block; } .rw-column { break-inside: avoid; margin-bottom: 1rem; } .rw-column-body { max-height: none; overflow: visible; } .rw-shell { padding: 0; } }
+
+.rw-platform-checklists { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr)); gap: 1rem; }
+.rw-platform-checklist { padding: 1rem 1.2rem; box-shadow: none; }
+.rw-platform-checklist h4 { margin: .5rem 0; }
