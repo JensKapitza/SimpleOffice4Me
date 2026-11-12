@@ -104,7 +104,7 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
         body = self._get_image_with_engel(self._import_png(), "en")
         for expected in (
             "Office Angel",
-            "Real analysis of the stored image",
+            "Local analysis of the stored image",
             "Analyze image",
         ):
             self.assertIn(expected, body)
@@ -113,7 +113,7 @@ class DetailNotesLinkingI18nTest(unittest.TestCase):
         body = self._get_image_with_engel(self._import_png(), "de")
         for expected in (
             "Büroengel",
-            "Echte Analyse des gespeicherten Bildes",
+            "Lokale Analyse des gespeicherten Bildes",
             "Bild analysieren",
         ):
             self.assertIn(expected, body)

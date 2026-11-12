@@ -14,8 +14,8 @@
     modelUnchecked: EN ? "model unchecked" : "Modell nicht geprüft",
     unknown: EN ? "unknown" : "unbekannt",
     noModel: EN ? "ML: no model configured" : "ML: kein Modell konfiguriert",
-    modelNotApproved: (model) => EN ? `ML: model not approved · ${model}` : `ML: Modell nicht freigegeben · ${model}`,
-    activeLocal: (model) => EN ? `ML active · local Meta model via Ollama · ${model}` : `ML aktiv · Meta-Modell lokal via Ollama · ${model}`,
+    modelNotApproved: (model) => EN ? `ML: invalid model ID · ${model}` : `ML: Modell-ID ungültig · ${model}`,
+    activeLocal: (model) => EN ? `ML configured · local model via Ollama · ${model}` : `ML konfiguriert · Modell lokal via Ollama · ${model}`,
     reachableUnseen: (model) => EN ? `ML: Ollama reachable, model ${model} not seen` : `ML: Ollama erreichbar, Modell ${model} nicht gesehen`,
     unreachable: (model) => EN ? `ML: Ollama unreachable · ${model}` : `ML: Ollama nicht erreichbar · ${model}`,
     demoPlaceholder: EN ? "ML: demo placeholder (no real analysis)" : "ML: Demo-Platzhalter (keine echte Analyse)",
@@ -34,7 +34,7 @@
   const metaLine = (meta) => {
     const label = cleanText(meta.label) || STR.metaModel;
     const modelId = cleanText(meta.model);
-    const key = meta.key_present ? STR.keyStored : STR.noApiKey;
+    const key = meta.local ? (EN ? "local endpoint · no cloud key required" : "lokaler Endpunkt · kein Cloud-Key nötig") : (meta.key_present ? STR.keyStored : STR.noApiKey);
     const listed = meta.model_listed === true
       ? STR.modelListed
       : (meta.model_listed === false ? STR.modelUnconfirmed : STR.modelUnchecked);
@@ -61,6 +61,8 @@
     let ml;
     if (provider === "meta") {
       ml = metaLine(data.meta || {});
+    } else if (provider === "openai" || provider === "compatible") {
+      ml = metaLine(data.openai || {});
     } else if (provider === "local") {
       ml = localLine(data.ollama || {});
     } else if (provider === "mock") {

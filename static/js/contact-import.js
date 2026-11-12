@@ -426,8 +426,8 @@
     modelLabel: EN ? "Model: " : "Modell: ",
     unknown: EN ? "unknown" : "unbekannt",
     noModel: EN ? "ML: no model configured" : "ML: kein Modell konfiguriert",
-    modelNotApproved: (model) => EN ? `ML: model not approved · ${model}` : `ML: Modell nicht freigegeben · ${model}`,
-    activeLocal: (model) => EN ? `ML active · local Meta model via Ollama · ${model}` : `ML aktiv · Meta-Modell lokal via Ollama · ${model}`,
+    modelNotApproved: (model) => EN ? `ML: invalid model ID · ${model}` : `ML: Modell-ID ungültig · ${model}`,
+    activeLocal: (model) => EN ? `ML configured · local model via Ollama · ${model}` : `ML konfiguriert · Modell lokal via Ollama · ${model}`,
     reachableMissing: (model) => EN ? `ML reachable, model missing · ${model}` : `ML erreichbar, Modell fehlt · ${model}`,
     unreachable: (model, hint) => EN ? `ML unreachable · ${model} (${hint})` : `ML nicht erreichbar · ${model} (${hint})`,
     checkOllama: EN ? "check Ollama" : "Ollama prüfen",
@@ -452,6 +452,11 @@
       const listed = meta.model_listed === true ? STR.modelListed : (meta.model_listed === false ? STR.modelUnconfirmed : STR.modelUnchecked);
       parts.push(`ML: ${meta.label || STR.metaModel} · ${key}${listed}`);
       mlBadge.title = `${STR.modelLabel}${meta.model || STR.unknown}`;
+    } else if (provider === "openai" || provider === "compatible") {
+      const api = payload.openai || {};
+      const key = api.local ? (EN ? "local endpoint · no cloud key required" : "lokaler Endpunkt · kein Cloud-Key nötig") : (api.key_present ? STR.keyStored : STR.noApiKey);
+      const checked = api.model_listed === true ? STR.modelListed : (api.model_listed === false ? STR.modelUnconfirmed : STR.modelUnchecked);
+      parts.push(`ML: ${api.label || provider} · ${api.model || STR.unknown} · ${key} · ${checked}`);
     } else if (!ollama.model) {
       parts.push(STR.noModel);
     } else if (ollama.model_allowed !== true) {

@@ -32,6 +32,7 @@ def _form_value() -> dict:
         "openai_endpoint": request.form.get("openai_endpoint", ""),
         "openai_model": request.form.get("openai_model", ""),
         "openai_api_key": request.form.get("openai_api_key", ""),
+        "openai_api_key_clear": request.form.get("openai_api_key_clear") == "1",
     }
 
 
@@ -49,6 +50,7 @@ def index():
             flash(translate(g.language, "vision.invalid").format(exc=exc))
             value.pop("meta_api_key", None)
             value.pop("openai_api_key", None)
+            value.pop("openai_api_key_clear", None)
             return render_template("admin/vision_service.html",
                                    config=config.public({**config.settings(), **value}),
                                    status=_status()), 400
@@ -78,3 +80,36 @@ def _status() -> dict:
     except (KeyError, TypeError, ValueError, OSError):
         status["demo_root_verified"] = False
     return status
+
+
+@bp.app_context_processor
+def provider_consent_context():
+    """Identify the actual configured destination in every shared consent form."""
+    from urllib.parse import urlsplit
+    from .contextflow.provider_transport import is_local_endpoint, validate_endpoint
+    from .contextflow.vision import META_MODEL_API_MODEL
+
+    settings = config.effective_settings(current_app.config)
+    provider = settings.get("provider", "local")
+    if provider == "local":
+        endpoint = settings.get("ollama_url", "")
+        model = settings.get("ollama_model", "")
+        label, local = "Ollama", True
+    elif provider == "meta":
+        endpoint, model, label, local = "https://api.meta.ai/v1/responses", META_MODEL_API_MODEL, "Meta Contributor", False
+    else:
+        endpoint = settings.get("openai_endpoint") or "https://api.openai.com/v1"
+        model = settings.get("openai_model") or "gpt-4o-mini"
+        label = "OpenAI" if provider == "openai" else "OpenAI-kompatibler Anbieter"
+        try:
+            endpoint = validate_endpoint(endpoint)
+            local = is_local_endpoint(endpoint)
+        except ValueError:
+            endpoint, local = "", False
+    try:
+        parsed = urlsplit(endpoint)
+        host = (parsed.hostname or "nicht konfiguriert") + (":" + str(parsed.port) if parsed.port else "")
+    except ValueError:
+        host = "ungültiger Endpunkt"
+    return {"ml_consent": {"label": label, "host": host, "model": model,
+                           "local": local, "meta_contributor": provider == "meta"}}

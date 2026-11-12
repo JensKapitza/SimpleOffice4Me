@@ -168,7 +168,7 @@ class MetaModelsTests(unittest.TestCase):
                 models_probe_allowed=True,
             )
         probed.assert_not_called()
-        self.assertFalse(status["ollama"]["model_allowed"])
+        self.assertTrue(status["ollama"]["model_allowed"])
         self.assertTrue(status["meta"]["model_listed"])
         self.assertEqual(status["meta"]["model"], "muse-spark-1.3-contributor")
 

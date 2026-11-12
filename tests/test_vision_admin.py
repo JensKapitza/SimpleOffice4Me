@@ -66,6 +66,51 @@ class VisionAdminTests(unittest.TestCase):
         self.assertTrue(stored["meta_consent"])
         self.assertTrue(stored["enabled"])
 
+    def test_compatible_settings_persist_with_free_model_and_loopback_endpoint(self):
+        self.login()
+        response = self.client.post("/admin/mini-services/vision", data={
+            "enabled": "1", "provider": "compatible", "ollama_url": "http://127.0.0.1:11434",
+            "ollama_model": "mimo-v2.6", "ollama_timeout": "60",
+            "openai_endpoint": "http://127.0.0.1:1234/v1", "openai_model": "Vendor/MiMo-v2.6",
+        })
+        self.assertEqual(302, response.status_code)
+        stored = vision_config.settings()
+        self.assertEqual("compatible", stored["provider"])
+        self.assertEqual("Vendor/MiMo-v2.6", stored["openai_model"])
+        self.assertEqual("mimo-v2.6", stored["ollama_model"])
+        from flask import g, render_template
+        with app.test_request_context():
+            g.language = "de"
+            rendered = render_template("contextflow/_provider_consent.html")
+        self.assertIn("127.0.0.1:1234", rendered)
+        self.assertIn("Vendor/MiMo-v2.6", rendered)
+        self.assertNotIn("echte Bürodaten bleiben lokal", rendered)
+        self.assertNotIn("Meta Contributor", rendered)
+
+    def test_inventory_shows_consent_for_configured_external_provider(self):
+        self.login()
+        clean = vision_config.prepare({"provider": "compatible", "openai_endpoint": "https://example.com/api/v1",
+                                       "openai_model": "Vendor/MiMo-v2.6", "openai_consent": True,
+                                       "openai_api_key": "synthetic-test-key"})
+        vision_config.persist(clean)
+        with patch.dict(app.config, {"CONTEXTFLOW_ENABLED": True}):
+            response = self.client.get("/inventory")
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn('id="meta-photo-consent"', body)
+        self.assertIn("example.com", body)
+        self.assertIn("Vendor/MiMo-v2.6", body)
+        self.assertNotIn("synthetic-test-key", body)
+        self.assertNotIn("Dieses Foto für die Analyse an Meta Muse Spark senden", body)
+
+    def test_changing_api_destination_cannot_reuse_old_secret_implicitly(self):
+        clean = vision_config.prepare({"provider": "openai", "openai_api_key": "synthetic-test-key"})
+        vision_config.persist(clean)
+        with self.assertRaisesRegex(ValueError, "Anbieterwechsel"):
+            vision_config.prepare({"provider": "compatible", "openai_endpoint": "https://example.com/v1"})
+        clean = vision_config.prepare({"provider": "compatible", "openai_endpoint": "http://127.0.0.1:1234/v1", "openai_api_key_clear": True})
+        self.assertEqual("", clean["openai_api_key_enc"])
+
     def test_key_stored_encrypted_never_cleartext(self):
         self.login()
         self.client.post("/admin/mini-services/vision", data={

@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  const STATUS = {open: "Offen", review: "In Prüfung", blocked: "Blockiert", ready: "Bereit zum Merge", done: "Erledigt"};
+  const STATUS = {open: "Offen", review: "In Prüfung", blocked: "Blockiert", missing_evidence: "Nachweis fehlt", ready: "Bereit zum Merge", done: "Erledigt"};
   const TYPES = {pr: "Pull Request", issue: "Issue", ci: "CI / Test", security: "Security", review: "Review"};
   const TESTS = {success: "Erfolgreich", failed: "Fehlgeschlagen", running: "Läuft", unknown: "Ungeprüft", cancelled: "Abgebrochen"};
   const SOURCE_STATES = {ok: "Abgerufen", partial: "Teilweise", error: "Fehler", unavailable: "Nicht verfügbar"};
@@ -20,6 +20,7 @@
     const query = String(filters.q || "").trim().toLocaleLowerCase();
     return items.filter((item) => {
       if (["priority", "area", "type", "status"].some((key) => filters[key] && item[key] !== filters[key])) return false;
+      if (filters.platform && (filters.platform === "unknown" ? (item.platforms || []).length > 0 : !(item.platforms || []).includes(filters.platform))) return false;
       const searchable = [item.title, item.number, item.id, item.area, item.cause, ...(item.blockers || [])].join(" ").toLocaleLowerCase();
       return !query || searchable.includes(query);
     }).sort((a, b) => String(a.priority || "P3").localeCompare(String(b.priority || "P3"))
@@ -38,23 +39,38 @@
   function itemMarkdown(item, fetchedAt) {
     return `## ${md(item.title)}\n\n`
       + `Typ: ${md(TYPES[item.type] || item.type)} · Priorität: ${md(item.priority)} · Status: ${md(STATUS[item.status] || item.status)}\n\n`
-      + `Bereich: ${md(item.area)}\n\nDatenstand: ${md(fetchedAt || "unbekannt")}\n\n`
+      + `Bereich: ${md(item.area)}\n\nPlattform / Prüfumfang: ${md((item.platforms || []).join(", ") || "Nicht zugeordnet / ungeprüft")}\n${md(item.platform_assessment || "Betroffenheit ungeprüft.")}\n\nDatenstand: ${md(fetchedAt || "unbekannt")}\n\n`
       + `### Ursache / offene Frage\n\n${md(item.cause || "Ursache ungeprüft.")}\n\n`
       + `### Bekannte Blocker\n\n${lines(item.blockers, "Keine bestätigten Blocker erfasst; das ist kein Freigabenachweis.")}\n\n`
       + `### Nächste Prüfschritte\n\n${lines(item.next_steps, "Prüfschritte noch festlegen.")}\n\n`
       + `### Teststatus\n\n${md(item.test_status?.summary || "Ungeprüft")}\n\n`
       + `### Benötigte Dokumentation\n\n${lines(item.documentation, "Dokumentationsbedarf prüfen.")}\n\n`
+      + `### Merge grundsätzlich vorbereitbar?\n\n${md(item.merge_preparation?.summary || "Ungeprüft; keine Merge-Freigabe.")}\n\n`
       + `### Einschätzung / Unsicherheit\n\n${md(item.assessment || "Noch nicht bewertet.")}\n\n`
       + `### Quellen\n\n${evidenceMarkdown([{label: "GitHub-Eintrag", url: item.url}, ...(item.evidence || [])])}\n`;
   }
 
   function gapMarkdown(gap) {
     return `## ${md(gap.title)}\n\nBereich: ${md(gap.area || "Noch zuzuordnen")}\n\n`
+      + `Plattform / Prüfumfang: ${md((gap.platforms || []).join(", ") || "Nicht zugeordnet / ungeprüft")}\n\n`
       + `### Offene Frage\n\n${md(gap.cause)}\n\n### Nächste Prüfschritte\n\n${lines(gap.next_steps, "Noch festzulegen.")}\n\n`
       + `### Teststatus\n\n${md(gap.tests || "Noch ungeprüft.")}\n\n`
       + `### Benötigte Dokumentation\n\n${lines(gap.documentation, "Noch festzulegen.")}\n\n`
       + `### Einschätzung\n\n${md(gap.assessment || "Lokaler Entwurf, noch nicht geprüft und nicht als Issue veröffentlicht.")}\n\n`
       + `### Quellen / vorhandene Tracker\n\n${evidenceMarkdown(gap.evidence)}\n`;
+  }
+
+  function checklistEntries(snapshot) {
+    return [...(snapshot?.checklist || []), ...Object.values(snapshot?.platform_checklists || {}).flat()];
+  }
+
+  function platformChecklistMarkdown(snapshot, checks) {
+    let content = "\n## Plattform-Abnahme\n\nPersönliche Häkchen sind keine bestätigte Abnahme. Nachweise: Commit, Gerät/OS, Ablauf, Soll/Ist und Artefakte.\n";
+    Object.entries(snapshot?.platform_checklists || {}).forEach(([platform, rows]) => {
+      content += `\n### ${md(platform)}\n\n`;
+      rows.forEach((entry) => { content += `- [${checks[entry.id] ? "x" : " "}] ${md(entry.title)} — ${md(entry.detail)}\n  Nachweis: offen; persönliche Arbeitsmarkierung.\n`; });
+    });
+    return content;
   }
 
   function readChecks(storage) {
@@ -64,7 +80,7 @@
   }
 
   if (typeof module !== "undefined" && module.exports) {
-    module.exports = {filterItems, safeRepositoryUrl, itemMarkdown, gapMarkdown, readChecks};
+    module.exports = {filterItems, safeRepositoryUrl, itemMarkdown, gapMarkdown, readChecks, checklistEntries, platformChecklistMarkdown};
   }
   if (typeof document === "undefined") return;
   const root = document.querySelector("[data-repository-workspace]");
@@ -285,7 +301,7 @@
     } catch (error) { if (epoch === state.authEpoch) { stopPoll(); message(error.message); } }
   }
 
-  function currentFilters() { return {q: $("search").value, priority: $("priority").value, area: $("area").value, type: $("type").value, status: $("status").value}; }
+  function currentFilters() { return {q: $("search").value, priority: $("priority").value, area: $("area").value, type: $("type").value, status: $("status").value, platform: $("platform").value}; }
   function fillAreas() {
     const select = $("area"), value = select.value;
     select.replaceChildren(new Option("Alle Bereiche", ""));
@@ -303,6 +319,7 @@
     top.append(element("span", "rw-entry-meta", `${TYPES[item.type] || "Eintrag"}${item.number ? ` #${item.number}` : ""}`), badge(item.priority || "P3", `rw-priority-${String(item.priority || "P3").toLowerCase()}`));
     card.append(top, element("span", "rw-entry-title", item.title));
     const bottom = element("span", "rw-entry-bottom"); bottom.append(badge(item.area || "Zuordnung offen")); card.append(bottom);
+    card.append(element("span", "rw-entry-test", `Prüfumfang: ${(item.platforms || []).join(" · ") || "Nicht zugeordnet / ungeprüft"}`));
     card.append(element("span", "rw-entry-test", `Tests: ${item.test_status?.summary || "Ungeprüft"}`));
     return card;
   }
@@ -321,13 +338,13 @@
     const table = element("table", "table rw-table");
     const caption = element("caption", "visually-hidden", "Gefilterte Repository-Einträge nach Priorität");
     const head = element("thead"), row = element("tr");
-    ["Priorität", "Eintrag", "Bereich", "Status", "Teststatus"].forEach((label) => { const cell = element("th", "", label); cell.scope = "col"; row.append(cell); }); head.append(row);
+    ["Priorität", "Eintrag", "Bereich", "Status", "Plattform / Prüfumfang", "Teststatus"].forEach((label) => { const cell = element("th", "", label); cell.scope = "col"; row.append(cell); }); head.append(row);
     const body = element("tbody");
     items.forEach((item) => {
       const row = element("tr"), priority = element("td"), title = element("td");
       priority.append(badge(item.priority, `rw-priority-${String(item.priority).toLowerCase()}`));
       title.append(button(`${item.number ? `#${item.number} · ` : ""}${item.title}`, () => openDetail(item), "rw-row-button"), element("div", "small text-secondary", TYPES[item.type] || "Eintrag"));
-      row.append(priority, title, element("td", "", item.area), element("td", "", STATUS[item.status]), element("td", "", item.test_status?.summary || "Ungeprüft")); body.append(row);
+      row.append(priority, title, element("td", "", item.area), element("td", "", STATUS[item.status]), element("td", "", (item.platforms || []).join(" · ") || "Ungeprüft"), element("td", "", item.test_status?.summary || "Ungeprüft")); body.append(row);
     });
     table.append(caption, head, body); $("list").replaceChildren(items.length ? table : empty("Keine Einträge in dieser Auswahl."));
     $("board").hidden = state.mode !== "board"; $("list").hidden = state.mode !== "list";
@@ -357,6 +374,7 @@
     state.selected = item; $("detail-title").textContent = item.title;
     const body = $("detail-body"); body.replaceChildren(itemBadges(item));
     body.append(detailSection("Ursache / offene Frage", item.cause, "Ursache ungeprüft."), detailSection("Bekannte Blocker", item.blockers, "Keine bestätigten Blocker erfasst. Das ist kein Freigabenachweis."), detailSection("Nächste Prüfschritte", item.next_steps, "Prüfschritte noch festlegen."), detailSection("Teststatus", `${TESTS[item.test_status?.state] || "Ungeprüft"} · ${item.test_status?.summary || "Kein belastbarer Testnachweis vorhanden."}`, "Ungeprüft"), detailSection("Benötigte Dokumentation", item.documentation, "Dokumentationsbedarf prüfen."), detailSection("Einschätzung / Unsicherheit", item.assessment, "Noch nicht bewertet."));
+    body.append(detailSection("Plattform / Prüfumfang", (item.platforms || []).join(" · ") || "Nicht zugeordnet / ungeprüft", "Ungeprüft"), detailSection("Plattform-Einordnung", item.platform_assessment, "Betroffenheit ungeprüft."), detailSection("Merge grundsätzlich vorbereitbar?", item.merge_preparation?.summary, "Ungeprüft; keine Merge-Freigabe."));
     if (item.head_sha) body.append(detailSection("Beobachteter Commit", item.head_sha, "Unbekannt"));
     const sources = element("section", "rw-detail-section"); sources.append(element("h3", "", "Quellen"), evidenceLinks([{label: "Eintrag bei GitHub", url: item.url}, ...(item.evidence || [])])); body.append(sources);
     body.append(element("p", "small text-secondary mt-3", `Abrufstand: ${dateText(state.snapshot?.fetched_at)} · Letzte Änderung: ${dateText(item.updated_at)}`));
@@ -366,19 +384,27 @@
   }
 
   function saveChecks() {
-    const allowed = new Set((state.snapshot?.checklist || []).map((entry) => entry.id));
+    const allowed = new Set(checklistEntries(state.snapshot).map((entry) => entry.id));
     const safe = Object.fromEntries(Object.entries(state.checks).filter(([key, checked]) => allowed.has(key) && checked === true));
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(safe)); }
     catch (_error) { message("Häkchen können in diesem Browser nicht gespeichert werden. Export bleibt verfügbar."); }
   }
-  function renderChecklist() {
-    const box = $("checklist"); box.replaceChildren();
-    (state.snapshot?.checklist || []).forEach((entry, index) => {
-      const row = element("div", "rw-check"), input = element("input", ""); input.type = "checkbox"; input.id = `rw-step-${index}`; input.checked = Boolean(state.checks[entry.id]);
+  function appendCheckRows(box, entries, prefix) {
+    entries.forEach((entry, index) => {
+      const row = element("div", "rw-check"), input = element("input", ""); input.type = "checkbox"; input.id = `rw-${prefix}-${index}`; input.checked = Boolean(state.checks[entry.id]);
       input.addEventListener("change", () => { state.checks[entry.id] = input.checked; saveChecks(); });
       const label = element("label", ""); label.htmlFor = input.id; label.append(element("strong", "", entry.title), element("small", "", entry.detail)); row.append(input, label); box.append(row);
     });
+  }
+  function renderChecklist() {
+    const box = $("checklist"); box.replaceChildren();
+    appendCheckRows(box, state.snapshot?.checklist || [], "step");
     if (!box.childNodes.length) box.append(empty("Die Arbeitsliste wird mit dem Repository-Abruf geladen."));
+    const platforms = $("platform-checklists"); platforms.replaceChildren();
+    Object.entries(state.snapshot?.platform_checklists || {}).forEach(([platform, entries]) => {
+      const section = element("section", "card rw-platform-checklist"); section.append(element("h4", "h6", platform));
+      appendCheckRows(section, entries, `platform-${platform.toLowerCase()}`); platforms.append(section);
+    });
   }
   function renderBookmarks() {
     const box = $("bookmarks"); box.replaceChildren();
@@ -393,6 +419,7 @@
   }
   function gapCard(gap, local = false) {
     const card = element("article", "card rw-note-card"); card.append(element("h3", "", gap.title), badge(gap.area || "Bereich offen"), detailSection("Offene Frage", gap.cause, "Noch zu prüfen."), detailSection("Nächste Prüfschritte", gap.next_steps, "Noch festzulegen."), detailSection("Benötigte Dokumentation", gap.documentation, "Noch festzulegen."));
+    card.append(detailSection("Plattform / Prüfumfang", (gap.platforms || []).join(" · ") || "Nicht zugeordnet / ungeprüft", "Ungeprüft"));
     if (gap.tests) card.append(detailSection("Teststatus", gap.tests, "Ungeprüft"));
     card.append(element("p", "text-secondary mt-3", gap.assessment || "Lokaler Entwurf, ungeprüft und nicht als Issue veröffentlicht."), evidenceLinks(gap.evidence));
     const actions = element("div", "rw-actions mt-3"); actions.append(button("Entwurf exportieren", () => download("arbeitsauftrag.md", exportHeader() + gapMarkdown(gap))));
@@ -425,6 +452,7 @@
   function exportWorklist() {
     let content = exportHeader() + "## Wiederverwendbare Arbeitsliste\n\n";
     (state.snapshot?.checklist || []).forEach((entry) => { content += `- [${state.checks[entry.id] ? "x" : " "}] ${md(entry.title)} — ${md(entry.detail)}\n`; });
+    content += platformChecklistMarkdown(state.snapshot, state.checks);
     state.bookmarks.forEach((entry) => { content += `\n${itemMarkdown(entry.item, state.snapshot?.fetched_at)}\n### Lokale Prüfnotiz\n\n${md(entry.note || "Noch keine Notiz.")}\n`; });
     download("simpleoffice-arbeitsliste.md", content);
   }
@@ -437,7 +465,7 @@
   $("refresh").addEventListener("click", () => state.auth ? loadSnapshot(true) : refreshStatus(true));
   $("login").addEventListener("click", startAuth); $("logout").addEventListener("click", logout); $("device-cancel").addEventListener("click", logout);
   $("filters").addEventListener("submit", (event) => event.preventDefault());
-  ["search", "priority", "area", "type", "status"].forEach((id) => $(id).addEventListener(id === "search" ? "input" : "change", renderOverview));
+  ["search", "priority", "area", "type", "status", "platform"].forEach((id) => $(id).addEventListener(id === "search" ? "input" : "change", renderOverview));
   $("filter-reset").addEventListener("click", () => { $("filters").reset(); renderOverview(); });
   ["board", "list"].forEach((mode) => $(`${mode}-mode`).addEventListener("click", () => {
     state.mode = mode; ["board", "list"].forEach((value) => { $(`${value}-mode`).classList.toggle("active", value === mode); $(`${value}-mode`).setAttribute("aria-pressed", String(value === mode)); }); renderOverview();

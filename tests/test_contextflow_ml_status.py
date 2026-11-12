@@ -147,22 +147,20 @@ class MlStatusTests(unittest.TestCase):
         self.assertIn("nicht erreichbar", payload["ollama"]["error"])
         self.assertNotIn("refused", response.get_data(as_text=True))
 
-    def test_unapproved_model_is_never_probed(self) -> None:
-        for bad_model in ("qwen3-vl:2b", "my-llama-alias"):
-            with self.subTest(model=bad_model):
-                app.config.update(CONTEXTFLOW_OLLAMA_MODEL=bad_model)
-                with mock.patch(
-                    "app.contextflow.vision.local_urlopen"
-                ) as urlopen:
+    def test_free_model_ids_are_probed_and_status_is_not_manufacturer_policy(self) -> None:
+        for model in ("mimo-v2.6", "qwen3-vl:2b", "my-llama-alias"):
+            with self.subTest(model=model):
+                app.config.update(CONTEXTFLOW_OLLAMA_MODEL=model)
+                with mock.patch("app.contextflow.vision.local_urlopen",
+                                return_value=FakeTagsResponse({"models": [{"name": model}]})) as transport:
                     response = self.client.get("/contextflow/ml-status")
-                urlopen.assert_not_called()
+                transport.assert_called_once()
                 payload = response.get_json()
-                self.assertEqual(response.status_code, 200)
-                self.assertFalse(payload["ollama"]["model_allowed"])
-                self.assertFalse(payload["ollama"]["reachable"])
-                self.assertFalse(payload["ollama"]["model_seen"])
-                self.assertEqual(bad_model, payload["ollama"]["model"])
-                self.assertIn("nicht freigegeben", payload["ollama"]["error"])
+                self.assertTrue(payload["ollama"]["model_allowed"])
+                self.assertTrue(payload["ollama"]["reachable"])
+                self.assertTrue(payload["ollama"]["model_seen"])
+                self.assertEqual(model, payload["ollama"]["model"])
+                self.assertEqual("", payload["ollama"]["error"])
 
     def test_non_loopback_url_is_never_probed(self) -> None:
         app.config.update(CONTEXTFLOW_OLLAMA_URL="http://ollama.lan:11434")
@@ -296,11 +294,11 @@ class MlBadgeRenderingTests(unittest.TestCase):
             self.script.index(guard),
             self.script.index("STR.activeLocal(ollama.model)"),
         )
-        self.assertIn("ML: Modell nicht freigegeben · ${model}", self.script)
+        self.assertIn("ML: Modell-ID ungültig · ${model}", self.script)
 
     def test_allowed_local_model_shows_provider_and_id(self) -> None:
         self.assertIn(
-            "ML aktiv · Meta-Modell lokal via Ollama · ${model}",
+            "ML konfiguriert · Modell lokal via Ollama · ${model}",
             self.script,
         )
 

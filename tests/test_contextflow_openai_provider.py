@@ -83,10 +83,11 @@ class OpenAIProviderTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def test_require_openai_model_allowlist(self) -> None:
+    def test_free_model_ids_preserve_case(self) -> None:
         self.assertEqual("gpt-4o-mini", require_openai_model("gpt-4o-mini"))
-        self.assertEqual("gpt-4o", require_openai_model("GPT-4O"))
-        for bad in ("", "gpt-4", "o1", "llama3.2:1b", "gpt-4o-mini;rm"):
+        self.assertEqual("GPT-4O", require_openai_model("GPT-4O"))
+        self.assertEqual("vendor/MiMo-v2.6", require_openai_model("vendor/MiMo-v2.6"))
+        for bad in ("", "bad model", "x\nAuthorization: injected", "gpt-4o-mini;rm"):
             with self.assertRaises(VisionError, msg=bad):
                 require_openai_model(bad)
 
@@ -95,8 +96,7 @@ class OpenAIProviderTests(unittest.TestCase):
             OpenAIVisionProvider("", OPENAI_API_ENDPOINT, "gpt-4o-mini")
         with self.assertRaises(VisionError):
             OpenAIVisionProvider("k", "https://example.com/v1", "gpt-4o-mini")
-        with self.assertRaises(VisionError):
-            OpenAIVisionProvider("k", OPENAI_API_ENDPOINT, "gpt-3.5-turbo")
+        self.assertEqual("future-model", OpenAIVisionProvider("k", OPENAI_API_ENDPOINT, "future-model").model)
 
     def test_select_provider_gates(self) -> None:
         provider = select_provider(dict(self.settings), True, self.demo)
@@ -109,8 +109,7 @@ class OpenAIProviderTests(unittest.TestCase):
             select_provider(dict(self.settings), False, self.demo)
         with self.assertRaises(PermissionError):
             select_provider(dict(self.settings, openai_api_key=""), True, self.demo)
-        with self.assertRaises(PermissionError):
-            select_provider(dict(self.settings), True, self.real)
+        self.assertIsInstance(select_provider(dict(self.settings), True, self.real), OpenAIVisionProvider)
 
     def test_suggest_posts_chat_completions(self) -> None:
         suggestion = {"title": "T", "description": "D",
