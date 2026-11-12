@@ -21,10 +21,95 @@
   const makeId = prefix => `${prefix}-${globalThis.crypto?.randomUUID?.() || Date.now().toString(36)}`;
 
   function tokenPreview(text) {
-    if (!previewMode) return text;
-    return String(text).replace(/\{\{([a-z0-9_.-]{1,80})\}\}/gi, (match, token) => (
-      Object.prototype.hasOwnProperty.call(previewTokens, token) ? previewTokens[token] : match
-    ));
+    let source = String(text);
+    const seen = new Set([source]);
+    for (let pass = 0; pass < 8; pass += 1) {
+      const expanded = source.replace(/\{\{([a-z0-9_.-]{1,80})\}\}/gi, (match, token) => (
+        Object.prototype.hasOwnProperty.call(previewTokens, token) ? previewTokens[token] : match
+      ));
+      if (expanded === source) return expanded;
+      if (expanded.length > 10000 || seen.has(expanded)) throw new Error('invalid nested token expansion');
+      seen.add(expanded);
+      source = expanded;
+    }
+    if (/\{\{([a-z0-9_.-]{1,80})\}\}/i.test(source)) throw new Error('token expansion depth exceeded');
+    return source;
+  }
+
+  function macroPreviewRuns(text) {
+    const source = tokenPreview(text);
+    const tagRe = /\[(\/?)(B|I|U|SIZE|FONT|COLOR|ALIGN)(?:=([^\]]+))?\]/gi;
+    let state = {bold:false,italic:false,underline:false,fontSize:null,fontFamily:null,color:null,align:null};
+    const stack = [];
+    const runs = [];
+    let position = 0;
+
+    const append = fragment => {
+      if (!fragment) return;
+      runs.push({text:fragment, ...state});
+    };
+    for (const match of source.matchAll(tagRe)) {
+      append(source.slice(position, match.index));
+      const closing = match[1] === '/';
+      const tag = match[2].toUpperCase();
+      const argument = match[3];
+      if (closing) {
+        const previous = stack.pop();
+        if (!previous || previous.tag !== tag) throw new Error('invalid macro nesting');
+        state = previous.state;
+      } else {
+        const previous = {...state};
+        if (tag === 'B') state.bold = true;
+        else if (tag === 'I') state.italic = true;
+        else if (tag === 'U') state.underline = true;
+        else if (tag === 'SIZE') {
+          const size = Number(argument);
+          if (!Number.isFinite(size) || size < 6 || size > 72) throw new Error('invalid size');
+          state.fontSize = size;
+        } else if (tag === 'FONT') {
+          if (!['Helvetica','Times-Roman','Courier'].includes(String(argument || ''))) throw new Error('invalid font');
+          state.fontFamily = String(argument);
+        } else if (tag === 'COLOR') {
+          if (!/^#[0-9a-f]{6}$/i.test(argument || '')) throw new Error('invalid color');
+          state.color = argument;
+        } else if (tag === 'ALIGN') {
+          if (!['left','center','right','justify'].includes(String(argument || '').toLowerCase())) throw new Error('invalid alignment');
+          state.align = String(argument).toLowerCase();
+        }
+        stack.push({tag, state:previous});
+      }
+      position = match.index + match[0].length;
+    }
+    append(source.slice(position));
+    if (stack.length) throw new Error('unclosed macro');
+    return runs;
+  }
+
+  function renderElementText(node, text) {
+    if (!previewMode) {
+      node.appendChild(document.createTextNode(String(text || '')));
+      return;
+    }
+    try {
+      for (const run of macroPreviewRuns(text || '')) {
+        const span = document.createElement('span');
+        span.textContent = run.text;
+        span.style.fontWeight = run.bold ? '700' : '';
+        span.style.fontStyle = run.italic ? 'italic' : '';
+        span.style.textDecoration = run.underline ? 'underline' : '';
+        if (run.fontSize) span.style.fontSize = `${run.fontSize}pt`;
+        if (run.fontFamily) span.style.fontFamily = run.fontFamily === 'Times-Roman' ? '"Times New Roman", serif' : run.fontFamily;
+        if (run.color) span.style.color = run.color;
+        if (run.align) {
+          span.style.display = 'block';
+          span.style.width = '100%';
+          span.style.textAlign = run.align;
+        }
+        node.appendChild(span);
+      }
+    } catch (_error) {
+      node.appendChild(document.createTextNode(tokenPreview(text || '')));
+    }
   }
 
   function syncHidden() {
@@ -74,7 +159,7 @@
       node.classList.toggle('is-selected', selectedId === element.id);
       node.classList.toggle('is-locked', Boolean(element.locked));
       node.classList.toggle('is-hidden', element.visible === false);
-      if (!['line', 'rect'].includes(element.type)) node.textContent = tokenPreview(element.text || '');
+      if (!['line', 'rect'].includes(element.type)) renderElementText(node, element.text || '');
 
       const handle = document.createElement('span');
       handle.className = 'resize-handle';
