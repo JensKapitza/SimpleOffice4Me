@@ -4,8 +4,10 @@ import unittest
 from decimal import Decimal
 from unittest.mock import patch
 
+from flask import Flask
+
 from app.rental_billing import RentalBillingStore, allocate_money
-from app.rentals import _enrich_group, _peer_allows_rental_send
+from app.rentals import _enrich_group, _peer_allows_rental_send, _peers
 
 
 class RentalBillingTest(unittest.TestCase):
@@ -98,6 +100,24 @@ class RentalBillingTest(unittest.TestCase):
         approved = self.store.approve(settlement_id, "admin")
         self.assertEqual("approved", approved["settlement"]["status"])
         self.assertTrue((directory / "approval-manifest.json").is_file())
+
+    def test_peer_inventory_failure_is_logged_without_peer_details(self):
+        app = Flask(__name__)
+        app.config["DOCUMENT_ROOT"] = self.temp.name
+        with app.app_context(), patch(
+            "app.rentals.FederationStore.list_peers",
+            side_effect=RuntimeError("private peer credential"),
+        ), self.assertLogs("app.rentals", level="WARNING") as captured:
+            self.assertEqual([], _peers())
+        self.assertIn("RuntimeError", " ".join(captured.output))
+        self.assertNotIn("private peer credential", " ".join(captured.output))
+
+    def test_peer_inventory_only_returns_enabled_peers(self):
+        app = Flask(__name__)
+        app.config["DOCUMENT_ROOT"] = self.temp.name
+        peers = [{"peer_id": "enabled", "enabled": True}, {"peer_id": "disabled", "enabled": False}]
+        with app.app_context(), patch("app.rentals.FederationStore.list_peers", return_value=peers):
+            self.assertEqual([peers[0]], _peers())
 
     def test_rental_federation_policy_fails_closed(self):
         self.assertFalse(_peer_allows_rental_send(None))

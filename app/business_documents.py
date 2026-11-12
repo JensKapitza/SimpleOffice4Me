@@ -14,7 +14,13 @@ from werkzeug.exceptions import Conflict
 
 from .access_control import has_feature
 from .business_document_generation import *  # noqa: F401,F403
-from .business_customer_documents import invoice_seller_snapshot, letter_customer_context, preferred_bank_account_id, preferred_template_id
+from .business_customer_documents import (
+    invoice_seller_snapshot,
+    letter_customer_context,
+    preferred_bank_account_id,
+    preferred_template_id,
+    validate_invoice_seller_iban,
+)
 from .business_document_preferences import company_bank_accounts
 from .business_template_editor import register_template_editor_routes
 from .business_template_dispatch import (
@@ -409,6 +415,11 @@ def _draft_watermark(pdf: bytes) -> bytes:
 
 def draft_invoice_pdf(root: Path, row: dict[str, Any]) -> bytes:
     if row.get("status") != "draft": raise ValueError("invoice is not a draft")
+    seller = row.get("seller") if isinstance(row.get("seller"), dict) else {}
+    validate_invoice_seller_iban(
+        seller.get("iban", ""),
+        seller.get("bank_account_label", "Rechnungskonto"),
+    )
     tpl=_business_template(root,row.get("template_id",""),"invoice"); visual=_render_invoice_with_template(root,tpl,row); return _draft_watermark(visual)
 
 def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,Any],dict[str,Any]]:
@@ -426,6 +437,11 @@ def finalize_invoice(root: Path, invoice_id: str, actor: str) -> tuple[dict[str,
         if not acquired: raise ValueError("invoice finalization is already in progress")
         row = timed("invoice_load", lambda: invoice(root, invoice_id))
         if row.get("status") != "draft": raise ValueError("invoice is already finalized")
+        seller = row.get("seller") if isinstance(row.get("seller"), dict) else {}
+        validate_invoice_seller_iban(
+            seller.get("iban", ""),
+            seller.get("bank_account_label", "Rechnungskonto"),
+        )
         buyer = row.get("buyer") or {}
         # Unstructured addresses are permitted for ordinary PDF invoices.
         # ZUGFeRD is attempted only when the buyer has structured address fields.

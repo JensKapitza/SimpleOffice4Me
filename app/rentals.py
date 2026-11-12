@@ -45,7 +45,8 @@ def _contacts() -> list[dict]:
 def _peers() -> list[dict]:
     try:
         return [item for item in FederationStore(_root()).list_peers() if item.get("enabled")]
-    except Exception:
+    except Exception as exc:
+        logger.warning("Unable to load federation peers for rentals (%s)", type(exc).__name__)
         return []
 
 
