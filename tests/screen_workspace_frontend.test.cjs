@@ -25,17 +25,20 @@ function fixture() {
     addEventListener(type, callback) { innerHandlers[type] = callback; }, querySelectorAll: () => fields};
   const fields = [new Input('Title'), new Input('Password', 'password'), new Input('api_token'), new Input('Remember', 'checkbox')];
   fields.forEach(field => {field.ownerDocument = inner;});
+  const form = (action, target = null) => ({action, target,
+    getAttribute: () => target, setAttribute(name, value) {this[name] = value;}, removeAttribute(name) {delete this[name];}});
+  const forms = [form(origin + '/quick-search'), form(origin + '/settings/language', '_self'), form(origin + '/auth/logout')];
   const section = {hidden: true};
   const frame = {dataset: {startUrl: '/documents/'}, contentDocument: inner,
     contentWindow: {location: {origin, pathname: '/documents/'}},
     getAttribute(name) {return this[name] || null;}, addEventListener(type, callback) {frameHandlers[type] = callback;}};
-  const document = {getElementById: id => id === 'screen-workspace-section' ? section : frame,
+  const document = {querySelectorAll: () => forms, getElementById: id => id === 'screen-workspace-section' ? section : frame,
     addEventListener(type, callback) {documentHandlers[type] = callback;}};
   const window = {location: {origin, href: origin + '/screen'}, dispatchEvent(event) {events.push(event.type);},
     open(...args) {events.push(args);}};
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../static/js/screen_workspace.js'), 'utf8'),
     {window, document, URL, WeakMap, CustomEvent: class {constructor(type) {this.type = type;}}});
-  return {api: window.SimpleOfficeScreenWorkspace, section, frame, frameHandlers, documentHandlers, innerHandlers, fields, events};
+  return {api: window.SimpleOfficeScreenWorkspace, section, frame, frameHandlers, documentHandlers, innerHandlers, fields, events, forms};
 }
 
 test('Workspace remains loaded after sharing stops and resumes without losing form data', () => {
@@ -97,4 +100,19 @@ test('Dropdown and same-document anchor controls do not navigate the application
   const link = {href: 'https://office.example/documents/#menu', getAttribute: () => '#menu', hasAttribute: () => false};
   f.innerHandlers.click({target: {closest: () => link}, preventDefault() {throw new Error('anchor intercepted');}});
   assert.equal(f.frame.src, previous);
+});
+
+
+test('Outer search and native language submission target the workspace and restore on stop', () => {
+  const f = fixture(); f.api.start(); f.frameHandlers.load();
+  assert.equal(f.frame.name, 'screen-application-workspace');
+  assert.equal(f.forms[0].target, f.frame.name);
+  assert.equal(f.forms[1].target, f.frame.name); // Native form.submit() honors this target.
+  assert.equal(f.forms[2].target, null); // Logout deliberately ends the application session.
+  const before = f.api.fields().epoch;
+  f.documentHandlers.submit({target: f.forms[0]});
+  assert.notEqual(f.api.fields().epoch, before);
+  f.api.stop();
+  assert.equal(Object.hasOwn(f.forms[0], 'target'), false);
+  assert.equal(f.forms[1].target, '_self');
 });

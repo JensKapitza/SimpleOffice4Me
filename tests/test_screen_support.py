@@ -135,6 +135,54 @@ class ScreenSupportTests(unittest.TestCase):
         self.assertEqual(commands, self.get().json["commands"])
         self.assertEqual([], self.get(after_command=commands[0]["seq"]).json["commands"])
 
+    def test_identical_field_republication_preserves_accepted_pending_edit(self):
+        self.fields()
+        generation = self.grant()
+        self.actor["id"] = "receiver"
+        accepted = self.post("input", "receiver", epoch="page-1", field_id="field1", value="pending-private-edit", generation=generation)
+        self.assertEqual(200, accepted.status_code)
+        self.actor["id"] = "owner"
+        pending = self.get().json["commands"]
+        self.assertEqual(1, len(pending))
+        self.fields()
+        response = self.get()
+        self.assertEqual(pending, response.json["commands"])
+        self.assertFalse(any(event["type"] == "input-result" for event in response.json["events"]))
+        command_seq = pending[0]["seq"]
+        self.assertEqual(200, self.post("input-result", command_seq=command_seq, outcome="applied").status_code)
+        self.assertEqual(200, self.post("fields", epoch="page-2", fields=[]).status_code)
+        outcomes = [event for event in self.get().json["events"] if event["type"] == "input-result" and event.get("command_seq") == command_seq]
+        self.assertEqual(["applied"], [event["outcome"] for event in outcomes])
+
+    def test_changed_page_or_field_records_explicit_rejection_without_private_value(self):
+        self.fields()
+        generation = self.grant()
+        replacements = (
+            ("page-2", [{"id": "field1", "label": "Name", "type": "text"}]),
+            ("page-1", [{"id": "field1", "label": "Name", "type": "checkbox"}]),
+            ("page-1", []),
+        )
+        for epoch, fields in replacements:
+            with self.subTest(epoch=epoch, fields=fields):
+                self.actor["id"] = "owner"
+                self.fields()
+                self.actor["id"] = "receiver"
+                accepted = self.post("input", "receiver", epoch="page-1", field_id="field1", value="pending-private-edit", generation=generation)
+                self.assertEqual(200, accepted.status_code)
+                self.actor["id"] = "owner"
+                command_seq = self.get().json["commands"][0]["seq"]
+                changed = self.post("fields", epoch=epoch, fields=fields)
+                self.assertEqual(200, changed.status_code)
+                response = self.get()
+                self.assertEqual([], response.json["commands"])
+                outcomes = [event for event in response.json["events"] if event["type"] == "input-result" and event.get("command_seq") == command_seq]
+                self.assertEqual(1, len(outcomes))
+                self.assertEqual("rejected", outcomes[0]["outcome"])
+                self.assertEqual("field_changed", outcomes[0]["reason"])
+                persisted = next(Path(self.directory.name).rglob("test_session.json")).read_text()
+                self.assertNotIn("pending-private-edit", persisted)
+                self.assertNotIn("pending-private-edit", str(self.audit.call_args_list))
+
     def test_bounded_history_and_input_validation(self):
         self.assertEqual(400, self.post("notice", text=" ").status_code)
         self.assertEqual(400, self.post("notice", text="a" * 1001).status_code)

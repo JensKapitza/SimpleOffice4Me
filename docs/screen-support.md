@@ -111,3 +111,11 @@ Der letzte Befehl benötigt Playwright und Chromium (optional
 zwei Browserkontexte und einen synthetischen Canvas-Medienstream; er prüft
 WebRTC, Navigation, Freigabe, Feldbearbeitung ohne Auto-Save, Hinweis/Bestätigung,
 Widerruf und Verlauf nach Neuladen, jedoch keine reale Bildschirmaufnahme.
+
+Auch Suche und Sprachwechsel im äußeren Navigationsmenü werden während einer
+aktiven Freigabe im Arbeitsbereich geöffnet. Nach dem Beenden werden die
+ursprünglichen Formularziele wiederhergestellt; Abmelden beendet die Sitzung
+weiterhin ausdrücklich. Verspätete Freigabeantworten dürfen einen lokalen
+Widerruf nicht aufheben. Wartende Eingaben bleiben bei unveränderten Feldern
+erhalten; bei geänderter Seite oder geändertem Feld wird eine Ablehnung im
+Verlauf erfasst, ohne den eingegebenen Wert zu speichern.

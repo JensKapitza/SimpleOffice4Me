@@ -12,7 +12,7 @@ import threading
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from flask import Blueprint, Flask, g, session
+from flask import Blueprint, Flask, g, session, redirect, request
 from jinja2 import ChoiceLoader, DictLoader, FileSystemLoader
 from werkzeug.serving import make_server
 from playwright.sync_api import sync_playwright, expect
@@ -28,7 +28,10 @@ def fixture(directory):
     app.config.update(TESTING=True, TEST_CSRF_PROTECTION=True, SECRET_KEY="synthetic-screen-test", DOCUMENT_ROOT=directory)
     app.jinja_loader = ChoiceLoader([DictLoader({
         "layout.html": '<!doctype html><meta name="csrf-token" content="' + TOKEN + '"><style>.d-none{display:none!important}</style>{% block header %}{% endblock %}{% block body %}{% endblock %}',
-        "documents/nav.html": '<nav><a href="/fixture/second">Andere Seite</a></nav>'
+        "documents/nav.html": '<nav class="app-navbar"><a href="/fixture/second">Andere Seite</a>'
+            '<form id="outer-search" method="get" action="/fixture/search"><input name="q" aria-label="Suche"><button>Suchen</button></form>'
+            '<form id="outer-language" method="post" action="/fixture/language"><input type="hidden" name="_csrf_token" value="' + TOKEN + '">'
+            '<select aria-label="Sprache" name="language" onchange="this.form.submit()"><option value="de">DE</option><option value="en">EN</option></select></form></nav>'
     }), FileSystemLoader(str(ROOT / "templates"))])
     app.jinja_env.globals["csrf_token"] = lambda: TOKEN
 
@@ -49,6 +52,15 @@ def fixture(directory):
     @documents.get("/fixture/second")
     def second():
         return '<h1>Zweite Seite</h1><label for="name">Name</label><input id="name" name="name"><a href="/fixture/app">Zurück</a>'
+
+    @documents.get("/fixture/search")
+    def search():
+        return '<h1>Suchergebnis</h1>'
+
+    @documents.post("/fixture/language")
+    def language():
+        session["simpleoffice_language"] = request.form["language"]
+        return redirect("/fixture/second")
 
     @documents.post("/fixture/saved")
     def saved():
@@ -114,6 +126,14 @@ def main():
                 expect(receiver.locator("#screen-support-popup")).to_be_hidden()
                 owner.locator("#screen-support-ack").click()
                 expect(receiver.locator("#screen-support-history")).to_contain_text("Zur Kenntnis genommen")
+                owner.locator('#outer-search input').fill('Testsuche')
+                owner.locator('#outer-search button').click()
+                expect(frame.locator('h1')).to_have_text('Suchergebnis')
+                owner.locator('#outer-language select').select_option('en')
+                expect(frame.locator('h1')).to_have_text('Zweite Seite')
+                assert owner.evaluate("document.documentElement.dataset.sentinel") == "alive"
+                assert owner.evaluate("window.captureStops") == 0
+                expect(owner.locator("#screen-session-state")).to_have_text("connected")
                 owner.locator("#screen-support-banner-revoke").click()
                 expect(receiver.locator("#screen-support-fields")).to_be_empty()
                 owner.locator("#screen-share-stop").click()

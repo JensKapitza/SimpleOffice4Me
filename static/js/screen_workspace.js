@@ -6,6 +6,8 @@
   let active = false, epoch = 0, nextId = 0;
   let identifiers = new WeakMap();
   let observer = null;
+  const outerForms = new Map();
+  const frameName = 'screen-application-workspace';
   const blockedPath = /(?:^|\/)(?:admin|auth|login|logout|register|security|settings|users|tokens|credentials|password|oauth|licensing)(?:\/|$)/i;
   const sensitive = /password|passwd|secret|token|credential|csrf|api[-_]?key|otp|one[-_]?time/i;
   const textTypes = new Set(['text', 'search', 'url', 'tel', 'email', 'number', 'date', 'time', 'datetime-local', 'month', 'week']);
@@ -107,8 +109,27 @@
     } catch (_) { /* External destinations cannot expose editable application fields. */ }
     changed();
   });
+  const targetOuterForms = () => {
+    frame.name = frameName;
+    document.querySelectorAll('nav.app-navbar form').forEach(form => {
+      const url = new URL(form.action || window.location.href, window.location.href);
+      if (url.origin !== window.location.origin || /(?:^|\/)(?:logout|login)(?:\/|$)/i.test(url.pathname)) return;
+      if (!outerForms.has(form)) outerForms.set(form, form.getAttribute('target'));
+      form.target = frameName; // Also covers native form.submit(), which emits no submit event.
+    });
+  };
+  document.addEventListener('submit', event => {
+    if (active && outerForms.has(event.target)) { epoch += 1; changed(); }
+  }, true);
   window.SimpleOfficeScreenWorkspace = {
-    start() { active = true; section.hidden = false; if (!frame.getAttribute('src')) frame.src = frame.dataset.startUrl; changed(); },
-    stop() { active = false; changed(); }, fields, apply
+    start() { active = true; targetOuterForms(); section.hidden = false; if (!frame.getAttribute('src')) frame.src = frame.dataset.startUrl; changed(); },
+    stop() {
+      active = false;
+      for (const [form, target] of outerForms) {
+        if (target === null) form.removeAttribute('target');
+        else form.setAttribute('target', target);
+      }
+      outerForms.clear(); changed();
+    }, fields, apply
   };
 })();

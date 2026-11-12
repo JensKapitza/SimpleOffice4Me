@@ -180,8 +180,20 @@ def _mutate(record, runtime, body, role, actor):
         if role != "sender":
             abort(403)
         epoch, fields = _fields(body)
-        runtime.update(epoch=epoch, fields=fields, commands=[])
-        return False
+        previous = {field["id"]: field for field in runtime["fields"]}
+        current = {field["id"]: field for field in fields}
+        pending, rejected = [], []
+        for command in runtime["commands"]:
+            identifier = command["field_id"]
+            if epoch == runtime["epoch"] and previous.get(identifier) == current.get(identifier) and identifier in current:
+                pending.append(command)
+            else:
+                rejected.append(command)
+        for command in rejected:
+            if not any(event["type"] == "input-result" and event.get("command_seq") == command["seq"] for event in record["events"]):
+                _event(record, "input-result", actor, role=role, command_seq=command["seq"], outcome="rejected", reason="field_changed")
+        runtime.update(epoch=epoch, fields=fields, commands=pending)
+        return bool(rejected)
     if kind == "input":
         if role != "receiver":
             abort(403)
